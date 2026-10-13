@@ -1,0 +1,11 @@
+{"source": "assigned HAL guide", "operation": "guide", "file": "view-01.txt", "bytes": 685, "sha256": "86c2f49a853ee31675d075e8edf0ebce83899322f4010eb4053d88f0fe9fc88c"}
+{"source": "response-01.out", "operation": "jq: .", "file": "view-02.txt", "bytes": 3305, "sha256": "060bf409f65a2b7eda8fc7aadabc3275c979b1aa4e678e3f05b0a5592490c137"}
+{"source": "response-02.out", "operation": "jq: .", "file": "view-03.txt", "bytes": 7346, "sha256": "b02321a82e6f8b438f33f00387609d9426207305e639c507de6021825f644c96"}
+{"source": "response-03.out", "operation": "jq: {path, facts, relationships, _links, traversal}", "file": "view-04.txt", "bytes": 2351, "sha256": "85fea57e78fcd2998760dbff720ee6f8efdccf1c7d0fc34bd8381f5039a02ffe"}
+{"source": "response-04.out", "operation": "jq: {path, facts, relationships, _links, traversal}", "file": "view-05.txt", "bytes": 3100, "sha256": "2995d991a3d7637fd2a8046e956b4d3ed3968e704fee93bc2a3e88721d846662"}
+{"source": "response-05.out", "operation": "jq: {path, facts, relationships, _links, traversal}", "file": "view-06.txt", "bytes": 2795, "sha256": "9ff9d9e5a866abc1ac1662831919ffc44df12a38f2c1889a8c7d6e493f95fd96"}
+{"source": "response-06.out", "operation": "jq: {path, facts, relationships, _links, traversal}", "file": "view-07.txt", "bytes": 2119, "sha256": "ec049484da8c710ae92111a7b69af6c837fcd8099e11bef832e95afc75cd6aff"}
+{"source": "response-07.out", "operation": "jq: {path, facts, relationships, _links, traversal}", "file": "view-08.txt", "bytes": 1817, "sha256": "2fc7476aad012babe5cad443e70e5c62ef3f4a0c5baefc87706595d6c04f0b2e"}
+{"source": "response-08.out", "operation": "jq: {path, facts, relationships, _links, traversal}", "file": "view-09.txt", "bytes": 2088, "sha256": "391f5d62397339a36cd50eb2e1511fdd66ab73156d0537d0cee481782dbc3e3e"}
+{"source": "response-09.out", "operation": "jq: {path, facts, _links, traversal}", "file": "view-10.txt", "bytes": 1951, "sha256": "bc32d1819425b97adc64f14a863586f8f666e652c2b79de12faffb7c2059a327"}
+{"source": "response-10.out", "operation": "jq: {path, facts, _links, traversal}", "file": "view-11.txt", "bytes": 883, "sha256": "763bfb3dc50eed58ca482153536d90f1ee72e0db4d1925fa8a5cab0db35f6450"}

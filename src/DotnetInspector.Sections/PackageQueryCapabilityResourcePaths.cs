@@ -21,6 +21,13 @@ public static class PackageQueryCapabilityResourcePaths
         return QuerySpace.Append("facets", key);
     }
 
+    public static ResourcePath RelatedOperation(
+        RelatedOperationAffordanceId id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        return Document.Append("operations", id.Value);
+    }
+
     public static ImmutableArray<
         InspectionCapabilityResourcePathRegistration> Create(
         InspectionCapabilityCatalog catalog)
@@ -98,6 +105,21 @@ public static class PackageQueryCapabilityResourcePaths
                     ResourceExplanationCatalog.ConsumerBindingIdentity(
                         binding),
                     Document.Append("bindings", segment)));
+        }
+
+        foreach (RelatedOperationAffordance operation in catalog.Routes
+                     .SelectMany(static route =>
+                         route.QueryTermRelatedOperations)
+                     .Select(static relationship => relationship.Operation)
+                     .DistinctBy(
+                         static operation => operation.Id.Value,
+                         StringComparer.Ordinal))
+        {
+            registrations.Add(
+                new(
+                    ResourceExplanationCatalog.RelatedOperationIdentity(
+                        operation),
+                    RelatedOperation(operation.Id)));
         }
 
         return registrations.ToImmutable();

@@ -1,0 +1,57 @@
+{
+  "basis": "Manual fixed-criteria domain/entrance assessment; replay is not an answer scorer.",
+  "trials": {
+    "package-command-1": {
+      "domain": "Satisfied for a bounded direct-declaration answer",
+      "mechanisms": [
+        "command help",
+        "query help -Q"
+      ],
+      "finding": "Microsoft.Extensions.Http.Polly 10.0.12, direct Polly versionRange 7.2.4, selected .NETStandard2.0 for net10.0, 40-candidate limit and no exhaustive/restore-graph claim.",
+      "friction": "Depth four with --take 40 fails before results. The already viewed -Q Packages text says nuspec-expensive terms admit at most five candidates, and lists dependency-depth in that class. This is an avoidable failure to apply present guidance, not missing registration. The agent then executes one successful direct search and stops.",
+      "evidence_quality": "The answer records the rejected query and qualifies indirect uncertainty."
+    },
+    "package-command-2": {
+      "domain": "Satisfied for a bounded direct-declaration answer",
+      "mechanisms": [
+        "command help",
+        "query help -Q"
+      ],
+      "finding": "Same package/version, selected group, direct declared version range, candidate-limit uncertainty. Does not confuse declared range with restored version.",
+      "friction": "Uses JSON query help and local filtering; no root-resource reads or package-detail verification."
+    },
+    "api-command-1": {
+      "domain": "Satisfied for an installed-platform signature answer",
+      "mechanisms": [
+        "command help"
+      ],
+      "finding": "Three appropriate System.Net.Http.Json methods: GetFromJsonAsync/PostAsJsonAsync on HttpClient and ReadFromJsonAsync on HttpContent, with JsonTypeInfo overloads. Installed runtime source_version 11.0.0-rc.1.26425.128 qualified; workflow semantics inferred from names/signatures.",
+      "friction": "An extra HttpResponseMessage search returns empty, then HttpClient/HttpContent rows supply needed fields. Initial guessed JSON field names yield nulls before an actual row read; no further metadata/schema navigation."
+    },
+    "api-command-2": {
+      "domain": "Satisfied for an installed-platform signature answer",
+      "mechanisms": [
+        "command help"
+      ],
+      "finding": "Same three appropriate method families with inspected overload signatures. Explicitly qualifies runtime 11.0.0-rc.1 despite --tfm net10.0, receiver scope, and inferred behavior.",
+      "friction": "One help read and two extension inspections. No explanation or verification fetches."
+    }
+  },
+  "support_audit": {
+    "member": "Primary command explanation is 290 B text; exact-Member explanation 849 B text; --json is rejected for the primary terminal. Complete and tips companions preserve exact ordinary JSON stdout, with 885 B and 330 B stderr in the pinned pair. Tips primary is 329 B text.",
+    "package_query": "Subject-bearing --explain and -E .tips are rejected. A no-subject --explain attempt instead fails with package-seed validation; do not interpret that error as explanation admission.",
+    "extensions": "Subject-bearing --explain rejects. An unscoped no-subject attempt returns [] with exit 0; this is not explanation Content. Advertised -E .tips emits no stderr for the tested HttpClient JSON request, while stdout equals the ordinary request.",
+    "scope": "Audit is pinned to the recorded invocations and supported syntax, not a claim about every command, subject or format."
+  },
+  "limits": [
+    "No participant used root explain, selected HAL, --explain or -E. These are entrance-choice observations, not participant performance/adherence validation of contextual explanation or a HAL/direct comparison.",
+    "The guide accurately advertises current Member-only primary admission and discourages feature-exercise/verification reads. Offered mechanisms are not required quotas.",
+    "New guide is 1845 B versus the preceding 1123/1132 B guides; source also differs (current main 3e3e45a4...). Historical cost differences are not causal effects or controlled population comparisons.",
+    "Two independent fresh agents per task; no randomization, causal or general behavior claim.",
+    "Live NuGet search populations are not frozen and package seeds differ. Both successful searches are bounded at forty and return the same version; candidate-set equality is not claimed.",
+    "Inspection stderr includes completion warnings/failures, not automatically companion guidance. Requested entrance does not prove admitted/emitted explanation.",
+    "The one rejected depth invocation did not return an inspected population; it remains a failed request in measured operations. Existing guidance already states its candidate limit.",
+    "API signatures establish declared receiver/type/library fields; workflow descriptions are inferred, not behavioral executions or documentation claims.",
+    "Cross-process time_ns values are not comparable. Use locked append ordering only. UTF-8 saved/replayed bytes are not latency, tokens, delivered context or production-transfer measurements."
+  ]
+}

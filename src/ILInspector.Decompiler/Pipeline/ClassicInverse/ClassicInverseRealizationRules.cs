@@ -130,6 +130,9 @@ internal static class ClassicInverseRealizationRules
             case ClassicInverseRealizationRule.Statement:
                 if (!((claim.Source is ExpressionStatement && claim.Output is ExpressionStatement)
                     || (claim.Source is InitObject { Address: LoadLocalAddress } && claim.Output is InitObject)
+                    || (claim.Source is InitObject { Address: LoadFieldAddress address }
+                        && !ClassicInverseNodeFacts.IsMachineField(address.Field, shell.Machine)
+                        && claim.Output is InitObject)
                     || (claim.Source is StoreField store && claim.Output is StoreField
                         && !ClassicInverseNodeFacts.IsMachineField(store.Field, shell.Machine))))
                 {

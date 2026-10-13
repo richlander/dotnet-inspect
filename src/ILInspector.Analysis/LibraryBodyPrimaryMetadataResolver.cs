@@ -321,52 +321,20 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
     internal MethodIdentity CreateMethodIdentity(TypeDefinitionHandle typeHandle, MethodDefinitionHandle methodHandle, MethodDefinition methodDef, GenericScope scope)
     {
-        ImmutableArray<TypeRef> parameterTypes;
-        TypeRef returnType;
-        byte signatureHeader;
-        int requiredParameterCount;
-        GenericParameterHandleCollection genericParameters =
-            methodDef.GetGenericParameters();
-        int genericArity = genericParameters.Count;
-        bool hasInvalidGenericParameterDeclaration = false;
-        if (SignatureBlobGuard.IsSafeToDecode(_reader, methodDef.Signature, SignatureBlobGuard.Kind.Method))
-        {
-            var signature = methodDef.DecodeSignature(TypeRefDecoder.Instance, scope);
-            parameterTypes = signature.ParameterTypes;
-            returnType = signature.ReturnType;
-            signatureHeader = signature.Header.RawValue;
-            requiredParameterCount = signature.RequiredParameterCount;
-            hasInvalidGenericParameterDeclaration =
-                !MemberResolver.HasExactGenericParameters(
-                    _reader,
-                    genericParameters,
-                    signature.GenericParameterCount);
-        }
-        else
-        {
-            parameterTypes = [];
-            returnType = TypeRef.Unsupported("method signature nesting depth exceeded");
-            signatureHeader = 0;
-            requiredParameterCount = -1;
-            hasInvalidGenericParameterDeclaration =
-                !HasExactGenericParameterDeclaration(methodDef);
-        }
-        return CreateMethodIdentity(
-            typeHandle,
-            methodHandle,
-            methodDef,
-            TypeRefDecoder.Instance.GetTypeFromDefinition(
+        MethodSemanticIdentity identity =
+            MethodSemanticIdentityReader.ReadIdentity(
                 _reader,
+                _assemblyName,
+                _mvid,
                 typeHandle,
-                0),
-            _reader.GetString(methodDef.Name),
-            parameterTypes,
-            returnType,
-            signatureHeader,
-            requiredParameterCount,
-            genericArity,
-            GenericParameterNames(methodDef),
-            hasInvalidGenericParameterDeclaration);
+                methodHandle,
+                methodDef,
+                scope,
+                work: null,
+                out _);
+        return identity.ToMethodIdentity(
+            CallerUnsafeModeFromContract(
+                _memorySafety.GetMemberContract(methodHandle)));
     }
 
     internal MethodIdentity CreatePresenceMethodIdentity(
@@ -465,20 +433,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal static bool DispatchCanTargetOverride(
         TypeDefinition declaringType,
         MethodDefinition method) =>
-        (method.Attributes & MethodAttributes.Virtual) != 0
-        && (method.Attributes & MethodAttributes.Final) == 0
-        && (declaringType.Attributes & TypeAttributes.Sealed) == 0;
-
-    ImmutableArray<string> GenericParameterNames(MethodDefinition methodDef)
-    {
-        var handles = methodDef.GetGenericParameters();
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
-    }
+        MethodSemanticIdentityReader.DispatchCanTargetOverride(
+            declaringType,
+            method);
 
     bool IsExtensionMethod(
         TypeDefinitionHandle typeHandle,
@@ -528,18 +485,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
     static CallerUnsafeMode CallerUnsafeModeFromContract(
         MemorySafetyMemberContractResult contract)
-        => contract switch
-        {
-            MemorySafetyMemberContractResult.None =>
-                CallerUnsafeMode.None,
-            MemorySafetyMemberContractResult.Implicit =>
-                CallerUnsafeMode.Implicit,
-            MemorySafetyMemberContractResult.Explicit =>
-                CallerUnsafeMode.Explicit,
-            MemorySafetyMemberContractResult.Unavailable =>
-                CallerUnsafeMode.Unavailable,
-            _ => CallerUnsafeMode.Unavailable,
-        };
+        => CallerUnsafeModeFacts.FromContract(contract);
 
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
     {
@@ -1632,7 +1578,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         => MemberResolver.DefinitionToken(_reader, token);
 
     internal GenericScope CreateScope(TypeDefinition typeDef, MethodDefinition methodDef)
-        => new(GenericParameterNames(typeDef.GetGenericParameters()), GenericParameterNames(methodDef.GetGenericParameters()));
+        => MethodSemanticIdentityReader.CreateScope(_reader, typeDef, methodDef);
 
     internal GenericScope CreatePresenceScope(
         TypeDefinition typeDefinition,
@@ -1709,47 +1655,6 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             method.GetGenericParameters(),
             signature.GenericParameterCount,
             workBudget.ReserveCorrespondenceRow);
-    }
-
-    bool HasExactGenericParameterDeclaration(
-        MethodDefinition method)
-    {
-        try
-        {
-            BlobReader signature =
-                _reader.GetBlobReader(method.Signature);
-            SignatureHeader header =
-                signature.ReadSignatureHeader();
-            if (header.Kind != SignatureKind.Method)
-                return false;
-
-            int signatureGenericParameterCount =
-                header.IsGeneric
-                    ? signature.ReadCompressedInteger()
-                    : 0;
-            return signatureGenericParameterCount >= 0
-                && MemberResolver.HasExactGenericParameters(
-                    _reader,
-                    method.GetGenericParameters(),
-                    signatureGenericParameterCount);
-        }
-        catch (Exception ex) when (ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or OverflowException)
-        {
-            return false;
-        }
-    }
-
-    ImmutableArray<string> GenericParameterNames(GenericParameterHandleCollection handles)
-    {
-        if (handles.Count == 0)
-            return [];
-        var names = ImmutableArray.CreateBuilder<string>(handles.Count);
-        foreach (var handle in handles)
-            names.Add(_reader.GetString(_reader.GetGenericParameter(handle).Name));
-        return names.MoveToImmutable();
     }
 
     ImmutableArray<string> GenericParameterNames(

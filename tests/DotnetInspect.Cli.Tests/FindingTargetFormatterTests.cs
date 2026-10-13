@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using DotnetInspector.ResearchSections;
 using ILInspector.Analysis;
 using Inspector.Findings;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Tests;
 

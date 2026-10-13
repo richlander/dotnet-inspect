@@ -1,0 +1,6 @@
+{
+  "task": "package",
+  "cli": "/tmp/package-query-adoption-aot/dotnet-inspect",
+  "dotnet_root": "/Users/rich/git/dotnet-inspect/.worktrees/package-query-explain-adoption/.dotnet",
+  "guide_label": "common guide"
+}

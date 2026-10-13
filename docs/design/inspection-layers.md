@@ -1639,7 +1639,9 @@ canaries:
   immediately into `DotnetInspector.LibraryMetadata` values while
   `ILInspector.Metadata` remains the semantic vocabulary owner. The Browser
   Library facade therefore lowers exact-Library documents without a project or
-  compiled reference to either Metadata assembly.
+  compiled reference to either Metadata assembly. Its typed operation and
+  positive dependency ceilings own product semantics, so its compiler ban
+  input retains only runtime platform hazards.
 - Web Core's Platform-forwarder navigation projects forwarder display fields
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata

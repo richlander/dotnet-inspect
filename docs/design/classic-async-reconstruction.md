@@ -110,6 +110,40 @@ materialization and visible budget failure. `AwaitContinuationCleanup_CompileBac
 gates Exact raised product whole-member compilation. These gates do not establish
 reconstruction of the motivating writer's early-return guard.
 
+## Typed field reset in a single-await continuation
+
+The ordered single-void-await continuation may retain a typed field default
+initialization. The reset must address a non-state-machine field of the same
+type. Raw import and planning must retain its exact type, field address,
+instruction origin and position in the flat continuation. Its receiver and
+address retain independent value/effect correspondence; it is semantic work,
+not an awaiter-cache reset. The detached output preserves the explicit reset
+and its order relative to the await and following statements. The existing
+single Boolean guard may enclose the continuation without changing this claim.
+
+The motivating asset is Utf8JsonWriter.FlushAsync in dotnet/runtime at commit
+`ab19415702aa8139d5369e47c73edb47343c34ad`, path
+`src/libraries/System.Text.Json/src/System/Text/Json/Writer/Utf8JsonWriter.cs`.
+The installed RC1 System.Text.Json image resets `_memory` before conditional
+stream work. Independently compiled `ContinuationFixtures.AwaitFieldReset`
+and `GuardedAwaitFieldReset` retain the same typed field-reset operation in
+the existing single-await shell. They establish the reset correspondence;
+they do not establish the writer's before-await placement or branching shell.
+The runtime witness remains reproducible with the pinned installed runtime
+11.0.0-rc.1.26425.128; its complete conditional-await reconstruction remains
+separate. The existing shared classic pass exposes admitted bodies through
+both CLI and browser/Wasm in one shared-core step, with no host adapter,
+new dependency, renderer or performance claim. This prerequisite makes
+thirteen currently planned slices under #9625.
+
+`ClassicInversePreservesAwaitFieldReset` gates Full plain and guarded output.
+`ClassicInverseAwaitFieldResetCannotBeHealed` gates raw/planning type, address,
+order and origin boundaries. `ClassicInverseAwaitFieldResetPlanIsDetachedAndBudgeted`
+gates detached addresses and visible budget exhaustion.
+`AwaitFieldReset_CompileBackExact` gates two immutable product whole-member
+Exact results. Property writes and FlushAsync's conditional awaits remain
+outside this correspondence.
+
 ## Single Boolean guard before a void await
 
 The single-void-await recipe may reproduce a Boolean guard as a single-arm

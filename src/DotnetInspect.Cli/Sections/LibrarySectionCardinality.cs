@@ -65,23 +65,6 @@ internal static class LibrarySectionCardinality
                 SectionCardinalityDeclaration.Inventory,
         };
 
-    public static IReadOnlyDictionary<
-        string,
-        SectionCardinalityDeclaration>? ExactDeclarationsFor(
-        LibraryOptions options) =>
-        IsAllTfmPackageSelection(options)
-            ? null
-            : ExactDeclarations;
-
-    public static bool IsAllTfmPackageSelection(
-        LibraryOptions options) =>
-        string.IsNullOrEmpty(options.PlatformAssembly)
-        && !string.IsNullOrEmpty(options.PackagePath)
-        && string.Equals(
-            options.Tfm,
-            "all",
-            StringComparison.OrdinalIgnoreCase);
-
     /// <summary>
     /// Admits Count or Rows on an exact Library route. A scalar section has
     /// no rows, so a lone scalar, a selection of scalars only, or an implicit

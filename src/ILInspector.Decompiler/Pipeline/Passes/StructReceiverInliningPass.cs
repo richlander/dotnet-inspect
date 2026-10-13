@@ -57,10 +57,28 @@ namespace ILInspector.Decompiler.Pipeline;
 /// reached past a skipped redefinition). Requiring <em>every</em> read of the
 /// slot to be a store-adjacent receiver makes each read locally defined, so the
 /// fold is sound without whole-CFG liveness analysis.</para>
+///
+/// <para>The late pipeline run owns one narrower tail: a single-use, typed stack
+/// carrier containing the canonical additive Boolean-count form issued by
+/// <see cref="ArithmeticBoolOperandPass"/>; the struct receiver store; then a
+/// return that reads the carrier before the receiver. The carrier read is inert,
+/// so the receiver may move past it. Every other local or slot read, call,
+/// property or field read, conversion, and unrecognized node remains a barrier.
+/// Requiring this exact adjacent tail keeps the late run from rediscovering
+/// ordinary receiver folds that the early run did not own. Removing the receiver
+/// store exposes the carrier to the final slots-only inliner without changing
+/// evaluation order.</para>
 /// </summary>
 public sealed class StructReceiverInliningPass : IIrPass
 {
-    public string Name => "struct-receiver-inlining";
+    readonly bool _lateStackCarrierTail;
+
+    public string Name => _lateStackCarrierTail
+        ? "struct-receiver-inlining-late"
+        : "struct-receiver-inlining";
+
+    public StructReceiverInliningPass(bool lateStackCarrierTail = false)
+        => _lateStackCarrierTail = lateStackCarrierTail;
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -68,12 +86,15 @@ public sealed class StructReceiverInliningPass : IIrPass
         // (`V1 = a.P; V0 = V1.Q; ... V0.R`) exposes the earlier store only once
         // the later one is removed, and re-scanning avoids reasoning about the
         // index/document-order shifts a fold causes.
-        while (TryFoldOne(function, context))
+        while (TryFoldOne(function, context, _lateStackCarrierTail))
         {
         }
     }
 
-    static bool TryFoldOne(IrFunction function, PassContext context)
+    static bool TryFoldOne(
+        IrFunction function,
+        PassContext context,
+        bool lateStackCarrierTail)
     {
         // Every read of every slot, so the fold can require a slot to be
         // fold-safe method-wide before touching any of its stores. Reads are
@@ -145,7 +166,18 @@ public sealed class StructReceiverInliningPass : IIrPass
                 continue;
             if (!IsMemberReceiver(addressUse))
                 continue;
-            if (!EvaluatesFirstWithoutBarrier(addressUse, useStatement))
+            LoadStackSlot? permittedPrefixRead = null;
+            if (lateStackCarrierTail
+                && !TryGetLateCarrierRead(
+                    function,
+                    block,
+                    storeIndex,
+                    useStatement,
+                    out permittedPrefixRead))
+            {
+                continue;
+            }
+            if (!EvaluatesFirstWithoutBarrier(addressUse, useStatement, permittedPrefixRead))
                 continue;
 
             var value = (IrExpression)store.DetachChildren()[0];
@@ -182,6 +214,63 @@ public sealed class StructReceiverInliningPass : IIrPass
                 return false;
         }
         return true;
+    }
+
+    static bool TryGetLateCarrierRead(
+        IrFunction function,
+        Block block,
+        int receiverStoreIndex,
+        IrNode useStatement,
+        out LoadStackSlot? carrierRead)
+    {
+        carrierRead = null;
+        if (receiverStoreIndex == 0
+            || useStatement is not Return
+            || block.Children[receiverStoreIndex - 1] is not StoreStackSlot carrierStore
+            || carrierStore.Value.ResultType is not { } storedType
+            || !IsBooleanCountCarrier(carrierStore.Value))
+        {
+            return false;
+        }
+
+        var stores = function.Descendants.OfType<StoreStackSlot>()
+            .Where(candidate => candidate.Slot == carrierStore.Slot)
+            .ToList();
+        var loads = function.Descendants.OfType<LoadStackSlot>()
+            .Where(candidate => candidate.Slot == carrierStore.Slot)
+            .ToList();
+        if (stores.Count != 1
+            || loads.Count != 1
+            || loads[0].ResultType is not { } loadedType
+            || !storedType.Equals(loadedType)
+            || !ReferenceOwnership.IsInside(loads[0], useStatement))
+        {
+            return false;
+        }
+
+        carrierRead = loads[0];
+        return true;
+    }
+
+    static bool IsBooleanCountCarrier(IrExpression value)
+        => value is Binary
+        {
+            Kind: BinaryKind.Add,
+            Left: Conditional left,
+            Right: Conditional right,
+        }
+        && IsCanonicalCountTerm(left)
+        && IsCanonicalCountTerm(right);
+
+    static bool IsCanonicalCountTerm(Conditional conditional)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        return TypeFamilies.IsBoolean(conditional.Condition.ResultType)
+            && conditional.WhenTrue is Constant { Value: 1, Type: var trueType }
+            && intType.Equals(trueType)
+            && conditional.WhenFalse is Constant { Value: 0, Type: var falseType }
+            && intType.Equals(falseType)
+            && intType.Equals(conditional.MergedType);
     }
 
     /// <summary>
@@ -243,7 +332,10 @@ public sealed class StructReceiverInliningPass : IIrPass
     /// moving an unconditional pre-statement store into <paramref name="target"/>
     /// neither reorders it past an effect nor makes it run conditionally.
     /// </summary>
-    static bool EvaluatesFirstWithoutBarrier(IrNode target, IrNode statement)
+    static bool EvaluatesFirstWithoutBarrier(
+        IrNode target,
+        IrNode statement,
+        LoadStackSlot? permittedPrefixRead)
     {
         for (var current = target.Parent; current is not null && !ReferenceEquals(current, statement); current = current.Parent)
         {
@@ -256,6 +348,7 @@ public sealed class StructReceiverInliningPass : IIrPass
 
         bool found = false;
         bool safe = true;
+        bool crossedPermittedPrefixRead = false;
 
         void Visit(IrNode node)
         {
@@ -272,15 +365,19 @@ public sealed class StructReceiverInliningPass : IIrPass
                 if (found || !safe)
                     return;
             }
+            if (ReferenceEquals(node, permittedPrefixRead))
+                crossedPermittedPrefixRead = true;
             // Registered post-children: a parent's own effect (a call, a place
             // read) evaluates after its operands, so a target inside those
             // operands is reached first and is safe.
-            if (IsOrderSensitive(node))
+            if (IsOrderSensitive(node, permittedPrefixRead))
                 safe = false;
         }
 
         Visit(statement);
-        return found && safe;
+        return found
+            && safe
+            && (permittedPrefixRead is null || crossedPermittedPrefixRead);
     }
 
     /// <summary>
@@ -289,6 +386,7 @@ public sealed class StructReceiverInliningPass : IIrPass
     /// never cross it. Mirrors <see cref="SpilledReceiverFold"/> — an unrecognized
     /// node is conservatively a barrier rather than silently reorderable.
     /// </summary>
-    static bool IsOrderSensitive(IrNode node)
-        => node is not (Constant or SizeOf or LoadToken or LoadArgument);
+    static bool IsOrderSensitive(IrNode node, LoadStackSlot? permittedPrefixRead)
+        => !ReferenceEquals(node, permittedPrefixRead)
+            && node is not (Constant or SizeOf or LoadToken or LoadArgument);
 }

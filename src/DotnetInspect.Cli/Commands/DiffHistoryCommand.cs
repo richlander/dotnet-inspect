@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Diff;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -13,6 +14,7 @@ using ILInspector.Metadata;
 using Inspector.Findings;
 using Markout;
 using NuGetFetch;
+using DotnetInspector.Presentation;
 
 namespace DotnetInspect.Cli.Commands;
 
@@ -612,16 +614,15 @@ internal static class DiffHistoryCommand
                         count),
                     Executor: executor),
                     static async (state, token) =>
-                        await DiffHistoryInspection.InspectAnalysisAsync(
+                        await DiffOperation.ExecuteAsync(
                                 state.Request,
-                                state.Executor,
+                                new DiffAcquisition(state.Executor),
                                 token)
                             .ConfigureAwait(false),
                     static async (state, token) =>
-                        await DiffHistoryInspection
-                            .InspectAnalysisWithEvidenceAsync(
+                        await DiffOperation.ExecuteWithEvidenceAsync(
                                 state.Request,
-                                state.Executor,
+                                new DiffAcquisition(state.Executor),
                                 token)
                             .ConfigureAwait(false),
                     cancellationToken)
@@ -665,15 +666,15 @@ internal static class DiffHistoryCommand
                     count),
                 Executor: executor),
                 static async (state, token) =>
-                    await DiffHistoryInspection.InspectApiAsync(
+                    await DiffOperation.ExecuteAsync(
                             state.Request,
-                            state.Executor,
+                            new DiffAcquisition(state.Executor),
                             token)
                         .ConfigureAwait(false),
                 static async (state, token) =>
-                    await DiffHistoryInspection.InspectApiWithEvidenceAsync(
+                    await DiffOperation.ExecuteWithEvidenceAsync(
                             state.Request,
-                            state.Executor,
+                            new DiffAcquisition(state.Executor),
                             token)
                         .ConfigureAwait(false),
                 cancellationToken)

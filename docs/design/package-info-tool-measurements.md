@@ -98,3 +98,8 @@ slice from which a representative assembly could be chosen.
 | Selected TFM containment | `PackageInfoEnvelopeMeasuresDeclaredToolPayload` and `PackageCommand_DeclaredToolSelectedFrameworkIsContainedAcrossOutputs` |
 | Direct RID dependency routing | `BuildPackageDependencyTreeAsync_RidToolPackageUsesNuspec` |
 | Shape alone is insufficient | `PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements` |
+
+Under `--tfm all`, [All-frameworks package discovery](package-tfm-all-discovery.md)
+admits Package Info without its selected-framework fields, so the CLI `all`
+gate's selected-TFM assertions change with that owner's adoption under #9833;
+its one-download-per-invocation and cold/warm assertions remain.

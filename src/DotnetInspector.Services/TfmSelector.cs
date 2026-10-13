@@ -845,27 +845,9 @@ public static class TfmSelector
         return (selectedPath ?? matchingFiles[0], selectedTfm ?? tfm);
     }
 
-    /// <summary>
-    /// Every candidate that the exact Library request names, across all of
-    /// <paramref name="dlls"/>: the exact asset path when one matches, otherwise
-    /// every file whose name or bare name matches. A path-shaped request that
-    /// matches no exact asset yields no candidates.
-    /// </summary>
-    public static IReadOnlyList<string> FindAssembliesInPackage(
-        IReadOnlyList<string> dlls,
-        string extractPath,
-        string assemblyName)
-    {
-        var (exactMatch, matchingFiles) = MatchPackageAssemblies(
-            dlls,
-            extractPath,
-            assemblyName);
-        return exactMatch is not null ? [exactMatch] : matchingFiles;
-    }
-
-    // The exact Library request rule shared by the single and all-candidate
-    // searches: an exact asset path wins; otherwise a path-shaped request
-    // matches nothing, and a name matches by file name or bare name.
+    // The exact Library request rule: an exact asset path wins; otherwise a
+    // path-shaped request matches nothing, and a name matches by file name or
+    // bare name.
     private static (string? Exact, List<string> Named) MatchPackageAssemblies(
         IReadOnlyList<string> dlls,
         string extractPath,
