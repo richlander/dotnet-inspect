@@ -1063,7 +1063,9 @@ public static partial class SourceHouse
                         new HashSet<int>
                         {
                             memberTarget.MetadataToken,
-                        }));
+                        },
+                        IncludeStateMachineImplementations:
+                            true));
             if (memberInspection.Value
                 is FindingInspection<MemberSourceObservation>.Failed
                     memberFailure)
