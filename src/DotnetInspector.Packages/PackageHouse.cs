@@ -1904,6 +1904,8 @@ public sealed partial class PackageHouse
                 PackageCompileAssetSelectionPolicy.ExplicitTarget,
             PackageHouseTargetSelectionMode.ExactTarget =>
                 PackageCompileAssetSelectionPolicy.ExactTarget,
+            PackageHouseTargetSelectionMode.FrozenTarget =>
+                PackageCompileAssetSelectionPolicy.ExactTarget,
             PackageHouseTargetSelectionMode.OwnerDefault or null =>
                 PackageCompileAssetSelectionPolicy.HighestAvailable,
             _ => throw new ArgumentOutOfRangeException(
@@ -2056,10 +2058,11 @@ public sealed partial class PackageHouse
                 [.. directory.EnumerateEntries()]);
             if (contentQuery.CompileLibraryTerminal is { } library)
             {
-                PackageCompileAssetSelection selection = PackageCompileAssetSelector.Evaluate(
-                    directory, packageId, CompilePolicy(request),
-                    request.TargetContext?.RequestedFramework,
-                    request.TargetContext?.RuntimeIdentifier).Selection;
+                PackageCompileAssetSelection selection =
+                    EvaluateCompileSelection(
+                        request,
+                        directory,
+                        packageId).Selection;
                 IReadOnlyList<PackageCompileAsset> matches = library.Selector.Select(selection);
                 if (matches.Count != 1)
                 {
@@ -2258,12 +2261,10 @@ public sealed partial class PackageHouse
         PackageImplementationNames? names)
     {
         PackageCompileAssetSelection compile =
-            PackageCompileAssetSelector.Evaluate(
+            EvaluateCompileSelection(
+                request,
                 directory,
-                packageId,
-                CompilePolicy(request),
-                request.TargetContext?.RequestedFramework,
-                request.TargetContext?.RuntimeIdentifier).Selection;
+                packageId).Selection;
         IEnumerable<string> surface =
             compile.Assets.Select(static asset => asset.Path);
         if (request.AssetDemand == PackageAssetDemand.Surface)
@@ -2437,12 +2438,10 @@ public sealed partial class PackageHouse
                 new PackageHouseRealizationReceipt.Compile(
                     acquisition,
                     NameImplementation(
-                        PackageCompileAssetSelector.Evaluate(
+                        EvaluateCompileSelection(
+                            request,
                             content,
-                            acquisition.Candidate.Coordinate.PackageId,
-                            CompilePolicy(request),
-                            request.TargetContext?.RequestedFramework,
-                            request.TargetContext?.RuntimeIdentifier),
+                            acquisition.Candidate.Coordinate.PackageId),
                         request.ImplementationNames)),
             PackageHouseAssetSelectionKind.Runtime =>
                 new PackageHouseRealizationReceipt.Runtime(
@@ -2470,6 +2469,7 @@ public sealed partial class PackageHouse
                 receipt.Policy,
                 receipt.RequestedTargetFramework,
                 receipt.RequestedRuntimeIdentifier,
+                receipt.IncludesNestedCompileAssets,
                 receipt.Selection with
                 {
                     ImplementationAssets = Array.AsReadOnly(
@@ -2478,6 +2478,19 @@ public sealed partial class PackageHouse
                             asset => names.MatchesPath(asset.Path)),
                     ]),
                 });
+
+    private static PackageCompileAssetSelectionReceipt
+        EvaluateCompileSelection(
+            PackageHouseRequest request,
+            IPackageContent content,
+            string packageId) =>
+        PackageCompileAssetSelector.Evaluate(
+            content,
+            packageId,
+            CompilePolicy(request),
+            request.TargetContext?.RequestedFramework,
+            request.TargetContext?.RuntimeIdentifier,
+            request.TargetContext?.IncludesNestedCompileAssets ?? true);
 
     private static PackageAssetSelectionReceipt NameImplementation(
         PackageAssetSelectionReceipt receipt,

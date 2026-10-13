@@ -1068,6 +1068,11 @@ public static class PackageRootAcquisition
                     ? PackageHouseTargetContext.Exact(
                         selectionTargetFramework,
                         runtimeIdentifier)
+                    : expected is not null
+                        && expected.RequestedTargetFramework is null
+                        ? PackageHouseTargetContext.FrozenTarget(
+                            selectionTargetFramework,
+                            runtimeIdentifier)
                     : PackageHouseTargetContext.ExactTarget(
                         selectionTargetFramework,
                         runtimeIdentifier);

@@ -30,8 +30,7 @@ public abstract class PackageHouseContentNarrowing
             if (target is not
                 {
                     Mode:
-                        PackageHouseTargetSelectionMode.Exact
-                            or PackageHouseTargetSelectionMode.ExactTarget,
+                        PackageHouseTargetSelectionMode.Exact,
                     RequestedFramework: not null,
                 })
             {

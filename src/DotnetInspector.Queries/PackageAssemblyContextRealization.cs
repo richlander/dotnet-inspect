@@ -66,6 +66,7 @@ public sealed class PackageRootBinding
         PackageContentGenerationIdentity contentGenerationIdentity,
         PackageRootSelectionIdentity selectionIdentity,
         string? compileTargetFramework,
+        string? implementationSelectionTargetFramework,
         bool usesCompatibleImplementationSelection,
         bool allowsCompatibleTargetSelection)
     {
@@ -78,7 +79,8 @@ public sealed class PackageRootBinding
             compileTargetFramework
             ?? root.AssetSelection.TargetFramework;
         ImplementationSelectionTargetFramework =
-            root.AssetSelection.ImplementationTargetFramework
+            implementationSelectionTargetFramework
+            ?? root.AssetSelection.ImplementationTargetFramework
             ?? root.RequestedTargetFramework
             ?? root.AssetSelection.TargetFramework;
         HasSelectedImplementationUniverse =
@@ -201,6 +203,8 @@ public sealed class PackageRootBinding
             receipt.RequestedRuntimeIdentifier,
             assetSelection: receipt.Selection,
             compileTargetFramework: compileTargetFramework,
+            implementationSelectionTargetFramework:
+                selectionTargetFramework,
             usesCompatibleImplementationSelection:
                 usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection:
@@ -244,6 +248,8 @@ public sealed class PackageRootBinding
             receipt.RequestedRuntimeIdentifier,
             assetSelection: receipt.Selection,
             compileTargetFramework: ReceiptCompileTargetFramework(receipt),
+            implementationSelectionTargetFramework:
+                ReceiptSelectionTargetFramework(receipt),
             usesCompatibleImplementationSelection:
                 ReceiptUsesCompatibleImplementationSelection(receipt),
             allowsCompatibleTargetSelection:
@@ -288,6 +294,8 @@ public sealed class PackageRootBinding
             receipt.RequestedRuntimeIdentifier,
             receipt.Selection,
             compileTargetFramework: compileTargetFramework,
+            implementationSelectionTargetFramework:
+                selectionTargetFramework,
             usesCompatibleImplementationSelection:
                 ReceiptUsesCompatibleImplementationSelection(receipt),
             allowsCompatibleTargetSelection:
@@ -458,8 +466,11 @@ public sealed class PackageRootBinding
             coordinate.RuntimeIdentifier,
             selection.Value,
             selection.CompileTargetFramework,
-            selection.UsesCompatibleImplementationSelection,
-            request.AllowsCompatibleTargetSelection);
+            implementationSelectionTargetFramework: null,
+            usesCompatibleImplementationSelection:
+                selection.UsesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection:
+                request.AllowsCompatibleTargetSelection);
     }
 
     internal static PackageRootBinding CreateFromReacquiredResolved(
@@ -485,8 +496,11 @@ public sealed class PackageRootBinding
             coordinate.RuntimeIdentifier,
             selection.Value,
             selection.CompileTargetFramework,
-            selection.UsesCompatibleImplementationSelection,
-            request.AllowsCompatibleTargetSelection);
+            implementationSelectionTargetFramework: null,
+            usesCompatibleImplementationSelection:
+                selection.UsesCompatibleImplementationSelection,
+            allowsCompatibleTargetSelection:
+                request.AllowsCompatibleTargetSelection);
     }
 
     /// <summary>
@@ -841,6 +855,7 @@ public sealed class PackageRootBinding
         string? runtimeIdentifier,
         PackageCompileAssetSelection? assetSelection = null,
         string? compileTargetFramework = null,
+        string? implementationSelectionTargetFramework = null,
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false)
     {
@@ -859,6 +874,7 @@ public sealed class PackageRootBinding
                 runtimeIdentifier,
                 assetSelection,
                 compileTargetFramework,
+                implementationSelectionTargetFramework,
                 usesCompatibleImplementationSelection,
                 allowsCompatibleTargetSelection,
                 out PackageRootBinding? binding,
@@ -887,6 +903,7 @@ public sealed class PackageRootBinding
         string? runtimeIdentifier,
         PackageCompileAssetSelection? assetSelection,
         string? compileTargetFramework,
+        string? implementationSelectionTargetFramework,
         bool usesCompatibleImplementationSelection,
         bool allowsCompatibleTargetSelection,
         [NotNullWhen(true)] out PackageRootBinding? binding,
@@ -959,6 +976,7 @@ public sealed class PackageRootBinding
             content.GenerationIdentity,
             new PackageRootSelectionIdentity(),
             compileTargetFramework ?? effectiveTargetFramework,
+            implementationSelectionTargetFramework,
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection
                 || usesCompatibleImplementationSelection);
@@ -1001,6 +1019,7 @@ public sealed class PackageRootBinding
             binding.ContentGenerationIdentity,
             binding.SelectionIdentity,
             binding.CompileTargetFramework,
+            selectionTargetFramework,
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection: true);
     }
@@ -1073,6 +1092,7 @@ public sealed class PackageRootBinding
             ContentGenerationIdentity,
             SelectionIdentity,
             CompileTargetFramework,
+            ImplementationSelectionTargetFramework,
             UsesCompatibleImplementationSelection,
             AllowsCompatibleTargetSelection);
     }
@@ -1089,6 +1109,7 @@ public sealed class PackageRootBinding
             Root.AssetDemand, Root.ImplementationNames, selector);
         return new PackageRootBinding(root, Coordinate, SourceProducer, ContentGenerationIdentity,
             new PackageRootSelectionIdentity(), CompileTargetFramework,
+            ImplementationSelectionTargetFramework,
             UsesCompatibleImplementationSelection, AllowsCompatibleTargetSelection);
     }
 

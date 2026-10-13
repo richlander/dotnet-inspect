@@ -3296,8 +3296,11 @@ caller supplies no target, the realized coordinate and the Root's requested
 target remain absent, while the binding freezes each selector-issued compile
 and implementation target that the durable House exact-target grammar can
 represent. Reopening therefore repeats the selected target against newly
-authorized content rather than silently choosing that content's new highest
-target. If owner-default selection observes a target outside that grammar,
+authorized content without compatible fallback while retaining the
+owner-default candidate eligibility that produced it, including nested compile
+assets. It does not silently choose that content's new highest target or narrow
+the prior candidate space merely because the selected framework is now exact.
+If owner-default selection observes a target outside that grammar,
 Root acquisition returns typed `InvalidCoordinate` before issuing an
 unreopenable request. A previously issued or decoded request containing such a
 target returns the same typed failure before House execution. A Root with no
@@ -3334,7 +3337,9 @@ The House target mode follows the request's owned selection intent:
 - no compile target uses owner-default `HighestAvailable`;
 - an ordinary explicit Root request uses exact-target-only `ExactTarget`, so a
   neighboring compatible compile slice cannot replace the requested slice;
-  and
+- a durable owner-default request uses `FrozenTarget`, so it accepts only the
+  frozen framework while preserving owner-default candidate eligibility,
+  including nested compile assets; and
 - a durable request that explicitly authorizes compatible target selection
   uses `ExplicitTarget`.
 
@@ -3347,7 +3352,11 @@ compatibility before issuing the rebound request. A different selection is
 `SelectionRequestNotReproduced`, never a substitute Root. Caller-authored and
 durable targets outside the House exact-target grammar are
 `InvalidCoordinate`; owner-default realization that selects such a target is
-also `InvalidCoordinate` before any durable request is issued.
+also `InvalidCoordinate` before any durable request is issued. A negative
+replacement outcome retains the frozen implementation-selection input even
+when it selects no implementation universe, so it also returns
+`SelectionRequestNotReproduced` rather than failing while reconstructing the
+durable request.
 
 The caller-authored form names an exact package id and version, because this
 owner performs no gallery, prefix, or floating-version discovery — a request
@@ -3467,6 +3476,8 @@ post-disposal replacement against a new content generation.
 In `PackageRootAcquisitionTests`:
 `ExplicitCoordinate_AcquiresRootAndIssuesExactRequest`,
 `ExplicitCoordinate_UntargetedRootPreservesCallerIntent`,
+`UntargetedRoot_ReacquiresNestedOwnerSelectedCompileAsset`,
+`UntargetedRoot_ReplacementWithoutCompileAssetsReturnsTypedMismatch`,
 `OwnerDefault_UnrepresentableSelectionFailsBeforeIssuanceOrReacquisition`,
 `Acquired_ExposesTheLiveContentTheBindingReads`,
 `ExactRequest_ReacquiresSameLogicalRootThroughToken`,
@@ -3484,6 +3495,13 @@ In `PackageRootAcquisitionTests`:
 acquisition whose `ref/net10.0` compile slice selects a `lib/net8.0`
 implementation universe, then rejects replacement content that changes the
 implementation universe to `lib/net7.0`.
+
+`UntargetedRoot_ReacquiresNestedOwnerSelectedCompileAsset` gates unchanged
+reopening through token transport when the owner-default selection contains
+only a nested compile asset.
+`UntargetedRoot_ReplacementWithoutCompileAssetsReturnsTypedMismatch` gates a
+negative replacement outcome as typed `SelectionRequestNotReproduced` rather
+than a durable-request reconstruction exception.
 
 `Token_RoundTripsExactRequest` additionally gates independent `pkgroot6`
 Root-requested target, implementation-presence, compatible-selection

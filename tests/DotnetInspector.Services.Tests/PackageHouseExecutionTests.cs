@@ -1244,12 +1244,63 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             PackageCompileAssetSelectionPolicy.ExactTarget,
             realization.Receipt.Policy);
+        Assert.False(realization.Receipt.IncludesNestedCompileAssets);
         Assert.Equal(
             PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
             realization.Selection.Status);
         Assert.Equal("net10.0", realization.Receipt.RequestedTargetFramework);
         Assert.Equal(["net8.0"], realization.Selection.AvailableTargetFrameworks);
         Assert.False(realization.Selection.IsSelected);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        FrozenTargetCompileRealizePreservesNestedOwnerEligibility()
+    {
+        string path =
+            $"lib/net10.0/nested/{PackageId}.dll";
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    path,
+                    $"lib/net8.0/{PackageId}.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.FrozenTarget("net10.0"),
+            PackageHouseAssetSelectionKind.Compile);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseRealizationReceipt.Compile realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Compile>(
+                Assert.IsType<PackageHouseResult.Settled>(
+                    Assert.IsType<PackageHouseSettlement.Acquired>(
+                        settlement).Result).Evidence.Realization);
+
+        Assert.Equal(
+            PackageCompileAssetSelectionPolicy.ExactTarget,
+            realization.Receipt.Policy);
+        Assert.True(realization.Receipt.IncludesNestedCompileAssets);
+        Assert.Equal("net10.0", realization.Selection.TargetFramework);
+        Assert.Equal(
+            [path],
+            realization.Selection.Assets.Select(asset => asset.Path));
         await environment.AssertRootSettledAsync();
     }
 

@@ -184,6 +184,82 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(acquired.Request, reacquired.Request);
     }
 
+    [Fact]
+    public async Task
+        UntargetedRoot_ReacquiresNestedOwnerSelectedCompileAsset()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(NestedLibraryPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(PackageId, Version),
+                execution,
+                TestContext.Current.CancellationToken));
+        Assert.Null(acquired.Request.RequestedTargetFramework);
+        Assert.Equal(Framework, acquired.Request.CompileTargetFramework);
+        Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
+        Assert.Equal(
+            $"lib/{Framework}/nested/{AssemblyName}.dll",
+            acquired.Binding.Root.AssetSelection.Assets.Single().Path);
+
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                acquired.Request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+        var reacquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(acquired.Request, reacquired.Request);
+        Assert.Equal(
+            acquired.Binding.Root.AssetSelection.Assets.Single().Path,
+            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+    }
+
+    [Fact]
+    public async Task
+        UntargetedRoot_ReplacementWithoutCompileAssetsReturnsTypedMismatch()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        var store = new InMemoryPackageStore();
+        string producer = PackageProducerIdentity.NuGetOrg.Key;
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(LibraryPackage()),
+            TestContext.Current.CancellationToken);
+        PackageRootHouseExecution execution = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(PackageId, Version),
+                execution,
+                TestContext.Current.CancellationToken));
+        Assert.Null(acquired.Request.RequestedTargetFramework);
+        Assert.True(acquired.Request.HasSelectedImplementationUniverse);
+
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(NoCompileAssetsPackage()),
+            TestContext.Current.CancellationToken);
+        var failed = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                acquired.Request,
+                execution,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.SelectionRequestNotReproduced,
+            failed.Kind);
+    }
+
     [Theory]
     [InlineData("invalid/package", Version, Framework)]
     [InlineData(PackageId, "not-a-version", Framework)]
@@ -1414,6 +1490,39 @@ public sealed class PackageRootAcquisitionTests
                 .CreateEntry($"lib/{framework}/{AssemblyName}.dll")
                 .Open();
             stream.Write(image, 0, image.Length);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] NestedLibraryPackage()
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream stream = archive
+                .CreateEntry(
+                    $"lib/{Framework}/nested/{AssemblyName}.dll")
+                .Open();
+            stream.Write(image);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] NoCompileAssetsPackage()
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            archive.CreateEntry("content/readme.txt");
         }
 
         return buffer.ToArray();
