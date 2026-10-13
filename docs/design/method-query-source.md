@@ -1152,6 +1152,8 @@ Calls support is gated in Release:
 - `MethodQuerySource_CallsAreDecodedOnceAcrossLanes`
 - `MethodQuerySource_FieldOperandsAreDecodedOnceAcrossLanes`
 - `MethodQuerySource_MalformedCallOperandFailsBody`
+- `MethodQuerySource_MalformedCalliSignatureFailsBody`
+- `MethodQuerySource_RepeatedCachedReadsRemainLogicalReads`
 - `MethodCallCountProducer_DoesNotResolveMalformedTarget`
 - `MethodCallCountProducer_DoesNotDecodeDamagedSignature`
 

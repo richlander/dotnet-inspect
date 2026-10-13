@@ -271,7 +271,8 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.True(firstCoverage.Constructed);
         Assert.False(secondCoverage.Constructed);
         Assert.Equal(
-            physical.QueryingMethods.Count,
+            firstCoverage.CallReads
+                + secondCoverage.CallReads,
             physical.CallReads);
         Assert.Equal(
             firstCoverage.QueryingMethods.Count,
@@ -330,6 +331,14 @@ public sealed partial class MethodDefinitionRequestSetTests
             firstCoverage.FieldOperandReads
                 + secondCoverage.FieldOperandReads,
             physical.FieldOperandReads);
+        Assert.Equal(
+            firstCoverage.CallReads
+                + secondCoverage.CallReads,
+            physical.CallReads);
+        Assert.Equal(
+            firstCoverage.LocalSignatureReads
+                + secondCoverage.LocalSignatureReads,
+            physical.LocalSignatureReads);
         Assert.Equal(
             firstCoverage.FieldOperandReads,
             secondCoverage.FieldOperandReads);
@@ -404,6 +413,109 @@ public sealed partial class MethodDefinitionRequestSetTests
             MethodDefinitionSourceCompletion.ProducerFailed,
             execution.ResultOf(association)
                 .SourceReceipt.Completion);
+    }
+
+    [Fact]
+    public void MethodQuerySource_MalformedCalliSignatureFailsBody()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodDefinitionRequestSetTests).Assembly.Location);
+        MethodDefinitionHandle method;
+        using (var stream = new MemoryStream(image, writable: false))
+        using (var pe = new PEReader(stream))
+        {
+            MetadataReader reader = pe.GetMetadataReader();
+            method =
+                FindMethod(
+                    reader,
+                    nameof(MethodCallMetadataProbeTarget),
+                    nameof(MethodCallMetadataProbeTarget.Exercise));
+            MethodDefinition definition =
+                reader.GetMethodDefinition(method);
+            MethodBodyBlock body =
+                pe.GetMethodBody(definition.RelativeVirtualAddress);
+            Assert.False(body.LocalSignature.IsNil);
+            DecodedInstruction call =
+                Instructions.InstructionDecoder
+                    .Decode(body.GetILBytes()!)
+                    .First(static instruction =>
+                        instruction.OpCode == ILOpCode.Call);
+            int bodyOffset = RvaToFileOffset(
+                pe.PEHeaders,
+                definition.RelativeVirtualAddress);
+            int headerSize = (image[bodyOffset] & 3) == 2
+                ? 1
+                : ((BinaryPrimitives.ReadUInt16LittleEndian(
+                        image.AsSpan(bodyOffset, sizeof(ushort)))
+                    >> 12)
+                    & 0xF) * sizeof(uint);
+            image[bodyOffset + headerSize + call.Offset] =
+                (byte)ILOpCode.Calli;
+            BinaryPrimitives.WriteInt32LittleEndian(
+                image.AsSpan(
+                    bodyOffset + headerSize + call.OperandOffset,
+                    sizeof(int)),
+                MetadataTokens.GetToken(body.LocalSignature));
+        }
+        MethodDefinitionSourceAssociation association =
+            Association(
+                MethodCallsProbe.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(
+                AcceptedPlan([association]),
+                ImmutableArray.Create(image));
+        ProducerResult<
+            ImmutableDictionary<CallSiteKey, MethodCallSite>> result =
+                ResultOf<
+                    ImmutableDictionary<CallSiteKey, MethodCallSite>>(
+                        execution,
+                        association);
+        MethodCallMetadataCoverage coverage =
+            execution.ResultOf(association).SourceReceipt.Coverage.Calls;
+
+        Assert.Equal(ProducerOutcome.Failed, result.Outcome);
+        Assert.Contains(
+            "calli signature is malformed",
+            result.Failure?.Message,
+            StringComparison.Ordinal);
+        Assert.Equal(1, coverage.CallReads);
+        Assert.True(coverage.Work.SignatureBytes > 0);
+        Assert.Equal(
+            MethodDefinitionSourceCompletion.ProducerFailed,
+            execution.ResultOf(association)
+                .SourceReceipt.Completion);
+    }
+
+    [Fact]
+    public void MethodQuerySource_RepeatedCachedReadsRemainLogicalReads()
+    {
+        string path = typeof(MethodDefinitionRequestSetTests).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle method =
+            FindMethod(
+                reader,
+                nameof(MethodCallMetadataProbeTarget),
+                nameof(MethodCallMetadataProbeTarget.Exercise));
+        MethodDefinitionSourceAssociation association =
+            Association(
+                RepeatedMethodCallMetadataProbe.Instance,
+                ProducerTerminal.Count,
+                MethodDefinitionSourceBreadth.ExactMethods(method));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        MethodCallMetadataCoverage coverage =
+            execution.ResultOf(association).SourceReceipt.Coverage.Calls;
+
+        Assert.Equal(2, coverage.CallReads);
+        Assert.Equal(2, coverage.LocalSignatureReads);
+        Assert.Equal(1, coverage.Work.LocalSignatures);
+        Assert.Equal(1, coverage.QueryingMethods.Count);
     }
 
     static int RvaToFileOffset(PEHeaders headers, int rva)

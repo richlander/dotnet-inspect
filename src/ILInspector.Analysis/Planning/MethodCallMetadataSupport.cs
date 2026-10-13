@@ -293,13 +293,31 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
         StandaloneSignature standalone =
             reader.GetStandaloneSignature(handle);
         RecordSignature(standalone.Signature);
-        if (!SignatureBlobGuard.IsSafeToDecode(
+        switch (SignatureBlobGuard.CheckShape(
+            reader,
+            standalone.Signature,
+            SignatureBlobGuard.Kind.StandaloneMethod))
+        {
+            case SignatureBlobGuard.ShapeCheck.DepthExceeded:
+            case SignatureBlobGuard.ShapeCheck.NodesExceeded:
+                return MemberRef.Unsupported(
+                    "calli signature decode bounds exceeded");
+            case SignatureBlobGuard.ShapeCheck.Malformed:
+                throw new BadImageFormatException(
+                    "A calli signature is malformed.");
+            case SignatureBlobGuard.ShapeCheck.Safe:
+                break;
+            default:
+                throw new InvalidOperationException(
+                    "Unknown calli signature validation result.");
+        }
+        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
                 reader,
                 standalone.Signature,
                 SignatureBlobGuard.Kind.StandaloneMethod))
         {
-            return MemberRef.Unsupported(
-                "calli signature nesting depth exceeded");
+            throw new BadImageFormatException(
+                "A calli signature is malformed.");
         }
 
         MethodSignature<TypeRef> signature =

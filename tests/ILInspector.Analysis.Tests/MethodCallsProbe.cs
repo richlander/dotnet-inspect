@@ -202,3 +202,43 @@ internal sealed class UndeclaredMethodCallsProbe
         MethodDefinitionCompletionView completion) =>
         accumulator;
 }
+
+internal sealed class RepeatedMethodCallMetadataProbe
+    : MethodDefinitionProducer<int, int, int>
+{
+    RepeatedMethodCallMetadataProbe()
+        : base(
+            "RepeatedMethodCallMetadataProbe",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.Calls)
+    {
+    }
+
+    public static RepeatedMethodCallMetadataProbe Instance { get; } = new();
+
+    internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+        InstructionAnalyzers =>
+        [MethodBodyAnalyzerDeclarations.ResolvedCalls];
+
+    internal override int Visit(scoped MethodDefinitionView view)
+    {
+        MethodInstructions instructions =
+            view.MaterializeInstructions(out MethodBodyData _);
+        _ = view.GetCalls(instructions);
+        _ = view.GetCalls(instructions);
+        _ = view.GetLocalSignature();
+        _ = view.GetLocalSignature();
+        return 1;
+    }
+
+    internal override int Seed() => 0;
+
+    internal override int Accumulate(int accumulator, int fact) =>
+        accumulator + fact;
+
+    internal override int Complete(
+        int accumulator,
+        MethodDefinitionCompletionView completion) =>
+        accumulator;
+}

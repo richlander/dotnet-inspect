@@ -1310,21 +1310,37 @@ internal struct MethodDefinitionUnit(
             _callTargetWork = targetWork.MoveToImmutable();
             _calls = new(sites.MoveToImmutable());
         }
-        else if (_requestSourceCoverage is { } request
-            && !ReferenceEquals(request, _physicalSourceCoverage)
-            && !ReferenceEquals(request, _callsReadBy))
+        else
         {
-            request.RecordMethodCallQuery(
+            _physicalSourceCoverage.RecordMethodCallQuery(
                 MethodHandle,
-                _callsWork,
+                MethodCallMetadataWork.Empty,
                 callReads: 1,
                 localSignatureReads: 0,
                 fieldOperandReads: 0);
-            foreach (SameModuleCallTargetWork work in _callTargetWork)
+            if (_requestSourceCoverage is { } request
+                && !ReferenceEquals(request, _physicalSourceCoverage))
             {
-                request.RecordCallTargetQuery(
+                bool firstRequestRead =
+                    !ReferenceEquals(request, _callsReadBy);
+                request.RecordMethodCallQuery(
                     MethodHandle,
-                    work);
+                    firstRequestRead
+                        ? _callsWork
+                        : MethodCallMetadataWork.Empty,
+                    callReads: 1,
+                    localSignatureReads: 0,
+                    fieldOperandReads: 0);
+                if (firstRequestRead)
+                {
+                    foreach (SameModuleCallTargetWork work
+                        in _callTargetWork)
+                    {
+                        request.RecordCallTargetQuery(
+                            MethodHandle,
+                            work);
+                    }
+                }
             }
         }
 
@@ -1357,16 +1373,28 @@ internal struct MethodDefinitionUnit(
                     fieldOperandReads: 0);
             }
         }
-        else if (_requestSourceCoverage is { } request
-            && !ReferenceEquals(request, _physicalSourceCoverage)
-            && !ReferenceEquals(request, _localSignatureReadBy))
+        else
         {
-            request.RecordMethodCallQuery(
+            _physicalSourceCoverage.RecordMethodCallQuery(
                 MethodHandle,
-                _localSignatureWork,
+                MethodCallMetadataWork.Empty,
                 callReads: 0,
                 localSignatureReads: 1,
                 fieldOperandReads: 0);
+            if (_requestSourceCoverage is { } request
+                && !ReferenceEquals(request, _physicalSourceCoverage))
+            {
+                request.RecordMethodCallQuery(
+                    MethodHandle,
+                    ReferenceEquals(
+                        request,
+                        _localSignatureReadBy)
+                        ? MethodCallMetadataWork.Empty
+                        : _localSignatureWork,
+                    callReads: 0,
+                    localSignatureReads: 1,
+                    fieldOperandReads: 0);
+            }
         }
 
         _localSignatureReadBy = _requestSourceCoverage;
