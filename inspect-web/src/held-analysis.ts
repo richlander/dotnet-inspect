@@ -23,7 +23,7 @@ export type HeldAnalysisEntry<TValue> =
   | { readonly status: "failed"; readonly error: string };
 
 /** What one producer result means for the held entry. */
-export type HeldAnalysisOutcome<TValue> =
+type HeldAnalysisOutcome<TValue> =
   | { readonly kind: "ready"; readonly value: TValue }
   | { readonly kind: "failed"; readonly error: string }
   | { readonly kind: "canceled" };
