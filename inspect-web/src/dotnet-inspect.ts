@@ -915,6 +915,8 @@ let engineClient: EngineClient;
 let cancelPackageActivity: EngineClient["package"]["cancelPackageActivity"];
 let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
 let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
+let containPackageDocumentHtml:
+  EngineClient["package"]["containPackageDocumentHtml"];
 let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
@@ -1157,6 +1159,7 @@ async function loadEngineModule() {
       engineClient.source.cancelTypeExplorerQuery(...args);
     ({
       getPackageDocument: inspectPackageDocument,
+      containPackageDocumentHtml,
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
@@ -24952,13 +24955,15 @@ function markdownSanitizeConfig() {
 async function renderMarkdown(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parse(text, { gfm: true, breaks: false, async: false });
-  return DOMPurify.sanitize(html, markdownSanitizeConfig());
+  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
+  return (await containPackageDocumentHtml(sanitized)).html;
 }
 
 async function renderMarkdownInline(text: string) {
   const { marked, DOMPurify } = await markdownLibs();
   const html = marked.parseInline(text, { gfm: true, async: false });
-  return DOMPurify.sanitize(html, markdownSanitizeConfig());
+  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
+  return (await containPackageDocumentHtml(sanitized)).html;
 }
 
 function openPackageDocument(path: string) {

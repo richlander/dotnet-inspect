@@ -365,6 +365,49 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageDocument_RealWrongTurnReadmeIsContainedForBrowserPublication()
+    {
+        const string PackageId = "WrongTurn";
+        const string Version = "0.1.15";
+        byte[] archive = await File.ReadAllBytesAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "FileDemand",
+                "wrongturn.0.1.15.nupkg"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            "faa0362dd6aebf9757d117dd8ffc786b64d6263421ea40eb36b4749903174aa4",
+            Convert.ToHexStringLower(
+                System.Security.Cryptography.SHA256.HashData(archive)));
+        var handler = new GalleryPackageHandler(
+            PackageId,
+            Version,
+            archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageDocumentPayload payload =
+            await BrowserPackageWorkspace.ReadDocumentAsync(
+                PackageId,
+                Version,
+                "README.md",
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains('\u202E', payload.Text);
+        Assert.Contains('\u202C', payload.Text);
+
+        const string sanitizedHtml =
+            "<p>https://api.\u202Etegun\u202C.org/v3/index.json</p>";
+        BrowserPackageDocumentHtml document =
+            BrowserPackageWireProjection.ProjectDocumentHtml(sanitizedHtml);
+        Assert.Equal(
+            "<p>https://api.\\u202Etegun\\u202C.org/v3/index.json</p>",
+            document.Html.ToString());
+    }
+
+    [Fact]
     public async Task PackageQueryContent_AcquiresThroughBrowserPackagePolicy()
     {
         string packageId = $"gallery.query.{Guid.NewGuid():N}";
