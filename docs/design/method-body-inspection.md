@@ -213,7 +213,8 @@ migrated queries. The boundary:
 - local and catalog member graphs compose
   `LibraryCallGraphAnalysisResult` values, while the optional async-alternative
   annotation executes `SyncCallsInAsyncQuery` Rows over each participating
-  assembly session
+  assembly session with exact projected-definition breadth plus authenticated
+  generated execution bodies
 - session methods exist only for composition requiring session-owned state,
   such as source attribution or multiple assembly scopes
 - the CLI composes and renders; it does not classify or infer Analysis facts

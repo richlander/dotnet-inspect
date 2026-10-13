@@ -1,9 +1,12 @@
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using DotnetInspector.Services;
 using DotnetInspector.Queries;
 using DotnetInspect.Cli.Services;
+using ILInspector.Analysis.Planning;
 using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
@@ -24,6 +27,7 @@ namespace DotnetInspect.Cli.Inspectors;
 public sealed class MethodBodyInspectionSession
 {
     SyncCallsInAsyncResult? _syncCallsInAsync;
+    ImmutableArray<int> _syncCallsInAsyncMethods;
 
     MethodBodyInspectionSession(
         Analysis.LibraryBodyAnalysisExecution analysis,
@@ -159,10 +163,46 @@ public sealed class MethodBodyInspectionSession
             BindingPolicyFor(resolver));
     }
 
-    internal SyncCallsInAsyncResult SyncCallsInAsync()
+    internal SyncCallsInAsyncResult SyncCallsInAsync(
+        IReadOnlyCollection<int> methodTokens)
     {
-        if (_syncCallsInAsync is { } cached)
+        ArgumentNullException.ThrowIfNull(methodTokens);
+        ImmutableArray<int> normalized =
+        [
+            .. methodTokens
+                .Distinct()
+                .Order(),
+        ];
+        if (_syncCallsInAsync is { } cached
+            && normalized.SequenceEqual(_syncCallsInAsyncMethods))
+        {
             return cached;
+        }
+        if (_syncCallsInAsync is not null)
+        {
+            throw new InvalidOperationException(
+                "A method-body inspection session cannot execute Sync Calls "
+                + "in Async over two different graph populations.");
+        }
+
+        var handles =
+            ImmutableArray.CreateBuilder<MethodDefinitionHandle>(
+                normalized.Length);
+        foreach (int token in normalized)
+        {
+            EntityHandle handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind != HandleKind.MethodDefinition)
+            {
+                throw new ArgumentException(
+                    $"Token 0x{token:X8} is not a MethodDef.",
+                    nameof(methodTokens));
+            }
+            handles.Add((MethodDefinitionHandle)handle);
+        }
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth
+                .ExactMethods(handles.ToImmutable())
+                .IncludeGeneratedExecutionBodies();
 
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(Assembly);
@@ -171,7 +211,9 @@ public sealed class MethodBodyInspectionSession
             new AssemblyReferenceBindingAccess(
                 Assembly,
                 BindingPolicy),
-            [SyncCallsInAsyncClosing.Rows]);
+            [SyncCallsInAsyncClosing.Rows],
+            breadth);
+        _syncCallsInAsyncMethods = normalized;
         return _syncCallsInAsync;
     }
 

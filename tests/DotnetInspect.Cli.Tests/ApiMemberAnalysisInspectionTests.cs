@@ -121,6 +121,10 @@ public class ApiMemberAnalysisInspectionTests
             inspection.CallGraphAsyncSiblingResults,
             result =>
             {
+                Assert.True(
+                    result.Result.Receipts.Single().Receipt.UnitsVisited
+                        < result.Session.CallGraphAnalysis
+                            .DeclaredMethods.Length);
                 Assert.Equal(
                     ProducerOutcome.Complete,
                     result.Result.Receipts.Single().Receipt
@@ -298,6 +302,10 @@ public class ApiMemberAnalysisInspectionTests
             inspection.CallGraphAsyncSiblingResults,
             result =>
             {
+                Assert.True(
+                    result.Result.Receipts.Single().Receipt.UnitsVisited
+                        < result.Session.CallGraphAnalysis
+                            .DeclaredMethods.Length);
                 Assert.Equal(
                     ProducerOutcome.Complete,
                     result.Result.Receipts.Single().Receipt

@@ -49,6 +49,7 @@ internal sealed class ApiMemberAnalysisInspection
     bool _calleeScopesResolved;
     Analysis.CatalogCallGraphDiagnostics _callGraphDiagnostics =
         Analysis.CatalogCallGraphDiagnostics.Empty;
+    ILInspector.CallGraph.CallGraphProjection? _callGraphProjection;
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -164,13 +165,21 @@ internal sealed class ApiMemberAnalysisInspection
     {
         get
         {
+            ILInspector.CallGraph.CallGraphProjection projection =
+                _callGraphProjection
+                ?? throw new InvalidOperationException(
+                    "Build the Call Graph before requesting async-sibling "
+                    + "results.");
             return
             [
                 .. CallGraphSessions.Select(
-                    static session =>
+                    session =>
                         new CallGraphAsyncSiblingScopeResult(
                             session,
-                            session.SyncCallsInAsync())),
+                            session.SyncCallsInAsync(
+                                ProjectedDefinitionTokens(
+                                    projection,
+                                    session)))),
             ];
         }
     }
@@ -244,6 +253,7 @@ internal sealed class ApiMemberAnalysisInspection
                 CalleeScopes(),
                 out Analysis.CatalogCallGraphDiagnostics diagnostics);
         _callGraphDiagnostics = diagnostics;
+        _callGraphProjection = projection;
         return projection;
     }
 
@@ -262,6 +272,47 @@ internal sealed class ApiMemberAnalysisInspection
 
     internal Analysis.CatalogCallGraphDiagnostics CallGraphDiagnostics =>
         _callGraphDiagnostics;
+
+    static IReadOnlyCollection<int> ProjectedDefinitionTokens(
+        ILInspector.CallGraph.CallGraphProjection projection,
+        MethodBodyInspectionSession session)
+    {
+        Guid moduleVersionId =
+            session.CallGraphAnalysis.ModuleIdentity.ModuleVersionId;
+        var tokens = new HashSet<int>();
+        foreach (ILInspector.CallGraph.CallGraphNode node
+            in projection.Nodes)
+        {
+            foreach (Analysis.GraphNodeEvidence evidence
+                in node.GraphEvidence)
+            {
+                Analysis.GraphNodeStorageKey? definition =
+                    evidence.DefinitionStorage
+                    ?? (evidence.Storage.Kind
+                            == Analysis.GraphNodeStorageKind.Definition
+                        ? evidence.Storage
+                        : null);
+                if (definition?.ModuleVersionId == moduleVersionId)
+                    tokens.Add(definition.MethodToken);
+            }
+        }
+        foreach (ILInspector.CallGraph.CallGraphCallSite callSite
+            in projection.CallSites)
+        {
+            Analysis.DirectCall call = callSite.Call;
+            if (call.EvidenceMethod.ModuleVersionId != moduleVersionId)
+                continue;
+
+            if (call.Caller.ModuleVersionId == moduleVersionId)
+                tokens.Add(call.Caller.MetadataToken);
+            if (session.CallGraphAnalysis.ResolveTarget(call)
+                is Analysis.DirectCallTarget.CurrentModule current)
+            {
+                tokens.Add(current.Method.MetadataToken);
+            }
+        }
+        return tokens;
+    }
 
     MethodBodyInspectionSession Session =>
         _session ??= MethodBodyInspectionSession.OpenWithFeatures(
