@@ -182,6 +182,50 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void MethodQuerySource_CalleeIdentityPreservesPlatformContractHit()
+    {
+        string path = typeof(MethodDefinitionRequestSetTests).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle method =
+            FindMethod(
+                reader,
+                nameof(UnsafeEvidenceFixtures),
+                nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                MethodCallsProbe.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        MethodCallSite site = Assert.Single(
+            CompletedValue<
+                    ImmutableDictionary<CallSiteKey, MethodCallSite>>(
+                    execution,
+                    exact)
+                .Values);
+        DirectCall legacy = Assert.Single(
+            LibraryBodyAnalysisService.ExecutePath(
+                    path,
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures.MethodEvidence))
+                .CallGraph.DirectCalls,
+            call => call.EvidenceMethod.MetadataToken
+                == MetadataTokens.GetToken(method));
+
+        Assert.Equal(legacy.Callee, site.Callee);
+        Assert.True(
+            PlatformCallerUnsafeContracts.Embedded.Contains(
+                legacy.Callee));
+        Assert.True(
+            PlatformCallerUnsafeContracts.Embedded.Contains(
+                site.Callee));
+    }
+
+    [Fact]
     public void MethodQuerySource_CallsAreDecodedOnceAcrossLanes()
     {
         string path =

@@ -1148,6 +1148,7 @@ Calls support is gated in Release:
 - `MethodQuerySource_CallsAbsentWhenUndeclared`
 - `MethodQuerySource_CallsRequireDeclaration`
 - `MethodQuerySource_CallsReceiptExactMethodWork`
+- `MethodQuerySource_CalleeIdentityPreservesPlatformContractHit`
 - `MethodQuerySource_CallsAreDecodedOnceAcrossLanes`
 - `MethodQuerySource_FieldOperandsAreDecodedOnceAcrossLanes`
 - `MethodQuerySource_MalformedCallOperandFailsBody`
