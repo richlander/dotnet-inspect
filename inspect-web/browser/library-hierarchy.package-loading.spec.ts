@@ -63,8 +63,16 @@ const longFrameworkRoot =
   `/?package=System.Text.Json&version=10.0.0&framework=${longFramework}#pkg`;
 
 test("first Library load does not report the deferred package surface as unavailable", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem(
+    "inspect-recent-packages",
+    JSON.stringify([{ id: "System.Text.Json", version: "10.0.0", framework: "net10.0" }]),
+  ));
   await installPackageLoadingFacades(page);
-  await page.goto(frameworkRoot.replace("#pkg", "#library"));
+  await page.goto("/");
+  await expect(page.locator(".home-search"))
+    .not.toHaveClass(/engine-pending/);
+  await page.keyboard.press("Control+p");
+  await page.locator('[data-sl-pkg-recent="System.Text.Json"]').click();
 
   await expect(page.locator(".library-overview-surface")).toBeVisible();
   await expect(page.locator(".library-subject-list"))
