@@ -39,6 +39,21 @@ public partial class DependsAssetCommandTests
         WriteLocalSourcePackage(source, "Contoso.Revision", "1.0.0.1", "");
         WriteLocalSourcePackage(source, "Contoso.Current", "1.0.0", "");
         WriteLocalSourcePackage(source, "Contoso.Current", "2.0.0", "");
+        // Prereleases inside Current's major and a prerelease-only major sit
+        // outside the stable population that produces Latest.
+        foreach (string version in new[]
+                 {
+                     "1.0.0",
+                     "1.1.0",
+                     "1.2.0-beta.1",
+                     "2.0.0-beta.1",
+                     "3.0.0",
+                 })
+        {
+            WriteLocalSourcePackage(source, "Contoso.Beta", version, "");
+        }
+        foreach (string version in new[] { "1.0.0", "1.1.0", "1.2.0-beta.1" })
+            WriteLocalSourcePackage(source, "Contoso.NextBeta", version, "");
         string stable = WriteTemporaryFile(
             "stable.nuspec",
             Manifest(
@@ -51,6 +66,8 @@ public partial class DependsAssetCommandTests
                   <dependency id="Contoso.Patch" version="[1.0.0, )" />
                   <dependency id="Contoso.Revision" version="[1.0.0, )" />
                   <dependency id="Contoso.Current" version="[2.0.0, )" />
+                  <dependency id="Contoso.Beta" version="[1.1.0, )" />
+                  <dependency id="Contoso.NextBeta" version="[1.1.0, )" />
                 </group>
                 """));
         string preview = WriteTemporaryFile(
@@ -99,19 +116,33 @@ public partial class DependsAssetCommandTests
         JsonElement summary = document.RootElement.GetProperty("summary")
             .GetProperty("latest_versions");
         Assert.Equal("Complete", summary.GetProperty("completion").GetString());
-        Assert.Equal(7, summary.GetProperty("declarations").GetInt32());
+        Assert.Equal(9, summary.GetProperty("declarations").GetInt32());
         // Contoso.Major is discovered once per prerelease policy; the
         // duplicate declaration shares the stable discovery.
-        Assert.Equal(6, summary.GetProperty("packages").GetInt32());
-        Assert.Equal(7, summary.GetProperty("compared").GetInt32());
-        Assert.Equal(6, summary.GetProperty("behind").GetInt32());
+        Assert.Equal(8, summary.GetProperty("packages").GetInt32());
+        Assert.Equal(9, summary.GetProperty("compared").GetInt32());
+        Assert.Equal(7, summary.GetProperty("behind").GetInt32());
 
         JsonElement[] rows =
         [
             .. document.RootElement.GetProperty("latest_versions")
                 .EnumerateArray(),
         ];
-        Assert.Equal(7, rows.Length);
+        Assert.Equal(9, rows.Length);
+        AssertLatest(
+            Row(rows, 1, "contoso.beta"),
+            "1.1.0",
+            "1.1.0",
+            "3.0.0",
+            "Major",
+            1);
+        AssertLatest(
+            Row(rows, 1, "contoso.nextbeta"),
+            "1.1.0",
+            "1.1.0",
+            "1.1.0",
+            "None",
+            0);
         AssertLatest(
             Row(rows, 1, "contoso.major"),
             current: "1.2.0",

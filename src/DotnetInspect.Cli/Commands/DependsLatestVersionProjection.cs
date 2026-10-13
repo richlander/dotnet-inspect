@@ -221,8 +221,10 @@ public partial class DependsCommand
                 return new LatestVersionDiscovery(
                     NuGetVersion.Parse(resolved.Coordinate.Version),
                     [
-                        .. resolved.Discovery.Versions.Select(
-                            NuGetVersion.Parse),
+                        .. PackageVersionSelectionResolver.AdmittedVersions(
+                            (PackageVersionSelectionRequest.AlwaysLatest)
+                                resolved.Request,
+                            resolved.Discovery),
                     ],
                     NoListedVersion: false,
                     FailureKind: null,
