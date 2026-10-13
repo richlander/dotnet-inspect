@@ -421,17 +421,6 @@ public enum BrowserPackageQueryAcquisitionTier
     Assembly,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryExecutionClass>))]
-public enum BrowserPackageQueryExecutionClass
-{
-    SearchMetadata,
-    Nuspec,
-    NuspecExpensive,
-    PackageContent,
-    Metadata,
-    MetadataExpensive,
-}
-
 public sealed record BrowserPackageQueryTerm(
     string Key,
     string Operator,
@@ -1439,6 +1428,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
 [JsonSerializable(typeof(BrowserPlatformCatalog))]
+[JsonSerializable(typeof(BrowserPackageQueryExplanationResult))]
 [JsonSerializable(typeof(BrowserPackageQueryTerm[]))]
 [JsonSerializable(typeof(BrowserPackageQueryRow))]
 [JsonSerializable(typeof(BrowserPackageQueryEvent))]

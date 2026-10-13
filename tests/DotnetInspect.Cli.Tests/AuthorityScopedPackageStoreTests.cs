@@ -388,6 +388,29 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
     }
 
     [Fact]
+    public void GlobalPackages_RelativeSourceIsAMissEvenWhenItResolvesUnderTheCurrentDirectory()
+    {
+        NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
+        string relative = $"relative-feed-{Guid.NewGuid():N}";
+        string feed = Path.Combine(Directory.GetCurrentDirectory(), relative);
+        Directory.CreateDirectory(feed);
+        try
+        {
+            var authority = new ConfiguredPackageAuthority(new PackageSource("feed", feed));
+            using IPackageSourceClient client = CreateClient(authority);
+            WriteGlobalPackage(relative);
+
+            Assert.Null(CreateStore(authority, client).TryGetCached(
+                PackageName, Version, [client.Source.Producer.Key]));
+            Assert.Equal(0, _temporaryRootRequests);
+        }
+        finally
+        {
+            Directory.Delete(feed, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GlobalPackages_NoNuGetCacheSkipsMatchingLocalMetadata()
     {
         ConfiguredPackageAuthority authority = LocalAuthority("feed");
@@ -418,18 +441,61 @@ public sealed class AuthorityScopedPackageStoreTests : IDisposable
         Assert.False(candidates.MoveNext());
     }
 
-    [Fact]
-    public void GlobalPackages_HttpHasNoDurableAuthorityEvenWithMatchingMetadata()
+    [Theory]
+    [InlineData("https://feed.example/v3/index.json?tenant=first")]
+    [InlineData("HTTPS://Feed.Example:443/v3/index.json/?tenant=first")]
+    public void GlobalPackages_DurableHttpAuthorityAcceptsItsOwnRecordedSource(
+        string recordedSource)
     {
         NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
         var authority = new ConfiguredPackageAuthority(new PackageSource(
             "http", "https://feed.example/v3/index.json?tenant=first"));
         using IPackageSourceClient client = CreateClient(authority);
-        WriteGlobalPackage(authority.Source.Url);
+        string global = WriteGlobalPackage(recordedSource);
+
+        IPackageContent cached = Assert.IsType<FileSystemPackageContent>(
+            CreateStore(authority, client).TryGetCached(
+                PackageName, Version, [client.Source.Producer.Key]));
+
+        Assert.Equal(global, cached.RootPath);
+        Assert.Equal(client.Source.Producer.Key, cached.ProducerKey);
+        Assert.False(cached.RequiresArchiveTreeMatch);
+        Assert.Equal("global", ReadPayload(cached));
+        Assert.Equal(0, _temporaryRootRequests);
+    }
+
+    [Theory]
+    [InlineData("https://feed.example/v3/index.json?tenant=second")]
+    [InlineData("https://feed.example/v3/index.json")]
+    [InlineData("https://other.example/v3/index.json?tenant=first")]
+    [InlineData("http://feed.example/v3/index.json?tenant=first")]
+    public void GlobalPackages_HttpProducerEqualityWithoutAuthorityEqualityIsAMiss(
+        string recordedSource)
+    {
+        NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
+        var authority = new ConfiguredPackageAuthority(new PackageSource(
+            "http", "https://feed.example/v3/index.json?tenant=first"));
+        using IPackageSourceClient client = CreateClient(authority);
+        WriteGlobalPackage(recordedSource);
 
         Assert.Null(CreateStore(authority, client).TryGetCached(
             PackageName, Version, [client.Source.Producer.Key]));
         Assert.Equal(0, _temporaryRootRequests);
+    }
+
+    [Fact]
+    public void GlobalPackages_CredentialedHttpAuthorityHasNoDurableIdentity()
+    {
+        NuGetCache.Initialize("dotnet-inspect-test", CacheRoot, skipNuGetCache: false);
+        var authority = new ConfiguredPackageAuthority(new PackageSource(
+            "http",
+            "https://feed.example/v3/index.json",
+            new PackageSourceCredential("user", "secret")));
+        using IPackageSourceClient client = CreateClient(authority);
+        WriteGlobalPackage(authority.Source.Url);
+
+        Assert.Null(CreateStore(authority, client).TryGetCached(
+            PackageName, Version, [client.Source.Producer.Key]));
     }
 
     [Fact]

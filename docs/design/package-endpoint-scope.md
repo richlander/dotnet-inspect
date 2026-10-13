@@ -157,7 +157,9 @@ never retain a participant after the scope is disposed.
    global-packages folder. The check reuses the legacy extraction's own cache
    lookup (`PackageExtractor.IsExactPackageCachedAsync`) and makes no request.
    If both endpoint coordinates are cached there, the request takes the
-   legacy path. The House authority stores read neither cache yet.
+   legacy path. When this step landed, the House authority stores read
+   neither cache; durable authorities now reuse their own global-packages
+   entries, as the next step's prerequisite records.
 
    Library API Diff resolves no generic constraints on either path, so its
    parity doesn't depend on the host. Every other request, including API
@@ -210,11 +212,12 @@ never retain a participant after the scope is disposed.
    - The legacy `AssemblySet` endpoint path for `diff` then retires.
    - This also fixes a current gap: without `--tfm`, a package that ships
      `ref/` has its implementation compared against reference stubs.
-   - Prerequisite: before the legacy path retires, the
-     [package cache policy](package-cache-policy.md) owner decides whether
-     and how House authorities serve a package already in a NuGet
-     global-packages folder. Step 2 defers to the legacy path when both
-     endpoints are there, and this document doesn't decide it.
+   - Prerequisite, resolved: House authorities serve a package already in
+     a NuGet global-packages folder when its metadata source resolves to
+     the same durable authority, local or HTTP, as the
+     [package source model](package-source-model.md) states. The global-packages
+     folder has always been in scope. Step 2's deferral to the legacy path
+     retires with the legacy path in this step.
    - API changes and API Finding Transitions move with them, over the
      scope's merged surface, as an intentional output change. The legacy
      merged surface binds generic-constraint dependencies through

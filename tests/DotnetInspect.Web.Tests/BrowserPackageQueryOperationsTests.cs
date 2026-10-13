@@ -1210,14 +1210,22 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public async Task InspectQueryFacets_PreparesSerializationWithoutChangingData()
+    public async Task InspectQueryFacets_UsesSharedExplanationAndPreparesSerialization()
     {
         string json = PackageExports.InspectPackageQueryFacets();
         await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
         using JsonDocument document = JsonDocument.Parse(json);
+        BrowserPackageQueryExplanationResult explanation =
+            PackageExports.ExplainPackageQueryCore(
+                "inspect-resource:/package-query/query?projection=data",
+                keys: null);
 
         Assert.Equal(
-            BrowserPackageQueryOperations.InspectQueryFacets().GetRawText(),
+            BrowserPackageQueryExplanationOutcome.Explained,
+            explanation.Outcome);
+        Assert.Null(explanation.Message);
+        Assert.Equal(
+            explanation.Content!.Value.GetRawText(),
             document.RootElement.GetRawText());
     }
 

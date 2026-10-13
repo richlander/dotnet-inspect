@@ -248,7 +248,9 @@ The initial relations are:
 
 - **Generated execution bodies.** From an authenticated declared source,
   include its async or iterator state-machine execution method and its
-  authenticated lifted local-function or lambda bodies. State-machine
+  authenticated lifted local-function or lambda bodies. The
+  [declared-source relation](#declared-source-relation) states the target
+  that widens this to role-selected state-machine methods. State-machine
   relationships may be available from targeted metadata. Lifted ownership may
   additionally require bounded instruction probes of the selected owner and
   recursively reached candidate bodies. Relationship owners define
@@ -309,6 +311,113 @@ uses waves:
 One physical method appears once, at its earliest wave. Cycles do not create
 new units. A bound reached before closure is typed incomplete source
 completion, never successful exhaustion.
+
+### Declared-source relation
+
+Status: this section is the target design for
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and is
+**unverified**. Today expansion applies only to exact breadth, includes only
+the state-machine `MoveNext` and authenticated lifted bodies, and fails the
+source with empty breadth when a bound is reached. Roles, nested-type reach,
+unauthenticated-candidate breadth, the all-definition reverse lowering, and
+retained-prefix bounds land with that issue.
+
+The declared-source relation maps declared members and the physical bodies
+that implement them, in both directions. Exact breadth asks the forward
+question: which bodies implement this member? All-definition breadth asks the
+reverse question: which declared member does this body belong to? The answers
+are one relation, and the attribution owners define what authenticates each
+edge. This section owns how the source applies it to breadth, what each
+direction costs, and what it publishes.
+
+An edge has a kind, which fixes the depth needed to authenticate it:
+
+| Edge | Authenticated by | Depth |
+| --- | --- | --- |
+| State machine | The source's state-machine attribute names a type that the targeted claim check makes unique to that source | Declaration only |
+| Lifted | An owner body, or a body that owner owns, references the lifted method through `ldftn`, `ldvirtftn`, `call`, or `callvirt` | Selected call and function-pointer operands |
+
+A request that needs only state-machine edges does not pay for lifted
+probes. A compiler-generated name may select the candidate group a reference
+is checked against, but a name alone never authenticates either edge.
+
+Every method declared on an authenticated state-machine type belongs to the
+declared source and carries one role, decided from metadata alone:
+
+| Role | Members | Example |
+| --- | --- | --- |
+| Execution | The resolved `MoveNext` | `<Foo>d__3.MoveNext` |
+| Scaffolding | Instance constructors, and every other body of a MethodImpl row on that type | `GetEnumerator`, `get_Current`, `Dispose`, `Reset`, `SetStateMachine` |
+| User helper | Every other method on that type | `<>m__Finally1`, which holds an iterator's `finally` code |
+
+Lifted local-function and lambda bodies have the Execution role. Roles do not
+change ownership. They let a consumer choose breadth: generated-body expansion
+names the roles it includes. Execution is always included. A consumer that
+measures written code can include user helpers and leave out scaffolding;
+whether member call counts do so is that consumer's own change. A consumer
+that claims completeness over everything
+compiled for a member, such as the unsafe member census, includes every
+role. A method of an authenticated type outside the requested roles is still
+attributed, so it is neither unexamined nor unauthenticated.
+
+For each generated-shaped MethodDef in breadth, the relation publishes one
+outcome:
+
+- an origin `(Method, DeclaredOwner, Kind, Role)`, where `DeclaredOwner` is
+  the ultimate declared member, so a lambda inside an iterator's lambda is
+  owned by the iterator method; or
+- a typed unauthenticated outcome naming that body.
+
+Over exact-type breadth, the relation also covers every method of a
+compiler-generated type reached from a selected type through a chain of
+compiler-generated nested types, such as an async lambda's state machine
+nested in a display class. The chain stops at the first nested type that is
+not compiler-generated, because that type's members own their own generated
+bodies, and a request that wants them selects that type. Each such method is
+an origin in a requested role, an attributed method outside those roles, or
+an unauthenticated candidate. Reaching those nested types is targeted
+NestedClass work, bounded by the relationship-node limit and receipted with
+the expansion. Closure display-class constructors and the static-lambda cache
+type `<>c` are typical unauthenticated candidates, since no edge kind names
+their owner. Expansion may also request its unauthenticated candidates. They
+then join breadth and are visited without an owner, as all-definition breadth
+visits every body, so a consumer can show that they lack evidence instead of
+treating them as unexamined.
+
+The two directions are lowered differently, and neither lowering widens the
+other's cost class:
+
+- **Exact breadth: sparse forward walk.** The relation settles before terminal
+  traversal from targeted metadata and bounded probes of the selected owners
+  and the bodies they reach, as the [expansion](#declared-expansion) does
+  today. The source builds no module-wide index for an exact request.
+- **All-definition breadth: reverse lowering fused into traversal.** Every
+  body is already in breadth, so the relation adds and removes no breadth.
+  State-machine edges come from one declaration-depth scan of state-machine
+  attributes. Lifted edges come from the call and function-pointer operands
+  recorded during the same forward traversal, and the owner closure settles
+  at source completion. A producer that already decodes instructions adds no
+  second body pass. A request whose producers do not need instructions
+  declares that operand demand itself, and the receipt records it as relation
+  work.
+
+Over all-definition breadth the relation is therefore a source-completion
+fact. A producer reads it in `Complete`, not during a unit visit, and a
+request that reads it runs to exhaustion rather than settling early. Over
+exact breadth it is also available during the visit.
+
+Both lowerings publish the same origins for the same declared owners. That
+equivalence is a required gate, the first gate of
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864). A host that retains a session may keep the
+reverse relation as a typed prepared resource only when measured repeat
+requests amortize its preparation.
+
+A reached relation bound publishes typed source incompleteness with the
+retained prefix of breadth and origins, rather than failing the source with
+empty breadth. Each consumer decides what that prefix proves. For example,
+unsafe evidence presence keeps its answer semantics and visible failures,
+while the census keeps the prefix's findings and reports the census
+incomplete.
 
 ### Order and duplicate policy
 

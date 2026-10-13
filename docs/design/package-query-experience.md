@@ -295,6 +295,62 @@ package-adoption scenario runs the production `/query` page against the
 cataloged `analysis.string-literals` fixture, verifies its unified package
 Result and occurrence evidence, and reopens the issued Root.
 
+## Installed query explanation
+
+The Browser admission tracked by
+[#10000](https://github.com/richlander/dotnet-inspect/issues/10000) returns
+installed Package Query reading data through the Package facade and ordinary
+worker/client transport. Exact query-space or facet paths and optional exact
+facet keys select the shared model before assembly, retain declared required
+context and registered Browser binding rules/exposure, and perform no query
+planning, candidate enumeration, workspace mutation, or package acquisition.
+
+`explainPackageQuery(path, facetKeys)` uses HAL naturally. `facetKeys = null`
+means the full selected root; a nonempty array narrows a query-space root.
+Keys are case-sensitive and duplicates collapse. Empty arrays, unknown keys,
+wildcards, and narrowing a facet root fail visibly. Canonical paths and
+`inspect-resource:/` operands are accepted. Explicit `?projection=hal` retains
+HAL; `?projection=data` returns equivalent direct JSON. Other projections and
+paths outside the registered query reading domain fail visibly. No graph-depth,
+inspection predicate, execution bound, or subject is admitted.
+
+[Resource Explanation](resource-explanation.md#query-preparation-reading-selection)
+owns the shared dataset, context closure, completeness, and lowerings.
+Package Query supplies owner-issued facet meaning; the Browser binding supplies
+its exposure and host syntax. The facade does not copy domain rules from CLI
+prose or derive them from UI descriptors. Its typed result distinguishes
+explained content from path and selection failures; failure has no partial
+content. Completeness qualifies selected registered knowledge, not every
+operation validation rule or all installed facets.
+
+HAL embeds selected facets and binding data once. Its collection link is an
+operand for the same export when missing knowledge is needed; it is not an HTTP
+endpoint. Reading embedded rules needs no verification-only navigation.
+Package Query control startup reads the complete direct projection through
+`inspectPackageQueryFacets`, which delegates to this same Explain selection at
+the exact query-space root. That specialized startup transport applies the
+strict control decoder and composes the result atomically with durable-row
+layout; it is not an independent UI authoring catalog.
+`explainPackageQuery` supplies selective HAL or direct reads to other Browser
+consumers. Vocabulary explanation, control startup, and ordinary query
+execution remain independent consumers of the shared model.
+
+```javascript
+const selected = await engine.package.explainPackageQuery(
+  "package-query/query", ["depends", "dependency-target"]);
+const content = selected.content;
+// Read content._embedded.facets and content._embedded.bindings locally.
+// Follow content._links.collection.href only when another question needs it.
+```
+
+The neighboring `library-literal` selection includes `library-target` locally.
+Managed gates compare selected/full records, context, exposure, both lowerings,
+navigation, visible refusals, and zero package-source requests. Worker tests
+check request forwarding and generated facades preserve the typed API. Published
+Wasm probes invoke the real export. This is slice 10 of 10 under #9762; missing
+producer guidance remains separately tracked in #9998. Smaller selected content
+does not establish an agent-efficiency or general latency improvement.
+
 ## Layout
 
 The query content is a full-bleed working surface rather than a modal over one

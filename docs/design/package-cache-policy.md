@@ -125,7 +125,9 @@ digest of its canonical endpoint as the runtime authority key spells it,
 including path, query, and fragment, in the same versioned key namespace
 local authorities use. Query-distinct and path-distinct endpoints stay
 distinct authorities with distinct entries, and no endpoint text is written
-to a path. Authorities with a configured credential keep process-local
+to a path. A durable HTTP authority also reuses NuGet
+global-packages entries whose metadata source resolves to it, as the
+[package source model](package-source-model.md) states. Authorities with a configured credential keep process-local
 storage only.
 
 Two kinds of credential-free feed deserve naming. A feed authenticated by a

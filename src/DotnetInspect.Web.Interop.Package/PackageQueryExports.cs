@@ -26,28 +26,19 @@ namespace DotnetInspect.Web.Interop.Package
 
         private static JsonElement CreateQueryFacetData()
         {
-            InspectionCapabilityCatalog catalog =
-                InspectionCapabilityCatalog.Create(
-                    [
-                        PackageQueryCapability.ProductModule,
-                        PackageQueryCapabilityBinding.Module,
-                    ]);
-            ResourceExplanationCatalog explanation =
-                ResourceExplanationCatalog.CreateCapabilities(
-                    catalog,
-                    PackageQueryCapabilityResourcePaths.Create(catalog));
-            ResourcePathResolution resolution = explanation.Resolve(
-                PackageQueryCapabilityResourcePaths.QuerySpace.Value);
-            if (resolution is not ResourcePathResolution.Resolved resolved)
+            BrowserPackageQueryExplanationResult result =
+                PackageExports.ExplainPackageQueryCore(
+                    "inspect-resource:/package-query/query?projection=data",
+                    keys: null);
+            if (result.Outcome
+                    != BrowserPackageQueryExplanationOutcome.Explained
+                || result.Content is not JsonElement content)
             {
                 throw new InvalidOperationException(
-                    "Package Query Resource Explanation data is unavailable.");
+                    result.Message
+                    ?? "Package Query Resource Explanation data is unavailable.");
             }
-            return ResourceExplanationDataset.Create(
-                    explanation,
-                    resolved)
-                .ToJson(static path =>
-                    "inspect-resource:/" + path.Value);
+            return content;
         }
 
         internal static PackageQueryPlanResult Plan(
