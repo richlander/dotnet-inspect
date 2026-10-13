@@ -76,3 +76,63 @@ perf-guard artifacts/symbol-key-range-pilot/symbol-key-range-pilot \
 SPC ratios are candidate divided by baseline. Values below `1` favor the
 population-backed range, values above `1` favor the private per-key baseline,
 and the assessment requires the full control interval to clear `1`.
+
+## Accepted evidence
+
+The acceptance goal is parity or better with the private byte-native
+`SymbolKey`, together with the large advantage over eager `InertString`
+established by the earlier names-only pilot.
+
+Candidate `08367168c9d5c6cc88b02935824427e7184278b7` ran as linux-x64 NativeAOT
+on `dotnet-inspect-perf` under one `perf-guard` lease. The host was 99.75
+percent idle when the lease began. Thirty rotated rounds measured at least
+50,000 keys per asset:
+
+```text
+perf-guard ./symbol-key-range-pilot measure \
+  --rounds 30 --target-keys 50000 --tsv results.tsv \
+  System.Private.CoreLib.dll \
+  System.Text.Json.dll \
+  Microsoft.Extensions.Configuration.dll
+```
+
+The binary SHA-256 was
+`63835f7884a79551a237b000de97cf27867380ff54ed46aabc2d7f96ca9a64ac`.
+Inputs were .NET 11 RC1 `System.Private.CoreLib.dll` (`9573ebab...`),
+`System.Text.Json` 10.0.9 (`21bf5768...`), and
+`Microsoft.Extensions.Configuration` 10.0.10 (`82e24fb2...`). All strategies
+produced byte-identical keys, hashes, equality answers, and query counts.
+This run includes the declaring-Type chains for nested definitions and
+references; it supersedes the earlier flattened-Type evidence.
+
+Ratios are population-backed range divided by private `SymbolKey`:
+
+| Asset | Keys | Build elapsed | KeyMatch elapsed | `ValueTextEquals` elapsed | Build allocation | Retained memory |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CoreLib | 62,986 | 0.953x, inconclusive | 1.010x, inconclusive | 1.065x, inconclusive | 0.892x, win | 0.817x, win |
+| System.Text.Json | 54,592 | 0.814x, inconclusive | 1.036x, loss | 1.067x, inconclusive | 0.901x, win | 0.833x, win |
+| Microsoft.Extensions.Configuration | 50,244 | 0.822x, inconclusive | 1.020x, inconclusive | 1.074x, inconclusive | 0.903x, win | 0.834x, win |
+
+The absolute KeyMatch medians were 5.266 to 5.326 ms, 3.847 to 3.980 ms,
+and 3.066 to 3.139 ms. The System.Text.Json paired control interval was
+1.010x to 1.060x, so that result is a credible loss. `ValueTextEquals`
+medians were 0.759 to 0.808 ms, 0.645 to 0.689 ms, and 0.583 to 0.627 ms,
+but every paired control interval included parity.
+
+Borrowing the already-bounded Name span avoids resolving a second
+`OpaqueByteRange` in the scoped reader. On the corrected workload,
+`ValueTextEquals` remains inconclusive on all three assets; the unchanged
+KeyMatch path exposes the remaining System.Text.Json loss. Per the asymmetric
+evidence rule, the pilot stopped rather than seeking a favorable second host.
+
+The earlier names-only NativeAOT pilot measured its compact UTF-8 arena at
+0.272x, 0.209x, and 0.223x matching time and 0.323x, 0.330x, and 0.318x
+retained memory versus eager `InertString` on the same three asset families.
+That evidence supports the large-win side of the goal, but it is not the same
+full-key workload and cannot erase the private-`SymbolKey` regression here.
+
+The population-backed representation therefore does not yet meet its
+parity-or-better goal. The operator accepted this pilot result as sufficient
+to proceed with staged implementation while retaining private `SymbolKey`
+parity as a final Fast Diff adoption gate. The remaining KeyMatch gap must be
+closed before that adoption is complete.

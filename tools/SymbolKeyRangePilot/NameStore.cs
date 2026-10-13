@@ -492,11 +492,12 @@ internal readonly struct RangeKey(
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal Utf8RangeReader NameReader()
     {
+        ReadOnlySpan<byte> bytes = _value.Bytes;
         KeyFormat.NameBounds(
-            _value.Bytes,
+            bytes,
             out int offset,
             out int length);
-        return new(_value.Slice(offset, length));
+        return new(bytes.Slice(offset, length));
     }
 
     public bool Equals(RangeKey other)
@@ -520,14 +521,14 @@ internal readonly struct RangeKey(
 }
 
 internal readonly ref struct Utf8RangeReader(
-    OpaqueByteRange value)
+    ReadOnlySpan<byte> value)
 {
-    readonly OpaqueByteRange _value = value;
+    readonly ReadOnlySpan<byte> _value = value;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal bool ValueTextEquals(
         ReadOnlySpan<byte> query) =>
-        _value.Bytes.SequenceEqual(query);
+        _value.SequenceEqual(query);
 }
 
 internal readonly record struct RangeSlot(
