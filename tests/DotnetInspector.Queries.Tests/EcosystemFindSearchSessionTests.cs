@@ -210,7 +210,7 @@ public class EcosystemFindSearchSessionTests
                     item.PackageId, 0));
             });
         var result = await session.ExecuteAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(["Contoso.:3", "Other.:2"], searched);
+        Assert.Equal(["Contoso.:4", "Other.:2"], searched);
         Assert.Equal(["Contoso.Widget", "Other.Widget"], evaluated);
         Assert.Equal(EcosystemFindCompletion.Partial,
             result.Completion);

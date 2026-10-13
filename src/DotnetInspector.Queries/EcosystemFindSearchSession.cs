@@ -326,8 +326,13 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             if (candidates >= Request.MaximumPrefixPackages)
                 return Complete(EcosystemFindCompletion.CandidateLimitReached,
                     [.. Request.Prefixes.Skip(index).Select(item => item.Prefix)]);
+            int overlap = seen.Count(packageId => packageId.StartsWith(
+                prefix.Prefix,
+                StringComparison.OrdinalIgnoreCase));
+            int sourceTake = checked(
+                Request.MaximumPrefixPackages - candidates + overlap);
             await foreach (EcosystemFindPrefixPage page in _enumerate(
-                prefix, Request.MaximumPrefixPackages - candidates, token)
+                prefix, sourceTake, token)
                 .WithCancellation(token))
             {
                 token.ThrowIfCancellationRequested();

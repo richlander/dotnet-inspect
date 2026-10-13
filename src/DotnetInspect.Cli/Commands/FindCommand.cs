@@ -569,7 +569,7 @@ public partial class FindCommand
             if (summary.Completion == EcosystemFindCompletion.CandidateLimitReached)
                 CommandError.WriteWarning(
                     "Ecosystem package-prefix discovery reached its "
-                    + $"{ScopeConstants.PackagePrefixExpansionLimit}-package "
+                    + $"{options.MaximumEcosystemPrefixPackages}-package "
                     + "candidate bound; later prefixes were not searched.");
             incomplete = true;
         }
@@ -760,14 +760,14 @@ public partial class FindCommand
             !demandPrefixes
                 ? []
                 : layers.Select(layer => layer.Declaration.Id),
-            ScopeConstants.PackagePrefixExpansionLimit,
+            options.MaximumEcosystemPrefixPackages,
             options.Limit);
     }
 
     private static async IAsyncEnumerable<EcosystemFindPrefixPage>
         EnumeratePrefixAsync(
             PackagePrefixDeclaration prefix,
-            int remaining,
+            int sourceTake,
             CommandContext context,
             [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -789,7 +789,7 @@ public partial class FindCommand
         context.Logger.Log($"Searching package prefix {prefix.Prefix}");
         await foreach (PackageSourceOperationResult<PackageSearchResult> page
             in source.SearchByPrefixPagesAsync(
-                prefix.Prefix, remaining, prerelease: false,
+                prefix.Prefix, sourceTake, prerelease: false,
                 operation.CancellationToken, operation))
         {
             if (page.Failure is { } failure)

@@ -295,13 +295,28 @@ public class FindProgressiveTsvTests
             options, [".Add*"], layers, demandPrefixes: false);
 
         Assert.Equal(50, streaming.MaximumRows);
-        Assert.Equal(500, streaming.MaximumPrefixPackages);
+        Assert.Equal(10, streaming.MaximumPrefixPackages);
         Assert.NotEmpty(streaming.Prefixes);
         Assert.Empty(blocking.Prefixes);
         Assert.Equal("Add*",
             Assert.Single(Assert.IsType<MemberFindQuestion>(
                 streaming.Question).Patterns).Text);
         Assert.NotEqual(streaming.Identity, blocking.Identity);
+    }
+
+    [Fact]
+    public void EcosystemRequestUsesExplicitPrefixCandidateBound()
+    {
+        var layers = FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        var options = new FindOptions
+        {
+            MaximumEcosystemPrefixPackages = 7,
+        };
+
+        var request = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: true);
+
+        Assert.Equal(7, request.MaximumPrefixPackages);
     }
 
     [Fact]
