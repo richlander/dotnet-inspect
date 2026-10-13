@@ -348,7 +348,10 @@ internal static class PackageInspector
             directories,
             result);
         result.BuiltDate =
-            GetPackageBuildDate(fileList.Entries);
+            GetPackageBuildDate(
+                fileList.DirectoryEntries is { Count: > 0 }
+                    ? fileList.Entries.Concat(fileList.DirectoryEntries)
+                    : fileList.Entries);
         CanonicalizePersistentProjection(result);
         return result;
     }

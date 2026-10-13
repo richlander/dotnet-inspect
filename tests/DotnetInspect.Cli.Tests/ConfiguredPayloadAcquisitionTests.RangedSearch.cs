@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 
@@ -79,6 +80,110 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(
             feed.PackageBytesServed
                 < library.Length + (1024 * 1024),
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    [Fact]
+    public async Task PackageInfo_RangedRead_PreservesExplicitDirectoryBuildDate()
+    {
+        string id =
+            $"PackageInfo.DirectoryTimestamp.{Guid.NewGuid():N}";
+        DateTimeOffset directoryTimestamp =
+            new(2040, 1, 2, 3, 4, 6, TimeSpan.Zero);
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "directory timestamp package",
+            library: library,
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ("content/filler.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+            ],
+            explicitDirectories:
+            [
+                ("lib/", directoryTimestamp),
+            ]);
+        var feed =
+            new RangeHonoringFeedHandler(
+                FirstFeed,
+                id,
+                package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "-S",
+                "Package Info",
+                "--markdown",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains(
+            "| Built | 2040-01-02 |",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.True(
+            feed.RangedResponses >= 2,
+            $"ranged responses: {feed.RangedResponses}");
+    }
+
+    [Fact]
+    public async Task PackageInfo_TypedJson_RetainsBinarySignals()
+    {
+        string id =
+            $"PackageInfo.TypedJson.{Guid.NewGuid():N}";
+        byte[] library = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = CreatePackage(
+            id,
+            "typed JSON Package Info package",
+            library: library,
+            libraryName: $"{id}.dll",
+            extraEntries:
+            [
+                ("content/filler.bin",
+                    RandomNumberGenerator.GetBytes(4 * 1024 * 1024)),
+            ]);
+        var feed =
+            new RangeHonoringFeedHandler(
+                FirstFeed,
+                id,
+                package);
+        UseFeed(feed);
+
+        var result = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "-S",
+                "Package Info",
+                "--json",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        using JsonDocument json =
+            JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            JsonValueKind.Object,
+            json.RootElement
+                .GetProperty("binary_signals")
+                .ValueKind);
+        Assert.Equal(1, feed.FullPackageResponses);
+        Assert.Equal(0, feed.RangedResponses);
+        Assert.True(
+            feed.PackageBytesServed >= package.Length,
             $"served {feed.PackageBytesServed} of {package.Length} package bytes");
     }
 

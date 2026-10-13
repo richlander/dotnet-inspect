@@ -660,7 +660,8 @@ public sealed class PackageHouseRequest
                 PackageHouseLibraryCompanionDemand.None,
             contentQuery: new PackageHouseContentQuery(
                 new PackageHouseContentNarrowing.PackageWide(),
-                [new PackageHouseContentTerminal.FileList()]),
+                [new PackageHouseContentTerminal.FileList(
+                    includeDirectories: true)]),
             allowReferenceOnlyImplementationNames: false,
             materializeCompileAssets: true);
     }

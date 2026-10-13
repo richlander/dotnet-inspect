@@ -1723,6 +1723,7 @@ public partial class PackageCommand
     private static bool CanRenderPackageInfoInventory(
         InspectionOptions options) =>
         options.Discover is null
+        && !options.JsonOutput
         && !options.Count
         && !options.Value
         && !options.Urls

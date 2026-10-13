@@ -809,10 +809,16 @@ public sealed partial class PackageHouse
                 }
 
                 IReadOnlyList<string>? semanticDirectories = null;
+                IReadOnlyList<PackageContentEntry>?
+                    semanticDirectoryEntries = null;
                 if (request.ContentQuery?.FileListTerminal?.IncludeDirectories == true)
                 {
                     if (payload.Content is IPackageArchiveEntryManifest directoryManifest)
+                    {
                         directoryManifest.TryGetArchiveDirectories(out semanticDirectories);
+                        directoryManifest.TryGetArchiveDirectoryEntries(
+                            out semanticDirectoryEntries);
+                    }
                 }
                 IReadOnlyList<PackageContentEntry>? semanticEntries = null;
                 PackageHouseContentNarrowingResolution?
@@ -976,7 +982,8 @@ public sealed partial class PackageHouse
                         ? new PackageHouseFileList(
                             contentNarrowing,
                             semanticEntries,
-                            semanticDirectories)
+                            semanticDirectories,
+                            semanticDirectoryEntries)
                         : null;
                 PackageHouseLibraryAndInventory? libraryAndInventory =
                     request.ContentQuery?.LibraryAndInventoryTerminal

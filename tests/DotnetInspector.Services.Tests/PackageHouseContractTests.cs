@@ -81,10 +81,11 @@ public sealed class PackageHouseContractTests
         Assert.IsType<
             PackageHouseContentNarrowing.PackageWide>(
             request.ContentQuery!.Narrowing);
-        Assert.IsType<
+        var fileList = Assert.IsType<
             PackageHouseContentTerminal.FileList>(
             Assert.Single(
                 request.ContentQuery.Terminals));
+        Assert.True(fileList.IncludeDirectories);
     }
 
     [Fact]

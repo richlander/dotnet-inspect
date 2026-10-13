@@ -103,8 +103,14 @@ public sealed partial class PackageRangedRealizationTests
     {
         using var bytes = new MemoryStream();
         bytes.Write(ReadPclStorage());
+        DateTimeOffset directoryTimestamp =
+            new(2040, 1, 2, 3, 4, 6, TimeSpan.Zero);
         using (var zip = new ZipArchive(bytes, ZipArchiveMode.Update, leaveOpen: true))
-            zip.CreateEntry("lib/net99.0/");
+        {
+            ZipArchiveEntry entry =
+                zip.CreateEntry("lib/net99.0/");
+            entry.LastWriteTime = directoryTimestamp;
+        }
         byte[] archive = bytes.ToArray();
         var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
         await using RangedEnvironment environment = RangedEnvironment.Create(server);
@@ -120,6 +126,13 @@ public sealed partial class PackageRangedRealizationTests
             Assert.Contains("lib/net99.0", list.Directories!);
             Assert.Contains("lib/net45", list.Directories!);
             Assert.DoesNotContain(list.Entries, entry => entry.Path.EndsWith('/'));
+            PackageContentEntry directoryEntry =
+                Assert.Single(
+                    list.DirectoryEntries!,
+                    entry => entry.Path == "lib/net99.0/");
+            Assert.Equal(
+                directoryTimestamp.DateTime,
+                directoryEntry.LastWriteTime!.Value.DateTime);
             Assert.Empty(acquired.Payload.Content.EnumerateEntries());
             Assert.Contains("net99.0", TfmSelector.GetPackageFrameworkFolders(list.Directories!));
         }

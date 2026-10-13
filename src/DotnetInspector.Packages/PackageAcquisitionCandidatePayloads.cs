@@ -772,7 +772,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             if (TryGetDirectoryEntries(
                     reader.Directory,
                     limits,
-                    out IReadOnlyList<PackageContentEntry> entries)
+                    out IReadOnlyList<PackageContentEntry> entries,
+                    out IReadOnlyList<PackageContentEntry> directoryEntries)
                 is { } directoryProblem)
             {
                 return new(
@@ -788,7 +789,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
                 RangedPackageContent.CreateDirectory(entries, producerKey, reader.Directory.ArchiveLength,
-                    PackageArchiveDirectories.FromPaths(reader.Directory.Entries.Select(entry => entry.Name)));
+                    PackageArchiveDirectories.FromPaths(reader.Directory.Entries.Select(entry => entry.Name)),
+                    directoryEntries);
             PackageRangedPlan plan = PackageEntryBlocks.PlanSelection(
                 reader.Directory,
                 rangedRead.SelectEntries(directory)
@@ -1002,7 +1004,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         if (TryGetDirectoryEntries(
                 directory,
                 limits,
-                out IReadOnlyList<PackageContentEntry> entries)
+                out IReadOnlyList<PackageContentEntry> entries,
+                out IReadOnlyList<PackageContentEntry> directoryEntries)
             is { } directoryProblem)
         {
             log?.Invoke(
@@ -1013,7 +1016,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
 
         RangedPackageContent directoryView =
             RangedPackageContent.CreateDirectory(entries, producerKey, directory.ArchiveLength,
-                PackageArchiveDirectories.FromPaths(directory.Entries.Select(entry => entry.Name)));
+                PackageArchiveDirectories.FromPaths(directory.Entries.Select(entry => entry.Name)),
+                directoryEntries);
         // An anchor requires its whole aligned block: a block is present when
         // all of its entries are, so a warm read naming a neighbour in a
         // cached block makes no request.
@@ -1153,11 +1157,13 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
     private static string? TryGetDirectoryEntries(
         ZipDirectory directory,
         PackagePayloadLimits limits,
-        out IReadOnlyList<PackageContentEntry> entries)
+        out IReadOnlyList<PackageContentEntry> entries,
+        out IReadOnlyList<PackageContentEntry> directoryEntries)
     {
         var admission = new PackageArchiveDirectoryAdmission(limits);
         var admitted = new List<PackageContentEntry>(
             directory.Entries.Count);
+        var admittedDirectories = new List<PackageContentEntry>();
         foreach (ZipEntry entry in directory.Entries)
         {
             if (admission.TryAdd(
@@ -1166,18 +1172,25 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                     out bool isDirectory) is { } admissionProblem)
             {
                 entries = [];
+                directoryEntries = [];
                 return admissionProblem;
             }
-            if (!isDirectory)
+            var admittedEntry =
+                new PackageContentEntry(
+                    entry.Name,
+                    entry.ExpandedLength,
+                    entry.LastWriteTime);
+            if (isDirectory)
             {
-                admitted.Add(
-                    new PackageContentEntry(
-                        entry.Name,
-                        entry.ExpandedLength,
-                        entry.LastWriteTime));
+                admittedDirectories.Add(admittedEntry);
+            }
+            else
+            {
+                admitted.Add(admittedEntry);
             }
         }
         entries = admitted.AsReadOnly();
+        directoryEntries = admittedDirectories.AsReadOnly();
         return null;
     }
 

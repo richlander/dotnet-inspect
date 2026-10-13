@@ -175,6 +175,14 @@ internal interface IPackageArchiveEntryManifest
         directories = null;
         return false;
     }
+
+    bool TryGetArchiveDirectoryEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? directoryEntries)
+    {
+        directoryEntries = null;
+        return false;
+    }
 }
 
 /// <summary>One package entry's path, declared expanded length, and optional archive timestamp.</summary>

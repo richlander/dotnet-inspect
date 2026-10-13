@@ -2297,7 +2297,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null,
         IReadOnlyList<(string Id, string Version)>? dependencies = null,
         string? nuspecContent = null,
-        byte[]? pdb = null)
+        byte[]? pdb = null,
+        IReadOnlyList<(string Path, DateTimeOffset LastWriteTime)>?
+            explicitDirectories = null)
     {
         string dependenciesXml = dependencies is { Count: > 0 }
             ? "<dependencies><group targetFramework=\"net11.0\">"
@@ -2320,6 +2322,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     </metadata></package>
                     """);
             WriteEntry(archive, "README.md", readme);
+            if (explicitDirectories is not null)
+            {
+                foreach (var (path, lastWriteTime) in explicitDirectories)
+                {
+                    ZipArchiveEntry entry = archive.CreateEntry(path);
+                    entry.LastWriteTime = lastWriteTime;
+                }
+            }
             if (library is not null)
             {
                 using Stream entry = archive.CreateEntry(
