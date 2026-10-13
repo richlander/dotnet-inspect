@@ -345,11 +345,32 @@ public class TypeView
     [JsonIgnore]
     public List<OptimizationOpportunityRow>? OptimizationOpportunityRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.BodyShapes, EmptyText = "No matching body shapes found.")]
+    /// <summary>
+    /// True when the Body Shapes search could not inspect every body, so its
+    /// rows and Count are what was observed rather than a complete result.
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnore]
+    public bool BodyShapeSearchIncomplete { get; set; }
+
+    [JsonIgnore]
+    [MarkoutIgnore]
+    public bool BodyShapeMatchesObserved { get; set; }
+
+    /// <summary>
+    /// An incomplete search with no observed rows is not the explicit empty
+    /// state; the incompleteness is disclosed on stderr instead.
+    /// </summary>
+    [JsonIgnore]
+    [MarkoutIgnore]
+    public bool ShowBodyShapes =>
+        !BodyShapeSearchIncomplete || BodyShapeMatchesObserved;
+
+    [MarkoutSection(Name = SectionNames.BodyShapes, EmptyText = "No matching body shapes found.", ShowWhenProperty = nameof(ShowBodyShapes))]
     [JsonIgnore]
     public List<ApiBodyShapeRow>? BodyShapeRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.BodyShapeSummary, EmptyText = "No matching body shapes found.")]
+    [MarkoutSection(Name = SectionNames.BodyShapeSummary, EmptyText = "No matching body shapes found.", ShowWhenProperty = nameof(ShowBodyShapes))]
     [JsonIgnore]
     public List<ApiBodyShapeSummaryRow>? BodyShapeSummaryRows { get; set; }
 

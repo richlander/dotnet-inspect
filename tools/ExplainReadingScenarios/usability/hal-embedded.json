@@ -1,0 +1,88 @@
+{
+  "commands": [
+    "dotnet-inspect package query Microsoft.Azure.SignalR --where library-literal=https:// --tfm net8.0 --json"
+  ],
+  "displayed_bytes": [
+    {
+      "file": "bootstrap.txt",
+      "bytes": 535
+    },
+    {
+      "file": "query-hal-summary.json",
+      "bytes": 230
+    },
+    {
+      "file": "embedded-index.json",
+      "bytes": 10139
+    },
+    {
+      "file": "focused.json",
+      "bytes": 7669
+    },
+    {
+      "file": "describedby-link.json",
+      "bytes": 189
+    },
+    {
+      "file": "contract-selected.json",
+      "bytes": 2368
+    },
+    {
+      "file": "contract-index.json",
+      "bytes": 786
+    },
+    {
+      "file": "contract-schema-summary.json",
+      "bytes": 1276
+    }
+  ],
+  "answer": {
+    "argv": [
+      "dotnet-inspect",
+      "package",
+      "query",
+      "Microsoft.Azure.SignalR",
+      "--where",
+      "library-literal=https://",
+      "--tfm",
+      "net8.0",
+      "--json"
+    ],
+    "package_matching": "The positional package ID selects one exact package ID.",
+    "literal_matching": "The library-literal eq operand is an ordinal substring of each decoded string-literal use in selected implementation libraries; it does not require the whole string to equal https://.",
+    "operand_rules": "Length 1..1024 UTF-16 code units. Preserve all text including whitespace, newlines, and case; no normalization.",
+    "repeated_operands": "Identical repeated values collapse to one distinct operand; distinct values are incompatible.",
+    "framework_context": "Supply one exact NuGet target framework with --tfm net8.0. library-literal and --tfm require each other.",
+    "empty_values": "The facet has no enumerated values in this projection. That does not override its input rules or imply arbitrary operands are accepted.",
+    "astral_600": "No. Each astral Unicode character occupies two UTF-16 code units, so 600 occupy 1200, above the 1024-unit maximum.",
+    "execution": "Command prepared only; no package query or network work executed."
+  },
+  "uncertainties": [
+    "The HAL projection has Complete data_scope, but the optional describedby contract fetch reported Truncated due to requested depth 0. It was not needed for the command or facet rules.",
+    "No direct statement in the inspected HAL projection defines values: [] semantics; the empty-values answer is limited to the fact that explicit input rules still apply."
+  ],
+  "bootstrap_bytes": 535,
+  "reasons_for_extra_fetches": [
+    "Fetched the emitted describedby href to check whether the explanation schema defined what an empty facet values list means. It did not add a direct definition; its default traversal was depth-truncated."
+  ],
+  "observed_evidence": {
+    "query_data_scope": "Complete",
+    "facet_operators": [
+      "eq"
+    ],
+    "facet_values": [],
+    "facet_requires": [
+      "library-target"
+    ],
+    "binding_gesture": "package query",
+    "binding_exposes_library_literal": true,
+    "binding_rules": [
+      "Supply a package ID or PREFIX* as the positional argument after package query.",
+      "Supply exposed inspection facets through --where key=value.",
+      "Use --json for structured query result output.",
+      "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
+      "library-literal and --tfm require each other; neither is valid alone.",
+      "Package-content predicates admit at most five candidates; an exact package ID selects one candidate."
+    ]
+  }
+}

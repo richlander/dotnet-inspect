@@ -93,12 +93,19 @@ Browser query surface exposes no Gallery search, browse, package-type, or
 source-order gesture.
 The Browser catalog projects `PackageQuery.RegisteredTerms`, the
 Package-specific projection of the effective Query Operation route; it does
-not own an independent predicate table. Closed options become preset controls
+not own an independent predicate table. Fact options become preset controls
 carrying the explicit product-issued `(key, operator, value)` triple plus
 label, summary, weight, acquisition tier, execution class, optional resolver
-selection group, optional preset replacement group, and optional display
-group. Free-input descriptors carry the same route-issued key and operators
-plus product-owned value-kind and example metadata.
+selection group, optional preset replacement group, display group, and
+Browser-issued fact category. Operand-bearing descriptors carry the same
+route-issued key and operators plus product-owned value-kind and example
+metadata. Presets and operand-bearing descriptors may also carry one
+product-issued related-operation affordance identity projected from Resource
+Explanation. The Browser catalog is currently only a transport for that
+registered identity; it does not author a parallel lens hint. Descriptors may
+also carry product-issued choices or suggestions. A closed choice renders as a
+select; suggestions render as a dropdown-backed input that still admits an
+exact custom value.
 
 Acquisition tier and execution class are independent product facts. The former
 authorizes source search metadata, nuspec, or package-content work and retains
@@ -107,10 +114,10 @@ its candidate limits. The latter is the UI taxonomy:
 or `metadata-expensive`. The Browser preserves the class through its generated
 facade and TypeScript catalog instead of deriving it from acquisition tier.
 For example, `references` has package-content acquisition and metadata
-execution, while `depends-transitive` and its `dependency-depth` qualifier use
-nuspec acquisition with `nuspec-expensive` execution. Selecting either
-transitive control lowers the Browser's candidate bound to five, including
-when a package-content term is also active. The remaining expensive class
+execution, while bounded dependency reach uses nuspec acquisition with
+`nuspec-expensive` execution. Selecting a dependency depth lowers the Browser's
+candidate bound to five, including when a package-content term is also active.
+The remaining expensive class
 reserves explicit disclosure for future call-graph or decompiler-driven queries
 rather than silently broadening a cheaper class.
 
@@ -128,10 +135,12 @@ The shared planner also authors exactly one structural `package` or `prefix`
 term, exactly one `prerelease` policy, `candidates`, optional `matches`, and
 the Browser's Head stage into one complete Portable Query Intent.
 
-The rail renders applied operand-bearing terms in an **Active terms** zone
-above an **Available terms** palette. The active zone is absent when no term is
-applied and no term draft is open. Choosing a palette entry opens one empty
-draft and focuses its operand without starting source work. Applying the draft
+The rail renders applied operand-bearing terms in an **Active value queries**
+zone above a **Query by value** palette. This language distinguishes predicates
+that require the user to provide or select an operand from the one-click
+**Inspection facts** below them. The active zone is absent when no value query
+is applied and no draft is open. Choosing a palette entry opens one empty draft
+and focuses its operand without starting source work. Applying the draft
 requires a nonempty operand, retains the exact `(key, operator, value)` triple,
 and starts a replacement query only when the package input is nonblank.
 Draft and active-term editor values survive unrelated rerenders and mode
@@ -162,13 +171,55 @@ Applied terms are individually editable and removable. Apply or remove
 preserves package input, prerelease selection, and selected terms, and starts
 a replacement query when the package input is runnable. Repeated
 `depends` terms remain separate active rows and AND through the product planner.
+The Browser presents them through one **Depends on package** facet. Each row
+authors the package operand and `eq` or `starts-with` operator. One visibly
+shared reach choice applies to every exact `depends` row:
+**Direct only**, **Within 2 edges**, **Within 3 edges**, or
+**Within 4 edges**. Direct-only is the default. Changing reach through any
+exact dependency editor changes the shared reach for all exact dependency
+rows; the Browser does not imply unsupported mixed direct and bounded exact
+semantics. The visibly shared target editor is blank by default, meaning all
+declared dependency groups, and remains editable for direct exact and
+literal-prefix matching. Applying an exact TFM authors one query-wide
+`dependency-target=<tfm>`; clearing it removes the target term rather than
+falling back to the Library target or a Browser-default TFM. When another
+exact dependency still retains bounded reach, clearing this shared target is
+invalid: Apply keeps the editor open and visibly requires an exact target
+rather than silently discarding the dependency edit. A bounded reach atomically
+authors the exact `depends` terms with one query-wide
+`dependency-depth=2|3|4` and one required exact
+`dependency-target=<tfm>`; each exact term includes direct and transitive paths
+within that maximum. Returning to direct-only removes the traversal depth but
+retains the user's explicit dependency target until it is cleared.
+Literal-prefix matching remains direct-only and does not itself select bounded
+reach.
+The Browser does not expose `depends-transitive`, `dependency-depth`, or
+`depends-transitive` or `dependency-depth` as independent palette controls, so
+it cannot issue an invalid depth-only intermediate request. The ordinary
+dependency-target term remains available for scoping other direct dependency
+facts. Ecosystem operands are selected from the registered product Ecosystem
+catalog. Target-framework controls offer product-issued common TFM suggestions
+while retaining exact custom TFM input for package-specific groups. The shared
+planner retains legacy
+`depends-transitive` compatibility outside this host experience.
 `license` is a closed choice. `any` matches a nuspec declaration, `MIT`
 matches the exact SPDX expression, and `OSMF` matches the declared
 `OSMFEULA.*` basename. The Browser does not inspect license content or define
 these mappings in TypeScript.
+`tool=true` is the nuspec-only **.NET Tool** inspection fact.
+`tool-format=v1|v2` is the package-content **DotnetCliTool** value query and
+selects the format version reported by `DotnetToolSettings.xml`. They are
+presented separately rather than as one segmented fact control. Applying
+either replaces the incompatible control from the other family; repeated
+DotnetCliTool value queries may still combine `v1` and `v2`.
 The Browser does not pre-collapse exact or case-variant duplicates, reinterpret
 the operand, or infer a term from evidence text. Product-issued term
 attribution remains structured across the Browser engine boundary.
+
+Inspection facts are ordered and segmented into **Package metadata**,
+**Dependencies**, and **Package contents**. The categories communicate the
+kind of fact rather than exposing internal execution-class names. Execution
+class and acquisition tier still govern cost disclosure and bounds.
 
 This delivery keeps request state in memory only. `/query` URL persistence and
 Workspace packet attachment remain later owner slices. Portable intent
@@ -270,22 +321,19 @@ Interaction](inspect-web-shell-interaction.md#product-navigation-menu) and its
   Browser-owned vocabulary or open grammar. Selecting a preset restarts source
   work; it never client-side-filters stale rows. Product-issued selection
   groups define same-family replacement or combination; replacement groups
-  remove incompatible presets across families. The `.NET Tool`, `v1`, and `v2`
-  controls share one display group while retaining independently focusable
-  buttons and explicit term triples. `tool=true` uses only manifest package-type
-  evidence. `tool-format=v1` and `tool-format=v2` inspect
-  `DotnetToolSettings.xml`; selecting both forms an OR-union, while either is
-  incompatible with broad `tool=true`. Their product-issued replacement group
-  makes the broad and specific presets replace one another without making
-  display grouping define compatibility. `skill=true` matches package entries
+  remove incompatible presets across families. `.NET Tool` is a one-click
+  manifest fact. `DotnetCliTool` is a value query with a format-version select.
+  `tool=true` uses only manifest package-type evidence.
+  `tool-format=v1` and `tool-format=v2` inspect `DotnetToolSettings.xml`;
+  selecting both forms an OR-union. `skill=true` matches package entries
   at `skills/SKILL.md` or `skills/**/SKILL.md`, case-insensitively.
   `references=<simple-assembly-name>` is a free-input active term over
   `AssemblyRef` simple names in every admitted managed `ref/` and `lib/` group;
   result evidence names the matching frameworks and archive paths. The rail
   persistently discloses that package-content terms may download up to 20
   candidate archives.
-- **Active terms and palette**: free-input descriptors such as `depends` add
-  an operand editor; applied terms remain visible with Apply and Remove
+- **Active value queries and palette**: operand-bearing descriptors such as
+  `depends` add an editor; applied value queries remain visible with Apply and Remove
   actions. An empty draft performs no work. Applying or removing any preset or
   free term reruns the current nonblank package input through the product
   planner rather than filtering retained rows. The Browser merges both kinds
@@ -325,11 +373,26 @@ Interaction](inspect-web-shell-interaction.md#product-navigation-menu) and its
   nonempty query context without inventing package inspection facts.
 - **Handoff, not duplication**: `Open in workspace` submits the row's
   product-issued package ID and exact version once through the standard typed
-  Workspace transition, without inferring a framework, source, or fallback
-  from display text — the funnel never grows its own type/member browser.
+  Workspace transition. Active presets and terms contribute only their
+  product-issued related-operation affordance identities. When they identify
+  exactly one operation, the Browser may bind that exact identity to a
+  host-owned destination; `package.dependencies.inspect` opens Package
+  Dependencies. No operation, conflicting operations, or an unbound operation
+  opens Package Overview. The handoff never infers an operation, framework,
+  source, or fallback from term keys, labels, evidence, or other display text,
+  so the funnel never grows its own type/member browser.
   Assembly match rows instead submit the evaluator's exact opaque Root
   reacquisition request. The Browser never reconstructs it from package ID,
   version, selected path, framework, or evidence text.
+
+The motivating real asset is
+`Microsoft.Extensions.Configuration.Binder@10.0.12`, observed through
+`package query 'Microsoft.Extensions.*' --where
+'depends=Microsoft.Extensions.Configuration' --nuspec-only`: its nuspec
+declares the requested dependency and makes Package Dependencies the natural
+continuation of the result. The durable Browser fixture uses the same
+dependency-group shape, with a non-default TFM proving that an absent direct
+target does not silently become `net10.0`.
 
 ## States
 
@@ -711,10 +774,13 @@ and browser-history and focus-return outcomes are proved by
 5. Change the search text, leave the route, and start another run; confirm each
    aborts or supersedes the active source operation and that events from an
    older generation cannot enter a replacement outcome.
-6. Open a row in Workspace and confirm one typed package transition using its
-   exact product-issued ID and version, without inferring a framework, source,
-   or fallback from display text. Confirm that a typed failure retains
-   `/query`, the result set, and the request.
+6. Run a direct dependency query without a target and confirm its target editor
+   is blank, editable, and evaluates dependency groups without silently
+   selecting `net10.0`. Apply and clear an exact direct target, then open a
+   matching row and confirm one typed package transition using its exact
+   product-issued ID and version into Package Dependencies. Confirm that no
+   framework, source, or fallback is inferred from display text and that a
+   typed failure retains `/query`, the result set, and the request.
 7. Confirm that `.NET Tool`, `v1`, and `v2` form one segmented control with
    independent focus and pressed state. `.NET Tool` replaces either version;
    either version replaces `.NET Tool`; `v1` and `v2` remain selectable
@@ -772,7 +838,7 @@ and browser-history and focus-return outcomes are proved by
    event adapter, product-issued inspection controls, and typed Workspace
    handoff.
 4. **#5464** adds the bounded package-content tier, the embedded `SKILL.md`
-   predicate, and the segmented DotNetCliTool format control.
+   predicate, and the DotnetCliTool format predicate.
 5. **#5816** adds Browser-advertised match credit, scroll-pressure
    replenishment, and frame-batched query-region rendering through #5832. Its
    Browser-owned DOM follow-up retains the complete outcome in state while

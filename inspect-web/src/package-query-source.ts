@@ -114,6 +114,10 @@ function toQueryPreset(
     replacementGroupId: descriptor.replacementGroupId,
     displayGroupId: descriptor.displayGroupId,
     displayGroupLabel: descriptor.displayGroupLabel,
+    categoryId: descriptor.categoryId,
+    categoryLabel: descriptor.categoryLabel,
+    categoryOrder: descriptor.categoryOrder,
+    relatedOperations: [...descriptor.relatedOperations],
   };
 }
 
@@ -131,6 +135,14 @@ function toQueryTermDescriptor(
     valueKind: descriptor.valueKind,
     example: descriptor.example,
     multiline: descriptor.multiline,
+    allowsCustomValue: descriptor.allowsCustomValue,
+    replacementGroupId: descriptor.replacementGroupId,
+    options: descriptor.options.map(option => ({
+      value: option.value,
+      label: option.label,
+      summary: option.summary,
+    })),
+    relatedOperations: [...descriptor.relatedOperations],
   };
 }
 

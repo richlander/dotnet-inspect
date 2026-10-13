@@ -4,7 +4,7 @@ export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMa
 
 export type BrowserVocabularyDiagnosticSeverity = "Information" | "Warning" | "Error" | number;
 
-export type BrowserVocabularyExplanationOutcome = "Explained" | "InvalidPath" | "OutsideVocabularies" | "Unknown" | "InvalidDepth" | number;
+export type BrowserVocabularyExplanationOutcome = "Explained" | "InvalidPath" | "OutsideVocabularies" | "Unknown" | "InvalidDepth" | "InvalidSelection" | number;
 
 export type BrowserVocabularyMapCardinality = "ExactlyOne" | "OptionalOne" | "OneOrMore" | "ZeroOrMore" | number;
 

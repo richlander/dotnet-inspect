@@ -8,7 +8,8 @@ namespace ILInspector.Analysis;
 
 internal readonly record struct AsyncSiblingBodyResult(
     ImmutableArray<AsyncSiblingRow> Rows,
-    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+    ImmutableArray<AnalysisDiagnostic> Diagnostics,
+    int Count);
 
 internal sealed partial class LibraryMethodAnalysisRunner
 {
@@ -22,6 +23,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition,
         MethodBodyBlock body,
+        bool projectRows,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -42,7 +44,7 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 typeSourceGenerated,
                 ref asyncSource))
         {
-            return new([], []);
+            return new([], [], 0);
         }
 
         MethodBodyData metadataBody = RequireMethodBody(
@@ -78,6 +80,9 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 out ImmutableArray<DirectCall> unresolvedCalls);
         foreach ((DirectCall call, MemberRef sibling) in matches)
         {
+            if (!projectRows)
+                break;
+
             cancellationToken.ThrowIfCancellationRequested();
             rows.Add(new(
                 asyncSource,
@@ -102,6 +107,6 @@ internal sealed partial class LibraryMethodAnalysisRunner
                 caller.DeclaringType,
                 caller.DeclaringType));
         }
-        return new(rows.ToImmutable(), diagnostics.ToImmutable());
+        return new(rows.ToImmutable(), diagnostics.ToImmutable(), matches.Length);
     }
 }

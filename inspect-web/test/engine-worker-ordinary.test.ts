@@ -152,6 +152,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryMemberDocument"),
     queryMemberGroupDocument: () =>
       unexpected("queryMemberGroupDocument"),
+    queryPerformanceTypeMemberPopulation: () =>
+      unexpected("queryPerformanceTypeMemberPopulation"),
+    queryTypeOverviewDocument: () =>
+      unexpected("queryTypeOverviewDocument"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -160,14 +164,22 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocument"),
     queryPlatformMemberGroupDocument: () =>
       unexpected("queryPlatformMemberGroupDocument"),
+    queryPlatformPerformanceTypeMemberPopulation: () =>
+      unexpected("queryPlatformPerformanceTypeMemberPopulation"),
+    queryPlatformTypeOverviewDocument: () =>
+      unexpected("queryPlatformTypeOverviewDocument"),
     queryUploadedLibraryMemberDocument: () =>
       unexpected("queryUploadedLibraryMemberDocument"),
     queryPlatformTypeMemberPopulation: () =>
       unexpected("queryPlatformTypeMemberPopulation"),
     queryUploadedLibraryMemberGroupDocument: () =>
       unexpected("queryUploadedLibraryMemberGroupDocument"),
+    queryUploadedLibraryPerformanceTypeMemberPopulation: () =>
+      unexpected("queryUploadedLibraryPerformanceTypeMemberPopulation"),
     queryUploadedLibraryTypeMemberPopulation: () =>
       unexpected("queryUploadedLibraryTypeMemberPopulation"),
+    queryUploadedLibraryTypeOverviewDocument: () =>
+      unexpected("queryUploadedLibraryTypeOverviewDocument"),
     queryTypeProjection: () => unexpected("queryTypeProjection"),
     queryPackageMetadataTable: () =>
       unexpected("queryPackageMetadataTable"),
@@ -542,7 +554,7 @@ test("uploaded Library Member document queries use the retained exact image", as
   const content = [0x4d, 0x5a, 0x00, 0x01];
   const identity = `sha256:${"a".repeat(64)}`;
   let received:
-    [string, number[], string, string] | undefined;
+    [string, number[], string, string, string, string, boolean] | undefined;
   let exactReceived:
     [string, number[], string, string, number, string] | undefined;
   let receivedPopulation:
@@ -618,8 +630,12 @@ test("uploaded Library Member document queries use the retained exact image", as
         bytes,
         typeIdentity,
         memberName,
+        accessibility,
+        receiver,
+        includeHidden,
       ) {
-        received = [declaredName, bytes, typeIdentity, memberName];
+        received = [declaredName, bytes, typeIdentity, memberName,
+          accessibility, receiver, includeHidden];
         return {
           outcome: "Available",
           detail: null,
@@ -674,6 +690,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       identity,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   await state.environment.flushAsync();
 
@@ -683,6 +702,9 @@ test("uploaded Library Member document queries use the retained exact image", as
     content,
     "Example.Widget",
     "Run",
+    "protected",
+    "all",
+    false,
   ]);
   const population =
     state.client.metadata.queryUploadedLibraryTypeMemberPopulation(
@@ -725,6 +747,9 @@ test("uploaded Library Member document queries use the retained exact image", as
       `sha256:${"b".repeat(64)}`,
       "Example.Widget",
       "Run",
+      "protected",
+      "all",
+      false,
     );
   const mismatchFailure = assert.rejects(
     mismatched,
@@ -1896,6 +1921,41 @@ test("concurrent ordinary calls use independent authority sessions", async () =>
   state.host.dispose();
 });
 
+test("background bindings are not Worker activity", async () => {
+  const fastDiff = deferred<void>();
+  const state = fixture({
+    metadata: {
+      queryLibraryFastDiff: async () => {
+        await fastDiff.promise;
+        return contractViolation({ schemaVersion: 2, kind: "Canceled" });
+      },
+    },
+  });
+  const background = state.client.metadata.queryLibraryFastDiff(
+    "fast-diff-1",
+    {
+      schemaVersion: 2,
+      packageId: "Fixture",
+      currentVersion: "2.0.0",
+      targetVersion: "1.0.0",
+      targetFramework: "net10.0",
+      compileAssetId: "compile:lib/net10.0/Fixture.dll",
+      axes: "ApiAndBody",
+    },
+  );
+  await state.environment.flushAsync();
+
+  assert.equal(state.host.snapshot().activeOperations, 1);
+  assert.equal(state.client.activity.outstanding(), 0);
+  // Idle resolves even though the background operation is still active.
+  await state.client.activity.whenIdle();
+
+  fastDiff.resolve();
+  await background;
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("generated rejection fails visibly without poisoning neighboring calls", async () => {
   const state = fixture({
     catalog: {
@@ -1954,7 +2014,8 @@ test("malformed and oversized generated results reject only their calls", async 
       queryPackageVersions: async () =>
         contractViolation({ versions: [undefined] }),
       loadRuntimePack: async () =>
-        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+        contractViolation(
+          "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters)),
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
@@ -2354,11 +2415,15 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryMemberDeclaration",
       "queryMemberDocument",
       "queryMemberGroupDocument",
+      "queryPerformanceTypeMemberPopulation",
       "queryTypeMemberPopulation",
+      "queryTypeOverviewDocument",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
+      "queryPlatformPerformanceTypeMemberPopulation",
       "queryPlatformTypeMemberPopulation",
+      "queryPlatformTypeOverviewDocument",
       "queryPackageHeapEntries",
       "queryPackageMetadata",
       "queryPackageMetadataTable",
@@ -2368,7 +2433,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryTypeProjection",
       "queryUploadedLibraryMemberDocument",
       "queryUploadedLibraryMemberGroupDocument",
+      "queryUploadedLibraryPerformanceTypeMemberPopulation",
       "queryUploadedLibraryTypeMemberPopulation",
+      "queryUploadedLibraryTypeOverviewDocument",
     ],
     analysis: [
       "queryCloneCandidates",
@@ -2459,7 +2526,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 123);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 129);
 
   const state = fixture();
   const groups = [

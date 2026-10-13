@@ -386,8 +386,8 @@ acquisition-identity case.
 failure-boundary rule.
 
 Package `--all-libraries` creates one binding-consistent group per package asset
-directory, preserving non-`net*` framework and runtime contexts, so `--tfm all`
-never combines different binding universes. Every root receives its own
+directory, preserving non-`net*` framework and runtime contexts, so it never
+combines different binding universes. Every root receives its own
 `AssemblyDependencyResolver`, and
 `SourceRelativeAssemblyGroupBindingPolicy` composes those resolvers behind the
 one shared policy version required by the group. For each participant in group

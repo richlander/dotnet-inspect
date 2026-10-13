@@ -335,8 +335,9 @@ reducing their occurrence counts; `--count` counts the selected view's rows.
 Both views are available on `library`, `type`, and `member`.
 
 Use `--jsonl` for one machine-readable row per match or `--count` for the row
-count. Bodies that cannot be reconstructed at full fidelity are reported on
-stderr rather than mixed into structured output.
+count. Bodies that cannot be reconstructed at full fidelity make the search
+incomplete: the observed rows and count still print, stderr reports how many
+bodies were not searched (`--verbose` lists them), and the command exits 1.
 
 ## Capability inventory
 
@@ -544,7 +545,9 @@ and signal sets may change between releases.
 Use `library -S @Performance` for a whole-assembly triage pass, `Top Leverage`
 for ranking, `Resource Triage` for exception-path pool-churn candidates, and
 `Call Graph` to drill one selected member. The performance skill covers the full
-workflow in more depth.
+workflow in more depth. `Performance: Sync Calls in Async` finds synchronous
+calls made by async methods when the declaring type offers a callable async
+sibling, including `Dispose`/`DisposeAsync` pairs.
 
 ```bash
 dotnet-inspect library System.Text.Json -S @Performance
@@ -552,6 +555,7 @@ dotnet-inspect library System.Text.Json -S "Library Metrics"
 dotnet-inspect library System.Text.Json -S @Performance --count
 dotnet-inspect library System.Text.Json -S "Performance: Boxing" --json
 dotnet-inspect library System.Text.Json -S "Performance: Strings" --json
+dotnet-inspect library System.Text.Json -S "Performance: Sync Calls in Async"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
@@ -981,7 +985,7 @@ equivalents. The following map distinguishes those contracts:
 | `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter |
 | `--tfm TFM` with library inspection | Select the package target before Library scope | Uses package asset selection; it is not Files `Target=TFM` |
 | `--roots` | Project distinct top-level folders from selected Files | A result projection, not a predicate or another section |
-| `--tfms` | List distinct package target frameworks in TFM-priority order | A separate TFM row population; Files predicates select files, not distinct framework rows |
+| `--tfms` | Select the Target Frameworks section | `-S "Target Frameworks"`; native output, formats, row selection, and Count are identical |
 | `--versions`, `--versions-with-feed` | Enumerate available package versions, optionally with feed provenance | A separate version population; these do not select a section of one package version |
 | `--content` | Read documents selected by `--path` | A content operation; selecting Files inventories entries without reading their contents |
 
@@ -998,15 +1002,19 @@ package asset-role selection before inspecting metadata; a file path predicate
 cannot replace that subject selection. Files `Target=net8.0` can also match
 entries under `buildTransitive/net8.0` unless a Root predicate narrows them.
 
-The separate `--tfms`, version-listing, and content modes reject explicit
+The separate version-listing and content modes reject explicit
 `-S` selection because they render their own populations. Giving one of these
 a section entrance would require preserving its row identity, ordering,
 acquisition, and output contract; it would not follow from replacing its flag
 with a Files predicate.
 
-For one package with `--tfms`, `-n`, `--tail`, and `--rows A..B` select
-complete target-framework rows after archive extraction, framework
-de-duplication, and TFM-priority ordering. Count, table, TSV, JSONL, and JSON
+For one package with only `--tfms` or `-S "Target Frameworks"`, `-n`,
+`--tail`, and `--rows A..B` select complete target-framework rows after
+framework folder enumeration, de-duplication, and TFM-priority ordering.
+`--tfms` can compose with other sections. Its former standalone JSON array
+is replaced by the section's established JSON contracts: plain `--json`
+preserves the typed package object; field or column projections follow
+Projected JSON. Bare output uses native TSV. Count, table, TSV, JSONL, and JSON
 observe the same selected rows; add `--lines` only to clip rendered text.
 
 For one package with exactly `SourceLink: Files` selected, `-n`, `--tail`, and
@@ -1021,6 +1029,16 @@ the Content of `InspectionEnvelope<int>`. Without Count, `--envelope` retains
 the complete directed version Document. `--preview`, `--include-unlisted`,
 configured source options, and `--versions-with-feed` remain semantic
 population inputs.
+
+`package query --explain` returns installed query facets and CLI bindings as
+HAL JSON without contacting NuGet. `--json` is optional. This command-only
+terminal rejects package arguments, query/execution options, other output
+formats, and dotted projections. Process-wide controls such as `--offline`
+and `--http-timeout` remain available. Select needed embedded facets locally with
+jq, or use `explain package-query/query/facets/depends .hal --json` for a
+focused dependency-facet response. See
+[Installed capability explanation](design/package-query-cli.md#installed-capability-explanation)
+for the worked workflow.
 
 `package query ID` selects one exact package ID. A single terminal `*` selects
 a literal package-ID prefix. Explicit `--take` bounds candidate work before
@@ -1079,14 +1097,15 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 ```
 
-Use `depends-transitive=<package-id>` for source-authorized declared-range
-reachability beyond a direct dependency. It requires one exact
-`dependency-target=<TFM>` and an explicit `dependency-depth=2|3|4`; the
-expensive query is limited to five package candidates:
+Add `dependency-depth=2|3|4` to an exact `depends=<package-id>` term for
+source-authorized declared-range reachability. The match is inclusive: direct
+dependencies and transitive paths within the selected maximum depth qualify.
+It requires one exact `dependency-target=<TFM>`; the expensive query is
+limited to five package candidates:
 
 ```bash
 dotnet-inspect package query Microsoft.Extensions.Http \
-  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 ```
@@ -1095,8 +1114,9 @@ The result is not a NuGet restore claim. Evidence counts matching declaration
 edges and previews deterministic shortest paths built from declared ranges and
 resolved exact package coordinates. The shared 160-character display budget
 may shorten a preview, so it is not a complete path record or package
-coordinate. A direct-only dependency does not satisfy the transitive term, and
-incomplete traversal remains a visible failure.
+coordinate. The legacy `depends-transitive` spelling remains available when a
+depth-2-or-greater-only match is required. Incomplete traversal remains a
+visible failure.
 
 Use `dependencies=cross-prefix` to find packages with a direct dependency from a
 different first dot-delimited package-ID segment. It uses the same
@@ -1199,8 +1219,12 @@ reject a query that would require package content. Without explicit `--take`, a
 simple `-n N` query pushes that semantic head into execution; explicit
 `--take` instead fixes the candidate population before row selection. Reached
 candidate limits and partial failures are reported explicitly. `--count`
-counts selected matching package rows only when completion or the semantic
-selection proves the count exact.
+counts the selected matching package rows that the same query would render,
+with the same completion warnings and exit status. A reached candidate bound or
+partial failure therefore yields an observed count, not the scope's total.
+Incompleteness alone never withholds the count: only a search that fails before
+evaluating any candidate prints none, and an unsatisfied strict `--rows` window
+fails as it does for rows.
 
 Package Query output adapts after execution. The default renders `Packages`
 when at least one package matched and `Query Summary` otherwise. The summary
@@ -1386,10 +1410,12 @@ unchanged; if recovery after cutover also fails, Inspect Web enters a blocking
 retry state rather than exposing the failed tentative Workspace. Source
 declarations that do not require authentication activate without a prompt.
 
-Add `--make-package-dependencies-explicit` to acquire every direct Package
-member, resolve its exact direct dependencies for the member's effective
-target, and append those dependencies to the same context before emitting the
-derived packet:
+Add `--make-package-dependencies-explicit` to acquire the bounded manifest for
+every direct Package member, resolve its exact direct dependencies for the
+member's effective target, and append those dependencies to the same context
+before emitting the derived packet. PackageHouse uses a source-supplied
+manifest when available and otherwise acquires only the root nuspec from the
+package archive:
 
 ```bash
 dotnet-inspect workspace \
@@ -1402,7 +1428,7 @@ dotnet-inspect workspace \
 The transformation also accepts a canonical Base64URL packet string through
 `--packet`. Existing members retain their order; new members use owner-issued
 dependency order and are deduplicated only within each context. The command
-emits no packet unless every selected Package root completes and the complete
+emits no packet unless every selected Package manifest settles and the complete
 derived definition remains projectable. Unlike ordinary resource-free
 `--share`, this explicit transformation admits `--preview` and NuGet source
 policy because acquisition is part of the requested operation.
@@ -2695,3 +2721,52 @@ when maintaining the embedded skill.
 ## License
 
 MIT
+
+## Exact explanation JSON
+
+`explain <resource> --json` returns compact resource facts and HAL navigation.
+The declared fact names are local to the resource type; ordered values remain
+arrays. Non-available facts appear in `fact_states`, and relationship states
+and truncation remain explicit. Integers and decimals are lossless decimal
+strings; octets are base64 strings.
+
+```bash
+dotnet-inspect explain vocabularies/csharp.body-kinds --json
+dotnet-inspect explain package-query/query/facets/library-literal --json
+dotnet-inspect explain vocabularies/csharp.style-choices --depth 1 --json
+dotnet-inspect explain vocabularies/csharp.body-kinds .contract --json
+```
+
+`.contract` explicitly selects the complete self-contained explanation Document
+with its schema declarations. It requires an exact resource and `--json`.
+HAL links use `inspect-resource:/<resource-path>` addresses; pass a returned
+`href` unchanged to `explain` to follow it. These addresses resolve locally,
+without HTTP access. Human explanation and capability search are unchanged.
+
+For vocabulary, query-space, and query-facet roots, `.data --json` selects a
+self-contained reading dataset rather than a graph depth. Vocabulary data
+includes referenced vocabularies, direct value properties, complete positive
+boolean sets, and optional-text membership groups. Facet data includes required
+context and exposing bindings; `exposed_facets` is the binding's intersection
+with the selected facets, not its entire term population.
+
+```bash
+dotnet-inspect explain vocabularies/csharp.style-choices .data --json
+dotnet-inspect explain package-query/query .data --json
+dotnet-inspect explain package-query/query/facets/library-literal .hal --json
+```
+
+`.hal` presents direct resource state, a titled `_links` menu, and related
+resources in `_embedded` arrays with simple, descriptive relation names. HAL links
+advertise `application/hal+json` and preserve the selection through
+`?projection=hal`; JSON detail links advertise `application/json`. A root
+`describedby` link selects the full contract through `?projection=contract`.
+Pass either address unchanged to `explain --json`. Receipt details stay in the
+contract representation; completeness and non-available data qualifications
+remain beside the data they affect. Both
+selections require `--json` and reject `--depth` and search operands. Selection
+closure is bounded to 256 resources and 4,096 observed targets; excess or
+incomplete selected observations fail visibly instead of producing sparse tables
+with ambiguous negatives. Neither selection supplies validation rules or host
+flag mappings that the catalog has not registered. The [worked reading comparison](../tools/ExplainReadingScenarios/README.md#actual-selected-data-comparison)
+includes runnable jq exploration and actual JSON examples.

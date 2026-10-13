@@ -842,8 +842,8 @@ reuse.
 Package `--all-libraries` constructs one
 `SourceRelativeAssemblyGroupBindingPolicy` per selected package asset directory
 and passes that shared policy snapshot to every participant in that group.
-`--tfm all` therefore creates separate groups for distinct framework, asset-kind,
-and runtime directories rather than mixing binding universes. The host executes
+Distinct framework, asset-kind, and runtime directories therefore form separate
+groups rather than mixing binding universes. The host executes
 the group query only for explicit Integrations demand, including demand
 introduced by query prerequisites, correlates entries by acquisition
 registration, and projects them into the existing per-library Finding model.

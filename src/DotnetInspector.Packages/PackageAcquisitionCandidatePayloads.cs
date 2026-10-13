@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using DotnetInspector.Cache;
 using InertText;
+using NuGet.Versioning;
 using NuGetFetch;
 using ZipFetch;
 
@@ -113,6 +114,139 @@ public sealed class ConfiguredPackagePayloadResult
     /// present exactly when a payload is.
     /// </summary>
     public PackageTransferReceipt? Transfer { get; }
+}
+
+/// <summary>
+/// Projects one PackageHouse settlement into the retained configured-payload
+/// evidence shape used by package-source consumers.
+/// </summary>
+public static class PackageHousePayloadResultAdapter
+{
+    public static ConfiguredPackagePayloadResult Create(
+        PackageHouseSettlement settlement)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        ConfiguredPackagePayloadResult? sourceResult =
+            settlement.SourcePayloadResult;
+        return new ConfiguredPackagePayloadResult(
+            sourceResult?.Authority,
+            sourceResult?.Source,
+            sourceResult?.Payload,
+            ProjectAuthorityFailures(settlement.Result),
+            sourceResult?.NotFoundAuthorities,
+            sourceResult?.ReportingAuthorities,
+            settlement.SelectionUsesOriginalSources,
+            settlement,
+            sourceResult?.Transfer);
+    }
+
+    internal static IReadOnlyList<PackageAuthorityFailure>
+        ProjectAuthorityFailures(
+            PackageHouseResult result)
+    {
+        List<PackageAuthorityFailure> failures =
+        [
+            .. result.Evidence.Failures
+                .OfType<PackageHouseFailure.Authority>()
+                .Select(failure => failure.Failure),
+        ];
+        if (HasOperationTimeout(result)
+            && !failures.Any(failure =>
+                failure.Timeout?.Kind
+                    == PackageSourceTimeoutKind.Operation))
+        {
+            failures.Add(
+                new PackageAuthorityFailure(
+                    InertString.Empty,
+                    PackageAuthorityFailureKind.Timeout,
+                    "The package operation deadline expired before settlement completed.")
+                {
+                    Timeout = new(
+                        PackageSourceTimeoutKind.Operation,
+                        result.Request.Operation.OperationTimeout),
+                });
+        }
+        if (result.Request.Demand
+                is PackageHouseDemand.Selecting
+                {
+                    Request:
+                        PackageVersionSelectionRequest.Range range,
+                }
+            && result.Decision?.VersionResolution
+                is (PackageVersionResolutionReceipt.NoMatch
+                    or PackageVersionResolutionReceipt.NotFound)
+                    and PackageVersionResolutionReceipt.Discovered discovered)
+        {
+            failures.Add(
+                ProjectRangeSelectionFailure(
+                    range,
+                    discovered));
+        }
+
+        return failures;
+    }
+
+    private static PackageAuthorityFailure ProjectRangeSelectionFailure(
+        PackageVersionSelectionRequest.Range range,
+        PackageVersionResolutionReceipt.Discovered resolution)
+    {
+        string message;
+        try
+        {
+            PackageVersionVector vector = PackageVersionVector.Create(
+                range.VersionRange,
+                resolution.Discovery.Versions,
+                range.Discovery.IncludePrerelease);
+            string address = range.Selection switch
+            {
+                PackageVersionRangeSelection.First => "first",
+                PackageVersionRangeSelection.Last => "last",
+                PackageVersionRangeSelection.Ordinal ordinal =>
+                    $"#{ordinal.Value}",
+                PackageVersionRangeSelection.Exact exact =>
+                    exact.Version,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(range)),
+            };
+            message = vector.TrySelect(
+                    address,
+                    out _,
+                    out string? error)
+                ? resolution switch
+                {
+                    PackageVersionResolutionReceipt.NoMatch noMatch =>
+                        noMatch.Reason.ToString(),
+                    PackageVersionResolutionReceipt.NotFound notFound =>
+                        notFound.Reason.ToString(),
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(resolution)),
+                }
+                : error!;
+        }
+        catch (ArgumentException exception)
+        {
+            message = exception.Message;
+        }
+
+        return new PackageAuthorityFailure(
+            InertString.Empty,
+            PackageAuthorityFailureKind.Input,
+            message);
+    }
+
+    internal static bool HasOperationTimeout(
+        PackageHouseResult result) =>
+        result.Evidence.Failures.Any(
+            failure => failure
+                is PackageHouseFailure.Timeout
+                {
+                    Kind: PackageHouseTimeoutKind.Operation,
+                }
+                or PackageHouseFailure.Authority
+                {
+                    Failure.Timeout.Kind:
+                        PackageSourceTimeoutKind.Operation,
+                });
 }
 
 /// <summary>
@@ -619,7 +753,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                 operation.CancellationToken,
                 operation,
                 requestLog,
-                knownArchiveLength).ConfigureAwait(false);
+                knownArchiveLength,
+                knownDirectory: cachedState?.Directory).ConfigureAwait(false);
         if (open.Value is not { } reader)
         {
             return ClassifyRanged(
@@ -634,21 +769,6 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         await using (reader.ConfigureAwait(false))
         {
             RequireAuthority(reader.Source, authority, client.Source);
-            if (cachedState is not null
-                && (reader.Directory.ArchiveLength != cachedState.Directory.ArchiveLength
-                    || !reader.Directory.Region.Span.SequenceEqual(
-                        cachedState.Directory.Region.Span)))
-            {
-                // The archive changed since its directory was cached: take the
-                // complete fetch, as ArchiveChanged means. No cached item is
-                // replaced.
-                log?.Invoke(
-                    $"The archive of {coordinate.PackageId} {coordinate.Version} at {display} "
-                    + "differs from its cached directory; acquiring the complete archive instead.");
-                return new(
-                    RangedOutcome.Fallback,
-                    Fallback: PackageTransferFallbackReason.ArchiveChanged);
-            }
             if (TryGetDirectoryEntries(
                     reader.Directory,
                     limits,
@@ -667,7 +787,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             }
             string producerKey = client.Source.Producer.Key;
             RangedPackageContent directory =
-                RangedPackageContent.CreateDirectory(entries, producerKey, reader.Directory.ArchiveLength);
+                RangedPackageContent.CreateDirectory(entries, producerKey, reader.Directory.ArchiveLength,
+                    PackageArchiveDirectories.FromPaths(reader.Directory.Entries.Select(entry => entry.Name)));
             PackageRangedPlan plan = PackageEntryBlocks.PlanSelection(
                 reader.Directory,
                 rangedRead.SelectEntries(directory)
@@ -891,7 +1012,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         }
 
         RangedPackageContent directoryView =
-            RangedPackageContent.CreateDirectory(entries, producerKey, directory.ArchiveLength);
+            RangedPackageContent.CreateDirectory(entries, producerKey, directory.ArchiveLength,
+                PackageArchiveDirectories.FromPaths(directory.Entries.Select(entry => entry.Name)));
         // An anchor requires its whole aligned block: a block is present when
         // all of its entries are, so a warm read naming a neighbour in a
         // cached block makes no request.

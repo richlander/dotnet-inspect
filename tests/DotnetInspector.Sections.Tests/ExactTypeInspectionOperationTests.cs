@@ -40,12 +40,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             LoadOptions(client, store);
 
         InspectionEnvelope<ExactTypeInspectionResult> first =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 capabilities,
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> second =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 capabilities,
                 TestContext.Current.CancellationToken);
@@ -76,7 +76,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -103,7 +103,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new NotFoundHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -194,7 +194,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -247,12 +247,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             $"{typeNamespace}.{typeName}");
 
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 new ApiSurfaceProjectionLimits(
@@ -320,12 +320,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             $"{typeNamespace}.{typeName}");
 
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 new ApiSurfaceProjectionLimits(
@@ -369,7 +369,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -398,7 +398,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -428,7 +428,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -461,7 +461,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -499,7 +499,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -526,7 +526,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -549,7 +549,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -584,12 +584,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             "Exact.Type.Malformed");
 
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 new ApiSurfaceProjectionLimits(
@@ -643,12 +643,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             typeName);
 
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 new ApiSurfaceProjectionLimits(
@@ -690,12 +690,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             "Exact.Type.");
 
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 new ApiSurfaceProjectionLimits(
@@ -881,7 +881,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -962,12 +962,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             "Exact.Type.Absent");
 
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 LoadOptions(client, store),
                 new ApiSurfaceProjectionLimits(
@@ -1020,7 +1020,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             maxMetadataRows: 10_000);
 
         InspectionEnvelope<ExactTypeInspectionResult> selected =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -1030,7 +1030,7 @@ public sealed partial class ExactTypeInspectionOperationTests
                 limits,
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> unavailable =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -1079,7 +1079,7 @@ public sealed partial class ExactTypeInspectionOperationTests
         using var client = new HttpClient(new FailingHandler());
 
         InspectionEnvelope<ExactTypeInspectionResult> envelope =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 new ExactTypeInspectionRequest(
                     PackageId,
                     Version,
@@ -1123,12 +1123,12 @@ public sealed partial class ExactTypeInspectionOperationTests
         WorkspaceContextLoadOptions capabilities =
             LoadOptions(client, store);
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 capabilities,
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 capabilities,
                 new ApiSurfaceProjectionLimits(
@@ -1177,12 +1177,12 @@ public sealed partial class ExactTypeInspectionOperationTests
             LoadOptions(client, store);
 
         InspectionEnvelope<ExactTypeInspectionResult> unbounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 capabilities,
                 TestContext.Current.CancellationToken);
         InspectionEnvelope<ExactTypeInspectionResult> bounded =
-            await ExactTypeInspectionOperation.ExecuteAsync(
+            await ExecuteHouseAsync(
                 request,
                 capabilities,
                 new ApiSurfaceProjectionLimits(
@@ -1451,6 +1451,80 @@ public sealed partial class ExactTypeInspectionOperationTests
             PackageStore = store,
         };
 
+    static Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteHouseAsync(
+            ExactTypeInspectionRequest request,
+            WorkspaceContextLoadOptions capabilities,
+            CancellationToken cancellationToken) =>
+        ExecuteHouseCoreAsync(
+            request,
+            capabilities,
+            projectionLimits: null,
+            cancellationToken);
+
+    static Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteHouseAsync(
+            ExactTypeInspectionRequest request,
+            WorkspaceContextLoadOptions capabilities,
+            ApiSurfaceProjectionLimits projectionLimits,
+            CancellationToken cancellationToken) =>
+        ExecuteHouseCoreAsync(
+            request,
+            capabilities,
+            (ApiSurfaceProjectionLimits?)projectionLimits,
+            cancellationToken);
+
+    static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
+        ExecuteHouseCoreAsync(
+            ExactTypeInspectionRequest request,
+            WorkspaceContextLoadOptions capabilities,
+            ApiSurfaceProjectionLimits? projectionLimits,
+            CancellationToken cancellationToken)
+    {
+        PackageSourceAuthorization authorization =
+            capabilities.SourceAuthorization.AuthorizeSourcesFor(
+                request.PackageId);
+        Dictionary<PackageSourceAssociation, IPackageSourceClient> clients =
+            authorization.Authorities.ToDictionary(
+                static authority => authority.Association,
+                static authority => PackageSourceClientFactory.Create(
+                    authority.Source,
+                    authority.Association,
+                    new NotFoundHandler()));
+        try
+        {
+            await using PackageSourceSettlementLease root =
+                PackageSourceSettlementService.IssueLease(
+                    authority => clients[authority.Association]);
+            var house = new PackageHouse(
+                capabilities.SourceAuthorization,
+                new PackagePayloadAcquisitionPlan(
+                    (_, _) => capabilities.PackageStore,
+                    capabilities.PayloadLimits,
+                    capabilities.PackageTransferPolicy,
+                    capabilities.Log));
+            PackageSourceOperationLease operation =
+                root.IssueOperationLease(cancellationToken);
+            return projectionLimits is null
+                ? await ExactTypeInspectionOperation.ExecuteAsync(
+                    request,
+                    house,
+                    operation,
+                    cancellationToken)
+                : await ExactTypeInspectionOperation.ExecuteAsync(
+                    request,
+                    house,
+                    operation,
+                    projectionLimits,
+                    cancellationToken);
+        }
+        finally
+        {
+            foreach (IPackageSourceClient client in clients.Values)
+                client.Dispose();
+        }
+    }
+
     static async Task<IPackageStore> CachedStoreAsync()
         => await CachedStoreAsync(
             ($"lib/{Framework}/DotnetInspector.Sections.dll",
@@ -1463,13 +1537,30 @@ public sealed partial class ExactTypeInspectionOperationTests
     {
         var store = new InMemoryPackageStore();
         byte[] package = Archive(entries);
-        await store.CommitAsync(
-            PackageId,
-            Version,
-            NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(package),
-            TestContext.Current.CancellationToken);
+        foreach (string producerKey in FixtureProducerKeys())
+        {
+            await store.CommitAsync(
+                PackageId,
+                Version,
+                producerKey,
+                new MemoryStream(package),
+                TestContext.Current.CancellationToken);
+        }
         return store;
+    }
+
+    static string[] FixtureProducerKeys()
+    {
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                Source,
+                PackageSourceAssociation.Create(),
+                new NotFoundHandler());
+        return
+        [
+            NuGetCache.GetSourceKey(SourceUrl),
+            client.Source.Producer.Key,
+        ];
     }
 
     static WorkspaceContextInput Input() =>

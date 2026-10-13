@@ -1,0 +1,1 @@
+{"argv": ["explain", "package-query/query", ".hal", "--json"], "stdout_bytes": 16144, "stderr_bytes": 0, "exit": 0}

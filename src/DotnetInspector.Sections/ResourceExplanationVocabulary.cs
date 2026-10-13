@@ -74,6 +74,9 @@ internal static class ResourceExplanationVocabulary
     internal static readonly ExplanationResourceTypeIdentity
         HostNeutralRouteType =
             new(CapabilitySchemaIdentity, "host-neutral-route");
+    internal static readonly ExplanationResourceTypeIdentity
+        RelatedOperationType =
+            new(CapabilitySchemaIdentity, "related-operation");
     internal static readonly ExplanationResourceTypeIdentity QuerySpaceType =
         new(QuerySchemaIdentity, "query-space");
     internal static readonly ExplanationResourceTypeIdentity QueryFacetType =
@@ -600,6 +603,16 @@ internal static class ResourceExplanationVocabulary
                         "Consumer binding",
                         ConsumerBindingType),
                 ]);
+        ExplanationResourceTypeDeclaration relatedOperation =
+            Type(
+                RelatedOperationType,
+                "Related operation",
+                "One owner-issued operation related to another resource.",
+                [
+                    TextFact("identity", "Identity"),
+                    TextFact("name", "Name"),
+                    TextFact("summary", "Summary"),
+                ]);
         ExplanationResourceTypeDeclaration querySpace =
             Type(
                 QuerySpaceType,
@@ -632,6 +645,7 @@ internal static class ResourceExplanationVocabulary
                     TextsFact("values", "Values", 256),
                     TextsFact("examples", "Examples", 256),
                     TextsFact("effects", "Effects", 256),
+                    TextsFact("input-rules", "Input rules", 64),
                 ],
                 [
                     Relationship(
@@ -642,6 +656,10 @@ internal static class ResourceExplanationVocabulary
                         "required-context",
                         "Required context",
                         QueryFacetType),
+                    Relationship(
+                        "related-operation",
+                        "Related operation",
+                        RelatedOperationType),
                     Relationship(
                         "exposed-by",
                         "Exposed by",
@@ -658,6 +676,7 @@ internal static class ResourceExplanationVocabulary
                     TextFact("summary", "Summary"),
                     TextFact("consumer-kind", "Consumer kind"),
                     TextFact("gesture", "Gesture"),
+                    TextsFact("input-rules", "Input rules", 64),
                     IntegerFact("members", "Members"),
                 ],
                 [
@@ -775,7 +794,7 @@ internal static class ResourceExplanationVocabulary
                 CapabilitySchemaIdentity,
                 Version,
                 [],
-                [document, route]),
+                [document, route, relatedOperation]),
             new(
                 QuerySchemaIdentity,
                 Version,

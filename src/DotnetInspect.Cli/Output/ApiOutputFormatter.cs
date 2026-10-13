@@ -2293,7 +2293,7 @@ public static class ApiOutputFormatter
             $"{method.ModuleVersionId:N}:0x{method.MetadataToken:X8}",
             FormatMethod(method));
 
-    static string FormatCallee(Analysis.MemberRef member)
+    internal static string FormatCallee(Analysis.MemberRef member)
     {
         if (member.Kind == Analysis.MemberKind.Unsupported)
             return member.DeclaringType.ToDisplayString();
@@ -2686,6 +2686,9 @@ public static class ApiOutputFormatter
                 kind,
                 methodTokens,
                 includeAll: options.IncludeAll,
+                limit: BodyShapeRowSelection.SearchLimit(
+                    options.BodyShapeRowSelection,
+                    options.IncludeSections),
                 printerOptions: options.RenderOptions);
         view.BodyShapeRows =
         [
@@ -2696,9 +2699,12 @@ public static class ApiOutputFormatter
             .. BodyShapeSummary.FromMatches(result.Matches).Select(ApiBodyShapeSummaryRow.FromSummary),
         ];
 
-        if (result.Failures.Count == 0)
+        view.BodyShapeSearchIncomplete = BodyShapeCompleteness.IsIncomplete(result);
+        view.BodyShapeMatchesObserved = result.Matches.Count > 0;
+        if (!view.BodyShapeSearchIncomplete)
             return;
 
+        CommandError.WriteWarning(BodyShapeCompleteness.Warning(result));
         if (options.Verbose)
         {
             foreach (Decompiler.BodyShapeSearchFailure failure in result.Failures)
@@ -2706,13 +2712,6 @@ public static class ApiOutputFormatter
                 CommandError.WriteWarning(
                     $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
             }
-        }
-
-        else
-        {
-            CommandError.WriteWarning(
-                $"Body Shapes skipped {result.Failures.Count} candidates; "
-                + "rerun with --verbose for details.");
         }
     }
 

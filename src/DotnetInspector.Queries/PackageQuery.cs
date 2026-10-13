@@ -181,11 +181,11 @@ public sealed record PackageQueryRequestFailure
         PackageQueryRequestFailureReason.OrderNotSupported =>
             "Package Query does not define an ordering namespace.",
         PackageQueryRequestFailureReason.TransitiveDependencyRequiresTarget =>
-            "depends-transitive requires an explicit dependency-target=<tfm>.",
+            "Dependency traversal requires an explicit dependency-target=<tfm>.",
         PackageQueryRequestFailureReason.TransitiveDependencyRequiresDepth =>
             "depends-transitive requires dependency-depth=2, 3, or 4.",
         PackageQueryRequestFailureReason.DependencyDepthRequiresTransitiveDependency =>
-            "dependency-depth requires at least one depends-transitive term.",
+            "dependency-depth requires at least one exact depends or depends-transitive term.",
         PackageQueryRequestFailureReason.LibraryLiteralRequiresTarget =>
             "library-literal requires one exact target framework.",
         PackageQueryRequestFailureReason.LibraryTargetRequiresLiteral =>
@@ -235,10 +235,14 @@ public sealed class PackageQueryPlan
         Intent = intent;
         Prefix = prefix;
         BoundTerms = terms;
-        ContentDemand = terms.Any(term => term.Predicate.RequiresPackageContent
-            && term.Predicate.Kind != PackageQueryPredicateKind.Skill)
-            ? PackageQueryContentDemand.EntryContent
-            : PackageQueryContentDemand.Inventory;
+        ContentDemand = new PackageQueryContentDemand(
+            requiresSkillInventory: terms.Any(term =>
+                term.Predicate.Kind == PackageQueryPredicateKind.Skill),
+            requiresToolSettings: terms.Any(term =>
+                term.Predicate.Kind == PackageQueryPredicateKind.ToolFormat),
+            requiresAssemblyReferences: terms.Any(term =>
+                term.Predicate.Kind
+                    == PackageQueryPredicateKind.AssemblyReference));
         Terms = [.. terms.Select(term => term.Term)];
         DependencyTarget = dependencyTarget;
         DependencyDepth = dependencyDepth;
@@ -286,7 +290,10 @@ public sealed class PackageQueryPlan
             ?.Predicate.Text;
     public bool RequiresDependencyTraversal =>
         BoundTerms.Any(term =>
-            term.Predicate.Kind == PackageQueryPredicateKind.DependsTransitive);
+            term.Predicate.Kind == PackageQueryPredicateKind.DependsTransitive)
+        || DependencyDepth is not null
+            && BoundTerms.Any(term =>
+                term.Predicate.Kind == PackageQueryPredicateKind.Depends);
     internal bool RequiresSearchMetadata =>
         BoundTerms.Any(term =>
             term.Descriptor.Tier == PackageQueryAcquisitionTier.SearchMetadata);
@@ -304,6 +311,13 @@ public sealed class PackageQueryPlan
                 or PackageQueryPredicateKind.DependsPrefix
                 or PackageQueryPredicateKind.DependsTransitive
                 or PackageQueryPredicateKind.DependsEcosystem);
+    internal bool HasTransitiveDependencyPredicate =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind == PackageQueryPredicateKind.DependsTransitive);
+    internal bool HasTraversableDependencyPredicate =>
+        BoundTerms.Any(term =>
+            term.Predicate.Kind is PackageQueryPredicateKind.Depends
+                or PackageQueryPredicateKind.DependsTransitive);
     internal bool HasExplicitDependencyTarget =>
         BoundTerms.Any(term =>
             term.Predicate.Kind == PackageQueryPredicateKind.DependencyTarget);
@@ -658,23 +672,67 @@ public abstract record PackageQueryEvent
 /// <summary>Shared semantic evidence demand, selected before host acquisition.</summary>
 public sealed class PackageQueryContentDemand
 {
-    private PackageQueryContentDemand(PackageHouseContentQuery? query)
+    internal PackageQueryContentDemand(
+        bool requiresSkillInventory,
+        bool requiresToolSettings,
+        bool requiresAssemblyReferences)
     {
-        ContentQuery = query;
+        RequiresSkillInventory = requiresSkillInventory;
+        RequiresToolSettings = requiresToolSettings;
+        RequiresAssemblyReferences = requiresAssemblyReferences;
     }
 
-    public static PackageQueryContentDemand Inventory { get; } = new(
-        new PackageHouseContentQuery(
-            new PackageHouseContentNarrowing.PackageWide(),
-            [new PackageHouseContentTerminal.FileList()]));
+    public bool RequiresSkillInventory { get; }
 
-    public static PackageQueryContentDemand EntryContent { get; } = new(null);
+    public bool RequiresToolSettings { get; }
 
-    /// <summary>
-    /// The House query for inventory evidence. Null retains entry-content
-    /// acquisition for predicates whose body demand has not yet been narrowed.
-    /// </summary>
-    public PackageHouseContentQuery? ContentQuery { get; }
+    public bool RequiresAssemblyReferences { get; }
+
+    public bool RequiresEntryContent =>
+        RequiresToolSettings || RequiresAssemblyReferences;
+}
+
+/// <summary>
+/// One PackageHouse-issued physical inventory retained for exact Package Query
+/// entry acquisition.
+/// </summary>
+public sealed class PackageQueryContentInventory
+{
+    private readonly PackageHouseFileList? _fileList;
+
+    internal PackageQueryContentInventory(
+        PackageHouseFileList fileList,
+        PackageHouseEvidence evidence)
+    {
+        ArgumentNullException.ThrowIfNull(fileList);
+        ArgumentNullException.ThrowIfNull(evidence);
+        _fileList = fileList;
+        Entries = fileList.Entries;
+        Evidence = evidence;
+    }
+
+    internal PackageQueryContentInventory(
+        IReadOnlyList<PackageContentEntry> entries)
+    {
+        Entries = entries
+            ?? throw new ArgumentNullException(nameof(entries));
+    }
+
+    public IReadOnlyList<PackageContentEntry> Entries { get; }
+
+    public PackageHouseEvidence? Evidence { get; }
+
+    public PackageHouseContentQuery CreateFilesQuery(
+        IEnumerable<PackageContentEntry> entries)
+    {
+        if (_fileList is null)
+        {
+            throw new InvalidOperationException(
+                "Exact Package Query Files acquisition requires PackageHouse-issued inventory.");
+        }
+
+        return _fileList.CreateFilesQuery(entries);
+    }
 }
 
 /// <summary>The result of acquiring admitted package content for one query candidate.</summary>
@@ -687,8 +745,13 @@ public abstract record PackageQueryContentResult
     public static PackageQueryContentResult FromSettlement(PackageHouseSettlement settlement) =>
         settlement is PackageHouseSettlement.Acquired acquired
             ? acquired.Result.Evidence.FileList is { } fileList
-                ? new InventoryAvailable(fileList)
-                : new Available(acquired.Payload.Content)
+                ? new InventoryAvailable(
+                    new PackageQueryContentInventory(
+                        fileList,
+                        acquired.Result.Evidence))
+                : new Available(
+                    acquired.Payload.Content,
+                    acquired.Result.Evidence)
             : new Unavailable(settlement.Result switch
             {
                 PackageHouseResult.NotFound value => value.Reason.ToString(),
@@ -701,10 +764,13 @@ public abstract record PackageQueryContentResult
                 _ => settlement.Result.GetType().Name,
             });
 
-    public sealed record InventoryAvailable(PackageHouseFileList FileList)
+    public sealed record InventoryAvailable(
+        PackageQueryContentInventory Inventory)
         : PackageQueryContentResult;
 
-    public sealed record Available(IPackageContent Content)
+    public sealed record Available(
+        IPackageContent Content,
+        PackageHouseEvidence? Evidence = null)
         : PackageQueryContentResult;
 
     public sealed record Unavailable(string Message)
@@ -716,9 +782,14 @@ public abstract record PackageQueryContentResult
 /// </summary>
 public interface IPackageQueryContentProvider
 {
-    ValueTask<PackageQueryContentResult> GetContentAsync(
+    ValueTask<PackageQueryContentResult> GetInventoryAsync(
         PackageQueryPackage package,
-        PackageQueryContentDemand demand,
+        CancellationToken cancellationToken);
+
+    ValueTask<PackageQueryContentResult> GetFilesAsync(
+        PackageQueryPackage package,
+        PackageQueryContentInventory inventory,
+        IReadOnlyList<PackageContentEntry> entries,
         CancellationToken cancellationToken);
 }
 
@@ -769,7 +840,10 @@ internal sealed record PackageQueryAssemblyReferenceOccurrence(
 
 internal sealed record PackageQueryAssemblyAsset(
     string TargetFramework,
-    string Path);
+    PackageContentEntry Entry)
+{
+    public string Path => Entry.Path;
+}
 
 internal sealed record PackageQueryEcosystemDependencyMatch(
     DeclaredPackageDependencyGroup Group,
@@ -781,6 +855,16 @@ internal sealed record PackageContentFacts(
     PackageQueryEvidenceSummary? SkillDocuments,
     string? ToolSettingsVersion,
     ImmutableArray<PackageQueryAssemblyReferenceOccurrence> AssemblyReferences);
+
+internal sealed record PackageContentSelection(
+    PackageQueryEvidenceSummary? SkillDocuments,
+    ImmutableArray<PackageContentEntry> ToolSettings,
+    ImmutableArray<PackageQueryAssemblyAsset> AssemblyAssets,
+    ImmutableArray<PackageContentEntry> RequiredEntries);
+
+internal sealed record PackageContentEvaluation(
+    PackageContentFacts? Facts,
+    string? AcquisitionFailure);
 
 /// <summary>
 /// Plans and executes product-owned manifest and package-content terms over a
@@ -852,8 +936,6 @@ public static partial class PackageQuery
     public const string LibraryTargetTermKey = "library-target";
     public const string ToolReplacementGroupId =
         "package.query.replacement.dotnet-tool";
-    public const string ToolDisplayGroupId = "package.query.display.dotnet-tool";
-
     private static readonly ImmutableArray<string> EqualityOperator =
         [PortableQueryModel.TextOf(PortableQueryOperator.Equal)];
 
@@ -976,11 +1058,16 @@ public static partial class PackageQuery
         {
             SelectionGroupId =
                 PackageQueryVocabulary.DependencyTargetFamily,
+            InputRules =
+            [
+                "Requires at least one depends, depends-transitive, depends-ecosystem, or dependencies term; applies to all dependency predicates in the query.",
+                "Dependency traversal requires an explicit dependency-target=<tfm>; all is not accepted with dependency-depth or depends-transitive.",
+            ],
         },
         new(
             DependsTermKey,
             "depends on package",
-            "Matches a direct dependency by exact package ID or literal package-ID prefix.",
+            "Matches a direct dependency, or exact package reachability through dependency-depth.",
             200,
             PackageQueryAcquisitionTier.Nuspec,
             PackageQueryExecutionClass.Nuspec,
@@ -988,7 +1075,14 @@ public static partial class PackageQuery
             "NuGet package ID or prefix",
             "Microsoft.Extensions.DependencyInjection",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Input),
+            PackageQueryTermControlKind.Input)
+        {
+            InputRules =
+            [
+                "Without dependency-depth, eq matches direct dependencies and starts-with matches direct package-ID prefixes. With dependency-depth=2, 3, or 4, eq matches direct or transitive declaration paths through that maximum; starts-with remains direct. A starts-with predicate alone cannot admit depth.",
+                $"With dependency-depth, supply an explicit dependency-target=<tfm>, not all, and admit at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Repeated exact terms AND and share traversal.",
+            ],
+        },
         new(
             DependsEcosystemTermKey,
             "depends on ecosystem",
@@ -1004,7 +1098,7 @@ public static partial class PackageQuery
         new(
             DependsTransitiveTermKey,
             "transitively depends on package",
-            "Matches a source-authorized declared dependency reached at depth 2 or greater.",
+            "Legacy spelling for source-authorized dependency reachability at depth 2 or greater.",
             220,
             PackageQueryAcquisitionTier.Nuspec,
             PackageQueryExecutionClass.NuspecExpensive,
@@ -1012,11 +1106,19 @@ public static partial class PackageQuery
             "NuGet package ID",
             "Microsoft.Extensions.Primitives",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.Input),
+            PackageQueryTermControlKind.Input)
+        {
+            InputRules =
+            [
+                "Requires an explicit dependency-target=<tfm> and dependency-depth=2, 3, or 4; all is not accepted as the target.",
+                "Matches declaration edges at depth 2 through the selected maximum depth; direct-only dependencies do not match. Repeated terms AND and share traversal.",
+                $"Admits at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population.",
+            ],
+        },
         new(
             DependencyDepthTermKey,
             "dependency depth",
-            "Bounds transitive dependency traversal to the selected maximum depth.",
+            "Extends exact depends terms through the selected maximum declaration-edge depth.",
             225,
             PackageQueryAcquisitionTier.Nuspec,
             PackageQueryExecutionClass.NuspecExpensive,
@@ -1027,6 +1129,12 @@ public static partial class PackageQuery
             PackageQueryTermControlKind.Choice)
         {
             SelectionGroupId = PackageQueryVocabulary.DependencyDepthFamily,
+            InputRules =
+            [
+                "Requires an explicit dependency-target=<tfm> and at least one exact depends (eq) or legacy depends-transitive term. A starts-with predicate alone cannot satisfy this requirement; all is not accepted as the target.",
+                "Selects the maximum declaration-edge depth, not the result row limit. Prefer exact depends plus depth for new queries; depends-transitive remains the depth-2-or-greater legacy spelling.",
+                $"Admits at most {MaximumNuspecExpensiveCandidates} package candidates; an exact package input admits one. Set the candidate bound explicitly for a prefix or ecosystem population.",
+            ],
             Options =
             [
                 new("2", "Depth 2", "Traverse through two declaration edges."),
@@ -1114,13 +1222,11 @@ public static partial class PackageQuery
                 new("true", ".NET Tool", "The manifest declares a .NET tool package type."),
             ],
             ReplacementGroupId = ToolReplacementGroupId,
-            DisplayGroupId = ToolDisplayGroupId,
-            DisplayGroupLabel = ".NET tool",
         },
         new(
             ToolFormatTermKey,
-            "DotNetCliTool",
-            "Downloads the package and matches the DotNetCliTool format version in its DotnetToolSettings.xml.",
+            "DotnetCliTool",
+            "Downloads the package and matches the DotnetCliTool format version in its DotnetToolSettings.xml.",
             510,
             PackageQueryAcquisitionTier.PackageContent,
             PackageQueryExecutionClass.PackageContent,
@@ -1138,8 +1244,6 @@ public static partial class PackageQuery
             SelectionGroupId = PackageQueryVocabulary.ToolFormatFamily,
             CombinesWithinSelectionGroup = true,
             ReplacementGroupId = ToolReplacementGroupId,
-            DisplayGroupId = ToolDisplayGroupId,
-            DisplayGroupLabel = ".NET tool",
         },
         new(
             ReferencesTermKey,
@@ -1185,7 +1289,18 @@ public static partial class PackageQuery
             "decoded UTF-16 text",
             "https://",
             PackageQueryTermRole.Inspection,
-            PackageQueryTermControlKind.MultilineInput),
+            PackageQueryTermControlKind.MultilineInput)
+        {
+            InputRules =
+            [
+                "Any decoded UTF-16 text within these constraints is accepted; the empty values list is not an allow list.",
+                $"Length: 1..{StringLiteralUsePredicate.MaximumLength} UTF-16 code units.",
+                "Preserve all operand text, including whitespace, newlines, and case; do not normalize.",
+                "Match an ordinal substring of each decoded string-literal use.",
+                "Single distinct operand: identical repeated values collapse; distinct values are incompatible.",
+                "Queries using this facet admit at most five package candidates; an exact package ID admits at most one.",
+            ],
+        },
         new(
             LibraryTargetTermKey,
             "library target",
@@ -1317,9 +1432,13 @@ public static partial class PackageQuery
             return Rejected(
                 PackageQueryRequestFailureReason
                     .TransitiveDependencyRequiresTarget,
-                [DependsTransitiveTermKey, DependencyTargetTermKey]);
+                [
+                    DependsTermKey,
+                    DependsTransitiveTermKey,
+                    DependencyTargetTermKey,
+                ]);
         }
-        if (plan.RequiresDependencyTraversal
+        if (plan.HasTransitiveDependencyPredicate
             && plan.DependencyDepth is null)
         {
             return Rejected(
@@ -1327,13 +1446,17 @@ public static partial class PackageQuery
                     .TransitiveDependencyRequiresDepth,
                 [DependsTransitiveTermKey, DependencyDepthTermKey]);
         }
-        if (!plan.RequiresDependencyTraversal
+        if (!plan.HasTraversableDependencyPredicate
             && plan.DependencyDepth is not null)
         {
             return Rejected(
                 PackageQueryRequestFailureReason
                     .DependencyDepthRequiresTransitiveDependency,
-                [DependencyDepthTermKey, DependsTransitiveTermKey]);
+                [
+                    DependencyDepthTermKey,
+                    DependsTermKey,
+                    DependsTransitiveTermKey,
+                ]);
         }
         if (plan.RequiresLibraryLiteralEvaluation
             && plan.LibraryTargetFramework is null)
@@ -2028,13 +2151,31 @@ public static partial class PackageQuery
                                 completed: 0,
                                 limit: plan.MaximumCandidates);
                         }
-                        PackageQueryContentResult contentResult =
-                            await contentProvider!.GetContentAsync(
-                                match.Value,
-                                plan.ContentDemand,
-                                cancellationToken).ConfigureAwait(false);
-                        if (contentResult
-                            is PackageQueryContentResult.Unavailable unavailable)
+                        PackageContentEvaluation? evaluation = null;
+                        try
+                        {
+                            evaluation =
+                                await AcquirePackageContentFactsAsync(
+                                    contentProvider!,
+                                    match.Value,
+                                    plan.ContentDemand,
+                                    plan.BoundTerms,
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        catch (Exception ex) when (
+                            ex is IOException
+                                or InvalidDataException
+                                or BadImageFormatException
+                                or DecoderFallbackException
+                                or NotSupportedException
+                                or UnauthorizedAccessException
+                                or XmlException)
+                        {
+                            // Iterator catch clauses cannot yield; null is
+                            // projected below as a typed item failure.
+                        }
+                        if (evaluation?.AcquisitionFailure is { } unavailable)
                         {
                             packageContentCompleted++;
                             yield return Progress(
@@ -2049,46 +2190,10 @@ public static partial class PackageQuery
                                     match.Value.Source,
                                     PackageQueryFailureKind
                                         .PackageContentAcquisition,
-                                    unavailable.Message));
+                                    unavailable));
                             continue;
                         }
-
-                        PackageContentFacts? facts = null;
-                        try
-                        {
-                            facts = contentResult switch
-                            {
-                                PackageQueryContentResult.InventoryAvailable inventory
-                                    when ReferenceEquals(plan.ContentDemand, PackageQueryContentDemand.Inventory) =>
-                                    new PackageContentFacts(
-                                        SummarizeItems(inventory.FileList.Entries
-                                            .Select(entry => entry.Path).Where(IsSkillDocument),
-                                            StringComparer.Ordinal),
-                                        null, []),
-                                PackageQueryContentResult.InventoryAvailable =>
-                                    throw new InvalidDataException(
-                                        "Package inventory cannot satisfy entry-content predicates."),
-                                PackageQueryContentResult.Available available =>
-                                    await ReadPackageContentFactsAsync(
-                                        available.Content, plan.BoundTerms,
-                                        cancellationToken).ConfigureAwait(false),
-                                _ => throw new InvalidOperationException(
-                                    "Package Query content provider returned an unknown outcome."),
-                            };
-                        }
-                        catch (Exception ex) when (
-                            ex is IOException
-                                or InvalidDataException
-                                or BadImageFormatException
-                                or DecoderFallbackException
-                                or NotSupportedException
-                                or UnauthorizedAccessException
-                                or XmlException)
-                        {
-                            // Iterator catch clauses cannot yield; null is
-                            // projected below as a typed item failure.
-                        }
-                        if (facts is null)
+                        if (evaluation?.Facts is not { } facts)
                         {
                             packageContentCompleted++;
                             yield return Progress(
@@ -2286,7 +2391,9 @@ public static partial class PackageQuery
                     MatchesManifest(
                         candidate,
                         match,
-                        dependencySelection)),
+                        dependencySelection,
+                        deferExactDependencies:
+                            plan.DependencyDepth is not null)),
             ];
             if (matched.Length == 0)
             {
@@ -2301,6 +2408,12 @@ public static partial class PackageQuery
                     || candidate.Predicate.Kind is
                         PackageQueryPredicateKind.DependsTransitive
                         or PackageQueryPredicateKind.DependencyDepth)
+                {
+                    continue;
+                }
+                if (plan.DependencyDepth is not null
+                    && candidate.Predicate.Kind
+                        == PackageQueryPredicateKind.Depends)
                 {
                     continue;
                 }
@@ -2371,64 +2484,227 @@ public static partial class PackageQuery
         return true;
     }
 
-    static async ValueTask<PackageContentFacts> ReadPackageContentFactsAsync(
-        IPackageContent content,
+    static async ValueTask<PackageContentEvaluation>
+        AcquirePackageContentFactsAsync(
+        IPackageQueryContentProvider provider,
+        PackageQueryPackage package,
+        PackageQueryContentDemand demand,
         ImmutableArray<BoundPackageQueryTerm> terms,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        string[] entries = [.. content.EnumerateEntries()];
-        bool needsSkills = terms.Any(term =>
-            term.Predicate.Kind == PackageQueryPredicateKind.Skill);
-        bool needsToolSettings = terms.Any(term =>
-            term.Predicate.Kind == PackageQueryPredicateKind.ToolFormat);
-        bool needsAssemblyReferences = terms.Any(term =>
-            term.Predicate.Kind == PackageQueryPredicateKind.AssemblyReference);
-        PackageQueryEvidenceSummary? skills = needsSkills
-            ? SummarizeItems(entries.Where(IsSkillDocument), StringComparer.Ordinal)
-            : null;
-        string? toolVersion = needsToolSettings
+        PackageQueryContentResult inventoryResult =
+            await provider.GetInventoryAsync(
+                package,
+                cancellationToken).ConfigureAwait(false);
+        if (inventoryResult is PackageQueryContentResult.Unavailable unavailable)
+            return new(null, unavailable.Message);
+        PackageQueryContentInventory inventory = inventoryResult
+            is PackageQueryContentResult.InventoryAvailable available
+                ? available.Inventory
+                : throw new InvalidDataException(
+                    "Package Query inventory acquisition did not return File List evidence.");
+        PackageContentSelection selection =
+            SelectPackageContent(inventory, demand);
+        if (InventoryProvesPackageContentNonMatch(terms, selection)
+            || selection.RequiredEntries.IsEmpty)
+        {
+            return new(
+                new PackageContentFacts(
+                    selection.SkillDocuments,
+                    null,
+                    []),
+                AcquisitionFailure: null);
+        }
+        ValidatePackageContentSelection(selection);
+
+        PackageQueryContentResult filesResult =
+            await provider.GetFilesAsync(
+                package,
+                inventory,
+                selection.RequiredEntries,
+                cancellationToken).ConfigureAwait(false);
+        if (filesResult is PackageQueryContentResult.Unavailable filesUnavailable)
+            return new(null, filesUnavailable.Message);
+        IPackageContent content = filesResult
+            is PackageQueryContentResult.Available files
+                ? files.Content
+                : throw new InvalidDataException(
+                    "Package Query exact Files acquisition did not return entry content.");
+        string? toolVersion = demand.RequiresToolSettings
             ? await ReadToolSettingsVersionAsync(
                 content,
-                entries,
+                selection.ToolSettings,
                 cancellationToken).ConfigureAwait(false)
             : null;
         ImmutableArray<PackageQueryAssemblyReferenceOccurrence>
-            assemblyReferences = needsAssemblyReferences
+            assemblyReferences = demand.RequiresAssemblyReferences
                 ? await ReadAssemblyReferencesAsync(
                     content,
-                    entries,
+                    selection.AssemblyAssets,
                     terms,
                     cancellationToken).ConfigureAwait(false)
                 : [];
-        return new PackageContentFacts(
+        return new(
+            new PackageContentFacts(
+                selection.SkillDocuments,
+                toolVersion,
+                assemblyReferences),
+            AcquisitionFailure: null);
+    }
+
+    static bool InventoryProvesPackageContentNonMatch(
+        ImmutableArray<BoundPackageQueryTerm> terms,
+        PackageContentSelection selection)
+    {
+        var handledGroups = new HashSet<string>(StringComparer.Ordinal);
+        foreach (BoundPackageQueryTerm term in terms)
+        {
+            if (term.Descriptor.Tier
+                    != PackageQueryAcquisitionTier.PackageContent)
+            {
+                continue;
+            }
+
+            string? groupId = term.Descriptor.SelectionGroupId;
+            if (groupId is not null && !handledGroups.Add(groupId))
+                continue;
+
+            IEnumerable<BoundPackageQueryTerm> alternatives =
+                groupId is null
+                    ? [term]
+                    : terms.Where(candidate =>
+                        candidate.Descriptor.Tier
+                            == PackageQueryAcquisitionTier.PackageContent
+                        && candidate.Descriptor.SelectionGroupId == groupId);
+            if (alternatives.All(candidate =>
+                    InventoryProvesPackageContentTermAbsent(
+                        candidate,
+                        selection)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    static bool InventoryProvesPackageContentTermAbsent(
+        BoundPackageQueryTerm term,
+        PackageContentSelection selection) =>
+        term.Predicate.Kind switch
+        {
+            PackageQueryPredicateKind.Skill =>
+                selection.SkillDocuments is not { Count: > 0 },
+            PackageQueryPredicateKind.ToolFormat =>
+                selection.ToolSettings.IsEmpty,
+            PackageQueryPredicateKind.AssemblyReference =>
+                selection.AssemblyAssets.IsEmpty,
+            _ => throw new InvalidOperationException(
+                "A non-content Package Query term reached inventory settlement."),
+        };
+
+    static void ValidatePackageContentSelection(
+        PackageContentSelection selection)
+    {
+        if (selection.ToolSettings.Any(static entry =>
+                entry.Length > MaximumToolSettingsBytes))
+        {
+            throw new InvalidDataException(
+                "A selected tool settings entry exceeds the byte limit.");
+        }
+        if (selection.AssemblyAssets.Length
+            > MaximumAssemblyReferenceAssets)
+        {
+            throw new InvalidDataException(
+                "The package contains too many managed library candidates.");
+        }
+
+        long totalAssemblyBytes = 0;
+        foreach (PackageQueryAssemblyAsset asset
+            in selection.AssemblyAssets)
+        {
+            if (asset.Entry.Length > MaximumAssemblyReferenceEntryBytes)
+            {
+                throw new InvalidDataException(
+                    "A selected package library entry exceeds the byte limit.");
+            }
+            if (asset.Entry.Length
+                > MaximumAssemblyReferenceTotalBytes - totalAssemblyBytes)
+            {
+                throw new InvalidDataException(
+                    "The package library inventory exceeds its total-image budget.");
+            }
+            totalAssemblyBytes += asset.Entry.Length;
+        }
+    }
+
+    static PackageContentSelection SelectPackageContent(
+        PackageQueryContentInventory inventory,
+        PackageQueryContentDemand demand)
+    {
+        PackageQueryEvidenceSummary? skills =
+            demand.RequiresSkillInventory
+                ? SummarizeItems(
+                    inventory.Entries
+                        .Select(static entry => entry.Path)
+                        .Where(IsSkillDocument),
+                    StringComparer.Ordinal)
+                : null;
+        ImmutableArray<PackageContentEntry> toolSettings =
+            demand.RequiresToolSettings
+                ?
+                [
+                    .. inventory.Entries
+                        .Where(static entry =>
+                            IsToolSettings(entry.Path))
+                        .OrderBy(
+                            static entry => entry.Path,
+                            StringComparer.OrdinalIgnoreCase),
+                ]
+                : [];
+
+        ImmutableArray<PackageQueryAssemblyAsset> assemblyAssets =
+            demand.RequiresAssemblyReferences
+                ?
+                [
+                    .. inventory.Entries
+                        .Select(ParseAssemblyReferenceAsset)
+                        .OfType<PackageQueryAssemblyAsset>()
+                        .OrderBy(
+                            static asset => asset.Path,
+                            StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(
+                            static asset => asset.Path,
+                            StringComparer.Ordinal),
+                ]
+                : [];
+
+        var requiredPaths = new HashSet<string>(
+            toolSettings.Select(static entry => entry.Path),
+            StringComparer.OrdinalIgnoreCase);
+        requiredPaths.UnionWith(
+            assemblyAssets.Select(static asset => asset.Path));
+        ImmutableArray<PackageContentEntry> requiredEntries =
+        [
+            .. inventory.Entries.Where(entry =>
+                requiredPaths.Contains(entry.Path)),
+        ];
+        return new(
             skills,
-            toolVersion,
-            assemblyReferences);
+            toolSettings,
+            assemblyAssets,
+            requiredEntries);
     }
 
     static async ValueTask<
         ImmutableArray<PackageQueryAssemblyReferenceOccurrence>>
         ReadAssemblyReferencesAsync(
             IPackageContent content,
-            IReadOnlyCollection<string> entries,
+            ImmutableArray<PackageQueryAssemblyAsset> assets,
             ImmutableArray<BoundPackageQueryTerm> terms,
             CancellationToken cancellationToken)
     {
-        PackageQueryAssemblyAsset[] assets =
-        [
-            .. entries
-                .Select(ParseAssemblyReferenceAsset)
-                .OfType<PackageQueryAssemblyAsset>()
-                .OrderBy(asset => asset.Path, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(asset => asset.Path, StringComparer.Ordinal),
-        ];
-        if (assets.Length > MaximumAssemblyReferenceAssets)
-        {
-            throw new InvalidDataException(
-                "The package contains too many managed library candidates.");
-        }
-
         var requestedNames = terms
             .Where(term =>
                 term.Predicate.Kind
@@ -2499,12 +2775,13 @@ public static partial class PackageQuery
     }
 
     static PackageQueryAssemblyAsset? ParseAssemblyReferenceAsset(
-        string entry)
+        PackageContentEntry entry)
     {
-        if (string.IsNullOrWhiteSpace(entry) || entry.Contains('\\'))
+        string path = entry.Path;
+        if (string.IsNullOrWhiteSpace(path) || path.Contains('\\'))
             return null;
 
-        string[] parts = entry.Split('/');
+        string[] parts = path.Split('/');
         if (parts.Length < 3
             || parts.Any(part =>
                 string.IsNullOrEmpty(part)
@@ -2554,20 +2831,14 @@ public static partial class PackageQuery
 
     static async ValueTask<string?> ReadToolSettingsVersionAsync(
         IPackageContent content,
-        IEnumerable<string> entries,
+        IEnumerable<PackageContentEntry> entries,
         CancellationToken cancellationToken)
     {
-        string[] settingsPaths =
-        [
-            .. entries
-                .Where(IsToolSettings)
-                .Order(StringComparer.OrdinalIgnoreCase),
-        ];
         string? packageVersion = null;
-        foreach (string path in settingsPaths)
+        foreach (PackageContentEntry entry in entries)
         {
             if (!content.TryOpenEntry(
-                path,
+                entry.Path,
                 MaximumToolSettingsBytes,
                 out Stream? stream))
             {
@@ -2658,7 +2929,8 @@ public static partial class PackageQuery
     static bool MatchesManifest(
         BoundPackageQueryTerm term,
         PackageQueryPackage match,
-        PackageQueryDependencySelection? dependencySelection) =>
+        PackageQueryDependencySelection? dependencySelection,
+        bool deferExactDependencies) =>
         term.Predicate.Kind switch
         {
             PackageQueryPredicateKind.NoDependencies =>
@@ -2668,11 +2940,12 @@ public static partial class PackageQuery
                         "Dependency matching requires one dependency selection.")),
             PackageQueryPredicateKind.DependencyTarget => true,
             PackageQueryPredicateKind.Depends =>
-                MatchingDependencies(
-                    term,
-                    dependencySelection
-                    ?? throw new InvalidOperationException(
-                        "Dependency matching requires one dependency selection."))
+                deferExactDependencies
+                || MatchingDependencies(
+                        term,
+                        dependencySelection
+                        ?? throw new InvalidOperationException(
+                            "Dependency matching requires one dependency selection."))
                     .Length > 0,
             PackageQueryPredicateKind.DependsPrefix =>
                 MatchingPrefixDependencies(

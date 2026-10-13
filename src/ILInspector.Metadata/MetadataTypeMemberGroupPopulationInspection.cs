@@ -120,7 +120,40 @@ public sealed record MetadataTypeMemberGroupRow(
     string Name,
     MetadataTypeMemberGroupCategory Category,
     MetadataTypeMemberGroupReceiverForms Receivers,
-    int? ExactMemberCount);
+    int? ExactMemberCount,
+    ImmutableArray<string>? SharedGenericParameters = null,
+    MetadataTypeMemberTraitCounts? Traits = null)
+{
+    public bool Equals(MetadataTypeMemberGroupRow? other)
+        => other is not null
+            && Name == other.Name
+            && Category == other.Category
+            && Receivers == other.Receivers
+            && ExactMemberCount == other.ExactMemberCount
+            && SharedGenericParameters.HasValue
+                == other.SharedGenericParameters.HasValue
+            && (!SharedGenericParameters.HasValue
+                || SharedGenericParameters.Value.AsSpan().SequenceEqual(
+                    other.SharedGenericParameters!.Value.AsSpan()))
+            && Traits == other.Traits;
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Name);
+        hash.Add(Category);
+        hash.Add(Receivers);
+        hash.Add(ExactMemberCount);
+        hash.Add(SharedGenericParameters.HasValue);
+        if (SharedGenericParameters is { } parameters)
+        {
+            foreach (string parameter in parameters)
+                hash.Add(parameter);
+        }
+        hash.Add(Traits);
+        return hash.ToHashCode();
+    }
+}
 
 public sealed record MetadataTypeMemberGroupRows(
     ImmutableArray<MetadataTypeMemberGroupRow> Items,
@@ -309,8 +342,79 @@ internal static class MetadataTypeMemberGroupPopulationInspection
 
     private sealed class GroupState
     {
+        private StringHandle[]? _sharedGenericParameters;
+        private bool _hasGenericShape;
+        private bool _mixedGenericShape;
+
         public int Count;
         public MetadataTypeMemberGroupReceiverForms Receivers;
+        public int BodyBacked;
+        public int Static;
+        public int Instance;
+        public int Virtual;
+        public int Interface;
+        public int Extensions;
+
+        public void ObserveGenericShape(
+            MetadataReader reader,
+            MethodDefinitionHandle handle)
+        {
+            if (_mixedGenericShape)
+                return;
+
+            GenericParameterHandleCollection parameters =
+                reader.GetMethodDefinition(handle).GetGenericParameters();
+            if (!_hasGenericShape)
+            {
+                _sharedGenericParameters = parameters.Count == 0
+                    ? []
+                    : new StringHandle[parameters.Count];
+                int index = 0;
+                foreach (GenericParameterHandle parameter in parameters)
+                {
+                    _sharedGenericParameters[index++] =
+                        reader.GetGenericParameter(parameter).Name;
+                }
+                _hasGenericShape = true;
+                return;
+            }
+
+            if (parameters.Count != _sharedGenericParameters!.Length)
+            {
+                _mixedGenericShape = true;
+                _sharedGenericParameters = null;
+                return;
+            }
+
+            int parameterIndex = 0;
+            foreach (GenericParameterHandle parameter in parameters)
+            {
+                StringHandle name =
+                    reader.GetGenericParameter(parameter).Name;
+                if (!StringHandlesEqual(
+                        reader,
+                        _sharedGenericParameters[parameterIndex++],
+                        name))
+                {
+                    _mixedGenericShape = true;
+                    _sharedGenericParameters = null;
+                    return;
+                }
+            }
+        }
+
+        public ImmutableArray<string>? DecodeSharedGenericParameters(
+            MetadataReader reader)
+        {
+            if (_mixedGenericShape || !_hasGenericShape)
+                return null;
+
+            return
+            [
+                .. _sharedGenericParameters!.Select(
+                    handle => reader.GetString(handle)),
+            ];
+        }
     }
 
     private struct PopulationSink : IClassifiedMemberSink
@@ -423,6 +527,30 @@ internal static class MetadataTypeMemberGroupPopulationInspection
             }
             group.Count = checked(group.Count + 1);
             group.Receivers |= Receiver(member.Receiver);
+            if (_order is null)
+                return;
+            if (ApiMemberBodyFacts.IsBodyBacked(_reader, member))
+                group.BodyBacked = checked(group.BodyBacked + 1);
+            switch (member.Receiver)
+            {
+                case MetadataMethodReceiver.Static:
+                    group.Static = checked(group.Static + 1);
+                    break;
+                case MetadataMethodReceiver.This:
+                    group.Instance = checked(group.Instance + 1);
+                    break;
+                case MetadataMethodReceiver.Extension:
+                    group.Extensions = checked(group.Extensions + 1);
+                    break;
+            }
+            if (member.IsVirtual)
+                group.Virtual = checked(group.Virtual + 1);
+            if (member.IsExplicitInterfaceImplementation)
+                group.Interface = checked(group.Interface + 1);
+            if (member.Handle.Kind is HandleKind.MethodDefinition)
+                group.ObserveGenericShape(
+                    _reader,
+                    (MethodDefinitionHandle)member.Handle);
         }
 
         public MetadataTypeMemberGroupPopulation Complete(
@@ -500,13 +628,39 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 }
 
                 GroupState group = _groups![key];
+                ImmutableArray<string>? sharedGenericParameters =
+                    group.DecodeSharedGenericParameters(_reader);
+                if (sharedGenericParameters is { } names)
+                {
+                    retainedTextCharacters = checked(
+                        retainedTextCharacters
+                        + names.Sum(name => name.Length));
+                    if (retainedTextCharacters
+                        > _bounds.MaxRetainedTextCharacters)
+                    {
+                        return new(
+                            [],
+                            null,
+                            IncompleteRetainedTextCharacters:
+                                retainedTextCharacters);
+                    }
+                }
                 rows.Add(new(
                     name,
                     Category(key.Kind),
                     group.Receivers,
                     request.IncludeExactMemberCount
                         ? group.Count
-                        : null));
+                        : null,
+                    sharedGenericParameters,
+                    new(
+                        group.Count,
+                        group.BodyBacked,
+                        group.Static,
+                        group.Instance,
+                        group.Virtual,
+                        group.Interface,
+                        group.Extensions)));
             }
 
             return new(
@@ -537,6 +691,23 @@ internal static class MetadataTypeMemberGroupPopulationInspection
                 _ => throw new InvalidOperationException(
                     "Unknown classified Member kind."),
             };
+    }
+
+    private static bool StringHandlesEqual(
+        MetadataReader reader,
+        StringHandle left,
+        StringHandle right)
+    {
+        BlobReader a = reader.GetBlobReader(left);
+        BlobReader b = reader.GetBlobReader(right);
+        if (a.RemainingBytes != b.RemainingBytes)
+            return false;
+        while (a.RemainingBytes > 0)
+        {
+            if (a.ReadByte() != b.ReadByte())
+                return false;
+        }
+        return true;
     }
 
     internal static bool Matches(

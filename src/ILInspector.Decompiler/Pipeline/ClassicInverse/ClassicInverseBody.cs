@@ -83,6 +83,24 @@ internal sealed record ClassicInverseBlockNode(
         $"block[{StartOffset}]({Children(Statements)})";
 }
 
+internal sealed record ClassicInverseIfNode(
+    ClassicInverseBodyNode Condition,
+    ClassicInverseBodyNode Then)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new IfStatement(Expr(Condition), (Block)Then.Materialize(), null);
+
+    internal override string Signature => $"if({Condition.Signature},{Then.Signature})";
+}
+
+internal sealed record ClassicInverseInitObjectNode(TypeRef Type, ClassicInverseBodyNode Address)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new InitObject(Type, Expr(Address));
+    internal override string Signature => $"init[{TypeText(Type)}]({Address.Signature})";
+}
+
 internal sealed record ClassicInverseReturnNode(ClassicInverseBodyNode? Value)
     : ClassicInverseBodyNode
 {
@@ -114,6 +132,23 @@ internal sealed record ClassicInverseStoreLocalNode(
 
     internal override string Signature =>
         $"stloc[{Index}:{TypeText(Type)}]({Value.Signature})";
+}
+
+internal sealed record ClassicInverseStoreFieldNode(
+    FieldRef Field,
+    bool IsVolatile,
+    ClassicInverseBodyNode? Instance,
+    ClassicInverseBodyNode Value)
+    : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize()
+        => new StoreField(Field, Instance is null ? null : Expr(Instance), Expr(Value))
+        {
+            IsVolatile = IsVolatile,
+        };
+
+    internal override string Signature =>
+        $"stfld[{FieldText(Field)}:{IsVolatile}]({Instance?.Signature ?? ""},{Value.Signature})";
 }
 
 internal sealed record ClassicInverseForeachNode(
@@ -743,6 +778,21 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                         statements.Value);
             }
 
+            case IfStatement guarded when !guarded.HasElse:
+            {
+                var condition = TryCapture(guarded.Condition, budget);
+                var then = TryCapture(guarded.Then, budget);
+                return condition is null || then is null
+                    ? null
+                    : new ClassicInverseIfNode(condition, then);
+            }
+
+            case InitObject init:
+            {
+                var address = TryCapture(init.Address, budget);
+                return address is null ? null : new ClassicInverseInitObjectNode(binding.Type(init.Type, budget), address);
+            }
+
             case Return ret:
             {
                 if (ret.Value is null)
@@ -768,6 +818,16 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                         store.Index,
                         binding.Type(store.Type, budget),
                         value);
+            }
+
+            case StoreField store when store.UpdateKind is null:
+            {
+                var instance = store.Instance is null ? null : TryCapture(store.Instance, budget);
+                var value = TryCapture(store.Value, budget);
+                return value is null || store.Instance is not null && instance is null
+                    ? null
+                    : new ClassicInverseStoreFieldNode(
+                        binding.Field(store.Field, budget), store.IsVolatile, instance, value);
             }
 
             case ForeachStatement loop when !loop.IsAwait:

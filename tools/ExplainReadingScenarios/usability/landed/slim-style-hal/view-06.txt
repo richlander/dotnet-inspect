@@ -1,0 +1,1 @@
+jq: error (at /private/tmp/explain-landed-trials/slim-style-hal/response-05.out:1): null (null) has no keys

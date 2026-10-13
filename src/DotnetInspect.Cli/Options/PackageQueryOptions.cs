@@ -71,32 +71,6 @@ public sealed record PackageQueryOptions : IProjectionOptions
                 .Value)),
     ];
 
-    public static string DiscoverySummary =>
-        "Use package query with repeated --where terms. "
-        + "Terms are ANDed; repeated tool-format values are ORed. "
-        + "depends=<package ID> matches a direct declared dependency; "
-        + "depends starts-with <package ID prefix> matches a direct declared "
-        + "dependency by literal prefix; "
-        + "depends-transitive=<package ID> requires dependency-target=<TFM> "
-        + "and dependency-depth=2|3|4; "
-        + "dependencies=cross-prefix matches a dependency from another first ID segment; "
-        + "depends-ecosystem=<ecosystem ID> matches a registered package population; "
-        + "dependency-target=all|<TFM> selects its manifest-group scope. "
-        + "ecosystem=<ecosystem ID> (or --ecosystem) replaces the package argument "
-        + "with an Ecosystem's core packages and recorded prefixes. "
-        + "--take bounds package candidates; -n and --rows select final matching package rows. "
-        + "A lone Head is pushed into execution when no explicit --take is present. "
-        + "Selecting a nuspec-expensive term evaluates at most "
-        + PackageQuery.MaximumNuspecExpensiveCandidates
-        + " candidates. "
-        + "Selecting a metadata-expensive term evaluates at most "
-        + PackageQuery.MaximumMetadataExpensiveCandidates
-        + " candidates and requires --tfm. "
-        + "Selecting a package-content term authorizes at most "
-        + PackageQuery.MaximumPackageContentCandidates
-        + " candidates; --nuspec-only rejects those terms. "
-        + "Ordering and --top are not supported.";
-
     public static bool TryCreate(
         string input,
         IReadOnlyList<string> expressions,

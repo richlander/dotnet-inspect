@@ -18,6 +18,31 @@ namespace DotnetInspect.Web.Interop.Package
     [SupportedOSPlatform("browser")]
     internal static partial class BrowserPackageQueryOperations
     {
+        private static readonly BrowserPackageQueryTermOptionDescriptor[]
+            TargetFrameworkOptions =
+        [
+            TargetFrameworkOption("net11.0"),
+            TargetFrameworkOption("net10.0"),
+            TargetFrameworkOption("net9.0"),
+            TargetFrameworkOption("net8.0"),
+            TargetFrameworkOption("net7.0"),
+            TargetFrameworkOption("net6.0"),
+            TargetFrameworkOption("netstandard2.1"),
+            TargetFrameworkOption("netstandard2.0"),
+            TargetFrameworkOption("net48"),
+            TargetFrameworkOption("net472"),
+        ];
+
+        private static readonly BrowserPackageQueryTermOptionDescriptor[]
+            DependencyTargetOptions =
+        [
+            new(
+                "all",
+                "All target frameworks",
+                "Do not filter declared dependency groups by target framework."),
+            .. TargetFrameworkOptions,
+        ];
+
         private static readonly PackageQueryRegisteredTerm[] ExposedTerms =
         [
             .. PackageQuery.RegisteredTerms.Where(term =>
@@ -28,13 +53,34 @@ namespace DotnetInspect.Web.Interop.Package
                         StringComparer.Ordinal)),
         ];
 
+        private static readonly IReadOnlyDictionary<string, string[]>
+            RelatedOperationsByTerm =
+                PackageQueryCapability.Route.QueryTermRelatedOperations
+                    .GroupBy(
+                        static relationship => relationship.SourceTerm,
+                        StringComparer.Ordinal)
+                    .ToDictionary(
+                        static group => group.Key,
+                        static group =>
+                            group
+                                .Select(static relationship =>
+                                    relationship.Operation.Id.Value)
+                                .Distinct(StringComparer.Ordinal)
+                                .ToArray(),
+                        StringComparer.Ordinal);
+
         internal static BrowserPackageQueryCatalog Catalog() =>
             new(
                 [
                     .. ExposedTerms
+                        .Where(IsFactTerm)
                         .SelectMany(term =>
                             term.Descriptor.Options.Select(option =>
-                        new BrowserPackageQueryPresetDescriptor(
+                    {
+                        (string categoryId, string categoryLabel,
+                            int categoryOrder) = FactCategory(
+                                term.Descriptor.Key);
+                        return new BrowserPackageQueryPresetDescriptor(
                             term.Descriptor.Key,
                             PortableQueryModel.TextOf(
                                 SingleControlOperator(term)),
@@ -59,14 +105,16 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Descriptor.CombinesWithinSelectionGroup,
                             term.Descriptor.ReplacementGroupId,
                             term.Descriptor.DisplayGroupId,
-                            term.Descriptor.DisplayGroupLabel))),
+                            term.Descriptor.DisplayGroupLabel,
+                            categoryId,
+                            categoryLabel,
+                            categoryOrder,
+                            RelatedOperations(term.Descriptor.Key));
+                    })),
                 ],
                 [
                     .. ExposedTerms
-                        .Where(term =>
-                            term.Descriptor.ControlKind
-                                is PackageQueryTermControlKind.Input
-                                    or PackageQueryTermControlKind.MultilineInput)
+                        .Where(IsValueTerm)
                         .Select(term =>
                         new BrowserPackageQueryTermDescriptor(
                             term.Descriptor.Key,
@@ -93,8 +141,82 @@ namespace DotnetInspect.Web.Interop.Package
                             term.Descriptor.ValueKind,
                             term.Descriptor.ExampleValue,
                             term.Descriptor.ControlKind
-                                == PackageQueryTermControlKind.MultilineInput)),
+                                == PackageQueryTermControlKind.MultilineInput,
+                            (term.Descriptor.ControlKind
+                                is PackageQueryTermControlKind.Input
+                                    or PackageQueryTermControlKind.MultilineInput)
+                                && term.Descriptor.Key
+                                    != PackageQuery.DependsEcosystemTermKey,
+                            term.Descriptor.ReplacementGroupId,
+                            BrowserTermOptions(term.Descriptor),
+                            RelatedOperations(term.Descriptor.Key))),
                 ]);
+
+        private static bool IsFactTerm(PackageQueryRegisteredTerm term) =>
+            term.Descriptor.ControlKind
+                is PackageQueryTermControlKind.Toggle
+                    or PackageQueryTermControlKind.Choice
+            && term.Descriptor.Key != PackageQuery.ToolFormatTermKey;
+
+        private static bool IsValueTerm(PackageQueryRegisteredTerm term) =>
+            term.Descriptor.ControlKind
+                is PackageQueryTermControlKind.Input
+                    or PackageQueryTermControlKind.MultilineInput
+            || term.Descriptor.Key == PackageQuery.ToolFormatTermKey;
+
+        private static BrowserPackageQueryTermOptionDescriptor[]
+            BrowserTermOptions(PackageQueryTermDescriptor term) =>
+            term.Key switch
+            {
+                PackageQuery.DependsEcosystemTermKey =>
+                [
+                    .. EcosystemPackCatalog.Discover()
+                        .OrderBy(pack => pack.Order)
+                        .Select(pack =>
+                            new BrowserPackageQueryTermOptionDescriptor(
+                                pack.Id.Value,
+                                pack.Title,
+                                pack.Summary)),
+                ],
+                PackageQuery.DependencyTargetTermKey =>
+                    [.. DependencyTargetOptions],
+                PackageQuery.LibraryTargetTermKey =>
+                    [.. TargetFrameworkOptions],
+                _ =>
+                [
+                    .. term.Options.Select(option =>
+                        new BrowserPackageQueryTermOptionDescriptor(
+                            option.Value,
+                            option.Label,
+                            option.Summary)),
+                ],
+            };
+
+        private static BrowserPackageQueryTermOptionDescriptor
+            TargetFrameworkOption(string value) =>
+            new(
+                value,
+                value,
+                $"Use the exact NuGet target framework '{value}'.");
+
+        private static string[] RelatedOperations(string key) =>
+            RelatedOperationsByTerm.TryGetValue(
+                PackageQuery.TermBindingIdentity(key),
+                out string[]? operations)
+                ? [.. operations]
+                : [];
+
+        private static (string Id, string Label, int Order) FactCategory(
+            string key) =>
+            key switch
+            {
+                PackageQuery.DependenciesTermKey
+                    or PackageQuery.DependencyDepthTermKey =>
+                    ("dependencies", "Dependencies", 200),
+                PackageQuery.SkillTermKey =>
+                    ("package-contents", "Package contents", 300),
+                _ => ("package-metadata", "Package metadata", 100),
+            };
 
         private static PortableQueryOperator SingleControlOperator(
             PackageQueryRegisteredTerm term) =>
@@ -305,15 +427,22 @@ namespace DotnetInspect.Web.Interop.Package
                     ? null
                     : new(
                         BrowserPackageWorkspace.PackageSourceAuthorization,
-                        token => semanticSettlement.IssueOperationLease(
-                            token,
-                            BrowserPackageWorkspace.GalleryOperationTimeout,
-                            semanticBudget!.MaximumDuration),
-                        new PackagePayloadAcquisitionPlan(
-                            static (_, _) =>
-                                BrowserPackageWorkspace.SessionPackageStore,
-                            transferPolicy:
-                                BrowserPackageWorkspace.PackageTransferPolicy),
+                        new PackageAssemblySemanticFindExecution(
+                            BrowserPackageWorkspace
+                                .PackageSourceAuthorization,
+                            new PackagePayloadAcquisitionPlan(
+                                static (_, _) =>
+                                    BrowserPackageWorkspace
+                                        .SessionPackageStore,
+                                semanticBudget!.Payload,
+                                transferPolicy:
+                                    BrowserPackageWorkspace
+                                        .PackageTransferPolicy),
+                            token => semanticSettlement.IssueOperationLease(
+                                token,
+                                BrowserPackageWorkspace
+                                    .GalleryOperationTimeout,
+                                semanticBudget.MaximumDuration)),
                         semanticBudget!,
                         new LibraryLiteralAssessmentSink(emit));
             var envelope =
@@ -1415,15 +1544,29 @@ namespace DotnetInspect.Web.Interop.Package
         BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
         : IPackageQueryContentProvider
     {
-        public ValueTask<PackageQueryContentResult> GetContentAsync(
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return BrowserPackageWorkspace.AcquirePackageQueryContentAsync(
+            return BrowserPackageWorkspace
+                .AcquirePackageQueryInventoryAsync(
                 package,
-                demand,
+                BrowserPackageWorkspace.Gallery,
+                deadline);
+        }
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return BrowserPackageWorkspace.AcquirePackageQueryFilesAsync(
+                package,
+                inventory,
+                entries,
                 BrowserPackageWorkspace.Gallery,
                 deadline);
         }

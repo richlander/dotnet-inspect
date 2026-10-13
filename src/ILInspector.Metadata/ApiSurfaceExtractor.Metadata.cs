@@ -684,6 +684,24 @@ public static partial class ApiSurfaceExtractor
             [.. fieldNode.ReferencedTypes().Distinct()]);
     }
 
+    /// <summary>
+    /// The named-type identities a field's declared type references, decoded by the
+    /// same guarded provider that fills a metadata-sourced field member's
+    /// <see cref="ApiSignature.ReturnTypeReferences"/>. Compile-back reconstruction
+    /// shares it with API-surface extraction (as it shares
+    /// <see cref="SurfaceFieldHandles"/>) so a reconstructed field declaration
+    /// carries the same typed identity as the extracted one.
+    /// </summary>
+    public static IReadOnlyList<ApiTypeReferenceIdentity> FieldTypeReferences(
+        MetadataReader reader,
+        TypeDefinition declaringType,
+        FieldDefinition field)
+        => DecodeFieldType(
+            reader,
+            GenericContext.ForType(reader, declaringType),
+            field,
+            typeNullableContext: 0).References;
+
     internal static (string? Text, bool IsDegraded)
         GetFieldTypeForIdentity(
             MetadataReader reader,

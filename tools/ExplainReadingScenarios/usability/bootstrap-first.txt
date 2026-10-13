@@ -1,0 +1,5 @@
+explain package-query/query .hal --json is the entry resource.
+HAL resources have _links for navigation and _embedded for included resources.
+Follow emitted hrefs unchanged using explain "$href" --json.
+Use jq locally before displaying output to keep your context small; save full responses locally.
+No need to fetch describedby unless missing schema details prevent your task.

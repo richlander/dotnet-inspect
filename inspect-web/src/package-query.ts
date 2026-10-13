@@ -32,6 +32,16 @@ export interface QueryPreset {
   replacementGroupId?: string | null;
   displayGroupId?: string | null;
   displayGroupLabel?: string | null;
+  categoryId?: string;
+  categoryLabel?: string;
+  categoryOrder?: number;
+  relatedOperations?: readonly string[];
+}
+
+export interface QueryTermOption {
+  value: string;
+  label: string;
+  summary: string;
 }
 
 /** One product-issued operand-bearing package-query term descriptor. */
@@ -46,11 +56,19 @@ export interface QueryTermDescriptor {
   valueKind: string;
   example: string;
   multiline: boolean;
+  allowsCustomValue?: boolean;
+  replacementGroupId?: string | null;
+  options?: readonly QueryTermOption[];
+  relatedOperations?: readonly string[];
 }
 
-interface QueryTermEditor {
+export type DependencyReach = "direct" | "2" | "3" | "4";
+
+export interface QueryTermEditor {
   operator: string;
   value: string;
+  dependencyReach?: DependencyReach;
+  dependencyTarget?: string;
 }
 
 interface QueryTermDraft extends QueryTermEditor {
@@ -178,9 +196,9 @@ export function withoutPreset(
   request: QueryRequest,
   presetId: string,
 ): QueryRequest {
-  return withPresets(
+  return reconcileDependencyContext(withPresets(
     request,
-    request.presets.filter(preset => preset.id !== presetId));
+    request.presets.filter(preset => preset.id !== presetId)));
 }
 
 function withPresets(
@@ -219,6 +237,30 @@ function queryRequest(
   return { ...request, ...changes };
 }
 
+function reconcileDependencyContext(request: QueryRequest): QueryRequest {
+  const hasDependencyPredicate = request.terms.some(term =>
+    term.descriptor.key === "depends"
+    || term.descriptor.key === "depends-transitive"
+    || term.descriptor.key === "depends-ecosystem")
+    || request.presets.some(preset => preset.key === "dependencies");
+  const hasTraversalPredicate = request.terms.some(term =>
+    (term.descriptor.key === "depends" && term.operator === "eq")
+    || term.descriptor.key === "depends-transitive");
+  const terms = hasDependencyPredicate
+    ? request.terms
+    : request.terms.filter(
+        term => term.descriptor.key !== "dependency-target");
+  const presets = hasTraversalPredicate
+    ? request.presets
+    : request.presets.filter(preset => preset.key !== "dependency-depth");
+  if (terms === request.terms && presets === request.presets) return request;
+  return queryRequest(request, {
+    terms,
+    presets,
+    requestedLimit: queryCandidateLimit(presets, terms),
+  });
+}
+
 export function togglePreset(
   request: QueryRequest,
   preset: QueryPreset,
@@ -242,7 +284,16 @@ export function togglePreset(
     return combines
       || (!replacesSelectionGroup && !replacesReplacementGroup);
   });
-  return withPreset(withPresets(request, compatible), preset);
+  const terms = request.terms.filter(term =>
+    preset.replacementGroupId === null
+    || preset.replacementGroupId === undefined
+    || term.descriptor.replacementGroupId
+      !== preset.replacementGroupId);
+  return reconcileDependencyContext(withPreset(queryRequest(request, {
+    presets: compatible,
+    terms,
+    requestedLimit: queryCandidateLimit(compatible, terms),
+  }), preset));
 }
 
 export function withTerm(
@@ -252,9 +303,151 @@ export function withTerm(
   value: string,
 ): QueryRequest {
   const terms = [...request.terms, { descriptor, operator, value }];
+  const presets = request.presets.filter(preset =>
+    descriptor.replacementGroupId === null
+    || descriptor.replacementGroupId === undefined
+    || preset.replacementGroupId
+      !== descriptor.replacementGroupId);
   return queryRequest(request, {
     terms,
-    requestedLimit: queryCandidateLimit(request.presets, terms),
+    presets,
+    requestedLimit: queryCandidateLimit(presets, terms),
+  });
+}
+
+export function dependencyReach(request: QueryRequest): DependencyReach {
+  const value = request.presets.find(
+    preset => preset.key === "dependency-depth")?.value;
+  return value === "2" || value === "3" || value === "4"
+    ? value
+    : "direct";
+}
+
+export function dependencyTarget(request: QueryRequest): string {
+  const value = request.terms.find(
+    term => term.descriptor.key === "dependency-target")?.value.trim() ?? "";
+  return value.toLowerCase() === "all" ? "" : value;
+}
+
+export function packageQueryRelatedOperation(
+  request: QueryRequest | null,
+): string | null {
+  if (request === null) return null;
+  const operations = new Set([
+    ...request.presets.flatMap(preset => preset.relatedOperations ?? []),
+    ...request.terms.flatMap(
+      term => term.descriptor.relatedOperations ?? []),
+  ]);
+  return operations.size === 1 ? operations.values().next().value ?? null : null;
+}
+
+function dependencyContextChanged(
+  previous: QueryRequest,
+  next: QueryRequest,
+): boolean {
+  return dependencyReach(previous) !== dependencyReach(next)
+    || dependencyTarget(previous) !== dependencyTarget(next);
+}
+
+export function isTraversalDependencyTarget(value: string): boolean {
+  const candidate = value.trim();
+  return candidate.length > 0 && candidate.toLowerCase() !== "all";
+}
+
+export function requiresTraversalDependencyTarget(
+  request: QueryRequest,
+  index: number | null,
+  operator: string,
+  reach: DependencyReach,
+): boolean {
+  if (operator === "eq" && reach !== "direct") return true;
+  const hadTraversal = request.presets.some(
+    preset => preset.key === "dependency-depth");
+  if (!hadTraversal) return false;
+  const hasOtherExactDependency = request.terms.some((term, termIndex) =>
+    termIndex !== index
+    && term.descriptor.key === "depends"
+    && term.operator === "eq");
+  const hasOtherTransitiveDependency = request.terms.some(
+    (term, termIndex) =>
+      termIndex !== index
+      && term.descriptor.key === "depends-transitive");
+  return hasOtherTransitiveDependency
+    || (operator !== "eq" && hasOtherExactDependency);
+}
+
+export function synchronizeDependencyTermEditor(
+  previous: QueryRequest,
+  next: QueryRequest,
+  editor: QueryTermEditor,
+): QueryTermEditor {
+  if (!dependencyContextChanged(previous, next)) return editor;
+  return {
+    ...editor,
+    dependencyReach: dependencyReach(next),
+    dependencyTarget: dependencyTarget(next),
+  };
+}
+
+export function withDependencyTerm(
+  request: QueryRequest,
+  descriptor: QueryTermDescriptor,
+  index: number | null,
+  operator: string,
+  value: string,
+  reach: DependencyReach,
+  targetFramework: string,
+  depthPreset: QueryPreset | null,
+  targetDescriptor: QueryTermDescriptor | null,
+): QueryRequest {
+  const selected = index === null ? null : request.terms[index] ?? null;
+  if (index !== null && selected?.descriptor.key !== "depends") {
+    return request;
+  }
+
+  const traverses = operator === "eq" && reach !== "direct";
+  const requiresTarget = requiresTraversalDependencyTarget(
+    request,
+    index,
+    operator,
+    reach);
+  const preservesTraversal = requiresTarget && !traverses;
+  if (traverses && (!depthPreset || !targetDescriptor)) return request;
+
+  const normalizedTarget = targetFramework.trim();
+  const exactTarget = isTraversalDependencyTarget(normalizedTarget)
+    ? normalizedTarget
+    : null;
+  if (requiresTarget && exactTarget === null) return request;
+  if (exactTarget !== null && targetDescriptor === null) return request;
+  const terms = request.terms.flatMap((term, termIndex) => {
+    if (term.descriptor.key === "dependency-target") return [];
+    if (index !== null && termIndex === index) {
+      return [{ descriptor, operator, value }];
+    }
+    return [term];
+  });
+  if (index === null) {
+    terms.push({ descriptor, operator, value });
+  }
+  if (exactTarget !== null && targetDescriptor !== null) {
+    terms.push({
+      descriptor: targetDescriptor,
+      operator: targetDescriptor.operators[0] ?? "eq",
+      value: exactTarget,
+    });
+  }
+
+  const presets = request.presets.filter(
+    preset => preset.key !== "dependency-depth" || preservesTraversal);
+  if (traverses) {
+    if (!depthPreset) return request;
+    presets.push(depthPreset);
+  }
+  return queryRequest(request, {
+    presets,
+    terms,
+    requestedLimit: queryCandidateLimit(presets, terms),
   });
 }
 
@@ -279,9 +472,35 @@ export function withoutTerm(
 ): QueryRequest {
   if (index < 0 || index >= request.terms.length) return request;
   const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
-  return queryRequest(request, {
+  return reconcileDependencyContext(queryRequest(request, {
     terms,
     requestedLimit: queryCandidateLimit(request.presets, terms),
+  }));
+}
+
+export function withoutDependencyTerm(
+  request: QueryRequest,
+  index: number,
+): QueryRequest {
+  if (request.terms[index]?.descriptor.key !== "depends") return request;
+  const terms = request.terms.filter((_term, termIndex) => termIndex !== index);
+  return reconcileDependencyContext(queryRequest(request, {
+    terms,
+    requestedLimit: queryCandidateLimit(request.presets, terms),
+  }));
+}
+
+export function synchronizeTermEdits(
+  previous: QueryRequest,
+  next: QueryRequest,
+  edits: readonly (QueryTermEditor | null)[],
+): readonly (QueryTermEditor | null)[] {
+  return next.terms.map(term => {
+    const previousIndex = previous.terms.indexOf(term);
+    if (previousIndex < 0) return null;
+    const edit = edits[previousIndex] ?? null;
+    if (!edit || term.descriptor.key !== "depends") return edit;
+    return synchronizeDependencyTermEditor(previous, next, edit);
   });
 }
 

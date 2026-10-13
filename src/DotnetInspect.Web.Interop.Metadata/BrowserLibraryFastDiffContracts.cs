@@ -4,17 +4,21 @@ namespace DotnetInspect.Web.Interop.Metadata;
 
 public static class BrowserLibraryFastDiffSchema
 {
-    public const int Version = 1;
+    public const int Version = 2;
 }
 
-/// <summary>One exact Library pair: the current compile asset and its target counterpart.</summary>
+/// <summary>
+/// One exact Library pair: the current compile asset and its target
+/// counterpart, and the axes to decide.
+/// </summary>
 public sealed record BrowserLibraryFastDiffRequest(
     int SchemaVersion,
     string PackageId,
     string CurrentVersion,
     string TargetVersion,
     string TargetFramework,
-    string CompileAssetId);
+    string CompileAssetId,
+    BrowserFastDiffAxes Axes);
 
 public sealed record BrowserLibraryFastDiffResult(
     int SchemaVersion,
@@ -26,8 +30,9 @@ public sealed record BrowserLibraryFastDiffResult(
     string? Reason);
 
 /// <summary>
-/// The compared implementation assets and every Type whose API or Body is not
-/// <c>Unchanged</c>. A compared Type that is absent has both axes unchanged.
+/// The compared implementation assets and every Type with an axis that is
+/// <c>Changed</c> or <c>Indeterminate</c>. A compared Type that is absent has
+/// every requested axis unchanged.
 /// </summary>
 public sealed record BrowserLibraryFastDiffValue(
     string TargetAssetId,
@@ -50,6 +55,14 @@ public enum BrowserFastDiffState
     Unchanged,
     Changed,
     Indeterminate,
+    NotCompared,
+}
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserFastDiffAxes>))]
+public enum BrowserFastDiffAxes
+{
+    ApiAndBody,
+    Api,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryFastDiffResultKind>))]

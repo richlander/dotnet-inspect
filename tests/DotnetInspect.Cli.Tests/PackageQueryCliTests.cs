@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.IO.Compression;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
@@ -227,6 +229,35 @@ public class PackageQueryCliTests
             PackageQuery.Terms.Single(term =>
                 term.Key == PackageQuery.DependsTransitiveTermKey)
                 .ExecutionClass);
+    }
+
+    [Fact]
+    public void DependsWithDepth_LowersToInclusiveTraversal()
+    {
+        Assert.True(
+            PackageQueryOptions.TryCreate(
+                "Microsoft.Extensions.*",
+                [
+                    "depends=Microsoft.Extensions.Primitives",
+                    "dependency-target=net10.0",
+                    "dependency-depth=2",
+                ],
+                nuspecOnly: true,
+                take: null,
+                rowSelection: null,
+                includePrerelease: false,
+                out PackageQueryOptions? options,
+                out OptionError error),
+            error.ToString());
+
+        Assert.True(options!.Plan.RequiresDependencyTraversal);
+        Assert.Equal(2, options.Plan.DependencyDepth);
+        Assert.Contains(
+            options.Plan.BoundTerms,
+            term => term.Predicate.Kind == PackageQueryPredicateKind.Depends);
+        Assert.Equal(
+            PackageQuery.MaximumNuspecExpensiveCandidates,
+            options.Plan.MaximumCandidates);
     }
 
     [Fact]
@@ -1254,10 +1285,13 @@ public class PackageQueryCliTests
                     boundedCountOptions! with { Count = true },
                     boundedCountSource,
                     null));
-            Assert.Equal(1, boundedCountResult.ExitCode);
-            Assert.Empty(boundedCountResult.Output);
+            // The explicit candidate bound is not semantic Head: Count
+            // reports the observed match, exits as Rows does, and keeps the
+            // bound's disclosure rather than claiming the scope's total.
+            Assert.Equal(0, boundedCountResult.ExitCode);
+            Assert.Equal("1", boundedCountResult.Output.Trim());
             Assert.Equal(2, boundedCountFixture.ManifestRequests);
-            Assert.Contains(
+            Assert.DoesNotContain(
                 "Cannot count Package Query rows",
                 boundedCountResult.Error);
             Assert.Contains(
@@ -2219,8 +2253,7 @@ public class PackageQueryCliTests
         Assert.Equal(
             PackageQuery.LibraryLiteralTermKey,
             explanationDocument.RootElement
-                .GetProperty("resources")[0]
-                .GetProperty("details")
+                .GetProperty("facts")
                 .GetProperty("key")
                 .GetString());
 
@@ -2468,11 +2501,13 @@ public class PackageQueryCliTests
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
             query with { Count = true },
             source, null));
-        Assert.Equal(1, result.ExitCode);
-        Assert.Empty(result.Output);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("0", result.Output.Trim());
         Assert.Equal(1, fixture.ManifestRequests);
-        Assert.Contains("Cannot count Package Query rows", result.Error);
         Assert.Contains("CandidateLimitReached", result.Error);
+        Assert.Contains(
+            "These results do not exhaust the requested package-ID scope",
+            result.Error);
     }
 
     [Fact]
@@ -2512,6 +2547,94 @@ public class PackageQueryCliTests
     }
 
     [Fact]
+    public async Task PartialManifestFailure_CountsObservedMatchesWithRowsExit()
+    {
+        using var source = Source(out var fixture);
+        fixture.MissingManifest = "contoso.third";
+        var rows = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends=Dependency.One") with { Tsv = true },
+                source,
+                null));
+        using var countSource = Source(out var countFixture);
+        countFixture.MissingManifest = "contoso.third";
+        var count = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends=Dependency.One") with { Count = true },
+                countSource,
+                null));
+
+        int renderedRows =
+            rows.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Length - 1;
+        Assert.Equal(1, renderedRows);
+        Assert.Equal(rows.ExitCode, count.ExitCode);
+        Assert.Equal(1, count.ExitCode);
+        Assert.Equal(
+            renderedRows.ToString(CultureInfo.InvariantCulture),
+            count.Output.Trim());
+        Assert.Contains("ManifestAcquisition", count.Error);
+        Assert.DoesNotContain("Cannot count Package Query rows", count.Error);
+    }
+
+    [Theory]
+    [InlineData(PackageQueryCompletionKind.SourcePageLimitReached)]
+    [InlineData(PackageQueryCompletionKind.ClientPageLimitReached)]
+    [InlineData(PackageQueryCompletionKind.Failed)]
+    public async Task IncompleteSearch_CountMatchesRenderedRowsAndDisclosure(
+        PackageQueryCompletionKind completion)
+    {
+        void Configure(FakeSource fixture)
+        {
+            switch (completion)
+            {
+                case PackageQueryCompletionKind.SourcePageLimitReached:
+                    fixture.PageTruncation =
+                        PackageSearchTruncationReason.SourcePageLimit;
+                    break;
+                case PackageQueryCompletionKind.ClientPageLimitReached:
+                    fixture.PageTruncation =
+                        PackageSearchTruncationReason.ClientPageLimit;
+                    break;
+                default:
+                    fixture.SearchFailsAfterFirstPage = true;
+                    break;
+            }
+        }
+
+        using var rowsSource = Source(out var rowsFixture);
+        Configure(rowsFixture);
+        var rows = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends=Dependency.One") with { Tsv = true },
+                rowsSource,
+                null));
+        using var countSource = Source(out var countFixture);
+        Configure(countFixture);
+        var count = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                Options("depends=Dependency.One") with { Count = true },
+                countSource,
+                null));
+
+        // Two candidates were admitted before the search stopped, and one
+        // matched. Rows and Count report that same observation, with the
+        // same disclosure and exit status.
+        int renderedRows =
+            rows.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Length - 1;
+        Assert.Equal(1, renderedRows);
+        Assert.Equal("1", count.Output.Trim());
+        Assert.Equal(rows.ExitCode, count.ExitCode);
+        Assert.Equal(1, count.ExitCode);
+        Assert.Equal(rows.Error, count.Error);
+        Assert.Contains(
+            $"Package Query completion: {completion}",
+            count.Error);
+        Assert.DoesNotContain("Cannot count Package Query rows", count.Error);
+    }
+
+    [Fact]
     public async Task EmptySuccessAndSearchFailureRemainDistinct()
     {
         using var source = Source(out var fixture);
@@ -2523,7 +2646,10 @@ public class PackageQueryCliTests
         fixture.SearchFails = true;
         var failed = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(options, source, null));
         Assert.Equal(1, failed.ExitCode);
-        Assert.Contains("Cannot count Package Query rows", failed.Error);
+        Assert.Empty(failed.Output);
+        Assert.Contains(
+            "Cannot count Package Query rows because the package search failed",
+            failed.Error);
     }
 
     [Theory]
@@ -2534,8 +2660,7 @@ public class PackageQueryCliTests
         using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
         fixture.InvalidArchive = invalidArchive;
-        using var operation = new NuGetOperationContext();
-        await using var provider = ContentProvider(fixture, operation);
+        await using var provider = ContentProvider(fixture);
         PackageQueryOptions query = Options(
             "dependencies=none",
             "skill=true");
@@ -2562,8 +2687,7 @@ public class PackageQueryCliTests
     {
         using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
-        using var operation = new NuGetOperationContext();
-        await using var provider = ContentProvider(fixture, operation);
+        await using var provider = ContentProvider(fixture);
         PackageQueryOptions query = OptionsForInput(
             "Contoso.First",
             ["references=DotnetInspector.Queries"],
@@ -2575,7 +2699,7 @@ public class PackageQueryCliTests
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Contoso.First", result.Output);
         Assert.Contains("DotnetInspector.Queries", result.Output);
-        Assert.Equal(1, fixture.PackageRequests);
+        Assert.Equal(3, fixture.PackageRequests);
         Assert.True(fixture.Payload!.Disposed);
         Assert.Empty(result.Error);
     }
@@ -2588,27 +2712,71 @@ public class PackageQueryCliTests
         // reads it without another request.
         using var cache = new IsolatedCache();
         using var source = Source(out var fixture);
-        using var operation = new NuGetOperationContext();
         var package = new PackageQueryPackage("Contoso.First", "1.0.0", [], null, null, source.Source);
-        string root;
-        await using (var provider = ContentProvider(fixture, operation))
+        byte[] firstBytes;
+        await using (var provider = ContentProvider(fixture))
         {
+            PackageQueryContentInventory inventory =
+                Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                    await provider.GetInventoryAsync(
+                        package,
+                        CancellationToken.None))
+                .Inventory;
+            PackageContentEntry assembly = Assert.Single(
+                inventory.Entries,
+                static entry => entry.Path.EndsWith(
+                    "DotnetInspect.Cli.Tests.dll",
+                    StringComparison.Ordinal));
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
-            root = Assert.IsType<string>(result.Content.RootPath);
-            Assert.True(Directory.Exists(root));
+                await provider.GetFilesAsync(
+                    package,
+                    inventory,
+                    [assembly],
+                    CancellationToken.None));
+            firstBytes = ReadEntry(result.Content, assembly.Path);
+            Assert.NotNull(result.Evidence);
         }
-        Assert.True(Directory.Exists(root));
         Assert.True(fixture.Payload!.Disposed);
-        Assert.Equal(1, fixture.PackageRequests);
+        int firstRequests = fixture.PackageRequests;
 
-        await using (var provider = ContentProvider(fixture, operation))
+        await using (var provider = ContentProvider(fixture))
         {
+            PackageQueryContentInventory inventory =
+                Assert.IsType<PackageQueryContentResult.InventoryAvailable>(
+                    await provider.GetInventoryAsync(
+                        package,
+                        CancellationToken.None))
+                .Inventory;
+            PackageContentEntry assembly = Assert.Single(
+                inventory.Entries,
+                static entry => entry.Path.EndsWith(
+                    "DotnetInspect.Cli.Tests.dll",
+                    StringComparison.Ordinal));
             var result = Assert.IsType<PackageQueryContentResult.Available>(
-                await provider.GetContentAsync(package, PackageQueryContentDemand.EntryContent, CancellationToken.None));
-            Assert.Equal(root, result.Content.RootPath);
+                await provider.GetFilesAsync(
+                    package,
+                    inventory,
+                    [assembly],
+                    CancellationToken.None));
+            Assert.Equal(
+                firstBytes,
+                ReadEntry(result.Content, assembly.Path));
         }
-        Assert.Equal(1, fixture.PackageRequests);
+        Assert.Equal(firstRequests, fixture.PackageRequests);
+
+        static byte[] ReadEntry(
+            IPackageContent content,
+            string path)
+        {
+            Assert.True(content.TryOpenEntry(path, out Stream? stream));
+            Assert.NotNull(stream);
+            using (stream)
+            using (var bytes = new MemoryStream())
+            {
+                stream.CopyTo(bytes);
+                return bytes.ToArray();
+            }
+        }
     }
 
     /// <summary>
@@ -2758,10 +2926,10 @@ public class PackageQueryCliTests
     }
 
     private static PackageQueryCommand.ContentProvider ContentProvider(
-        FakeSource fixture, NuGetOperationContext operation) =>
+        FakeSource fixture) =>
         new(new DesktopPackageSourceComposition(
             TimeSpan.FromSeconds(10), new UnavailableCredentials(),
-            (_, _) => new PayloadHandler(fixture)), operation);
+            (_, _) => new PayloadHandler(fixture)));
 
     private sealed class UnavailableCredentials : ICredentialSource
     {
@@ -2789,6 +2957,8 @@ public class PackageQueryCliTests
         public int PackageRequests { get; private set; }
         public string? MissingManifest { get; set; }
         public bool SearchFails { get; set; }
+        public bool SearchFailsAfterFirstPage { get; set; }
+        public PackageSearchTruncationReason? PageTruncation { get; set; }
         public bool InvalidArchive { get; set; }
         public TrackedStream? Payload { get; private set; }
         public PackageSourceResultIdentity Source => results.Source;
@@ -2813,9 +2983,37 @@ public class PackageQueryCliTests
                     prefix,
                     StringComparison.OrdinalIgnoreCase)),
             ];
+            if (PageTruncation is { } truncation)
+            {
+                // A provider or client page bound stops after two candidates.
+                return Task.FromResult(results.SucceededSearch(
+                    results.Search([.. rows.Take(2)], truncation)));
+            }
             return Task.FromResult(SearchFails ? results.FailedSearch(PackageSourceFailureKind.Transport)
                 : results.SucceededSearch(results.Search([.. rows.Take(take)],
                     take < rows.Length ? PackageSearchTruncationReason.RequestedLimit : PackageSearchTruncationReason.None)));
+        }
+
+        public async IAsyncEnumerable<PackageSourceOperationResult<PackageSearchResult>>
+            SearchByPrefixPagesAsync(
+                string prefix,
+                int take = 100,
+                bool prerelease = false,
+                [EnumeratorCancellation] CancellationToken cancellationToken = default,
+                NuGetOperationContext? operationContext = null)
+        {
+            if (!SearchFailsAfterFirstPage)
+            {
+                yield return await SearchByPrefixAsync(
+                    prefix, take, prerelease, cancellationToken, operationContext);
+                yield break;
+            }
+
+            // The first page admits two candidates; the next page fails.
+            yield return results.SucceededSearch(results.Search(
+                [new("Contoso.First", "1.0.0"), new("Contoso.Second", "1.0.0")],
+                PackageSearchTruncationReason.None));
+            yield return results.FailedSearch(PackageSourceFailureKind.Transport);
         }
 
         public Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(

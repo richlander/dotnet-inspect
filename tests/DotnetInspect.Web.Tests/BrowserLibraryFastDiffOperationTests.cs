@@ -47,6 +47,50 @@ public sealed class BrowserLibraryFastDiffOperationTests
     }
 
     [Fact]
+    public async Task Export_YieldsBetweenStepsAndReachesTheSameResult()
+    {
+        string packageId = await RegisterFixturePairAsync();
+        BrowserLibraryFastDiffResult whole = await Query(Request(packageId));
+
+        // A zero budget makes every row and Type its own step.
+        TimeSpan budget = MetadataExports.LibraryFastDiffStepBudget;
+        MetadataExports.LibraryFastDiffStepBudget = TimeSpan.Zero;
+        BrowserLibraryFastDiffResult stepped;
+        try
+        {
+            stepped = await Query(Request(packageId));
+        }
+        finally
+        {
+            MetadataExports.LibraryFastDiffStepBudget = budget;
+        }
+
+        Assert.Equal(BrowserLibraryFastDiffResultKind.Succeeded, stepped.Kind);
+        Assert.Equal(whole.Value!.ComparedTypeCount, stepped.Value!.ComparedTypeCount);
+        Assert.Equal(whole.Value.Types, stepped.Value.Types);
+    }
+
+    [Fact]
+    public async Task Export_ApiAxisReportsOnlyApiChanges()
+    {
+        string packageId = await RegisterFixturePairAsync();
+
+        BrowserLibraryFastDiffResult result = await Query(
+            Request(packageId) with { Axes = BrowserFastDiffAxes.Api });
+
+        Assert.True(
+            result.Kind == BrowserLibraryFastDiffResultKind.Succeeded,
+            $"{result.Kind}: {result.Error}\n{result.Diagnostic}");
+        BrowserLibraryFastDiffValue value = Assert.IsType<BrowserLibraryFastDiffValue>(result.Value);
+        Assert.All(value.Types, type => Assert.Equal(BrowserFastDiffState.NotCompared, type.Body));
+        Assert.Equal(
+            (BrowserFastDiffState.Changed, BrowserFastDiffState.NotCompared),
+            State(value, "FastDiffFixture.PublicMemberAdded"));
+        // A body-only change is not an API change, so the Type is absent.
+        Assert.DoesNotContain(value.Types, type => type.Identifier == "FastDiffFixture.BodyOnly");
+    }
+
+    [Fact]
     public async Task Export_ComparesImplementationsBehindReferenceAssemblies()
     {
         // Both versions share one reference assembly, so only their
@@ -113,7 +157,8 @@ public sealed class BrowserLibraryFastDiffOperationTests
         CurrentVersion,
         TargetVersion,
         Framework,
-        AssetId);
+        AssetId,
+        BrowserFastDiffAxes.ApiAndBody);
 
     static async Task<BrowserLibraryFastDiffResult> Query(BrowserLibraryFastDiffRequest request)
     {

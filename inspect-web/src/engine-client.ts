@@ -1,6 +1,9 @@
 import type {
   BrowserSourceComparisonResult,
 } from "./source-diff-transport.ts";
+import type {
+  PackageQueryDurableRowPresentationLayout,
+} from "./package-query-durable-row.ts";
 
 type HostFacade = typeof import("./facades/inspect-web-host.d.ts");
 type PackageFacade = typeof import("./facades/inspect-web-package.d.ts");
@@ -69,10 +72,14 @@ type MetadataOperations =
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
+  | "queryPerformanceTypeMemberPopulation"
+  | "queryTypeOverviewDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
   | "queryPlatformMemberGroupDocument"
+  | "queryPlatformPerformanceTypeMemberPopulation"
+  | "queryPlatformTypeOverviewDocument"
   | "queryPlatformTypeMemberPopulation"
   | "queryGraphMemberSurface"
   | "queryPackageHeapEntries"
@@ -166,6 +173,8 @@ type CatalogOperations =
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;
   readonly package: AsyncFacade<PackageFacade, PackageOperations> & {
+    packageQueryDurableRowLayout():
+      Promise<PackageQueryDurableRowPresentationLayout>;
     cancelPackageActivity(
       ...args: Parameters<PackageFacade["cancelPackageActivity"]>
     ): void;
@@ -191,6 +200,9 @@ export interface EngineClient {
       libraryIdentity: string,
       typeIdentity: string,
       memberName: string,
+      accessibility: string,
+      receiver: string,
+      includeHidden: boolean,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryMemberGroupDocument"]
     >>>;
@@ -201,6 +213,22 @@ export interface EngineClient {
       accessibility: string,
     ) => Promise<Awaited<ReturnType<
       MetadataFacade["queryUploadedLibraryTypeMemberPopulation"]
+    >>>;
+    readonly queryUploadedLibraryTypeOverviewDocument: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      spelling: string,
+      accessibility: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryTypeOverviewDocument"]
+    >>>;
+    readonly queryUploadedLibraryPerformanceTypeMemberPopulation: (
+      libraryIdentity: string,
+      typeIdentity: string,
+      spelling: string,
+      accessibility: string,
+    ) => Promise<Awaited<ReturnType<
+      MetadataFacade["queryUploadedLibraryPerformanceTypeMemberPopulation"]
     >>>;
   };
   readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations>;

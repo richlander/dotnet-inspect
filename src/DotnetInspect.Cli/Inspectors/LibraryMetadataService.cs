@@ -92,23 +92,35 @@ internal static class LibraryMetadataService
             bool needsResourceLifecycle =
                 requiredQueries?.Contains(
                     ResourceTriageQuery.Definition) == true;
+            bool usesFocusedLibraryMetrics =
+                requiredQueries?.Count == 1
+                && requiredQueries.Contains(
+                    LibraryMetricsQuery.Definition);
             Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
                 needsResourceLifecycle
                     ? Analysis.LibraryBodyAnalysisRequest
                         .CreateResourceLifecycle(
                             Analysis.ArrayPoolResourceEffectModel.Create(),
                             bodyAnalysisFeatures)
+                    : usesFocusedLibraryMetrics
+                            ? Analysis.LibraryBodyAnalysisRequest
+                                .CreateLibraryStructuralReport()
                     : Analysis.LibraryBodyAnalysisRequest.Create(
                         bodyAnalysisFeatures);
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
+                || requiredQueries?.Contains(
+                    SyncCallsInAsyncDemand.Section) == true
+                || usesFocusedLibraryMetrics
                 || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
                     Analysis.LibraryBodyAnalysisFeatures
                         .OptimizationOpportunities)
                 || requiredQueries?.Contains(BodyShapesQuery.Definition) == true
+                || requiredQueries?.Contains(
+                    SyncCallsInAsyncDemand.Section) == true
                 || needsResourceLifecycle;
             IAssemblyReferenceResolver? bodyReferenceResolver =
                 needsBodyReferenceResolver
@@ -256,6 +268,9 @@ internal static class LibraryMetadataService
                 IntegrationQuery = options.IntegrationQuery,
                 BodyShapeSections = options.IncludeSections,
                 BodyShapeSummaryRows = options.Rows,
+                BodyShapeSearchLimit = BodyShapeRowSelection.SearchLimit(
+                    options.BodyShapeRowSelection,
+                    options.IncludeSections),
             };
 
             inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo();
@@ -2313,6 +2328,17 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
+                SyncCallsInAsyncDemand.Section,
+                out SyncCallsInAsyncBindingResult? syncCallsInAsync))
+        {
+            ApplySyncCallsInAsyncResult(
+                path,
+                inspection,
+                logger,
+                syncCallsInAsync);
+        }
+
+        if (results.TryGet(
                 UnsafeEvidencePresenceQuery.Definition,
                 out UnsafeEvidencePresenceResult? unsafeEvidencePresence))
         {
@@ -2802,6 +2828,8 @@ internal static class LibraryMetadataService
                 if (available.Search.Failures.Count == 0)
                     break;
 
+                CommandError.WriteWarning(
+                    BodyShapeCompleteness.Warning(available.Search));
                 if (logger.Enabled)
                 {
                     foreach (var failure in available.Search.Failures)
@@ -2809,12 +2837,6 @@ internal static class LibraryMetadataService
                         logger.LogWarning(
                             $"Body Shapes skipped {failure.Subject}: {failure.Reason}");
                     }
-                }
-                else
-                {
-                    CommandError.WriteWarning(
-                        $"Body Shapes skipped {available.Search.Failures.Count} candidates; "
-                        + "rerun with --verbose for details.");
                 }
                 break;
 
@@ -3005,6 +3027,132 @@ internal static class LibraryMetadataService
                 throw new InvalidOperationException(
                     $"Unknown method classification result '{result.GetType().Name}'.");
         }
+    }
+
+    internal static void ApplySyncCallsInAsyncResult(
+            string path,
+            LibraryInspection inspection,
+            VerboseLogger logger,
+            SyncCallsInAsyncBindingResult result)
+        {
+            inspection.SyncCallsInAsyncRows = [];
+            inspection.SyncCallsInAsyncSummaries = null;
+            inspection.SyncCallsInAsyncCount = null;
+            inspection.SyncCallsInAsyncPresence = null;
+            inspection.SyncCallsInAsyncFailure = null;
+
+            switch (result)
+            {
+                case SyncCallsInAsyncBindingResult.Available available:
+                    foreach ((SyncCallsInAsyncClosing closing,
+                        SyncCallsInAsyncAnswer answer) in available.Result.Answers)
+                    {
+                        ApplySyncCallsInAsyncAnswer(
+                            path,
+                            inspection,
+                            logger,
+                            closing,
+                            answer);
+                    }
+                    foreach (Analysis.AnalysisDiagnostic diagnostic
+                        in available.Result.Diagnostics)
+                    {
+                        logger.LogWarning(
+                            $"Incomplete Sync Calls in Async analysis in {path}: "
+                            + diagnostic.Message);
+                    }
+                    break;
+
+                case SyncCallsInAsyncBindingResult.Failed failed:
+                    logger.LogWarning(
+                        $"Error finding sync calls in async methods in {path}: "
+                        + failed.Error.Message);
+                    inspection.SyncCallsInAsyncFailure =
+                        failed.Error.Message;
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown Sync Calls in Async result "
+                        + $"'{result.GetType().Name}'.");
+            }
+        }
+
+    static void ApplySyncCallsInAsyncAnswer(
+            string path,
+            LibraryInspection inspection,
+            VerboseLogger logger,
+            SyncCallsInAsyncClosing closing,
+            SyncCallsInAsyncAnswer answer)
+        {
+            switch (answer)
+            {
+                case SyncCallsInAsyncAnswer.Rows rows:
+                    inspection.SyncCallsInAsyncRows = rows.Calls;
+                    inspection.SyncCallsInAsyncSummaries =
+                    [
+                        .. rows.Calls.Select(static row =>
+                            new SyncCallInAsyncSummary
+                            {
+                                Caller = FormatMethod(row.Caller),
+                                Callee =
+                                    ApiOutputFormatter.FormatCallee(
+                                        row.Callee),
+                                Alternative =
+                                    ApiOutputFormatter.FormatCallee(
+                                        row.Alternative),
+                                PairKind = row.PairKind.ToString(),
+                            }),
+                    ];
+                    break;
+
+                case SyncCallsInAsyncAnswer.Count count:
+                    inspection.SyncCallsInAsyncCount = count.Value;
+                    break;
+
+                case SyncCallsInAsyncAnswer.Exists exists:
+                    inspection.SyncCallsInAsyncPresence = exists.Value;
+                    break;
+
+                case SyncCallsInAsyncAnswer.Failed failed:
+                    RecordSyncCallsInAsyncFailure(
+                        path,
+                        inspection,
+                        logger,
+                        closing,
+                        $"{failed.Failure.Unit}: "
+                        + failed.Failure.Message);
+                    break;
+
+                case SyncCallsInAsyncAnswer.Aborted aborted:
+                    RecordSyncCallsInAsyncFailure(
+                        path,
+                        inspection,
+                        logger,
+                        closing,
+                        $"{aborted.Critical.Unit}: "
+                        + aborted.Critical.Budget);
+                    break;
+
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown Sync Calls in Async answer "
+                        + $"'{answer.GetType().Name}'.");
+            }
+        }
+
+    static void RecordSyncCallsInAsyncFailure(
+            string path,
+            LibraryInspection inspection,
+            VerboseLogger logger,
+            SyncCallsInAsyncClosing closing,
+            string reason)
+        {
+            string failure = $"{closing} failed at {reason}.";
+            logger.LogWarning(
+                $"Error finding sync calls in async methods in {path}: "
+                + failure);
+            inspection.SyncCallsInAsyncFailure ??= failure;
     }
 
     static void ApplyClassificationAnswer(

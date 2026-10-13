@@ -92,7 +92,7 @@ public static class PackageOptionsParser
             ExplicitVersion = GetExplicitVersion(result, args),
             ListVersions = result.GetValue(args.VersionsOption)
                 || result.GetValue(args.VersionsWithFeedOption),
-            ListTfms = result.GetValue(args.TfmsOption),
+            TfmsExplicitlySet = result.GetValue(args.TfmsOption),
             FilesExplicitlySet = result.GetValue(args.FilesOption),
             Print = result.GetValue(opts.Print),
             Value = result.GetValue(opts.Value),
@@ -563,7 +563,7 @@ public static class PackageOptionsParser
             PathFilters = pathFilters,
             PathMatchMode = parseResult.GetValue(args.PathMatchOption) ?? "all",
             SkipEmpty = parseResult.GetValue(args.SkipEmptyOption),
-            ListTfms = parseResult.GetValue(args.TfmsOption),
+            TfmsExplicitlySet = parseResult.GetValue(args.TfmsOption),
             ListVersions = showVersions,
             ListVersionsWithFeed = showVersionsWithFeed,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
@@ -623,6 +623,9 @@ public static class PackageOptionsParser
 
         // Captured before the sugar below rewrites Select, so it reflects what the caller typed.
         options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } || options.SelectDefault };
+
+        if (parseResult.GetValue(args.TfmsOption))
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.TargetFrameworks], SelectExplicitlySet = true };
 
         if (parseResult.GetValue(args.FilesOption))
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files], SelectExplicitlySet = true };
@@ -911,6 +914,7 @@ public static class PackageOptionsParser
             args)
         && parseResult.GetResult(opts.Select)
             is { Implicit: false }
+        && !IsPackageTfmRowSelection(parseResult, opts, args)
         && !IsDependencyQueryRowSelection(
             parseResult,
             opts,
@@ -964,7 +968,7 @@ public static class PackageOptionsParser
         string[] packageArgs =
             result.GetValue(args.PackageNameArg) ?? [];
         if (packageArgs.Length != 1
-            || !result.GetValue(args.TfmsOption)
+            || !SelectsOnlyTargetFrameworks(result, opts, args)
             || HasCompetingPackageTfmIntent(result, opts, args))
         {
             return false;
@@ -1016,42 +1020,25 @@ public static class PackageOptionsParser
                 StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool SelectsOnlyTargetFrameworks(
+        CommandResult result, SharedOptions opts, PackageCommandArgs args)
+    {
+        var selectors = ParseSelectors(opts.SelectText(result)) ?? [];
+        if (result.GetValue(args.TfmsOption))
+            selectors = [.. selectors, Views.PackageSections.TargetFrameworks];
+        return selectors.Length > 0 && selectors.All(selector =>
+            selector.Equals(Views.PackageSections.TargetFrameworks, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool HasCompetingPackageTfmIntent(
-        CommandResult result,
-        SharedOptions opts,
-        PackageCommandArgs args)
+        CommandResult result, SharedOptions opts, PackageCommandArgs args)
         => result.GetResult(opts.Discover) is { Implicit: false }
-            || result.GetResult(opts.Select) is { Implicit: false }
-            || result.GetValue(opts.Tree)
-            || result.GetValue(opts.Schema)
-            || result.GetValue(opts.Envelope)
-            || result.GetValue(opts.Print)
-            || result.GetResult(opts.Row) is { Implicit: false }
-            || result.GetValue(opts.Value)
-            || result.GetValue(opts.Urls)
-            || result.GetValue(opts.Paths)
-            || result.GetValue(args.RootsOption)
-            || result.GetValue(opts.JsonArray)
-            || result.GetValue(opts.PreferRenderedUrls)
-            || (!result.GetValue(opts.Count)
-                && (result.GetResult(opts.Columns) is { Implicit: false }
-                    || result.GetResult(opts.Fields) is { Implicit: false }))
-            || result.GetValue(args.DependenciesOption)
-            || result.GetValue(args.FilesOption)
-            || result.GetValue(args.LibOption)
-            || result.GetValue(args.ToolsOption)
-            || result.GetResult(args.PathOption) is { Implicit: false }
-            || result.GetResult(args.PathMatchOption) is { Implicit: false }
-            || result.GetValue(args.SkipEmptyOption)
-            || result.GetResult(args.TfmOption) is { Implicit: false }
-            || result.GetResult(args.TypeFilterOption) is { Implicit: false }
             || HasLibraryTarget(result, args)
+            || result.GetValue(args.FilesOption)
+            || result.GetResult(args.PathOption) is { Implicit: false }
             || result.GetValue(args.VersionsOption)
             || result.GetValue(args.VersionsWithFeedOption)
-            || result.GetValue(args.IncludeUnlistedOption)
-            || result.GetValue(args.ContentOption)
-            || result.GetValue(args.FrontmatterOption)
-            || result.GetValue(args.BodyOption);
+            || result.GetValue(args.ContentOption);
 
     private static string[]? ParseSelectors(string? value)
         => string.IsNullOrWhiteSpace(value)

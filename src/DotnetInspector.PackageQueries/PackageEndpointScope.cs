@@ -480,6 +480,23 @@ public sealed class PackageEndpointScope : IAsyncDisposable
             cancellationToken);
     }
 
+    internal ValueTask<ArtifactRootResult<TResult>>
+        UsePackageAssemblyRolesAsync<TResult>(
+            Func<
+                InspectionWorkspace,
+                PackageRootBinding,
+                PackageAssemblyContextRealization,
+                CancellationToken,
+                ValueTask<TResult>> operation,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return UseAsync(
+            (realization, token) =>
+                operation(_workspace, Root, realization, token),
+            cancellationToken);
+    }
+
     /// <summary>
     /// Hands the implementation group and every implementation participant
     /// to one query. The scope must have been opened with

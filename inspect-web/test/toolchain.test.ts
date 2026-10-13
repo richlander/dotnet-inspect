@@ -114,9 +114,8 @@ interface StaticWebAppConfig {
 //
 // These are repo-owned files rather than untrusted input, and a shape that stops matching
 // fails the assertion that reads it, so this asserts the shape instead of validating it.
-// That mirrors `parseEngineJson` in `src/dotnet-inspect.ts`, including the two targeted
-// disables it needs. `reportUnusedDisableDirectives` is an error here, so these directives
-// cannot outlive the rules they suppress.
+// `reportUnusedDisableDirectives` is an error here, so these targeted directives cannot
+// outlive the rules they suppress.
 // oxlint-disable-next-line typescript/no-unnecessary-type-parameters
 function readJson<T>(specifier: string): T {
   const parsed: unknown = JSON.parse(
@@ -2285,12 +2284,15 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
 
   // The scoped exceptions are the generated TypeScript handoffs, compiler-emitted
   // declaration module markers, and the production facade's compiler-derived publish
-  // artifact. The TypeScript sources are compiled separately against the SDK-owned
-  // runtime declaration; the JavaScript import resolves only after Wasm publish.
-  // Authored source keeps the complete rule set held by the gates above.
+  // artifact. Generated schema literals preserve exact CLR integer bounds even when
+  // JavaScript cannot represent them exactly. The TypeScript sources are compiled
+  // separately against the SDK-owned runtime declaration; the JavaScript import
+  // resolves only after Wasm publish. Authored source keeps the complete rule set held
+  // by the gates above.
   assert.deepEqual(scopedRelaxations, [
     ["scripts/*.ts, test/**/*.ts, **/vite.config.ts", []],
     [publishedFacadeScope, [
+      "no-loss-of-precision",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",
       "typescript/no-unsafe-call",
@@ -2299,6 +2301,7 @@ test("the oxlint configuration relaxes only the rules it documents", () => {
       "typescript/use-unknown-in-catch-callback-variable",
     ]],
     [generatedTypeScriptFacadeScope, [
+      "no-loss-of-precision",
       "typescript/no-redundant-type-constituents",
       "typescript/no-unsafe-argument",
       "typescript/no-unsafe-assignment",

@@ -7,6 +7,7 @@ using ILInspector.Metadata;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
@@ -92,6 +93,18 @@ public static partial class TypeCommand
             options,
             plan,
             exactTypeCapabilities: exactTypeCapabilities);
+
+    internal static Task<int> ExecuteAsync(
+        TypeOptions options,
+        ResolvedMemberInspectionPlan plan,
+        PackageHouse exactTypeHouse,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issueExactTypeOperation)
+        => ExecuteCoreAsync(
+            options,
+            plan,
+            exactTypeHouse: exactTypeHouse,
+            issueExactTypeOperation: issueExactTypeOperation);
 
     internal static Task<int> ExecuteAsync(
         TypeOptions options,
@@ -202,6 +215,9 @@ public static partial class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
+        PackageHouse? exactTypeHouse = null,
+        Func<CancellationToken, PackageSourceOperationLease>?
+            issueExactTypeOperation = null,
         WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime = null,
         TypeCommandPlan? commandPlan = null,
         CancellationToken cancellationToken = default)
@@ -302,16 +318,23 @@ public static partial class TypeCommand
                 options,
                 out ExactTypeInspectionRequest? exactTypeRequest))
         {
-            return await (exactTypeCapabilities is null
+            return await (exactTypeHouse is null
                 ? ExecuteSharedExactTypeAsync(
                     options,
                     plan,
-                    exactTypeRequest)
+                    exactTypeRequest,
+                    cancellationToken)
                 : ExecuteSharedExactTypeAsync(
                     options,
                     plan,
                     exactTypeRequest,
-                    exactTypeCapabilities)).ConfigureAwait(false);
+                    exactTypeHouse,
+                    (issueExactTypeOperation
+                        ?? throw new InvalidOperationException(
+                            "An injected exact-Type PackageHouse requires "
+                                + "a source-operation issuer."))(
+                        cancellationToken),
+                    cancellationToken)).ConfigureAwait(false);
         }
 
         if (resolvedSource is null
@@ -829,6 +852,7 @@ public static partial class TypeCommand
                         api,
                         apiType,
                         effectiveOptions.MemberFilter);
+                    var bodyShapeCompletion = new BodyShapeCompletion();
                     if (tabularProjection)
                     {
                         // Hold the rendered artifact until typed projection diagnostics confirm
@@ -837,7 +861,8 @@ public static partial class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly,
-                            sourceClient: context.HttpClient);
+                            sourceClient: context.HttpClient,
+                            bodyShapeCompletion: bodyShapeCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -848,10 +873,12 @@ public static partial class TypeCommand
                         var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly,
-                            sourceClient: context.HttpClient);
+                            sourceClient: context.HttpClient,
+                            bodyShapeCompletion: bodyShapeCompletion);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
+                    inspectionIncomplete |= bodyShapeCompletion.Incomplete;
 
                     // Notify when a requested section matched but has no data for this type.
                     // JSON and markdown both honor -S; explicit tabular output falls back to
@@ -1351,28 +1378,50 @@ public static partial class TypeCommand
         Hints.WriteTips(companionOutput, () => [.. tips]);
     }
 
-    static Task<int> ExecuteSharedExactTypeAsync(
+    static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
-        ExactTypeInspectionRequest request) =>
-        ExecuteSharedExactTypeAsync(
-            options,
-            plan,
-            request,
-            CreateWorkspaceContextLoadOptions(options));
+        ExactTypeInspectionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var logger = new VerboseLogger(options.Verbose);
+        await using var composition =
+            new DesktopPackageSourceComposition(
+                HttpClientFactory.Shared.Timeout);
+        using var stores = new SearchPackageStores("inspect-type");
+        PackageHouse house = composition.CreateRealizationHouse(
+            new PackagePayloadAcquisitionPlan(
+                stores.GetLegacyCompatibleStore,
+                PackagePayloadLimits.Default,
+                log: options.Verbose ? logger.Log : null),
+            options.SourceOptions,
+            options.Verbose ? logger.Log : null);
+        return await ExecuteSharedExactTypeAsync(
+                options,
+                plan,
+                request,
+                house,
+                composition.IssueSettlementOperation(cancellationToken),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     internal static async Task<int> ExecuteSharedExactTypeAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
-        WorkspaceContextLoadOptions capabilities)
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        CancellationToken cancellationToken = default)
     {
         InspectionEnvelope<ExactTypeInspectionResult> envelope;
         try
         {
             envelope = await ExactTypeInspectionOperation.ExecuteAsync(
                 request,
-                capabilities).ConfigureAwait(false);
+                house,
+                sourceOperation,
+                cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

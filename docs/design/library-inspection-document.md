@@ -258,7 +258,10 @@ Browser adoption uses the generated input binding rather than adding a
 handwritten TypeScript request shape, flattened interim export, or duplicate
 JSON wrapper. The Browser adapter consumes the detached plan, bounds, and
 Enablements values; it does not construct or project `ILInspector.Metadata`
-contract values.
+contract values. Its exact positive project and assembly ceilings plus this
+typed lowering contract enforce product ownership; its compiler ban input is
+limited to runtime platform hazards that dependency layering cannot
+distinguish, not an open-ended inventory of internal product APIs.
 
 ## Library document
 
@@ -468,8 +471,10 @@ about declaration kind, public-surface or accessibility selection, Type kind,
 Type trait, hidden/compiler-generated admission, Library snapshot, or
 completion.
 
-Count is exact or visibly non-successful. It never reports retained Rows,
-current page length, a prefix, or zero after failure.
+Count is exact, observed over usable incomplete evidence under the section-row
+owner's [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),
+or visibly non-successful. It never reports retained Rows, current page
+length, or a prefix as the population count, nor zero after failure.
 
 The initial Count preserves disjoint declaration evidence:
 

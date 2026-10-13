@@ -416,13 +416,11 @@ public partial class PackageCommand
         }
 #if DEBUG
         if (options.EvidenceEnvelopePath is not null
-            && (options.ListTfms
-                || options.ShowContent))
+            && options.ShowContent)
         {
             CommandError.Write(
                 "--evidence-envelope requires section-based Package "
-                    + "inspection; it cannot combine with --tfms, "
-                    + "or --content.");
+                    + "inspection; it cannot combine with --content.");
             return false;
         }
 #endif
@@ -460,7 +458,6 @@ public partial class PackageCommand
         if (options.ShareFormat is null)
             return null;
         if (options.ListVersions
-            || options.ListTfms
             || options.ShowContent
             || options.Discover is not null
             || options.PackageLibrary is not null

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Runtime.InteropServices;
 using System.Runtime.ExceptionServices;
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
 
@@ -37,7 +38,8 @@ public readonly struct InstructionEntry
 /// The sequence is single-threaded. Access scans only through the furthest
 /// requested instruction and retains offset, opcode, and extent for replay or
 /// indexed access. Operand values and branch targets are decoded only by
-/// <see cref="Resolve(int)"/>. Unreached IL remains unvalidated. A reached
+/// <see cref="Resolve(int)"/>, unless the sequence was explicitly created with
+/// resolved-detail retention. Unreached IL remains unvalidated. A reached
 /// structural failure is retained and rethrown for later requests that need
 /// more instructions.
 /// </remarks>
@@ -46,6 +48,7 @@ public sealed class InstructionSequence
     readonly MethodBodyBlock? _body;
     readonly Action? _ensureBodyOwnerAlive;
     readonly ImmutableArray<byte> _il;
+    readonly bool _retainResolvedDetail;
     readonly List<InstructionEntry> _prefix = [];
     byte[]? _resolutionIl;
     Dictionary<int, DecodedInstruction>? _resolved;
@@ -55,24 +58,42 @@ public sealed class InstructionSequence
 
     InstructionSequence(
         MethodBodyBlock body,
-        Action ensureOwnerAlive)
+        Action ensureOwnerAlive,
+        bool retainResolvedDetail)
     {
         _body = body ?? throw new ArgumentNullException(nameof(body));
         _ensureBodyOwnerAlive =
             ensureOwnerAlive
             ?? throw new ArgumentNullException(nameof(ensureOwnerAlive));
+        _retainResolvedDetail = retainResolvedDetail;
     }
 
-    public InstructionSequence(ImmutableArray<byte> il)
+    InstructionSequence(
+        ImmutableArray<byte> il,
+        bool retainResolvedDetail)
     {
         if (il.IsDefault)
             throw new ArgumentException("The IL snapshot must be initialized.", nameof(il));
         _il = il;
+        _retainResolvedDetail = retainResolvedDetail;
+    }
+
+    InstructionSequence(
+        ReadOnlySpan<byte> il,
+        bool retainResolvedDetail)
+    {
+        _il = ImmutableCollectionsMarshal.AsImmutableArray(il.ToArray());
+        _retainResolvedDetail = retainResolvedDetail;
+    }
+
+    public InstructionSequence(ImmutableArray<byte> il)
+        : this(il, retainResolvedDetail: false)
+    {
     }
 
     public InstructionSequence(ReadOnlySpan<byte> il)
+        : this(il, retainResolvedDetail: false)
     {
-        _il = ImmutableCollectionsMarshal.AsImmutableArray(il.ToArray());
     }
 
     /// <summary>
@@ -82,7 +103,32 @@ public sealed class InstructionSequence
     public static InstructionSequence Borrow(
         MethodBodyBlock body,
         Action ensureOwnerAlive) =>
-        new(body, ensureOwnerAlive);
+        new(body, ensureOwnerAlive, retainResolvedDetail: false);
+
+    /// <summary>
+    /// Creates a borrowed sequence that retains full decoded detail while its
+    /// shared scan frontier advances.
+    /// </summary>
+    public static InstructionSequence BorrowResolved(
+        MethodBodyBlock body,
+        Action ensureOwnerAlive) =>
+        new(body, ensureOwnerAlive, retainResolvedDetail: true);
+
+    /// <summary>
+    /// Creates a copied sequence that retains full decoded detail while its
+    /// shared scan frontier advances.
+    /// </summary>
+    public static InstructionSequence CreateResolved(
+        ImmutableArray<byte> il) =>
+        new(il, retainResolvedDetail: true);
+
+    /// <summary>
+    /// Creates a copied sequence that retains full decoded detail while its
+    /// shared scan frontier advances.
+    /// </summary>
+    public static InstructionSequence CreateResolved(
+        ReadOnlySpan<byte> il) =>
+        new(il, retainResolvedDetail: true);
 
     /// <summary>
     /// Whether access has reached and validated the end of the IL stream.
@@ -213,6 +259,61 @@ public sealed class InstructionSequence
         return resolved;
     }
 
+    /// <summary>
+    /// Completes a resolved-detail sequence and promotes its one retained
+    /// decode into canonical Layer 0 instructions correlated with
+    /// <paramref name="body"/>.
+    /// </summary>
+    /// <remarks>
+    /// This operation explicitly scans and validates any unreached suffix.
+    /// The body evidence must describe the same IL bytes retained by this
+    /// sequence.
+    /// </remarks>
+    public MethodInstructions Materialize(MethodBodyData body)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        if (!_retainResolvedDetail)
+        {
+            throw new InvalidOperationException(
+                "Materialization requires a sequence created with resolved-detail retention.");
+        }
+
+        while (!_isComplete)
+        {
+            if (!TryScanNext(out InstructionEntry instruction))
+                break;
+            _prefix.Add(instruction);
+        }
+        _failure?.Throw();
+
+        ReadOnlySpan<byte> il = GetResolutionIl();
+        if (!il.SequenceEqual(body.IL.AsSpan()))
+        {
+            throw new ArgumentException(
+                "The Metadata body evidence does not match the retained IL.",
+                nameof(body));
+        }
+
+        var instructions =
+            ImmutableArray.CreateBuilder<DecodedInstruction>(_prefix.Count);
+        for (int i = 0; i < _prefix.Count; i++)
+        {
+            if (_resolved is null
+                || !_resolved.TryGetValue(
+                    i,
+                    out DecodedInstruction? resolved))
+            {
+                throw new InvalidOperationException(
+                    "Resolved instruction detail was not retained.");
+            }
+            instructions.Add(resolved);
+        }
+
+        return MethodInstructions.Create(
+            body,
+            instructions.MoveToImmutable());
+    }
+
     internal bool TryMoveNext(
         ref int nextIndex,
         out InstructionEntry instruction)
@@ -279,15 +380,42 @@ public sealed class InstructionSequence
         try
         {
             _ensureBodyOwnerAlive?.Invoke();
-            bool hasInstruction = _body is not null
-                ? InstructionDecoder.TryReadNext(
-                    _body,
+            bool hasInstruction;
+            if (_retainResolvedDetail)
+            {
+                int index = _prefix.Count;
+                if (InstructionDecoder.TryDecodeNext(
+                    GetResolutionIl(),
                     ref _nextOffset,
-                    out instruction)
-                : InstructionDecoder.TryReadNext(
-                    GetIl(),
-                    ref _nextOffset,
-                    out instruction);
+                    default,
+                    out DecodedInstruction? resolved))
+                {
+                    hasInstruction = true;
+                    instruction = new(
+                        resolved.Offset,
+                        resolved.OpCode,
+                        resolved.NextOffset);
+                    _resolved ??= [];
+                    _resolved.Add(index, resolved);
+                }
+                else
+                {
+                    hasInstruction = false;
+                    instruction = default;
+                }
+            }
+            else
+            {
+                hasInstruction = _body is not null
+                    ? InstructionDecoder.TryReadNext(
+                        _body,
+                        ref _nextOffset,
+                        out instruction)
+                    : InstructionDecoder.TryReadNext(
+                        GetIl(),
+                        ref _nextOffset,
+                        out instruction);
+            }
             if (!hasInstruction)
                 _isComplete = true;
             return hasInstruction;

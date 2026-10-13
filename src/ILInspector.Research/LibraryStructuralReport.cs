@@ -112,6 +112,12 @@ public static partial class LibraryStructuralReport
         LibraryBodyAnalysisExecution analysis)
     {
         ArgumentNullException.ThrowIfNull(analysis);
+        if (analysis.StructuralMetrics.WasRequested)
+        {
+            return Execute(
+                analysis.StructuralMetrics,
+                analysis.CallGraph);
+        }
         return Execute(
             analysis.ImplementationProfiles,
             analysis.CallGraph);
@@ -124,10 +130,16 @@ public static partial class LibraryStructuralReport
         ArgumentNullException.ThrowIfNull(analysis);
         ArgumentNullException.ThrowIfNull(structuralSalience);
 
+        LibraryStructuralReportResult result =
+            analysis.StructuralMetrics.WasRequested
+                ? Execute(
+                    analysis.StructuralMetrics,
+                    analysis.CallGraph)
+                : Execute(
+                    analysis.ImplementationProfiles,
+                    analysis.CallGraph);
         return WithStructuralSalience(
-            Execute(
-                analysis.ImplementationProfiles,
-                analysis.CallGraph),
+            result,
             analysis.Receipt,
             structuralSalience);
     }
@@ -186,42 +198,86 @@ public static partial class LibraryStructuralReport
         LibraryImplementationProfileAnalysisResult analysis) =>
         Execute(analysis, callGraph: null);
 
+    public static LibraryStructuralReportResult Execute(
+        LibraryStructuralAnalysisResult analysis)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+        return Execute(analysis, callGraph: null);
+    }
+
+    static LibraryStructuralReportResult Execute(
+        LibraryStructuralAnalysisResult analysis,
+        LibraryCallGraphAnalysisResult? callGraph)
+    {
+        ArgumentNullException.ThrowIfNull(analysis);
+
+        LibraryBodyAnalysisReceipt compatibilityReceipt =
+            analysis.Receipt with
+            {
+                Features =
+                    LibraryBodyAnalysisFeatures.MethodEvidence
+                    | LibraryBodyAnalysisFeatures
+                        .ImplementationProfiles,
+                HasFullMethodEvidenceScope =
+                    analysis.Coverage
+                        .HasFullMethodEvidenceScope,
+            };
+        return Execute(
+            compatibilityReceipt,
+            analysis.Coverage,
+            analysis.Bodies,
+            callGraph);
+    }
+
     static LibraryStructuralReportResult Execute(
         LibraryImplementationProfileAnalysisResult analysis,
         LibraryCallGraphAnalysisResult? callGraph)
     {
         ArgumentNullException.ThrowIfNull(analysis);
+        return Execute(
+            analysis.Receipt,
+            analysis.Coverage,
+            analysis.Profiles.IsDefault ? [] : analysis.Profiles,
+            callGraph);
+    }
 
-        if (!analysis.Coverage.WasRequested)
+    static LibraryStructuralReportResult Execute<TBody>(
+        LibraryBodyAnalysisReceipt receipt,
+        ImplementationProfilePopulationCoverageReceipt coverage,
+        ImmutableArray<TBody> profiles,
+        LibraryCallGraphAnalysisResult? callGraph)
+        where TBody : ILibraryStructuralMethodEvidence
+    {
+        if (!coverage.WasRequested)
         {
             return Unavailable(
                 LibraryStructuralReportUnavailableReason
                     .ImplementationProfilesNotRequested,
                 "Library Metrics requires implementation-profile evidence.",
-                analysis);
+                receipt,
+                coverage);
         }
 
-        if (!analysis.Coverage.HasFullMethodEvidenceScope)
+        if (!coverage.HasFullMethodEvidenceScope)
         {
             return Unavailable(
                 LibraryStructuralReportUnavailableReason.NonWholeLibraryScope,
                 "Library Metrics requires unscoped whole-library method "
                     + "evidence coverage.",
-                analysis);
+                receipt,
+                coverage);
         }
 
-        ValidateProfileCoverage(analysis);
+        ValidateProfileCoverage(coverage, profiles);
 
-        ImmutableArray<MethodImplementationProfile> profiles =
-            analysis.Profiles.IsDefault ? [] : analysis.Profiles;
-        ImmutableArray<MethodImplementationProfile> completeProfiles =
+        ImmutableArray<TBody> completeProfiles =
         [
             .. profiles.Where(static profile => profile.IsComplete),
         ];
         var population = new LibraryStructuralPopulationReceipt(
-            analysis.Coverage,
-            analysis.Coverage.ManagedMethodBodyCount,
-            analysis.Coverage.ProfiledEvidenceBodyCount,
+            coverage,
+            coverage.ManagedMethodBodyCount,
+            coverage.ProfiledEvidenceBodyCount,
             profiles
                 .Select(static profile => profile.Method.MetadataToken)
                 .Distinct()
@@ -229,11 +285,11 @@ public static partial class LibraryStructuralReport
             completeProfiles.Length,
             profiles.Length - completeProfiles.Length,
             CountIncompleteReasons(profiles),
-            CountUnavailableReasons(analysis.Coverage));
+            CountUnavailableReasons(coverage));
         ImmutableArray<LibraryStructuralTypeRelationship> relationships =
             EntangledRelationships(completeProfiles, callGraph);
         var document = new LibraryStructuralReportDocument(
-            analysis.Receipt,
+            receipt,
             LegacyMethodologyVersion,
             population,
             [
@@ -252,7 +308,7 @@ public static partial class LibraryStructuralReport
                 Distribution(
                     LibraryStructuralMetric.ExceptionRegionCount,
                     completeProfiles,
-                    static profile => ExceptionRegionCount(profile)),
+                    static profile => profile.ExceptionRegionCount),
                 Distribution(
                     LibraryStructuralMetric.DirectCallCount,
                     completeProfiles,
@@ -269,13 +325,14 @@ public static partial class LibraryStructuralReport
                 completeProfiles.Count(static profile => !profile.Async)),
             TypeSummaries(completeProfiles, relationships),
             relationships,
-            analysis.Receipt.Diagnostics);
+            receipt.Diagnostics);
         return new LibraryStructuralReportResult.Available(document);
     }
 
-    static ImmutableArray<LibraryStructuralTypeSummary> TypeSummaries(
-        ImmutableArray<MethodImplementationProfile> profiles,
+    static ImmutableArray<LibraryStructuralTypeSummary> TypeSummaries<TBody>(
+        ImmutableArray<TBody> profiles,
         ImmutableArray<LibraryStructuralTypeRelationship> relationships)
+        where TBody : ILibraryStructuralMethodEvidence
     {
         List<LibraryStructuralTypeSummary> summaries =
         [
@@ -329,9 +386,10 @@ public static partial class LibraryStructuralReport
     }
 
     static ImmutableArray<LibraryStructuralTypeRelationship>
-        EntangledRelationships(
-            ImmutableArray<MethodImplementationProfile> profiles,
+        EntangledRelationships<TBody>(
+            ImmutableArray<TBody> profiles,
             LibraryCallGraphAnalysisResult? callGraph)
+        where TBody : ILibraryStructuralMethodEvidence
     {
         if (callGraph is null || profiles.IsEmpty)
             return [];
@@ -441,25 +499,26 @@ public static partial class LibraryStructuralReport
     static LibraryStructuralReportResult.Unavailable Unavailable(
         LibraryStructuralReportUnavailableReason reason,
         string message,
-        LibraryImplementationProfileAnalysisResult analysis) =>
+        LibraryBodyAnalysisReceipt receipt,
+        ImplementationProfilePopulationCoverageReceipt coverage) =>
         new(
             reason,
             message,
-            analysis.Receipt,
-            analysis.Coverage);
+            receipt,
+            coverage);
 
-    static void ValidateProfileCoverage(
-        LibraryImplementationProfileAnalysisResult analysis)
+    static void ValidateProfileCoverage<TBody>(
+        ImplementationProfilePopulationCoverageReceipt coverage,
+        ImmutableArray<TBody> profiles)
+        where TBody : ILibraryStructuralMethodEvidence
     {
-        ImmutableArray<MethodImplementationProfile> profiles =
-            analysis.Profiles.IsDefault ? [] : analysis.Profiles;
         HashSet<int> coverageTokens =
         [
-            .. analysis.Coverage.ProfiledEvidenceBodies
+            .. coverage.ProfiledEvidenceBodies
                 .Select(static method => method.MetadataToken),
         ];
         HashSet<int> profileTokens = [];
-        foreach (MethodImplementationProfile profile in profiles)
+        foreach (TBody profile in profiles)
         {
             if (!profileTokens.Add(profile.EvidenceMethod.MetadataToken))
             {
@@ -478,8 +537,10 @@ public static partial class LibraryStructuralReport
         }
     }
 
-    static ImmutableArray<LibraryStructuralReasonCount> CountIncompleteReasons(
-        ImmutableArray<MethodImplementationProfile> profiles) =>
+    static ImmutableArray<LibraryStructuralReasonCount>
+        CountIncompleteReasons<TBody>(
+            ImmutableArray<TBody> profiles)
+        where TBody : ILibraryStructuralMethodEvidence =>
     [
         .. profiles
             .SelectMany(static profile =>
@@ -504,10 +565,11 @@ public static partial class LibraryStructuralReport
                 group.Count())),
     ];
 
-    static LibraryStructuralMetricDistribution Distribution(
+    static LibraryStructuralMetricDistribution Distribution<TBody>(
         LibraryStructuralMetric metric,
-        ImmutableArray<MethodImplementationProfile> profiles,
-        Func<MethodImplementationProfile, int> selector)
+        ImmutableArray<TBody> profiles,
+        Func<TBody, int> selector)
+        where TBody : ILibraryStructuralMethodEvidence
     {
         if (profiles.IsEmpty)
         {
@@ -573,9 +635,4 @@ public static partial class LibraryStructuralReport
         return sortedValues[position - 1];
     }
 
-    static int ExceptionRegionCount(MethodImplementationProfile profile) =>
-        profile.CatchCount
-        + profile.FilterCount
-        + profile.FinallyCount
-        + profile.FaultCount;
 }

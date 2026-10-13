@@ -21,6 +21,19 @@ public sealed class VocabularyExplanation
     }
 
     /// <summary>
+    /// Selects the complete bounded reading dataset for a vocabulary root.
+    /// Resolve the request with <see cref="Explain"/> first to retain typed
+    /// path and depth rejections. Unsupported roots fail visibly.
+    /// </summary>
+    public ResourceExplanationDataset SelectData(ResourcePath path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        if (_catalog.Resolve(path.Value) is not ResourcePathResolution.Resolved resolved)
+            throw new InvalidOperationException("The vocabulary data path must resolve exactly.");
+        return ResourceExplanationDataset.Create(_catalog, resolved);
+    }
+
+    /// <summary>
     /// Explains <paramref name="path"/> to <paramref name="depth"/>. A
     /// non-canonical path, a path outside <c>vocabularies</c>, an unknown path,
     /// or a negative depth is a typed rejection, never an empty Document.

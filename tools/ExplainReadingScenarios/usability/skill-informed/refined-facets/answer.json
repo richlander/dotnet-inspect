@@ -1,0 +1,62 @@
+{
+  "where_keys": [
+    "dependencies",
+    "dependency-target",
+    "depends",
+    "depends-ecosystem",
+    "depends-transitive",
+    "dependency-depth",
+    "license",
+    "downloads",
+    "readme",
+    "tool",
+    "tool-format",
+    "references",
+    "skill",
+    "library-literal"
+  ],
+  "not_where": {
+    "positional": ["package", "prefix"],
+    "context_option": {"library-target": "--tfm TFM"},
+    "other_unexposed": ["ecosystem", "prerelease"]
+  },
+  "requirements": {
+    "registered_edges_for_where_facets": [
+      {"facet": "library-literal", "requires": "library-target"}
+    ],
+    "all_other_where_facets_have_registered_requires": [],
+    "cli_binding_rules": [
+      "Supply a package ID or PREFIX* as the positional argument after package query.",
+      "Supply exposed inspection facets through --where key=value.",
+      "Use --json for structured query result output.",
+      "Supply library-target through --tfm TFM, not --where. Use one exact NuGet target framework.",
+      "library-literal and --tfm require each other; neither is valid alone."
+    ]
+  },
+  "interpretation": {
+    "tfm": "--tfm supplies the library-target context facet with one exact NuGet target framework; library-literal and --tfm are mutually required by the CLI binding.",
+    "empty_values_or_input_rules": "An empty values list or absent registered input rules does not establish arbitrary acceptance. library-literal alone explicitly accepts decoded UTF-16 text subject to its registered constraints: 1..1024 UTF-16 code units, exact operand preservation, ordinal substring matching, one distinct operand, and at most five package candidates (one for an exact package ID).",
+    "boundary": "The complete selected registry establishes these exposed keys and registered requires edges, not the full domain meaning or all parser acceptance rules for facets whose input rules are empty. No further requirements are inferred."
+  },
+  "scope": {
+    "selection": {"kind": "query-facets", "completeness": "Complete"},
+    "facet_count": 19,
+    "binding_count": 1,
+    "top_level_fact_states": {},
+    "selected_facet_fact_states": {},
+    "selected_binding_fact_states": {},
+    "state_note": "All selected members and the parent document carry empty fact_states objects."
+  },
+  "provenance": {
+    "resource": "package-query/query .data --json",
+    "response": "response-01.out",
+    "binding": "dotnet-inspect.cli/package-query",
+    "requests": 1,
+    "discovery_calls": 0,
+    "failures": 0,
+    "guesses": 0,
+    "extra_reads": ["guide", "response-01.out filtered view twice"],
+    "hal_fetches": 0,
+    "contract_fetches": 0
+  }
+}

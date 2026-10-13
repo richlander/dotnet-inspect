@@ -1,0 +1,11 @@
+Find every registered C# style choice that preserves IL bytes and is endorsed
+by either the declared oracle or corpus. Return ID, option/value, tier name,
+and tier description by joining local data. Return every declared conflict
+group and member ID; explain the limit of applying those groups to arbitrary
+configuration keys.
+
+Explain omitted Boolean interpretation for a known choice in complete data,
+an unknown ID, incomplete data, and an unavailable property. Preserve scope
+and states in filtered evidence. Determine whether tier descriptions or the
+whole task require another fetch or schema/contract fetch. Do not invent
+invocation behavior missing from the data.

@@ -842,12 +842,15 @@ derived-type edges. The exact selected participant remains the dependency root
 even when another package defines the same full type name; if that participant
 does not contribute the exact normalized dependency-scanner root, the query
 reports the type as uncertified rather than borrowing another definition or a
-fuzzy same-participant match. For example, a non-public type remains available
-in the type-shape projection, but the public dependency scanner cannot certify
-its root: base and interface graph edges are absent and the incompleteness
-notice remains visible. The Type Relationships graph therefore retains
-participant-local derived types while expanding base-class and interface chains
-through other loaded package participants. The managed operation constructs
+fuzzy same-participant match. The exact selected root is admitted regardless
+of accessibility, so internal types can report their base and interface edges.
+The existing dependency convention omits `System.Object`, `System.ValueType`,
+and `System.Enum`; `System.Text.ValueStringBuilder` therefore has a certified
+empty dependency graph. Ordinary dependency scans and ancestor
+expansion still use the public-type population. The Type Relationships graph
+therefore retains participant-local derived types while expanding base-class
+and interface chains through other loaded package participants. The managed
+operation constructs
 the same L2 type-dependency plan as the CLI. The current browser gesture
 supplies no traversal-depth bound and an empty relationship-row intent, while
 the managed boundary retains typed Head, Tail, and Window capability for
@@ -2551,6 +2554,18 @@ navigation state transitions, and supplies them through typed callbacks; the
 shared text helpers used well beyond the type panel (`kindIcon`, `shortKind`,
 `typeDisplayName`, `highlight`, `highlightCSharp`, `factRows`,
 `relatedTypeChip`) stay in `dotnet-inspect.ts` and are injected the same way.
+Normal Type-member first paint requests the compact, owner-issued
+`TypeOverviewDocument` for package, platform, and uploaded Libraries. It
+delivers exact group identities, counts, receiver forms, and selector counts
+without repeating the rich assembly-surface and exact-declaration work used to
+establish the resident package, platform, or uploaded-Library inventory.
+Opening a supported method group requests the shared `MemberGroupDocument`
+with the selected accessibility intent. Interactions that still need the
+legacy rich Type-member population (including Metadata spelling, non-public
+declarations without resident rows, and other resident-row gaps) request it
+only after opening a group. This slice does not replace the rich resident
+surface used to enter Type navigation. Hierarchy, graphs, source, metrics,
+documentation, and analysis remain independent requests.
 `test/type-panel.test.ts` gates every rendered control binding, type-filter
 keyboard behavior, namespace grouping and selection in the type list,
 active-group and overload selection in the member list, the type heading's
@@ -2780,11 +2795,37 @@ Publish the harness separately from each worktree:
 dotnet publish eng/measure-inspect-web-library-open.cs -c Release \
   -p:IsPublishable=true -o /tmp/library-open-before
 # In the candidate worktree, use -o /tmp/library-open-after.
-/tmp/library-open-before/measure-inspect-web-library-open \
+/tmp/library-open-before/DotnetInspect.Web.Tests \
   Avalonia 12.1.2 net10.0 legacy compile:ref/net10.0/Avalonia.Base.dll
-/tmp/library-open-after/measure-inspect-web-library-open \
+/tmp/library-open-after/DotnetInspect.Web.Tests \
   Avalonia 12.1.2 net10.0 overview compile:ref/net10.0/Avalonia.Base.dll
 ```
+
+For a native comparison of the website's entry-store acquisition branch, publish
+with `-p:DefineConstants=WEB_PACKAGE_ENTRY_CACHE`. The probe apphost uses the test
+assembly identity to access that internal seam. Its bounded memory adapter
+models entry availability, not JavaScript, Cache Storage I/O, or Wasm execution.
+For a candidate with joint Overview demand, add
+`WEB_LIBRARY_SHARED_DEMAND` to those constants. The baseline retains the
+four-argument API export; the candidate declares the accompanying Enablements.
+
+`browser/benchmark-library-overview.ts` measures the page-owned production
+Worker, real Cache Storage, and complete Summary/API/Enablements output through
+the opt-in runtime benchmark bridge. Run it against separately published
+baseline and candidate sites with:
+
+```bash
+node browser/benchmark-library-overview.ts \
+  http://127.0.0.1:4193/index.html http://127.0.0.1:4194/index.html \
+  /tmp/library-overview-browser-results 7
+```
+
+Both sites need the same benchmark bridge exposure. The harness alternates
+fresh browser contexts, discards one warm-up pair per asset, records startup
+separately, and verifies complete result hashes for cold and warm requests.
+Roslyn must retain its explicit projection-limit outcome; other APIs must be
+available and complete. The corpus includes both Avalonia's default facade and
+its substantive `Avalonia.Base` Library.
 
 The baseline summary-only default did not activate Library navigation because
 its assembly surface was empty. These pairs compare entering Library Overview

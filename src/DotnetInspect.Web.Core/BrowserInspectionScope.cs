@@ -427,6 +427,21 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
         return operation(binding, _realization);
     }
 
+    internal TResult UsePackageAssemblyRoles<TResult>(
+        BrowserPackageCoordinate coordinate,
+        Func<
+            InspectionWorkspace,
+            PackageRootBinding,
+            PackageAssemblyContextRealization,
+            TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        return UsePackageAssemblyRoles(
+            coordinate,
+            (binding, realization) =>
+                operation(_workspace, binding, realization));
+    }
+
     /// <summary>Hands the implementation group to a body-backed product query.</summary>
     public TResult UseImplementation<TResult>(Func<AssemblyContextGroup, TResult> query) =>
         Implementation.Use(query);

@@ -34,10 +34,22 @@ public sealed class ExactTypeWorkspaceRouteTests
         new("test", SourceUrl);
 
     [Fact]
-    public async Task EligiblePinnedPackageRouteUsesInjectedWorkspaceCapabilities()
+    public async Task EligiblePinnedPackageRouteUsesInjectedPackageHouse()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client = PackageSourceClientFactory.Create(
+            authority.Source,
+            authority.Association,
+            new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -52,13 +64,9 @@ public sealed class ExactTypeWorkspaceRouteTests
                     options,
                     ResolvedMemberInspectionPlan
                         .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken)));
         Assert.Equal(0, exitCode);
         Assert.Contains(
             "ILInspector.Metadata.ApiType",
@@ -68,6 +76,66 @@ public sealed class ExactTypeWorkspaceRouteTests
             "string? Accessibility { get; set; }",
             output,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EligiblePinnedPackageRouteUsesLegacyApplicationCacheOffline()
+    {
+        using var cache = new IsolatedOfflineCache();
+        byte[] package = Archive(
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        using (var stream = new MemoryStream(package))
+        {
+            IPackageContent legacy =
+                await new FileSystemPackageStore().CommitAsync(
+                    PackageId,
+                    Version,
+                    NuGetCache.GetSourceKey(SourceUrl),
+                    stream,
+                    TestContext.Current.CancellationToken);
+            Assert.NotEqual(
+                FixtureProducerKeys()[1],
+                legacy.ProducerKey);
+        }
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            CompanionOutput = CompanionOutput.None,
+            EnvelopeOutput = true,
+            CompactJson = true,
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = [SourceUrl],
+            },
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(
+            "exact-type",
+            document.RootElement
+                .GetProperty("result_kind")
+                .GetString());
+        Assert.Equal(
+            typeof(ApiType).FullName,
+            document.RootElement
+                .GetProperty("content")
+                .GetProperty("type")
+                .GetProperty("fullName")
+                .GetString());
     }
 
     [Fact]
@@ -956,7 +1024,6 @@ public sealed class ExactTypeWorkspaceRouteTests
     public async Task EnvelopeContentMatchesUnprojectedJson()
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var baseline = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -965,17 +1032,9 @@ public sealed class ExactTypeWorkspaceRouteTests
             CompanionOutput = CompanionOutput.None,
             CompactJson = true,
         };
-        WorkspaceContextLoadOptions capabilities = new()
-        {
-            HttpClient = client,
-            SourceAuthorization =
-                new UniformPackageSourceAuthorization([Source]),
-            PackageStore = store,
-        };
-
         (int jsonExit, string jsonOutput, string jsonError) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     baseline with
                     {
                         JsonOutput = true,
@@ -983,16 +1042,12 @@ public sealed class ExactTypeWorkspaceRouteTests
                         FormatExplicitlySet = true,
                         FormatFlagExplicitlySet = true,
                     },
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(baseline),
-                    capabilities));
+                    store));
         (int envelopeExit, string envelopeOutput, string envelopeError) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     baseline with { EnvelopeOutput = true },
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(baseline),
-                    capabilities));
+                    store));
 
         Assert.Equal(0, jsonExit);
         Assert.Equal(0, envelopeExit);
@@ -1021,7 +1076,6 @@ public sealed class ExactTypeWorkspaceRouteTests
         bool envelopeOutput)
     {
         var store = await CachedStoreAsync();
-        using var client = new HttpClient(new FailingHandler());
         var baseline = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -1035,32 +1089,20 @@ public sealed class ExactTypeWorkspaceRouteTests
             FormatExplicitlySet = true,
             FormatFlagExplicitlySet = !envelopeOutput,
         };
-        WorkspaceContextLoadOptions capabilities = new()
-        {
-            HttpClient = client,
-            SourceAuthorization =
-                new UniformPackageSourceAuthorization([Source]),
-            PackageStore = store,
-        };
-
         (int withoutExit, string withoutOutput, string withoutError) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     baseline,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(baseline),
-                    capabilities));
+                    store));
         TypeOptions withTips = baseline with
         {
             CompanionOutput = CompanionOutput.Tips,
         };
         (int withExit, string withOutput, string withError) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     withTips,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(withTips),
-                    capabilities));
+                    store));
 
         Assert.Equal(0, withoutExit);
         Assert.Equal(0, withExit);
@@ -1097,7 +1139,6 @@ public sealed class ExactTypeWorkspaceRouteTests
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/PartiallyMalformed.dll",
                 BuildPartiallyMalformedTypeAssembly()));
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -1111,17 +1152,9 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                    store));
 
         Assert.Equal(1, exitCode);
         using JsonDocument document = JsonDocument.Parse(output);
@@ -1138,7 +1171,6 @@ public sealed class ExactTypeWorkspaceRouteTests
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/PartiallyMalformed.dll",
                 BuildPartiallyMalformedTypeAssembly()));
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -1154,17 +1186,9 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                    store));
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Exact.Type.Good", output, StringComparison.Ordinal);
@@ -1182,7 +1206,6 @@ public sealed class ExactTypeWorkspaceRouteTests
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/PartiallyMalformed.dll",
                 BuildPartiallyMalformedTypeAssembly()));
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -1193,17 +1216,9 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                    store));
 
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
@@ -1228,7 +1243,6 @@ public sealed class ExactTypeWorkspaceRouteTests
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/Constraint.dll",
                 BuildModuleConstraintAssembly()));
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -1239,17 +1253,9 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                    store));
 
         Assert.Equal(0, exitCode);
         Assert.Contains("N.Holder<T>", output, StringComparison.Ordinal);
@@ -1543,7 +1549,6 @@ public sealed class ExactTypeWorkspaceRouteTests
         var store = await CachedStoreAsync(
             ($"lib/{Framework}/LiteralDelimiter.dll",
                 BuildLiteralDelimiterTypeAssembly()));
-        using var client = new HttpClient(new FailingHandler());
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -1554,17 +1559,9 @@ public sealed class ExactTypeWorkspaceRouteTests
 
         (int exitCode, string output, string error) =
             await ConsoleCapture.RunAsync(
-                () => TypeCommand.ExecuteAsync(
+                () => ExecuteEligibleRouteAsync(
                     options,
-                    ResolvedMemberInspectionPlan
-                        .FromCompatibilityOptions(options),
-                    new WorkspaceContextLoadOptions
-                    {
-                        HttpClient = client,
-                        SourceAuthorization =
-                            new UniformPackageSourceAuthorization([Source]),
-                        PackageStore = store,
-                    }));
+                    store));
 
         Assert.Equal(0, exitCode);
         Assert.Contains("Outer.Inner", output, StringComparison.Ordinal);
@@ -1588,13 +1585,56 @@ public sealed class ExactTypeWorkspaceRouteTests
             ];
         }
         byte[] package = Archive(entries);
-        await store.CommitAsync(
-            PackageId,
-            Version,
-            NuGetCache.GetSourceKey(SourceUrl),
-            new MemoryStream(package),
-            TestContext.Current.CancellationToken);
+        foreach (string producerKey in FixtureProducerKeys())
+        {
+            await store.CommitAsync(
+                PackageId,
+                Version,
+                producerKey,
+                new MemoryStream(package),
+                TestContext.Current.CancellationToken);
+        }
         return store;
+    }
+
+    static string[] FixtureProducerKeys()
+    {
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                Source,
+                PackageSourceAssociation.Create(),
+                new FailingHandler());
+        return
+        [
+            NuGetCache.GetSourceKey(SourceUrl),
+            client.Source.Producer.Key,
+        ];
+    }
+
+    static async Task<int> ExecuteEligibleRouteAsync(
+        TypeOptions options,
+        IPackageStore store)
+    {
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
+        return await TypeCommand.ExecuteAsync(
+            options,
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
+            house,
+            cancellationToken =>
+                root.IssueOperationLease(cancellationToken));
     }
 
     static TypeOptions WithPresentation(
@@ -2155,6 +2195,40 @@ public sealed class ExactTypeWorkspaceRouteTests
             throw new InvalidOperationException(
                 $"The eligible route bypassed injected Workspace capabilities: "
                 + request.RequestUri);
+    }
+
+    sealed class IsolatedOfflineCache : IDisposable
+    {
+        readonly string _root = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "artifacts",
+            $"exact-type-legacy-cache-{Guid.NewGuid():N}");
+
+        public IsolatedOfflineCache()
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions
+                {
+                    Offline = true,
+                });
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+            NuGetCache.Initialize(
+                "dotnet-inspect-test",
+                _root,
+                skipNuGetCache: true);
+        }
+
+        public void Dispose()
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new DotnetInspector.Networking.HttpClientFactoryOptions());
+            DotnetInspector.Networking.HttpClientFactory
+                .ResetSharedForTesting();
+            NuGetCache.Initialize("dotnet-inspect-test");
+            if (Directory.Exists(_root))
+                Directory.Delete(_root, recursive: true);
+        }
     }
 
     sealed class NotFoundHandler : HttpMessageHandler

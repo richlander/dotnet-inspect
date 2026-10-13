@@ -30,6 +30,9 @@ public sealed class MethodDefinitionExecution
     readonly MethodDefinitionSourceCoverageBuilder _sourceCoverage;
     MethodRowGate? _gate;
     LibraryMethodAnalysisRunner? _lookup;
+    MemorySafetyContractSupport? _memorySafety;
+    SameModuleCallTargetSupport? _callTargets;
+    MethodSemanticIdentitySupport? _semanticIdentity;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -158,11 +161,29 @@ public sealed class MethodDefinitionExecution
 
         bool lookupDeclared = false;
         bool referenceBindingDeclared = false;
+        bool memorySafetyDeclared = false;
+        bool callTargetsDeclared = false;
+        bool semanticIdentityDeclared = false;
         foreach (ProducerState state in execution._states)
         {
             lookupDeclared |= state.HasLookupLayer;
             referenceBindingDeclared |= state.HasReferenceBindingLayer;
+            memorySafetyDeclared |= state.HasMemorySafetyLayer;
+            callTargetsDeclared |= state.HasCallTargetLayer;
+            semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
         }
+        execution._memorySafety =
+            memorySafetyDeclared
+                ? new MemorySafetyContractSupport(reader)
+                : null;
+        execution._callTargets =
+            callTargetsDeclared
+                ? new SameModuleCallTargetSupport(reader)
+                : null;
+        execution._semanticIdentity =
+            semanticIdentityDeclared
+                ? new MethodSemanticIdentitySupport(reader, sourceName)
+                : null;
         if (referenceBindingDeclared && referenceBinding is null)
         {
             throw new ProducerContractException(
@@ -180,15 +201,26 @@ public sealed class MethodDefinitionExecution
                         "Generated Method-source expansion requires finite "
                         + "work limits."))
                 : null;
+        // Expansion needs only declared-source attribution. The module lookup
+        // still runs on the legacy builder, which then shares the same
+        // attribution and its caches.
+        DeclaredSourceAttribution? attribution =
+            generatedExpansion
+                ? new DeclaredSourceAttribution(
+                    sourceName,
+                    reader,
+                    peReader,
+                    generatedExpansionWork: expansionWork)
+                : null;
         using LibraryBodyAnalysisBuilder? builder =
-            lookupDeclared || generatedExpansion
+            lookupDeclared
             ? new LibraryBodyAnalysisBuilder(
                 sourceName,
                 reader,
                 peReader,
                 bindingPolicy: referenceBinding?.Policy,
                 rootAssembly: referenceBinding?.Subject,
-                generatedExpansionWork: expansionWork)
+                attribution: attribution)
             : null;
         execution._lookup =
             lookupDeclared
@@ -205,7 +237,7 @@ public sealed class MethodDefinitionExecution
                 ImmutableArray<MethodDefinitionHandle> directMethods =
                     ResolveDirectMethods(reader, breadth);
                 MethodDefinitionGeneratedExpansionResult expansion =
-                    builder!.ExpandGeneratedExecutionBodies(
+                    attribution!.ExpandGeneratedExecutionBodies(
                         directMethods);
                 execution._sourceCoverage.RecordGeneratedExpansion(
                     expansion.Coverage);
@@ -369,7 +401,8 @@ public sealed class MethodDefinitionExecution
             terminalWorkLimits,
         MethodBodyAnalyzerPlan? instructionPlan,
         string sourceName,
-        PEReader peReader)
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding = null)
     {
         ArgumentNullException.ThrowIfNull(descriptions);
         ArgumentNullException.ThrowIfNull(terminalWorkLimits);
@@ -425,6 +458,21 @@ public sealed class MethodDefinitionExecution
         MetadataReader reader = peReader.GetMetadataReader();
         var builders =
             new LibraryBodyAnalysisBuilder?[lanes.Length];
+        MemorySafetyContractSupport? memorySafety =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasMemorySafetyLayer))
+                ? new MemorySafetyContractSupport(reader)
+                : null;
+        SameModuleCallTargetSupport? callTargets =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasCallTargetLayer))
+                ? new SameModuleCallTargetSupport(reader)
+                : null;
+        MethodSemanticIdentitySupport? semanticIdentity =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasSemanticIdentityLayer))
+                ? new MethodSemanticIdentitySupport(reader, sourceName)
+                : null;
         try
         {
             var visiting = new ProducerState[lanes.Length][];
@@ -442,11 +490,27 @@ public sealed class MethodDefinitionExecution
                 foreach (ProducerState state in lane._states)
                     lookupDeclared |= state.HasLookupLayer;
                 if (lane._states.Any(
+                        static state => state.HasMemorySafetyLayer))
+                {
+                    lane._memorySafety = memorySafety;
+                }
+                if (lane._states.Any(
+                        static state => state.HasCallTargetLayer))
+                {
+                    lane._callTargets = callTargets;
+                }
+                if (lane._states.Any(
+                        static state => state.HasSemanticIdentityLayer))
+                {
+                    lane._semanticIdentity = semanticIdentity;
+                }
+                if (referenceBinding is null
+                    && lane._states.Any(
                         static state => state.HasReferenceBindingLayer))
                 {
                     throw new ProducerContractException(
-                        "A request-set lane declared reference binding, "
-                        + "which request-set execution does not carry.");
+                        "A request-set lane declared reference binding but "
+                        + "the operation access carries none.");
                 }
                 if (lookupDeclared)
                 {
@@ -454,7 +518,9 @@ public sealed class MethodDefinitionExecution
                         new LibraryBodyAnalysisBuilder(
                             sourceName,
                             reader,
-                            peReader);
+                            peReader,
+                            bindingPolicy: referenceBinding?.Policy,
+                            rootAssembly: referenceBinding?.Subject);
                     lane._lookup =
                         new LibraryMethodAnalysisRunner(
                             builders[laneIndex]!);
@@ -476,7 +542,10 @@ public sealed class MethodDefinitionExecution
             var unit = new MethodDefinitionUnit(
                 reader,
                 peReader,
-                physicalCoverage);
+                physicalCoverage,
+                retainResolvedInstructionDetail:
+                    instructionPlan?.Demand.Detail
+                        == MethodBodyInstructionDetail.SelectiveOperands);
             bool[] laneInScope = new bool[lanes.Length];
             bool fuseInstructionShapes =
                 instructionPlan?.Source
@@ -966,7 +1035,10 @@ public sealed class MethodDefinitionExecution
         var unit = new MethodDefinitionUnit(
             reader,
             peReader,
-            _sourceCoverage);
+            _sourceCoverage,
+            retainResolvedInstructionDetail:
+                _instructionPlan?.Demand.Detail
+                    == MethodBodyInstructionDetail.SelectiveOperands);
         int visited = 0;
         switch (_breadth.Kind)
         {
@@ -1189,6 +1261,9 @@ public sealed class MethodDefinitionExecution
         unit.SelectRequest(
             Gate,
             Lookup,
+            _memorySafety,
+            _callTargets,
+            _semanticIdentity,
             _sourceCoverage,
             CurrentOrdinal);
     }
@@ -1713,6 +1788,27 @@ public sealed class MethodDefinitionExecution
                     state.LookupUses));
             }
 
+            if (state.HasMemorySafetyLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.MemorySafetyContracts),
+                    state.MemorySafetyUses));
+            }
+
+            if (state.HasCallTargetLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.CallTargets),
+                    state.CallTargetUses));
+            }
+
+            if (state.HasSemanticIdentityLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.SemanticIdentity),
+                    state.SemanticIdentityUses));
+            }
+
             producers.Add(new ProducerParticipation(
                 state.Producer.Identity,
                 state.Outcome
@@ -1895,6 +1991,15 @@ public sealed class MethodDefinitionExecution
         public bool HasReferenceBindingLayer { get; } =
             (layers & MethodDefinitionLayers.ReferenceBinding) != 0;
 
+        public bool HasMemorySafetyLayer { get; } =
+            (layers & MethodDefinitionLayers.MemorySafetyContracts) != 0;
+
+        public bool HasCallTargetLayer { get; } =
+            (layers & MethodDefinitionLayers.CallTargets) != 0;
+
+        public bool HasSemanticIdentityLayer { get; } =
+            (layers & MethodDefinitionLayers.SemanticIdentity) != 0;
+
         public bool IsActive { get; set; } = true;
 
         public ProducerOutcome? Outcome { get; set; }
@@ -1920,6 +2025,21 @@ public sealed class MethodDefinitionExecution
         public int LastBodyUnit;
 
         public int LastLookupUnit;
+
+        /// <summary>Units in which memory-safety contract support was queried.</summary>
+        public int MemorySafetyUses;
+
+        public int LastMemorySafetyUnit;
+
+        /// <summary>Units in which call-target support was queried.</summary>
+        public int CallTargetUses;
+
+        public int LastCallTargetUnit;
+
+        /// <summary>Units whose semantic identity was read.</summary>
+        public int SemanticIdentityUses;
+
+        public int LastSemanticIdentityUnit;
 
         /// <summary>Counts <paramref name="unitToken"/> once, however often a layer is read in it.</summary>
         public void CountUnit(ref int lastUnit, int unitToken, ref int count)

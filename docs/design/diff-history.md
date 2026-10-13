@@ -61,6 +61,13 @@ The 2026-09-16 decision in #7229 makes Type/Member History Count answer
 cohort and its evidence requirements. Package version-population counts and
 future Package History version-row counts remain distinct.
 
+The 2026-10-10 decision in
+[#9892](https://github.com/richlander/dotnet-inspect/issues/9892) makes sparse
+History uncountable: Changed Versions compares each version with its immediate
+predecessor, which only a full-population evaluation can answer.
+[Subject-specific History Count](#subject-specific-history-count) owns the
+admission rule.
+
 The subsequent decision in
 [#7315](https://github.com/richlander/dotnet-inspect/issues/7315) locks the
 exact-Member Analysis source receipt consumed by bounded cell-pair execution.
@@ -103,6 +110,14 @@ and representative projection. API producers select the first stable admitted
 version in each major, falling back to the latest prerelease for a preview-only
 major; body-level Analysis producers select the latest admitted version in each
 major.
+
+The 2026-10-10 version-window decision in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920) admits one
+Library-scope History, whose only producer is
+[Fast Diff](fast-diff.md). Each step of that History declares its axes: API on
+every step, and Body only on the last steps.
+[Library-scope History over Fast Diff](#library-scope-history-over-fast-diff)
+owns it. Finding producers keep the Type and Member domain.
 
 This owner defines the semantic requests and terminal content.
 It consumes package version resolution, Finding correlation, acquisition,
@@ -165,7 +180,8 @@ before acquisition.
 Count reduces the selected operation's declared cohort. Endpoint Diff counts
 its comparison rows; Type/Member History uses
 [changed-version rows](#subject-specific-history-count), not arbitrary
-evaluation or Finding rows. A range in `--rows` filters the admitted cohort
+evaluation or Finding rows, and admits Count only under a full-population
+evaluation policy. A range in `--rows` filters the admitted cohort
 and needs no additional consumer. A source range outside an admitted command
 or mode still has no consumer; projection options cannot supply one.
 
@@ -177,8 +193,11 @@ argument meaning and content.
 The initial History domain is one bounded package-version population, one
 Type focus, and one Finding producer, optionally narrowed to one Member.
 The population has explicit or checkpoint-inferred range bounds as defined
-below. It is not Library-wide history, platform-version discovery, local-build
-ordering, or cross-package comparison. Both hosts consume this same domain.
+below. It is not platform-version discovery, local-build ordering, or
+cross-package comparison. Library scope is admitted only for the Fast Diff
+producer, under
+[Library-scope History over Fast Diff](#library-scope-history-over-fast-diff).
+Both hosts consume this same domain.
 
 ```bash
 # Plain Diff compares only the two endpoints
@@ -246,8 +265,10 @@ compare endpoints, or acquire package payloads.
 
 Source authorization, prerelease/listing policy, endpoint validation, ordering,
 and discovery completeness remain owned by package version resolution.
-Missing endpoints, source failure, or count-insufficient evidence produce
-visible non-success, never zero or an observed-prefix count.
+Missing endpoints or source failure produce visible non-success, never zero.
+Incomplete version discovery reports the observed versions' count with its
+incompleteness evidence, never as exact, under the section-row owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
 `--rows 2..4 --count` counts three versions only when that strict window is valid.
 
 Count-only accepts source/version-discovery context and supported version-row
@@ -561,7 +582,7 @@ requested Count result defined below. The Document preserves:
 - native census correlation and, when requested, exact-identity tracks;
 - native comparison evidence joined to its exact evaluated endpoints;
 - the Type/Member Changed Versions cohort, with its destination/predecessor
-  association and Count-sufficiency evidence; and
+  association and completion evidence; and
 - one typed terminal investigation outcome and optional typed adjacent-Diff
   actions, without host-formatted command strings; and
 - coverage, limits, and per-evaluation failures needed to interpret the
@@ -611,8 +632,8 @@ The terminal outcome distinguishes:
 These outcomes summarize established knowledge without replacing native
 evaluations, correlations, transitions, failures, or coverage. Budget
 exhaustion is not successful full History. Equal adaptive endpoints answer the
-ordinary migration question but are not whole-population unchanged evidence
-and cannot satisfy exact changed-version Count.
+ordinary migration question but are not whole-population unchanged evidence;
+adaptive History does not admit changed-version Count.
 
 When adaptive bisection reaches adjacent changed pairs, optional next actions
 are typed pairwise Diff requests in caller-directed population order. Each
@@ -632,7 +653,8 @@ carries the Document and an optional already-bound Count component:
 | --- | --- |
 | Not requested | Absent; not a successful zero or a failed Count. |
 | Requested and established | Existing typed L2 Count result, with the Changed Versions row-set identity and exact cardinality. |
-| Requested but not established | Existing typed L2 failure, with its scope, reason, and completion evidence; no Count payload. |
+| Requested over incomplete evidence | Existing typed L2 Count result, with the Changed Versions row-set identity, the observed cardinality, and its incompleteness evidence; never presented as exact. |
+| Requested but unavailable | Existing typed L2 failure, with its scope, reason, and completion evidence; no Count payload. |
 
 The component consumes
 [L2's result algebra](section-row-shaping.md#result-binding-and-failure),
@@ -716,35 +738,53 @@ An exact whole-population change count requires established changed or
 unchanged evidence for every adjacent population transition. A sparse comparison
 across a gap remains useful endpoint evidence, but cannot identify a changed
 destination version within that gap. Failed, missing, inapplicable, or
-unevaluated evidence cannot become unchanged, zero, or a successful count of
-the observed prefix. History with fewer than two evaluated versions does not
-establish an unchanged History and is Count-insufficient for this Type/Member
-question.
+unevaluated evidence cannot become unchanged or exact zero; it leaves the
+Changed Versions cohort incomplete. Count then reports the changed versions
+that Changed Versions rows would render from the same evidence, as an observed
+count with that incompleteness evidence. A one-version population that was
+evaluated without failure has no adjacent transitions, so its Changed Versions
+cohort is exactly empty and its Count is exact zero; it still does not
+establish an unchanged History. When failures leave fewer than two evaluated
+versions in a larger population, Count is an observed zero, not exact zero.
+Because a sparse selection cannot answer the counted unit by design, Count is
+admitted only when every version is selected for evaluation; see below.
 
 Admitted row selection applies to the Changed Versions cohort before Count.
 Exactness remains relative to that logical request under the existing Count
 contract: a proven semantic prefix may suffice without complete later evidence,
 but a work limit is not a prefix selection. Unknown earlier membership cannot
 be skipped to fill a requested prefix or strict window with later known changes.
-If the requested count is not established, retain typed non-success with the
-completion evidence in the shared Count component, not a scalar or count table.
+If the requested count is not established, the shared Count component
+carries the observed cardinality with its completion evidence, never an exact
+scalar or count table, and discloses it as Changed Versions rows would. The
+CLI writes the observed count with a `diff-history.count-incomplete` warning
+and takes the same exit status as the Changed Versions rows: nonzero when a
+requested evaluation failed.
 Preserve independently available History transitions and coverage in the
 sibling Document; requested evaluation failures retain their existing nonzero
 behavior.
 
-`--history --count` uses History's default full evaluation unless `--at`
-restricts it or `--max-probes` selects adaptive evaluation. Count never
-broadens an explicit checkpoint selection; an insufficient sample fails rather
-than inspecting more versions. Equal first and last endpoints are insufficient:
-a change followed by a reversion contributes two changed destination versions.
-Inferred bounds preserve this same count meaning; supplying three checkpoints
-does not turn a longer population into a three-version population.
+`--history --count` is admitted only when the evaluation policy selects every
+version in the population: the default full evaluation, `--at all`, or
+`--sample-percent 100`. Explicit checkpoints, a survey below 100 percent,
+`--major-versions`, and `--max-probes` sample the population, so they cannot
+establish which destination versions changed from their immediate
+predecessors. Combining any of them with `--count` is rejected before
+population discovery or acquisition, and the rejection names the
+full-population alternatives. This is request admission under the section-row
+owner's [incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation),
+not a refusal over incomplete evidence. A sparse History still returns its
+rows and Document without Count.
 
-`--history --max-probes N --count` similarly retains adaptive evaluation and
-does not spend additional probes merely to establish Count. It succeeds only
-when the resulting evidence independently establishes every changed-version
-membership required by the selected Count rows; otherwise the Count component
-is typed non-success beside the usable investigation Document.
+This follows `git bisect`, which reports a changed boundary or the range that
+could contain it and never a count of changed commits, while `git log A..B`
+counts exactly because every commit is available. Adaptive bisection and
+checkpoint selection likewise answer where changes occur; their transitions,
+adjacent boundaries, and typed investigation outcome remain that answer.
+
+Count never broadens an evaluation. Equal first and last endpoints do not
+establish an unchanged History: a change followed by a reversion contributes
+two changed destination versions.
 
 These illustrative sequences describe the contract, not measured package data:
 
@@ -752,9 +792,10 @@ These illustrative sequences describe the contract, not measured package data:
 | --- | --- |
 | `A -> A -> A`, every adjacent comparison established | `0` |
 | `A -> B -> A`, every adjacent comparison established | `2`, even when the middle version has many changed detail rows |
-| Only first and last evaluated in `A -> ? -> A` | Non-success; the gap may contain a change and reversion |
-| `A -> failed -> B` | Non-success; preserve the usable evaluations and failure |
-| Only one version evaluated | Non-success; no established transition evidence |
+| Only first and last selected in `A -> ? -> A` | Count rejected before evaluation; sparse History is not countable |
+| `A -> failed -> B` | Observed count of the established changes, incomplete; preserve the usable evaluations and failure |
+| One-version population, evaluated | Exact `0`; the population has no adjacent transitions |
+| Only one version evaluated because the others failed | Observed `0`, incomplete; no established transition evidence |
 
 This follows the existing Count convention of counting logical cohort rows,
 while endpoint Diff and identity-track/detail counts answer different
@@ -771,8 +812,9 @@ evaluations retain their evidence beside usable points. Unselected points are
 not failures. The CLI returns nonzero for a failed requested evaluation,
 unfulfilled work bound, or invalid/unavailable request, while preserving any
 usable document output; deliberate sparse work may succeed.
-Such a History result does not imply an exact change count: an insufficient
-Count request follows the non-success rule above.
+Such a History result does not imply a change count: sparse policies do not
+admit Count, and a Count request over a full evaluation with failures reports
+an observed count under the incompleteness rule above.
 
 The existing [inspection envelope](inspection-envelope.md) owns Share and
 diagnostics. Until its Share owner can faithfully represent this range,
@@ -857,12 +899,167 @@ Complete Browser delivery is also part of adoption; it must preserve Content,
 Share, and ordered typed diagnostics even where the UI renders only a subset.
 This supersedes the earlier delivery plan that deferred envelope exposure.
 
+## Library-scope History over Fast Diff
+
+> **Claim.** For one Library in a bounded package-version population with
+> explicitly selected evaluation points, Library-scope History runs
+> [Fast Diff](fast-diff.md) on each consecutive pair of evaluated points, which
+> is a *step*, on the axes that step declares. For every Type, it reports each
+> step's API and Body states and one *window* state per axis. A window axis is
+> `Unchanged` only when that axis is `Unchanged` on every step that compares
+> it. Type rows name, for each Member and axis, the step destinations where
+> that axis changed.
+
+### Request
+
+The request names one Package, one compile asset, the population bounds,
+exact evaluation points, and the Body participants. Library scope admits only
+explicit points: exact versions, `first`, `last`, `endpoints`, `midpoint`, and
+`#N`. `all`, and a full-population, survey, adaptive, or major-representative
+policy over a whole Library, are outside this claim. Choosing the points
+belongs to
+[Package Version Selection](version-resolution.md): a named window policy
+returns them as exact addresses, and this owner never derives a version.
+
+The canonical window has three points, written from the baseline:
+
+| Point | Version | Example |
+| --- | --- | --- |
+| A″ | Latest patch of the previous major (the baseline) | 9.0.11 |
+| A′ | Previous patch on the current line | 10.0.1 |
+| A | Current | 10.0.2 |
+
+Its steps are A″ → A′ and A′ → A. A request with only two points has one step
+and equals pairwise Fast Diff.
+
+### Step axes
+
+The API axis runs on every step. The **Body participants** are a suffix of the
+evaluated points, written as their count: none, or at least two. The Body axis
+runs on a step only when both of its points are Body participants. Every other
+step asks Fast Diff for the API axis alone, so its Body states are
+`NotCompared` and no IL is read. The canonical window makes A′ and A the Body
+participants, so the Body axis runs on A′ → A only.
+
+A step's evidence is exactly its Fast Diff result. A step across unevaluated
+versions, such as A″ → A′, establishes only its two endpoint facts, as
+[What transitions establish](#what-transitions-establish) states. A change on
+that step is attributed to the gap that ends at A′, not to a version inside
+it.
+
+### Window states
+
+Types are joined across steps by their Fast Diff `Identifier`. A row-token
+`Identifier` (`!` and a row token) and the `Identifier` of Type rows that share
+one name identify a row within one image only, so they are never joined across
+steps. Each such Type is its own window entry. A Type present on only one side
+of a step is reported whole by Fast Diff's presence rule, as added or removed
+at that step's destination. Per Type and axis, the window
+state is:
+
+| Step states on that axis | Window state |
+| --- | --- |
+| Any `Changed` | `Changed` |
+| None `Changed`, any `Indeterminate` | `Indeterminate` |
+| Every compared step `Unchanged` | `Unchanged` |
+| No step compares the axis | `NotCompared` |
+
+`Unchanged` is sound per compared step: every step that compares that axis
+found no difference between its own two points. It does not claim that a
+direct comparison of the first and last points would agree, because Fast Diff
+partitions some facts by pair, such as visibility and the bodies of one-sided
+public methods. For the canonical window, the API axis covers A″ → A′ and
+A′ → A, and the Body axis covers A′ → A. `Changed` may
+over-report. A change on one step that a later step reverts still reports
+`Changed`, as Fast Diff permits and as History's transitions record. Library
+and Type cues read the window states only. They name no version, so diff icons
+do not change.
+
+### Type rows
+
+For one Type, the Type level of [Fast Diff](fast-diff.md#type) runs on each
+step where that Type is present on both sides. Each row is one Member, with
+two columns, API and Body. A column lists the destination of every step whose
+state on that axis is `Changed` or `Indeterminate`. A step across a gap is
+shown as that gap, for example "9.0.11 → 10.0.1". The residual has its own
+row. A step where the Type is present on one side only adds a presence row,
+added or removed at that step's destination, so a Type cue never opens an
+empty view.
+
+Members are joined across consecutive steps within the image those steps
+share. The Type level reports a Member present on both sides of a step by both
+its Before-side and After-side fingerprints. So the After-side fingerprint of
+A″ → A′ and the Before-side fingerprint of A′ → A are both read from A′. The
+join compares fingerprints within one image and never chains identity across
+versions. A joined row is named by its fingerprint at the latest point that
+declares it. As
+[API qualified anchor](api-qualified-anchor.md#version-pair-correspondence)
+states, anchor inequality is not absence. A Member the census does not pair
+across a step, such as one whose signature changed, is two declared Members
+there, removed and added, and so has two rows.
+
+Each changed cell carries a typed pairwise Diff action over its step's two
+points, focused on that Member, in the shape that
+[Evaluation methodology and terminal
+outcome](#evaluation-methodology-and-terminal-outcome) defines for adjacent
+actions. For a step across a gap, the action compares the gap's endpoints and
+does not localize the change within it. Entering the action runs Fast Diff's
+[Member level](fast-diff.md#member) for that one step, which depends on
+[#9827](https://github.com/richlander/dotnet-inspect/issues/9827) as that
+level states.
+
+### Document, Count, and Share
+
+The result is one `DiffHistoryOutcome` whose Document carries the population,
+the exact points, the Body participants, each step's Fast Diff result, the
+window states, and coverage and failures. Type rows are a projection over a
+per-Type Document produced on demand for each step, not a second Library
+inspection. A failed step keeps its failure, and its Types are `Indeterminate`
+on every axis it was asked for, so the window never reads a failed step as
+`Unchanged`.
+
+Library-scope History does not admit Count. Changed Versions is a Type and
+Member cohort, and Count requires a full-population policy, as
+[Subject-specific History Count](#subject-specific-history-count) states;
+Library scope admits neither. Share follows
+[Failure and Share](#failure-and-share). The Library-scope sections, their
+default projection, and their Markout lowering belong to the CLI adoption in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920) slice 10.
+They project this typed Document and do not reduce it.
+
+### Gates
+
+The implementation slices tracked in
+[#9920](https://github.com/richlander/dotnet-inspect/issues/9920) supply
+Release gates for:
+
+- a two-point request equal to pairwise Fast Diff, on both axes and on the
+  API axis alone;
+- the canonical window with the Body axis read on A′ → A only, and
+  `NotCompared` on A″ → A′;
+- the window states, including a change that is reverted on a later step and
+  a failed step that never yields `Unchanged`;
+- a Type added on A″ → A′, and one removed on A′ → A, each reported whole at
+  its destination;
+- Type rows joined within the shared image, including a Member whose
+  fingerprint changes after a nullable annotation change (one row), a Member
+  whose signature changes (two rows), an API change on the gap step, a Body
+  change on the last step, and a presence row for a Type added mid-window;
+- row-token and duplicate-name Types kept as separate window entries;
+- rejection, before acquisition, of Count and of every policy other than
+  explicit points; and
+- NativeAOT time per window for the pairs `eng/measure-fast-diff.cs`
+  measures.
+
 ## Browser adoption boundary
 
 The shared operation enables History under **Diff** inside Compare, not a
 third peer beside Diff and Clone. The initial consumers are Type and Member
-Compare; Library-wide History is not claimed by this slice. Population counts
-are metadata-only and do not require a Type or Member focus.
+Compare. Library-scope History over Fast Diff is consumed by Library cues and
+Type compare rows, as
+[Library-scope History over Fast Diff](#library-scope-history-over-fast-diff)
+states. Population counts are metadata-only and do not require a Type or
+Member focus.
 
 The Browser adopter supplies the same resolved population, full-evaluation,
 checkpoint, or adaptive policy, focus, producer, and scope, then consumes the
@@ -873,7 +1070,7 @@ designs decide controls, applicability, result installation, navigation, and
 retained mode state. This specification does not add a tab, alter sticky
 navigation, or create another Workspace lifecycle. Unevaluated versions, gaps,
 and failed points must remain distinguishable in that host's projection.
-Changed Versions and its Count-sufficiency evidence reach that host in the same
+Changed Versions and its completion evidence reach that host in the same
 shared baseline as the CLI, even when the current view hides that cohort.
 
 ## Future population construction
@@ -953,8 +1150,10 @@ Browser/Wasm adoption. The host-neutral Type Count implementation and evidence
 are complete; command admission, rendering, and both production consumers
 remain downstream.
 
-Call Graph/canvas, Library-wide History, and the future duration example remain
-outside that path. The new envelope requirement does not hold already-shipped
+Call Graph/canvas, Library-scope History, and the future duration example remain
+outside that path. Library-scope History over Fast Diff is counted separately,
+under [#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
+The new envelope requirement does not hold already-shipped
 pairwise Compare work hostage to this migration.
 
 The real scenario is `Markout@0.33.0..0.35.2` focused on
@@ -1055,17 +1254,24 @@ The implementation slices must supply Release gates for:
   population, combined `--at` and automatic selection, or any History-only
   input without History;
 - count-only versions, filtered version counts, and Count after an explicit
-  operation, retaining the declared unit and rejecting insufficient evidence;
+  operation, retaining the declared unit and reporting incomplete evidence as
+  an observed count;
 - Type/Member changed-version counts for unchanged adjacent versions, several
   changed details in one version, multiple changed versions, and a change
   followed by reversion;
-- Count-insufficient single-evaluation, sparse-gap, and failed
-  evaluation cases, retaining useful independent History evidence;
+- failed evaluation cases, including failures that leave one evaluated
+  version, reporting an observed Count with their incompleteness evidence and
+  retaining useful independent History evidence, and a successfully evaluated
+  one-version population reporting exact zero;
+- `--count` with explicit checkpoints other than `--at all`, a survey below
+  100 percent, `--major-versions`, or `--max-probes` rejected before
+  population discovery or acquisition, naming the full-population
+  alternatives, while `--at all` and `--sample-percent 100` admit Count;
 - Changed Versions section/default binding, incompatible Count cohort
   rejection before acquisition, and row shaping without predecessor rebasing
   or silently skipping unknown earlier membership;
 - exact semantic-prefix Count evidence versus work-bound truncation, preserving
-  the existing Count-sufficiency distinction;
+  the exact-versus-observed Count distinction;
 - shared Content distinguishing no requested Count, successful zero/nonzero
   Count, and typed Count failure beside the retained History Document;
 - complete Count-request Content/envelope serialization and both-host delivery,
@@ -1085,7 +1291,7 @@ The implementation slices must supply Release gates for:
   with no Timeline-specific semantic Document, category, compatibility alias,
   or Browser route.
 - `diff --history --sample-percent`, including absolute-cap composition,
-  complete envelope transport, and sparse Count insufficiency without a
+  complete envelope transport, and sparse Count rejection without a
   survey-specific result model.
 
 These new gates are **unverified** in this design-only slice. Deterministic

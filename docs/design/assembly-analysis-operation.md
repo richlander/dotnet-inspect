@@ -24,8 +24,10 @@ every Method request in request order, plus physical group work recorded once.
 Method Classification is its first production caller: the session-backed query
 uses request-set access while the PEReader overload remains the direct
 reference.
-Other source kinds, cancellation, residual request satisfaction, and legacy-
-remainder composition remain **unverified**.
+Other source kinds, cancellation, residual request satisfaction, and mixed-
+hub composition remain **unverified**. The no-remainder rule and split
+exact-member prerequisites are recorded under
+[Exact-member scoped producers](#exact-member-scoped-producers).
 
 ## Authority and exact claim
 
@@ -50,7 +52,7 @@ This owner defines:
 - the coarse operation boundary at which optional cancellation is observed;
 - the sequential reference composition required on single-threaded
   Browser/Wasm; and
-- the temporary legacy-remainder rule used while the current producer hub is
+- the exact-member producer drain rule used while the current producer hub is
   drained.
 
 This owner does not define:
@@ -92,6 +94,58 @@ The service role is analogous to the stateless services used behind Houses,
 but there is no `AnalysisHouse`. The assembly session or analysis-universe
 provider retains physical ownership. The service receives only the access
 issued for one invocation.
+
+## Analysis stack
+
+Analysis answers questions about the code in one assembly. Does this type
+have unsafe members? How many calls does this method make? Which members carry
+the most leverage? Each answer is evidence derived from method metadata and
+bodies. The work for a request should be proportional to the methods it asks
+about, not to the size of the assembly, and the receipt should prove it.
+
+The stack answers each question in stages, and each stage has one owner:
+
+| Question | Owner | What it decides |
+| --- | --- | --- |
+| What does this consumer need? | The adopting query | Which producers to request and which terminal (for example `Exists`, Count, or rows) each answer uses. |
+| What does each producer depend on, and when is it done? | [Producer Planning](producer-planning.md) | The closed producer description: dependencies, declared source layers, visits, outcomes, and `WorkReceipt`. |
+| Which requests share one traversal? | [Query Space Composition](query-space-composition.md) | Request-set grouping of owner-issued source plans, preservation of each request's terminal, and result association. |
+| How does it run against one assembly? | This owner | Binds the closed description, and for a request set its Query Space plan, to exact owner-issued access, executes once, and publishes a detached `AssemblyAnalysisExecution`. |
+| Which methods, and what is read for each? | [Method Query Source](method-query-source.md) | The ordered physical MethodDef population, breadth, declared expansion, on-demand layers, bounds, and the exact source-work receipt. |
+| What does the evidence mean? | Analysis evidence owners | Producer algorithms and focused result types. |
+
+For example, "Does type `T` have unsafe members?" runs as follows:
+
+1. The type Unsafe Members check
+   (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the
+   unsafe-evidence producer, closed with `Exists`, over `T`'s TypeDef.
+2. Producer Planning closes that producer's description: it reads
+   declarations, and a body and module lookup only on demand.
+3. Query Space resolves the `Exists` request into the work the closed
+   description carries. The request is direct, so it enters no request set
+   and needs no grouping.
+4. This owner binds that closed description to the access issued for the
+   assembly and runs it once.
+5. Method Query Source first adds the authenticated generated bodies of
+   `T`'s methods, such as async and iterator state machines, lambdas, and
+   local functions
+   ([Declared expansion](method-query-source.md#declared-expansion)), under
+   finite bounds. It then visits that population in metadata order. Each visit
+   reads a body only when the declaration does not settle the answer, and
+   visits stop at the first evidence.
+6. The execution publishes the answer with source and producer receipts that
+   show the work stayed within `T` and its generated bodies, with the
+   expansion work receipted separately.
+
+Method Query Source is therefore one source under this operation, not its
+planner. It reads only what the plan declares, and receipts what it reads.
+How each layer and each execution-scoped support is acquired and shared across
+lanes is owned by [Method Query Source](method-query-source.md#depth).
+
+One legacy service still combines these stages.
+[Why Library Body Analysis is retired](#why-library-body-analysis-is-retired)
+explains the change in direction, and [Role map](#role-map) records where each
+role moves.
 
 ## Contract shape
 
@@ -247,9 +301,10 @@ becomes a negative finding. A policy snapshot that changes during the
 invocation fails the execution, as it does for the existing binding-policy
 resolver.
 
-Request-set operations carry no binding, so a request-set plan that declares
-the `ReferenceBinding` layer is rejected with `ReferenceBindingUnavailable`
-before a producer runs.
+A request-set operation carries the binding access to every lane, so a plan
+that declares the `ReferenceBinding` layer runs when the access is present. It
+is rejected with `ReferenceBindingUnavailable` before a producer runs only when
+the access is absent.
 
 The detached execution retains no binding access, policy, resolved
 assembly, or referenced reader.
@@ -290,27 +345,116 @@ Migration uses a strangler:
    presence production path.
 2. Land the minimum general request collapse from #8574 needed to compose
    several producer requests.
-3. Introduce one temporary legacy-remainder declaration for producers that
-   have not moved.
+3. Leave unmoved producers on the existing hub; no aggregate remainder
+   producer is introduced.
 4. Move one cohesive producer owner and at least one production consumer per
    slice.
 5. Delete each superseded feature, plan, runner, aggregate, and compatibility
    projection when its final consumer moves.
-6. Delete the legacy remainder and the current producer hub after the final
-   producer and consumer move.
-
-The legacy-remainder declaration is constrained:
-
-- it receives units from the owner-issued QuerySpace source;
-- it never enumerates an assembly, opens content, or calls
-  `LibraryBodyAnalysisBuilder.Build`;
-- it publishes only fields still required by unmigrated consumers; and
-- its request and result shape shrink in every migration that consumes part
-  of it.
+6. Delete the current producer hub after the final producer and consumer
+   move.
 
 A migrated producer computes its focused result from its declaration and
 visits. Filtering a broad legacy aggregate after construction does not count
 as migration.
+
+### Why Library Body Analysis is retired
+
+Library Body Analysis combines the stages of the
+[Analysis stack](#analysis-stack) in one service. It chooses what to compute
+from a feature set, walks every MethodDef once, builds its derived structures
+in one execution for the selected features, and publishes the results from
+that one execution. That shape has four problems:
+
+- **Cost follows the assembly, not the question.** Whole-assembly identity,
+  generated-body discovery, state-machine mapping, and the method map are built
+  before any answer, so a request for one method costs about as much as one
+  for sixteen.
+- **Its results don't decompose.** Declaration counts, the call-resolution map,
+  and declared-source publication span more than any one source selection, so
+  they cannot be cut down to the methods a request asks about.
+- **The hubs are closed.** A fixed feature set, plan, and runner decide what
+  can be computed. Every new producer edits the hub instead of declaring its
+  own needs.
+- **Its receipt can't prove scope.** The stage receipt records what ran after
+  the fact. It cannot show that a scoped request stayed scoped, and it cannot
+  drive planning.
+
+`LibraryBodyIndex`, already retired, made this worse. It put every feature's
+result behind one facade, so each consumer depended on the whole build and
+on result shapes it never used, and its actual needs were invisible.
+
+The stack reverses each problem. The question declares what is read, the
+source reads only that and proves it in a receipt, and each producer
+publishes its own focused result.
+
+### Role map
+
+Each Library Body Analysis role moves to its stage owner:
+
+| Library Body Analysis role | Target owner |
+| --- | --- |
+| Feature selection (`LibraryBodyAnalysisFeatures`) | Producer declarations in Producer Planning, grouped by Query Space |
+| One whole-assembly MethodDef walk | Method Query Source breadth and traversal, narrowed to the requested scope |
+| Body, local-signature, and module-lookup acquisition | Method Query Source `Body` depth (the managed body and its local-signature handle) and declared shared lookup support (module lookup), acquired on demand; local-signature decode stays with the producer that reads it |
+| Eager method map and direct-call target resolution | Method Query Source `CallTargets` support over the shared `SameModuleMethodResolver` ([#8700](https://github.com/richlander/dotnet-inspect/issues/8700)), then the `Calls` layer ([#9868](https://github.com/richlander/dotnet-inspect/issues/9868)) |
+| Declared-source and generated-body publication | Method Query Source declared expansion and the declared-source relation ([#9864](https://github.com/richlander/dotnet-inspect/issues/9864)) |
+| Safety, allocation, optimization, leverage, call-graph, and the other hub producers | Focused producers on Producer Planning, each executed through this owner |
+| The aggregate result and `LibraryBodyIndex` (retired) | Focused, declaration-keyed results in `AssemblyAnalysisExecution` |
+| Stage participation receipt | Method Query Source receipts plus Producer Planning `WorkReceipt` |
+| `LibraryBodyAnalysisService` | `AssemblyAnalysisService` |
+
+Producers and their consumers move one at a time under the drain rule in
+[Exact-member scoped producers](#exact-member-scoped-producers). A role leaves
+Library Body Analysis when its last consumer has moved. Moving never wraps
+`LibraryBodyAnalysisBuilder.Build` or filters its aggregate.
+
+### Exact-member scoped producers
+
+The whole-assembly `LibraryBodyAnalysisResult` is not reproducible from
+source-scoped units: its declaration counts, unsafe-mode counts,
+call-resolution map, declared-source publication, exception classification,
+and safety-contract associations span populations larger than one source
+selection. No aggregate remainder producer is declared.
+
+This owner supplies only the drain rule:
+
+> Move one focused producer and real consumer at a time after every semantic
+> input has an owner-issued capability and receipt. Leave unmoved producers on
+> `LibraryBodyAnalysisService`; never wrap `LibraryBodyAnalysisBuilder.Build`,
+> filter its aggregate, hide wider metadata support inside an exact-member
+> visit, or create a second planner.
+
+Exact-member work is split across focused owners:
+
+| Concern | Owner |
+| --- | --- |
+| Method-targeted call population and identity tiers | [#8945](https://github.com/richlander/dotnet-inspect/issues/8945) |
+| Typed same-module callee resolution | [#8700](https://github.com/richlander/dotnet-inspect/issues/8700) |
+| Bounded semantic MethodDef identity | [#9830](https://github.com/richlander/dotnet-inspect/issues/9830) |
+| Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
+| Declared-source relation over all-definition and exact-type breadth | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) |
+| Method Query Source operand and signature resolution (Calls layer) | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868) |
+| Public root inventory and reference-assembly status as execution capabilities | [#9865](https://github.com/richlander/dotnet-inspect/issues/9865) |
+| First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
+
+The prerequisite owners define their result shapes, work bounds, typed
+failures, and gates. Wider metadata correspondence or association work is
+declared execution-scoped source support and receipted separately from sparse
+MethodDef breadth. It never acquires an unrelated body or silently becomes
+successful empty evidence.
+
+[#9832](https://github.com/richlander/dotnet-inspect/issues/9832) composes the
+prerequisites for `AssemblyContextMethodAnalysisQuery`. Allocations,
+optimization opportunities, and final `MethodSignals` composition remain
+explicitly on the old boundary in that mixed slice. The unsafe member census
+adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
+[Unsafe member findings](unsafe-member-findings.md#execution) states. `ILOffsetQuery` follows
+only after an owner can bind its prefetched image without reopening by path.
+
+Each adoption updates #8965's live drain map. A hub branch, request parameter,
+or feature is deleted when its final consumer moves, not when the first
+focused adopter lands. The hub is deleted when its last field leaves.
 
 `CompleteProfileV1` remains a compatibility composition of independently
 owned metrics and relationships. It is not one producer. Metric selection and
@@ -421,8 +565,17 @@ exhausted, producer-failed, or aborted completion. Later source kinds and
 mid-source delegation failures add their owner-issued outcomes and gates when
 they adopt the service.
 
-The slice that introduces the legacy-remainder declaration supplies
+The exact-member successors own their evidence:
+
+- #9830 gates bounded semantic MethodDef identity;
+- #9831 gates memory-safety contract and accessor-association support; and
+- #9832 gates the first consumer's complete public outcome and mixed legacy
+  provenance.
+
+When #9832 lands, it supplies
 `AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
+This design does not predeclare the successors' result or receipt shapes and
+does not claim their implementation evidence.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

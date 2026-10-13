@@ -59,6 +59,16 @@ public static class PackageQueryCapability
                     + "failures, and completion summary.",
                     PackageQuery.ResultContractIdentity));
 
+    private static readonly string[] DependencyContinuationTerms =
+    [
+        PackageQuery.DependenciesTermKey,
+        PackageQuery.DependencyDepthTermKey,
+        PackageQuery.DependencyTargetTermKey,
+        PackageQuery.DependsTermKey,
+        PackageQuery.DependsTransitiveTermKey,
+        PackageQuery.DependsEcosystemTermKey,
+    ];
+
     public static InspectionRouteRegistration<
         PackageQueryInspectionRequest,
         PackageQueryDocument> Route { get; } =
@@ -82,12 +92,38 @@ public static class PackageQueryCapability
                 queryTermRelationships:
                 [
                     new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependsTransitiveTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyTargetTermKey)),
+                    new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependsTransitiveTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyDepthTermKey)),
+                    new(
+                        InspectionQueryTermRelationshipKind.RequiredContext,
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyDepthTermKey),
+                        PackageQuery.TermBindingIdentity(
+                            PackageQuery.DependencyTargetTermKey)),
+                    new(
                         InspectionQueryTermRelationshipKind
                             .RequiredContext,
                         PackageQuery.TermBindingIdentity(
                             PackageQuery.LibraryLiteralTermKey),
                         PackageQuery.TermBindingIdentity(
                             PackageQuery.LibraryTargetTermKey)),
+                ],
+                queryTermRelatedOperations:
+                [
+                    .. DependencyContinuationTerms.Select(term =>
+                        new InspectionQueryTermRelatedOperation(
+                            PackageQuery.TermBindingIdentity(term),
+                            PackageRelatedOperationAffordances
+                                .InspectDependencies)),
                 ]);
 
     public static InspectionCapabilityModule ProductModule { get; } =

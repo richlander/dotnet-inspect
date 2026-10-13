@@ -518,22 +518,52 @@ public partial class PackageQueryTests
         string unavailableMessage = "package content unavailable")
         : IPackageQueryContentProvider
     {
-        public List<string> Requests { get; } = [];
-        public List<PackageQueryContentDemand> Demands { get; } = [];
+        public List<string> InventoryRequests { get; } = [];
+        public List<string> FileRequests { get; } = [];
+        public List<ImmutableArray<string>> RequestedFilePaths { get; } = [];
 
-        public ValueTask<PackageQueryContentResult> GetContentAsync(
+        public void ClearRequests()
+        {
+            InventoryRequests.Clear();
+            FileRequests.Clear();
+            RequestedFilePaths.Clear();
+        }
+
+        public ValueTask<PackageQueryContentResult> GetInventoryAsync(
             PackageQueryPackage package,
-            PackageQueryContentDemand demand,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Requests.Add(package.PackageId);
-            Demands.Add(demand);
+            InventoryRequests.Add(package.PackageId);
             return ValueTask.FromResult<PackageQueryContentResult>(
                 content.TryGetValue(
                     package.PackageId,
                     out IPackageContent? packageContent)
-                    ? new PackageQueryContentResult.Available(packageContent)
+                    ? new PackageQueryContentResult.InventoryAvailable(
+                        new PackageQueryContentInventory(
+                            Assert.IsType<FakePackageContent>(
+                                packageContent)
+                            .InventoryEntries))
+                    : new PackageQueryContentResult.Unavailable(
+                        unavailableMessage));
+        }
+
+        public ValueTask<PackageQueryContentResult> GetFilesAsync(
+            PackageQueryPackage package,
+            PackageQueryContentInventory inventory,
+            IReadOnlyList<PackageContentEntry> entries,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FileRequests.Add(package.PackageId);
+            RequestedFilePaths.Add(
+                [.. entries.Select(static entry => entry.Path)]);
+            return ValueTask.FromResult<PackageQueryContentResult>(
+                content.TryGetValue(
+                    package.PackageId,
+                    out IPackageContent? packageContent)
+                    ? new PackageQueryContentResult.Available(
+                        packageContent)
                     : new PackageQueryContentResult.Unavailable(
                         unavailableMessage));
         }
@@ -678,6 +708,13 @@ public partial class PackageQueryTests
         public string ProducerKey => "nuget.org";
         public bool RequiresArchiveTreeMatch => false;
         public List<string> EntryRequests { get; } = [];
+        public IReadOnlyList<PackageContentEntry> InventoryEntries =>
+        [
+            .. _entries.Select(static entry =>
+                new PackageContentEntry(
+                    entry.Key,
+                    entry.Value.LongLength)),
+        ];
 
         public bool TryOpenArchive([NotNullWhen(true)] out Stream? stream)
         {

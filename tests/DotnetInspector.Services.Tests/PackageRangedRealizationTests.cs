@@ -239,14 +239,13 @@ public sealed partial class PackageRangedRealizationTests
 
         Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
         Assert.Equal(0, warm.FullRequests);
-        // The tail confirms the archive is unchanged, then the one missing
-        // entry; the other three come from the entry cache.
-        Assert.Equal(2, warm.RangedRequests);
-        // A cached directory spares the size probe: the receipt starts at the
-        // tail (docs/design/package-transfer-receipt.md).
+        // Immutable feeds let the cached directory locate the one missing
+        // entry directly; the other three come from the entry cache.
+        Assert.Equal(1, warm.RangedRequests);
+        // No size probe or directory transfer is needed.
         PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Ranged);
         Assert.Equal(
-            [PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestPurpose.EntrySpan],
+            [PackageTransferRequestPurpose.EntrySpan],
             receipt.Requests.Select(request => request.Purpose));
         Assert.Equal(
             Net45Folder.Order(StringComparer.Ordinal),
@@ -333,7 +332,7 @@ public sealed partial class PackageRangedRealizationTests
     /// (docs/design/package-cache-policy.md, case 5c).
     /// </summary>
     [Fact]
-    public async Task EntryCache_ChangedArchive_TakesTheCompleteFetch()
+    public async Task EntryCache_ChangedArchiveLength_TakesTheCompleteFetch()
     {
         byte[] archive = ReadPclStorage();
         var store = new InMemoryPackageStore();
@@ -344,9 +343,8 @@ public sealed partial class PackageRangedRealizationTests
                 await first.RealizeAsync(store, PackagePayloadAccess.Ranged, "net45"));
         }
 
-        // The warm read is partial, and the coordinate was republished with
-        // an unrelated entry removed: a private feed or mirror that is not
-        // immutable.
+        // A source violating the immutable-feed contract still cannot answer
+        // an entry request with a representation of a different total length.
         store.RemoveEntryForTesting(PclStorage, PclStorageVersion, "lib/net45/PCLStorage.xml");
         byte[] changed = Republish(archive, "lib/sl5/PCLStorage.xml");
         var warm = new RangeFeed(PclStorage, PclStorageVersion, changed);
@@ -357,13 +355,13 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
         Assert.Equal(1, warm.FullRequests);
         Assert.IsNotType<RangedPackageContent>(acquired.Payload.Content);
-        // The receipt records the tail that found the changed directory, then
-        // the complete transfer (docs/design/package-transfer-receipt.md).
+        // The entry response exposes the changed total, then the acquisition
+        // takes the existing complete fallback without publishing mixed entries.
         PackageTransferReceipt receipt = Transfer(acquired, PackagePayloadOrigin.Download);
         Assert.Equal(PackageTransferPath.RangedThenDownload, receipt.Path);
         Assert.Equal(PackageTransferFallbackReason.ArchiveChanged, receipt.FallbackReason);
         Assert.Equal(
-            [PackageTransferRequestPurpose.DirectoryTail, PackageTransferRequestPurpose.Complete],
+            [PackageTransferRequestPurpose.EntrySpan, PackageTransferRequestPurpose.Complete],
             receipt.Requests.Select(request => request.Purpose));
         Assert.NotNull(store.TryGetCached(
             PclStorage,

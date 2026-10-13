@@ -170,6 +170,56 @@ internal static class MetadataTypeIdentityDecoder
         }
     }
 
+    internal static MetadataTypeIdentityDecodeResult DecodeField(
+        MetadataReader reader,
+        TypeDefinition definition,
+        FieldDefinition field,
+        MetadataOperationContext operation)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(operation);
+
+        try
+        {
+            SignatureBlobGuard.CompleteValidationKind validation =
+                SignatureBlobGuard.ValidateComplete(
+                    reader,
+                    field.Signature,
+                    SignatureBlobGuard.Kind.Field);
+            if (validation
+                != SignatureBlobGuard.CompleteValidationKind.Valid)
+            {
+                return new MetadataTypeIdentityDecodeResult.Rejected(
+                    "The field signature is not safe and complete to decode.");
+            }
+
+            int signatureBytes =
+                reader.GetBlobReader(field.Signature).Length;
+            operation.Charge(
+                MetadataOperationDimension.SignatureBytes,
+                signatureBytes);
+            GenericContext context =
+                GenericContext.ForType(reader, definition);
+            TypeNode node = field.DecodeSignature(
+                CreateProvider(operation),
+                context);
+            return Project(node, context, operation);
+        }
+        catch (MetadataOperationBudgetExceededException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+            when (exception is BadImageFormatException
+                or ArgumentException
+                or InvalidOperationException
+                or OverflowException)
+        {
+            return new MetadataTypeIdentityDecodeResult.Rejected(
+                exception.Message);
+        }
+    }
+
     private static MetadataTypeIdentityDecodeResult Project(
         TypeNode node,
         GenericContext context,

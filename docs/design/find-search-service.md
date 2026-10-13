@@ -84,7 +84,7 @@ accepted by `find`. It applies when the finite source request contains only:
 
 - exact-version Package references,
 
-declares one explicit target framework other than `all`, and each acquired
+declares one explicit target framework, and each acquired
 Package's selected implementation universe covers every DLL candidate in its
 selected target framework. Package archives, mixed-layout Packages, floating
 package versions, Platform Libraries and families, reference-view catalogs,
@@ -282,8 +282,8 @@ described under [Implementation and validation status](#implementation-and-valid
 5. projects; and
 6. binary directories.
 
-For exact-version Packages with one explicit target framework other than
-`all`, the service may own an `InspectionWorkspace` with awaited close. It
+For exact-version Packages with one explicit target framework, the service
+may own an `InspectionWorkspace` with awaited close. It
 admits declaration contexts through `WorkspaceContextLoader` and executes the
 Workspace-resident locator only when the selected implementation universe
 covers every DLL candidate in the Package's selected target framework.

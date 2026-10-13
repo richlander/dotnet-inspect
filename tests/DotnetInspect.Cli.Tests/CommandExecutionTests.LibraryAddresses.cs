@@ -850,7 +850,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("requires one selected Library", error);
+        Assert.Contains("--tfm all applies only to 'package' discovery", error);
         Assert.DoesNotContain(
             "not found",
             error,

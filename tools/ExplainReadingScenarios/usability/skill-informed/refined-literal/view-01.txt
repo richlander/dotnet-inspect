@@ -1,0 +1,72 @@
+# Explain reading trial guide
+
+
+Use dotnet-inspect to find evidence from direct local libraries, packages from
+configured sources, and Platform libraries, including APIs and dependencies.
+
+Run `dnx dotnet-inspect -y -- <command-or-target>`. `-y` skips confirmation,
+and `--` passes the remaining arguments to dotnet-inspect. Start by identifying
+the kind of result needed. If the intent or result space is unclear, use a bare
+target and let the router choose. Otherwise, enter the matching space directly.
+Platform queries use installed packs when the requested version is available;
+otherwise they use a package-backed source. For a non-conventional install,
+verify `<root>/packs` and set process-scoped `DOTNET_ROOT`, not `PATH`.
+
+
+When the resource is unknown, use `explain <task-text>` or route-specific `-Q`
+to discover it. Copy emitted resource paths rather than inventing IDs.
+
+## Explain discovered resources
+
+Use `explain` to read installed query meaning without acquiring the target.
+Copy the `resource_path` returned by discovery instead of constructing paths.
+For vocabulary, query-space, and query-facet resources, select HAL:
+
+```bash
+dnx dotnet-inspect -y -- explain package-query/query .hal --json > query.json
+```
+
+HAL uses `_links` for navigation and `_embedded` for included resources. Read
+embedded data before making another request. Follow an emitted href unchanged
+with `explain "$href" --json`; its link media type identifies the representation.
+Read the facet's input rules and required context together with its consumer
+binding's invocation rules. Filter locally with jq before reading the answer,
+retaining `data_scope` and applicable `data_states` for interpretation.
+
+Start with a compact index instead of printing the entire document:
+
+```bash
+jq -c '{data_scope, data_states,
+  facets: [._embedded.facets[]? | {key, requires}],
+  bindings: [._embedded.bindings[]? | {gesture, exposed_facets}]}' query.json
+```
+
+Then select one facet and its required context from the saved response:
+
+```bash
+jq -c --arg key library-literal '
+  . as $doc | ._embedded.facets | map(select(.key == $key)) as $selected
+  | {data_scope: $doc.data_scope, data_states: $doc.data_states,
+     facets: $selected,
+     context: [$selected[].requires[] as $required
+       | $doc._embedded.facets[] | select(.key == $required)],
+     bindings: $doc._embedded.bindings}' query.json
+```
+
+For vocabulary questions, join `_embedded.values` to referenced vocabularies
+already in `_embedded.vocabularies`; follow a link only when the needed resource
+is absent. `property_sets` lists IDs with a true Boolean property, while
+`property_groups` groups IDs by a non-null property value. Absence means false
+or null only for a known member with an available property in a complete selected
+dataset. Check `data_scope` and applicable `data_states` first; unknown IDs,
+incomplete datasets, and unavailable properties do not establish a negative.
+Keep those interpretation fields in the filtered answer, including any states
+on selected embedded members. A declared group's meaning comes from its owning
+vocabulary; a shared group name alone does not establish an invocation rule.
+
+`.data --json` supplies the direct data model. `.contract --json` supplies the
+explanation schema and observation details for client development. Empty listed
+values or unregistered input rules do not establish unrestricted acceptance.
+Other resource kinds retain their ordinary `explain <resource_path> --json`
+projection; `.hal` is currently bounded to the three resource kinds above.
+

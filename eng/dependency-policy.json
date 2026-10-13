@@ -65,6 +65,80 @@
       ]
     },
     {
+      "id": "inspect-web-core-project-dependencies-stay-within-host-composition-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
+      "graphs": [
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Core"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj"
+      ],
+      "allowOnly": [
+        "DotnetInspector.Libraries",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse.Packages",
+        "DotnetInspector.PlatformQueries",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceHouse",
+        "ILInspector.Analysis",
+        "ILInspector.CallGraph",
+        "ILInspector.Metadata",
+        "NuGetFetch"
+      ]
+    },
+    {
+      "id": "inspect-web-core-assembly-dependencies-stay-within-host-composition-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Core"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Core/DotnetInspect.Web.Core.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspector.DocumentationHouse.Contracts",
+        "DotnetInspector.InspectionContracts",
+        "DotnetInspector.Libraries",
+        "DotnetInspector.PackageQueries",
+        "DotnetInspector.Packages",
+        "DotnetInspector.PlatformHouse",
+        "DotnetInspector.PlatformHouse.Packages",
+        "DotnetInspector.PlatformQueries",
+        "DotnetInspector.Platforms",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.Sections",
+        "DotnetInspector.Services",
+        "DotnetInspector.SourceHouse",
+        "DotnetInspector.SourceSelection",
+        "ILInspector.Analysis",
+        "ILInspector.CallGraph",
+        "ILInspector.Metadata",
+        "InertText",
+        "Inspector.Artifacts",
+        "Inspector.Artifacts.Workspaces",
+        "Inspector.Graph",
+        "NuGet.Frameworks",
+        "NuGet.Versioning",
+        "NuGetFetch",
+        "QuerySpace.Primitives",
+        "ZipFetch"
+      ]
+    },
+    {
       "id": "inspect-web-call-graph-facade-stays-at-capability-boundary",
       "source": "docs/design/inspect-web-jsexport-partitioning.md#call-graph-facade-2-exports",
       "graphs": [
@@ -80,6 +154,7 @@
       "allowOnly": [
         "$platform",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections"
       ]
@@ -99,13 +174,15 @@
       "allowOnly": [
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
         "DotnetInspector.Sections",
         "DotnetInspector.Services",
-        "QuerySpace"
+        "QuerySpace",
+        "TsJsExport.Contracts"
       ]
     },
     {
@@ -124,6 +201,7 @@
         "$platform",
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.PackageQueries",
         "DotnetInspector.Packages",
         "DotnetInspector.PlatformHouse",
@@ -136,7 +214,8 @@
         "InertText",
         "NuGetFetch",
         "QuerySpace",
-        "QuerySpace.Primitives"
+        "QuerySpace.Primitives",
+        "TsJsExport.Contracts"
       ]
     },
     {
@@ -173,6 +252,7 @@
       "allowOnly": [
         "$platform",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.Packages",
@@ -217,6 +297,7 @@
         "$platform",
         "DotnetInspect.Web.Core",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Packages",
         "DotnetInspector.Platforms",
         "DotnetInspector.Queries",
@@ -271,6 +352,7 @@
         "$platform",
         "DotnetInspect.Web.Core",
         "DotnetInspector.DocumentationHouse.Contracts",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.Packages",
@@ -335,6 +417,7 @@
         "$platform",
         "CSharpText",
         "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Packages",
         "DotnetInspector.Presentation",
         "DotnetInspector.Queries",
@@ -391,6 +474,7 @@
       "allowOnly": [
         "CSharpText",
         "DotnetInspector.Cache",
+        "DotnetInspector.Diff",
         "DotnetInspector.Ecosystems",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
@@ -445,8 +529,10 @@
         "$platform",
         "CSharpText",
         "DotnetInspector.Cache",
+        "DotnetInspector.Diff",
         "DotnetInspector.DocumentationHouse.Contracts",
         "DotnetInspector.Ecosystems",
+        "DotnetInspector.InspectionContracts",
         "DotnetInspector.Libraries",
         "DotnetInspector.LibraryMetadata",
         "DotnetInspector.MetadataRendering",
@@ -678,7 +764,8 @@
       "allowOnly": [
         "$platform",
         "$repository",
-        "Markout"
+        "Markout",
+        "NuGet.Versioning"
       ]
     },
     {

@@ -21,6 +21,17 @@ public static class ResourceExplanationCommandDefinitions
                 + "package-query/query/facets/library-literal; otherwise "
                 + "bounded capability-search text such as literal",
         };
+        var projectionArgument = new Argument<string?>("projection")
+        {
+            Description = ".data selects a self-contained reading dataset; .hal selects HAL resource data and navigation; .contract selects declarations",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        projectionArgument.Validators.Add(result =>
+        {
+            string? projection = result.GetValue(projectionArgument);
+            if (projection is not null && projection is not (".contract" or ".data" or ".hal"))
+                result.AddError("Supported exact explanation projections are .contract, .data, and .hal.");
+        });
         var depthOption = new Option<int>("--depth")
         {
             Description =
@@ -36,6 +47,7 @@ public static class ResourceExplanationCommandDefinitions
         });
 
         command.Arguments.Add(operandArgument);
+        command.Arguments.Add(projectionArgument);
         command.Options.Add(depthOption);
         command.Options.Add(opts.Json);
         command.Options.Add(opts.Markdown);
@@ -55,7 +67,10 @@ public static class ResourceExplanationCommandDefinitions
                 opts.ResolveFormat(parseResult),
                 parseResult.GetValue(opts.Envelope),
                 parseResult.GetValue(opts.NoHeaders),
-                parseResult.GetValue(outputPathOption)));
+                parseResult.GetValue(outputPathOption),
+                parseResult.GetValue(projectionArgument) == ".contract",
+                parseResult.GetValue(projectionArgument) is ".data" or ".hal"
+                    ? parseResult.GetValue(projectionArgument) : null));
         return command;
     }
 }

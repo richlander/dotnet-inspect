@@ -143,9 +143,10 @@ The checked-in rules provide full gate coverage for these dependency claims:
 9. The Inspect Web Library facade cannot expand beyond its current five
    evaluated project edges or its current ten repository assembly edges.
    The separate graph rules preserve those different ceilings while focused
-   #8779 successors retire Metadata-facing composition. The facade retains the
-   broad semantic banned-symbol input until that positive boundary no longer
-   admits low-level product assemblies.
+   #8779 successors retire Metadata-facing composition. Its typed Library
+   operations and positive dependency ceilings own product semantics, so the
+   facade retains only the platform-hazard compiler bans that dependency
+   layering cannot distinguish.
 10. The Inspect Web Catalog facade cannot expand beyond its current six
    evaluated project edges or its current twelve repository and external
    assembly edges. Its home-demo call-graph path reaches the host-neutral
@@ -164,6 +165,15 @@ The checked-in rules provide full gate coverage for these dependency claims:
     Queries, and Research project logical-member and physical-MethodDef values
     before the facade boundary, so the assembly rule also rejects the retired
     `ILInspector.MetadataPrimitives` dependency.
+13. Inspect Web Core cannot expand beyond its current fifteen evaluated project
+    edges or its current twenty-seven repository and external assembly edges.
+    Core composes Browser acquisition, workspace lifetime, cancellation,
+    navigation policy, and typed host projection over owner-issued product
+    APIs. The separate graph rules reject retired direct `CSharpText` and
+    `ILInspector.Research` dependencies and any new project or emitted assembly
+    edge. Core retains the semantic banned-symbol gate because its intentional
+    Metadata, Analysis, and CallGraph dependencies must not become authority to
+    open images, run producers, or reconstruct product semantics in the host.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing

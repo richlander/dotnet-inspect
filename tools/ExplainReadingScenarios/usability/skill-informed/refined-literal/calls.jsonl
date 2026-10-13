@@ -1,0 +1,1 @@
+{"id": 1, "argv": ["explain", "package-query/query", ".hal", "--json"], "exit": 0, "stdout_bytes": 16149, "stderr_bytes": 0, "stdout_file": "response-01.out", "stderr_file": "response-01.err"}

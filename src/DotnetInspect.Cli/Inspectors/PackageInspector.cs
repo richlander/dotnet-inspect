@@ -65,7 +65,7 @@ internal static class PackageInspector
             }
         }
 
-        // Try package index cache (skips all filesystem scanning)
+        // Try package index cache (skips expensive content inspection)
         if (cacheSubject is not null)
         {
             InspectionResult? cached;
@@ -75,6 +75,12 @@ internal static class PackageInspector
             }
             if (cached != null)
             {
+                // Keep section rows consistent with the shared folder producer,
+                // including indexes written before case-insensitive de-duplication.
+                var cachedFrameworkFolders = TfmSelector.GetPackageFrameworkFolders(extractPath);
+                cached.TargetFrameworks = cachedFrameworkFolders.Count > 0
+                    ? cachedFrameworkFolders.Order(StringComparer.Ordinal).ToList()
+                    : null;
                 if (nupkgPath != null && File.Exists(nupkgPath))
                 {
                     cached.BuiltDate = GetNupkgBuildDate(nupkgPath);
@@ -190,6 +196,9 @@ internal static class PackageInspector
                 ToolsAnalyzer.AnalyzeRuntimesDirectory(runtimesDir, result);
             }
         }
+
+        var frameworkFolders = TfmSelector.GetPackageFrameworkFolders(extractPath);
+        result.TargetFrameworks = frameworkFolders.Count > 0 ? frameworkFolders : null;
 
         // Determine package type if not already set by nuspec PackageTypes
         if (result.PackageTypes is not { Count: > 0 })

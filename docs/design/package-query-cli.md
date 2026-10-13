@@ -72,8 +72,9 @@ remains owned by
 [Package Query assembly-pattern evaluation](package-query-assembly-evaluation.md).
 `package query` uses [CLI execution bounds](cli-execution-bounds.md):
 `--take` bounds candidate work and semantic `-n` selects final package rows.
-Without explicit `--take`, a single semantic Head is delegated to the shared
-query's optional `matches` bound; direct package rows also use that Head as
+A single semantic Head within the 1,000 match-budget maximum is delegated to
+the shared query's optional `matches` bound, with or without explicit
+`--take`; without explicit `--take`, direct package rows also use that Head as
 their candidate bound. Browser requests author the same Head stage and explicit
 match bound through the same planner.
 
@@ -125,6 +126,159 @@ Related docs:
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
 
+## Installed capability explanation
+
+The CLI adoption tracked by
+[#9952](https://github.com/richlander/dotnet-inspect/issues/9952) admits
+`package query --explain` as a command-only terminal operation. Its exact claim
+is: return the existing complete HAL reading dataset for the owner-issued
+`PackageQueryCapabilityResourcePaths.QuerySpace`, without query planning,
+candidate enumeration, or package acquisition. The command token is not a
+resource identity; the binding uses the registered path directly.
+
+The motivating asset is
+[Microsoft.Extensions.Http.Polly@10.0.12](https://www.nuget.org/packages/Microsoft.Extensions.Http.Polly/10.0.12).
+The retained
+[command-bound trials](../../tools/ExplainReadingScenarios/usability/command-bound/README.md)
+observed its direct Polly dependency and four agents using help/`-Q` rather than
+explain. One attempted dependency depth four with 40 candidates, exceeding the
+registered five-candidate bound. These observations motivate making installed
+dependency semantics and bounds directly available at the command; they do
+not establish an agent-efficiency improvement.
+
+[Resource Explanation](resource-explanation.md) supplies the existing catalog,
+normalized reading dataset, HAL projection, and addresses.
+[Contextual Resource Explanation](contextual-resource-explanation.md#command-level-resource)
+supplies the command-resource admission and terminal-placement contract.
+[The companion-family grammar](view-facet-query-composition.md#companion-family)
+supplies option placement and dotted projection ownership. This terminal
+admits no subject selectors: any package argument, inspection predicate,
+execution bound, source override, content-section selection, or competing
+output operation fails before
+acquisition. It never falls back from a rejected target to command explanation.
+`.tips`, `.references`, and other projections fail visibly; `-E` adoption and
+resolved-query explanation remain outside this slice.
+
+HAL JSON is this installed-query terminal's natural output; `--json` is
+optional. Other explicit formats and output modifiers are rejected. This differs
+from Member's textual contextual explanation because the installed dataset is
+intended for local jq selection of complete query rules. It reuses the existing
+dataset serializer rather than a new Markout view; the generic human resource
+view currently omits input rules. Ordinary query output retains its existing
+format behavior.
+Process-wide controls such as `--offline` and `--http-timeout` remain valid:
+the executable configures these controls before command parsing; they do not select
+explanation Content. Explicit root output modifiers such as `-v q` are rejected.
+The normal environment-format precedence applies: a non-JSON
+`DOTNET_INSPECT_FORMAT` fails visibly unless overridden with `--json`.
+
+The adoption under
+[#9997](https://github.com/richlander/dotnet-inspect/issues/9997) admits `-Q`
+alongside this primary explanation as an exact facet-key narrowing modifier.
+Its exact claim is: select keys from the same owner-issued reading model before
+assembly, close declared required context, retain applicable binding rules,
+and perform no query planning or acquisition. It uses
+`ResourceExplanationDataset.Create` from the shared projection in #9986;
+`-Q` neither defines another schema nor changes HAL vocabulary.
+
+A comma/semicolon-separated list uses existing projection-list parsing. Keys
+are exact and case-sensitive; duplicates collapse. Wildcards, section/category
+names such as `Packages`, and inspection predicates are not facet-key aliases
+in this mode. Bare `-Q` imposes no narrowing; an explicitly empty value fails.
+`--query-help` and ordinary option placement remain valid aliases/grammar.
+The generic query-discovery wrapper defers to this terminal when `--explain`
+is present, so it cannot replace a narrowed explanation with section discovery.
+The terminal otherwise retains its acquisition-free admission and format rules.
+
+A selected response is complete for its selected facets and required context,
+not the whole installed catalog. It preserves all registered facet meaning and
+host rules. The shared HAL projection omits a narrowed self address and emits
+one implemented collection link for missing knowledge. Unknown keys fail
+without a partial response or fallback to package execution. Root explain and
+its explicit direct JSON selection remain available; no generic root-explain
+narrowing grammar is added by this host slice.
+
+Existing standalone `-Q Packages` and `Query: Packages` discovery keep their
+section/facet presentation and query selection behavior. Their Package Query
+summary now composes the registered route description and binding input rules;
+`PackageQueryOptions.DiscoverySummary` and its independently maintained domain
+inventory are retired. Predicate meaning remains in owner-issued facet facts,
+not a CLI summary. Registered knowledge does not claim every operation rule
+has been described; missing producer guidance is separate owner work.
+
+The motivating Http.Polly asset and prefix Polly workflow use:
+
+```bash
+dotnet-inspect package query --explain -Q depends,dependency-target > selected.hal.json
+jq '._embedded | {facets: [.facets[] | {key, operators, input_rules}],
+  bindings: [.bindings[] | {gesture, input_rules}]}' selected.hal.json
+```
+
+This reads the same facts as filtering a full response locally, with fewer
+transferred records. It needs no collection fetch to prepare the stated query.
+A literal selection similarly includes its target locally:
+
+```bash
+dotnet-inspect package query --explain -Q library-literal
+```
+
+`PackageQueryExplanationTests` checks equivalent selected/full records,
+required-context closure, binding rules and exposure, duplicate/list/alias and
+placement handling, bare selection, unknown/empty refusal, collection recovery,
+and zero network requests. Existing query discovery gates preserve standalone
+section discovery. This is CLI host adoption slice 9 of 10 under #9762;
+Browser/Wasm query-explanation admission remains slice 10. No producer meaning,
+shared projection contract, Browser gesture, or shipped skill changes here.
+
+An agent can read one response and select the dependency rules locally:
+
+```bash
+dotnet-inspect package query --explain > query.hal.json
+jq '{
+  bindings: [._embedded.bindings[] | {input_rules}],
+  facets: [._embedded.facets[]
+    | select(.key == "depends" or .key == "dependency-target"
+        or .key == "dependency-depth")
+    | {key, summary, operators, input_rules, requires}]
+}' query.hal.json
+```
+
+The embedded facets carry their input rules and the bindings describe CLI
+lowering. Read those before choosing target scope, depth, and `--take`; avoid
+following links for information already embedded. When only one facet is
+needed, root explain remains the focused entrance:
+
+```bash
+dotnet-inspect explain package-query/query/facets/depends .hal --json
+```
+
+For the retained Polly scenario, the selected rules permit a direct query:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where 'depends=Polly' --where 'dependency-target=net10.0' \
+  --take 40 --json
+```
+
+Adding `--where 'dependency-depth=4'` requires reducing `--take` to at most
+five. `-n 5` alone does not replace that inspection work bound. The response
+describes installed capabilities, not live matches or a guarantee that a
+bounded prefix scan exhausts Microsoft.Extensions packages.
+
+The original command-entrance follow-up (#9952) had one production slice: the CLI binding, documentation, and
+offline gates. It adds no shared substrate or replacement architecture.
+Browser already consumes the same descriptors through its capability catalog
+facade; no browser gesture or migration/retirement is required here. The
+original compact-data delivery completed under #9762; the current narrowing
+phase and its remaining host adoption are counted separately above. Fresh
+agent trials after landing will assess whether these entrances improve adoption.
+
+Release gates assert byte equality with root `.hal`, complete dependency
+rules and host bindings, zero requests through a fail-fast network handler,
+and visible rejection of conflicting inputs and unsupported projections,
+including explicit root output modifiers. Offline mode retains the same HAL.
+Existing Package Query CLI and root-explain tests cover their adjacent behavior.
+
 ## Package Query term binding
 
 Every Package Query condition is a `QuerySpace.PortableQueryTerm`. The shared
@@ -144,9 +298,9 @@ The production inspection vocabulary is:
 | --- | --- | --- | --- | --- |
 | `dependencies` | `none` or `cross-prefix` | nuspec | nuspec | No declarations, or at least one declaration outside the package's first dot-delimited ID segment |
 | `dependency-target` | `all` or NuGet TFM | nuspec | nuspec | Scope dependency terms to every group or one compatible selected group |
-| `depends` | NuGet package ID or literal prefix | nuspec | nuspec | With `eq`, a direct dependency with the exact package ID; with `starts-with`, a direct dependency whose package ID begins with the prefix in the selected dependency scope |
-| `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Source-authorized declared dependency reached at depth 2 through the selected maximum depth |
-| `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for transitive dependency terms |
+| `depends` | NuGet package ID or literal prefix | nuspec | nuspec | With `eq`, a direct dependency or, when depth is present, source-authorized reachability within that maximum; with `starts-with`, a direct dependency whose package ID begins with the prefix in the selected dependency scope |
+| `depends-transitive` | NuGet package ID | nuspec | nuspec-expensive | Legacy spelling for source-authorized declared dependency reached at depth 2 through the selected maximum depth |
+| `dependency-depth` | `2`, `3`, or `4` | nuspec | nuspec-expensive | Maximum declaration-edge depth for exact `depends` and legacy `depends-transitive` terms |
 | `depends-ecosystem` | canonical ecosystem ID | nuspec | nuspec | Direct dependency belonging to the ecosystem's registered package population |
 | `downloads` | `10k`, `100k`, or `1m` | search metadata | search metadata | Lifetime downloads meet the closed threshold |
 | `license` | `any`, `MIT`, or `OSMF` | nuspec | nuspec | A license declaration exists, or its nuspec metadata identifies the selected license |
@@ -178,7 +332,20 @@ incompatible with either specific format. Equivalent normalized bindings
 collapse, including case variants of NuGet package IDs. Distinct values for
 the exclusive `downloads` and `prerelease` families are incompatible.
 
-The CLI spells inspection terms through the existing predicate grammar:
+The CLI spells inspection terms through the existing predicate grammar.
+
+The installed CLI binding's `input_rules` pair comparison identities with
+their CLI forms: `eq` uses `--where "key=value"`; `starts-with` uses
+`--where "key starts-with value"`. A spelling does not admit an operator for
+every facet; the facet's exposed operators remain authoritative.
+
+The [landed Package Query trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md)
+retain Microsoft.Extensions.Http.Polly@10.0.12 and an agent's fallback to `-Q`
+for the non-equality spelling after reading HAL. This motivates exposing syntax
+in the existing binding rather than extending the query grammar or skill.
+`PackageQueryExplanationTests.InstalledComparisonSpelling_PreparesOnlyFacetAdmittedPredicates`
+reads installed HAL to prepare equality and prefix predicates through the CLI
+parser, with an equality-only facet as the negative control, without acquisition.
 
 ```console
 dotnet-inspect package query 'Microsoft.Extensions.*' \
@@ -197,7 +364,7 @@ dotnet-inspect package query Aspire.Hosting.PostgreSQL \
   --where "depends-ecosystem=ecosystem.aspire"
 
 dotnet-inspect package query Microsoft.Extensions.Http \
-  --where "depends-transitive=Microsoft.Extensions.Primitives" \
+  --where "depends=Microsoft.Extensions.Primitives" \
   --where "dependency-target=net10.0" \
   --where "dependency-depth=2" --take 1
 
@@ -250,11 +417,15 @@ semantic matches enter `PackageQueryDocument.Results`; complete occurrences,
 selected-library context, exact Root reopening, assessments, failures, and
 Summary accounting remain typed content in the same Document.
 
-`depends=<package-id>` uses NuGet package-ID comparison semantics and matches
-one exact direct dependency. Without `dependency-target`, or with
-`dependency-target=all`, dependency predicates inspect every nuspec group.
-`all` is Package Query scope rather than a target-framework identity and is
-distinct from a manifest's real `any` group.
+`depends=<package-id>` uses NuGet package-ID comparison semantics. Without
+`dependency-depth`, it matches one exact direct dependency. With
+`dependency-depth=2|3|4`, it matches a direct or transitive declaration path
+within that maximum edge depth. Traversal requires one exact
+`dependency-target=<tfm>`; `all` is rejected because every traversed manifest
+needs one framework-selection policy. Without traversal and without
+`dependency-target`, or with `dependency-target=all`, dependency predicates
+inspect every nuspec group. `all` is Package Query scope rather than a
+target-framework identity and is distinct from a manifest's real `any` group.
 
 `depends starts-with <prefix>` uses the Source Selection owner's literal
 `PackagePrefixDeclaration` validation and ordinal case-insensitive matching.
@@ -294,27 +465,60 @@ requires at least one `depends`, `depends-ecosystem`, `depends-transitive`, or
 `dependencies` term, applies to all such terms in the query, and does not
 traverse, resolve version ranges, or select package assets.
 
-`depends-transitive=<package-id>` is distinct from `depends`: it matches only
-resolved declaration edges at depth 2 through the explicit
-`dependency-depth=2|3|4` boundary, so a direct-only dependency does not match.
-The term requires one explicit `dependency-target=<tfm>`; `all` is rejected
-because traversal needs one framework-selection policy for every manifest.
-The root and every traversed manifest use the dependency-group owner's
-compatible selection for that requested target. Candidate resolution uses the
-existing source-authorized declared-range query and therefore does not claim
-NuGet restore, lock-file, or asset-selection equivalence.
+`depends-transitive=<package-id>` remains a compatibility spelling. Unlike
+`depends` with depth, it matches only resolved declaration edges at depth 2
+through the explicit `dependency-depth=2|3|4` boundary, so a direct-only
+dependency does not match. New host experiences author `depends` plus depth.
+Both spellings require one explicit `dependency-target=<tfm>`. The root and
+every traversed manifest use the dependency-group owner's compatible selection
+for that requested target. Candidate resolution uses the existing
+source-authorized declared-range query and therefore does not claim NuGet
+restore, lock-file, or asset-selection equivalence.
 
-One transitive query admits at most five package candidates. Within each
+The owner registers these prerequisites for explain: `depends-transitive`
+requires both `dependency-target` and `dependency-depth`; `dependency-depth`
+requires `dependency-target` and at least one exact `depends` or legacy
+`depends-transitive` predicate. The predicate alternatives are input rules,
+not unconditional required-context edges. Input rules distinguish a framework target from
+`all`, give the candidate bound, and describe the target's alternative
+dependency predicates. The latter is a disjunction, not four unconditional
+required-context edges. Selected `.data` and `.hal` facets include the complete
+prerequisite closure, with operand rules and depth choices available locally.
+The CLI binding registers `--take N` as the candidate work bound and `-n N`
+as final row selection, so a prefix query can apply the declared candidate
+bound without conflating it with traversal depth or result count.
+
+The motivating source asset is
+[`PackageQuery.cs` at `40497bfd87e17520573d8934b14edd6936f33d0e`](https://github.com/richlander/dotnet-inspect/blob/40497bfd87e17520573d8934b14edd6936f33d0e/src/DotnetInspector.Queries/PackageQuery.cs):
+`ResolveIntentCore` enforces target and depth requirements, while the term
+declarations expose no input rules for those facets. This mismatch prevents
+an agent from preparing the existing transitive scenario below using explain
+alone. Durable evidence pairs selected CLI projection tests with the existing
+`PlanInput_DependencyTraversalRequiresExactTargetAndDepth` validation gate;
+the worked jq demo retains both projections and their identical preparation
+answer. These tests are PR-fast catalog and planning checks, with no package
+acquisition.
+
+The integration with [#9811](https://github.com/richlander/dotnet-inspect/pull/9811)
+keeps depth's alternative predicate requirement in input rules and registers
+only its mandatory framework target as required context. Exact `depends`
+records its optional depth behavior without requiring traversal for a direct
+query. Selected CLI gates cover both spellings at every listed depth and the
+neighboring direct-only case; the jq demo retains depth preparation in both
+formats. No execution semantics are changed by these registrations.
+
+One depth-bounded query admits at most five package candidates. Within each
 candidate it admits at most 32 acquired manifest projections and 128
-declaration resolutions. Repeated transitive terms AND and share one traversal
-of that candidate. A candidate-resolution, manifest-acquisition, projection,
+declaration resolutions. Repeated exact dependency terms AND and share one traversal of that candidate.
+Legacy transitive terms share the same traversal. A candidate-resolution,
+manifest-acquisition, projection,
 or work-budget failure anywhere inside the requested depth makes that
 candidate a visible dependency-traversal failure; partial evidence never
 becomes a semantic match or non-match. Reaching the explicit depth boundary is
 successful because every edge through that boundary is known without
 acquiring endpoint manifests.
 
-Transitive evidence counts matching admitted declaration edges. Each preview
+Traversal evidence counts matching admitted declaration edges. Each preview
 is one deterministic shortest root path constructed from the declared version
 ranges and resolved exact package coordinates for that edge. The shared
 160-character `InertString` display budget applies after construction, so a
@@ -363,15 +567,37 @@ different surrounding reference sets.
 `depends starts-with` is an absolute literal-prefix query and remains distinct
 from the candidate-relative `dependencies=cross-prefix` classification.
 
-### Inventory demand for skill presence
+### Demand-shaped package-content evidence
 
 The QuerySpace-bound plan determines content evidence demand before invoking
-`IPackageQueryContentProvider`. When every content predicate is `skill`, the
-provider receives a package-wide File List query and returns its typed
-inventory receipt. Skill evidence counts and previews those admitted entry
-names without opening their bodies. Combining `skill`
-with a body-dependent predicate retains entry-content acquisition. Manifest
-prequalification still precedes either demand.
+`IPackageQueryContentProvider`. Every admitted package-content candidate first
+requests one package-wide File List and retains its typed inventory and House
+evidence. Package Query then joins the complete bound predicate set into one
+exact-entry plan:
+
+- `skill` consumes paths only;
+- `tool-format` selects only admitted `DotnetToolSettings.xml` entries;
+- `references` selects only admitted managed `ref/` and `lib/` assemblies; and
+- compatible body predicates share one later Files request for the union of
+  those exact entries.
+
+An inventory-proven absence settles without a Files request. Entry-count and
+declared-byte limits settle before body transfer when File List evidence is
+sufficient. A decisive inventory-proven mandatory-group absence settles before
+validating limits for body dimensions that no longer participate in the
+candidate result; those limits remain visible when their dimension is needed
+to settle the candidate. Metadata row limits and content validity remain
+body-evaluation questions. The later Files request uses references issued by
+the exact retained File List, so generation correspondence, exact-entry
+admission, physical range planning, transfer receipts, and typed acquisition
+failures remain PackageHouse-owned. Manifest prequalification still precedes
+either stage.
+
+This is the five-axis demand model tracked by #9257: package-wide directory
+breadth, selected-entry body depth, zero-body or complete-entry terminals,
+candidate-bounded inventory retention, and shared directory/exact-file
+preparation. Sharing never widens `skill` or an inventory-proven negative into
+body acquisition.
 
 The motivating real asset is
 [Avalonia 12.1.3](https://www.nuget.org/packages/Avalonia/12.1.3): its archive
@@ -381,8 +607,13 @@ bodies. Shared planning and execution tests cover positive inventory, exact
 counts, no body reads, and mixed predicates; host gates cover acquisition.
 Both website and CLI consume the same demand through PackageHouse. House owns
 range selection and the existing small-package whole-download policy.
-`tool-format` and `references` retain their existing body acquisition in this
-slice; narrowing those demands is successor work.
+
+`dotnet-ef@10.0.0` contains one 194-byte
+`tools/net10.0/any/DotnetToolSettings.xml` entry with
+`DotNetCliTool Version="1"`. It motivates sparse settings acquisition.
+`Microsoft.Extensions.Http@10.0.0` remains the assembly-reference witness: its
+five admitted implementation assemblies motivate bounded multi-entry Metadata
+acquisition without unrelated package bodies.
 
 ## Adaptive result section
 
@@ -473,13 +704,19 @@ evaluation before its match status is known. The manifest-only default remains
 200 candidates and an explicit value may raise it to 1,000. Package-content
 queries default to and reject values above 20; a `metadata-expensive`
 `library-literal` query instead defaults to and rejects values above five.
-Reaching either default or explicit candidate bound remains visible bounded
-incompleteness; the integer is not a matched-row count.
+A default candidate bound that stops evaluation before the package-ID scope is
+exhausted is visible bounded incompleteness: a partial view with observed rows
+and Count, a disclosure, and a nonzero exit. An
+explicit `--take` instead fixes the requested candidate population: when every
+candidate in it was evaluated without failure, its matches are the complete
+answer for that population, and the result names the bound as its scope rather
+than warning that the package-ID scope was not exhausted. Neither integer is a
+matched-row count.
 
-`-n` is semantic Head over final matched-package rows. When no explicit
-`--take` is present and the row plan is one Head operation, the CLI pushes that
-head into execution. A direct metadata row path uses N as both the candidate
-and match bound, so `package query 'Foo*' -n 2` has the effective work shape
+`-n` is semantic Head over final matched-package rows. When the row plan is one
+Head operation within the match-budget maximum, the CLI pushes that head into
+execution, with or without an explicit `--take`. Without explicit `--take`, a direct metadata row path uses N
+as both the candidate and match bound, so `package query 'Foo*' -n 2` has the effective work shape
 `--take 2 -n 2`. An inspection-term-filtered path retains its default candidate ceiling
 and stops after finding N matches. Failures encountered before the Nth match
 remain visible; later candidates are outside the requested Head evaluation.
@@ -492,11 +729,14 @@ valid: direct prefix queries infer the maximum 1,000-candidate work bound,
 filtered queries retain their normal candidate ceiling, and the final Head is
 applied after execution with ordinary incompleteness disclosure.
 
-An explicit `--take` disables this pushdown. `--take 100 -n 2` evaluates the
-authorized population of up to 100 candidates, including its failures and
-intermediate query work, before L2 selects two rows. Tail, open-ended windows,
-aggregation, and global ordering likewise require their bounded input before
-selection and cannot infer `--take N` from their final row count.
+An explicit `--take` keeps this pushdown inside its window, as
+[CLI execution bounds](cli-execution-bounds.md#three-query-shapes) defines:
+`--take 100 -n 2` stops at the second match or the 100th candidate, whichever
+comes first, and candidates after the second match are outside the requested
+Head evaluation. The window is never materialized before selection for a lone
+Head. Tail, open-ended windows, aggregation, and global ordering require their
+whole bounded input before selection and cannot infer `--take N` from their
+final row count.
 
 When `-n` is absent, the semantic row-selection plan is empty and every match
 from the authorized candidate population reaches row shaping. The historical
@@ -513,18 +753,23 @@ as aliases; `find PATTERN --package-prefix PREFIX` remains API search.
 One semantic result row is one matched package, carrying its exact version,
 source, semantic answers, and structured evidence. `-n` and `--rows` select those
 rows before projection and Count. `--count` composes with `-n`: finding N
-ordered matches can witness exact `Head(N) -> Count` while candidate-bound
-incompleteness remains visible. Fewer than N matches at a reached candidate
-bound is not exact, and without `-n`, Count requires completion evidence for
-the candidate population. Partial failures block successful Count, empty
-exhausted success remains zero, and cancellation remains a failed operation
-rather than empty success.
+ordered matches can witness exact `Head(N) -> Count`. Otherwise Count is exact
+only with completion evidence for the requested candidate population: an
+exhausted search, or an explicit `--take` population whose every candidate was
+evaluated without failure. Fewer matches at a default candidate bound, a page
+limit, or a failure are not exact; Count then reports the observed matches
+with the same disclosure and exit status as the rows, under the section-row
+owner's
+[incomplete-evaluation rule](section-row-shaping.md#incomplete-evaluation).
+Partial failures that leave matches usable are incomplete in the same way;
+empty exhausted success remains exact zero, and cancellation remains a failed
+operation rather than empty success.
 
 The low-compatibility migration removes `--candidates` and `--matches`; they do
 not remain aliases or retirement shims. The shared query engine may retain its
 host-neutral match-budget capability. The CLI does not expose that budget as
-another option; it infers one only from a lone semantic Head when no explicit
-`--take` is present.
+another option; it infers one only from a lone semantic Head within the
+match-budget maximum, with or without explicit `--take`.
 
 The owner-issued query request, accepted plan, execution state, and summary
 therefore carry the same optional match budget end to end. Planning preserves
@@ -539,10 +784,12 @@ and the typed summary carries no match-limit denominator. Presentation reports
 the observed match count without manufacturing an infinite or candidate-equal
 ceiling.
 
-The CLI requests an absent match budget when `-n` is absent or explicit
-`--take` fixes the candidate population. A lone semantic Head supplies its N
-as the match budget; a direct prefix-metadata path also uses N as its candidate
-budget. The semantic row intent still reaches L2 after execution as a
+The CLI requests an absent match budget when the row plan is not one Head
+operation or when that Head's N exceeds the 1,000 match-budget maximum; the
+larger Head then applies after execution as the semantic backstop. A lone
+semantic Head within the maximum supplies its N as the match budget, with or
+without explicit `--take`; without explicit `--take`, a direct prefix-metadata
+path also uses N as its candidate budget. The semantic row intent still reaches L2 after execution as a
 backstop. This optional state is required rather than a sentinel: with
 `--take 1000`, all 1,000 candidates may match, so no larger valid integer
 exists under the owner's 1,000 match-budget maximum.
@@ -885,9 +1132,11 @@ product-issued keys and values and do not reconstruct those predicates:
   package type; it does not open the archive merely to classify tool settings.
 - **`package-content` tier.** `tool-format`, `references`, and `skill` require
   an explicit `IPackageQueryContentProvider` and accept at most 20 candidates.
-  `PackageQuery` applies all cheaper predicates first. Tool v1 and v2 are
-  combining members, so selecting both returns either recognized settings
-  format with evidence identifying the observed version.
+  `PackageQuery` applies all cheaper predicates first, requests one File List,
+  and lowers the complete content term set to zero or one union exact Files
+  request. Tool v1 and v2 are combining members, so selecting both returns
+  either recognized settings format with evidence identifying the observed
+  version.
 - **`metadata-expensive` execution.** `library-literal` acquires package
   content, requires one exact planner-authored `library-target`, and admits at
   most five candidates. Package Query applies ordinary terms first, then
@@ -996,12 +1245,14 @@ not need to translate a differently-shaped CLI completion signal.
 Package Query composes candidate admission and semantic selection in this
 order:
 
-- **Nuspec-tier `--where`** evaluates every candidate admitted by `--take` or
-  the default candidate ceiling, then `-n` selects matched-package rows. For
+- **Nuspec-tier `--where`** evaluates candidates admitted by `--take` or the
+  default candidate ceiling in order, and a lone `-n` stops evaluation at the
+  Nth match. For
   example, `--take 500 -n 20` means "inspect at most 500 candidates, then keep
-  the first 20 matches," not "inspect 20 candidates." If only seven match
-  before the candidate bound is reached, the command returns seven and
-  preserves bounded incompleteness.
+  the first 20 matches," not "inspect 20 candidates." If only seven of those
+  500 candidates match, the command returns seven as the complete answer for
+  that population; at a default candidate ceiling, the seven remain an
+  observed result with bounded incompleteness.
 - **`library-literal` with ordinary terms** admits at most five candidates,
   evaluates ordinary terms first, and runs selected-library semantic work only
   for those prequalified matches. Semantic `-n` then selects final package
@@ -1020,8 +1271,8 @@ separate `MaximumCandidates` and `MaximumMatches` and stops before later
 candidate acquisition when the match budget is reached.
 `ExecuteAsync_FiltersBeforeMatchLimitAndStopsManifestAcquisition` and
 `ExecuteAsync_ExactExhaustionAtMatchLimitIsConservative` gate that shared
-behavior. The CLI supplies that budget for a lone semantic Head only when no
-explicit `--take` fixes a larger candidate population. A
+behavior. The CLI supplies that budget for a lone semantic Head, including
+inside an explicit `--take` window. A
 `MatchLimitReached` completion produced by this lowering is successful
 completion of the requested Head and does not warn that the package-ID scope
 was not exhausted. Existing Browser callers retain their current match-stop
@@ -1030,7 +1281,7 @@ contract.
 The command-wide implementation adds Release gates for direct-row Head
 pushdown, filtered match-stop behavior, all matches returned when `-n` is
 absent, sparse matches at the candidate bound, independent `--take`/`-n`
-variation, Count witness and Count-insufficient cases, mode-neutral
+variation, Count witness and observed incomplete Count cases, mode-neutral
 `--take`/`-n`, package-content's 20-candidate boundary, and output-format
 parity.
 `NoMatchBudget_AllCandidatesMatchingPreservesTerminalCompletion` must exercise
@@ -1040,8 +1291,10 @@ parity.
 accepted plan and summary unchanged without defaulting or sentinel conversion.
 `SemanticHeadWithoutTake_BoundsDirectRowsAndMatches` must prove the direct
 one-row-per-candidate lowering, while
-`ExplicitTake_PreventsSemanticHeadPushdown` must preserve the full explicit
-candidate population.
+`ExplicitTake_KeepsSemanticHeadPushdownInsideWindow` must stop at the Nth
+match inside an explicit candidate window, never evaluate past the window, and
+evaluate the whole window when the row plan is not one Head or the Head
+exceeds the match-budget maximum, such as `--take 20 -n 1001`.
 `PresentMatchBudget_PreservesExistingStopBehavior` must retain the current
 product behavior for Browser and other budgeted callers, including the
 numeric summary denominator and completion mapping. Existing Package Query gates continue to own the shared product match-budget

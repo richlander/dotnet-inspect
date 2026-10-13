@@ -15,17 +15,17 @@ internal static class BrowserVocabulary
             [.. inspection.Diagnostics.Select(ToBrowserDiagnostic)]);
 
     internal static BrowserVocabularyExplanationResult ToBrowserExplanation(
-        VocabularyExplanationResult result) =>
+        VocabularyExplanationResult result,
+        JsonElement? content = null) =>
         result switch
         {
             VocabularyExplanationResult.Explained explained =>
                 new(
                     BrowserVocabularyExplanationOutcome.Explained,
                     new BrowserVocabularyExplanation(
-                        JsonSerializer.SerializeToElement(
+                        content ?? ResourceExplanationDataProjection.Create(
                             explained.Inspection.Content,
-                            ResourceExplanationJsonContext.Default
-                                .ResourceExplanationDocument),
+                            static path => "inspect-resource:/" + path.Value),
                         ToBrowserShare(explained.Inspection.Share),
                         [
                             .. explained.Inspection.Diagnostics.Select(
