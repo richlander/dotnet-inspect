@@ -1995,7 +1995,8 @@ test("malformed and oversized generated results reject only their calls", async 
       queryPackageVersions: async () =>
         contractViolation({ versions: [undefined] }),
       loadRuntimePack: async () =>
-        "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters),
+        contractViolation(
+          "x".repeat(engineWorkerOrdinaryMaximumJsonCharacters)),
       packageCacheStats: () => ({
         packages: 1,
         resident: 1,
