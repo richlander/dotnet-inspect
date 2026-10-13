@@ -98,9 +98,8 @@ internal static class MetadataUtf8TypeDefinitionNameReader
             reader.GetHeapMetadataOffset(HeapIndex.String);
         int stringHeapSize =
             reader.GetHeapSize(HeapIndex.String);
-        ReadOnlySpan<byte> heap = peReader.GetMetadata()
-            .GetContent(stringHeapOffset, stringHeapSize)
-            .AsSpan();
+        BlobReader heap = peReader.GetMetadata()
+            .GetReader(stringHeapOffset, stringHeapSize);
 
         Span<(int Offset, int Length)> sourceRanges =
             stackalloc (int Offset, int Length)[consumedNodes + 1];
@@ -150,14 +149,17 @@ internal static class MetadataUtf8TypeDefinitionNameReader
     }
 
     private static OpaqueByteRange CopyRange(
-        ReadOnlySpan<byte> heap,
+        BlobReader heap,
         byte[] destination,
         OpaqueByteBacking backing,
         (int Offset, int Length) source,
         ref int destinationOffset)
     {
-        heap.Slice(source.Offset, source.Length)
-            .CopyTo(destination.AsSpan(destinationOffset));
+        heap.Offset = source.Offset;
+        heap.ReadBytes(
+            source.Length,
+            destination,
+            destinationOffset);
         var range = new OpaqueByteRange(
             backing,
             destinationOffset,
@@ -168,7 +170,7 @@ internal static class MetadataUtf8TypeDefinitionNameReader
     }
 
     private static (int Offset, int Length) GetRange(
-        ReadOnlySpan<byte> heap,
+        BlobReader heap,
         StringHandle handle)
     {
         int offset = MetadataTokens.GetHeapOffset(handle);
@@ -178,8 +180,19 @@ internal static class MetadataUtf8TypeDefinitionNameReader
                 "A metadata String handle is outside the #Strings heap.");
         }
 
-        int length = heap[offset..].IndexOf((byte)0);
-        if (length < 0)
+        heap.Offset = offset;
+        int length = 0;
+        bool terminated = false;
+        while (heap.RemainingBytes > 0)
+        {
+            if (heap.ReadByte() == 0)
+            {
+                terminated = true;
+                break;
+            }
+            length++;
+        }
+        if (!terminated)
         {
             throw new BadImageFormatException(
                 "A metadata String is not null terminated.");
