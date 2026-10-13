@@ -520,9 +520,8 @@ All gates run in Release.
    authority identity exists. The search Root's offline branch keeps its
    local package cache path at this step; answering offline from the
    authority-scoped store and the entry cache is a later step. The
-   [package endpoint scope](package-endpoint-scope.md#offline) records which
-   offline cases the House already answers and requires that step to settle a
-   `Selecting` demand offline from cached listing evidence.
+   [package endpoint scope](package-endpoint-scope.md#offline) records the
+   offline cases the House already answers.
 3. The remaining search scopes adopt ranged access, and with it size first,
    in the second part of range-access adoption step 2.
 4. The [package-backed platform](package-backed-platform-realization.md)
