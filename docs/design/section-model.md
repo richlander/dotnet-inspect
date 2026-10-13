@@ -635,13 +635,20 @@ A section's meaning has these parts:
 | Basis | Yes | The evidence the producer reads: metadata tables, compiled IL bodies, Portable PDB, package manifest, package source, or another owner-named basis |
 | Empty | Yes | What an empty result establishes. A checked population with no rows is distinct from a section that did not apply or could not complete. |
 | Boundary | No | Interpretation limits the owner states, such as "static call-graph reach, not runtime frequency" |
-| Item meaning | No | For an owner-declared item such as a column, a short meaning plus its unit or value domain |
-| Field meaning | No | For a document-shaped section without column items, the meaning of each named document field the owner expects consumers to read |
+| Item meaning | No | For one declared Schema Query item, identified by owning section, item kind (`column` or `field`), and name: a short meaning plus its unit or value domain |
 
 Meaning describes the section's contract. It does not describe a particular
 subject's result, rank sections, choose a workflow, or replace completion,
 diagnostics, or typed failure. An empty result still reports its typed
 completion; `Empty` explains what that completion means.
+
+Item meaning attaches only to items the section's
+[structural schema](schema-query.md#model) already declares. A document-shaped
+section whose consumers read named fields of its JSON document, such as
+`Dependency Structure`, first issues those fields as `field` items under the
+section owner's existing product-schema composition; the JSON document is
+their addressable projection. Meaning never names an undeclared item or adds a
+separate field resource.
 
 An absent meaning remains absent. Discovery and explanation report it as
 undeclared rather than substituting the section name or an empty string.
@@ -649,8 +656,9 @@ undeclared rather than substituting the section name or an empty string.
 Meaning is projected through the existing structural chain. `DiscoveryDocument`
 carries it as typed resource content; [Resource
 Explanation](resource-explanation.md#structural-resources) emits it as direct
-facts of the section, item, or named field resource; hosts lower it like any
-other fact. Capability search may index it under its own owner's term rules
+*section meaning* facts of the section or item resource, distinct from the
+declaration meanings of its own schema slice; hosts lower it like any other
+fact. Capability search may index it under its own owner's term rules
 ([#10068](https://github.com/richlander/dotnet-inspect/issues/10068)); this
 section defines no search behavior.
 
@@ -1125,8 +1133,8 @@ The section pipeline and derived catalog gates enforce these invariants:
     production adoption.
 
 11. A section that declares meaning supplies a non-empty Summary, Basis, and
-    Empty, and every item or field meaning names an item or field the section
-    declares. After a command owner completes adoption, every selectable
+    Empty, and every item meaning names, by full item identity, an item the
+    section's structural schema declares. After a command owner completes adoption, every selectable
     section of that command declares meaning. The adoption gate for each
     command names the sections it covers; Library is the first.
 
@@ -1141,7 +1149,11 @@ counted path:
 1. Define the meaning axis (this section).
 2. Add the host-neutral meaning type to section registration, carry it through
    `DiscoveryDocument`, project it as Resource Explanation facts, and adopt it
-   for the Library sections named under [Meaning](#meaning).
+   for the Library sections named under [Meaning](#meaning), including
+   `field` items for the `Dependency Structure` JSON fields that consumers
+   read (`cycles`, `namespaces`, `level`, `cycleIndex`, `namespaceEdges`,
+   `explainingTypeEdges`, `contributingTypeEdgeCount`,
+   `remainingContributorCount`, and `typeEdges`).
 3. Complete Library coverage and enforce invariant 11 for Library.
 4. Remove from the shipped `project-analysis` skill the section meaning that
    explanation now issues, and measure that revision against the
@@ -1152,9 +1164,9 @@ count.
 
 | Claim | Gate |
 | --- | --- |
-| Meaning parts are required, non-empty, and reference declared items or fields | Registration test over the compiled Library catalog |
+| Meaning parts are required, non-empty, and reference declared items by full identity | Registration test over the compiled Library catalog |
 | `DiscoveryDocument` preserves meaning without CLI or Markout references | `DiscoveryDocumentTests` extension |
-| Explanation emits Summary, Basis, Empty, Boundary, item, and field meaning as typed facts, and reports undeclared meaning as undeclared | Resource Explanation structural test over one adopted and one unadopted section |
+| Explanation emits Summary, Basis, Empty, Boundary, and item meaning as typed section-meaning facts, and reports undeclared meaning as undeclared | Resource Explanation structural test over one adopted and one unadopted section |
 | Meaning adds no producer or probe execution | Discovery test asserting no producer invocation for `explain library/sections/<adopted>` |
 
 ## Migration
