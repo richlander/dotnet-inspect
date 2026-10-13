@@ -53,6 +53,8 @@ public sealed record MemberSourceInfo(
     bool IsPrimaryDocument = false,
     bool IsFinalizer = false)
 {
+    public int SequencePointMethodToken { get; init; } = MetadataToken;
+    public PdbMemberDocumentAssociationKind AssociationKind { get; init; }
     public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
 }
 
@@ -68,6 +70,8 @@ public sealed record MemberSourceObservation(
     bool IsPrimaryDocument,
     bool IsFinalizer = false)
 {
+    public int SequencePointMethodToken { get; init; } = MetadataToken;
+    public PdbMemberDocumentAssociationKind AssociationKind { get; init; }
     public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
 }
 
@@ -192,6 +196,9 @@ public static class SourceLinkFindings
                         mapping.IsPrimaryDocument,
                         mapping.IsFinalizer)
                     {
+                        SequencePointMethodToken =
+                            mapping.SequencePointMethodToken,
+                        AssociationKind = mapping.AssociationKind,
                         SequencePointStartLines = mapping.SequencePointStartLines,
                     };
                 });
@@ -318,6 +325,9 @@ public static class SourceLinkFindings
                 mapping.IsPrimaryDocument,
                 mapping.IsFinalizer)
             {
+                SequencePointMethodToken =
+                    mapping.SequencePointMethodToken,
+                AssociationKind = mapping.AssociationKind,
                 SequencePointStartLines = mapping.SequencePointStartLines,
             }),
             subject,
@@ -337,6 +347,7 @@ public static class SourceLinkFindings
             mapping.CanonicalPath,
             $"{mapping.StartLine:D10}:{mapping.EndLine:D10}",
             mapping.IsPrimaryDocument ? "1" : "0",
+            mapping.AssociationKind.ToString(),
             string.Join(",", mapping.SequencePointStartLines));
 
     static FindingInspection<T> InspectInventory<T>(
@@ -411,6 +422,7 @@ public static class SourceLinkFindings
             && oldMapping.StartLine == newMapping.StartLine
             && oldMapping.EndLine == newMapping.EndLine
             && oldMapping.IsPrimaryDocument == newMapping.IsPrimaryDocument
+            && oldMapping.AssociationKind == newMapping.AssociationKind
             && oldMapping.SequencePointStartLines.SequenceEqual(
                 newMapping.SequencePointStartLines);
 
