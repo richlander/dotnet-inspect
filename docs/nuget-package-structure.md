@@ -90,9 +90,10 @@ case; consumers do not invent Library rows by scanning other DLL paths.
 
 Compile-path candidacy also does not prove that an entry is a managed
 assembly. Each selected DLL still passes managed-image admission. A valid
-native PE placed incorrectly in the selected `ref/` or `lib/` group produces a
-typed non-managed outcome; a malformed image remains an invalid-image outcome.
-Neither result authorizes fallback to `runtimes/` or arbitrary DLL discovery.
+native PE or malformed DLL placed incorrectly in the selected `ref/` or
+`lib/` group remains subject to Metadata's admission and failure semantics.
+This document does not redefine that outcome. Failed or absent admission never
+authorizes fallback to `runtimes/` or arbitrary DLL discovery.
 
 ## Explicitly empty compile groups
 
