@@ -124,7 +124,10 @@ public sealed class StructReceiverInliningPass : IIrPass
             {
                 continue;
             }
-            if (!IsRvalueDefinition(store.Value))
+            // Constant fields belong to the ordinary receiver-spill fold;
+            // the separately owned late arithmetic-carrier tail stays bounded.
+            if (!IsRvalueDefinition(store.Value)
+                || lateStackCarrierTail && store.Value is LoadField)
                 continue;
             if (!reads.TryGetValue(store.Index, out var slotReads))
                 continue;

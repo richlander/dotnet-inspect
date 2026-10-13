@@ -432,6 +432,7 @@ mutable places. Ordinary field receivers, unknown field names, and foreign
 same-name types remain excluded.
 `MinValue` and `MaxValue` use a different compiler lowering and remain outside
 this field-read reconstruction.
+The separately scoped late arithmetic-carrier fold does not admit these fields.
 
 Roslyn lowers `decimal.Zero.CompareTo(value)` as a field read, receiver spill,
 and address load. Introducing `decimal zero = decimal.Zero` instead lets the

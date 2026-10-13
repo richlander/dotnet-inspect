@@ -207,6 +207,9 @@ public class StructReceiverInliningPassTests
     [InlineData("other-decimal-constant")]
     [InlineData("instance-field")]
     [InlineData("volatile")]
+    [InlineData("source-name")]
+    [InlineData("multiple-reads")]
+    [InlineData("intervening-effect")]
     public void DecimalFieldNearMiss_IsNotFolded(string boundary)
     {
         var decimalType = TypeRef.CoreLib("System", "Decimal");
@@ -219,11 +222,39 @@ public class StructReceiverInliningPassTests
             IsVolatile = boundary == "volatile"
         };
         var compare = new MethodRef(decimalType, "CompareTo", Int32, [decimalType], HasThis: true);
-        var function = BuildFunction(
-            new StoreLocal(0, field.Type, load),
-            new Return(new Call(compare, false, [new LoadLocalAddress(0, field.Type), new Constant(0, decimalType)])));
+        Call Read() => new(compare, false, [new LoadLocalAddress(0, field.Type), new Constant(0m, decimalType)]);
+        var store = new StoreLocal(0, field.Type, load);
+        var result = new Return(boundary == "multiple-reads"
+            ? new Binary(BinaryKind.Add, false, false, Read(), Read())
+            : Read());
+        var function = boundary == "intervening-effect"
+            ? BuildFunction(store,
+                new ExpressionStatement(new Call(new MethodRef(Holder, "Effect", TypeRef.CoreLib("System", "Void"), [], HasThis: false), false, [])),
+                result)
+            : BuildFunction(store, result);
+        if (boundary == "source-name")
+            function.LocalNames = ["kept"];
 
         RunPass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LateDecimalFieldReceiver_IsNotFolded()
+    {
+        var decimalType = TypeRef.CoreLib("System", "Decimal");
+        var field = new FieldRef(decimalType, "Zero", decimalType);
+        var compare = new MethodRef(decimalType, "CompareTo", Int32, [decimalType], HasThis: true);
+        var function = BuildFunction(
+            new StoreStackSlot(256, BooleanCount()),
+            new StoreLocal(0, decimalType, new LoadField(field, null)),
+            new Return(new Binary(BinaryKind.Add, false, false,
+                new LoadStackSlot(256, Int32),
+                new Call(compare, false, [new LoadLocalAddress(0, decimalType), new Constant(0, decimalType)]))));
+
+        RunLatePass(function);
 
         Assert.Equal(1, StoreCount(function, 0));
         function.CheckInvariant();
