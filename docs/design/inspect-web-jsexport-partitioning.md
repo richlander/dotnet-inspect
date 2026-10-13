@@ -361,7 +361,10 @@ vocabulary from its owners' declarations (`BrowserVocabularyComposition`, under
 [Product Vocabulary ownership](vocabulary.md#ownership)), so its assembly
 ratchet admits `ILInspector.Decompiler` for the Decompiler's vocabulary
 declaration factories; it reaches that project transitively and adds no project
-reference.
+reference. Those owner declarations plus Catalog's exact positive project and
+assembly ceilings own product semantics; its compiler ban input is limited to
+runtime platform hazards that dependency layering cannot distinguish, not an
+open-ended inventory of internal product APIs.
 
 ## Managed assembly contract
 
