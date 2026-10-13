@@ -9,6 +9,7 @@ public sealed class ZipEntry
         byte[] nameBytes,
         ushort flags,
         ushort method,
+        DateTimeOffset? lastWriteTime,
         uint crc,
         uint compressedLength,
         uint expandedLength,
@@ -19,6 +20,7 @@ public sealed class ZipEntry
         Name = Encoding.UTF8.GetString(nameBytes);
         Flags = flags;
         Method = method;
+        LastWriteTime = lastWriteTime;
         Crc = crc;
         CompressedLength = compressedLength;
         ExpandedLength = expandedLength;
@@ -36,6 +38,9 @@ public sealed class ZipEntry
 
     /// <summary>The compression method: 0 stored, 8 deflate; anything else is unsupported.</summary>
     public ushort Method { get; }
+
+    /// <summary>The entry's DOS timestamp, interpreted in the local time zone.</summary>
+    public DateTimeOffset? LastWriteTime { get; }
 
     public uint Crc { get; }
 
