@@ -17,6 +17,7 @@ public enum SourceHouseSourceUnitScope
 public enum SourceHouseMappingStrength
 {
     ExactSequencePoints,
+    StateMachineImplementationSequencePoints,
     CorrelatedTypeDocument,
     InferredTypeDocument,
 }
@@ -44,7 +45,7 @@ public abstract class SourceHouseAuthoredMapping
             SourceDocumentObservation document)
             : base(
                 SourceHouseSourceUnitScope.ExactMember,
-                SourceHouseMappingStrength.ExactSequencePoints,
+                MappingStrength(observation),
                 isPartial: false)
         {
             ArgumentNullException.ThrowIfNull(observation);
@@ -56,6 +57,25 @@ public abstract class SourceHouseAuthoredMapping
 
         public MemberSourceObservation Observation { get; }
         public SourceDocumentObservation Document { get; }
+
+        private static SourceHouseMappingStrength MappingStrength(
+            MemberSourceObservation observation)
+        {
+            ArgumentNullException.ThrowIfNull(observation);
+            return observation.AssociationKind switch
+            {
+                PdbMemberDocumentAssociationKind.Direct =>
+                    SourceHouseMappingStrength.ExactSequencePoints,
+                PdbMemberDocumentAssociationKind
+                    .StateMachineImplementation =>
+                    SourceHouseMappingStrength
+                        .StateMachineImplementationSequencePoints,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(observation),
+                    observation.AssociationKind,
+                    "Unknown member-source association kind."),
+            };
+        }
     }
 
     public sealed class Type : SourceHouseAuthoredMapping
