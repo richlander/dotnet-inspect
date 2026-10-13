@@ -12,12 +12,13 @@ this exact claim:
 > One immutable byte backing can issue cheap bounded `OpaqueByteRange`
 > snapshots. An opaque range does not validate UTF-8 or apply `TextPolicy`; it
 > answers only closed identity, matching, ordering, slicing, and structural
-> questions without lending its bytes. A domain identifies which exact range
-> represents UTF-8 text. `InertText.Encoding.Utf8VisualEncoder` is the sole
-> transition from that untreated range to `InertUtf8String`, whose retained
-> bytes are already visually contained. `InertString` is the fixed UTF-16
-> projection of that contained UTF-8 for byte-originated text. Exceptional
-> exact-byte transfer is isolated as
+> questions without lending its bytes. A typed domain view identifies which
+> exact range represents UTF-8 text and may issue a scoped
+> `Utf8RangeReader`; arbitrary ranges cannot. `Utf8VisualEncoder` is the sole
+> transition from that reader to `InertUtf8`, whose retained bytes are already
+> visually contained. `InertString` is the fixed UTF-16 projection of that
+> contained UTF-8 for byte-originated text. Exceptional exact-byte transfer is
+> isolated as
 > `InertText.Encoding.OpaqueByteRangeEncoder`, not an ordinary range operation.
 
 This owner defines:
@@ -30,7 +31,7 @@ This owner defines:
   storage;
 - the rule deciding whether an operation is safe on untreated bytes;
 - explicit exact-byte encoding to a destination without lending the backing;
-- `InertUtf8String` as the policy-contained UTF-8 currency;
+- `InertUtf8` as the policy-contained UTF-8 currency;
 - `Utf8VisualEncoder` as the only untreated-byte containment transition;
 - fixed contained UTF-8 output and conversion to `InertString`; and
 - the zero-intermediate-copy claim and its limits.
@@ -82,11 +83,12 @@ producer or scoped source reader
   -> ref-struct builder records ranges
      -> freeze creates one hidden immutable backing
         -> OpaqueByteRange snapshots retain exact bounded bytes
-           -> domain views retain ranges
-           -> matchers ask ValueTextEquals-style questions
-           -> Utf8VisualEncoder applies TextPolicy
-              -> InertUtf8String writes contained UTF-8
-              -> InertString serves UTF-16/string sinks
+           -> typed domain text views retain classified ranges
+              -> views issue Utf8RangeReader
+                 -> matchers ask ValueTextEquals-style questions
+                 -> Utf8VisualEncoder applies TextPolicy
+                    -> InertUtf8 writes contained UTF-8
+                       -> InertString serves UTF-16/string sinks
 ```
 
 The operation boundary decides whether access is safe:
@@ -96,7 +98,7 @@ The operation boundary decides whether access is safe:
 > against the stored value.
 
 Opacity and containment are intentionally different. `OpaqueByteRange` protects
-untreated bytes by never lending them. `InertUtf8String` contains text by
+untreated bytes by never lending them. `InertUtf8` contains text by
 retaining only bytes that have passed UTF-8 decoding and the named visual
 policy.
 
@@ -124,7 +126,7 @@ retained managed memory on:
 
 That pilot established that compact byte ranges can beat eager UTF-16. It did
 not compare this design with Fast Diff's byte-native private Symbol Key, and
-it did not measure the cost of the `OpaqueByteRange` and `InertUtf8String`
+it did not measure the cost of the `OpaqueByteRange` and `InertUtf8`
 contracts. The Symbol Key pilot in the evidence plan must re-establish both
 time and memory findings; this design does not assume the new representation
 wins.
@@ -144,7 +146,7 @@ The conceptual shape is:
 hidden immutable backing
   range [offset, length]                 -> OpaqueByteRange
     domain interpretation               -> SymbolKey<TDomain>
-    domain-classified Name payload      -> OpaqueByteRange
+    domain Name view                    -> OpaqueByteRange (retained privately)
     nested range [offset, length]        -> OpaqueByteRange
 ```
 
@@ -179,30 +181,33 @@ integer parts within an opaque range. Such a reader returns semantic values,
 checked child ranges, or typed domain views. It does not return a source span
 or invoke caller code with source bytes.
 
-`InertText.Utf8RangeReader` is the scoped UTF-8 query reader for a range that a
-domain has classified as text. Its initial distinguishing capability is
-`ValueTextEquals`: compare the stored range with caller-supplied UTF-8 query
-bytes without decoding the stored candidate. Like the analogous
-`Utf8JsonReader` operation, it returns an answer rather than the value span.
-Creating this reader does not validate the stored bytes or apply
-`TextPolicy`.
+`InertText.Utf8RangeReader` is the scoped UTF-8 query and containment input for
+a range that a domain has classified as text. It has no public constructor or
+factory from `OpaqueByteRange`; a typed domain text view is the ordinary
+creation surface. Binary key and Blob views cannot issue it.
+
+Its initial distinguishing capability is `ValueTextEquals`: compare the stored
+range with caller-supplied UTF-8 query bytes without decoding the stored
+candidate. Like the analogous `Utf8JsonReader` operation, it returns an answer
+rather than the value span. It also carries the classified source into
+`Utf8VisualEncoder` without exposing that source. Creating this reader does not
+validate the stored bytes or apply `TextPolicy`.
 
 ### Inert UTF-8
 
-`InertUtf8String` is a small `readonly struct` over an `OpaqueByteRange` whose
+`InertUtf8` is a small `readonly struct` over an `OpaqueByteRange` whose
 bytes are already a valid, visually contained UTF-8 spelling. It also carries
 the same `VisualForm`, `TextConcern`, and truncation evidence as `InertString`.
 Ordinary construction cannot bless an arbitrary opaque range.
 
-The name pairs `InertUtf8String` with `InertString` the way the
-[`Utf8String` proposal](https://github.com/dotnet/runtime/issues/933) paired
-`Utf8String` with `string`: UTF-16 is .NET's default text encoding, so the
-UTF-8 currency names its encoding. Any length or offset it reports counts
-UTF-8 bytes, not UTF-16 code units.
+The name follows the encoding suffix vocabulary used by
+`Utf8JsonReader`: `Utf8` identifies the stored encoding, while `Inert`
+identifies the visually contained text currency. Any length or offset it
+reports counts UTF-8 bytes, not UTF-16 code units.
 
-`InertText.Encoding.Utf8VisualEncoder` establishes the invariant. It scans the
-exact domain-classified range, decodes UTF-8 without replacement, applies the
-named `TextPolicy`, and returns `InertUtf8String`.
+`InertText.Encoding.Utf8VisualEncoder` establishes the invariant. It accepts a
+`Utf8RangeReader`, scans its exact classified source, decodes UTF-8 without
+replacement, applies the named `TextPolicy`, and returns `InertUtf8`.
 
 - If every source byte forms permitted UTF-8 text, the result may retain the
   original range after that scan proves the stronger invariant.
@@ -214,13 +219,13 @@ Each ill-formed source byte receives its own reversible visible spelling, so
 byte-distinct names remain visibly distinguishable. The encoder is total over
 admitted byte ranges.
 
-`InertUtf8String` may write its already-contained bytes to a fixed UTF-8 sink
+`InertUtf8` may write its already-contained bytes to a fixed UTF-8 sink
 and may produce `InertString` through fixed UTF-8-to-UTF-16 conversion. Neither
 operation re-applies policy. It exposes no general raw-byte span.
 
-For byte-originated text, `InertString` derives from `InertUtf8String`, never
+For byte-originated text, `InertString` derives from `InertUtf8`, never
 directly from untreated `OpaqueByteRange`. Its physical representation need not
-retain the `InertUtf8String` value, but its spelling and evidence must be the
+retain the `InertUtf8` value, but its spelling and evidence must be the
 same. Existing string-originated `InertString` construction continues to use
 `VisualEncoder`.
 
@@ -232,7 +237,7 @@ same. Existing string-originated `InertString` construction continues to use
 | `readonly struct OpaqueByteRange` | Retains owner identity plus offset and length | Cheap ownership snapshot with exact byte value semantics |
 | `readonly struct` domain view | Adds validated domain meaning to a range | Domain values allocate no storage and cannot weaken opacity |
 | `ref struct` builder or reader | Performs scoped mutation, borrowing, parsing, or matching | Stack lifetime prevents a live source or mutable builder from escaping |
-| `readonly struct InertUtf8String` | Retains contained UTF-8 and evidence | Byte sinks need no UTF-16 materialization |
+| `readonly struct InertUtf8` | Retains contained UTF-8 and evidence | Byte sinks need no UTF-16 materialization |
 | Existing `readonly struct InertString` | Retains contained UTF-16 and evidence | String sinks keep the established currency and safe `ToString()` |
 
 The backing reference object is the only mandatory heap object for one compact
@@ -282,11 +287,11 @@ code with it would change this contract and requires a focused design change.
 
 ### UTF-8 query operations
 
-After a domain identifies an exact range as UTF-8 text,
-`Utf8RangeReader.ValueTextEquals` compares it with caller-supplied UTF-8 query
-bytes. The query is input to the operation and is never retained. A consumer
-encodes a textual request once and compares it with every candidate; stored
-candidates are not decoded, normalized, or visually encoded.
+After a typed domain text view issues `Utf8RangeReader`, `ValueTextEquals`
+compares its source with caller-supplied UTF-8 query bytes. The query is input
+to the operation and is never retained. A consumer encodes a textual request
+once and compares it with every candidate; stored candidates are not decoded,
+normalized, or visually encoded.
 
 `ValueTextEquals` is byte-exact. It neither establishes that the stored range
 is well-formed UTF-8 nor changes identity for ill-formed metadata names.
@@ -305,8 +310,8 @@ ordinary currencies:
 
 - `OpaqueByteRangeEncoder` writes an exact range to destination-owned binary
   storage without lending the backing; and
-- `Utf8VisualEncoder` interprets a domain-classified range as UTF-8, applies
-  policy, and returns `InertUtf8String`.
+- `Utf8VisualEncoder` interprets a `Utf8RangeReader` source as UTF-8, applies
+  policy, and returns `InertUtf8`.
 
 The exact-byte encoder is deliberately conspicuous. It is the escape
 capability required by validated domain persistence, not a normal analysis or
@@ -318,31 +323,31 @@ which representation receives it. For example, a
 `InertText.Encoding.Utf8VisualEncoder` owns the UTF-8 transition, mirroring
 the existing `InertText.Encoding.VisualEncoder` for UTF-16. Any explicit
 recovery of original untreated bytes also remains in that conspicuous
-namespace rather than on `InertUtf8String` or `OpaqueByteRange`.
+namespace rather than on `InertUtf8` or `OpaqueByteRange`.
 
 ## Single inert-flow contract
 
 The types represent three stages of one invariant:
 
 ```text
-OpaqueByteRange
-  -- domain says this exact range is UTF-8 text -->
+OpaqueByteRange retained by a typed domain text view
+  -- view issues -->
 Utf8RangeReader
   -- Utf8VisualEncoder + TextPolicy -->
-InertUtf8String
+InertUtf8
   -- fixed UTF-8-to-UTF-16 conversion -->
 InertString
 ```
 
 1. `OpaqueByteRange` is safe by **opacity**. Its exact bytes remain untreated,
    but ordinary consumers receive only closed answers or further ranges.
-2. `InertUtf8String` is safe by **contained payload**. Its retained UTF-8 has
+2. `InertUtf8` is safe by **contained payload**. Its retained UTF-8 has
    already passed the named visual policy.
 3. `InertString` is safe by the same contained-payload contract in UTF-16.
 
 Only the encoder crosses from opaque to contained. A domain classification or
 `Utf8RangeReader` does not silently strengthen the bytes. Conversion from
-`InertUtf8String` to `InertString` does not make another policy decision.
+`InertUtf8` to `InertString` does not make another policy decision.
 
 ### Operations not admitted
 
@@ -351,7 +356,7 @@ The initial contract has no:
 - returned raw span, memory, array, stream, or pointer projection;
 - caller callback or general matcher registration receiving source data;
 - decoding API returning untreated `string` or characters;
-- public constructor that blesses an opaque range as `InertUtf8String`;
+- public constructor that blesses an opaque range as `InertUtf8`;
 - exact-byte writer on the ordinary `OpaqueByteRange` surface;
 - persisted hash;
 - implicit text interpretation; or
@@ -375,7 +380,8 @@ Domain views own:
 - domain-specific budgets;
 - semantic equality when it differs from ordinal bytes;
 - interpretation of child ranges;
-- which exact ranges represent UTF-8 text; and
+- which exact ranges represent UTF-8 text and may issue
+  `Utf8RangeReader`; and
 - persistence eligibility, profiles, and domain-specific encoders.
 
 They do not own:
@@ -402,10 +408,11 @@ identity.
 ### Text is a domain interpretation
 
 An arbitrary opaque range is not automatically text. A domain identifies a
-range as UTF-8 text when its grammar or source contract gives the exact
-bounded range that meaning. This owner supplies the scoped reader and encoder;
-it does not own concepts such as Symbol Key `Name`, metadata namespace, or
-package ID.
+range as UTF-8 text when its grammar or source contract gives the exact bounded
+range that meaning. It preserves that classification in a typed text view,
+which can issue `Utf8RangeReader` without exposing its retained range. This
+owner supplies the scoped reader and encoder; it does not own concepts such as
+Symbol Key `Name`, metadata namespace, or package ID.
 
 The range may contain ill-formed UTF-8. Replacement decoding is never used for
 identity or matching. `Utf8RangeReader` still performs exact query matching;
@@ -416,11 +423,12 @@ only `Utf8VisualEncoder` validates and visibly contains the source.
 Both sink forms derive from one encoder result:
 
 ```text
-domain-classified opaque Name range
-  -> Utf8VisualEncoder scans and applies TextPolicy once
-     -> InertUtf8String
-        -> contained UTF-8 written directly
-        -> or InertString with identical spelling and evidence
+typed domain Name view
+  -> Utf8RangeReader retains the classified source
+     -> Utf8VisualEncoder scans and applies TextPolicy once
+        -> InertUtf8
+           -> contained UTF-8 written directly
+           -> or InertString with identical spelling and evidence
 ```
 
 Well-formed scalars follow the existing `TextPolicy` rules. Ill-formed source
@@ -442,8 +450,8 @@ The primary claim is **zero intermediate copy**, not that bytes never move:
 - equality, hashing, ordering, matching, and structural reads allocate and
   copy no payload;
 - textual queries are encoded once outside the candidate loop;
-- a clean `InertUtf8String` may reuse its source backing after validation;
-- a transformed `InertUtf8String` pays for one contained UTF-8 representation;
+- a clean `InertUtf8` may reuse its source backing after validation;
+- a transformed `InertUtf8` pays for one contained UTF-8 representation;
 - a byte-capable sink receives contained UTF-8 without an intermediate
   string; and
 - a string sink pays once for the required UTF-16 representation.
@@ -484,16 +492,17 @@ artifact byte source. The permitted exits are:
 
 > Untreated bytes remain in immutable backing and cross its ordinary public
 > boundary only as a closed answer, a bounded `OpaqueByteRange` snapshot, or a
-> typed domain view. Text becomes observable only after
-> `Utf8VisualEncoder` produces `InertUtf8String`; byte-originated `InertString`
-> derives from that contained value. Exceptional exact-byte transfer names
-> `OpaqueByteRangeEncoder`, and domain persistence composes that capability
-> only after applying its own eligibility rules.
+> typed domain view. Only a typed domain text view may issue
+> `Utf8RangeReader`, and text becomes observable only after
+> `Utf8VisualEncoder` consumes that reader and produces `InertUtf8`;
+> byte-originated `InertString` derives from that contained value. Exceptional
+> exact-byte transfer names `OpaqueByteRangeEncoder`, and domain persistence
+> composes that capability only after applying its own eligibility rules.
 
 The implementation gate combines:
 
 - public-surface inspection rejecting raw arrays, spans, memory, strings,
-  pointers, streams, callbacks, and public `InertUtf8String` blessing;
+  pointers, streams, callbacks, and public `InertUtf8` blessing;
 - field-rooted value flow from backing storage to the closed operations,
   domain encoders, and visual encoder, with incompleteness reported as defined
   by [#9908](https://github.com/richlander/dotnet-inspect/issues/9908); and
@@ -509,12 +518,12 @@ the repository threat model.
 | --- | --- | --- |
 | Immutable ownership snapshot | Equal ranges over different backings compare and hash equally; default and explicit empty agree; slices retain their owner | PR-fast |
 | Bounds | Empty, edge, nested, overflowed, and out-of-range operations return the specified result without reading outside the backing | PR-fast |
-| No raw projection | Compiled public-surface and field-flow gates reject every forbidden return, callback, store shape, and `InertUtf8String` blessing path | PR-fast |
+| No raw projection | Compiled public-surface and field-flow gates reject every forbidden return, callback, store shape, and `InertUtf8` blessing path | PR-fast |
 | Opaque means untreated | Creating ranges and UTF-8 readers performs no UTF-8 scan, normalization, or `TextPolicy` work | PR-fast |
 | `ValueTextEquals` | Ordinary, non-ASCII, concerning, and ill-formed stored names compare byte-exactly with pre-encoded queries without decoding candidates | PR-fast |
-| Domain boundary | Only a domain-classified text range can enter `Utf8VisualEncoder`; binary key and Blob ranges cannot accidentally take that route | PR-fast |
+| Domain boundary | Only a typed domain text view can issue `Utf8RangeReader`, and `Utf8VisualEncoder` accepts that reader rather than `OpaqueByteRange`; binary key and Blob views cannot accidentally take that route | PR-fast |
 | Exact-byte encoder | Exact bytes reach destination-owned storage without lending the backing; domain eligibility and destination failures remain visible | PR-fast |
-| Containment parity | Clean, concerning, and ill-formed inputs produce the specified `InertUtf8String`; direct UTF-8 and `InertString` output have identical spelling, concern, form, and truncation evidence | PR-fast |
+| Containment parity | Clean, concerning, and ill-formed inputs produce the specified `InertUtf8`; direct UTF-8 and `InertString` output have identical spelling, concern, form, and truncation evidence | PR-fast |
 | Shared backing | A generated population of names and nested domain parts retains one backing rather than one array or class per view | PR-fast |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Pilot before implementation |
 | Fast Diff product path | Exact base/head NativeAOT comparison on all pinned Fast Diff pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
