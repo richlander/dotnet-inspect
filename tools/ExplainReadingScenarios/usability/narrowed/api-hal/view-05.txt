@@ -1,0 +1,72 @@
+Description:
+Discover types in a package or library (compact table output)
+
+Usage:
+dotnet-inspect type [<args>...] [options]
+
+Arguments:
+<args>  Package and type pattern. When no --package/--library/--platform is given, first arg is the package.
+
+Options:
+--package <package>                Source: package (file, name, name@version, or name@A..B)
+--at <at>                          Address in a package range: exact version, #N, first, or last
+--library <library>                Source: library path (local file, or relative within package)
+--platform <platform>              Source: platform library (e.g., System.Text.Json)
+--project <project>                Source: restored project.assets.json context
+--framework <framework>            Source: platform framework (runtime, aspnetcore, netstandard). @version for specific
+--tfm <tfm>                        Source: select by TFM (e.g., net8.0)
+--workspace <workspace>            Source: canonical Base64URL Workspace packet string
+--match                            Match this Type's API coordinate across two literal package-version endpoints
+--share <share>                    Emit the resolved Type scenario as a canonical Workspace packet or complete URL
+--all                              Include non-public, hidden, and obsolete members
+-t, --type <t>                     Filter types by glob pattern (e.g., *Json*, Progress*)
+--json                             Output as JSON
+--compact                          Output as minified JSON (use with --json or --envelope where supported)
+--prefer-rendered-urls             Prefer rendered browser-view URLs when supported; otherwise keep the original URL
+--table                            Output as a pretty table (space-padded columns)
+--tsv                              Output as normalized tab-separated values
+--jsonl                            Output as JSON Lines (one object per row)
+--nh, --no-header, --no-headers    Suppress table/TSV column headers
+--unsafe                           Filter types with unsafe signatures (pointers)
+--repo <repo>                      Read PDB-mapped type source from local git clone(s) by SourceLink commit + PDB checksum, before the network. Can repeat.
+-m, --member <m>                   Filter members by name or glob
+-k, --kind <k>                     Filter by kind (class, struct, interface, enum, delegate, method, property, field, event, constructor)
+-D, --discover <D>                 Discover schema: sections, or items within a section
+-S, -s, --select, --section <S>    Select sections/categories by name or wildcard (comma/semicolon-separated)
+--columns <columns>                Filter columns by name (comma/semicolon-separated)
+--fields <fields>                  Filter fields by name (comma/semicolon-separated)
+--schema                           With -D: show syntax-selected static schema or labeled alternatives without resolving/loading source (offline)
+--tree                             Show hierarchical output when supported
+--details                          With -D: add structurally supported output formats, shape, and cardinality (offline)
+--count                            Reduce the effective table/vector population to a row count
+--print                            Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable
+--row <row>                        With --print or a shape projection, select a printable row: a 1-based index, first, or last
+--value                            Print one scalar value from a selected section; use --row N|first|last when multiple rows exist
+--urls                             Project URL-bearing selected section rows to a URL list or JSONL rows
+--paths                            Project path-bearing selected section rows to a path list or JSONL rows
+--json-array                       With a shape projection, emit projected rows as one JSON array
+--loop                             Performance Triage: show only opportunities inside loops
+--min-confidence <min-confidence>  Performance Triage: minimum confidence (low, medium, high)
+--triage-shape <triage-shape>      Performance Triage: include only shape(s), comma-separated or repeated; run -S "Performance Triage" to see shapes
+--top <top>                        Show the top N ranked rows for a supported query surface
+--where <where>                    Filter selected section rows with a field predicate, e.g. --where "Allocation=boxed *" or --where "RootReach>=10"
+--order-by <order-by>              Order selected section rows by field(s), e.g. --order-by "RootReach desc,Confidence desc"
+--markdown                         Output as markdown
+--plaintext                        Output as plain text
+--mermaid                          Output as mermaid diagram (standalone or with --markdown for embedded)
+--envelope                         Output the complete inspection envelope as JSON where supported
+--taste                            Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature
+--readable-names                   Use the default readable local-name synthesis even when configuration disables it; byte-preserving (names do not affect IL)
+--verbose                          Show progress messages on stderr
+-v <v>                             Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)
+-E <E>                             Write companion output to stderr (.tips is available; bare explanation and .references are reserved)
+--rows <rows>                      Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); adopted semantic-row surfaces accept only range forms and use -n for counts
+-n <n>                             Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end
+--head                             Take the count from the start (the default direction)
+--tail                             Take the count from the end instead of the start
+--lines                            Apply -n to rendered lines instead of semantic rows
+--tail-lines                       Apply -n to rendered lines from the end
+--source <source>                  NuGet source URL (replaces defaults, can repeat)
+--add-source <add-source>          NuGet source URL to add (can repeat)
+--nugetconfig <nugetconfig>        Path to nuget.config file
+-Q, --query-help <Q>               Discover query-capable sections, or the facets and operators of a section/category (no inspection)
