@@ -429,11 +429,11 @@ test("Ecosystems is a first-class product catalog destination", async ({
     .toContainText("3 core packages");
   await expect(page.locator("[data-ecosystem='ecosystem.fixture-package']"))
     .toContainText("Integration scanner");
-  const workspaceReadyRows = page.locator(
-    ".ecosystem-catalog-row",
-  ).filter({ hasText: "Workspace-ready" });
   const openActions = page.locator("[data-ecosystem-open]");
-  expect(await openActions.count()).toBe(await workspaceReadyRows.count());
+  const actionableCards = page.locator(
+    ".ecosystem-catalog-row",
+  ).filter({ has: page.locator("[data-ecosystem-open]") });
+  expect(await openActions.count()).toBe(await actionableCards.count());
   expect(await openActions.count()).toBeGreaterThan(0);
   await page.locator("[data-product-navigation-button]").click();
   await expect(page.locator(
@@ -442,15 +442,15 @@ test("Ecosystems is a first-class product catalog destination", async ({
   await page.keyboard.press("Escape");
   await page.screenshot({ path: testInfo.outputPath("ecosystems-wide.png") });
 
-  const firstReady = workspaceReadyRows.first();
-  const ecosystemId = await firstReady.getAttribute("data-ecosystem");
+  const firstActionable = actionableCards.first();
+  const ecosystemId = await firstActionable.getAttribute("data-ecosystem");
   if (ecosystemId === null) {
-    throw new Error("The Workspace-ready Ecosystem omitted its catalog ID.");
+    throw new Error("The actionable Ecosystem omitted its catalog ID.");
   }
-  const ecosystemTitle = await firstReady.getByRole("heading", {
+  const ecosystemTitle = await firstActionable.getByRole("heading", {
     level: 2,
   }).innerText();
-  await firstReady.locator("[data-ecosystem-open]").click();
+  await firstActionable.locator("[data-ecosystem-open]").click();
   await expect(page).toHaveURL(`/ecosystems/${ecosystemId}`);
   await expect(page.locator(
     '[data-navigation-group="subject"][data-navigation-current="true"]'

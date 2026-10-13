@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.ControlFlow;
+using ILInspector.Analysis.Planning;
 using Inspector.Findings;
 using ILInspector.Instructions;
 using ILInspector.Metadata;
@@ -1121,7 +1122,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     plan,
                     ImplementationMetricWorkStage
                         .LocalSignatureDecode);
-            LocalTypeDecodeResult localTypes =
+            MethodLocalSignature localTypes =
                 DecodeLocalTypesWithStatus(
                     body,
                     scope);
@@ -1947,7 +1948,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             if (!metricPlan.RequiresLocalSignatureDecode)
                 return result;
 
-            LocalTypeDecodeResult localTypes;
+            MethodLocalSignature localTypes;
             try
             {
                 using LibraryBodyAnalysisStageRecorder.StageAttempt?
@@ -2587,7 +2588,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         MethodImplementationMetricEvidence? existing,
         MethodIdentity method,
         MethodIdentity evidenceMethod,
-        LocalTypeDecodeResult locals)
+        MethodLocalSignature locals)
     {
         ImplementationMetricLocalEvidence evidence =
             new(
@@ -2815,61 +2816,13 @@ internal sealed partial class LibraryMethodAnalysisRunner(
         GenericScope scope)
         => DecodeLocalTypesWithStatus(body, scope).Types;
 
-    LocalTypeDecodeResult DecodeLocalTypesWithStatus(
+    MethodLocalSignature DecodeLocalTypesWithStatus(
         MethodBodyBlock body,
-        GenericScope scope)
-    {
-        if (body.LocalSignature.IsNil)
-            return new([], 0, null);
-        MetadataReader reader = _infrastructure.Reader;
-        var signature =
-            reader.GetStandaloneSignature(body.LocalSignature);
-        BlobReader blob = reader.GetBlobReader(signature.Signature);
-        SignatureHeader header = blob.ReadSignatureHeader();
-        if (header.Kind != SignatureKind.LocalVariables
-            || header.RawValue != 0x07)
-        {
-            throw new BadImageFormatException(
-                "A method body local signature does not have the local-variable signature kind.");
-        }
-        int declaredCount = blob.ReadCompressedInteger();
-        if (declaredCount < 0)
-        {
-            throw new BadImageFormatException(
-                "A method body local signature has an invalid local count.");
-        }
-        if (!SignatureBlobGuard.IsSafeToDecode(
-                reader,
-                signature.Signature,
-                SignatureBlobGuard.Kind.LocalVariables))
-        {
-            return new(
-                [],
-                declaredCount,
-                "The local signature exceeds the guarded decode policy.");
-        }
-        if (!SignatureBlobGuard.IsSafeAndCompleteToDecode(
-                reader,
-                signature.Signature,
-                SignatureBlobGuard.Kind.LocalVariables))
-        {
-            return new(
-                [],
-                declaredCount,
-                "The local signature is incomplete or contains trailing data.");
-        }
-        return new(
-            signature.DecodeLocalSignature(
-                TypeRefDecoder.Instance,
-                scope),
-            declaredCount,
-            null);
-    }
-
-    readonly record struct LocalTypeDecodeResult(
-        ImmutableArray<TypeRef> Types,
-        int DeclaredCount,
-        string? IncompleteReason);
+        GenericScope scope) =>
+        MethodCallMetadataReader.DecodeLocalSignature(
+            _infrastructure.Reader,
+            body,
+            scope);
 
     // Razor-generated render methods lack generated-code attributes. Trust-gate
     // RenderTreeBuilder identity (#1708) so lookalikes do not suppress findings.

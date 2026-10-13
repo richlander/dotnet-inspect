@@ -156,6 +156,7 @@ population, `MethodDefinition`. The implementation is mainly in
 | `MethodRowGate.cs`, `MethodDefinitionPredicates.cs`, and `MethodDefinitionTerminalWorkBudget.cs` | Source gate, predicates, and terminal work bounds |
 | `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
 | `SameModuleCallTargetSupport.cs` | `CallTargets` support |
+| `MethodCallMetadataSupport.cs` | `Calls`, local-signature, and field-operand support |
 
 Where this source sits among Query Space, Producer Planning, and Assembly
 Analysis Operation is described in
@@ -645,6 +646,59 @@ Coverage also records the MethodDefs whose visits queried the lookup and the
 number of queries. The physical group receipt and each request receipt
 attribute construction and queries as memory-safety contract support does.
 
+### Calls support
+
+`Calls` is per-method depth for producers that need IL-ordered call sites with
+resolved operand identity, tracked by
+[#9868](https://github.com/richlander/dotnet-inspect/issues/9868). It implies
+`Body` and `CallTargets` but not `ModuleLookup`, control flow, or wider breadth.
+A producer declares the retained-prefix, selective-operand
+`ResolvedCalls` analyzer capability and passes that owner-issued instruction
+sequence to `GetCalls`; the support does not open or decode another
+instruction stream. A producer that did not declare `Calls` cannot access call,
+local-signature, or field-operand facts.
+
+Each `MethodCallSite` carries the IL offset, return address, operand token,
+call kind, full `MemberRef` callee identity, and typed `MethodCallTarget`.
+Call-site classification includes `call`, `callvirt`, `newobj`, `ldftn`,
+`ldvirtftn`, and `calli`. Direct call operands accept MethodDef, MemberRef, and
+MethodSpec handles. A `calli` accepts a StandaloneSig handle and publishes its
+function-pointer signature as the callee identity. An operand of another
+handle kind, unreadable metadata, or incomplete instruction decode throws and
+fails that producer's visited body; it never becomes an absent call.
+
+The same declared support exposes two facts only when the producer asks:
+
+- local variables as their decoded `TypeRef` values, declared count, and a
+  typed incomplete reason when guarded decoding cannot safely complete; and
+- a field operand's declaring type, name, field type, optional current-module
+  FieldDef token, and RVA flag, or a typed unresolved reason for a
+  non-field operand shape.
+
+One execution-scoped lookup owns signature decoding. The packet caches Calls,
+the local signature, and each distinct field token for one physical MethodDef.
+Lanes in one shared execution group reuse those packet facts. The physical
+receipt charges each decode once; each request receipt receives the shared
+decode work once and retains its own logical read counts. Work records call
+sites, method and field operands, local signatures, generic-parameter rows,
+and signature bytes. `CallTargets` separately receipts target-resolution work
+for every site, including replay to a lane that reads cached Calls.
+
+Shallow call-count producers do not declare `Calls`. They retain no
+instructions, decode no call operand or external signature, construct no
+member identity or target, and leave both Calls and CallTargets coverage empty.
+Library Body Analysis uses the same local-signature decoder during migration,
+but new producers do not use its lookup or aggregate result.
+
+The first planned production adopter is the
+[unsafe-member census](unsafe-member-findings.md#execution). Its adoption
+remains separate until the declared-source and public-root prerequisites
+tracked by
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and
+[#9865](https://github.com/richlander/dotnet-inspect/issues/9865) land. This
+capability slice therefore has no production caller and makes no production
+performance claim.
+
 ### Semantic identity
 
 `SemanticIdentity` is per-method depth for producers that need a MethodDef's
@@ -1086,6 +1140,24 @@ Same-module call-target support is gated in Release:
 - `MethodQuerySource_CallTargetsReceiptExactMethodWork`
 - `MethodQuerySource_CallTargetsBindDefinitionTokensWithoutTypeIndex`
 - `MethodQuerySource_CallTargetsSharedOnceAcrossLanes`
+
+Calls support is gated in Release:
+
+- `MethodQuerySource_CallsMatchLibraryBodyAnalysis`, over the call-target
+  parity subjects
+- `MethodQuerySource_CallsAbsentWhenUndeclared`
+- `MethodQuerySource_CallsRequireDeclaration`
+- `MethodQuerySource_CallsReceiptExactMethodWork`
+- `MethodQuerySource_ClosedGenericFieldTypeIsInstantiated`
+- `MethodQuerySource_CalleeIdentityPreservesPlatformContractHit`
+- `MethodQuerySource_CallsAreDecodedOnceAcrossLanes`
+- `MethodQuerySource_FieldOperandsAreDecodedOnceAcrossLanes`
+- `MethodQuerySource_MalformedCallOperandFailsBody`
+- `MethodQuerySource_FieldMemberReferenceCallFailsBody`
+- `MethodQuerySource_MalformedCalliSignatureFailsBody`
+- `MethodQuerySource_RepeatedCachedReadsRemainLogicalReads`
+- `MethodCallCountProducer_DoesNotResolveMalformedTarget`
+- `MethodCallCountProducer_DoesNotDecodeDamagedSignature`
 
 Semantic identity is gated in Release:
 
