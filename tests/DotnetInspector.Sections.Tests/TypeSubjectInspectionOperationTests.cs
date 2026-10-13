@@ -113,11 +113,16 @@ public sealed class TypeSubjectInspectionOperationTests
                 "DotnetInspector.Sections.Tests",
                 nameof(TypeSubjectInspectionOperationTests),
                 nameof(ByteNativeNestedFixture));
+        var exactInput =
+            new MetadataExactTypeInput(expected);
 
         InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
             TypeSubjectInspectionOperation.Execute(
                 assembly,
-                new(expected, s_bounds),
+                new(
+                    expected,
+                    s_bounds,
+                    exactInput: exactInput),
                 TestContext.Current.CancellationToken);
 
         TypeSubjectInspectionContent document = Available(envelope);

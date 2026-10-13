@@ -36,6 +36,15 @@ public readonly ref struct Utf8RangeReader
     public bool ValueTextEquals(ReadOnlySpan<byte> utf8Text) =>
         _source.SequenceEqual(utf8Text);
 
+    /// <summary>
+    /// Tests exact equality between an owned range and caller-supplied UTF-8
+    /// without decoding or transferring ownership.
+    /// </summary>
+    public static bool ValueTextEquals(
+        OpaqueByteRange value,
+        ReadOnlySpan<byte> utf8Text) =>
+        value.Bytes.SequenceEqual(utf8Text);
+
     /// <summary>The number of classified source bytes.</summary>
     public int Length => _source.Length;
 }
