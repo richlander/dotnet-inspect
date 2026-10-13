@@ -13,6 +13,7 @@ internal static class DependsAssetSections
     public const string Dependencies = "Dependencies";
     public const string Licenses = "Licenses";
     public const string Pruning = "Pruning";
+    public const string LatestVersions = "Latest Versions";
     public const string RestoredEdges = "Restored Edges";
     public const string Failures = "Failures";
     public const string DependencyGroups = "Dependency Groups";
@@ -51,6 +52,7 @@ internal static class DependsAssetSections
             Dependencies => projection.Dependencies.Length,
             Licenses => projection.Licenses.Length,
             Pruning => projection.Pruning.Length,
+            LatestVersions => projection.LatestVersions.Length,
             RestoredEdges => projection.RestoredEdges.Length,
             Failures => projection.Failures.Length,
             DependencyGroups => projection.DependencyGroups.Length,
@@ -73,6 +75,7 @@ internal static class DependsAssetSections
             .Add<DependencySection>()
             .Add<LicenseSection>()
             .Add<PruningSection>()
+            .Add<LatestVersionSection>()
             .Add<FailureSection>()
             .AddBaseCategory(
                 SectionCategoryNames.Dependencies,
@@ -180,6 +183,19 @@ internal static class DependsAssetSections
         public static bool CanRender(DependsAssetProjection model) =>
             model.Summary.Licenses.Completion
                 != DependencyInspectionLicenseCompletion.NotRequested;
+    }
+
+    public sealed class LatestVersionSection :
+        ISectionDescriptor<DependsAssetProjection>
+    {
+        public static string Name => LatestVersions;
+        public static bool IsExpensive => true;
+        public static bool ExplicitOnly => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
+        public static bool CanRender(DependsAssetProjection model) =>
+            model.Summary.LatestVersions.Completion
+                != DependencyInspectionLatestVersionCompletion.NotRequested;
     }
 
     public sealed class RestoredEdgeSection :

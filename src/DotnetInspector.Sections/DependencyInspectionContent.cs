@@ -427,6 +427,9 @@ public sealed record DependencyInspectionSummary(
 {
     public DependencyInspectionLicenseSummary Licenses { get; init; } =
         DependencyInspectionLicenseSummary.NotRequested;
+
+    public DependencyInspectionLatestVersionSummary LatestVersions
+    { get; init; } = DependencyInspectionLatestVersionSummary.NotRequested;
 }
 
 public sealed record DependencyInspectionContent(
@@ -452,6 +455,9 @@ public sealed record DependencyInspectionContent(
     public ImmutableArray<DependencyInspectionLicense> Licenses { get; init; } =
         [];
 
+    public ImmutableArray<DependencyInspectionLatestVersion> LatestVersions
+    { get; init; } = [];
+
     public bool Equals(DependencyInspectionContent? other) =>
         ReferenceEquals(this, other)
         || other is not null
@@ -463,6 +469,9 @@ public sealed record DependencyInspectionContent(
             other.Dependencies)
         && DependencyValueEquality.SequenceEqual(Pruning, other.Pruning)
         && DependencyValueEquality.SequenceEqual(Licenses, other.Licenses)
+        && DependencyValueEquality.SequenceEqual(
+            LatestVersions,
+            other.LatestVersions)
         && DependencyValueEquality.SequenceEqual(Failures, other.Failures);
 
     public override int GetHashCode()
