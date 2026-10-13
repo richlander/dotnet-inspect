@@ -39,7 +39,9 @@ public sealed record SourceDocumentObservation(
         || CanonicalPath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed record MemberSourceQuery(IReadOnlySet<int>? MetadataTokens = null);
+public sealed record MemberSourceQuery(
+    IReadOnlySet<int>? MetadataTokens = null,
+    bool IncludeStateMachineImplementations = false);
 
 public sealed record MemberSourceInfo(
     MemberAnchor Anchor,
@@ -180,7 +182,10 @@ public static class SourceLinkFindings
         {
             var pathResolver = source.PathResolver;
             var mappings = source.Context
-                .EnumerateMemberDocuments(query?.MetadataTokens)
+                .EnumerateMemberDocuments(
+                    query?.MetadataTokens,
+                    query?.IncludeStateMachineImplementations
+                        ?? false)
                 .Select(mapping =>
                 {
                     var path = pathResolver.Resolve(mapping.FilePath);
@@ -309,6 +314,13 @@ public static class SourceLinkFindings
         var materialized = mappings.Select(mapping => mapping ?? throw new ArgumentException(
             "Member source inventory cannot contain null observations.",
             parameterName));
+        if (query?.IncludeStateMachineImplementations != true)
+        {
+            materialized = materialized.Where(
+                static mapping =>
+                    mapping.AssociationKind
+                        == PdbMemberDocumentAssociationKind.Direct);
+        }
         if (query?.MetadataTokens is { } tokens)
             materialized = materialized.Where(mapping => tokens.Contains(mapping.MetadataToken));
 

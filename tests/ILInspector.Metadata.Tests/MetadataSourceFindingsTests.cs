@@ -719,7 +719,10 @@ public sealed class MetadataSourceFindingsTests
             SourceLinkFindings.CompareMemberSources(
                 [oldMapping],
                 [associated],
-                Subject)));
+                Subject,
+                new MemberSourceQuery(
+                    IncludeStateMachineImplementations:
+                        true))));
 
         Assert.Equal(
             anchor.CanonicalSignature,
@@ -909,7 +912,9 @@ public sealed class MetadataSourceFindingsTests
                                 new HashSet<int>
                                 {
                                     kickoffMethod.MetadataToken,
-                                })))
+                                },
+                                IncludeStateMachineImplementations:
+                                    true)))
                         .Select(static finding => finding.Payload));
             Assert.Equal(
                 kickoffMethod.Name,
@@ -933,7 +938,9 @@ public sealed class MetadataSourceFindingsTests
                         methodName: "",
                         overloadIndex: 0,
                         metadataToken:
-                            kickoffMethod.MetadataToken));
+                            kickoffMethod.MetadataToken,
+                        includeStateMachineImplementations:
+                            true));
             Assert.Equal(mapping.MetadataToken, resolved.MetadataToken);
             Assert.Equal(
                 mapping.SequencePointMethodToken,
@@ -960,7 +967,10 @@ public sealed class MetadataSourceFindingsTests
             .. Findings(
                     SourceLinkFindings.InspectMemberSources(
                         source,
-                        Subject))
+                        Subject,
+                        new MemberSourceQuery(
+                            IncludeStateMachineImplementations:
+                                true)))
                 .Select(static finding => finding.Payload)
                 .Where(mapping =>
                     kickoffTokens.Contains(
@@ -973,6 +983,25 @@ public sealed class MetadataSourceFindingsTests
                 PdbMemberDocumentAssociationKind
                     .StateMachineImplementation,
                 mapping.AssociationKind));
+
+        int hiddenByDefault =
+            kickoffMethods[0].MetadataToken;
+        Assert.Empty(
+            Findings(
+                SourceLinkFindings.InspectMemberSources(
+                    source,
+                    Subject,
+                    new MemberSourceQuery(
+                        new HashSet<int>
+                        {
+                            hiddenByDefault,
+                        }))));
+        Assert.Null(
+            source.Context.ResolveMethodDocument(
+                typeName: "",
+                methodName: "",
+                overloadIndex: 0,
+                metadataToken: hiddenByDefault));
 
         int directToken =
             typeof(MetadataSourceFindingsTests).GetMethod(

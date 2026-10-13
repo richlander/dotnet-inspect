@@ -68,6 +68,12 @@ retaining the physical token and `StateMachineImplementation` association kind.
 It does not rewrite the physical row, infer from generated names, or attribute
 other physical evidence to the kickoff.
 
+Associated implementation mapping is explicit work. Existing queries and raw
+`PdbContext` calls preserve direct-only behavior unless the caller requests
+state-machine implementations. SourceHouse adoption is separately owned by
+[#10024](https://github.com/richlander/dotnet-inspect/issues/10024); the
+producer slice does not silently change existing source-selection policy.
+
 An absent relationship or missing PDB association remains no mapping. A
 rejected relationship or contradictory association fails the atomic member
 census rather than becoming absence. Iterator and async-iterator relationships

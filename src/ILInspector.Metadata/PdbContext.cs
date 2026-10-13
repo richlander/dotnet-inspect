@@ -1417,7 +1417,8 @@ public partial class PdbContext : IDisposable
         string methodName,
         int overloadIndex,
         bool publicOnly = false,
-        int metadataToken = 0)
+        int metadataToken = 0,
+        bool includeStateMachineImplementations = false)
     {
         if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             return null;
@@ -1432,7 +1433,10 @@ public partial class PdbContext : IDisposable
             metadataToken);
         return methodHandle.IsNil
             ? null
-            : ResolveMethodDocumentRange(reader, methodHandle);
+            : ResolveMethodDocumentRange(
+                reader,
+                methodHandle,
+                includeStateMachineImplementations);
     }
 
     private static MethodDefinitionHandle ResolveMethodHandle(
@@ -1480,12 +1484,16 @@ public partial class PdbContext : IDisposable
 
     PdbMethodDocumentInfo? ResolveMethodDocumentRange(
         MetadataReader metadata,
-        MethodDefinitionHandle methodHandle)
+        MethodDefinitionHandle methodHandle,
+        bool includeStateMachineImplementations)
     {
         try
         {
             MemberSequencePointMapping? mapping =
-                ResolveMemberSequencePoints(metadata, methodHandle);
+                ResolveMemberSequencePoints(
+                    metadata,
+                    methodHandle,
+                    includeStateMachineImplementations);
             var primary = mapping?.Ranges.FirstOrDefault(
                 static range => range.IsPrimaryDocument);
             if (primary is null)
@@ -1655,7 +1663,8 @@ public partial class PdbContext : IDisposable
     /// A method may produce multiple rows when sequence points span multiple documents.
     /// </summary>
     public IEnumerable<PdbMemberDocumentInfo> EnumerateMemberDocuments(
-        IReadOnlySet<int>? metadataTokens = null)
+        IReadOnlySet<int>? metadataTokens = null,
+        bool includeStateMachineImplementations = false)
     {
         if (_pdbReader == null || !MetadataFormatAdmission.AdmitImage(_peReader))
             yield break;
@@ -1665,7 +1674,10 @@ public partial class PdbContext : IDisposable
         {
             int metadataToken = MetadataTokens.GetToken(methodHandle);
             MemberSequencePointMapping? mapping =
-                ResolveMemberSequencePoints(metadata, methodHandle);
+                ResolveMemberSequencePoints(
+                    metadata,
+                    methodHandle,
+                    includeStateMachineImplementations);
 
             if (mapping is null)
                 continue;
@@ -1704,7 +1716,8 @@ public partial class PdbContext : IDisposable
 
     private MemberSequencePointMapping? ResolveMemberSequencePoints(
         MetadataReader metadata,
-        MethodDefinitionHandle logicalMethod)
+        MethodDefinitionHandle logicalMethod,
+        bool includeStateMachineImplementations)
     {
         IReadOnlyList<SequencePointDocumentRange> direct =
             ReadVisibleSequencePointDocuments(logicalMethod);
@@ -1715,6 +1728,9 @@ public partial class PdbContext : IDisposable
                 direct,
                 PdbMemberDocumentAssociationKind.Direct);
         }
+
+        if (!includeStateMachineImplementations)
+            return null;
 
         MethodDefinition logicalDefinition =
             metadata.GetMethodDefinition(logicalMethod);
