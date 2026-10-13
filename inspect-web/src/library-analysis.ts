@@ -5,7 +5,8 @@ import { singlePerformanceBodyTarget, renderTriageCode, triageMemberLabel } from
 
 type LibraryAnalysisResult = Pick<
   BrowserPackagePerformance,
-  "members" | "inspectionError" | "totalOpportunities"
+  "members" | "syncCallsInAsync" | "syncCallsInAsyncCount"
+    | "inspectionError" | "totalOpportunities"
 >;
 
 export interface LibraryAnalysisOptions {
@@ -44,8 +45,13 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
       content = `<section class="document-section empty-document"><span class="loader"></span><h2>Loading&hellip;</h2></section>`;
     } else {
       const members = resolved.members ?? [];
+      const syncCalls = resolved.syncCallsInAsync ?? [];
+      const syncCallCount = resolved.syncCallsInAsyncCount ?? null;
       const partial = Boolean(resolved.inspectionError);
-      status = `${members.length.toLocaleString()} member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"}${partial ? " \u00b7 partial" : ""}`;
+      const syncCallStatus = syncCallCount === null
+        ? "sync-call count unavailable"
+        : `${syncCallCount.toLocaleString()} sync call${syncCallCount === 1 ? "" : "s"}`;
+      status = `${members.length.toLocaleString()} member${members.length === 1 ? "" : "s"} \u00b7 ${resolved.totalOpportunities.toLocaleString()} opportunit${resolved.totalOpportunities === 1 ? "y" : "ies"} \u00b7 ${syncCallStatus}${partial ? " \u00b7 partial" : ""}`;
       const warning = partial
         ? `<section class="document-section metadata-warning"><strong>&#x26A0; This library could not be analyzed completely</strong></section>`
         : "";
@@ -71,12 +77,32 @@ export function renderLibraryAnalysisSurface(options: LibraryAnalysisOptions): s
           <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "\u2014")}</span></span>
         </button>${previews}</article>`;
       }).join("");
-      const empty = partial
-        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No member results are available from this incomplete analysis.</p></section>`
+      const syncRows = syncCalls.map(call => `<tr>
+        <td><code>${escapeHtml(call.caller)}</code></td>
+        <td><code>${escapeHtml(call.callee)}</code></td>
+        <td><code>${escapeHtml(call.alternative)}</code></td>
+        <td><span class="sync-call-kind">${escapeHtml(call.pairKind)}</span></td>
+      </tr>`).join("");
+      const syncSection = syncCalls.length
+        ? `<section class="document-section sync-calls-section">
+          <div class="section-title"><h2>Sync calls in async</h2><span>${syncCallCount === null ? "count unavailable" : syncCallCount.toLocaleString()}</span></div>
+          <p class="library-analysis-note">Async methods calling synchronous APIs that have callable async alternatives.</p>
+          <div class="sync-calls-table-wrap"><table class="sync-calls-table">
+            <thead><tr><th>Caller</th><th>Callee</th><th>Alternative</th><th>Pair kind</th></tr></thead>
+            <tbody>${syncRows}</tbody>
+          </table></div>
+        </section>`
+        : "";
+      const empty = members.length
+        ? ""
+        : partial
+        ? `<section class="document-section empty-document"><h2>Analysis incomplete</h2><p>No ranked optimization member results are available from this incomplete analysis.</p></section>`
         : resolved.totalOpportunities === 0
-          ? `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No allocation hot spots</h2><p>No allocation/performance opportunities were classified for ${escapeHtml(libraryName)}.</p></section>`
+          ? syncCalls.length
+            ? ""
+            : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No allocation hot spots</h2><p>No allocation/performance opportunities were classified for ${escapeHtml(libraryName)}.</p></section>`
           : `<section class="document-section empty-document"><span class="large-glyph">&#x25C7;</span><h2>No navigable member results</h2><p>${resolved.totalOpportunities.toLocaleString()} allocation/performance opportunit${resolved.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none could be attributed to a navigable member of ${escapeHtml(libraryName)}.</p></section>`;
-      content = `${warning}${note}${members.length ? `<div class="perf-list">${rows}</div>` : empty}`;
+      content = `${warning}${note}${members.length ? `<div class="perf-list">${rows}</div>` : ""}${syncSection}${empty}`;
     }
   }
   return renderAnalysisInspector(options, "performance", status, content);

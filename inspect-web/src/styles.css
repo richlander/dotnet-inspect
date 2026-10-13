@@ -3154,6 +3154,12 @@ kbd {
 .fact-table > * { min-width: 90px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
 .fact-table strong { color: var(--dim); font: 12px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 .fact-table code { color: var(--text); font: 13px/1.45 var(--mono); white-space: nowrap; }
+.sync-calls-table-wrap { overflow-x: auto; }
+.sync-calls-table { width: 100%; min-width: 720px; border-collapse: collapse; font: 12px/1.45 var(--mono); }
+.sync-calls-table th { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 10px; font-weight: 500; text-align: left; text-transform: uppercase; }
+.sync-calls-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.sync-calls-table code { color: var(--text); white-space: normal; overflow-wrap: anywhere; }
+.sync-call-kind { color: var(--dim); text-transform: lowercase; }
 .finding { display: grid; grid-template-columns: 52px 1fr; gap: 12px; padding: 15px 10px; border-top: 1px solid var(--line); }
 .finding-level { align-self: start; padding: 3px 5px; border: 1px solid currentColor; font: 10px var(--mono); }
 .finding-level.warn { color: var(--yellow); }

@@ -226,6 +226,8 @@ function opportunitiesResult(): BrowserPackageOpportunities {
 function performanceResult(): PackagePerformance {
   return {
     members: [],
+    syncCallsInAsync: [],
+    syncCallsInAsyncCount: 0,
     inspectionError: null,
     nonPublicOpportunities: 0,
     totalOpportunities: 0,

@@ -69,6 +69,8 @@ function result(
 ): BrowserPackagePerformance {
   return {
     members: [member()],
+    syncCallsInAsync: [],
+    syncCallsInAsyncCount: 0,
     inspectionError: null,
     nonPublicOpportunities: 2,
     totalOpportunities: 5,
@@ -134,6 +136,31 @@ test("ranked member rows retain navigation identity and triage evidence", () => 
   assert.match(html, /string-concat/);
   assert.match(html, /perf-loop[^>]*>&#x21BB; 1/);
   assert.match(html, /perf-high[^>]*>high/);
+});
+
+test("sync calls in async render as a separate structured population", () => {
+  const html = renderLibraryAnalysisSurface({
+    ...baseOptions,
+    data: result({
+      members: [],
+      totalOpportunities: 0,
+      syncCallsInAsyncCount: 1,
+      syncCallsInAsync: [{
+        caller: "Test.Widget.<RunAsync>()",
+        callee: "Test.Widget.<Run>()",
+        alternative: "Test.Widget.<RunAsync>()",
+        pairKind: "<Operation>",
+      }],
+    }),
+  });
+
+  assert.match(html, /Sync calls in async/);
+  assert.match(html, /1 sync call/);
+  assert.match(html, /Test\.Widget\.&lt;RunAsync&gt;\(\)/);
+  assert.match(html, /Test\.Widget\.&lt;Run&gt;\(\)/);
+  assert.match(html, /&lt;Operation&gt;/);
+  assert.doesNotMatch(html, /data-perf-selector/);
+  assert.doesNotMatch(html, /No allocation hot spots/);
 });
 
 test("the full-area frame leaves Library identity to persistent subject context", () => {

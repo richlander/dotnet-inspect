@@ -125,6 +125,28 @@ public static class SyncCallsInAsyncQuery
     public static InspectionQuery<SyncCallsInAsyncResult> Definition { get; } =
         new("Sync calls in async", InspectionCost.NetworkFree);
 
+    /// <summary>
+    /// Inspects one participant while retaining the group's complete reference
+    /// binding universe.
+    /// </summary>
+    public static AssemblyContextEntry<SyncCallsInAsyncResult>
+        ExecuteParticipant(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant,
+            IReadOnlyList<SyncCallsInAsyncClosing> closings)
+    {
+        ArgumentNullException.ThrowIfNull(closings);
+        return AssemblyContextQueryExecutor.ExecuteParticipant(
+            group,
+            participant,
+            session => Execute(
+                session,
+                new AssemblyReferenceBindingAccess(
+                    participant.Assembly,
+                    participant.BindingPolicy),
+                closings));
+    }
+
     public static SyncCallsInAsyncResult Execute(
         AssemblyInspectionSession session,
         AssemblyReferenceBindingAccess referenceBinding,
