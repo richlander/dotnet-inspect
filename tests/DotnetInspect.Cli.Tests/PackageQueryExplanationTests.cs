@@ -88,7 +88,7 @@ public sealed class PackageQueryExplanationTests : IDisposable
         Assert.Equal(expected, facets.Select(facet => facet.GetProperty("key").GetString()));
         foreach (JsonElement facet in facets)
             Assert.True(JsonElement.DeepEquals(originals[facet.GetProperty("key").GetString()!], facet));
-        Assert.Equal("query-preparation/v1", root.GetProperty("scope").GetProperty("profile").GetString());
+        Assert.Equal("query-preparation/v2", root.GetProperty("scope").GetProperty("profile").GetString());
         Assert.Equal(19, root.GetProperty("scope").GetProperty("catalog_facets").GetInt32());
         Assert.Equal("Complete", root.GetProperty("scope").GetProperty("completeness").GetString());
         JsonElement binding = root.GetProperty("_embedded").GetProperty("bindings")[0];

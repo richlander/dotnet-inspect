@@ -24,22 +24,8 @@ namespace DotnetInspect.Web.Interop.Package
         internal static JsonElement InspectQueryFacets() =>
             QueryFacetData.Value;
 
-        private static JsonElement CreateQueryFacetData()
-        {
-            BrowserPackageQueryExplanationResult result =
-                PackageExports.ExplainPackageQueryCore(
-                    "inspect-resource:/package-query/query?projection=data",
-                    keys: null);
-            if (result.Outcome
-                    != BrowserPackageQueryExplanationOutcome.Explained
-                || result.Content is not JsonElement content)
-            {
-                throw new InvalidOperationException(
-                    result.Message
-                    ?? "Package Query Resource Explanation data is unavailable.");
-            }
-            return content;
-        }
+        private static JsonElement CreateQueryFacetData() =>
+            PackageExports.InspectPackageQueryPresentation();
 
         internal static PackageQueryPlanResult Plan(
             string text,
