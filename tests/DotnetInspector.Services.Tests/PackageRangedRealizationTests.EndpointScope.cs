@@ -209,6 +209,88 @@ public sealed partial class PackageRangedRealizationTests
     }
 
     /// <summary>
+    /// Step 4 part 3: the body query hands each endpoint's implementation
+    /// participants to one comparison, each with its image, a descriptor
+    /// that reads that image, and a resolver that binds references within
+    /// the endpoint's implementation group. A <c>Surface</c> endpoint has no
+    /// implementation role.
+    /// </summary>
+    [Fact]
+    public async Task EndpointScope_BodyQuery_HandsImplementationParticipantsTheirImagesAndResolvers()
+    {
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, ReadAvalonia());
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        var request = new PackageEndpointScopeRequest(
+            PackageSourceCoordinate.Create(Avalonia, AvaloniaVersion),
+            "net10.0",
+            PackageAssetDemand.SurfaceAndImplementation);
+        await using PackageEndpointScope before = AssertOpened(
+            await OpenEndpointAsync(environment, store, request));
+        await using PackageEndpointScope after = AssertOpened(
+            await OpenEndpointAsync(environment, store, request));
+
+        (int Before, int After, string? Bound) seen = await PackageEndpointBodyQuery.ExecuteAsync(
+            before,
+            after,
+            (beforeParticipants, afterParticipants, _) =>
+            {
+                Assert.Equal(
+                    before.ImplementationParticipants,
+                    beforeParticipants.Select(static participant => participant.Descriptor));
+                Assert.Equal(
+                    after.ImplementationParticipants,
+                    afterParticipants.Select(static participant => participant.Descriptor));
+                Assert.All(afterParticipants, participant =>
+                {
+                    Assert.StartsWith(
+                        AvaloniaImplementation,
+                        participant.Descriptor.Asset.Path,
+                        StringComparison.Ordinal);
+                    Assert.Equal(
+                        Path.GetFileNameWithoutExtension(participant.Descriptor.Asset.Path),
+                        participant.Assembly.Identity.Name);
+                    using Stream content = participant.Assembly.OpenRead();
+                    Assert.Equal(participant.Image.Length, content.Length);
+                });
+
+                PackageEndpointBodyParticipant controls = afterParticipants.Single(
+                    static participant => participant.Assembly.Identity.Name == "Avalonia.Controls");
+                using var pe = new System.Reflection.PortableExecutable.PEReader(
+                    controls.Image);
+                System.Reflection.Metadata.MetadataReader reader =
+                    System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                ILInspector.Metadata.AssemblyReferenceIdentity baseReference = reader.AssemblyReferences
+                    .Select(handle => ILInspector.Metadata.AssemblyReferenceIdentity.From(reader, handle))
+                    .Single(static identity => identity.Name == "Avalonia.Base");
+                return ValueTask.FromResult((
+                    beforeParticipants.Length,
+                    afterParticipants.Length,
+                    controls.Resolver.Resolve(
+                        baseReference,
+                        ILInspector.Metadata.AssemblyResolutionScope.Any)?.Identity.Name));
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal((11, 11, "Avalonia.Base"), seen);
+
+        await using PackageEndpointScope surface = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                store,
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(Avalonia, AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface)));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await PackageEndpointBodyQuery.ExecuteAsync(
+                surface,
+                after,
+                static (_, _, _) => ValueTask.FromResult(0),
+                TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
     /// Gate 3: a coordinate the source does not have, and a framework the
     /// package has no compatible compile assets for, are typed failures that
     /// keep the House evidence, never an empty scope.

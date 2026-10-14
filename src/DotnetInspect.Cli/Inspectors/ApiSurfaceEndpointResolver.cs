@@ -32,9 +32,9 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
     }
 
     /// <summary>
-    /// An endpoint opened as a package endpoint scope for the API views,
-    /// with the scope's merged participant surface. It has no extracted
-    /// file paths, so views that read method bodies don't take it.
+    /// An endpoint opened as a package endpoint scope, with the scope's
+    /// merged participant surface. It has no extracted file paths: the body
+    /// views read the scope's implementation participants.
     /// </summary>
     internal ApiSurfaceEndpoint(
         DotnetInspector.PackageQueries.PackageEndpointScope packageScope,
@@ -62,7 +62,7 @@ internal sealed class ApiSurfaceEndpoint : IDisposable
     public AssemblySet AssemblySet =>
         _assemblySet
         ?? throw new InvalidOperationException(
-            "A package endpoint scope has no extracted assembly set; only the API views read it.");
+            "A package endpoint scope has no extracted assembly set; read its participants.");
 
     /// <summary>The number of Libraries in this endpoint's population.</summary>
     public int LibraryCount =>
