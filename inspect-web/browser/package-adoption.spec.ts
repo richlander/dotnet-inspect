@@ -1221,6 +1221,29 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 });
 
 test.describe("Package Query website over real Wasm", () => {
+  test("opens a shared Package Dependency Hierarchy and reports partial traversal", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([references]));
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[references.packageId.toLowerCase(), references.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator("#package-hierarchy-title"))
+      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-tree"))
+      .toContainText(references.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-tree"))
+      .toContainText(declaredDependency.id.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-tree"))
+      .toContainText("Traversal partial", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-tree details"))
+      .toContainText("Could not acquire the dependency manifest");
+  });
+
   test("opens a coordinate result through retained definition activation", async ({
     page,
     context,

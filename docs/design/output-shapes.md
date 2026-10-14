@@ -107,6 +107,12 @@ acquisition with its [package transfer receipt](package-transfer-receipt.md).
 It preserves the ordinary primary output and publishes the complete enriched
 frame atomically.
 
+Debug pairwise `diff --package` adopts `--evidence-envelope <path>` for
+Library API Diff (`LibraryApiDiffOutcome`) and analysis sets
+(`DiffAnalysisDocument`), with the same `PackageAcquisitionEvidence`: the
+before endpoint's House acquisition, then the after endpoint's. Request
+shapes without a baseline envelope refuse the option.
+
 `--depth` remains traversal, while `--rows` and
 `-n`/`--head`/`--tail` remain semantic relationship selection. Content retains
 both

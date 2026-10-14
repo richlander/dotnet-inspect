@@ -531,17 +531,17 @@ public static class CommandLineBuilder
                 effectiveArguments,
                 rowSelection.ArgumentPositions,
                 optionValueFailure);
-        ParseFailure? librarySourceOptionFailure =
-            FindLibrarySourceOptionFailure(
+        ParseFailure? positionalOptionFailure =
+            FindPositionalOptionFailure(
                 parseResult,
                 effectiveArguments,
                 rowSelection.ArgumentPositions);
-        if (librarySourceOptionFailure is not null
+        if (positionalOptionFailure is not null
             && (parseFailure is null
-                || librarySourceOptionFailure.Position
+                || positionalOptionFailure.Position
                     < parseFailure.Position))
         {
-            parseFailure = librarySourceOptionFailure;
+            parseFailure = positionalOptionFailure;
         }
 
         bool usesCombinedFailurePrecedence =
@@ -565,13 +565,21 @@ public static class CommandLineBuilder
                 return 1;
             }
 
+            if (positionalOptionFailure is not null
+                && ReferenceEquals(parseFailure, positionalOptionFailure))
+            {
+                CommandError.Write(
+                    positionalOptionFailure.Error);
+                return 1;
+            }
+
             if (WriteParseErrors(parseResult))
                 return 1;
 
-            if (librarySourceOptionFailure is not null)
+            if (positionalOptionFailure is not null)
             {
                 CommandError.Write(
-                    librarySourceOptionFailure.Error);
+                    positionalOptionFailure.Error);
                 return 1;
             }
         }
@@ -796,28 +804,42 @@ public static class CommandLineBuilder
             .First();
     }
 
-    private static ParseFailure? FindLibrarySourceOptionFailure(
+    // On commands without their own positional validation, an option-like
+    // token that no option in scope declares must not become positional
+    // input: an unadmitted option such as --explain or -Q would otherwise be
+    // read as a type, version range, or population directory. Commands such
+    // as package, find, type, and member keep their focused diagnostics.
+    private static ParseFailure? FindPositionalOptionFailure(
         ParseResult parseResult,
         IReadOnlyList<string> arguments,
         IReadOnlyList<int>? argumentPositions)
     {
-        if (!parseResult.CommandResult.Command.Name.Equals(
-                "library",
-                StringComparison.Ordinal))
+        Command command = parseResult.CommandResult.Command;
+        bool guarded = command.Name switch
+        {
+            "library" or "depends" or "diff" => true,
+            "query" => parseResult.CommandResult.Parent is CommandResult
+            {
+                Command.Name: "library",
+            },
+            _ => false,
+        };
+        if (!guarded
+            || parseResult.Tokens.Any(token =>
+                token.Type == TokenType.Option
+                && token.Value is "--help" or "-h" or "-?" or "/h" or "/?"))
         {
             return null;
         }
 
-        ArgumentResult? source =
+        var sourceTokens = new HashSet<Token>(
             parseResult.CommandResult.Children
                 .OfType<ArgumentResult>()
-                .SingleOrDefault();
-        if (source is null || source.Tokens.Count == 0)
+                .SelectMany(argument => argument.Tokens),
+            ReferenceEqualityComparer.Instance);
+        if (sourceTokens.Count == 0)
             return null;
 
-        var sourceTokens = new HashSet<Token>(
-            source.Tokens,
-            ReferenceEqualityComparer.Instance);
         CliArgumentOwnership.ParsedArgument[] mapped =
             CliArgumentOwnership.MapArguments(
                 parseResult,

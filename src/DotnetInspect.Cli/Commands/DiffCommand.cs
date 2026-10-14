@@ -258,12 +258,11 @@ public partial class DiffCommand
         }
         // A Debug evidence envelope carries the House acquisitions of an
         // operation whose baseline envelope exists: Library API Diff or an
-        // API analysis set, opened through the package endpoint scope
+        // analysis set, opened through the package endpoint scope
         // (docs/design/package-transfer-receipt.md#delivery).
         if (options.EvidenceEnvelopePath is not null
             && (!hasPackage
                 || !AdmitsPackageEndpointScope(
-                    catalog,
                     options,
                     implementationTransport,
                     annotatedSourceTransport,
@@ -273,7 +272,7 @@ public partial class DiffCommand
         {
             CommandError.Write(
                 "--evidence-envelope requires diff --history, or a pairwise diff --package "
-                    + "Library API Diff or API analysis set.");
+                    + "Library API Diff or analysis set.");
             return 1;
         }
 
@@ -341,7 +340,6 @@ public partial class DiffCommand
             {
                 var result =
                     AdmitsPackageEndpointScope(
-                        catalog,
                         options,
                         implementationTransport,
                         annotatedSourceTransport,
@@ -349,6 +347,7 @@ public partial class DiffCommand
                         ? await TryExecuteScopedPackageDiffAsync(
                             options,
                             analysisPlan is not null,
+                            ReadsMethodBodies(catalog, options, analysisPlan),
                             logger,
                             context.HttpClient,
                             cancellationToken)
@@ -400,7 +399,7 @@ public partial class DiffCommand
                         cancellationToken);
                 }
                 if (analysisPlan is not null)
-                    return ExecuteAnalysisSet(inputs, options, analysisPlan);
+                    return await ExecuteAnalysisSetAsync(inputs, options, analysisPlan, cancellationToken);
                 if (transportOption is not null
                     && !UsesSharedLibraryApiDiff(inputs, options)
                     && !implementationTransport)
@@ -496,14 +495,13 @@ public partial class DiffCommand
                         catalog,
                         options,
                         workspaceTarget is not null);
-                InspectionQueryResults queryResults = queryPlan.Run(
-                    new DiffQueryContext(
-                        inputs.FromSurface,
-                        inputs.ToSurface,
-                        () => CreateBodySignalComparisonInput(inputs, options),
-                        () => CreateImplementationComparisonInput(
+                InspectionQueryResults queryResults =
+                    ReadsMethodBodies(queryPlan)
+                        ? await WithBodyPopulationAsync(
                             inputs,
-                            options)));
+                            bodied => RunQueryPlan(queryPlan, bodied, options),
+                            cancellationToken)
+                        : RunQueryPlan(queryPlan, inputs, options);
                 WorkspaceImplementationComparisonResult? workspaceImplementation =
                     workspaceTarget is null
                         ? null
@@ -672,15 +670,10 @@ public partial class DiffCommand
                                     queryResults.Get(
                                         ImplementationComparisonQuery.Definition),
                                     DiffSections.ImplementationDiff.Name),
-                                inputs.FromPaths,
-                                inputs.ToPaths,
+                                inputs,
                                 options,
                                 context.HttpClient,
-                                logger,
-                                inputs.FromSurface,
-                                inputs.ToSurface,
-                                inputs.From.AssemblySet.Assemblies,
-                                inputs.To.AssemblySet.Assemblies);
+                                logger);
                         view = DiffOutputFormatter.BuildImplementationDiffView(
                             inputs.Name,
                             implementation.Local,
@@ -896,6 +889,21 @@ public partial class DiffCommand
         public IReadOnlyList<string> FromPaths => From.Paths;
         public IReadOnlyList<string> ToPaths => To.Paths;
 
+        /// <summary>
+        /// The package endpoint scopes' implementation participants, while
+        /// <see cref="WithBodyPopulationAsync"/> holds them.
+        /// </summary>
+        public DiffBodyPopulation? Bodies { get; init; }
+
+        /// <summary>
+        /// The assemblies the body views compare: the scopes' implementation
+        /// participants, or the extracted files, attributed to
+        /// <paramref name="purpose"/>.
+        /// </summary>
+        public DiffBodyPopulation BodyPopulation(string purpose) =>
+            Bodies
+            ?? DiffBodyPopulation.FromPaths(FromPaths, ToPaths, purpose);
+
         public async ValueTask DisposeAsync()
         {
             try
@@ -1028,24 +1036,16 @@ public partial class DiffCommand
     internal static readonly AsyncLocal<bool> LegacyPackageEndpointsForTesting = new();
 
     /// <summary>
-    /// Whether a pairwise package request selects Library API Diff, the one
-    /// view the package endpoint scope serves at this step: its parity with
-    /// the legacy path doesn't depend on the host. API changes, Finding
-    /// Transitions, and body views keep the legacy endpoints, decided before
-    /// any package read (docs/design/package-endpoint-scope.md, steps 2 and 4).
-    /// The endpoints' one-Library requirement is checked from each archive
-    /// directory.
-    /// </summary>
-    /// <summary>
-    /// Whether the request's views read only the API surface, so its package
-    /// endpoints open as package endpoint scopes
-    /// (docs/design/package-endpoint-scope.md, step 4 part 2): every
-    /// requested section runs the API comparison alone, and an analysis set
-    /// selects only API-metadata analyses. Views that read method bodies
-    /// keep the legacy path until step 4 part 3.
+    /// Whether the request's package endpoints open as package endpoint
+    /// scopes (docs/design/package-endpoint-scope.md, step 4 parts 2 and 3):
+    /// the API views over the merged participant surface, and the body
+    /// views (Analysis, Implementation, Complexity, Structural, and analysis
+    /// sets that read method bodies) over the implementation participants.
+    /// PDB source and the workspace implementation comparison keep the
+    /// legacy path until parts 4 and 5, and string literals until their
+    /// multi-Library comparison lands.
     /// </summary>
     static bool AdmitsPackageEndpointScope(
-        DiffSectionCatalog catalog,
         DiffOptions options,
         bool implementationTransport,
         bool annotatedSourceTransport,
@@ -1054,11 +1054,20 @@ public partial class DiffCommand
             && !implementationTransport
             && !annotatedSourceTransport
             && !options.IncludePdbSource
-            && (analysisPlan is null
-                ? GetRequestedQueryPlan(catalog, options).RequestedQueries.All(
-                    static query => query == ApiComparisonQuery.Definition)
-                : analysisPlan.StringLiteralQuery is null
-                    && DiffAnalysisCatalog.ReadsOnlyApiSurface(analysisPlan.Selection));
+            && !RequestsWorkspaceImplementationTarget(options)
+            && analysisPlan?.StringLiteralQuery is null;
+
+    /// <summary>
+    /// Whether an admitted request reads method bodies, so its package
+    /// endpoints open with the <c>SurfaceAndImplementation</c> demand.
+    /// </summary>
+    static bool ReadsMethodBodies(
+        DiffSectionCatalog catalog,
+        DiffOptions options,
+        DiffAnalysisPlan? analysisPlan)
+        => analysisPlan is null
+            ? ReadsMethodBodies(GetRequestedQueryPlan(catalog, options))
+            : !DiffAnalysisCatalog.ReadsOnlyApiSurface(analysisPlan.Selection);
 
     /// <summary>
     /// Opens both endpoints as package endpoint scopes, or returns neither
@@ -1068,6 +1077,7 @@ public partial class DiffCommand
         TryExecuteScopedPackageDiffAsync(
             DiffOptions options,
             bool runsAnalysisSet,
+            bool readsMethodBodies,
             VerboseLogger logger,
             HttpClient httpClient,
             CancellationToken cancellationToken)
@@ -1089,6 +1099,9 @@ public partial class DiffCommand
             await PackageEndpointDiffSession.TryOpenAsync(
                 httpClient,
                 selection,
+                readsMethodBodies
+                    ? PackageAssetDemand.SurfaceAndImplementation
+                    : PackageAssetDemand.Surface,
                 options.SourceOptions,
                 logger,
                 cancellationToken);
@@ -1587,15 +1600,10 @@ public partial class DiffCommand
                             queryResults.Get(
                                 ImplementationComparisonQuery.Definition),
                             DiffSections.ImplementationDiff.Name),
-                        inputs.FromPaths,
-                        inputs.ToPaths,
+                        inputs,
                         options,
                         httpClient,
-                        logger,
-                        inputs.FromSurface,
-                        inputs.ToSurface,
-                        inputs.From.AssemblySet.Assemblies,
-                        inputs.To.AssemblySet.Assemblies);
+                        logger);
                 implementationView =
                     DiffOutputFormatter.BuildImplementationDiffView(
                         inputs.Name,
@@ -1833,8 +1841,7 @@ public partial class DiffCommand
         DiffInputs inputs,
         DiffOptions options)
         => CreateBodySignalComparisonInput(
-            inputs.FromPaths,
-            inputs.ToPaths,
+            inputs.BodyPopulation("diff body-signal comparison"),
             options,
             inputs.FromSurface,
             inputs.ToSurface);
@@ -1847,32 +1854,54 @@ public partial class DiffCommand
         ApiSurface? toSurface = null,
         IReadOnlyList<FindingDescriptor>? retainedComparisons = null)
     {
+        fromSurface ??= options.MemberFilter.Count == 0
+            ? null
+            : AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface();
+        toSurface ??= options.MemberFilter.Count == 0
+            ? null
+            : AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface();
+        return CreateBodySignalComparisonInput(
+            DiffBodyPopulation.FromPaths(
+                fromPaths,
+                toPaths,
+                "diff body-signal comparison"),
+            options,
+            fromSurface,
+            toSurface,
+            retainedComparisons);
+    }
+
+    static BodySignalComparisonInput CreateBodySignalComparisonInput(
+        DiffBodyPopulation bodies,
+        DiffOptions options,
+        ApiSurface? fromSurface,
+        ApiSurface? toSurface,
+        IReadOnlyList<FindingDescriptor>? retainedComparisons = null)
+    {
         IReadOnlyList<ComparisonMemberSelection>? selections =
             options.MemberFilter.Count == 0
                 ? null
                 : ResolveComparisonMemberSelections(
-                    fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
-                    toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface(),
+                    fromSurface ?? new ApiSurface(),
+                    toSurface ?? new ApiSurface(),
                     options);
         return new BodySignalComparisonInput(
-            [.. fromPaths.Select(CreateBodySignalBinding)],
-            [.. toPaths.Select(CreateBodySignalBinding)],
+            [.. bodies.From.Select(CreateBodySignalBinding)],
+            [.. bodies.To.Select(CreateBodySignalBinding)],
             options.TypeFilter,
             selections,
             retainedComparisons);
     }
 
-    static BodySignalComparisonBinding CreateBodySignalBinding(string path)
+    static BodySignalComparisonBinding CreateBodySignalBinding(
+        DiffBodyAssembly body)
     {
-        var assembly = ResolvedAssemblyReference.CreateFromPath(
-            path,
-            AssemblyResolutionProvenance.Local(
-                "diff body-signal comparison"));
         ILInspector.Analysis.LibraryBodyAnalysisExecution execution =
-            MethodBodyInspectionSession.Open(assembly).AnalysisExecution;
+            body.OpenSession(includeImplementationProfiles: false)
+                .AnalysisExecution;
         return new(
-            assembly,
-            MetadataSource.DefaultAssemblyReferenceResolver(path),
+            body.Assembly,
+            body.Resolver,
             new BodySignalAnalysisInput(
                 execution.Allocations,
                 execution.Safety,
@@ -1978,8 +2007,7 @@ public partial class DiffCommand
             DiffInputs inputs,
             DiffOptions options)
         => CreateImplementationComparisonInput(
-            inputs.FromPaths,
-            inputs.ToPaths,
+            inputs.BodyPopulation("diff implementation comparison"),
             options,
             inputs.FromSurface,
             inputs.ToSurface);
@@ -1992,30 +2020,43 @@ public partial class DiffCommand
             ApiSurface? fromSurface = null,
             ApiSurface? toSurface = null)
     {
+        fromSurface ??= options.MemberFilter.Count == 0
+            ? null
+            : AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll) ?? new ApiSurface();
+        toSurface ??= options.MemberFilter.Count == 0
+            ? null
+            : AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll) ?? new ApiSurface();
+        return CreateImplementationComparisonInput(
+            DiffBodyPopulation.FromPaths(
+                fromPaths,
+                toPaths,
+                "diff implementation comparison"),
+            options,
+            fromSurface,
+            toSurface);
+    }
+
+    static ImplementationComparisonInput
+        CreateImplementationComparisonInput(
+            DiffBodyPopulation bodies,
+            DiffOptions options,
+            ApiSurface? fromSurface,
+            ApiSurface? toSurface)
+    {
         ImplementationAssemblyInput[] oldAssemblies =
         [
-            .. fromPaths.Select(CreateImplementationAssemblyInput),
+            .. bodies.From.Select(CreateImplementationAssemblyInput),
         ];
         ImplementationAssemblyInput[] newAssemblies =
         [
-            .. toPaths.Select(CreateImplementationAssemblyInput),
+            .. bodies.To.Select(CreateImplementationAssemblyInput),
         ];
         IReadOnlyList<ComparisonMemberSelection>? memberSelections = null;
         if (options.MemberFilter.Count > 0)
         {
-            ApiSurface oldSurface = fromSurface
-                ?? AssemblySetSurfaceBuilder.Build(
-                    fromPaths,
-                    includeAll: options.IncludeAll)
-                ?? new ApiSurface();
-            ApiSurface newSurface = toSurface
-                ?? AssemblySetSurfaceBuilder.Build(
-                    toPaths,
-                    includeAll: options.IncludeAll)
-                ?? new ApiSurface();
             memberSelections = ResolveComparisonMemberSelections(
-                oldSurface,
-                newSurface,
+                fromSurface ?? new ApiSurface(),
+                toSurface ?? new ApiSurface(),
                 options,
                 SelectsComplexityContext(options)
                     ? DiffSections.ComplexityContext.Name
@@ -2034,18 +2075,13 @@ public partial class DiffCommand
     }
 
     static ImplementationAssemblyInput CreateImplementationAssemblyInput(
-        string path)
+        DiffBodyAssembly body)
     {
-        var assembly = ResolvedAssemblyReference.CreateFromPath(
-            path,
-            AssemblyResolutionProvenance.Local(
-                "diff implementation comparison"));
-        var session = MethodBodyInspectionSession.Open(
-            assembly,
-            includeImplementationProfiles: true);
+        MethodBodyInspectionSession session =
+            body.OpenSession(includeImplementationProfiles: true);
         return new(
-            assembly,
-            MetadataSource.DefaultAssemblyReferenceResolver(path),
+            body.Assembly,
+            body.Resolver,
             session.CallGraphAnalysis,
             session.AnalysisExecution.ImplementationProfiles);
     }
@@ -2084,6 +2120,33 @@ public partial class DiffCommand
             fromEntries,
             toEntries);
     }
+
+    /// <summary>
+    /// Attaches PDB source to an Implementation Diff when it was requested.
+    /// Only extracted endpoints acquire PDB source; package endpoint scopes
+    /// don't take that request yet (docs/design/package-endpoint-scope.md,
+    /// step 4 part 4).
+    /// </summary>
+    static Task<ImplementationDiffWithSource>
+        BuildImplementationDiffWithSourceAsync(
+            ImplementationDiffResult result,
+            DiffInputs inputs,
+            DiffOptions options,
+            HttpClient httpClient,
+            VerboseLogger logger)
+        => options.IncludePdbSource
+            ? BuildImplementationDiffWithSourceAsync(
+                result,
+                inputs.FromPaths,
+                inputs.ToPaths,
+                options,
+                httpClient,
+                logger,
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.From.AssemblySet.Assemblies,
+                inputs.To.AssemblySet.Assemblies)
+            : Task.FromResult(new ImplementationDiffWithSource(result));
 
     internal static async Task<ImplementationDiffWithSource>
         BuildImplementationDiffWithSourceAsync(
@@ -3267,17 +3330,25 @@ public partial class DiffCommand
         return (true, null);
     }
 
+    /// <summary>
+    /// Whether a package request may take the workspace implementation
+    /// comparison: Implementation or Annotated Source Diff with one Type and
+    /// one Member selector, and no PDB source.
+    /// </summary>
+    static bool RequestsWorkspaceImplementationTarget(DiffOptions options)
+        => options.PackageVersionRange is not null
+            && (SelectsImplementationDiff(options)
+                || SelectsAnnotatedSourceDiff(options))
+            && options.MemberFilter.Count == 1
+            && options.TypeFilter.Count == 1
+            && !options.IncludePdbSource;
+
     static WorkspaceImplementationTarget?
         TryCreateWorkspaceImplementationTarget(
             DiffInputs inputs,
             DiffOptions options)
     {
-        if (options.PackageVersionRange is null
-            || !(SelectsImplementationDiff(options)
-                || SelectsAnnotatedSourceDiff(options))
-            || options.MemberFilter.Count != 1
-            || options.TypeFilter.Count != 1
-            || options.IncludePdbSource
+        if (!RequestsWorkspaceImplementationTarget(options)
             || !WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
                 inputs.From.AssemblySet,
                 inputs.Name)

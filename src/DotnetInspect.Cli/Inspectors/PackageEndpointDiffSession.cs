@@ -12,9 +12,9 @@ namespace DotnetInspect.Cli.Inspectors;
 
 /// <summary>
 /// CLI host policy for the two endpoints of a pairwise
-/// <c>diff --package ID@A..B</c> API view opened as package endpoint scopes
+/// <c>diff --package ID@A..B</c> view opened as package endpoint scopes
 /// (docs/design/package-endpoint-scope.md, adoption step 2 and step 4 parts
-/// 1 and 2): the House's version and framework selection, as
+/// 1 to 3): the House's version and framework selection, as
 /// <c>package</c> has it, and ranged House access over the
 /// legacy-compatible per-authority store.
 /// </summary>
@@ -109,14 +109,17 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Opens both endpoints with the <c>Surface</c> demand by range, each
-    /// settling its own demand in the House, or returns
+    /// Opens both endpoints by range with <paramref name="assetDemand"/>:
+    /// <c>Surface</c> for the API views, <c>SurfaceAndImplementation</c> for
+    /// the body views. Each endpoint settles its own demand in the House.
+    /// Returns
     /// <see langword="null"/> when either endpoint did not open, so the
     /// legacy path reports the failure.
     /// </summary>
     internal static async Task<PackageEndpointDiffSession?> TryOpenAsync(
         HttpClient httpClient,
         PackageEndpointDiffSelection selection,
+        PackageAssetDemand assetDemand,
         NuGetSourceOptions? sourceOptions,
         VerboseLogger logger,
         CancellationToken cancellationToken = default)
@@ -177,7 +180,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 try
                 {
                     PackageEndpointScope? scope = await OpenAsync(
-                            composition, house, packageId, version, demand, target, logger, sibling.Token)
+                            composition, house, packageId, version, demand, target, assetDemand, logger, sibling.Token)
                         .ConfigureAwait(false);
                     if (scope is null)
                         await sibling.CancelAsync().ConfigureAwait(false);
@@ -207,13 +210,14 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         string version,
         PackageHouseDemand demand,
         PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand,
         VerboseLogger logger,
         CancellationToken cancellationToken)
     {
         var request = new PackageEndpointScopeRequest(
             demand,
             target,
-            PackageAssetDemand.Surface);
+            assetDemand);
 
         long realizing = System.Diagnostics.Stopwatch.GetTimestamp();
         PackageEndpointScopeOutcome outcome =
@@ -227,7 +231,9 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             logger,
             packageId,
             version,
-            "surface realization",
+            assetDemand == PackageAssetDemand.Surface
+                ? "surface realization"
+                : "surface and implementation realization",
             outcome switch
             {
                 PackageEndpointScopeOutcome.Opened opened => opened.Scope.Contribution.Result,
@@ -255,6 +261,10 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             $"Using package endpoint scope for {packageId}@{version} "
                 + $"({scope.SurfaceParticipants.Length} surface "
                 + (scope.SurfaceParticipants.Length == 1 ? "assembly" : "assemblies")
+                + (assetDemand == PackageAssetDemand.Surface
+                    ? ""
+                    : $" and {scope.ImplementationParticipants.Length} implementation "
+                        + (scope.ImplementationParticipants.Length == 1 ? "assembly" : "assemblies"))
                 + $" for {scope.TargetFramework}; payload {scope.Payload.Origin}).");
         return scope;
     }

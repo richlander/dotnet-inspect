@@ -847,6 +847,8 @@ packet=$(dotnet-inspect workspace \
 dotnet-inspect package System.Text.Json --workspace "$packet"
 dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
+dotnet-inspect package System.Text.Json@10.0.0 \
+  --tfm netstandard2.0 -S "Dependency Hierarchy" --share url
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
@@ -890,6 +892,14 @@ Appending `--share` preserves ordinary stdout and writes a derived Package
 packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
+
+For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
+append `--share url` to keep the hierarchy on stdout and print its Inspect Web
+URL on stderr. The URL preserves the resolved exact Package version and target
+framework; the Browser reacquires that Package and runs the rooted dependency
+traversal. `--share packet` emits the packet instead. Local archives, other
+source selections, and hierarchy row or depth selections cannot currently be
+reproduced in the Browser and fail visibly.
 
 For one package with exactly `Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
@@ -2133,8 +2143,9 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --member "Serialize:1" \
   --analysis api,call-site,allocation
 
-dotnet-inspect diff --package Microsoft.Identity.Client@4.89.0..4.90.0 \
-  --analysis string-literals --where "Literal contains https://"
+dotnet-inspect diff --package Microsoft.Azure.SignalR@1.20.0..1.33.1 \
+  --analysis string-literals \
+  --where "Literal contains https://"
 
 dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
   --analysis string-literals --where "Literal starts-with https://" --json
@@ -2144,7 +2155,11 @@ String-literal predicates use exact ordinal UTF-16 matching. The key is
 case-sensitive `Literal`; the supported operators are `contains` and
 `starts-with`. Each Transition row retains the complete decoded literal. Two
 matching positions within one literal still produce one row, while separate
-physical `ldstr` instructions remain separate occurrences.
+physical `ldstr` instructions remain separate occurrences. Package diffs with
+several Library assemblies compare corresponding assemblies by file name and
+name each assembly in the Transition target. An assembly present at only one
+endpoint contributes added or removed literals. The single-Library target
+remains the package name.
 
 Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to

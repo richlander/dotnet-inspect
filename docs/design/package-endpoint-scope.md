@@ -194,7 +194,7 @@ never retain a participant after the scope is disposed.
    Before any read, the CLI checks the local caches the legacy path answers
    from with no network request: the application cache and a NuGet
    global-packages folder. The check reuses the legacy extraction's own cache
-   lookup (`PackageExtractor.IsExactPackageCachedAsync`) and makes no request.
+   lookup, which step 4 part 2 retired, and makes no request.
    If both endpoint coordinates are cached there, the request takes the
    legacy path. When this step landed, the House authority stores read
    neither cache; durable authorities now reuse their own global-packages
@@ -337,12 +337,37 @@ never retain a participant after the scope is disposed.
         - The other API views name the endpoint frameworks when they differ,
           as Library API Diff does, on both routes.
         - String literals read method bodies, so they move with the body
-          views in part 3 and read implementation participants rather than
-          reference stubs.
-     3. **Body views with `SurfaceAndImplementation`.** Analysis,
-        Implementation, Complexity, and Structural read implementation
-        participants through image-based body sessions, which fixes the
-        reference-stub gap.
+          views, as part 3 states.
+     3. **Body views with `SurfaceAndImplementation`.** Analysis Diff,
+        Implementation Diff, Complexity Context, Structural Context, and
+        analysis sets that read method bodies open their endpoints with
+        `SurfaceAndImplementation`. They read each endpoint's
+        implementation participants rather than extracted files.
+        - `PackageEndpointBodyQuery` hands both endpoints' implementation
+          participants to one comparison while it holds their groups. Each
+          participant comes with its image, a descriptor that reads that
+          image, and a resolver that binds its references within the
+          implementation group. The comparison returns materialized results.
+        - Implementation participants are the package's runtime assets for
+          the selected framework. A package that ships `ref/` compares its
+          implementation, never its reference stubs, with or without
+          `--tfm`. For example, `System.Runtime.CompilerServices.Unsafe`
+          4.7.1..5.0.0 compares `lib/netcoreapp2.0` by default, where the
+          legacy path compared the `ref/netstandard2.0` and
+          `ref/netstandard2.1` stubs. With `--tfm netstandard2.0`, it
+          compares `lib/netstandard2.0`, where the legacy path failed on its
+          doubled `ref/` and `lib/` selection.
+        - Method-body references bind through the group's binding policy,
+          not through installed runtimes or local caches. The body views
+          take the merged surface for member targets and inspection
+          failures, so they drop the machine-dependent constraint rows and
+          name the endpoint frameworks, as the API views do.
+        - PDB source and the workspace implementation comparison keep the
+          legacy path until parts 4 and 5. The workspace comparison serves
+          Implementation Diff with one Type and one Member selector.
+        - String literals keep the legacy path for now. Their comparison
+          still reads extracted files, and its multi-Library form is in
+          review. They move onto implementation participants before part 6.
      4. **PDB and SourceLink from participants,** with a demand for listed
         adjacent Portable PDBs and participant provenance.
      5. **The workspace implementation comparison and Annotated Source
@@ -400,14 +425,14 @@ All gates run in Release.
 | 2. `SurfaceAndImplementation` | implementation participants with their surface correspondence | contract suite |
 | 3. A coordinate that doesn't exist, or no compatible framework | typed non-success, never an empty scope | contract suite |
 | 4. CLI `find` exact-package search, after step 3 | output byte-identical to before the move | existing `find` gates |
-| 5. `diff --package ID@A..B` Library API Diff | output byte-identical to the legacy path where both select the same assemblies; both endpoints read only their surface folder by range | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0 |
+| 5. `diff --package ID@A..B` Library API Diff | output byte-identical to the legacy path where both select the same assemblies; both endpoints read their archive directory, then only their surface folder by range, with no complete request | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0 |
 | 6. The same pairwise diff twice | the second makes no package request | CLI harness |
 | 7. Offline pairwise diff with both endpoints cached | the same output from the local cache; after step 4 part 1, an exact pin opens through the scope with no request, with and without `--tfm`, and `latest` and a `*` pattern keep the legacy route, which reports `latest` as `package` does and answers a `*` pattern from cached listings | CLI harness: exact pins with and without `--tfm` against a feed that rejects every request; the route for offline `latest` and `*` by the scope-selection theory |
 | 8. Inspect Web Compare, after step 5 | the same Library API diff result through the shared scope | Web boundary tests |
 | 9. Pairwise diff without `--tfm`, after step 4 part 1 | each endpoint selects the framework `package` selects for it, through the House's owner-default compile selection, and the output names each endpoint's framework when they differ | CLI harness, real assets `System.Text.Json` 9.0.0 and 10.0.0: `net9.0` against `net10.0` by default, each the framework `package` reports for that version, and both `net9.0` with `--tfm net9.0`. The operator's example, 10.0.0 against the 11.0 release candidate (`net10.0` against `net11.0`), is the same rule; it is checked live on nuget.org, not gated |
 | 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand, once per endpoint | CLI harness, `System.Text.Json` 9.0.0 and 10.0.0 with a prerelease above 10.0.0, so `*` (prerelease included) and `latest` (stable) settle differently; each settled version equals `package`'s for the same spelling |
-| 11. API changes, API Finding Transitions, multi-Library packages, and member targets, after step 4 part 2 | the merged participant surface, read by range; output byte-identical to the legacy path where both select the same assemblies; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` reads only `ref/net8.0`, repeats a change row only for overloads, and completes without an inspection failure | CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 API changes and Transitions; `NUnit` 4.1.0..4.2.2, two Libraries below the size cut, each archive downloaded once; `Avalonia` 11.3.14..12.1.2 against the legacy oracle's repeated rows |
-| 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm` | CLI harness |
+| 11. API changes, API Finding Transitions, multi-Library packages, and member targets, after step 4 part 2 | the merged participant surface, read by range; output byte-identical to the legacy path where both select the same assemblies; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` reads only `ref/net8.0`, repeats a change row only for overloads, and completes without an inspection failure | CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 API changes and Transitions; `NUnit` 4.1.0..4.2.2, two Libraries below the size cut, each archive read once, directory first; `Avalonia` 11.3.14..12.1.2 against the legacy oracle's repeated rows |
+| 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm`; output byte-identical to the legacy path where both select the same assemblies | contract suite for the body query; CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 Analysis Diff, Implementation Diff, and a member-targeted body analysis set, read by range; `System.Runtime.CompilerServices.Unsafe` 4.7.1 and 5.0.0, which ship `ref/` and `lib/`, against the legacy oracle's reference stubs |
 | 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
 | 14. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
 | 15. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |

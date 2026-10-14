@@ -14,6 +14,8 @@ public sealed record StringLiteralComparisonQueryPlan(
     PortableQueryTerm Term,
     StringLiteralUsePredicate Predicate);
 
+public sealed record StringLiteralComparisonPath(string AssemblyName, string Path);
+
 public abstract record StringLiteralComparisonQueryPlanResult
 {
     private StringLiteralComparisonQueryPlanResult()
@@ -95,6 +97,75 @@ public static class StringLiteralComparisonQuery
             budget ?? StringLiteralUsePatternBudget.Default,
             cancellationToken);
         return Comparison(subject, before, after);
+    }
+
+    public static RetainedFindingComparisonSet ExecutePathSets(
+        IReadOnlyList<StringLiteralComparisonPath> beforePaths,
+        IReadOnlyList<StringLiteralComparisonPath> afterPaths,
+        string subjectId,
+        StringLiteralComparisonQueryPlan plan,
+        StringLiteralUsePatternBudget? budget = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(beforePaths);
+        ArgumentNullException.ThrowIfNull(afterPaths);
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subjectId);
+        if (beforePaths.Count == 0 || afterPaths.Count == 0)
+        {
+            throw new ArgumentException(
+                "Each endpoint must supply at least one Library assembly.");
+        }
+
+        var before = Index(beforePaths);
+        var after = Index(afterPaths);
+        StringLiteralUsePatternBudget effectiveBudget =
+            budget ?? StringLiteralUsePatternBudget.Default;
+        var comparisons = new List<RetainedFindingComparison>();
+        foreach (string name in before.Keys.Concat(after.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static name => name, StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var subject = Subject($"{subjectId}/{name}", name);
+            var findingSubject = new FindingSubject(subject.Id, subject.Display);
+            FindingInspection<StringLiteralUseOccurrence> oldInspection =
+                before.TryGetValue(name, out string? beforePath)
+                    ? InspectPath(beforePath, findingSubject, plan.Predicate,
+                        effectiveBudget, cancellationToken)
+                    : new FindingInspection<StringLiteralUseOccurrence>.Complete([]);
+            FindingInspection<StringLiteralUseOccurrence> newInspection =
+                after.TryGetValue(name, out string? afterPath)
+                    ? InspectPath(afterPath, findingSubject, plan.Predicate,
+                        effectiveBudget, cancellationToken)
+                    : new FindingInspection<StringLiteralUseOccurrence>.Complete([]);
+            comparisons.Add(
+                new RetainedFindingComparison<StringLiteralUseOccurrence>(
+                    subject,
+                    StringLiteralUseFindings.Descriptor,
+                    FindingComparison.Compare(oldInspection, newInspection)));
+        }
+        return new RetainedFindingComparisonSet(comparisons);
+
+        static Dictionary<string, string> Index(
+            IReadOnlyList<StringLiteralComparisonPath> paths)
+        {
+            var indexed = new Dictionary<string, string>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (StringLiteralComparisonPath path in paths)
+            {
+                ArgumentException.ThrowIfNullOrWhiteSpace(path.AssemblyName);
+                ArgumentException.ThrowIfNullOrWhiteSpace(path.Path);
+                if (!indexed.TryAdd(path.AssemblyName, path.Path))
+                {
+                    throw new ArgumentException(
+                        $"Duplicate Library assembly '{path.AssemblyName}'.",
+                        nameof(paths));
+                }
+            }
+            return indexed;
+        }
     }
 
     public static RetainedFindingComparisonSet ExecuteParticipants(

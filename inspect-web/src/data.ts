@@ -36,6 +36,7 @@ export const packageLenses = [
   ["overview", "Overview"],
   ["compare", "Compare"],
   ["dependencies", "References"],
+  ["hierarchy", "Dependency Hierarchy"],
   ["vulnerabilities", "Vulnerabilities"],
 ] as const;
 
@@ -335,15 +336,14 @@ export function dependencyGraphExternalKey(packageId: string, declaredRange: str
 
 export function platformReferencesForDependencyGroup<
   TReference,
-  TGroup extends {
-    readonly index: number;
-    readonly isComplete?: boolean;
-    readonly dependencies: readonly unknown[];
-  },
 >(
   references: readonly TReference[],
   defaultReference: TReference | null | undefined,
-  groups: readonly TGroup[],
+  groups: readonly {
+    readonly index: number;
+    readonly isComplete?: boolean;
+    readonly dependencies: readonly unknown[];
+  }[],
   selectedGroupIndex: number | null,
 ): readonly TReference[] {
   if (!defaultReference) return references;

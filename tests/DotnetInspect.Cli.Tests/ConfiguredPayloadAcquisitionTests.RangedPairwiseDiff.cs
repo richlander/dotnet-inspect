@@ -78,9 +78,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             Assert.DoesNotContain("takes the legacy path", result.Error, StringComparison.Ordinal);
             if (view == 0)
             {
-                // One abandoned size probe per endpoint, then ranged reads of
-                // the surface folder only.
-                Assert.Equal(SystemTextJsonVersions.Length, feed.FullPackageResponses);
+                // The directory first, then ranged reads of the surface
+                // folder only; no complete request.
+                Assert.Equal(0, feed.FullPackageResponses);
                 AssertEachCellReadsOnly(feed, packages, ["lib/net8.0"]);
                 continue;
             }
@@ -225,7 +225,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// Gate 11 below the ranged size cut: the real NUnit 4.1.0 and 4.2.2
     /// archives (0.7 MB each) ship two Libraries in <c>lib/net6.0</c>, so
     /// the API changes read each endpoint's merged surface. Each archive is
-    /// downloaded once, and the output equals the legacy oracle's.
+    /// read once, directory first, and the output equals the legacy
+    /// oracle's.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_TwoLibrariesBelowTheSizeCut_DownloadEachArchiveOnce()
@@ -267,14 +268,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Equal(
             2,
             CountOccurrences(result.Error, "(2 surface assemblies for net6.0;"));
-        // Below the cut, each archive is acquired complete, once.
+        // Below the cut, each archive's directory is read first, then its
+        // missing prefix, and the archive is assembled complete: every byte
+        // once (docs/design/package-cache-policy.md#directory-first).
         long archives = packages.Values.Sum(static package => (long)package.Length);
-        Assert.True(
-            feed.FullBodyBytesRead >= archives
-                && feed.FullBodyBytesRead <= archives + (archives / 4),
-            $"complete-response bodies read {feed.FullBodyBytesRead} bytes: "
-                + string.Join(", ", feed.FullBodyReadsByResponse()));
-        Assert.Equal(0, feed.RangedResponses);
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.Equal(archives, feed.PackageBytesServed);
     }
 
     /// <summary>
