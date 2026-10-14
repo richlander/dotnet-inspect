@@ -1,9 +1,8 @@
 using DotnetInspector.Packages;
-using DotnetInspector.Queries;
 using NuGet.Versioning;
 using NuGetFetch;
 
-namespace DotnetInspector.PackageQueries;
+namespace DotnetInspector.Queries;
 
 /// <summary>
 /// The package a package Root declares for an assembly it forwards a Type to
