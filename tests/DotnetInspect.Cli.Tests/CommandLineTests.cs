@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using DotnetInspect.Cli;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
@@ -959,6 +960,48 @@ public class CommandLineTests
             root);
 
         Assert.Equal(["type", "--", "-t"], tokens);
+    }
+
+    [Theory]
+    [InlineData("--explain", "depends", "--explain")]
+    [InlineData("--explain", "depends", "--explain", ".tips")]
+    [InlineData("--explain", "diff", "--explain")]
+    [InlineData("-Q", "diff", "-Q")]
+    [InlineData("--explain", "library", "query", "--explain")]
+    public async Task UnadmittedOptionIsNotBoundAsPositionalInput(
+        string option,
+        params string[] tokens)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        var (exit, output, error) = await ConsoleCapture.RunAsync(
+            () => CommandLineBuilder.InvokeAsync(root.Parse(tokens), tokens));
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Unrecognized option '{option}'.",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("not found", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("version range", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void OptionLikeTokenAfterTerminatorRemainsPositional()
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse(
+            ["depends", "--", "--explain"]);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal(
+            "--explain",
+            result.CommandResult.Children
+                .OfType<ArgumentResult>()
+                .Single()
+                .Tokens
+                .Single()
+                .Value);
     }
 
     [Theory]
