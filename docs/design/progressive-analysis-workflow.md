@@ -275,7 +275,7 @@ its owner: capability search population
 unadmitted `--explain` and `-Q` parsing
 ([#10067](https://github.com/richlander/dotnet-inspect/issues/10067)),
 `explain` help ([#10076](https://github.com/richlander/dotnet-inspect/issues/10076)),
-section meaning ([#10077](https://github.com/richlander/dotnet-inspect/issues/10077)),
+section descriptions ([#10077](https://github.com/richlander/dotnet-inspect/issues/10077)),
 package-root group selection
 ([#10071](https://github.com/richlander/dotnet-inspect/issues/10071)),
 library-literal applicability

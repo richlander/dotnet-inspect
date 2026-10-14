@@ -1512,9 +1512,10 @@ Structural adaptation must preserve:
 - every item identity as the owning section plus opaque owner-issued item kind
   plus name;
 - owner-issued section Shape and Cardinality as typed direct facts;
-- owner-issued [section meaning](section-model.md#meaning) as typed direct
-  section-meaning facts of the section or item resource, distinct from schema
-  declaration meanings, with undeclared meaning reported as undeclared;
+- owner-issued [section description](section-model.md#description) as typed
+  direct section-description facts of the section resource, distinct from
+  schema declaration meanings, with an undeclared description reported as
+  undeclared;
 - sections with no item-level vocabulary; and
 - addressed resource identity separately from compact projected rows.
 

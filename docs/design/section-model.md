@@ -620,56 +620,58 @@ A cheap capability proxy must not be presented as proven row effectiveness.
 For example, method bodies make performance analysis possible, but do not prove
 that any performance finding exists.
 
-### Meaning
+### Description
 
-`Meaning` is the section owner's statement of what the section reports. It is
-authored beside the descriptor, issued as product text, and projected
-unchanged. It is not derived from the section name, C# documentation comments,
-reflection, rendered output, or inspected data.
+A section's `Description` is the owner's plain statement of what the section
+reports. It is authored beside the descriptor, issued as product text, and
+projected unchanged. It is not derived from the section name, C# documentation
+comments, reflection, rendered output, or inspected data.
 
-A section's meaning has these parts:
+A section description has these parts:
 
 | Part | Required | Content |
 | --- | --- | --- |
-| Summary | Yes | One sentence naming what the rows or document report about the subject |
+| Summary | Yes | One sentence naming what the section's rows report about the subject |
 | Basis | Yes | The evidence the producer reads: metadata tables, compiled IL bodies, Portable PDB, package manifest, package source, or another owner-named basis |
 | Empty | Yes | What an empty result establishes. A checked population with no rows is distinct from a section that did not apply or could not complete. |
 | Boundary | No | Interpretation limits the owner states, such as "static call-graph reach, not runtime frequency" |
-| Item meaning | No | For one declared Schema Query item, identified by owning section, item kind (`column` or `field`), and name: a short meaning plus its unit or value domain |
 
-Meaning describes the section's contract. It does not describe a particular
+A description states the section's contract. It does not describe a particular
 subject's result, rank sections, choose a workflow, or replace completion,
 diagnostics, or typed failure. An empty result still reports its typed
 completion; `Empty` explains what that completion means.
 
-Item meaning attaches only to items the section's
-[structural schema](schema-query.md#model) already declares. A document-shaped
-section whose consumers read JSON document fields that are not declared items,
-such as `Dependency Structure`, states their meaning in its Summary and
-Boundary. A field vocabulary for JSON documents belongs to Schema Query and is
-not introduced here; meaning never names an undeclared item or adds a
-separate field resource.
+A description is section-level only. Whether a section has one row or many is
+owned by [Section cardinality](section-cardinality.md), and its row shape is
+owned by the [structural schema](schema-query.md#model) together with
+[Section shapes](section-shapes.md). A description restates neither. A
+per-column description, if added, is an attribute of the column's Schema Query
+declaration rather than a part of this axis. A section whose consumers read
+JSON document fields that its schema does not declare as columns, such as
+`Dependency Structure`, names those fields in its Summary and Boundary until its
+owner declares them.
 
-An absent meaning remains absent. Discovery and explanation report it as
+An absent description remains absent. Discovery and explanation report it as
 undeclared rather than substituting the section name or an empty string.
 
-Meaning is projected through the existing structural chain. `DiscoveryDocument`
-carries it as typed resource content; [Resource
+A description is projected through the existing structural chain.
+`DiscoveryDocument` carries it as typed resource content; [Resource
 Explanation](resource-explanation.md#structural-resources) emits it as direct
-*section meaning* facts of the section or item resource, distinct from the
+*section description* facts of the section resource, distinct from the
 declaration meanings of its own schema slice; hosts lower it like any other
 fact. Capability search may index it under its own owner's term rules
 ([#10068](https://github.com/richlander/dotnet-inspect/issues/10068)); this
 section defines no search behavior.
 
-Meaning is static, network-free, and part of the compiled catalog, so it adds
-no acquisition, producer, or probe cost. It lives in the host-neutral
+A description is static, network-free, and part of the compiled catalog, so it
+adds no acquisition, producer, or probe cost. It lives in the host-neutral
 `DiscoveryDocument`, so any host that explains structural resources receives it
 unchanged. Today that host is the CLI; the Browser/Wasm structural explanation
 consumer is Resource Explanation's own pending [production adoption step
-4](resource-explanation.md#production-adoption) and carries meaning when it
-lands, without a separate meaning path. Meaning is product-authored text, not
-inspected content, so it does not pass through inspected-text containment.
+4](resource-explanation.md#production-adoption) and carries descriptions when
+it lands, without a separate description path. A description is
+product-authored text, not inspected content, so it does not pass through
+inspected-text containment.
 
 Adoption proceeds by command owner. Library adopts first, starting with the
 sections the shipped `project-analysis` skill relies on: `Library Metrics`,
@@ -677,8 +679,8 @@ sections the shipped `project-analysis` skill relies on: `Library Metrics`,
 `Architectural Families`, `Clone Candidates`, `Unsafe Members`,
 `P/Invoke Methods`, `Array Pool Escapes`, `Async Methods`, and the
 `Performance:` family. When Library coverage is complete, registration
-invariant 11 makes meaning required for every selectable Library section.
-Other commands adopt in their own focused changes.
+invariant 11 makes a description required for every selectable Library
+section. Other commands adopt in their own focused changes.
 
 ## Acquisition and network policy
 
@@ -1131,42 +1133,40 @@ The section pipeline and derived catalog gates enforce these invariants:
     `PackagePipeline_DependencyDomainIssuesOneExactFacetSet` gates the first
     production adoption.
 
-11. A section that declares meaning supplies a non-empty Summary, Basis, and
-    Empty, and every item meaning names, by full item identity, an item the
-    section's structural schema declares. After a command owner completes
-    adoption, every selectable section of that command declares meaning. The
-    adoption gate for each command names the sections it covers; Library is the
-    first.
+11. A section that declares a description supplies a non-empty Summary,
+    Basis, and Empty. After a command owner completes adoption, every
+    selectable section of that command declares a description. The adoption
+    gate for each command names the sections it covers; Library is the first.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
 
-### Meaning adoption
+### Description adoption
 
 [#10077](https://github.com/richlander/dotnet-inspect/issues/10077) tracks this
 counted path:
 
-1. Define the meaning axis (this section).
-2. Add the host-neutral meaning type to section registration, carry it through
-   `DiscoveryDocument`, project it as Resource Explanation facts, and adopt it
-   for the Library sections named under [Meaning](#meaning). The
-   `Dependency Structure` Summary and Boundary name the JSON document fields
+1. Define the description axis (this section).
+2. Add the host-neutral description type to section registration, carry it
+   through `DiscoveryDocument`, project it as Resource Explanation facts, and
+   adopt it for the Library sections named under [Description](#description).
+   The `Dependency Structure` Summary and Boundary name the JSON document fields
    its consumers read, such as `cycles`, namespace `level` and `cycleIndex`,
    and each namespace edge's `explainingTypeEdges`.
 3. Complete Library coverage and enforce invariant 11 for Library.
-4. Remove from the shipped `project-analysis` skill the section meaning that
-   explanation now issues, and measure that revision against the
+4. Remove from the shipped `project-analysis` skill the section descriptions
+   that explanation now issues, and measure that revision against the
    [skill-directed baseline](progressive-analysis-workflow.md#skill-directed-baseline).
 
-Other commands adopt meaning in later focused changes, which this path does not
-count.
+Other commands adopt descriptions in later focused changes, which this path
+does not count.
 
 | Claim | Gate |
 | --- | --- |
-| Meaning parts are required, non-empty, and reference declared items by full identity | Registration test over the compiled Library catalog |
-| `DiscoveryDocument` preserves meaning without CLI or Markout references | `DiscoveryDocumentTests` extension |
-| Explanation emits Summary, Basis, Empty, Boundary, and item meaning as typed section-meaning facts, and reports undeclared meaning as undeclared | Resource Explanation structural test over one adopted and one unadopted section |
-| Meaning adds no producer or probe execution | Discovery test asserting no producer invocation for `explain library/sections/<adopted>` |
+| Description parts are required and non-empty | Registration test over the compiled Library catalog |
+| `DiscoveryDocument` preserves descriptions without CLI or Markout references | `DiscoveryDocumentTests` extension |
+| Explanation emits Summary, Basis, Empty, and Boundary as typed section-description facts, and reports an undeclared description as undeclared | Resource Explanation structural test over one adopted and one unadopted section |
+| Descriptions add no producer or probe execution | Discovery test asserting no producer invocation for `explain library/sections/<adopted>` |
 
 ## Migration
 
