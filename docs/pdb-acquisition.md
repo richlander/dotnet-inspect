@@ -480,6 +480,17 @@ Platform participants use the same capability without a package candidate.
 Browser rendering, TypeScript exports, source-document fetching, and
 authored-versus-decompiled selection are unchanged.
 
+Desktop SourceHouse adoption under slice 5 starts with pairwise package
+`diff --pdb-source`. Its package endpoint scopes supply SourceHouse's
+settlement capability, so each implementation participant settles without
+ambient adjacent-PDB probing. The participant's realization provenance
+issues the deferred package-local candidate, and its endpoint's House and
+producer serve the exact PDB File. Extracted endpoints and the other CLI
+SourceHouse routes keep adjacent-PDB reads and `PdbAcquisitionService` until
+they adopt, route by route; the owning step is
+[package endpoint scope](design/package-endpoint-scope.md#adoption), step 4
+part 4.
+
 Each implementation adoption publishes exact-base/head NativeAOT evidence for
 the production command it changes. The CLI-first slice measures the
 `System.Text.Json` Source Locations command with an empty operation-owned store

@@ -1,10 +1,12 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
@@ -15,13 +17,17 @@ public partial class DiffCommand
     /// <summary>
     /// One assembly whose method bodies a body view reads: an extracted file,
     /// or a package endpoint's implementation participant image
-    /// (docs/design/package-endpoint-scope.md, step 4 part 3).
+    /// (docs/design/package-endpoint-scope.md, step 4 part 3). A participant
+    /// also carries the implementation group that holds it, for SourceHouse
+    /// (part 4).
     /// </summary>
     sealed record DiffBodyAssembly(
         ResolvedAssemblyReference Assembly,
         IAssemblyReferenceResolver Resolver,
         string SourcePath,
-        ImmutableArray<byte> Image)
+        ImmutableArray<byte> Image,
+        AssemblyContextGroup? Group = null,
+        AssemblyContextParticipant? GroupParticipant = null)
     {
         public static DiffBodyAssembly FromPath(string path, string purpose) =>
             new(
@@ -38,7 +44,9 @@ public partial class DiffCommand
                 participant.Assembly,
                 participant.Resolver,
                 participant.Descriptor.Asset.Path,
-                participant.Image);
+                participant.Image,
+                participant.Group,
+                participant.GroupParticipant);
 
         /// <summary>
         /// Analyzes the assembly's method bodies. An extracted file binds its
@@ -73,6 +81,73 @@ public partial class DiffCommand
                 Resolver,
                 Assembly);
         }
+    }
+
+    /// <summary>
+    /// One assembly whose PDB source an endpoint reads. An extracted file
+    /// joins a group of its own; a package endpoint's implementation
+    /// participant is read in the group that holds it, with its package
+    /// provenance (docs/design/package-endpoint-scope.md, step 4 part 4).
+    /// </summary>
+    sealed record PdbSourceAssembly(
+        string SourcePath,
+        Func<AssemblyContextParticipant> CreateParticipant,
+        DiffBodyAssembly? Participant = null)
+    {
+        /// <summary>The group that holds a participant; an extracted file has none.</summary>
+        public AssemblyContextGroup? Group => Participant?.Group;
+
+        public static IReadOnlyList<PdbSourceAssembly> FromPaths(
+            IReadOnlyList<string> paths,
+            DiffOptions options,
+            bool oldSide,
+            IReadOnlyList<AssemblySetEntry>? entries) =>
+            [.. paths.Select(path => new PdbSourceAssembly(
+                path,
+                () => CreateSourceParticipant(
+                    path,
+                    options,
+                    oldSide,
+                    FindAssemblySetEntry(path, entries))))];
+
+        public static PdbSourceAssembly FromParticipant(DiffBodyAssembly body) =>
+            new(
+                body.SourcePath,
+                () => body.GroupParticipant
+                    ?? throw new InvalidOperationException(
+                        $"The PDB-source assembly '{body.SourcePath}' has no implementation group."),
+                body);
+
+        /// <summary>The assembly's declared methods, the PDB-source targets.</summary>
+        public ILInspector.Analysis.LibraryCallGraphAnalysisResult IndexMethods() =>
+            (Participant is { } body
+                ? MethodBodyInspectionSession.OpenWithPrefetchedImage(
+                    SourcePath,
+                    body.Image,
+                    ILInspector.Analysis.LibraryBodyAnalysisFeatures.MethodEvidence,
+                    body.Resolver,
+                    body.Assembly)
+                : MethodBodyInspectionSession.Open(
+                    SourcePath,
+                    includeAllocations: false,
+                    includeOpportunities: false))
+            .CallGraphAnalysis;
+
+        /// <summary>The complete API surface that maps targets to SourceHouse requests.</summary>
+        public ApiSurface? ExtractSurface(bool includeCompilerGenerated) =>
+            Participant is { } body
+                ? AssemblyReader.ExtractApiSurface(
+                    new MemoryStream(
+                        ImmutableCollectionsMarshal.AsArray(body.Image)!,
+                        writable: false),
+                    includeAll: true,
+                    typesOnly: false,
+                    includeCompilerGenerated)
+                : AssemblyReader.ExtractApiSurface(
+                    SourcePath,
+                    includeAll: true,
+                    typesOnly: false,
+                    includeCompilerGenerated);
     }
 
     /// <summary>The before and after assemblies a body view compares.</summary>
@@ -116,27 +191,37 @@ public partial class DiffCommand
     /// return materialized results; every other endpoint's is its
     /// extracted files.
     /// </summary>
-    static async Task<T> WithBodyPopulationAsync<T>(
+    static Task<T> WithBodyPopulationAsync<T>(
         DiffInputs inputs,
         Func<DiffInputs, T> view,
+        CancellationToken cancellationToken) =>
+        WithBodyPopulationAsync(
+            inputs,
+            (bodied, _) => ValueTask.FromResult(view(bodied)),
+            cancellationToken);
+
+    static async Task<T> WithBodyPopulationAsync<T>(
+        DiffInputs inputs,
+        Func<DiffInputs, CancellationToken, ValueTask<T>> view,
         CancellationToken cancellationToken)
     {
         if (inputs.From.PackageScope is not { } before
             || inputs.To.PackageScope is not { } after)
         {
-            return view(inputs);
+            return await view(inputs, cancellationToken);
         }
 
         return await PackageEndpointBodyQuery.ExecuteAsync(
             before,
             after,
-            (from, to, _) => ValueTask.FromResult(
-                view(inputs with
+            (from, to, token) => view(
+                inputs with
                 {
                     Bodies = new DiffBodyPopulation(
                         [.. from.Select(DiffBodyAssembly.FromParticipant)],
                         [.. to.Select(DiffBodyAssembly.FromParticipant)]),
-                })),
+                },
+                token),
             cancellationToken);
     }
 }

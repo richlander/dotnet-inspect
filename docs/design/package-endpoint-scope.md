@@ -362,14 +362,35 @@ never retain a participant after the scope is disposed.
           take the merged surface for member targets and inspection
           failures, so they drop the machine-dependent constraint rows and
           name the endpoint frameworks, as the API views do.
-        - PDB source and the workspace implementation comparison keep the
-          legacy path until parts 4 and 5. The workspace comparison serves
-          Implementation Diff with one Type and one Member selector.
+        - The workspace implementation comparison keeps the legacy path
+          until part 5. It serves Implementation Diff with one Type and one
+          Member selector.
         - String literals keep the legacy path for now. Their comparison
           still reads extracted files, and its multi-Library form is in
           review. They move onto implementation participants before part 6.
-     4. **PDB and SourceLink from participants,** with a demand for listed
-        adjacent Portable PDBs and participant provenance.
+     4. **PDB source from participants.** `--pdb-source` reads each
+        endpoint's implementation participants in the implementation group
+        that holds them, on both the selected-member pair route and the
+        batch route.
+        - SourceHouse settles each participant's Portable PDB through the
+          [host-neutral settlement](../pdb-acquisition.md#host-neutral-portable-pdb-settlement),
+          never from a path beside an extracted assembly. An embedded PDB
+          settles first. The package-local candidate is the participant's
+          listed adjacent PDB, which settlement requests as one exact File
+          from the House that opened its endpoint, from the producer that
+          served that endpoint. Acquiring a package's PDB is therefore House
+          demand: a ranged endpoint that already read the PDB with its
+          implementation folder serves it from the entry cache.
+        - A package without an adjacent PDB continues to the external
+          providers its producer authorizes, such as its `.snupkg`, as the
+          legacy path did.
+        - Package provenance (ID, version, framework, and asset path) comes
+          from the participant. Diff no longer reconstructs it from file
+          paths or options.
+        - Extracted endpoints keep reading a PDB beside their file. The
+          other CLI SourceHouse routes adopt settlement under
+          [PDB acquisition](../pdb-acquisition.md#production-adoption-and-retirement),
+          slice 5.
      5. **The workspace implementation comparison and Annotated Source
         Diff** open their Roots from the scope, and a forwarded target is
         acquired through the House rather than a pinned extraction.
@@ -433,9 +454,10 @@ All gates run in Release.
 | 10. Floating pairwise diff, after step 4 part 1 | `*` and `latest` settle as `package` settles them, through the House's selecting demand, once per endpoint | CLI harness, `System.Text.Json` 9.0.0 and 10.0.0 with a prerelease above 10.0.0, so `*` (prerelease included) and `latest` (stable) settle differently; each settled version equals `package`'s for the same spelling |
 | 11. API changes, API Finding Transitions, multi-Library packages, and member targets, after step 4 part 2 | the merged participant surface, read by range; output byte-identical to the legacy path where both select the same assemblies; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` reads only `ref/net8.0`, repeats a change row only for overloads, and completes without an inspection failure | CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 API changes and Transitions; `NUnit` 4.1.0..4.2.2, two Libraries below the size cut, each archive read once, directory first; `Avalonia` 11.3.14..12.1.2 against the legacy oracle's repeated rows |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm`; output byte-identical to the legacy path where both select the same assemblies | contract suite for the body query; CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 Analysis Diff, Implementation Diff, and a member-targeted body analysis set, read by range; `System.Runtime.CompilerServices.Unsafe` 4.7.1 and 5.0.0, which ship `ref/` and `lib/`, against the legacy oracle's reference stubs |
-| 13. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
-| 14. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
-| 15. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |
+| 13. PDB source, after step 4 part 4 | each participant's Portable PDB settles through its endpoint's House, never from an adjacent path; output byte-identical to the legacy path where both select the same assemblies | contract suite for the body query's group participants; CLI harness: the SourceDiff fixture pair packed with adjacent PDBs, on the pair and batch routes, against the legacy oracle |
+| 14. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
+| 15. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
+| 16. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |
 
 ## Non-claims
 

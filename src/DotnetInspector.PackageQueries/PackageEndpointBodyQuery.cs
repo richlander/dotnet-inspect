@@ -12,8 +12,8 @@ namespace DotnetInspector.PackageQueries;
 /// group.
 /// </summary>
 /// <remarks>
-/// The resolver is valid only inside the
-/// <see cref="PackageEndpointBodyQuery"/> callback that issued it. The
+/// The resolver, group, and group participant are valid only inside the
+/// <see cref="PackageEndpointBodyQuery"/> callback that issued them. The
 /// assembly descriptor and image remain valid afterward.
 /// </remarks>
 public sealed class PackageEndpointBodyParticipant
@@ -22,12 +22,16 @@ public sealed class PackageEndpointBodyParticipant
         PackageEndpointParticipant descriptor,
         ResolvedAssemblyReference assembly,
         ImmutableArray<byte> image,
-        IAssemblyReferenceResolver resolver)
+        IAssemblyReferenceResolver resolver,
+        AssemblyContextGroup group,
+        AssemblyContextParticipant groupParticipant)
     {
         Descriptor = descriptor;
         Assembly = assembly;
         Image = image;
         Resolver = resolver;
+        Group = group;
+        GroupParticipant = groupParticipant;
     }
 
     /// <summary>The implementation participant, with its package provenance.</summary>
@@ -44,6 +48,15 @@ public sealed class PackageEndpointBodyParticipant
     /// binding policy, never through installed runtimes or local caches.
     /// </summary>
     public IAssemblyReferenceResolver Resolver { get; }
+
+    /// <summary>
+    /// The endpoint's implementation group, for a group query such as
+    /// SourceHouse's over <see cref="GroupParticipant"/>.
+    /// </summary>
+    public AssemblyContextGroup Group { get; }
+
+    /// <summary>The participant as the implementation group holds it, with its package provenance.</summary>
+    public AssemblyContextParticipant GroupParticipant { get; }
 }
 
 /// <summary>
@@ -135,7 +148,9 @@ public static class PackageEndpointBodyQuery
                 participant.Descriptor,
                 retained,
                 image,
-                resolver));
+                resolver,
+                group,
+                participant.Participant));
         }
         return new(bound.MoveToImmutable(), resolvers);
     }
