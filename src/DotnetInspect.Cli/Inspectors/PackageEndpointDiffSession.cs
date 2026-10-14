@@ -14,7 +14,7 @@ namespace DotnetInspect.Cli.Inspectors;
 /// CLI host policy for the two endpoints of a pairwise
 /// <c>diff --package ID@A..B</c> view opened as package endpoint scopes
 /// (docs/design/package-endpoint-scope.md, adoption step 2 and step 4 parts
-/// 1 to 4): the House's version and framework selection, as
+/// 1 to 5): the House's version and framework selection, as
 /// <c>package</c> has it, and ranged House access over the
 /// legacy-compatible per-authority store.
 /// </summary>
@@ -23,6 +23,8 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     readonly DesktopPackageSourceComposition _composition;
     readonly SearchPackageStores _stores;
     readonly NuGetSourceOptions? _sourceOptions;
+    readonly Lock _forwardedTargetHouseLock = new();
+    PackageHouse? _forwardedTargetHouse;
     bool _closed;
 
     PackageEndpointDiffSession(
@@ -308,10 +310,117 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     }
 
     /// <summary>
+    /// Opens the package <paramref name="endpoint"/>'s Root declares for the
+    /// assembly <paramref name="assemblyName"/>, to which the Root forwards a
+    /// Type (docs/design/package-endpoint-scope.md, step 4 part 5). The
+    /// Root's manifest is one exact File from the producer that served the
+    /// endpoint. The declared package opens through a content House over the
+    /// endpoints' composition and stores, which chooses ranged or complete
+    /// access, narrowed to the one Library named for the assembly, with
+    /// <c>SurfaceAndImplementation</c>. Returns <see langword="null"/>,
+    /// and logs why, when the package declares no such dependency or it does
+    /// not open.
+    /// </summary>
+    internal async Task<PackageEndpointScope?> OpenForwardedTargetAsync(
+        PackageEndpointScope endpoint,
+        string targetFramework,
+        string assemblyName,
+        VerboseLogger logger,
+        CancellationToken cancellationToken)
+    {
+        string root = $"{endpoint.Root.Root.PackageId}@{endpoint.PackageVersion}";
+        PackageHouseSettlement manifest = await _composition.AcquireContentAsync(
+                PackageSourceCoordinate.Create(endpoint.Root.Root.PackageId, endpoint.PackageVersion),
+                PackageHouseContentQuery.PackageNuspec(),
+                _stores.GetLegacyCompatibleStore,
+                _sourceOptions,
+                logger.Log,
+                cancellationToken,
+                requiredProducerKey: endpoint.Payload.ProducerKey)
+            .ConfigureAwait(false);
+        if (manifest.Result is not PackageHouseResult.Settled { Evidence.Nuspec: { } nuspec })
+        {
+            logger.Log(
+                $"The forwarded target {assemblyName} of {root} is unavailable: "
+                    + $"its manifest was not acquired ({manifest.Result.GetType().Name}).");
+            return null;
+        }
+
+        if (PackageDeclaredForwardTarget.Select(
+                nuspec.ToArray(),
+                endpoint.Root.Root.PackageId,
+                endpoint.PackageVersion,
+                targetFramework,
+                assemblyName,
+                out string? failure)
+            is not { } coordinate)
+        {
+            logger.Log($"The forwarded target {assemblyName} of {root} is unavailable: {failure}.");
+            return null;
+        }
+
+        string version = coordinate.Version;
+        long realizing = System.Diagnostics.Stopwatch.GetTimestamp();
+        PackageEndpointScopeOutcome outcome =
+            await PackageEndpointScope.OpenAsync(
+                    ForwardedTargetHouse(logger),
+                    _composition.IssueSettlementOperation(cancellationToken),
+                    new PackageEndpointScopeRequest(
+                        new PackageHouseDemand.Exact(coordinate),
+                        PackageHouseTargetContext.Exact(targetFramework),
+                        PackageAssetDemand.SurfaceAndImplementation,
+                        librarySelector: new PackageLibrarySelector(assemblyName)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        LogTransfer(
+            logger,
+            assemblyName,
+            version,
+            "forwarded target realization",
+            outcome switch
+            {
+                PackageEndpointScopeOutcome.Opened opened => opened.Scope.Contribution.Result,
+                PackageEndpointScopeOutcome.Failed rejected => rejected.HouseResult,
+                _ => null,
+            },
+            realizing);
+        if (outcome is not PackageEndpointScopeOutcome.Opened { Scope: { } scope })
+        {
+            var failed = (PackageEndpointScopeOutcome.Failed)outcome;
+            logger.Log(
+                $"The forwarded target {assemblyName} of {root} is unavailable: "
+                    + $"{assemblyName}@{version} did not open ({failed.Kind}): {failed.Message}");
+            return null;
+        }
+
+        logger.Log(
+            $"Using package endpoint scope for forwarded target {assemblyName}@{version} "
+                + $"({scope.ImplementationParticipants.Length} implementation "
+                + (scope.ImplementationParticipants.Length == 1 ? "assembly" : "assemblies")
+                + $" for {scope.TargetFramework}; payload {scope.Payload.Origin}).");
+        return scope;
+    }
+
+    /// <summary>
+    /// The content House both forwarded targets open through, which chooses
+    /// cache, ranged, or complete access for each Library demand.
+    /// </summary>
+    PackageHouse ForwardedTargetHouse(VerboseLogger logger)
+    {
+        lock (_forwardedTargetHouseLock)
+        {
+            return _forwardedTargetHouse ??= _composition.CreateDependencyContentQueryHouse(
+                _stores.GetLegacyCompatibleStore,
+                _sourceOptions,
+                logger.Log);
+        }
+    }
+
+    /// <summary>
     /// Settles the Portable PDB of an endpoint participant. Its package-local
-    /// candidate is an exact Files request to the House that opened the
-    /// endpoint, from the producer that served it
-    /// (docs/design/package-endpoint-scope.md, step 4 part 4).
+    /// candidate is an exact Files request to a content House over the
+    /// endpoint's composition and stores, restricted to the producer that
+    /// served it (docs/design/package-endpoint-scope.md, step 4 part 4).
     /// </summary>
     internal IPortablePdbSettlementCapability CreatePortablePdbSettlement(
         HttpClient httpClient,

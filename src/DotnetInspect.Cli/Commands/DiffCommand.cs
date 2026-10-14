@@ -263,9 +263,7 @@ public partial class DiffCommand
         if (options.EvidenceEnvelopePath is not null
             && (!hasPackage
                 || !AdmitsPackageEndpointScope(
-                    options,
                     implementationTransport,
-                    annotatedSourceTransport,
                     analysisPlan)
                 || analysisPlan is null
                     && !UsesSharedLibraryApiDiff(1, 1, options)))
@@ -340,14 +338,14 @@ public partial class DiffCommand
             {
                 var result =
                     AdmitsPackageEndpointScope(
-                        options,
                         implementationTransport,
-                        annotatedSourceTransport,
                         analysisPlan)
                         ? await TryExecuteScopedPackageDiffAsync(
                             options,
                             analysisPlan is not null,
-                            ReadsMethodBodies(catalog, options, analysisPlan),
+                            annotatedSourceTransport
+                                || RequestsWorkspaceImplementationTarget(options)
+                                || ReadsMethodBodies(catalog, options, analysisPlan),
                             logger,
                             context.HttpClient,
                             cancellationToken)
@@ -505,16 +503,24 @@ public partial class DiffCommand
                 WorkspaceImplementationComparisonResult? workspaceImplementation =
                     workspaceTarget is null
                         ? null
-                        : await WorkspaceImplementationComparisonRunner.ExecuteAsync(
-                            inputs.From.AssemblySet,
-                            inputs.To.AssemblySet,
-                            inputs.Name,
-                            workspaceTarget.DeclaringType,
-                            workspaceTarget.Selector,
-                            context.HttpClient,
-                            options.SourceOptions,
-                            context.CreatePackageSourceComposition,
-                            logger.Log);
+                        : inputs.Owner is PackageEndpointDiffSession session
+                            ? await WorkspaceImplementationComparisonRunner.ExecuteAsync(
+                                session,
+                                inputs.Name,
+                                workspaceTarget.DeclaringType,
+                                workspaceTarget.Selector,
+                                logger,
+                                cancellationToken)
+                            : await WorkspaceImplementationComparisonRunner.ExecuteAsync(
+                                inputs.From.AssemblySet,
+                                inputs.To.AssemblySet,
+                                inputs.Name,
+                                workspaceTarget.DeclaringType,
+                                workspaceTarget.Selector,
+                                context.HttpClient,
+                                options.SourceOptions,
+                                context.CreatePackageSourceComposition,
+                                logger.Log);
                 ResearchComparison? workspaceAnalysis = null;
                 string? workspaceAnalysisFailure = null;
                 if (workspaceTarget is not null
@@ -523,13 +529,16 @@ public partial class DiffCommand
                     try
                     {
                         workspaceAnalysis =
-                            RequireBodySignalComparison(
-                                BodySignalComparisonQuery.Execute(
-                                    CreateBodySignalComparisonInput(
-                                        inputs,
-                                        options)),
-                                options,
-                                DiffSections.AnalysisDiff.Name);
+                            await WithBodyPopulationAsync(
+                                inputs,
+                                bodied => RequireBodySignalComparison(
+                                    BodySignalComparisonQuery.Execute(
+                                        CreateBodySignalComparisonInput(
+                                            bodied,
+                                            options)),
+                                    options,
+                                    DiffSections.AnalysisDiff.Name),
+                                cancellationToken);
                     }
                     catch (InvalidOperationException exception)
                         when (options.MemberFilter.Count > 0)
@@ -1037,23 +1046,19 @@ public partial class DiffCommand
 
     /// <summary>
     /// Whether the request's package endpoints open as package endpoint
-    /// scopes (docs/design/package-endpoint-scope.md, step 4 parts 2 and 3):
+    /// scopes (docs/design/package-endpoint-scope.md, step 4 parts 2 to 5):
     /// the API views over the merged participant surface, and the body
-    /// views (Analysis, Implementation, Complexity, Structural, and analysis
-    /// sets that read method bodies) over the implementation participants.
-    /// PDB source and the workspace implementation comparison keep the
-    /// legacy path until parts 4 and 5, and string literals until their
+    /// views (Analysis, Implementation, Complexity, Structural, PDB source,
+    /// the workspace implementation comparison, Annotated Source Diff, and
+    /// analysis sets that read method bodies) over the implementation
+    /// participants. String literals keep the legacy path until their
     /// multi-Library comparison lands.
     /// </summary>
     static bool AdmitsPackageEndpointScope(
-        DiffOptions options,
         bool implementationTransport,
-        bool annotatedSourceTransport,
         DiffAnalysisPlan? analysisPlan)
         => !LegacyPackageEndpointsForTesting.Value
             && !implementationTransport
-            && !annotatedSourceTransport
-            && !RequestsWorkspaceImplementationTarget(options)
             && analysisPlan?.StringLiteralQuery is null;
 
     /// <summary>
@@ -3400,12 +3405,8 @@ public partial class DiffCommand
             DiffOptions options)
     {
         if (!RequestsWorkspaceImplementationTarget(options)
-            || !WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
-                inputs.From.AssemblySet,
-                inputs.Name)
-            || !WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
-                inputs.To.AssemblySet,
-                inputs.Name))
+            || !HasSinglePackageRoot(inputs.From, inputs.Name)
+            || !HasSinglePackageRoot(inputs.To, inputs.Name))
         {
             return null;
         }
@@ -3448,6 +3449,21 @@ public partial class DiffCommand
             $"{typeName}.{selector.RequestedText}");
     }
 
+    /// <summary>
+    /// Whether the endpoint has one package-root assembly: an implementation
+    /// participant of its scope, or an extracted file of its assembly set.
+    /// </summary>
+    static bool HasSinglePackageRoot(
+        ApiSurfaceEndpoint endpoint,
+        string packageName)
+        => endpoint.PackageScope is { } scope
+            ? WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
+                scope,
+                packageName)
+            : WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
+                endpoint.AssemblySet,
+                packageName);
+
     static async Task<int> ExecuteAnnotatedSourceDiffAsync(
         DiffInputs inputs,
         DiffOptions options,
@@ -3467,7 +3483,17 @@ public partial class DiffCommand
         }
 
         AnnotatedSourceDiffDocumentQueryResult result =
-            await WorkspaceImplementationComparisonRunner
+            inputs.Owner is PackageEndpointDiffSession session
+                ? await WorkspaceImplementationComparisonRunner
+                    .ExecuteAnnotatedSourceDiffAsync(
+                        session,
+                        inputs.Name,
+                        target.DeclaringType,
+                        target.Selector,
+                        options.IncludeAnnotatedSourceIl,
+                        logger,
+                        cancellationToken)
+                : await WorkspaceImplementationComparisonRunner
                 .ExecuteAnnotatedSourceDiffAsync(
                     inputs.From.AssemblySet,
                     inputs.To.AssemblySet,

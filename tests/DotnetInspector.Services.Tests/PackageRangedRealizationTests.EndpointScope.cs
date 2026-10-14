@@ -288,6 +288,33 @@ public sealed partial class PackageRangedRealizationTests
 
         Assert.Equal((11, 11, "Avalonia.Base"), seen);
 
+        // Step 4 part 5: one endpoint's participants, as a forwarded
+        // target's scope reads them, bind within that endpoint alone.
+        string? single = await PackageEndpointBodyQuery.ExecuteAsync(
+            after,
+            (participants, _) =>
+            {
+                Assert.Equal(
+                    after.ImplementationParticipants,
+                    participants.Select(static participant => participant.Descriptor));
+                PackageEndpointBodyParticipant controls = participants.Single(
+                    static participant => participant.Assembly.Identity.Name == "Avalonia.Controls");
+                Assert.Contains(controls.GroupParticipant, controls.Group.Participants);
+                using var pe = new System.Reflection.PortableExecutable.PEReader(
+                    controls.Image);
+                System.Reflection.Metadata.MetadataReader reader =
+                    System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                ILInspector.Metadata.AssemblyReferenceIdentity baseReference = reader.AssemblyReferences
+                    .Select(handle => ILInspector.Metadata.AssemblyReferenceIdentity.From(reader, handle))
+                    .Single(static identity => identity.Name == "Avalonia.Base");
+                return ValueTask.FromResult(
+                    controls.Resolver.Resolve(
+                        baseReference,
+                        ILInspector.Metadata.AssemblyResolutionScope.Any)?.Identity.Name);
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal("Avalonia.Base", single);
+
         await using PackageEndpointScope surface = AssertOpened(
             await OpenEndpointAsync(
                 environment,

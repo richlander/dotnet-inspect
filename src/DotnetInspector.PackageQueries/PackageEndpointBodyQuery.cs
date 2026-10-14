@@ -113,6 +113,35 @@ public static class PackageEndpointBodyQuery
         return Unwrap(before, outer);
     }
 
+    /// <summary>
+    /// Hands one package endpoint's implementation participants to
+    /// <paramref name="query"/> while it holds their group, as the pairwise
+    /// form does for each endpoint.
+    /// </summary>
+    public static async Task<TResult> ExecuteAsync<TResult>(
+        PackageEndpointScope scope,
+        Func<
+            ImmutableArray<PackageEndpointBodyParticipant>,
+            CancellationToken,
+            ValueTask<TResult>> query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        ArgumentNullException.ThrowIfNull(query);
+
+        ArtifactRootResult<TResult> result = await scope.UseImplementationAsync(
+                async (group, participants, token) =>
+                {
+                    Bound bound = Bind(scope, group, participants, token);
+                    TResult value = await query(bound.Participants, token).ConfigureAwait(false);
+                    bound.ValidateForPublication();
+                    return value;
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+        return Unwrap(scope, result);
+    }
+
     static Bound Bind(
         PackageEndpointScope scope,
         AssemblyContextGroup group,
