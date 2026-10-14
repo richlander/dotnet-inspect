@@ -252,6 +252,20 @@ public sealed partial class PackageRangedRealizationTests
                         participant.Assembly.Identity.Name);
                     using Stream content = participant.Assembly.OpenRead();
                     Assert.Equal(participant.Image.Length, content.Length);
+
+                    // SourceHouse reads the participant in the group that
+                    // holds it, with the package provenance its PDB
+                    // settlement keys on.
+                    Assert.Contains(participant.GroupParticipant, participant.Group.Participants);
+                    var provenance = Assert.IsType<ILInspector.Metadata.AssemblyResolutionProvenance.PackageAsset>(
+                        participant.GroupParticipant.Assembly.Provenance);
+                    Assert.Equal(
+                        (
+                            participant.Descriptor.Provenance.PackageId,
+                            participant.Descriptor.Provenance.PackageVersion,
+                            participant.Descriptor.Provenance.TargetFramework,
+                            participant.Descriptor.Provenance.AssetPath),
+                        (provenance.PackageId, provenance.PackageVersion, provenance.Tfm, provenance.AssetPath));
                 });
 
                 PackageEndpointBodyParticipant controls = afterParticipants.Single(

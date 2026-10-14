@@ -14,7 +14,7 @@ namespace DotnetInspect.Cli.Inspectors;
 /// CLI host policy for the two endpoints of a pairwise
 /// <c>diff --package ID@A..B</c> view opened as package endpoint scopes
 /// (docs/design/package-endpoint-scope.md, adoption step 2 and step 4 parts
-/// 1 to 3): the House's version and framework selection, as
+/// 1 to 4): the House's version and framework selection, as
 /// <c>package</c> has it, and ranged House access over the
 /// legacy-compatible per-authority store.
 /// </summary>
@@ -22,16 +22,19 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
 {
     readonly DesktopPackageSourceComposition _composition;
     readonly SearchPackageStores _stores;
+    readonly NuGetSourceOptions? _sourceOptions;
     bool _closed;
 
     PackageEndpointDiffSession(
         DesktopPackageSourceComposition composition,
         SearchPackageStores stores,
+        NuGetSourceOptions? sourceOptions,
         PackageEndpointScope from,
         PackageEndpointScope to)
     {
         _composition = composition;
         _stores = stores;
+        _sourceOptions = sourceOptions;
         From = from;
         To = to;
     }
@@ -193,7 +196,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 }
             }
 
-            return new PackageEndpointDiffSession(composition, stores, from, to);
+            return new PackageEndpointDiffSession(composition, stores, sourceOptions, from, to);
         }
         catch
         {
@@ -303,6 +306,23 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             $"Package endpoint {packageId}@{version} {phase}: {requests}, "
                 + $"{elapsed.TotalMilliseconds:F0} ms.");
     }
+
+    /// <summary>
+    /// Settles the Portable PDB of an endpoint participant. Its package-local
+    /// candidate is an exact Files request to the House that opened the
+    /// endpoint, from the producer that served it
+    /// (docs/design/package-endpoint-scope.md, step 4 part 4).
+    /// </summary>
+    internal IPortablePdbSettlementCapability CreatePortablePdbSettlement(
+        HttpClient httpClient,
+        VerboseLogger logger) =>
+        new PackageEndpointPdbSettlement(
+            _composition,
+            _stores,
+            _sourceOptions,
+            [From.Payload, To.Payload],
+            httpClient,
+            logger);
 
     public async ValueTask DisposeAsync()
     {

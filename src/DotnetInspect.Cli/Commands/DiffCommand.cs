@@ -1053,7 +1053,6 @@ public partial class DiffCommand
         => !LegacyPackageEndpointsForTesting.Value
             && !implementationTransport
             && !annotatedSourceTransport
-            && !options.IncludePdbSource
             && !RequestsWorkspaceImplementationTarget(options)
             && analysisPlan?.StringLiteralQuery is null;
 
@@ -2123,9 +2122,9 @@ public partial class DiffCommand
 
     /// <summary>
     /// Attaches PDB source to an Implementation Diff when it was requested.
-    /// Only extracted endpoints acquire PDB source; package endpoint scopes
-    /// don't take that request yet (docs/design/package-endpoint-scope.md,
-    /// step 4 part 4).
+    /// A package endpoint scope's PDB source reads its implementation
+    /// participants (docs/design/package-endpoint-scope.md, step 4 part 4);
+    /// every other endpoint's reads its extracted files.
     /// </summary>
     static Task<ImplementationDiffWithSource>
         BuildImplementationDiffWithSourceAsync(
@@ -2134,8 +2133,12 @@ public partial class DiffCommand
             DiffOptions options,
             HttpClient httpClient,
             VerboseLogger logger)
-        => options.IncludePdbSource
-            ? BuildImplementationDiffWithSourceAsync(
+    {
+        if (!options.IncludePdbSource)
+            return Task.FromResult(new ImplementationDiffWithSource(result));
+        if (inputs.Owner is not PackageEndpointDiffSession session)
+        {
+            return BuildImplementationDiffWithSourceAsync(
                 result,
                 inputs.FromPaths,
                 inputs.ToPaths,
@@ -2145,8 +2148,27 @@ public partial class DiffCommand
                 inputs.FromSurface,
                 inputs.ToSurface,
                 inputs.From.AssemblySet.Assemblies,
-                inputs.To.AssemblySet.Assemblies)
-            : Task.FromResult(new ImplementationDiffWithSource(result));
+                inputs.To.AssemblySet.Assemblies);
+        }
+
+        // SourceHouse reads each implementation participant in the group
+        // that holds it. Its PDB settles through the endpoint's House, never
+        // from a path beside an extracted assembly.
+        IPortablePdbSettlementCapability settlement =
+            session.CreatePortablePdbSettlement(httpClient, logger);
+        return WithBodyPopulationAsync(
+            inputs,
+            async (bodied, _) => await BuildImplementationDiffWithSourceAsync(
+                result,
+                [.. bodied.Bodies!.From.Select(PdbSourceAssembly.FromParticipant)],
+                [.. bodied.Bodies.To.Select(PdbSourceAssembly.FromParticipant)],
+                () => CreateSourceQueryContext(options, httpClient, logger, settlement),
+                options,
+                logger,
+                inputs.FromSurface,
+                inputs.ToSurface),
+            CancellationToken.None);
+    }
 
     internal static async Task<ImplementationDiffWithSource>
         BuildImplementationDiffWithSourceAsync(
@@ -2165,38 +2187,57 @@ public partial class DiffCommand
         if (!options.IncludePdbSource)
             return new(result);
 
+        return await BuildImplementationDiffWithSourceAsync(
+            result,
+            PdbSourceAssembly.FromPaths(fromPaths, options, oldSide: true, fromEntries),
+            PdbSourceAssembly.FromPaths(toPaths, options, oldSide: false, toEntries),
+            () => CreateSourceQueryContext(options, httpClient, logger),
+            options,
+            logger,
+            fromSurface,
+            toSurface);
+    }
+
+    static async Task<ImplementationDiffWithSource>
+        BuildImplementationDiffWithSourceAsync(
+            ImplementationDiffResult result,
+            IReadOnlyList<PdbSourceAssembly> from,
+            IReadOnlyList<PdbSourceAssembly> to,
+            Func<AssemblyContextSourceQueryContext> createSourceContext,
+            DiffOptions options,
+            VerboseLogger logger,
+            ApiSurface? fromSurface,
+            ApiSurface? toSurface)
+    {
         AssemblyMemberSourcePairRequest? request = null;
-        if (options.MemberFilter.Count == 1 && fromPaths.Count == 1 && toPaths.Count == 1)
+        if (options.MemberFilter.Count == 1 && from.Count == 1 && to.Count == 1)
         {
             request = TryResolveSelectedSourceRequest(
-                fromSurface ?? AssemblySetSurfaceBuilder.Build(fromPaths, includeAll: options.IncludeAll)
+                fromSurface ?? AssemblySetSurfaceBuilder.Build([from[0].SourcePath], includeAll: options.IncludeAll)
                     ?? throw new InvalidOperationException("Failed to extract API surface from the old selected PDB Source endpoint."),
-                toSurface ?? AssemblySetSurfaceBuilder.Build(toPaths, includeAll: options.IncludeAll)
+                toSurface ?? AssemblySetSurfaceBuilder.Build([to[0].SourcePath], includeAll: options.IncludeAll)
                     ?? throw new InvalidOperationException("Failed to extract API surface from the new selected PDB Source endpoint."),
                 options);
         }
         if (request is not null)
         {
             await using var workspace = new InspectionWorkspace();
-            var before = CreateSourceParticipant(
-                fromPaths[0],
-                options,
-                oldSide: true,
-                FindAssemblySetEntry(fromPaths[0], fromEntries));
-            var after = CreateSourceParticipant(
-                toPaths[0],
-                options,
-                oldSide: false,
-                FindAssemblySetEntry(toPaths[0], toEntries));
-            using var beforeGroup = workspace.CreateAssemblyContextGroup([before]);
-            using var afterGroup = workspace.CreateAssemblyContextGroup([after]);
-            var sourceContext = CreateSourceQueryContext(
-                options,
-                httpClient,
-                logger);
+            var before = from[0].CreateParticipant();
+            var after = to[0].CreateParticipant();
+            using var ownedBeforeGroup = from[0].Group is null
+                ? workspace.CreateAssemblyContextGroup([before])
+                : null;
+            using var ownedAfterGroup = to[0].Group is null
+                ? workspace.CreateAssemblyContextGroup([after])
+                : null;
             InspectionEnvelope<AssemblyMemberSourcePairResult> inspection =
                 await MemberSourcePairInspection.ExecuteAsync(
-                beforeGroup, before, afterGroup, after, request, sourceContext);
+                    from[0].Group ?? ownedBeforeGroup!,
+                    before,
+                    to[0].Group ?? ownedAfterGroup!,
+                    after,
+                    request,
+                    createSourceContext());
             return new(result, inspection);
         }
 
@@ -2228,31 +2269,25 @@ public partial class DiffCommand
         {
             logger.Log(failure.Detail);
         }
-        var from = await AcquirePdbSourceInspectionsAsync(
-            fromPaths,
+        var fromInspections = await AcquirePdbSourceInspectionsAsync(
+            from,
             subjects,
-            options,
-            oldSide: true,
-            httpClient,
+            createSourceContext,
             logger,
-            fromEntries,
             fromIndex.Methods,
             fromIndex.Failures);
-        var to = await AcquirePdbSourceInspectionsAsync(
-            toPaths,
+        var toInspections = await AcquirePdbSourceInspectionsAsync(
+            to,
             subjects,
-            options,
-            oldSide: false,
-            httpClient,
+            createSourceContext,
             logger,
-            toEntries,
             toIndex.Methods,
             toIndex.Failures);
         var comparisons = subjects.Values.Select(subject =>
             new PdbSourceComparisonInput(
                 subject,
-                PdbSourceInspectionFor(from, subject, oldSide: true),
-                PdbSourceInspectionFor(to, subject, oldSide: false)));
+                PdbSourceInspectionFor(fromInspections, subject, oldSide: true),
+                PdbSourceInspectionFor(toInspections, subject, oldSide: false)));
         return new(ImplementationDiff.WithPdbSourceComparisons(
             result,
             comparisons,
@@ -2471,10 +2506,16 @@ public partial class DiffCommand
             entry => Path.GetFullPath(entry.Path) == fullPath);
     }
 
+    /// <summary>
+    /// The SourceHouse context for diff's PDB source. An extracted file's
+    /// PDB may sit beside it; a package endpoint participant's PDB settles
+    /// through <paramref name="settlement"/> instead.
+    /// </summary>
     static AssemblyContextSourceQueryContext CreateSourceQueryContext(
         DiffOptions options,
         HttpClient httpClient,
-        VerboseLogger logger)
+        VerboseLogger logger,
+        IPortablePdbSettlementCapability? settlement = null)
         => new(
             httpClient,
             FileSystemPdbStore.CreateDefault(),
@@ -2482,7 +2523,8 @@ public partial class DiffCommand
             new SourceFetch(
                 DotnetInspector.Networking.HttpClientFactory.SharedUntrustedFetch))
         {
-            AllowAdjacentPdbReads = true,
+            AllowAdjacentPdbReads = settlement is null,
+            PortablePdbSettlementCapability = settlement,
             AllowLocalSourceReads = true,
             RepositoryPaths = options.SourceRepositories,
             NuGetSourceOptions = options.SourceOptions,
@@ -2533,6 +2575,21 @@ public partial class DiffCommand
             endpointMethods = null,
         IReadOnlyDictionary<string, PdbSourceEndpointFailure>?
             endpointFailures = null)
+        => await AcquirePdbSourceInspectionsAsync(
+            PdbSourceAssembly.FromPaths(paths, options, oldSide, entries),
+            subjects,
+            () => CreateSourceQueryContext(options, httpClient, logger),
+            logger,
+            endpointMethods,
+            endpointFailures);
+
+    static async Task<PdbSourceInspectionBatch> AcquirePdbSourceInspectionsAsync(
+        IReadOnlyList<PdbSourceAssembly> assemblies,
+        IReadOnlyDictionary<string, ResearchSubjectKey> subjects,
+        Func<AssemblyContextSourceQueryContext> createSourceContext,
+        VerboseLogger logger,
+        IReadOnlyDictionary<string, MethodIdentity>? endpointMethods,
+        IReadOnlyDictionary<string, PdbSourceEndpointFailure>? endpointFailures)
     {
         var results = new Dictionary<string, FindingInspection<string>>(StringComparer.Ordinal);
         if (endpointFailures is not null)
@@ -2549,25 +2606,19 @@ public partial class DiffCommand
         var indexingFailures = ImmutableArray.CreateBuilder<string>();
         var indexed =
             new List<(
-                string Path,
+                PdbSourceAssembly Assembly,
                 LibraryCallGraphAnalysisResult MethodPopulation,
                 AssemblyContextParticipant Participant)>();
-        foreach (string path in paths)
+        foreach (PdbSourceAssembly assembly in assemblies)
         {
+            string path = assembly.SourcePath;
             try
             {
-                LibraryCallGraphAnalysisResult methodPopulation = MethodBodyInspectionSession.Open(
-                        path,
-                        includeAllocations: false,
-                        includeOpportunities: false)
-                    .CallGraphAnalysis;
+                LibraryCallGraphAnalysisResult methodPopulation =
+                    assembly.IndexMethods();
                 AssemblyContextParticipant participant =
-                    CreateSourceParticipant(
-                        path,
-                        options,
-                        oldSide,
-                        FindAssemblySetEntry(path, entries));
-                indexed.Add((path, methodPopulation, participant));
+                    assembly.CreateParticipant();
+                indexed.Add((assembly, methodPopulation, participant));
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
@@ -2590,12 +2641,13 @@ public partial class DiffCommand
                 indexingFailures.ToImmutable());
         }
 
-        var sourceContext = CreateSourceQueryContext(options, httpClient, logger);
+        var sourceContext = createSourceContext();
         await using var workspace = new InspectionWorkspace();
 
-        foreach ((string path, LibraryCallGraphAnalysisResult methodPopulation,
+        foreach ((PdbSourceAssembly assembly, LibraryCallGraphAnalysisResult methodPopulation,
             AssemblyContextParticipant participant) in indexed)
         {
+            string path = assembly.SourcePath;
             foreach (string failure in PdbSourceDeclarationIndexFailures(
                 path,
                 methodPopulation.DeclaredMethods,
@@ -2654,7 +2706,7 @@ public partial class DiffCommand
             PdbSourceRequestIndex requestIndex;
             try
             {
-                requestIndex = BuildPdbSourceRequestIndex(path);
+                requestIndex = BuildPdbSourceRequestIndex(assembly);
             }
             catch (Exception ex) when (ex is IOException
                 or UnauthorizedAccessException
@@ -2684,7 +2736,10 @@ public partial class DiffCommand
             if (targets.Count == 0)
                 continue;
 
-            using var group = workspace.CreateAssemblyContextGroup([participant]);
+            using var ownedGroup = assembly.Group is null
+                ? workspace.CreateAssemblyContextGroup([participant])
+                : null;
+            AssemblyContextGroup group = assembly.Group ?? ownedGroup!;
             PdbSourceRequestIndex? generatedRequestIndex = null;
             string? generatedRequestIndexFailure = null;
             foreach (var target in targets)
@@ -2701,7 +2756,7 @@ public partial class DiffCommand
                         {
                             generatedRequestIndex =
                                 BuildPdbSourceRequestIndex(
-                                    path,
+                                    assembly,
                                     includeCompilerGenerated: true);
                         }
                         catch (Exception ex) when (ex is IOException
@@ -2800,17 +2855,13 @@ public partial class DiffCommand
     }
 
     static PdbSourceRequestIndex BuildPdbSourceRequestIndex(
-        string path,
+        PdbSourceAssembly assembly,
         bool includeCompilerGenerated = false)
     {
         ApiSurface surface =
-            AssemblyReader.ExtractApiSurface(
-                path,
-                includeAll: true,
-                typesOnly: false,
-                includeCompilerGenerated)
+            assembly.ExtractSurface(includeCompilerGenerated)
             ?? throw new InvalidOperationException(
-                $"Could not extract the PDB-source API target surface from '{path}'.");
+                $"Could not extract the PDB-source API target surface from '{assembly.SourcePath}'.");
         var requests =
             new Dictionary<int, AssemblyMemberSourceRequest>();
         var failures = new Dictionary<int, string>();
