@@ -313,8 +313,8 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     /// Opens the package <paramref name="endpoint"/>'s Root declares for the
     /// assembly <paramref name="assemblyName"/>, to which the Root forwards a
     /// Type (docs/design/package-endpoint-scope.md, step 4 part 5). The
-    /// Root's manifest is one exact File from the producer that served the
-    /// endpoint. The declared package opens through a content House over the
+    /// Root's manifest comes from the endpoint's payload, or else as one
+    /// exact File from the producer that served the endpoint. The declared package opens through a content House over the
     /// endpoints' composition and stores, which chooses ranged or complete
     /// access, narrowed to the one Library named for the assembly, with
     /// <c>SurfaceAndImplementation</c>. Returns <see langword="null"/>,
@@ -329,25 +329,31 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         string root = $"{endpoint.Root.Root.PackageId}@{endpoint.PackageVersion}";
-        PackageHouseSettlement manifest = await _composition.AcquireContentAsync(
-                PackageSourceCoordinate.Create(endpoint.Root.Root.PackageId, endpoint.PackageVersion),
-                PackageHouseContentQuery.PackageNuspec(),
-                _stores.GetLegacyCompatibleStore,
-                _sourceOptions,
-                logger.Log,
-                cancellationToken,
-                requiredProducerKey: endpoint.Payload.ProducerKey)
+        byte[]? nuspec = await ReadEndpointManifestAsync(endpoint, cancellationToken)
             .ConfigureAwait(false);
-        if (manifest.Result is not PackageHouseResult.Settled { Evidence.Nuspec: { } nuspec })
+        if (nuspec is null)
         {
-            logger.Log(
-                $"The forwarded target {assemblyName} of {root} is unavailable: "
-                    + $"its manifest was not acquired ({manifest.Result.GetType().Name}).");
-            return null;
+            PackageHouseSettlement manifest = await _composition.AcquireContentAsync(
+                    PackageSourceCoordinate.Create(endpoint.Root.Root.PackageId, endpoint.PackageVersion),
+                    PackageHouseContentQuery.PackageNuspec(),
+                    _stores.GetLegacyCompatibleStore,
+                    _sourceOptions,
+                    logger.Log,
+                    cancellationToken,
+                    requiredProducerKey: endpoint.Payload.ProducerKey)
+                .ConfigureAwait(false);
+            if (manifest.Result is not PackageHouseResult.Settled { Evidence.Nuspec: { } settled })
+            {
+                logger.Log(
+                    $"The forwarded target {assemblyName} of {root} is unavailable: "
+                        + $"its manifest was not acquired ({manifest.Result.GetType().Name}).");
+                return null;
+            }
+            nuspec = settled.ToArray();
         }
 
         if (PackageDeclaredForwardTarget.Select(
-                nuspec.ToArray(),
+                nuspec,
                 endpoint.Root.Root.PackageId,
                 endpoint.PackageVersion,
                 targetFramework,
@@ -399,6 +405,46 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 + (scope.ImplementationParticipants.Length == 1 ? "assembly" : "assemblies")
                 + $" for {scope.TargetFramework}; payload {scope.Payload.Origin}).");
         return scope;
+    }
+
+    /// <summary>
+    /// The Root's manifest as the endpoint's own payload holds it, or
+    /// <see langword="null"/> when that payload did not materialize it, as a
+    /// ranged read of only the asset folders does not.
+    /// </summary>
+    static async Task<byte[]?> ReadEndpointManifestAsync(
+        PackageEndpointScope endpoint,
+        CancellationToken cancellationToken)
+    {
+        IPackageContent content = endpoint.Payload.Content;
+        try
+        {
+            if (PackageManifestContent.FindRootManifest(content) is not { } path
+                || !content.TryOpenEntry(
+                    path,
+                    PackageManifestFactsProjection.MaxManifestBytes,
+                    out Stream? stream))
+            {
+                return null;
+            }
+
+            await using (stream.ConfigureAwait(false))
+            {
+                return await BoundedContentReader.ReadAllBytesAsync(
+                        stream,
+                        PackageManifestFactsProjection.MaxManifestBytes,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception) when (
+            exception is PackageEntryNotMaterializedException
+                or InvalidDataException
+                or IOException
+                or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

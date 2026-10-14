@@ -407,7 +407,9 @@ never retain a participant after the scope is disposed.
           forward's target assembly, in the manifest's dependency group for
           the Root's framework (exact or framework-neutral, as before), at
           its version range's lower bound.
-        - The Root's manifest is one exact `.nuspec` File from a content
+        - The Root's manifest is the `.nuspec` the endpoint's payload holds.
+          When the payload didn't materialize it, as a ranged read of only
+          the asset folders doesn't, it is one exact File from a content
           House over the endpoint's source composition and stores,
           restricted to the producer that served the endpoint.
         - The forwarded target opens as a package endpoint scope through a
