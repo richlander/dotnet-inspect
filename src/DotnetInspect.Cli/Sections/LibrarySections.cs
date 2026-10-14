@@ -972,6 +972,8 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.CloneCandidates;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.CloneCandidates;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
@@ -1288,6 +1290,8 @@ public static class LibrarySections
     public sealed class UnsafeMembers : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.UnsafeMembers;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.UnsafeMembers;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
@@ -1302,6 +1306,8 @@ public static class LibrarySections
     public sealed class TopLeverage : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.TopLeverage;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.TopLeverage;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
@@ -1316,6 +1322,8 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.MemberMetrics;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.MemberMetrics;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
@@ -1332,6 +1340,8 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.LibraryMetrics;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.LibraryMetrics;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
@@ -1348,6 +1358,8 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.NameFamilies;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.NameFamilies;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
@@ -1364,6 +1376,8 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ArchitecturalFamilies;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ArchitecturalFamilies;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
@@ -1396,6 +1410,8 @@ public static class LibrarySections
         : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.DependencyStructure;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.DependencyStructure;
         // Dependency Structure is a Graph of namespace nodes and typed
         // edges, not one of the three section shapes; its diagram formats
         // stay with the Graph owner (docs/design/section-shapes.md, Non-goals).
@@ -1448,6 +1464,8 @@ public static class LibrarySections
     public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceBoxing;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceBoxing;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1458,6 +1476,8 @@ public static class LibrarySections
     public sealed class PerformanceArrays : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceArrays;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceArrays;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1468,6 +1488,8 @@ public static class LibrarySections
     public sealed class PerformanceClosures : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceClosures;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceClosures;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1478,6 +1500,8 @@ public static class LibrarySections
     public sealed class PerformanceEnumerators : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceEnumerators;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceEnumerators;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1488,6 +1512,8 @@ public static class LibrarySections
     public sealed class PerformanceStrings : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceStrings;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceStrings;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1498,6 +1524,8 @@ public static class LibrarySections
     public sealed class PerformanceLoops : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceLoops;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceLoops;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1508,6 +1536,8 @@ public static class LibrarySections
     public sealed class PerformanceHotspots : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceHotspots;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceHotspots;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1518,6 +1548,8 @@ public static class LibrarySections
     public sealed class PerformanceAsync : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceAsync;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceAsync;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1530,6 +1562,8 @@ public static class LibrarySections
     {
         public static string Name =>
             SectionNames.PerformanceSyncCallsInAsync;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceSyncCallsInAsync;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass =>
@@ -1544,6 +1578,8 @@ public static class LibrarySections
     public sealed class PerformanceOther : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PerformanceOther;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PerformanceOther;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1554,6 +1590,8 @@ public static class LibrarySections
     public sealed class ArrayPoolEscapes : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.ArrayPoolEscapes;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.ArrayPoolEscapes;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1565,6 +1603,8 @@ public static class LibrarySections
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.PInvokeMethods;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.PInvokeMethods;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -1578,6 +1618,8 @@ public static class LibrarySections
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.AsyncMethods;
+        public static SectionDescription? Description =>
+            LibrarySectionDescriptions.AsyncMethods;
         public static SectionShape? Shape => SectionShape.Table;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;

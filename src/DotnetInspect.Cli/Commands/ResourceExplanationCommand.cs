@@ -239,7 +239,8 @@ public static class ResourceExplanationCommand
                     $"{catalog} output capabilities are required."),
                 sectionCardinalities:
                     projection.SectionCardinalities,
-                sectionShapes: projection.SectionShapes);
+                sectionShapes: projection.SectionShapes,
+                sectionDescriptions: projection.SectionDescriptions);
         return structural is null
             ? null
             : ResourceExplanationCatalog.CreateStructural(
