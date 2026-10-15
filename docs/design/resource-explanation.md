@@ -145,7 +145,8 @@ A public path remains an address projection, not semantic ownership or a
 requirement to duplicate the root's prefix in every existing address.
 
 The lean root exposes subject kinds and operations as distinct, connected
-collections. Subject kinds describe what can be configured or inspected, such
+collections of bounded summaries, not embedded canonical definitions. Subject
+kinds describe what can be configured or inspected, such
 as Workspace, Package, Library, Type and Member. Operations describe available
 work, such as Find, Depends, Diff and the Package or Type inspection operation.
 These are two navigation entrances into one graph, not an exhaustive taxonomy
@@ -160,16 +161,26 @@ identity or discriminator of either node. Lowerings preserve each role and
 relationship target; consumers cannot join the collections by display name or
 bare key text.
 
-A subject kind links to its owner-registered applicable or conditional
-operations. An operation links to its declared input subject kinds and roles,
-produced subject kinds where applicable, selectable result grains, and required
-context or availability conditions. Input kinds and result grains remain
-separate facts: a Diff operation's compared subjects need not have the same
-grain as its change results. Resource Explanation projects these relationships
-from owner declarations; it neither infers applicability from matching names
-nor defines operation/query semantics. Readers can approach from either the
-subject they have or the work they want to perform, then cross to the other
-collection through a meaningful relationship.
+A subject kind's selected description links to its owner-registered applicable
+or conditional operations. An operation's selected description identifies its
+declared input kinds and roles and routes to subject-specific explanation.
+Learning which facets Diff exposes over Package requires querying that
+operation/subject combination; neither the root summary nor the operation
+overview embeds the cross-product of subject kinds and facet definitions.
+The selected explanation preserves the owner's applicable facets, input rules,
+produced kinds, result grains and context/availability conditions. An
+unsupported combination and one requiring unavailable context retain their
+owner-issued outcomes rather than appearing to have no facets. Selecting a
+subject kind alone does not require acquiring a concrete instance or executing
+the operation. Instance-dependent applicability remains qualified until its
+required input is supplied.
+
+Input kinds and result grains remain separate facts: Diff's compared subjects
+need not have the same grain as its change results. Resource Explanation
+projects these relationships from owner declarations; it neither infers
+applicability from matching names nor defines operation/query semantics.
+Subject-first and operation-first routes converge on the same applicable
+description, which can also be requested directly when its keys are known.
 
 Root and collection readings preserve the owner-issued identity, purpose and
 usable next destinations needed to choose among immediate members. Where
@@ -181,6 +192,11 @@ hints; whether an unfamiliar agent selects it efficiently is a usability claim
 requiring the later trials.
 
 Discovery embeds bounded local summaries and links to further knowledge.
+Summary entries identify and describe their destinations sufficiently to choose
+the next reading; they do not duplicate the destination's canonical definition,
+facet inventory, validation rules or nested relationships. A HAL embedded entry
+may be a partial representation whose `self` identifies the described resource;
+its presence is not evidence that the full definition is already available.
 Detailed constraints, examples and required preparation context belong at the
 selected leaf. A reader can enter directly at a known resource or narrow a
 known dataset; visiting each ancestor is not a prerequisite. Request limits
@@ -276,8 +292,10 @@ bootstrap and superseded discovery summaries are retired in their host adoption.
 
 Before production claims, shared gates must check root coverage over registered
 resources/kinds, distinct subject/operation identities for overlapping labels,
-owner-issued applicability/input/result relationships, bounded collection
-outcomes, equivalent direct/HAL routing,
+owner-issued applicability/input/result relationships, summary-only root and
+collection entries, subject-specific facet disclosure without an eager
+operation/subject cross-product, unsupported and context-dependent combination
+outcomes, bounded collection outcomes, equivalent direct/HAL routing,
 exact detached-field preservation, valid kind dispatch, local identity scope and
 unavailable context. Workspace's own validation/default/version gates remain
 authoritative. CLI gates cover independent help and root admission; Browser

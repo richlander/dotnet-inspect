@@ -50,6 +50,13 @@ agent HAL root could contain this subset of its registered destinations:
         }
       },
       {
+        "key": "diff",
+        "summary": "Compare subjects and inspect their changes.",
+        "_links": {
+          "self": {"href": "inspect-resource:/operations/diff?projection=hal"}
+        }
+      },
+      {
         "key": "package",
         "summary": "Inspect a package's content and metadata.",
         "_links": {
@@ -64,6 +71,9 @@ agent HAL root could contain this subset of its registered destinations:
 
 This is an excerpt, not a complete proposed inventory. A production root must
 account for every admitted kind and installed resource through onward routes.
+The embedded entries are summaries, not canonical definitions. Their `self`
+links identify the resources whose detail can be queried; the root does not
+already contain those definitions or their facet inventories.
 Each emitted link must be usable through its host after adoption. The catalog
 resource supplies the logical root; existing resource paths need not be renamed
 under a common string prefix to become its graph descendants.
@@ -92,16 +102,65 @@ Direct JSON must preserve the same identities and typed relationships.
 | Starting question | Proposed route |
 | --- | --- |
 | I have a package; what can I do with it? | Subjects -> Package -> owner-registered applicable operations |
-| I need to compare subjects | Operations -> Diff -> accepted input kinds/roles and context |
+| What can Diff expose over packages? | Operations -> Diff -> Package -> applicable facets, inputs and context |
 | Which packages depend on Polly? | Operations -> Find -> package result grain -> dependency facets |
 | How can I construct the inspection environment? | Subjects -> Workspace -> contribution contracts and construction affordances |
 
 Subject-to-operation relationships preserve declared conditions. An operation
-advertises accepted input subjects separately from produced kinds and selectable
-result grains; none is inferred from its name. For example, the subjects Diff
-compares do not establish that its result rows are also those subjects.
-Following an operation's explanation link reads its contract, not its results.
-The reader executes work only through the owner-advertised operation binding.
+overview gives enough information to choose an input kind, without embedding
+all of its subject-specific facet definitions. A selected description keeps
+accepted input subjects separate from produced kinds and selectable result
+grains; none is inferred from the operation name. Following an explanation
+link reads knowledge; the reader executes work only through the owner-advertised
+operation binding.
+
+### Query Diff for a subject kind
+
+For **what does Diff expose over Package?**, the reader selects the root's Diff
+summary and requests its destination. This illustrative operation overview
+routes to subject-specific detail:
+
+```json
+{
+  "summary": "Compare subjects and inspect their changes.",
+  "_links": {
+    "self": {"href": "inspect-resource:/operations/diff?projection=hal"},
+    "subjects": {"href": "inspect-resource:/operations/diff/subjects?projection=hal"}
+  },
+  "_embedded": {
+    "subjects": [
+      {
+        "key": "package",
+        "summary": "Explore the registered comparison capabilities for packages.",
+        "_links": {
+          "self": {"href": "inspect-resource:/operations/diff/subjects/package?projection=hal"}
+        }
+      }
+    ]
+  },
+  "scope": {"population": "illustrative-operation-subject-subset"}
+}
+```
+
+The reader queries that Package destination to learn its owner-registered Diff
+facets, accepted inputs, result grains and required context. This is still
+capability explanation: it does not compare two package versions. The mockup
+does not assert that today's Diff owner registers this combination or prescribe
+its facet names. Adoption must use the actual owner-issued set, with visible
+unsupported or unavailable outcomes where appropriate.
+
+The subject-first route, Package -> applicable operations -> Diff, reaches the
+same selected description. A reader who already knows the destination can
+request it directly, skipping both summaries. A single selected answer can
+support jq over its returned facets; enumerating unrelated subjects is not a
+prerequisite.
+
+The neighboring case is a different subject kind, such as Member. Package's
+facets cannot be reused as its answer: request that combination and preserve
+its owner's applicability/context outcome. An omitted Member entry in this
+illustrative subset does not establish that Diff over Member is unsupported.
+
+### Query Find for a result grain
 
 Find and its proposed `--packages` grain are the user's consolidation direction;
 current query migration owns availability and actual command binding. A reader
