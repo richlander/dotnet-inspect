@@ -708,6 +708,67 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
+        LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry()
+    {
+        byte[] assembly = File.ReadAllBytes(
+            System.IO.Path.Combine(
+                AppContext.BaseDirectory,
+                "RealAssets",
+                "PackageHouse",
+                "System.Text.Json.dll"));
+        byte[] archive = CreateFrameworkArchive(
+            ("lib/Alpha.dll", assembly),
+            ("lib/Alpha.pdb", "alpha-pdb"u8.ToArray()));
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.AcquireContentAsync(
+                new InMemoryPackageStore(),
+                PackageHouseContentQuery
+                    .GetLibraryAndInventoryForTarget(target),
+                packageId: AddressPackageId,
+                version: AddressPackageVersion,
+                targetContext: target));
+
+        PackageHouseLibraryInventoryRow row = Assert.Single(
+            acquired.Result.Evidence.LibraryAndInventory!
+                .Inventory.Rows);
+        Assert.Equal("any", row.CompileAsset.TargetFramework);
+        Assert.Equal(row.CompileEntry, row.ImplementationEntry);
+        Assert.Equal(
+            PackageHousePortablePdbEvidenceKind.Listed,
+            row.PortablePdbEvidence);
+        Assert.Equal("lib/Alpha.pdb", row.PortablePdbEntry?.Path);
+        Assert.Equal(
+            ["lib/Alpha.dll"],
+            acquired.Payload.Content.EnumerateEntries());
+        PackageHouseLibraryMaterializationOutcome.Completed materialized =
+            Assert.IsType<
+                PackageHouseLibraryMaterializationOutcome.Completed>(
+                await PackageHouseLibraryMaterializer
+                    .MaterializeSelectionAsync(
+                        acquired,
+                        acquired.Result.Evidence
+                            .LibraryAndInventory!
+                            .SelectedLibrary,
+                        cancellationToken:
+                            TestContext.Current.CancellationToken));
+        Assert.Same(
+            materialized.Receipt.Library.ApiAssembly,
+            materialized.Receipt.Library.ImplementationAssembly);
+        await materialized.Owner.DisposeAsync();
+        await materialized.Artifacts.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task
         PackagePortablePdbSettlement_RangeAcquiresOnlyIssuedPdb()
     {
         const string DllPath =

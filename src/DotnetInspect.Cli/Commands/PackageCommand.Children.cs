@@ -287,11 +287,11 @@ public partial class PackageCommand
                     {
                         bool entryPoint =
                             entryPointFileNames?.Contains(
-                                Path.GetFileName(assetPath)) == true;
+                                PackageEntryPath.GetLeafName(assetPath)) == true;
                         return new PackageChildCandidate(
                             assetPath,
                             assetPath,
-                            Path.GetFileNameWithoutExtension(assetPath),
+                            PackageEntryPath.GetStemName(assetPath),
                             targetFramework,
                             entryPoint
                                 ? PackageLibraryChildRole.ToolEntryPoint

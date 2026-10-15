@@ -287,10 +287,11 @@ public sealed class PackagePlatformHouseAdapter
                     request, PlatformSourceFacet.Reference, exact,
                     "The House operation does not request reference realization."));
             if (housePopulation is PlatformPopulationDemand.Library
-                { Value: PlatformLibraryDemand.PlatformLibrary })
+                { Value: PlatformLibraryDemand.PlatformLibrary
+                    or PlatformLibraryDemand.AssemblyName })
                 return Task.FromResult(Stop<PackageReferenceRealization>(
                     request, PlatformSourceFacet.Reference, exact,
-                    "An opaque Platform library identity has no package-member correspondence."));
+                    "This Library demand has no reference-package member correspondence."));
             if (workAllowance.MaxSourceOperations == 0
                 || workAllowance.MaxDuration == TimeSpan.Zero)
                 return Task.FromResult(Stop<PackageReferenceRealization>(
@@ -527,6 +528,10 @@ public sealed class PackagePlatformHouseAdapter
                         { Value: PlatformLibraryDemand.Assembly assembly } =>
                         new PackageImplementationPopulationDemand.Assembly(
                             assembly.Identity),
+                    PlatformPopulationDemand.Library
+                        { Value: PlatformLibraryDemand.AssemblyName assembly } =>
+                        new PackageImplementationPopulationDemand.AssemblyName(
+                            assembly.Name),
                     PlatformPopulationDemand.CompletePopulation =>
                         new PackageImplementationPopulationDemand
                             .CompletePopulation(),

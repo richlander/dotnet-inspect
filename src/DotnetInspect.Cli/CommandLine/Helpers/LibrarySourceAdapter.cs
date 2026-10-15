@@ -15,11 +15,14 @@ internal sealed record LibrarySourceBinding(
         PackageTarget?.OriginalArgument;
 
     internal string Target =>
-        Path.GetFileName(
-            AssemblyName
-                ?? PackageArgument
-                ?? PlatformAssembly
-                ?? string.Empty);
+        AssemblyName is { } assemblyName
+            && Selector is SourceSelector.PackageSource
+                ? PackageEntryPath.GetLeafName(assemblyName)
+                : Path.GetFileName(
+                    AssemblyName
+                        ?? PackageArgument
+                        ?? PlatformAssembly
+                        ?? string.Empty);
 
     internal LibraryOptions ApplyTo(LibraryOptions options) =>
         options with
