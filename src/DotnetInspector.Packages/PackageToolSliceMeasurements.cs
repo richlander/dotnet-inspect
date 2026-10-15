@@ -701,7 +701,8 @@ public static class PackageToolSliceMeasurementProjection
             || !parts![0].Equals("tools", StringComparison.OrdinalIgnoreCase)
             || !TfmResolver.IsTfmLike(parts[1])
             || !parts[^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[^1]))
+            || string.IsNullOrEmpty(
+                PackageEntryPath.GetStemName(parts[^1]))
             || IsNativeRuntimeAsset(parts))
         {
             return null;

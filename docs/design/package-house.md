@@ -587,6 +587,11 @@ answer:
 - **selected projection** contains the one applicable slice and zero, one, or
   many selected compile assets, or one typed non-success.
 
+Each selected compile asset retains its package-relative path and owner-issued
+assembly leaf and simple names. Consumers use those identities directly rather
+than reconstructing them from the path under inspecting-host filesystem
+semantics.
+
 Complete means complete for compile selection within the exact acquired
 package-content generation. It does not mean every package entry is a compile
 candidate, turn package inventory into Workspace inventory, or authorize

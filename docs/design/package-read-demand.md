@@ -373,10 +373,13 @@ names them directly:
 `PackageFileDemand` is a set of exact entry paths and folder prefixes.
 Paths are validated as entry names are: relative, `/`-separated, and without
 an empty, `.`, or `..` segment, a root, `\`, or `:`. They are compared
-without regard to case. A file demand needs no asset realization, so a
-ranged `Acquire` operation may carry one; only an `Acquire` operation does.
-Without a file demand, ranged access still requires a `Realize`
-operation.
+without regard to case. Package-owned lexical projections, including an entry
+leaf, stem, or extension, interpret that entry grammar rather than the
+inspecting host's filesystem grammar. Consumers use those projections instead
+of reconstructing entry identity with `System.IO.Path`. A file demand needs no
+asset realization, so a ranged `Acquire` operation may carry one; only an
+`Acquire` operation does. Without a file demand, ranged access still requires
+a `Realize` operation.
 
 A file demand fetches:
 

@@ -126,6 +126,190 @@ about a selected live resource instance. dotnet-inspect's package, Library,
 Type, Member, Diff, Depends, and other inspection commands already fill that
 subject-oriented role.
 
+## Continuous discovery and declarative components
+
+Status: **proposed, not implemented**, first slice
+[#10133](https://github.com/richlander/dotnet-inspect/issues/10133) of
+[#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
+This section extends Resource Explanation's navigation and detached-input
+contract. It does not change current CLI admission or the Workspace wire format.
+
+### Root reachability and routing knowledge
+
+The explanation graph has one discoverable root. Every admitted installed
+resource has a directed navigation path from that root. Every admitted
+contextual resource kind has a discoverable contract and input affordance;
+its instances are reached with the input required by their owner. Reachability
+does not mean enumerating every possible package, member or future Workspace.
+A public path remains an address projection, not semantic ownership or a
+requirement to duplicate the root's prefix in every existing address.
+
+The lean root exposes subject kinds and operations as distinct, connected
+collections of bounded summaries, not embedded canonical definitions. Subject
+kinds describe what can be configured or inspected, such
+as Workspace, Package, Library, Type and Member. Operations describe available
+work, such as Find, Depends, Diff and the Package or Type inspection operation.
+These are two navigation entrances into one graph, not an exhaustive taxonomy
+of every node: facets, schemas and vocabularies remain reachable through their
+registered relationships. Operation descriptions are themselves addressable
+explanation resources without becoming subject kinds.
+
+Identity preserves the distinction when labels overlap. A Package subject kind
+and the Package operation have separate owner-issued typed identities even if
+both display as `package`. A CLI spelling is an operation binding, not the
+identity or discriminator of either node. Lowerings preserve each role and
+relationship target; consumers cannot join the collections by display name or
+bare key text.
+
+A subject kind's selected description links to its owner-registered applicable
+or conditional operations. An operation's selected description identifies its
+declared input kinds and roles and routes to subject-specific explanation.
+Learning which facets Diff exposes over Package requires querying that
+operation/subject combination; neither the root summary nor the operation
+overview embeds the cross-product of subject kinds and facet definitions.
+The selected explanation preserves the owner's applicable facets, input rules,
+produced kinds, result grains and context/availability conditions. An
+unsupported combination and one requiring unavailable context retain their
+owner-issued outcomes rather than appearing to have no facets. Selecting a
+subject kind alone does not require acquiring a concrete instance or executing
+the operation. Instance-dependent applicability remains qualified until its
+required input is supplied.
+
+Input kinds and result grains remain separate facts: Diff's compared subjects
+need not have the same grain as its change results. Resource Explanation
+projects these relationships from owner declarations; it neither infers
+applicability from matching names nor defines operation/query semantics.
+Subject-first and operation-first routes converge on the same applicable
+description, which can also be requested directly when its keys are known.
+
+Root and collection readings preserve the owner-issued identity, purpose and
+usable next destinations needed to choose among immediate members. Where
+registered, result grain, scope and representative questions further distinguish
+those choices. Routing hints are projections of owner declarations, not an
+independently maintained skill summary or a list inferred from CLI command
+names. A question's expected route must have distinguishing evidence in these
+hints; whether an unfamiliar agent selects it efficiently is a usability claim
+requiring the later trials.
+
+Discovery embeds bounded local summaries and links to further knowledge.
+Summary entries identify and describe their destinations sufficiently to choose
+the next reading; they do not duplicate the destination's canonical definition,
+facet inventory, validation rules or nested relationships. A HAL embedded entry
+may be a partial representation whose `self` identifies the described resource;
+its presence is not evidence that the full definition is already available.
+Detailed constraints, examples and required preparation context belong at the
+selected leaf. A reader can enter directly at a known resource or narrow a
+known dataset; visiting each ancestor is not a prerequisite. Request limits
+and completeness remain visible. Omitted detail is not known-empty data, and a
+bounded root cannot claim to enumerate unreturned members completely. The
+existing complete and query-preparation readings remain distinct explicit
+purposes; a smaller discovery view must identify its scope rather than silently
+claim the full preparation profile.
+
+HAL makes the root immediately recognizable through `_links` and `_embedded`.
+The proposed discovery addresses identify resources independently of their
+representation: they do not carry `?projection=hal`. Hosts select HAL or direct
+JSON for the request. This replaces the existing projected-address binding only
+when the discovery contract is adopted; it does not change today's CLI parser.
+Direct JSON carries equivalent routing facts and destination identities. Links
+advertise missing knowledge, including scoped related collections backed by
+owner-issued reverse indexes when available. The relationship's population and
+completeness remain those supplied by its owner; a local index cannot establish
+a global dependent population. Navigation does not automatically execute the
+linked operation or expand every reverse match.
+
+### Workspace participation and detached component input
+
+A Workspace contribution is declarative construction intent. Workspace
+Definitions owns its interpretation and validity; a lens's owner supplies the
+inspection capability and configuration over a realized environment. These
+control-plane resources participate in the same description graph as the
+capabilities that operate over data-plane content. Plane classification follows
+semantic role, not JSON encoding or whether a value is called metadata.
+
+An explanation input supplied by a component owner identifies its resource kind
+and schema, carries the validated detached declaration, and states any supplied
+identity/context basis. Resource Explanation composes that input with the same
+registered kind contract discoverable from the root. It does not infer the kind
+from object keys or parse a packet-local component path as a global
+`ResourcePath`. An advertised contract reference is a dispatch hint; the
+receiving semantic owner still validates the submitted input. Unsupported kind,
+version or malformed declarations retain visible failure and never fall through
+to capability search.
+
+Extraction may leave enough information to explain the declaration's local
+fields without enough information to explain inherited context or a realization.
+The input owner supplies that distinction. Only supplied and owner-validated
+facts become observations. Missing parent context remains unavailable where
+needed; it is not reconstructed from defaults, the active Workspace or a
+matching cached package. Owner-declared defaults and explicitly supplied values
+retain their owner's distinction. Explaining a declaration does not restore a
+Workspace, resolve floating versions, acquire package content or execute an
+inspection to manufacture additional facts.
+
+The same packet-local path in two packets does not establish one global
+component identity. A standalone declaration may be explained without a claim
+that it is a particular occurrence in an omitted parent packet. If the input
+owner requires parent information to validate the requested input or answer,
+that input must be supplied or the request visibly qualified/refused under the
+existing observation and failure contracts. A consumer cannot repair the gap
+by inventing a packet identity or serializing process-local authority.
+
+### Evidence, consumers and staged adoption
+
+The motivating real asset is `System.Text.Json` **10.0.0** for **net10.0**.
+The pinned repository witness
+[`WorkspaceComponentEditing.cs` at bdba62c](https://github.com/richlander/dotnet-inspect/blob/bdba62c74c77f98ad5fb4937f022681c5c42241e/src/DotnetInspector.Queries/Definitions/WorkspaceComponentEditing.cs)
+and Workspace Definitions'
+[component example](workspace-definitions.md#component-identity-and-immutable-packet-editing)
+expose the source shape and its packet-local path. Current owner-issued
+component inventory lacks an explicit explain-kind handoff; that is a staged
+Workspace adoption, not an invitation to guess from `package_id`.
+The [worked proposal](../../tools/ExplainReadingScenarios/continuous-resources/README.md)
+shows root routing, extraction, local questions, missing parent context and a
+scoped wormhole. Its JSON is a mockup, not product output or measured evidence.
+
+Supporting boundaries remain independently owned:
+
+- [Workspace Definitions](workspace-definitions.md#component-identity-and-immutable-packet-editing)
+  supplies component types, packet validity, local identity, extraction and any
+  new owner-issued explanation input. Its packet schema and codec are unchanged
+  by this proposal.
+- [Contextual Resource Explanation](contextual-resource-explanation.md#explain-facade-dispatch)
+  owns input admission and direct typed handoff. Its present three operand
+  families are unchanged until its focused adoption adds a component entrance.
+- [CLI host architecture](../cli-architecture.md) owns bare-root and `--help`
+  admission; [Find Workspace scope](find-workspace-scope.md) and query owners
+  supply the bindings and grains of the intended unified `find` route. This
+  proposal does not independently consolidate query commands.
+- [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
+  owns realization and authority; Browser host adoption consumes the same
+  shared explanation result without importing that authority into a packet.
+
+The eight-step composition plan is tracked in #10132: this proposal; Workspace
+owner declarations; shared graph/projection implementation; CLI root/help;
+contextual component admission; Browser adoption; individually owned index
+relations; and fresh-agent trials. Each later slice changes one owner's
+contract. There is no second explanation model to maintain or retire: consumers
+reuse the existing catalog, typed snapshots and lowerings. The required-operand
+bootstrap and superseded discovery summaries are retired in their host adoption.
+
+Before production claims, shared gates must check root coverage over registered
+resources/kinds, distinct subject/operation identities for overlapping labels,
+owner-issued applicability/input/result relationships, summary-only root and
+collection entries, subject-specific facet disclosure without an eager
+operation/subject cross-product, unsupported and context-dependent combination
+outcomes, bounded collection outcomes, equivalent direct/HAL routing,
+exact detached-field preservation, valid kind dispatch, local identity scope and
+unavailable context. Workspace's own validation/default/version gates remain
+authoritative. CLI gates cover independent help and root admission; Browser
+gates exercise its real facade and equivalent content. A no-acquisition probe
+must cover component explanation. Agent trials then measure correct root-to-goal
+routing, known-resource shortcuts and sufficient extracted-component answers,
+with request/presented-content accounting and an unchanged retrospective after
+answers/logs are frozen. All new behavior in this section remains unverified
+until those named adoption gates exist.
+
 ## Terminology and owner map
 
 ### Explainable resource
