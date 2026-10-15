@@ -977,13 +977,20 @@ of the package identity.
 The surface contains:
 
 ```text
-Dependencies                         package and reference count or state
-target-framework groups and graph
-package dependencies and assembly references
+References                              count or state  References | Hierarchy
+selected view's graph and controls
+reference lists or hierarchy diagnostics
 ```
 
-The quiet header labels the lens and reports the selected dependency group's
-package count together with the selected assembly's direct reference count.
+The quiet header labels the lens and reports the selected view's count or state.
+References is the default tab. Hierarchy is available for NuGet packages and
+uses the same bounded graph viewport, pan and zoom controls, and Graph Explore
+action. Each hierarchy occurrence is a separate graph node, including revisits
+and cycles. Its preview is bounded with an explicit shown/total count; traversal
+incompleteness and acquisition failures remain visible below the graph. Shared
+hierarchy URLs open the Hierarchy tab within References.
+For References, the header reports the selected dependency group's package
+count together with the selected assembly's direct reference count.
 Version navigation remains available in the Package master pane; the framework
 shortcut opens the master pane's framework choices. Dependency-group
 selection remains with the result because it selects a manifest group rather
