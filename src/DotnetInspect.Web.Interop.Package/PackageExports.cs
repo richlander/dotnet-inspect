@@ -361,10 +361,10 @@ public static partial class PackageExports
                     return new PackageLibraryChildCandidate(
                         path,
                         path,
-                        Path.GetFileNameWithoutExtension(path),
+                        PackageEntryPath.GetStemName(path),
                         measurements.SelectedTargetFramework,
                         entryPointFileNames.Contains(
-                            Path.GetFileName(path))
+                            PackageEntryPath.GetLeafName(path))
                             ? PackageLibraryChildRole.ToolEntryPoint
                             : PackageLibraryChildRole.ToolLibrary);
                 })

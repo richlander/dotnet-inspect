@@ -448,9 +448,11 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
 
         // A section that has not declared a description reports every part
         // absent rather than substituting its name or an empty string.
+        // Library has completed adoption, so the undeclared case is a
+        // section of a command that has not.
         var undeclared = await RunAsync(
             "explain",
-            "library/sections/references",
+            "member/sections/derived-types",
             ".contract", "--json");
 
         Assert.Equal(0, undeclared.ExitCode);

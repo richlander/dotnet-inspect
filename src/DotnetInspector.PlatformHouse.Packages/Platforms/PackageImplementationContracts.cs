@@ -85,6 +85,17 @@ public abstract class PackageImplementationPopulationDemand
         public AssemblyReferenceIdentity Identity { get; }
     }
 
+    public sealed class AssemblyName : PackageImplementationPopulationDemand
+    {
+        public AssemblyName(string name)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(name);
+            Name = name;
+        }
+
+        public string Name { get; }
+    }
+
     public sealed class CompletePopulation :
         PackageImplementationPopulationDemand;
 }

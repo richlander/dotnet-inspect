@@ -38,6 +38,15 @@ is later rejected. Satellite resource assemblies remain excluded.
 Selected and non-selected slices therefore remain visible in selected,
 selected-empty, no-match, and invalid results.
 
+Direct `lib/*.dll` assets form one framework-agnostic slice whose receipt
+identity is `any`; nested paths do not join that slice. A recognized explicit
+target may select `any` only when no framework-qualified slice satisfies the
+request, and `HighestAvailable` ranks every framework-qualified slice ahead of
+`any`. An unrecognized target still fails closed unless an available
+framework-qualified slice matches its spelling exactly. The implementation
+universe applies the same `any` fallback, so a selected root `lib` asset is its
+own implementation counterpart.
+
 Compile roles are framework-local. A marker suppresses library fallback only
 when its exact slice is selected and that slice has no real reference asset. A
 real reference asset in the selected slice wins over a co-located marker; a
@@ -57,6 +66,11 @@ Navigation or its
 [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
 request. `DefaultAsset` matches file stems in selection order, while First
 Library matches owner-issued assembly names in Library order.
+
+The framework-agnostic slice is grounded by published packages that carry
+managed assemblies directly under `lib/`: WebGrease 1.6.0, Antlr 3.5.0.2, and
+EO.WebBrowser 26.3.18. Focused selector fixtures preserve that layout without
+retaining package binaries.
 
 ## Comparison counterparts
 
@@ -156,6 +170,8 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Marker-only and highest-marker packages remain selected-empty inventory | `EmptyReferenceGroup_AloneIsASelectedEmptySlice` and `HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice` |
 | Marker suppression is framework-local and real references win | `EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice` and `EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework` |
 | Compile and implementation slices reduce separately | `CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately` |
+| Direct root `lib` assets form the framework-agnostic fallback and retain implementation correspondence | `RootLibraryAssets_FormFrameworkAgnosticCompileSlice`, `ExactTargetRootFallbackPreservesRootImplementationCounterpart`, `Select_RootLibraryIsFrameworkAgnosticFallback`, `Select_FrameworkSpecificFolderOutranksRootLibrary`, and `LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry` |
+| The framework-agnostic fallback does not admit unrecognized target spellings | `Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable` |
 | Invalid implementation selection retains complete candidate inventory | `Selection_CaseCollidingImplementationPathsAreRejected` |
 | Selected implementation assets retain RID qualification | `RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` |
 | PackageHouse preserves owner-default inventory and many Library handoffs | `OwnerDefaultCompileRealizePreservesHighestAvailableInventory` |

@@ -246,7 +246,7 @@ public partial class LibraryCommand
                     "ref",
                     StringComparison.OrdinalIgnoreCase))
             || !TfmResolver.IsTfmLike(segments[1])
-            || Path.GetFileNameWithoutExtension(segments[^1]).Length == 0)
+            || PackageEntryPath.GetStemName(segments[^1]).Length == 0)
         {
             return false;
         }
