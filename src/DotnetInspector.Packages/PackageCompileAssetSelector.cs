@@ -255,6 +255,8 @@ public sealed class PackageCompileAssetSelectionReceipt
 /// </summary>
 public static class PackageCompileAssetSelector
 {
+    internal const string LegacyRootTargetFramework = "net0";
+
     const string AssetIdPrefix = "compile:";
 
     /// <summary>NuGet's empty-group marker file name.</summary>
@@ -749,9 +751,13 @@ public static class PackageCompileAssetSelector
             return null;
 
         string path = entry;
-        if (!parts![^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+        bool isLegacyRootLibrary =
+            parts!.Length == 2
+            && parts[0].Equals("lib", StringComparison.OrdinalIgnoreCase);
+        if (!parts[^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[^1]))
-            || !TfmResolver.IsTfmLike(parts[1]))
+            || (!isLegacyRootLibrary
+                && !TfmResolver.IsTfmLike(parts[1])))
         {
             return null;
         }
@@ -768,7 +774,9 @@ public static class PackageCompileAssetSelector
                 AssetIdPrefix + path,
                 path,
                 parts[^1],
-                parts[1],
+                isLegacyRootLibrary
+                    ? LegacyRootTargetFramework
+                    : parts[1],
                 kind.Value);
     }
 
@@ -787,7 +795,12 @@ public static class PackageCompileAssetSelector
     }
 
     static bool IsDirectCompileAsset(PackageCompileAsset asset) =>
-        asset.Path.Count(character => character == '/') == 2;
+        asset.Path.Count(character => character == '/')
+            == (asset.TargetFramework.Equals(
+                    LegacyRootTargetFramework,
+                    StringComparison.OrdinalIgnoreCase)
+                ? 1
+                : 2);
 
     /// <summary>
     /// The target framework of an explicit empty reference group (<c>ref/&lt;tfm&gt;/_._</c>), or
@@ -826,7 +839,7 @@ public static class PackageCompileAssetSelector
             return null;
         }
 
-        return frameworks
+        string? selected = frameworks
             .Select(framework =>
             {
                 bool parsed = TrySplitFramework(
@@ -865,6 +878,11 @@ public static class PackageCompileAssetSelector
             .ThenBy(candidate => candidate.Framework, StringComparer.Ordinal)
             .Select(candidate => candidate.Framework)
             .FirstOrDefault();
+        return selected
+            ?? frameworks.FirstOrDefault(framework =>
+                framework.Equals(
+                    LegacyRootTargetFramework,
+                    StringComparison.OrdinalIgnoreCase));
     }
 
     static bool TrySplitFramework(
@@ -884,9 +902,10 @@ public static class PackageCompileAssetSelector
     }
 
     /// <summary>
-    /// The <c>&lt;root&gt;/&lt;tfm&gt;/&lt;relative-path&gt;</c> segments of a
-    /// package entry, or false for an entry that is not shaped like one —
-    /// including traversal-shaped and backslash-separated spellings.
+    /// The path segments of a direct root-Library or
+    /// <c>&lt;root&gt;/&lt;tfm&gt;/&lt;relative-path&gt;</c> package entry, or
+    /// false for an entry that is not shaped like one — including
+    /// traversal-shaped and backslash-separated spellings.
     /// </summary>
     internal static bool TryParsePathParts(
         string entry,
@@ -897,7 +916,7 @@ public static class PackageCompileAssetSelector
             return false;
 
         string[] candidate = entry.Split('/');
-        if (candidate.Length < 3
+        if (candidate.Length < 2
             || candidate.Any(part =>
                 string.IsNullOrEmpty(part)
                 || part is "." or ".."))

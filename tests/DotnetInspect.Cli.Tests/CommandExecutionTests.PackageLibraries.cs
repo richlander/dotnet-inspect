@@ -924,6 +924,126 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_RootLibUsesLegacyNet0CompilePopulation()
+    {
+        var (packagePath, tempDir) = CreateLocalRootLibPackage();
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Neighbor.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var namesake = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "--namesake-library",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.True(
+                aggregate.Exit == 0,
+                $"Error: {aggregate.Error}{Environment.NewLine}"
+                    + $"Output: {aggregate.Output}");
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "## Library Info (lib/Neighbor.dll)",
+                aggregate.Output);
+            Assert.Contains(
+                "## Library Info (lib/Unexpected.FileName.dll)",
+                aggregate.Output);
+            Assert.DoesNotContain("Nested.dll", aggregate.Output);
+            Assert.DoesNotContain("Analyzer.dll", aggregate.Output);
+
+            Assert.True(
+                exact.Exit == 0,
+                $"Error: {exact.Error}{Environment.NewLine}"
+                    + $"Output: {exact.Output}");
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Neighbor.dll", exact.Output);
+            Assert.DoesNotContain(
+                "Unexpected.FileName.dll",
+                exact.Output);
+
+            Assert.True(
+                namesake.Exit == 0,
+                $"Error: {namesake.Error}{Environment.NewLine}"
+                    + $"Output: {namesake.Output}");
+            Assert.Empty(namesake.Error);
+            Assert.Contains(
+                "# Unexpected.FileName.dll",
+                namesake.Output);
+            Assert.DoesNotContain("Neighbor.dll", namesake.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_RealTfmSliceOutranksRootLegacy()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRootLibPackage(includeRealTfm: true);
+        try
+        {
+            var root = await RunAppAsync(
+                "library",
+                "Unexpected.FileName.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var framework = await RunAppAsync(
+                "library",
+                "Preferred.dll",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(1, root.Exit);
+            Assert.Empty(root.Output);
+            Assert.Contains(
+                "not found in package",
+                root.Error,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, framework.Exit);
+            Assert.Empty(framework.Error);
+            Assert.Contains("# Preferred.dll", framework.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_NamesakeLibrary_UsesManagedAssemblyIdentity()
     {
         string packageId =

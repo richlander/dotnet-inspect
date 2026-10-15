@@ -5190,7 +5190,73 @@ public partial class LibraryCommand
 
         if (!string.IsNullOrEmpty(assemblyName))
         {
-            var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
+            PackageCompileAssetSelection? selection = null;
+            if (allDlls.Any(path =>
+                    IsDirectRootLibrary(extractPath, path)))
+            {
+                var content = new FileSystemPackageContent(
+                    extractPath,
+                    nupkgPath,
+                    resolution.FromCache,
+                    resolution.ProducerKey
+                        ?? resolvedPackageName
+                        ?? packageTarget.PackageName);
+                selection = PackageCompileAssetSelector.Evaluate(
+                    content,
+                    resolvedPackageName ?? packageTarget.PackageName,
+                    string.IsNullOrWhiteSpace(tfm)
+                        ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                        : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                    tfm).Selection;
+            }
+            string? matchedAssembly;
+            string? matchedTfm;
+            if (selection is not null)
+            {
+                IReadOnlyList<PackageCompileAsset> selected =
+                    new PackageLibrarySelector(assemblyName).Select(selection);
+                PackageCompileAsset? selectedAsset =
+                    selected.Count == 1 ? selected[0] : null;
+                if (selectedAsset is not null
+                    && (assemblyName.Contains('/')
+                        || assemblyName.Contains('\\')))
+                {
+                    PackageCompileAsset? implementation =
+                        selection.FindImplementationAsset(selectedAsset);
+                    string requestedPath = assemblyName.Replace('\\', '/');
+                    if (!requestedPath.EndsWith(
+                            ".dll",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        requestedPath += ".dll";
+                    }
+                    if (implementation is not null
+                        && implementation.Path.Equals(
+                            requestedPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedAsset = implementation;
+                    }
+                }
+
+                matchedAssembly = selectedAsset is null
+                    ? null
+                    : allDlls.SingleOrDefault(path =>
+                        Path.GetRelativePath(extractPath, path)
+                            .Replace('\\', '/')
+                            .Equals(
+                                selectedAsset.Path,
+                                StringComparison.OrdinalIgnoreCase));
+                matchedTfm = selection.TargetFramework;
+            }
+            else
+            {
+                (matchedAssembly, matchedTfm) =
+                    TfmSelector.FindAssemblyInPackage(
+                        extractPath,
+                        assemblyName,
+                        tfm);
+            }
             if (matchedAssembly == null)
             {
                 CommandError.Write($"Library '{assemblyName}' not found in package.");
@@ -5244,6 +5310,18 @@ public partial class LibraryCommand
 
         logger.Log($"Using TFM: {selectedTfm}");
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
+    }
+
+    private static bool IsDirectRootLibrary(
+        string extractPath,
+        string path)
+    {
+        string relativePath = Path.GetRelativePath(extractPath, path)
+            .Replace('\\', '/');
+        return relativePath.StartsWith(
+                "lib/",
+                StringComparison.OrdinalIgnoreCase)
+            && relativePath.AsSpan("lib/".Length).IndexOf('/') < 0;
     }
 
     internal sealed record ToolPayloadResolution(

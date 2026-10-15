@@ -166,6 +166,122 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void RootLibraries_FormLegacyNet0CompileSlice()
+    {
+        IPackageContent content = InMemory(
+            "lib/Example.dll",
+            "lib/Example.Companion.dll",
+            "lib/nested/Ignored.dll",
+            "analyzers/Analyzer.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            PackageCompileAssetSelector.LegacyRootTargetFramework,
+            selection.TargetFramework);
+        Assert.Equal(
+            [PackageCompileAssetSelector.LegacyRootTargetFramework],
+            selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["lib/Example.Companion.dll", "lib/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal("lib/Example.dll", selection.DefaultAsset!.Path);
+        Assert.Equal(
+            ["lib/Example.Companion.dll", "lib/Example.dll"],
+            selection.CandidateAssets.Select(asset => asset.Path));
+        PackageCompileAssetSlice slice =
+            Assert.Single(selection.AvailableSlices);
+        Assert.Equal(
+            PackageCompileAssetSelector.LegacyRootTargetFramework,
+            slice.TargetFramework);
+        Assert.False(slice.HasExplicitEmptyReferenceGroup);
+    }
+
+    [Fact]
+    public void RealTargetFrameworkSlice_OutranksLegacyNet0()
+    {
+        IPackageContent content = InMemory(
+            "lib/Example.dll",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(content, "Example");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Equal(
+            [
+                "net8.0",
+                PackageCompileAssetSelector.LegacyRootTargetFramework,
+            ],
+            selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            ["lib/Example.dll", "lib/net8.0/Example.dll"],
+            selection.CandidateAssets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void ExplicitTarget_UsesLegacyNet0AsFinalFallback()
+    {
+        IPackageContent content = InMemory(
+            "lib/Example.dll",
+            "lib/net8.0/Example.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "net11.0").Selection;
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("net8.0", selection.TargetFramework);
+
+        PackageCompileAssetSelection rootOnly =
+            PackageCompileAssetSelector.Evaluate(
+                InMemory("lib/Example.dll"),
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "net11.0").Selection;
+        Assert.True(rootOnly.IsSelected);
+        Assert.True(rootOnly.IsSelected);
+        Assert.Equal(
+            PackageCompileAssetSelector.LegacyRootTargetFramework,
+            rootOnly.TargetFramework);
+        Assert.Equal("lib/Example.dll", Assert.Single(rootOnly.Assets).Path);
+    }
+
+    [Fact]
+    public void InvalidOrExactTarget_DoesNotApplyLegacyNet0Fallback()
+    {
+        IPackageContent content = InMemory("lib/Example.dll");
+
+        PackageCompileAssetSelection invalid =
+            PackageCompileAssetSelector.Evaluate(
+                content,
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                "not-a-framework").Selection;
+        PackageCompileAssetSelection exact =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net11.0");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            invalid.Status);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            exact.Status);
+    }
+
+    [Fact]
     public void RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback()
     {
         IPackageContent content = InMemory(
@@ -399,6 +515,7 @@ public class PackageCompileAssetSelectorTests : IDisposable
     {
         string[] entries =
         [
+            "lib/Legacy.dll",
             "lib/net8.0/Example.dll",
             "ref/net8.0/Example.dll",
             "ref/net8.0/Example.Companion.dll",
