@@ -991,7 +991,7 @@ equivalents. The following map distinguishes those contracts:
 | `--files` | Select the Files section | `-S Files`; it can compose with other package sections |
 | `--lib` | Filter Files to the `lib/` root | `--where "Root=lib"`, with exactly Files selected |
 | `--tools` | Filter Files to the `tools/` root | `--where "Root=tools"`, with exactly Files selected |
-| `--tfm TFM` with Files | Match a complete directory segment on file rows | `--where "Target=TFM"`; `--tfm all` adds no predicate |
+| `--tfm TFM` with Files | Match a complete directory segment on file rows | `--where "Target=TFM"`; `--tfm all` adds no predicate and is accepted only with Files |
 | `--path SELECTOR` | Select Files and apply package path/role selection | One literal file can use `--where "Path=FILE"`; repeated selectors, directory expansion, glob rules, `@readme`, and `@agents` retain their selector semantics |
 | `--library [DLL]` | Inspect selected compile libraries, optionally one exact DLL | Changes the inspection subject; it is not a Files filter or section shortcut |
 | `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter |

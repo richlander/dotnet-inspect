@@ -318,10 +318,10 @@ issued by Package selection without entering Package Library Scope. It retains
 every compile asset ID and path but does not inspect the occurrence or carry
 facts from its Type population. Without `--tfm all`, the CLI uses that
 document for its native Tree, structured JSON and envelope, row formats, row
-windows, projections, and scalar Count. Under `--tfm all`, every one of those
-outputs instead comes from the discovery projection that
-[All-frameworks package discovery](package-tfm-all-discovery.md) owns.
-Without `--tfm all`, every Library row carries the exact asset path used by
+windows, projections, and scalar Count. Under `--tfm all` the default request
+fails before acquisition, because
+[All-frameworks package discovery](package-tfm-all-discovery.md) admits only
+the Files sections. Without `--tfm all`, every Library row carries the exact asset path used by
 `package P --library <path>`; every RID Package row carries its exact Package
 selector. Inspect Web carries the same document and uses its exact asset IDs
 for Library navigation. Tool-package

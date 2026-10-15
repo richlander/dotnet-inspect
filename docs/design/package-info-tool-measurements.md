@@ -99,7 +99,6 @@ slice from which a representative assembly could be chosen.
 | Direct RID dependency routing | `BuildPackageDependencyTreeAsync_RidToolPackageUsesNuspec` |
 | Shape alone is insufficient | `PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements` |
 
-Under `--tfm all`, [All-frameworks package discovery](package-tfm-all-discovery.md)
-admits Package Info without its selected-framework fields, so the CLI `all`
-gate's selected-TFM assertions change with that owner's adoption under #9833;
-its one-download-per-invocation and cold/warm assertions remain.
+Package Info does not admit `--tfm all`, which
+[All-frameworks package discovery](package-tfm-all-discovery.md) limits to the
+Files sections, so the CLI aggregate gate runs without it.

@@ -86,6 +86,24 @@ public partial class PackageCommand
     private static bool IsTfmAllDiscovery(InspectionOptions options) =>
         string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase);
 
+    // Outside the Library routes, --tfm all admits only the resolved Files
+    // sections (docs/design/package-tfm-all-discovery.md#admission).
+    private static OptionError? GetTfmAllFilesOnlyError(InspectionOptions options)
+    {
+        if (!IsTfmAllDiscovery(options)
+            || (!options.ListVersions
+                && options.IncludeSections is { Count: > 0 } sections
+                && sections.All(IsPackageFileSection)))
+        {
+            return null;
+        }
+
+        return TfmAllFilesOnlyError;
+    }
+
+    private static readonly OptionError TfmAllFilesOnlyError =
+        new("--tfm all applies only to -S Files (or --files).");
+
     private static OptionError? GetPackageAllLibrariesModeError(
         InspectionOptions options,
         bool allowStaticDiscovery = false)

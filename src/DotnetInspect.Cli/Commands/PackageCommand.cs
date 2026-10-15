@@ -282,6 +282,11 @@ public partial class PackageCommand
             if (SelectOutput.WriteUnresolved(selectResult)) return 1;
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
+            if (GetTfmAllFilesOnlyError(options) is { } tfmAllError)
+            {
+                CommandError.Write(tfmAllError);
+                return 1;
+            }
             if (options.WorkspacePacket is null
                 && options.ShareFormat is not null
                 && !IsSingleDependencyHierarchySelection(options))
@@ -1443,7 +1448,8 @@ public partial class PackageCommand
                 requireIdentifierMetadata: wantsIdentifierMetadata,
                 verifyRidPackageAvailability: wantsRidPackageAvailability,
                 scanBinarySignals:
-                    !IsPackageChildrenProjection(options),
+                    !IsPackageChildrenProjection(options)
+                    && !IsTfmAllDiscovery(options),
                 sourceOptions: options.SourceOptions);
             observedInspection = result;
 

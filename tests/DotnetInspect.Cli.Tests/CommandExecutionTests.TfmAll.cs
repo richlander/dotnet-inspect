@@ -78,4 +78,62 @@ public partial class CommandExecutionTests
             "Error: --library cannot be combined with --tfm all, which is package discovery.",
             error.Trim());
     }
+
+    // Outside the Library routes, package --tfm all admits only the Files
+    // sections, so every other request fails before the package is opened.
+    [Theory]
+    [InlineData]
+    [InlineData("-S", "Package Info")]
+    [InlineData("-S", "Dependencies")]
+    [InlineData("-S", "Dependency Hierarchy")]
+    [InlineData("-S", "Target Frameworks")]
+    [InlineData("--files", "-S", "Package Info")]
+    [InlineData("--files", "--versions")]
+    public async Task TfmAll_PackageRequestOtherThanFilesFailsBeforeAcquisition(
+        params string[] request)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            ["package", TfmAllMissingPackage, .. request, "--tfm", "all"]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: --tfm all applies only to -S Files (or --files).",
+            error.Trim());
+    }
+
+    [Fact]
+    public async Task TfmAll_PackageFilesListsEveryFramework()
+    {
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Package.TfmAllFiles", "README.md", "readme",
+            extraFiles:
+            [
+                ("lib/net8.0/A.dll", "a"),
+                ("lib/net6.0/A.dll", "old"),
+            ]);
+        try
+        {
+            var section = await RunAppAsync(
+                "package", packagePath, "-S", "Files", "--tfm", "all", "--paths");
+            var shortcut = await RunAppAsync(
+                "package", packagePath, "--files", "--tfm", "all", "--paths");
+            var path = await RunAppAsync(
+                "package", packagePath, "--path", "lib/**", "--tfm", "all", "--paths");
+
+            Assert.Equal(0, section.Exit);
+            Assert.Empty(section.Error);
+            Assert.Contains("lib/net8.0/A.dll", section.Output);
+            Assert.Contains("lib/net6.0/A.dll", section.Output);
+            Assert.Contains("README.md", section.Output);
+            Assert.Equal(section.Output, shortcut.Output);
+            Assert.Equal(0, path.Exit);
+            Assert.Contains("lib/net6.0/A.dll", path.Output);
+            Assert.DoesNotContain("README.md", path.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
 }

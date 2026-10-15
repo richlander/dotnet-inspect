@@ -1710,7 +1710,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             var (exit, output, error) = await RunCommandAsync(
                 ["package", $"{id}@{Version}", "--source", FirstFeed,
-                    "-S", "Package Info", "--tfm", "all", "--markdown"]);
+                    "-S", "Package Info", "--markdown"]);
 
             Assert.True(exit == 0, $"Exit {exit}: {error}");
             Assert.Contains("| Type | Tool |", output);
