@@ -362,9 +362,9 @@ never retain a participant after the scope is disposed.
           take the merged surface for member targets and inspection
           failures, so they drop the machine-dependent constraint rows and
           name the endpoint frameworks, as the API views do.
-        - The workspace implementation comparison keeps the legacy path
-          until part 5. It serves Implementation Diff with one Type and one
-          Member selector.
+        - The workspace implementation comparison, which serves
+          Implementation Diff with one Type and one Member selector, moves
+          in part 5.
         - String literals keep the legacy path for now. Their comparison
           still reads extracted files, and its multi-Library form is in
           review. They move onto implementation participants before part 6.
@@ -376,10 +376,11 @@ never retain a participant after the scope is disposed.
           [host-neutral settlement](../pdb-acquisition.md#host-neutral-portable-pdb-settlement),
           never from a path beside an extracted assembly. An embedded PDB
           settles first. The package-local candidate is the participant's
-          listed adjacent PDB, which settlement requests as one exact File
-          from the House that opened its endpoint, from the producer that
-          served that endpoint. Acquiring a package's PDB is therefore House
-          demand: a ranged endpoint that already read the PDB with its
+          listed adjacent PDB, which settlement requests as one exact File.
+          The request goes to a content House over the endpoint's source
+          composition and stores, restricted to the producer that served
+          that endpoint. Acquiring a package's PDB is therefore House demand:
+          a ranged endpoint that already read the PDB with its
           implementation folder serves it from the entry cache.
         - A package without an adjacent PDB continues to the external
           providers its producer authorizes, such as its `.snupkg`, as the
@@ -391,9 +392,42 @@ never retain a participant after the scope is disposed.
           other CLI SourceHouse routes adopt settlement under
           [PDB acquisition](../pdb-acquisition.md#production-adoption-and-retirement),
           slice 5.
-     5. **The workspace implementation comparison and Annotated Source
-        Diff** open their Roots from the scope, and a forwarded target is
-        acquired through the House rather than a pinned extraction.
+     5. **The workspace implementation comparison and Annotated Source Diff
+        from participants.** Implementation Diff with one Type and one
+        Member selector, and the Annotated Source Diff document, open their
+        endpoints with `SurfaceAndImplementation`. They compare implementation
+        participants, not extracted files.
+        - Each endpoint's Root assembly is its one implementation participant
+          named for the package (`ID.dll`). Without exactly one, Implementation
+          Diff takes its ordinary body view and Annotated Source Diff reports
+          that it needs one package-root assembly, as before.
+        - The declaring Type resolves in the Root alone. A Type the Root
+          defines is compared there. A Type the Root forwards is compared
+          where the Root's package declares it: the dependency named for the
+          forward's target assembly, in the manifest's dependency group for
+          the Root's framework (exact or framework-neutral, as before), at
+          its version range's lower bound.
+        - The Root's manifest is the `.nuspec` the endpoint's payload holds.
+          When the payload didn't materialize it, as a ranged read of only
+          the asset folders doesn't, it is one exact File from a content
+          House over the endpoint's source composition and stores,
+          restricted to the producer that served the endpoint.
+        - The forwarded target opens as a package endpoint scope through a
+          content House over the endpoints' source composition and stores.
+          It asks for that exact coordinate, the Root's framework, and the
+          one Library named for the target assembly, with
+          `SurfaceAndImplementation`. The House chooses its access as the
+          exact Library route does: a cached package with no request, or a
+          ranged read of the dependency's archive directory and that
+          Library's folder, never a pinned extraction of the whole package.
+          The comparison takes the Library's implementation participant,
+          never its reference stub.
+        - The comparison's closed route is unchanged: the Root, each
+          forwarding hop, and the definition. Method-body references bind
+          through each participant's implementation group, as the body views
+          do, not through installed runtimes or local caches.
+        - A forward to an assembly the Root's package doesn't declare, such
+          as a platform assembly, leaves that side unavailable, as before.
      6. **Legacy retirement.** The online legacy package route and the
         testing switch retire, and the parity gates are rewritten as scope
         gates. The offline `*` route retires once the House settles a
@@ -455,9 +489,10 @@ All gates run in Release.
 | 11. API changes, API Finding Transitions, multi-Library packages, and member targets, after step 4 part 2 | the merged participant surface, read by range; output byte-identical to the legacy path where both select the same assemblies; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` reads only `ref/net8.0`, repeats a change row only for overloads, and completes without an inspection failure | CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 API changes and Transitions; `NUnit` 4.1.0..4.2.2, two Libraries below the size cut, each archive read once, directory first; `Avalonia` 11.3.14..12.1.2 against the legacy oracle's repeated rows |
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm`; output byte-identical to the legacy path where both select the same assemblies | contract suite for the body query; CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 Analysis Diff, Implementation Diff, and a member-targeted body analysis set, read by range; `System.Runtime.CompilerServices.Unsafe` 4.7.1 and 5.0.0, which ship `ref/` and `lib/`, against the legacy oracle's reference stubs |
 | 13. PDB source, after step 4 part 4 | each participant's Portable PDB settles through its endpoint's House, never from an adjacent path; output byte-identical to the legacy path where both select the same assemblies | contract suite for the body query's group participants; CLI harness: the SourceDiff fixture pair packed with adjacent PDBs, on the pair and batch routes, against the legacy oracle |
-| 14. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
-| 15. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
-| 16. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |
+| 14. Workspace implementation comparison and Annotated Source Diff, after step 4 part 5 | each Root is the endpoint's implementation participant named for the package; a forwarded Type's target opens as a package endpoint scope through the House, from the dependency the Root's manifest declares, never from a pinned extraction; output byte-identical to the legacy path where both select the same assemblies | CLI harness: the forwarded fixture packages, a facade and the terminal package it declares, for Implementation Diff in Markdown and JSON and for Annotated Source Diff, against the legacy oracle; a direct Type on the same route. Checked live, not gated: `NuGet.Packaging.Core` 6.8.0..6.9.1, whose Root forwards `PackageIdentity` to `NuGet.Packaging` |
+| 15. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
+| 16. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
+| 17. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |
 
 ## Non-claims
 
