@@ -275,12 +275,15 @@ internal static class LibrarySectionDescriptions
         string listed =
             $"The section is listed only when the image's {name} heap holds "
             + "bytes";
+        string referencedBasis =
+            $"The image's {name} heap, read at the addresses that projected "
+            + "metadata table cells reference.";
         return heap switch
         {
             HeapKind.UserString => new(
                 $"The image's {name} user-string heap, whose entries cannot "
                 + "be listed.",
-                MetadataBasis,
+                $"The size of the image's {name} heap from its stream header.",
                 listed + ", and it never lists entries: no metadata table "
                 + "points into the heap and it cannot be walked.",
                 "Its references are ldstr operands in method bodies, which "
@@ -289,7 +292,7 @@ internal static class LibrarySectionDescriptions
             HeapKind.Guid => new(
                 $"Every {name} entry in the image by index, with the number "
                 + "of projected table cells that reference it.",
-                MetadataBasis,
+                $"The image's {name} heap, read completely by index.",
                 listed + "; an image with no readable metadata lists no heap "
                 + "section.",
                 "Reference counts cover the projected tables only; zero means "
@@ -298,7 +301,7 @@ internal static class LibrarySectionDescriptions
                 $"The distinct {name} entries that projected metadata table "
                 + "rows reference, by heap address, with each entry's "
                 + "reference count.",
-                MetadataBasis,
+                referencedBasis,
                 listed + "; no rows means no projected table cell points into "
                 + "the heap.",
                 "This is not a walk of the heap: entries referenced only from "
