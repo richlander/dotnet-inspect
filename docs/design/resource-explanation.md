@@ -2100,6 +2100,16 @@ jq selection preserve those costs and a format violation. This supports a
 focused bootstrap/local-reuse guide experiment, not a controlled format ranking,
 a latency claim or evidence that the shipped skill can already be retired.
 
+The [bootstrap and cached-reading follow-up](../../tools/ExplainReadingScenarios/usability/bootstrap-reuse/README.md)
+keeps the executable/platform, tasks and recorder fixed while adding three
+concrete instructions to the experimental guide. New vocabulary readers use
+the collection immediately, reducing requests from 19/24 to 3/6, but duplicate
+subset and off-profile identity reads remain. Package HAL uses cached jq;
+other retrieval/rendering costs are mixed, including larger API documentation
+reads and a disclosed partial-metadata warning. The frozen comparison supports
+the bootstrap gesture as a release-guide candidate, not reliable stopping,
+a causal efficiency improvement or a format ranking.
+
 ## Demo scenario
 
 `System.Text.Json@10.0.0` motivates the complete production flow:
