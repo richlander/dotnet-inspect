@@ -185,8 +185,10 @@ import {
 import {
   createPackageInspectionCoordinator,
   normalizePackageIntegrationsSnapshot,
+  normalizePackageOpportunitiesSnapshot,
   normalizePackageVulnerabilitySnapshot,
   packageIntegrationsStateKey,
+  packageOpportunitiesStateKey,
   packageVulnerabilityStateKey,
   projectPackagePerformanceType,
   resolvePackagePerformanceType,
@@ -194,6 +196,7 @@ import {
   type PackagePerformance,
   type PackageResourceTriage,
   type PackageIntegrationsState,
+  type PackageOpportunitiesState,
   type PackageVulnerabilityState,
 } from "./package-inspection.ts";
 import {
@@ -877,10 +880,7 @@ import type {
   BrowserTypeMemberPopulationInspection,
   BrowserTypeMetadata,
 } from "./facades/inspect-web-metadata.d.ts";
-import type {
-  BrowserPackageOpportunities,
-  BrowserPerformanceMember,
-} from "./facades/inspect-web-analysis.d.ts";
+import type { BrowserPerformanceMember } from "./facades/inspect-web-analysis.d.ts";
 import {
   createTypeLeverageCoordinator,
   typeLeverageAchievements,
@@ -1593,10 +1593,7 @@ const initialState = {
   workspaceDependencyErrors: {},
   workspaceDependencyLoads: new Set<string>(),
   packageIntegrations: { status: "idle" as const },
-  packageOpportunities: null,
-  packageOpportunitiesLoading: false,
-  packageOpportunitiesError: "",
-  packageOpportunitiesKey: "",
+  packageOpportunities: { status: "idle" as const },
   packagePerformance: null,
   packagePerformanceLoading: false,
   packagePerformanceError: "",
@@ -1778,7 +1775,7 @@ interface StateOverrides {
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
   packageIntegrations: PackageIntegrationsState;
-  packageOpportunities: BrowserPackageOpportunities | null;
+  packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packageResourceTriage: PackageResourceTriage | null;
   packageMetadata: PackageMetadata | null;
@@ -2061,7 +2058,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   const memberAnnotatedLoading = snapshotState.memberAnnotatedLoading;
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
-  const packageOpportunitiesLoading = snapshotState.packageOpportunitiesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
   const packageMetadataLoading = snapshotState.packageMetadataLoading;
@@ -2082,7 +2078,8 @@ function normalizeWorkspaceAsyncSnapshotState(
       snapshotState.packageVulnerabilities);
   snapshotState.packageIntegrations =
     normalizePackageIntegrationsSnapshot(snapshotState.packageIntegrations);
-  snapshotState.packageOpportunitiesLoading = false;
+  snapshotState.packageOpportunities =
+    normalizePackageOpportunitiesSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
   snapshotState.packageMetadataLoading = false;
@@ -2129,7 +2126,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
-  if (packageOpportunitiesLoading) snapshotState.packageOpportunitiesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
   if (packageMetadataLoading) snapshotState.packageMetadataKey = "";
@@ -11925,6 +11921,7 @@ function renderPackageIntegrations() {
   const scopedLib = scopedPlatformLibrary();
   const current = packageIntegrationsSignature();
   const integrationsState = state.packageIntegrations;
+  const opportunitiesState = state.packageOpportunities;
   const fresh = packageIntegrationsStateKey(integrationsState) === current;
   return renderLibraryIntegrationsSurface({
     libraryName: library?.name ?? "",
@@ -11943,10 +11940,15 @@ function renderPackageIntegrations() {
     integrationsData: integrationsState.status === "ready"
       ? integrationsState.result
       : null,
-    suggestionsFresh: state.packageOpportunitiesKey === current,
-    suggestionsLoading: state.packageOpportunitiesLoading,
-    suggestionsError: state.packageOpportunitiesError,
-    suggestionsData: state.packageOpportunities,
+    suggestionsFresh:
+      packageOpportunitiesStateKey(opportunitiesState) === current,
+    suggestionsLoading: opportunitiesState.status === "loading",
+    suggestionsError: opportunitiesState.status === "failed"
+      ? opportunitiesState.error
+      : "",
+    suggestionsData: opportunitiesState.status === "ready"
+      ? opportunitiesState.result
+      : null,
     escapeHtml,
   });
 }
@@ -11957,7 +11959,8 @@ async function loadPackageIntegrations() {
   const signature = packageIntegrationsSignature();
   if (startingPackageIntegrations
     || (packageIntegrationsStateKey(state.packageIntegrations) === signature
-      && state.packageOpportunitiesKey === signature)) return;
+      && packageOpportunitiesStateKey(state.packageOpportunities)
+        === signature)) return;
   let integrationsLoad: Promise<void>;
   let suggestionsLoad: Promise<void>;
   startingPackageIntegrations = true;
@@ -11979,7 +11982,8 @@ function maybeAutoLoadPackageIntegrations() {
   const signature = packageIntegrationsSignature();
   if (startingPackageIntegrations) return;
   if (packageIntegrationsStateKey(state.packageIntegrations) === signature
-    && state.packageOpportunitiesKey === signature) return;
+    && packageOpportunitiesStateKey(state.packageOpportunities)
+      === signature) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
 
