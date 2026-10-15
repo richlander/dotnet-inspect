@@ -1522,6 +1522,13 @@ Retirement is staged:
 6. close or supersede #4653 after every carried requirement and unresolved
    finding is assigned to a landed focused slice or explicit residual issue.
 
+The identity retirement has started at its direct-operation seams. Configured
+version enumeration now delegates to Package Source settlement; the
+composition retains only compatibility input validation, exact authority
+registration, and its remaining host capability and direct-operation
+surfaces. Removing the type still waits for those surfaces and their production
+callers to adopt their owner-issued operations.
+
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
 for a supported scenario.
