@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -1084,6 +1085,99 @@ public static partial class PackageExports
             document,
             BrowserPackageJsonContext.Default.BrowserPackageDocumentHtml);
     }
+
+    /// <summary>
+    /// Contains one bounded generation of identified package-document presentation leaves.
+    /// The host retains structure and verifies exact current-generation correspondence before
+    /// constructing a completed leaf population.
+    /// </summary>
+    [JSExport]
+    public static string ContainPackageDocumentLeaves(
+        string generation,
+        string leavesJson)
+    {
+        BrowserDocumentPresentationLeaf[] leaves =
+            JsonSerializer.Deserialize(
+                leavesJson,
+                BrowserPackageJsonContext.Default
+                    .BrowserDocumentPresentationLeafArray)
+            ?? throw new ArgumentException(
+                "A package-document presentation-leaf batch is required.",
+                nameof(leavesJson));
+
+        PresentationLeafContainmentOutcome contained =
+            PresentationLeafContainment.Execute(
+                generation,
+                [.. leaves.Select(BrowserPackageWireProjection.Project)],
+                new(
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerCollectionEntries,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters));
+        BrowserDocumentLeafContainmentOutcome outcome =
+            BrowserPackageWireProjection.Project(contained);
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            outcome,
+            BrowserPackageJsonContext.Default
+                .BrowserDocumentLeafContainmentOutcome);
+        long collectionEntries =
+            BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+            + BrowserOrdinaryWorkerJsonBudget.CollectionEntries(
+                document.RootElement);
+        if (collectionEntries
+            > BrowserOrdinaryWorkerJsonBudget
+                .MaxOrdinaryWorkerCollectionEntries)
+        {
+            outcome = DocumentLeafContainmentRejection(
+                generation,
+                BrowserDocumentLeafContainmentFailureKind
+                    .ResultCollectionTooLarge,
+                collectionEntries,
+                BrowserOrdinaryWorkerJsonBudget
+                    .MaxOrdinaryWorkerCollectionEntries);
+        }
+        else
+        {
+            long serializedCharacters =
+                BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(
+                    document.RootElement)
+                + BrowserOrdinaryWorkerJsonBudget
+                    .OrdinaryWorkerResultTupleOverhead;
+            if (serializedCharacters
+                > BrowserOrdinaryWorkerJsonBudget
+                    .MaxOrdinaryWorkerJsonCharacters)
+            {
+                outcome = DocumentLeafContainmentRejection(
+                    generation,
+                    BrowserDocumentLeafContainmentFailureKind
+                        .SerializedResultTooLarge,
+                    serializedCharacters,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters);
+            }
+        }
+
+        return JsonSerializer.Serialize(
+            outcome,
+            BrowserPackageJsonContext.Default
+                .BrowserDocumentLeafContainmentOutcome);
+    }
+
+    private static BrowserDocumentLeafContainmentRejected
+        DocumentLeafContainmentRejection(
+        string? generation,
+        BrowserDocumentLeafContainmentFailureKind kind,
+        long actual,
+        long limit) =>
+        new(
+            generation,
+            new(
+                kind,
+                Identity: null,
+                Actual: actual,
+                Limit: limit));
 
     /// <summary>
     /// One exact member's unified documentation outcome from the
