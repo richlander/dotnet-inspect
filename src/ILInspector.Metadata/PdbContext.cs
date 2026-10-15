@@ -2345,7 +2345,7 @@ public partial class PdbContext : IDisposable
                 }
                 else
                 {
-                    HasNormalizedPaths = true;
+                    HasNormalizedPaths ??= true;
                 }
 
                 if (isPortable)

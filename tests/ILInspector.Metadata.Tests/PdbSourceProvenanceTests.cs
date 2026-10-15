@@ -144,6 +144,25 @@ public class PdbSourceProvenanceTests
         }
     }
 
+    [Fact]
+    public void MultipleCodeViewPaths_PreserveNonNormalizedEvidence()
+    {
+        const string NonNormalizedPath =
+            @"C:\agent\_work\Markers.native.pdb";
+        byte[] image = BuildMarkerMetadata(
+            codeViewPath: NonNormalizedPath,
+            secondCodeViewPath: "Markers.pdb").Image;
+        ArtifactBoundAssembly artifact = CreateArtifact(image);
+
+        using PdbContext context =
+            PdbContext.OpenMetadataOnly(artifact.Assembly);
+
+        Assert.False(context.HasNormalizedPaths);
+        Assert.Equal(
+            [$"PDB Path: {NonNormalizedPath}"],
+            context.NonNormalizedPaths);
+    }
+
     [Theory]
     [InlineData(@"\\server\share\Ordinary.cs")]
     [InlineData("/repo/Ordinary\tSource.cs")]
@@ -1060,7 +1079,8 @@ public class PdbSourceProvenanceTests
         Guid? portablePdbGuid = null,
         int documentCount = 1,
         int sharedChecksumLength = 0,
-        string codeViewPath = "Markers.pdb")
+        string codeViewPath = "Markers.pdb",
+        string? secondCodeViewPath = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1376,6 +1396,13 @@ public class PdbSourceProvenanceTests
                 codeViewPath,
                 contentId,
                 portablePdbVersion: 0x0100);
+            if (secondCodeViewPath is not null)
+            {
+                debugDirectory.AddCodeViewEntry(
+                    secondCodeViewPath,
+                    contentId,
+                    portablePdbVersion: 0x0100);
+            }
         }
         var finalPe = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),
