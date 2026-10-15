@@ -665,10 +665,13 @@ export function createPackageInspectionCoordinator(
         };
       } catch (error) {
         if (!ownsRequest()) return;
+        const diagnostic = dependencies.describeError(error);
         state.packageOpportunities = {
           status: "failed",
           key: signature,
-          error: dependencies.describeError(error),
+          error: diagnostic.trim()
+            ? diagnostic
+            : "Opportunity inspection failed.",
         };
       }
       dependencies.render();

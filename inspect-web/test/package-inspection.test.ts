@@ -1294,6 +1294,26 @@ test("package opportunities state owns loading, settlement, caching, and replace
     error: "current failure",
   });
 
+  let emptyFailureQueries = 0;
+  const emptyFailure = inspectionState();
+  const emptyFailureCoordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(emptyFailure, {
+      queryPackageOpportunities: async () => {
+        emptyFailureQueries++;
+        throw new Error("");
+      },
+    }));
+  await emptyFailureCoordinator
+    .loadOpportunities(packageItem, "current", null);
+  await emptyFailureCoordinator
+    .loadOpportunities(packageItem, "current", null);
+  assert.equal(emptyFailureQueries, 1);
+  assert.deepEqual(emptyFailure.packageOpportunities, {
+    status: "failed",
+    key: "current",
+    error: "Opportunity inspection failed.",
+  });
+
   const stale = deferred<BrowserPackageOpportunities>();
   const current = deferred<BrowserPackageOpportunities>();
   const requests = [stale, current];
