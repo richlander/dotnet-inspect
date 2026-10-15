@@ -27,6 +27,8 @@ This owner defines:
 - cycle, revisit, and shared-node behavior;
 - traversal depth and finite work-budget behavior;
 - deterministic scheduling and result ordering;
+- ownership of one transferred Package Source operation across the complete
+  sequential traversal schedule;
 - traversal-local failure and completion;
 - preservation of an admitted realized package context as the exact source of
   its root declarations;
@@ -337,7 +339,8 @@ invokes the #5765 capability with:
 - the source package's exact semantic identity;
 - the complete owner-issued declaration identity and canonical constraint;
 - the operation's package-source authorization context; and
-- the shared operation context and cancellation token.
+- the same transferred `PackageSourceOperationLease` used by every scheduled
+  source step.
 
 The shared capability returns an owner-issued exact candidate, a typed
 resolution or authorization failure, or typed incomplete evidence. The
@@ -350,8 +353,9 @@ remain owned by #5765 and the Package Source Model.
 ### Exact manifest acquisition and projection
 
 For a candidate that must be expanded, the query invokes a package-owned exact
-manifest capability, then the Queries-owned manifest-bytes adapter. The result
-retains the candidate association and returns one of:
+manifest capability through that same operation lease, then the Queries-owned
+manifest-bytes adapter. The result retains the candidate association and
+returns one of:
 
 - an admitted package evidence root for the same exact coordinate;
 - a typed source, acquisition, manifest, or projection failure; or
@@ -375,7 +379,8 @@ The request carries:
 - a finite maximum number of expanded manifest projections;
 - a finite maximum number of declarations submitted for candidate resolution;
   and
-- one source operation context with its owner-issued deadline.
+- one transferred Package Source operation with its owner-issued caller
+  cancellation and absolute deadline.
 
 Depth is user intent. The work budget is a resource-safety limit. Exhausting
 depth can produce successful `DepthBounded` completion; exhausting a work
@@ -722,6 +727,12 @@ and absence of source-failure conversion.
 the last acquired manifest enters projection and gates the final publication
 boundary.
 
+The schedule transfers one `PackageSourceOperationLease` into candidate
+resolution and manifest acquisition, awaits each step before starting the
+next, and releases the lease only after final local publication. This contract
+does not apply to package-license inventory: that owner intentionally admits
+concurrent manifest work and remains a separate operation-ownership successor.
+
 ## Determinism
 
 The request defines a distance-major stable work schedule:
@@ -731,9 +742,10 @@ The request defines a distance-major stable work schedule:
 3. manifest projection admission order within that root and distance;
 4. owner-issued selected-group declaration order.
 
-Concurrent source operations may complete in any order, but their outcomes
-return to their scheduled slots. Completion timing must not change node, edge,
-failure, or reachability ordering.
+Candidate resolution and manifest acquisition execute sequentially in their
+scheduled slots. No source-completion race is reconciled after the fact, and
+completion timing must not change node, edge, failure, or reachability
+ordering.
 
 Result nodes use first scheduled admission, with exact target coordinate as a
 stable discriminator for candidates produced by one scheduled batch. Edges,
@@ -810,6 +822,7 @@ The CLI:
 
 - decides whether selected sections request traversal;
 - supplies roots, source context, traversal target policy, depth, and budgets;
+- issues and disposes one Package Source operation for each traversal;
 - composes package traversal with other dependency producers;
 - lowers the result through Markout; and
 - derives diagnostics and exit status from the complete document.
@@ -817,6 +830,7 @@ The CLI:
 Browser/Wasm:
 
 - supplies the same typed capabilities through the managed engine boundary;
+- issues and disposes one Package Source operation for each traversal;
 - uses the Workspace traversal target independently from the package/member
   selection TFM;
 - defaults the Workspace to `net11.0`, permits package traversal before

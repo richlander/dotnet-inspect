@@ -119,7 +119,38 @@ public static class PackageDependencyCandidateQuery
             ResolveInvocationToken(
                 operation,
                 cancellationToken);
-        effectiveCancellationToken.ThrowIfCancellationRequested();
+        return await ExecuteCoreAsync(
+            request,
+            new CompatibilityCandidateOperation(
+                source,
+                operation,
+                effectiveCancellationToken)).ConfigureAwait(false);
+    }
+
+    public static ValueTask<PackageDependencyCandidateResult> ExecuteAsync(
+        PackageDependencyCandidateRequest request,
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageSourceOperationLease operation,
+        Action<string>? log = null)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(sourceAuthorization);
+        ArgumentNullException.ThrowIfNull(operation);
+        return ExecuteCoreAsync(
+            request,
+            new TransferredCandidateOperation(
+                sourceAuthorization,
+                operation,
+                log));
+    }
+
+    private static async ValueTask<PackageDependencyCandidateResult>
+        ExecuteCoreAsync(
+            PackageDependencyCandidateRequest request,
+            ICandidateOperation operation)
+    {
+        CancellationToken cancellationToken = operation.CancellationToken;
+        cancellationToken.ThrowIfCancellationRequested();
 
         PackageDependencyEvidenceDeclaration declaration =
             request.Declaration;
@@ -148,11 +179,9 @@ public static class PackageDependencyCandidateQuery
         if (exactCoordinate is not null)
         {
             PackageAcquisitionCandidateResult authorization =
-                await source.ResolvePinnedCandidateAsync(
-                    exactCoordinate,
-                    effectiveCancellationToken,
-                    operation).ConfigureAwait(false);
-            effectiveCancellationToken.ThrowIfCancellationRequested();
+                await operation.ResolvePinnedCandidateAsync(
+                    exactCoordinate).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             if (authorization.State
                     == PackageAcquisitionCandidateResultState.Incomplete)
             {
@@ -196,11 +225,9 @@ public static class PackageDependencyCandidateQuery
         }
 
         PackageVersionDiscoveryResult discovery =
-            await source.DiscoverDependencyVersionsAsync(
-                declaration.CanonicalPackageId,
-                effectiveCancellationToken,
-                operation).ConfigureAwait(false);
-        effectiveCancellationToken.ThrowIfCancellationRequested();
+            await operation.DiscoverDependencyVersionsAsync(
+                declaration.CanonicalPackageId).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!discovery.Contract.SupportsDependencyRangeResolution)
         {
             throw new InvalidOperationException(
@@ -306,7 +333,7 @@ public static class PackageDependencyCandidateQuery
         IncompleteIfExpired(
             PackageDependencyEvidenceDeclaration declaration,
             IReadOnlyList<PackageAuthorityFailure> failures,
-            NuGetOperationContext operation)
+            ICandidateOperation operation)
     {
         try
         {
@@ -330,7 +357,7 @@ public static class PackageDependencyCandidateQuery
         IncompleteIfExpired(
             PackageDependencyEvidenceDeclaration declaration,
             PackageVersionDiscoveryResult discovery,
-            NuGetOperationContext operation)
+            ICandidateOperation operation)
     {
         try
         {
@@ -353,7 +380,7 @@ public static class PackageDependencyCandidateQuery
     }
 
     private static PackageAuthorityFailure OperationTimeoutFailure(
-        NuGetOperationContext operation) =>
+        ICandidateOperation operation) =>
         new(
             InertText.InertString.Empty,
             PackageAuthorityFailureKind.Timeout,
@@ -363,4 +390,72 @@ public static class PackageDependencyCandidateQuery
                 PackageSourceTimeoutKind.Operation,
                 operation.OperationTimeout),
         };
+
+    private interface ICandidateOperation
+    {
+        CancellationToken CancellationToken { get; }
+
+        TimeSpan OperationTimeout { get; }
+
+        ValueTask<PackageAcquisitionCandidateResult>
+            ResolvePinnedCandidateAsync(PackageSourceCoordinate coordinate);
+
+        Task<PackageVersionDiscoveryResult>
+            DiscoverDependencyVersionsAsync(string packageId);
+
+        void ThrowIfExpired();
+    }
+
+    private sealed class CompatibilityCandidateOperation(
+        IPackageDependencyCandidateSource source,
+        NuGetOperationContext operation,
+        CancellationToken cancellationToken) : ICandidateOperation
+    {
+        public CancellationToken CancellationToken { get; } =
+            cancellationToken;
+
+        public TimeSpan OperationTimeout => operation.OperationTimeout;
+
+        public ValueTask<PackageAcquisitionCandidateResult>
+            ResolvePinnedCandidateAsync(PackageSourceCoordinate coordinate) =>
+            source.ResolvePinnedCandidateAsync(
+                coordinate,
+                CancellationToken,
+                operation);
+
+        public Task<PackageVersionDiscoveryResult>
+            DiscoverDependencyVersionsAsync(string packageId) =>
+            source.DiscoverDependencyVersionsAsync(
+                packageId,
+                CancellationToken,
+                operation);
+
+        public void ThrowIfExpired() => operation.ThrowIfExpired();
+    }
+
+    private sealed class TransferredCandidateOperation(
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageSourceOperationLease operation,
+        Action<string>? log) : ICandidateOperation
+    {
+        public CancellationToken CancellationToken =>
+            operation.CancellationToken;
+
+        public TimeSpan OperationTimeout => operation.OperationTimeout;
+
+        public ValueTask<PackageAcquisitionCandidateResult>
+            ResolvePinnedCandidateAsync(PackageSourceCoordinate coordinate) =>
+            operation.ResolvePinnedCandidateAsync(
+                sourceAuthorization,
+                coordinate);
+
+        public Task<PackageVersionDiscoveryResult>
+            DiscoverDependencyVersionsAsync(string packageId) =>
+            operation.DiscoverDependencyVersionsAsync(
+                packageId,
+                sourceAuthorization,
+                log);
+
+        public void ThrowIfExpired() => operation.ThrowIfExpired();
+    }
 }

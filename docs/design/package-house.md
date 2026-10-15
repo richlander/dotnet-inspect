@@ -1534,6 +1534,14 @@ registration, and its remaining host capability and direct-operation
 surfaces. Removing the type still waits for those surfaces and their production
 callers to adopt their owner-issued operations.
 
+Dependency traversal has adopted one host-issued Package Source operation for
+its sequential candidate and manifest schedule. CLI and Browser/Wasm traversal
+adapters now retain explicit authorization and consume the transferred
+operation instead of retaining a settlement root or
+`DesktopPackageSourceComposition` manifest adapter. Concurrent package-license
+inventory remains a separate successor because one operation lease admits only
+one active source step.
+
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
 for a supported scenario.

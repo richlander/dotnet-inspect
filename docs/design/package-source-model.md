@@ -122,6 +122,14 @@ The composition no longer contains a second version-enumeration loop. Its
 caller-supplied operation-context branch remains compatibility work until those
 callers adopt transferred operation leases.
 
+Package Dependency Traversal now owns one sequentially reused operation lease
+from host issuance through candidate resolution, exact manifest acquisition,
+local projection, and final publication. Its adapters retain authorization,
+not the settlement root or an independently supplied operation context.
+Direct candidate-query consumers and concurrent package-license inventory
+remain compatibility work; license inventory cannot share the traversal lease
+because it intentionally runs several manifest acquisitions concurrently.
+
 These compatibility paths do not claim that ordinary class aliases are
 borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
 No borrow crosses `await`.

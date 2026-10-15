@@ -199,7 +199,8 @@ public sealed class PackageSourceOperationLease : IDisposable
 
     public Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
         string packageId,
-        IPackageSourceAuthorization sourceAuthorization)
+        IPackageSourceAuthorization sourceAuthorization,
+        Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
@@ -207,13 +208,15 @@ public sealed class PackageSourceOperationLease : IDisposable
             StartWork(),
             packageId,
             sourceAuthorization,
-            PackageVersionDiscoveryContract.DependencyRangeResolution);
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            log);
     }
 
     public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
         string packageId,
         IPackageSourceAuthorization sourceAuthorization,
-        PackageVersionDiscoveryContract contract)
+        PackageVersionDiscoveryContract contract,
+        Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
@@ -222,7 +225,8 @@ public sealed class PackageSourceOperationLease : IDisposable
             StartWork(),
             packageId,
             sourceAuthorization,
-            contract);
+            contract,
+            log);
     }
 
     public Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
@@ -429,14 +433,16 @@ public sealed class PackageSourceOperationLease : IDisposable
         ActiveWorkRegistration work,
         string packageId,
         IPackageSourceAuthorization authorization,
-        PackageVersionDiscoveryContract contract)
+        PackageVersionDiscoveryContract contract,
+        Action<string>? log)
     {
         using (work)
             return await work.Generation.DiscoverVersionsAsync(
                 packageId,
                 authorization,
                 contract,
-                operationContext: work.Context).ConfigureAwait(false);
+                operationContext: work.Context,
+                log).ConfigureAwait(false);
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverCoreAsync(

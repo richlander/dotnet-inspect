@@ -7,6 +7,17 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
+    /// Supplies per-package authorization for dependency operations that use
+    /// this composition's configured source policy.
+    /// </summary>
+    public IPackageSourceAuthorization CreateDependencySourceAuthorization(
+        NuGetSourceOptions? sourceOptions = null) =>
+        new CompositionAuthorization(
+            this,
+            sourceOptions,
+            requiredProducerKey: null);
+
+    /// <summary>
     /// Supplies a settlement House using this composition's registered source clients.
     /// </summary>
     public PackageHouse CreateSettlementHouse(

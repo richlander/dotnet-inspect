@@ -46,10 +46,15 @@ public static partial class PackageExports
                                 : throw new InvalidOperationException(
                                     "The Package hierarchy requested an "
                                         + "unauthorized package source."));
-                    var candidateSource =
-                        new AuthorizedPackageDependencyCandidateSource(
-                            BrowserPackageWorkspace.PackageSourceAuthorization,
-                            sourceLease);
+                    TimeSpan operationTimeout =
+                        BrowserPackageWorkspace
+                            .SourceSettlementOperationTimeout(
+                                deadline.Remaining);
+                    using PackageSourceOperationLease traversalOperation =
+                        sourceLease.IssueOperationLease(
+                            deadline.Token,
+                            operationTimeout,
+                            operationTimeout);
                     PackageDependencyTraversalOutcome traversal =
                         await PackageDependencyTraversalQuery.ExecuteAsync(
                             new PackageDependencyTraversalRequest(
@@ -62,12 +67,12 @@ public static partial class PackageExports
                                 new TraversalTargetFrameworkPolicy(
                                     coordinate.Framework),
                                 new PackageDependencyTraversalCandidateAdapter(
-                                    candidateSource),
-                                new AuthorizedPackageDependencyManifestSource(
-                                    candidateSource),
+                                    BrowserPackageWorkspace
+                                        .PackageSourceAuthorization),
+                                new AuthorizedPackageDependencyManifestSource(),
                                 new PackageDependencyTraversalWorkBudget(
                                     1_024, 16_384)),
-                            deadline.Token).ConfigureAwait(false);
+                            traversalOperation).ConfigureAwait(false);
                     DependencyHierarchyDocument document =
                         DependencyHierarchyDocument.Create(
                             PackageTraversalGraphProjection.Project(

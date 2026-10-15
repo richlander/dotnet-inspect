@@ -89,14 +89,15 @@ internal static class PackageQueryCommand
                 ? null
                 : new(
                     new PackageDependencyTraversalCandidateAdapter(
-                        new DesktopPackageDependencyCandidateSource(
-                            traversalComposition,
-                            new NuGetSourceOptions
-                            {
-                                Sources = [PackageSource.NuGetOrg.Url],
-                            })),
-                    new DesktopPackageDependencyTraversalManifestSource(
-                        traversalComposition));
+                        traversalComposition
+                            .CreateDependencySourceAuthorization(
+                                new NuGetSourceOptions
+                                {
+                                    Sources = [PackageSource.NuGetOrg.Url],
+                                })),
+                    new AuthorizedPackageDependencyManifestSource(),
+                    token => traversalComposition.IssueSettlementOperation(
+                        token));
         await using PackageSourceSettlementLease? semanticSettlement =
             options.Plan.RequiresLibraryLiteralEvaluation
                 ? PackageSourceSettlementService.IssueLease(

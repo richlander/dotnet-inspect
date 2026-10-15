@@ -41,17 +41,11 @@ public static class PackageDependencyTraversalQuery
 
     public static async Task<PackageDependencyTraversalOutcome> ExecuteAsync(
         PackageDependencyTraversalRequest request,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using NuGetOperationContext? ownedOperation = operationContext is null
-            ? new NuGetOperationContext(cancellationToken)
-            : null;
-        NuGetOperationContext operation = operationContext ?? ownedOperation!;
-        CancellationToken token = ResolveInvocationToken(
-            operation,
-            cancellationToken);
+        ArgumentNullException.ThrowIfNull(operation);
+        CancellationToken token = operation.CancellationToken;
         token.ThrowIfCancellationRequested();
 
         var engine = new Engine(request, operation, token);
@@ -95,21 +89,6 @@ public static class PackageDependencyTraversalQuery
             PackageDependencyEvidenceQuery.Execute(
                 new PackageDependencyEvidenceRequest([input]));
         return (outcome.Roots[0], null);
-    }
-
-    private static CancellationToken ResolveInvocationToken(
-        NuGetOperationContext operationContext,
-        CancellationToken invocationToken)
-    {
-        if (invocationToken != default
-            && invocationToken != operationContext.CancellationToken)
-        {
-            throw new ArgumentException(
-                "The invocation token must match the operation context's caller token.",
-                nameof(invocationToken));
-        }
-
-        return operationContext.CancellationToken;
     }
 
     /// <summary>One candidate-acquired or root-supplied manifest projection under construction.</summary>
@@ -192,7 +171,7 @@ public static class PackageDependencyTraversalQuery
     /// </summary>
     private sealed class Engine(
         PackageDependencyTraversalRequest request,
-        NuGetOperationContext operation,
+        PackageSourceOperationLease operation,
         CancellationToken token)
     {
         private readonly List<PackageSourceCoordinate> _nodeCoordinates = [];
@@ -379,7 +358,6 @@ public static class PackageDependencyTraversalQuery
             PackageDependencyTraversalManifestResult manifestResult =
                 await request.ManifestAcquirer.AcquireAsync(
                     projection.Candidate!,
-                    token,
                     operation).ConfigureAwait(false);
             switch (manifestResult)
             {
@@ -409,6 +387,7 @@ public static class PackageDependencyTraversalQuery
                             acquired.Manifest,
                             projection.Candidate!.Coordinate,
                             request.TraversalTargetPolicy);
+                    operation.ThrowIfExpired();
                     token.ThrowIfCancellationRequested();
                     if (manifestFailure is not null)
                     {
@@ -517,7 +496,6 @@ public static class PackageDependencyTraversalQuery
                 PackageDependencyTraversalCandidateResult result =
                     await request.CandidateResolver.ResolveAsync(
                         declaration,
-                        token,
                         operation).ConfigureAwait(false);
                 AddResolutionEdge(
                     projection,
