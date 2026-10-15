@@ -20,9 +20,9 @@ agent HAL root could contain this subset of its registered destinations:
 ```json
 {
   "_links": {
-    "self": {"href": "inspect-resource:/catalog?projection=hal"},
-    "subjects": {"href": "inspect-resource:/subjects?projection=hal"},
-    "operations": {"href": "inspect-resource:/operations?projection=hal"}
+    "self": {"href": "inspect-resource:/catalog"},
+    "subjects": {"href": "inspect-resource:/subjects"},
+    "operations": {"href": "inspect-resource:/operations"}
   },
   "_embedded": {
     "subjects": [
@@ -30,14 +30,14 @@ agent HAL root could contain this subset of its registered destinations:
         "key": "workspace",
         "summary": "A declaration of content and configuration for an inspection environment.",
         "_links": {
-          "self": {"href": "inspect-resource:/subjects/workspace?projection=hal"}
+          "self": {"href": "inspect-resource:/subjects/workspace"}
         }
       },
       {
         "key": "package",
         "summary": "A package whose content, metadata and relationships can be inspected.",
         "_links": {
-          "self": {"href": "inspect-resource:/subjects/package?projection=hal"}
+          "self": {"href": "inspect-resource:/subjects/package"}
         }
       }
     ],
@@ -46,21 +46,21 @@ agent HAL root could contain this subset of its registered destinations:
         "key": "find",
         "summary": "Find packages or code by properties and relationships at a selected result grain.",
         "_links": {
-          "self": {"href": "inspect-resource:/operations/find?projection=hal"}
+          "self": {"href": "inspect-resource:/operations/find"}
         }
       },
       {
         "key": "diff",
         "summary": "Compare subjects and inspect their changes.",
         "_links": {
-          "self": {"href": "inspect-resource:/operations/diff?projection=hal"}
+          "self": {"href": "inspect-resource:/operations/diff"}
         }
       },
       {
         "key": "package",
         "summary": "Inspect a package's content and metadata.",
         "_links": {
-          "self": {"href": "inspect-resource:/operations/package?projection=hal"}
+          "self": {"href": "inspect-resource:/operations/package"}
         }
       }
     ]
@@ -71,6 +71,10 @@ agent HAL root could contain this subset of its registered destinations:
 
 This is an excerpt, not a complete proposed inventory. A production root must
 account for every admitted kind and installed resource through onward routes.
+These proposed addresses identify resources independently of representation.
+The request selects HAL or direct JSON; the format is not repeated in each URL.
+This changes the proposed discovery binding, not today's implemented projected
+address parser.
 The embedded entries are summaries, not canonical definitions. Their `self`
 links identify the resources whose detail can be queried; the root does not
 already contain those definitions or their facet inventories.
@@ -124,8 +128,8 @@ routes to subject-specific detail:
 {
   "summary": "Compare subjects and inspect their changes.",
   "_links": {
-    "self": {"href": "inspect-resource:/operations/diff?projection=hal"},
-    "subjects": {"href": "inspect-resource:/operations/diff/subjects?projection=hal"}
+    "self": {"href": "inspect-resource:/operations/diff"},
+    "subjects": {"href": "inspect-resource:/operations/diff/subjects"}
   },
   "_embedded": {
     "subjects": [
@@ -133,7 +137,7 @@ routes to subject-specific detail:
         "key": "package",
         "summary": "Explore the registered comparison capabilities for packages.",
         "_links": {
-          "self": {"href": "inspect-resource:/operations/diff/subjects/package?projection=hal"}
+          "self": {"href": "inspect-resource:/operations/diff/subjects/package"}
         }
       }
     ]

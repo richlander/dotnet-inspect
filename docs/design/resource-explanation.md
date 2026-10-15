@@ -207,6 +207,10 @@ purposes; a smaller discovery view must identify its scope rather than silently
 claim the full preparation profile.
 
 HAL makes the root immediately recognizable through `_links` and `_embedded`.
+The proposed discovery addresses identify resources independently of their
+representation: they do not carry `?projection=hal`. Hosts select HAL or direct
+JSON for the request. This replaces the existing projected-address binding only
+when the discovery contract is adopted; it does not change today's CLI parser.
 Direct JSON carries equivalent routing facts and destination identities. Links
 advertise missing knowledge, including scoped related collections backed by
 owner-issued reverse indexes when available. The relationship's population and
