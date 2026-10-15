@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
@@ -59,28 +61,45 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
 #endif
 
     /// <summary>
-    /// The House demands one pairwise package diff request declares, or
-    /// <see langword="null"/> when it keeps the legacy path: each endpoint
-    /// is an exact version, <c>latest</c>, or a <c>*</c> pattern, as
-    /// <c>package</c> reads it, and <c>--tfm</c> names one framework or is
-    /// absent, for the House's owner-default compile selection. Offline, an
-    /// endpoint the House can settle only by discovery keeps the whole
-    /// request on the legacy path: it answers a <c>*</c> pattern from cached
-    /// version listings, and reports why <c>latest</c> can't be resolved.
+    /// The House demands one pairwise package diff request declares: each
+    /// endpoint is an exact version, <c>latest</c>, or a <c>*</c> pattern,
+    /// as <c>package</c> reads it, and <c>--tfm</c> names one framework or is
+    /// absent, for the House's owner-default compile selection. A request the
+    /// House can't express returns <see langword="null"/> with its
+    /// <paramref name="error"/>. Offline, an endpoint the House can settle
+    /// only by discovery returns <see langword="null"/> with no error, and
+    /// the whole request keeps the legacy path: it answers a <c>*</c>
+    /// pattern from cached version listings, and reports why <c>latest</c>
+    /// can't be resolved (docs/design/package-endpoint-scope.md#offline).
     /// </summary>
     internal static PackageEndpointDiffSelection? TryCreateSelection(
         string packageId,
         string fromVersion,
         string toVersion,
-        string? targetFramework)
+        string? targetFramework,
+        out string? error)
     {
-        if (string.Equals(targetFramework, "all", StringComparison.OrdinalIgnoreCase)
-            || !DotnetInspector.Packages.PackageExtractor.IsValidPackageId(packageId)
-            || !PackageHouseDemand.TryCreate(
-                packageId, fromVersion, includePrerelease: false, out PackageHouseDemand? from, out _)
-            || !PackageHouseDemand.TryCreate(
+        error = null;
+        if (string.Equals(targetFramework, "all", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "--tfm all applies only to 'package' discovery.";
+            return null;
+        }
+        if (!DotnetInspector.Packages.PackageExtractor.IsValidPackageId(packageId))
+        {
+            error = $"Invalid package name: '{packageId}'";
+            return null;
+        }
+        if (!PackageHouseDemand.TryCreate(
+                packageId, fromVersion, includePrerelease: false, out PackageHouseDemand? from, out _))
+        {
+            error = InvalidVersion(fromVersion);
+            return null;
+        }
+        if (!PackageHouseDemand.TryCreate(
                 packageId, toVersion, includePrerelease: false, out PackageHouseDemand? to, out _))
         {
+            error = InvalidVersion(toVersion);
             return null;
         }
 
@@ -99,11 +118,15 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         }
         catch (ArgumentException)
         {
+            error = $"Invalid target framework '{targetFramework}'.";
             return null;
         }
 
         return new PackageEndpointDiffSelection(
             packageId, fromVersion, from, toVersion, to, target);
+
+        static string InvalidVersion(string version) =>
+            $"Error resolving v{version}: '{version}' is not a NuGet version, latest, or a * pattern.";
 
         static bool RequiresDiscovery(PackageHouseDemand demand) =>
             demand is PackageHouseDemand.Selecting
@@ -114,14 +137,29 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     }
 
     /// <summary>
+    /// Whether <paramref name="failed"/> is the one endpoint failure that
+    /// keeps the legacy path: under the owner default, the House selected no
+    /// compile assets at all, as for a package that ships its assemblies only
+    /// under <c>tools/</c> or <c>build/</c>, which the legacy selector takes.
+    /// </summary>
+    internal static bool IsLegacySelectorOnly(
+        PackageEndpointScopeOutcome.Failed failed,
+        PackageHouseTargetContext target) =>
+        failed.Kind == PackageEndpointScopeFailureKind.NoCompatibleFramework
+        && target.Mode == PackageHouseTargetSelectionMode.OwnerDefault
+        && failed.Selection?.Status == PackageCompileAssetSelectionStatus.NoCompileAssets;
+
+    /// <summary>
     /// Opens both endpoints by range with <paramref name="assetDemand"/>:
     /// <c>Surface</c> for the API views, <c>SurfaceAndImplementation</c> for
     /// the body views. Each endpoint settles its own demand in the House.
-    /// Returns
-    /// <see langword="null"/> when either endpoint did not open, so the
-    /// legacy path reports the failure.
+    /// When an endpoint does not open, returns no session and the report of
+    /// that endpoint's typed failure: the before endpoint's when it failed on
+    /// its own, otherwise the after endpoint's. Returns neither session nor
+    /// error when that failure keeps the legacy path
+    /// (<see cref="IsLegacySelectorOnly"/>).
     /// </summary>
-    internal static async Task<PackageEndpointDiffSession?> TryOpenAsync(
+    internal static async Task<(PackageEndpointDiffSession? Session, string? Error)> OpenAsync(
         HttpClient httpClient,
         PackageEndpointDiffSelection selection,
         PackageAssetDemand assetDemand,
@@ -150,9 +188,9 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             // Both surfaces realize at once. A realization that fails
             // cancels its sibling, whose work the legacy path would discard.
             using var sibling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            Task<PackageEndpointScope?> fromTask =
+            Task<PackageEndpointScopeOutcome> fromTask =
                 OpenOrCancelSiblingAsync(selection.FromVersion, selection.From);
-            Task<PackageEndpointScope?> toTask =
+            Task<PackageEndpointScopeOutcome> toTask =
                 OpenOrCancelSiblingAsync(selection.ToVersion, selection.To);
             try
             {
@@ -162,34 +200,58 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             {
                 // Each task's outcome is inspected below.
             }
-            from = fromTask.IsCompletedSuccessfully ? fromTask.Result : null;
-            to = toTask.IsCompletedSuccessfully ? toTask.Result : null;
+            from = Opened(fromTask);
+            to = Opened(toTask);
             if (from is null || to is null)
             {
                 closed = true;
                 await CloseAsync(from, to, composition, stores).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                Exception? failure = new[] { fromTask, toTask }
+                Exception? exception = new[] { fromTask, toTask }
                     .Where(static task => task.IsFaulted)
                     .Select(static task => task.Exception!.InnerException!)
                     .FirstOrDefault(static exception => exception is not OperationCanceledException);
-                if (failure is not null)
-                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(failure);
-                return null;
+                if (exception is not null)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(exception);
+                // A failed endpoint cancels its sibling, so only a failure
+                // that completed is reported: the before endpoint's when it
+                // failed on its own, otherwise the after endpoint's.
+                (string version, PackageHouseDemand demand, PackageEndpointScopeOutcome.Failed? failed) =
+                    Failed(fromTask) is { } fromFailure
+                        ? (selection.FromVersion, selection.From, fromFailure)
+                        : (selection.ToVersion, selection.To, Failed(toTask));
+                if (failed is null)
+                {
+                    return (null,
+                        $"Error resolving {packageId}@{selection.FromVersion}..{selection.ToVersion}: "
+                            + "neither package endpoint completed.");
+                }
+                // Without --tfm, a package whose assemblies only the legacy
+                // selector takes (tools/ or build/ only) keeps the legacy
+                // path until the House selects them
+                // (docs/design/package-endpoint-scope.md, step 4 part 6).
+                if (IsLegacySelectorOnly(failed, target))
+                {
+                    logger.Log(
+                        $"Package endpoint {packageId}@{version} has no House compile selection; "
+                            + "the request takes the legacy path.");
+                    return (null, null);
+                }
+                return (null, DescribeFailure(packageId, version, demand, target, failed));
             }
 
-            async Task<PackageEndpointScope?> OpenOrCancelSiblingAsync(
+            async Task<PackageEndpointScopeOutcome> OpenOrCancelSiblingAsync(
                 string version,
                 PackageHouseDemand demand)
             {
                 try
                 {
-                    PackageEndpointScope? scope = await OpenAsync(
+                    PackageEndpointScopeOutcome outcome = await OpenEndpointAsync(
                             composition, house, packageId, version, demand, target, assetDemand, logger, sibling.Token)
                         .ConfigureAwait(false);
-                    if (scope is null)
+                    if (outcome is not PackageEndpointScopeOutcome.Opened)
                         await sibling.CancelAsync().ConfigureAwait(false);
-                    return scope;
+                    return outcome;
                 }
                 catch
                 {
@@ -198,7 +260,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 }
             }
 
-            return new PackageEndpointDiffSession(composition, stores, sourceOptions, from, to);
+            return (new PackageEndpointDiffSession(composition, stores, sourceOptions, from, to), null);
         }
         catch
         {
@@ -208,7 +270,94 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
         }
     }
 
-    static async Task<PackageEndpointScope?> OpenAsync(
+    static PackageEndpointScope? Opened(Task<PackageEndpointScopeOutcome> task) =>
+        task.IsCompletedSuccessfully
+            && task.Result is PackageEndpointScopeOutcome.Opened opened
+                ? opened.Scope
+                : null;
+
+    static PackageEndpointScopeOutcome.Failed? Failed(Task<PackageEndpointScopeOutcome> task) =>
+        task.IsCompletedSuccessfully
+            ? task.Result as PackageEndpointScopeOutcome.Failed
+            : null;
+
+    /// <summary>
+    /// The user-visible report of one endpoint that did not open, from its
+    /// typed failure and the House's evidence: each source failure and stage
+    /// reason follows the summary on its own line.
+    /// </summary>
+    static string DescribeFailure(
+        string packageId,
+        string version,
+        PackageHouseDemand demand,
+        PackageHouseTargetContext target,
+        PackageEndpointScopeOutcome.Failed failed)
+    {
+        string unacquired = demand is PackageHouseDemand.Exact
+            ? $"Package '{packageId}' version '{version}' could not be acquired."
+            : $"Package '{packageId}' selection '{version}' could not be acquired.";
+        string summary = failed.Kind switch
+        {
+            PackageEndpointScopeFailureKind.NotFound => demand is PackageHouseDemand.Exact
+                ? unacquired
+                : $"Package '{packageId}' selection '{version}' matched no available version.",
+            // The House settled no payload: a source failed or refused it.
+            PackageEndpointScopeFailureKind.RealizationFailed
+                when failed.HouseResult is not PackageHouseResult.Settled => unacquired,
+            PackageEndpointScopeFailureKind.NoCompatibleFramework => target.RequestedFramework is { } framework
+                ? $"No assemblies found for target framework '{framework}' in package '{packageId}@{version}'."
+                : $"Package '{packageId}@{version}' has no compile assets for any framework.",
+            _ => failed.Message,
+        };
+        var lines = new List<string> { summary };
+        ImmutableArray<PackageHouseFailure> failures =
+            failed.HouseResult?.Evidence.Failures ?? ImmutableArray<PackageHouseFailure>.Empty;
+        foreach (PackageHouseFailure failure in failures)
+        {
+            string? detail = failure switch
+            {
+                PackageHouseFailure.Authority authority =>
+                    authority.Failure.Authority.ToString() is { Length: > 0 } name
+                        ? $"{name}: {authority.Failure.Message}"
+                        : authority.Failure.Message,
+                PackageHouseFailure.Timeout timeout =>
+                    $"{timeout.Kind} timed out after {timeout.Duration.TotalSeconds:0.#} s.",
+                PackageHouseFailure.Stage stage => stage.Reason.ToString(),
+                _ => null,
+            };
+            if (detail is not null && !lines.Contains(detail))
+                lines.Add(detail);
+        }
+        // A source that didn't answer says nothing about the package, as the
+        // legacy path's feed-failure report put it.
+        if (failures.Any(static failure => failure is PackageHouseFailure.Authority
+            {
+                Failure.Kind: PackageAuthorityFailureKind.AuthenticationRequired,
+            }))
+        {
+            lines.Add("The package may exist; the source was not readable. Supply credentials for this source and retry.");
+        }
+        else if (failures.Any(static failure => failure is PackageHouseFailure.Timeout
+            or PackageHouseFailure.Authority
+            {
+                Failure.Kind: PackageAuthorityFailureKind.Transport
+                    or PackageAuthorityFailureKind.Timeout
+                    or PackageAuthorityFailureKind.InvalidResponse
+                    or PackageAuthorityFailureKind.ResponseRejected,
+            }))
+        {
+            lines.Add("The package may exist; the source was not readable. Retry, or check the source URL.");
+        }
+        else if (lines.Count == 1 && failed.Kind == PackageEndpointScopeFailureKind.NotFound)
+        {
+            lines.Add(demand is PackageHouseDemand.Exact
+                ? "No eligible source supplied this exact coordinate. Use --versions to see available versions."
+                : "No eligible source listed a matching version. Use --versions to see available versions.");
+        }
+        return $"Error resolving v{version}: {string.Join(Environment.NewLine, lines)}";
+    }
+
+    static async Task<PackageEndpointScopeOutcome> OpenEndpointAsync(
         DesktopPackageSourceComposition composition,
         PackageHouse house,
         string packageId,
@@ -248,12 +397,10 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             realizing);
         if (outcome is PackageEndpointScopeOutcome.Failed failed)
         {
-            // The legacy path owns the user-visible report of every endpoint
-            // failure, so its diagnostics stay unchanged.
             logger.Log(
-                $"Package endpoint {packageId}@{version} takes the legacy path "
+                $"Package endpoint {packageId}@{version} did not open "
                     + $"({failed.Kind}): {failed.Message}");
-            return null;
+            return failed;
         }
 
         PackageEndpointScope scope = ((PackageEndpointScopeOutcome.Opened)outcome).Scope;
@@ -271,7 +418,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                     : $" and {scope.ImplementationParticipants.Length} implementation "
                         + (scope.ImplementationParticipants.Length == 1 ? "assembly" : "assemblies"))
                 + $" for {scope.TargetFramework}; payload {scope.Payload.Origin}).");
-        return scope;
+        return outcome;
     }
 
     /// <summary>
