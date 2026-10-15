@@ -1166,7 +1166,11 @@ dotnet-inspect library query --platform runtime \
 Library Query tests each candidate Library's direct `AssemblyRef` table;
 repeated `references` terms are ANDed. `--take` bounds candidates scanned,
 while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
-afterward. Use `library query -Q Libraries` to discover the current vocabulary.
+afterward; a lone `-n` stops scanning at its Nth match. A reached explicit
+`--take` is the answer's scope: a note names it and the exit is 0. The default
+256-candidate limit that omits Libraries is a partial view: rows and `--count`
+print what was observed, with a warning and exit 1. Use
+`library query -Q Libraries` to discover the current vocabulary.
 Native images beside managed Libraries in the directory are skipped; a
 directory with no managed Library is a failed source. Missing or malformed
 Metadata remains visible rather than silently becoming a nonmatch: rows and
@@ -1229,13 +1233,16 @@ evidence. Use `tool-format=v1` or `tool-format=v2` for settings-based format
 classification; the two specific formats are compatible filtering
 alternatives. Selecting a package-content term authorizes the required archive
 acquisition and defaults to at most 20 candidates. Use `--nuspec-only` to
-reject a query that would require package content. Without explicit `--take`, a
-simple `-n N` query pushes that semantic head into execution; explicit
-`--take` instead fixes the candidate population before row selection. Reached
-candidate limits and partial failures are reported explicitly. `--count`
-counts the selected matching package rows that the same query would render,
-with the same completion warnings and exit status. A reached candidate bound or
-partial failure therefore yields an observed count, not the scope's total.
+reject a query that would require package content. A simple `-n N` query
+pushes that semantic head into execution, inside an explicit `--take` window
+when one is given: evaluation stops at the Nth match or the window's end.
+Explicit `--take` fixes the requested candidate population; reaching it is the
+answer's scope, named by a note, and exits 0. A default candidate limit that
+stops evaluation, a page limit, or a partial failure is a partial view: a
+warning and exit 1. `--count` counts the selected matching package rows that
+the same query would render, with the same notes, warnings, and exit status: it
+is exact for a reached explicit `--take`, and an observed count, not the
+scope's total, under a default limit or partial failure.
 Incompleteness alone never withholds the count: only a search that fails before
 evaluating any candidate prints none, and an unsatisfied strict `--rows` window
 fails as it does for rows.

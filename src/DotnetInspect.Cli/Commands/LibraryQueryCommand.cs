@@ -100,16 +100,38 @@ internal static class LibraryQueryCommand
         LibraryQueryOptions options,
         InspectionEnvelope<LibraryQueryDocument> envelope)
     {
-        LibraryQueryDocument document = envelope.Content;
+        // A reached explicit --take is the answer's scope, not an incomplete
+        // reason, in every format (cli-execution-bounds.md#disclosure). A
+        // default candidate ceiling that stopped evaluation stays incomplete.
+        LibraryQueryDocument observed = envelope.Content;
+        bool takeScopeReached =
+            options.ExplicitTake
+            && (observed.Summary.IncompleteReasons
+                & LibraryQueryIncompleteReason.CandidateLimit) != 0;
+        LibraryQueryDocument document = takeScopeReached
+            ? observed with
+            {
+                Summary = observed.Summary with
+                {
+                    IncompleteReasons = observed.Summary.IncompleteReasons
+                        & ~LibraryQueryIncompleteReason.CandidateLimit,
+                },
+            }
+            : observed;
         if (options.EnvelopeOutput || options.IsContentJson)
         {
             bool wrote = InspectionEnvelopeOutput.TryWrite(
-                envelope,
+                takeScopeReached
+                    ? new InspectionEnvelope<LibraryQueryDocument>(
+                        document,
+                        envelope.Share,
+                        envelope.Diagnostics)
+                    : envelope,
                 JsonContract,
                 options.EnvelopeOutput,
                 options.CompactJson);
-            WriteDiagnostics(document);
-            return wrote && HasSuccessfulEvaluation(document) ? 0 : 1;
+            WriteDiagnostics(document, takeScopeReached);
+            return wrote && document.Summary.IsComplete ? 0 : 1;
         }
 
         if (!CliSemanticRowSelection.TrySelect(
@@ -123,7 +145,7 @@ internal static class LibraryQueryCommand
                     + $"{failure.Failure.AvailableCount} Library rows are available.",
                 out IReadOnlyList<LibraryQueryMatch> displayResults))
         {
-            WriteDiagnostics(document);
+            WriteDiagnostics(document, takeScopeReached);
             return 1;
         }
 
@@ -136,7 +158,7 @@ internal static class LibraryQueryCommand
                 & LibraryQueryIncompleteReason.PopulationFailure) != 0
             && document.Summary.Candidates == 0)
         {
-            WriteDiagnostics(document);
+            WriteDiagnostics(document, takeScopeReached);
             CommandError.Write(
                 "Cannot count Library Query rows because population formation "
                 + "failed before any candidate was evaluated.");
@@ -146,7 +168,8 @@ internal static class LibraryQueryCommand
         LibraryQueryView view = LibraryQuerySections.CreateDocument(
             options.Population?.DisplayName ?? "population",
             displayResults,
-            document.Summary);
+            document.Summary,
+            takeScopeReached);
         HashSet<string> includeSections =
             options.IncludeSections
             ?? (options.SelectDefault
@@ -158,19 +181,13 @@ internal static class LibraryQueryCommand
                         : LibraryQuerySections.QuerySummaryName,
                 ]);
         WriteOutput(view, options, includeSections);
-        WriteDiagnostics(document);
-        return HasSuccessfulEvaluation(document) ? 0 : 1;
+        WriteDiagnostics(document, takeScopeReached);
+        return document.Summary.IsComplete ? 0 : 1;
     }
 
-    private static bool HasSuccessfulEvaluation(
-        LibraryQueryDocument document) =>
-        (document.Summary.IncompleteReasons
-            & (LibraryQueryIncompleteReason.PopulationFailure
-                | LibraryQueryIncompleteReason.EvaluationFailure))
-        == LibraryQueryIncompleteReason.None;
-
     private static void WriteDiagnostics(
-        LibraryQueryDocument document)
+        LibraryQueryDocument document,
+        bool takeScopeReached)
     {
         foreach (LibraryQueryFailure failure in document.Failures)
         {
@@ -183,7 +200,15 @@ internal static class LibraryQueryCommand
                 $"{subject}: {failure.Kind}: {failure.Message}");
         }
 
-        if ((document.Summary.IncompleteReasons
+        if (takeScopeReached)
+        {
+            CommandError.WriteNote(
+                "Library Query scope: the first "
+                + $"{document.Summary.Candidates} of "
+                + $"{document.Summary.PopulationCandidates} Libraries "
+                + "(--take); matches cover only that population.");
+        }
+        else if ((document.Summary.IncompleteReasons
                 & LibraryQueryIncompleteReason.CandidateLimit)
             != 0)
         {
