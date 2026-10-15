@@ -57,7 +57,7 @@ import {
   storedZip,
   type ManifestDependency,
 } from "./package-adoption-nupkg.ts";
-import { selectFirstExactLibrary } from "./library-subject-actions.ts";
+import { chooseSubject, selectFirstExactLibrary } from "./library-subject-actions.ts";
 
 type WorkerClientModule = typeof import("../src/engine-worker-client.ts");
 
@@ -308,6 +308,18 @@ const references: FixtureCoordinate = {
     referencesPackageId,
     version,
     declaredDependency,
+  ),
+};
+const fallbackReferences: FixtureCoordinate = {
+  packageId: "InspectWeb.Adoption.FrameworkFallback",
+  version,
+  archive: manifestBackedNupkg(
+    healthyAssembly,
+    healthyAssemblyFileName,
+    "InspectWeb.Adoption.FrameworkFallback",
+    version,
+    declaredDependency,
+    "net10.0",
   ),
 };
 const manifestOnly: FixtureCoordinate = {
@@ -1221,6 +1233,52 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 });
 
 test.describe("Package Query website over real Wasm", () => {
+  test("restores a shared hierarchy when compile assets use a compatible framework", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "clipboard", { value: { write: async (items: ClipboardItem[]) => {
+        (window as Window & { copiedShare?: string }).copiedShare =
+          await (await items[0]!.getType("text/plain")).text();
+      } } });
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 1,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        fixtureFramework, null]],
+      g: [[0]], a: 0, x: 0, v: "hierarchy",
+    })).toString("base64url");
+
+    await page.goto(`/?w=${packet}`);
+
+    await expect(page.locator("#package-hierarchy-title"))
+      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
+    await expect(page.locator(".package-hierarchy-tree"))
+      .toContainText(fallbackReferences.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect.poll(() => new URL(page.url()).searchParams.get("w"))
+      .toBe(packet);
+
+    await page.locator('[data-inspector-tab][data-package-lens="overview"]').click();
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await selectFirstExactLibrary(page);
+    await expect(page.locator(".library-subject-list"))
+      .toBeVisible();
+    expect(new URL(page.url()).searchParams.get("w")).not.toBe(packet);
+    await chooseSubject(page, "package");
+    await page.locator('[data-inspector-tab][data-package-lens="hierarchy"]').click();
+    await expect(page.locator("#package-hierarchy-title"))
+      .toHaveText("Dependency Hierarchy");
+    await page.locator('[data-application-action="share"]').dispatchEvent("click");
+    await expect.poll(() => page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
+    const shared = await page.evaluate(() =>
+      (window as Window & { copiedShare?: string }).copiedShare!);
+    expect(new URL(shared).searchParams.get("w")).toBe(packet);
+    const reopened = await context.newPage();
+    await reopened.goto(shared);
+    await expect(reopened.locator("#package-hierarchy-title"))
+      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
+  });
+
   test("opens a shared Package Dependency Hierarchy and reports partial traversal", async ({ page, context }) => {
     await installGalleryRoutes(context, new GalleryFixtureRegistry([references]));
     const packet = Buffer.from(JSON.stringify({

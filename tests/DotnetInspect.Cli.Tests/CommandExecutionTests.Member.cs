@@ -1691,7 +1691,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Member_ExactMethodGroup_DefaultAndTreeUseTheSameNativeDocument()
+        Member_ExactMethodGroup_DefaultAndTreeUseTheResolvedOverview()
     {
         var natural = await RunAppAsync(
             "member",
@@ -1745,7 +1745,7 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        Member_SingleMethod_DefaultAndTreeUseTheSameNativeDocument()
+        Member_SingleMethod_DefaultAndTreeUseTheResolvedExactDocument()
     {
         string typeName = typeof(MemberCallGraphFixture).FullName!;
         var natural = await RunAppAsync(

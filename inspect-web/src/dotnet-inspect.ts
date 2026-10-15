@@ -121,11 +121,13 @@ import {
   createAsyncWorkspaceLocationPersistence,
   createNavigationHistory,
   createNavigationSequence,
+  hierarchyShareTargetFramework,
   parseWorkspaceLocationAsync,
   recoverWorkspaceRouteFailure,
   retainedMissingPlatformTarget,
   resolvedPlatformTargetVersion,
   retainWorkspaceUrlPreservation,
+  workspaceHierarchyShareTabsMatchResolved,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
@@ -11385,7 +11387,13 @@ function renderPackageDependencies() {
 
 function packageHierarchySignature() {
   const pkg = currentPackage();
-  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+  return `${pkg.id}@${pkg.version}/${packageHierarchyTargetFramework(pkg)}`;
+}
+
+function packageHierarchyTargetFramework(pkg: AppPackage): string {
+  return hierarchyShareTargetFramework(
+    state.workspaceShareBasis, pkg, state.packageLens)
+    ?? pkg.activeFramework;
 }
 
 function renderPackageHierarchy() {
@@ -11853,7 +11861,7 @@ function maybeAutoLoadPackageHierarchy() {
   observeAsync((async () => {
     try {
       const hierarchy = await inspectPackageHierarchy(
-        pkg.id, pkg.version, pkg.activeFramework);
+        pkg.id, pkg.version, packageHierarchyTargetFramework(pkg));
       if (state.packageHierarchyKey === key) state.packageHierarchy = hierarchy;
     } catch (error) {
       if (state.packageHierarchyKey === key)
@@ -17843,7 +17851,9 @@ BrowserWorkspaceShareState["tabs"] {
     kind: pkg.isRuntimePack ? "group" : "package",
     source: pkg.isRuntimePack ? ":Platform" : pkg.id,
     version: pkg.version || null,
-    framework: pkg.activeFramework || null,
+    framework: (hierarchyShareTargetFramework(
+      state.workspaceShareBasis, pkg, state.packageLens)
+      ?? pkg.activeFramework) || null,
     runtimeIdentifier: null,
   }));
   if (state.platformSelection && !tabs.some(tab => tab.kind === "group" && tab.source === ":Platform")) {
@@ -17920,10 +17930,14 @@ function activeShareTabIndex(
   tabs: BrowserWorkspaceShareState["tabs"],
   resolvedTabs = tabs,
 ) {
+  const packageFramework = state.package
+    ? packageHierarchyTargetFramework(state.package)
+    : null;
   return state.rootKind === "platform"
     ? tabs.findIndex(tab => tab.kind === "group" && tab.source === ":Platform")
     : resolvedTabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
-      && tab.version === state.package?.version && tab.framework === state.package?.activeFramework);
+      && tab.version === state.package?.version
+      && tab.framework === (packageFramework ?? state.package?.activeFramework));
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
@@ -26543,7 +26557,13 @@ async function restoreWorkspaceFromLocation(
   const canonicalTabCountPreserved = !loc.shareState
     || loc.shareState.tabs.length === resolvedTabs.length;
   const canonicalTabsPreserved = !loc.shareState
-    || workspaceShareTabsMatchResolved(loc.shareState.tabs, resolvedTabs);
+    || workspaceShareTabsMatchResolved(loc.shareState.tabs, resolvedTabs)
+    || (loc.atPackageRoot
+      && loc.packageLens === "hierarchy"
+      && failedTabCount === 0
+      && loadedTargetModel !== null
+      && workspaceHierarchyShareTabsMatchResolved(
+        loc.shareState.tabs, resolvedTabs));
   if (loc.shareState && (failedTabCount > 0 || !canonicalTabsPreserved)) {
     failRestore(
       state.queryNotice

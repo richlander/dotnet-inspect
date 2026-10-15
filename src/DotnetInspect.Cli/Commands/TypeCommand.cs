@@ -2050,6 +2050,18 @@ public static partial class TypeCommand
                     Path.GetFullPath(existing),
                     temporaryDirectory: null);
             }
+            if (target.PackageExtractPath is { } packageExtractPath
+                && target.PackageAssetPath is { } packageAssetPath)
+            {
+                return new WorkspaceTypeAssemblyPath(
+                    Path.GetFullPath(
+                        Path.Combine(
+                            packageExtractPath,
+                            packageAssetPath.Replace(
+                                '/',
+                                Path.DirectorySeparatorChar))),
+                    temporaryDirectory: null);
+            }
 
             string temporaryDirectory =
                 Directory.CreateTempSubdirectory(
