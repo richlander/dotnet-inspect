@@ -2051,6 +2051,10 @@ public sealed class ResourceExplanationCatalog
                     : ResourceExplanationVocabulary.AbsentFact(
                         type,
                         "cardinality"),
+                DescriptionFact(type, "summary", resource.Description?.Summary),
+                DescriptionFact(type, "basis", resource.Description?.Basis),
+                DescriptionFact(type, "empty", resource.Description?.Empty),
+                DescriptionFact(type, "boundary", resource.Description?.Boundary),
             ],
             DiscoveryResourceKind.Item =>
             [
@@ -2068,6 +2072,16 @@ public sealed class ResourceExplanationCatalog
             _ => throw new InvalidOperationException(
                 "Unknown Discovery resource kind."),
         };
+
+    // An undeclared description part is reported absent, never synthesized
+    // from the section name or an empty string.
+    private static ExplanationFactObservation DescriptionFact(
+        ExplanationResourceTypeIdentity type,
+        string identity,
+        string? value) =>
+        value is null
+            ? ResourceExplanationVocabulary.AbsentFact(type, identity)
+            : ResourceExplanationVocabulary.TextFact(type, identity, value);
 
     private static ImmutableArray<ExplanationRelationshipObservation>
         StructuralRelationships(

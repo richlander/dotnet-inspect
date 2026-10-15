@@ -402,6 +402,68 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(cardinality, TextFact(root, "cardinality"));
     }
 
+    [Theory]
+    [InlineData("library-metrics")]
+    [InlineData("dependency-structure")]
+    [InlineData("member-metrics")]
+    [InlineData("top-leverage")]
+    [InlineData("clone-candidates")]
+    [InlineData("array-pool-escapes")]
+    [InlineData("performance-boxing")]
+    public async Task Explain_LibrarySection_ReportsOwnerDescription(
+        string section)
+    {
+        // Adopted Library sections explain what they report: Summary, Basis,
+        // and Empty are owner-issued text, never the section name.
+        var result = await RunAsync(
+            "explain",
+            $"library/sections/{section}",
+            ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        string name = TextFact(root, "name");
+        foreach (string part in new[] { "summary", "basis", "empty" })
+        {
+            string text = TextFact(root, part);
+            Assert.False(string.IsNullOrWhiteSpace(text));
+            Assert.NotEqual(name, text);
+        }
+    }
+
+    [Fact]
+    public async Task Explain_LibrarySectionDescription_RendersAndUndeclaredIsAbsent()
+    {
+        var described = await RunAsync(
+            "explain",
+            "library/sections/top-leverage");
+
+        Assert.Equal(0, described.ExitCode);
+        Assert.Empty(described.Error);
+        Assert.Contains("Summary: ", described.Output);
+        Assert.Contains("Basis: ", described.Output);
+        Assert.Contains("Empty: ", described.Output);
+
+        // A section that has not declared a description reports every part
+        // absent rather than substituting its name or an empty string.
+        var undeclared = await RunAsync(
+            "explain",
+            "library/sections/references",
+            ".contract", "--json");
+
+        Assert.Equal(0, undeclared.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(undeclared.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        foreach (string part in new[] { "summary", "basis", "empty", "boundary" })
+        {
+            Assert.Equal(
+                "Absent",
+                Fact(root, part).GetProperty("state").GetString());
+        }
+    }
+
     [Fact]
     public async Task Explain_LibraryDependencyStructure_IsAGraphWithoutShape()
     {

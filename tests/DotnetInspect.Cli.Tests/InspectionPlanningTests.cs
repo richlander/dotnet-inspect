@@ -1762,6 +1762,50 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void LibraryStructuralRouteDeclaresAdoptedSectionDescriptions()
+    {
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library));
+        IReadOnlyDictionary<string, SectionDescription> descriptions =
+            Assert.IsAssignableFrom<
+                IReadOnlyDictionary<string, SectionDescription>>(
+                projection.SectionDescriptions);
+
+        // Section model, Description adoption step 2: the sections the
+        // project-analysis skill relies on. Stale and missing entries both
+        // fail; full Library coverage is step 3.
+        string[] adopted =
+        [
+            SectionNames.LibraryMetrics,
+            SectionNames.DependencyStructure,
+            SectionNames.MemberMetrics,
+            SectionNames.TopLeverage,
+            SectionNames.NameFamilies,
+            SectionNames.ArchitecturalFamilies,
+            SectionNames.CloneCandidates,
+            SectionNames.UnsafeMembers,
+            SectionNames.PInvokeMethods,
+            SectionNames.ArrayPoolEscapes,
+            SectionNames.AsyncMethods,
+            .. PerformanceKinds.Sections,
+            SectionNames.PerformanceSyncCallsInAsync,
+        ];
+        Assert.Equal(
+            adopted.Order(StringComparer.OrdinalIgnoreCase),
+            descriptions.Keys.Order(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (SectionDescription description in descriptions.Values)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(description.Summary));
+            Assert.False(string.IsNullOrWhiteSpace(description.Basis));
+            Assert.False(string.IsNullOrWhiteSpace(description.Empty));
+        }
+    }
+
+    [Fact]
     public void LibraryStructuralRouteDeclaresEverySectionShape()
     {
         StructuralSchemaProjection projection =
