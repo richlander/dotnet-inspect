@@ -336,19 +336,75 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             packageId,
             sourceOptions,
             failures);
+        PackageSourceAuthorization authorization =
+            AuthorizeResolvedSourcesForCore(
+                sources,
+                _ =>
+                {
+                    checkpoint();
+                    return true;
+                },
+                failures);
+        checkpoint();
+        return authorization;
+    }
+
+    private PackageSourceAuthorization AuthorizeVersionSourcesForCore(
+        string packageId,
+        NuGetSourceOptions? sourceOptions,
+        NuGetOperationContext operation,
+        List<PackageAuthorityFailure> failures)
+    {
+        IReadOnlyList<PackageSource> sources = ResolveEligibleSources(
+            packageId,
+            sourceOptions,
+            failures);
+        return AuthorizeResolvedSourcesForCore(
+            sources,
+            index =>
+            {
+                try
+                {
+                    operation.ThrowIfExpired();
+                    return true;
+                }
+                catch (NuGetOperationTimeoutException)
+                {
+                    for (int remaining = index;
+                         remaining < sources.Count;
+                         remaining++)
+                    {
+                        failures.Add(
+                            PackageSourceSettlementGeneration
+                                .VersionDiscoveryUnsettledSourceTimeoutFailure(
+                                    sources[remaining],
+                                    operation));
+                    }
+                    return false;
+                }
+            },
+            failures);
+    }
+
+    private PackageSourceAuthorization AuthorizeResolvedSourcesForCore(
+        IReadOnlyList<PackageSource> sources,
+        Func<int, bool> shouldAuthorize,
+        List<PackageAuthorityFailure> failures)
+    {
         var authorities = new List<ConfiguredPackageAuthority>();
         var seen = new HashSet<ConfiguredPackageAuthority>(
             ReferenceEqualityComparer.Instance);
-        foreach (PackageSource source in sources)
+        for (int index = 0; index < sources.Count; index++)
         {
-            checkpoint();
+            if (!shouldAuthorize(index))
+                break;
+            PackageSource source = sources[index];
             if (TryGetEligibleAuthority(source, failures) is { } authority
                 && seen.Add(authority.Authority))
             {
                 authorities.Add(authority.Authority);
             }
         }
-        checkpoint();
         return PackageSourceAuthorization.ObserveAuthorities(
             authorities,
             failures);
@@ -425,11 +481,12 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         }
 
         var failures = new List<PackageAuthorityFailure>();
-        PackageSourceAuthorization authorization = AuthorizeSourcesForCore(
-            packageId,
-            sourceOptions,
-            operation.ThrowIfExpired,
-            failures);
+        PackageSourceAuthorization authorization =
+            AuthorizeVersionSourcesForCore(
+                packageId,
+                sourceOptions,
+                operation,
+                failures);
         return generation.DiscoverVersionsAsync(
             packageId,
             authorization,

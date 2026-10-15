@@ -828,6 +828,20 @@ internal sealed class PackageSourceSettlementGeneration
                 operation.OperationTimeout),
         };
 
+    internal static PackageAuthorityFailure
+        VersionDiscoveryUnsettledSourceTimeoutFailure(
+        PackageSource source,
+        NuGetOperationContext operation) =>
+        new(
+            PackageSourceDisplay.ForDiagnostics(source),
+            PackageAuthorityFailureKind.Timeout,
+            "An authorized package source was not settled before the package candidate operation deadline.")
+        {
+            Timeout = new(
+                PackageSourceTimeoutKind.Operation,
+                operation.OperationTimeout),
+        };
+
     private static PackageAuthorityFailure OperationTimeoutFailure(
         ConfiguredPackageAuthority? authority,
         NuGetOperationContext operation) =>
