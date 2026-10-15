@@ -1161,6 +1161,12 @@ uses root occurrence order, producer-issued relationship order, and
 document-local occurrence identity. Source-authored text never participates in
 deduplication, cycle detection, or row identity.
 
+Tree and Mermaid edge text names a relationship kind only where it
+distinguishes the edge. A graph with one relationship kind leaves every edge
+unlabeled, and a graph that mixes kinds labels every edge except
+`package-dependency`, the mainline kind. Tables, JSONL, and structured JSON
+always carry the relationship kind.
+
 The heterogeneous occurrence table has one common schema:
 
 - occurrence ID;

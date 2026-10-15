@@ -523,6 +523,8 @@ internal static class DependencyHierarchyOutputAdapter
         var graphEdges = new List<Markout.GraphEdge>();
         var emittedNodes =
             new HashSet<DependencyHierarchyOccurrenceIdentity>();
+        bool labelRelationships =
+            DependencyGraphOutputAdapter.MixesRelationships(graph);
 
         foreach (DependencyHierarchyRootOccurrence root in document.Roots)
         {
@@ -566,7 +568,9 @@ internal static class DependencyHierarchyOutputAdapter
             graphEdges.Add(
                 new Markout.GraphEdge(Key(parent), Key(identity))
                 {
-                    Label = row.Relationship,
+                    Label = DependencyGraphOutputAdapter.TreeEdgeLabel(
+                        labelRelationships,
+                        row.Relationship),
                 });
         }
 

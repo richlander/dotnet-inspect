@@ -1546,18 +1546,16 @@ public partial class CommandExecutionTests
             Assert.Equal(0, directDependencyTail.Exit);
             Assert.Empty(directDependencyTail.Error);
             Assert.Equal("1", directDependencyTail.Output.Trim());
-            Assert.Equal(
-                2,
-                plaintext.Output.Split(
-                    "package-dependency",
-                    StringSplitOptions.None).Length - 1);
-            Assert.Equal(
-                dependsPlaintext.Output.Split(
-                    "package-dependency",
-                    StringSplitOptions.None).Length,
-                plaintext.Output.Split(
-                    "package-dependency",
-                    StringSplitOptions.None).Length);
+            // Package dependency is the mainline relationship, so tree text
+            // never names it; the JSON occurrences above carry it.
+            Assert.DoesNotContain(
+                "package-dependency",
+                plaintext.Output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "package-dependency",
+                dependsPlaintext.Output,
+                StringComparison.Ordinal);
             using JsonDocument composedPackageJson =
                 JsonDocument.Parse(composedPackage.Output);
             using JsonDocument composedDependsJson =
@@ -1590,11 +1588,10 @@ public partial class CommandExecutionTests
             Assert.True(JsonElement.DeepEquals(
                 tailPackageOccurrences,
                 tailDependsOccurrences));
-            Assert.Equal(
-                2,
-                composedMultiSection.Output.Split(
-                    "package-dependency",
-                    StringSplitOptions.None).Length - 1);
+            Assert.DoesNotContain(
+                "package-dependency",
+                composedMultiSection.Output,
+                StringComparison.Ordinal);
         }
         finally
         {

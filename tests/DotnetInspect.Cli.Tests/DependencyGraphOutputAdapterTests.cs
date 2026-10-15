@@ -557,7 +557,7 @@ public sealed class DependencyGraphOutputAdapterTests
 
         Assert.Equal(3, rows.Count);
         Assert.DoesNotContain("(fragment)", tree, StringComparison.Ordinal);
-        Assert.Equal(3, Occurrences(tree, "package-dependency"));
+        Assert.DoesNotContain("package-dependency", tree, StringComparison.Ordinal);
         int laterRoot = tree.LastIndexOf(
             "(revisit) Shared",
             StringComparison.Ordinal);

@@ -253,6 +253,47 @@ public sealed class DependencyHierarchyOutputAdapterTests
         Assert.Equal(rows[0].EdgeId, view.EdgeId);
     }
 
+    // Package dependency is the mainline relationship, so graph text never
+    // names it; rows and JSON still carry it.
+    [Fact]
+    public async Task PackageDependencyEdgesAreUnlabeledInGraphText()
+    {
+        DependencyHierarchyDocument document =
+            DependencyHierarchyDocument.Create(SharedDag());
+        List<DependencyHierarchyOccurrenceRow> rows =
+            DependencyHierarchyOutputAdapter.Rows(document);
+
+        string tree = await RenderAsync(document, rows, OutputFormat.PlainText);
+        string mermaid = await RenderAsync(document, rows, OutputFormat.Mermaid);
+        string table = await RenderAsync(document, rows, OutputFormat.Table);
+
+        Assert.DoesNotContain("package-dependency", tree, StringComparison.Ordinal);
+        Assert.DoesNotContain("package-dependency", mermaid, StringComparison.Ordinal);
+        Assert.Equal(5, MermaidEdgeCount(mermaid));
+        Assert.Equal(5, Occurrences(table, "package-dependency"));
+    }
+
+    [Fact]
+    public async Task MixedRelationshipsLabelOnlyNonPackageEdges()
+    {
+        DependencyHierarchyDocument document =
+            DependencyHierarchyDocument.Create(
+                Graph(
+                    [new DependencyGraphRootOccurrence(1, 0)],
+                    ["Root", "Project", "Package"],
+                    [
+                        Edge(0, 0, 1, [1], relationship: "project-reference"),
+                        Edge(1, 1, 2, [1]),
+                    ]));
+        List<DependencyHierarchyOccurrenceRow> rows =
+            DependencyHierarchyOutputAdapter.Rows(document);
+
+        string tree = await RenderAsync(document, rows, OutputFormat.PlainText);
+
+        Assert.Equal(1, Occurrences(tree, "project-reference"));
+        Assert.DoesNotContain("package-dependency", tree, StringComparison.Ordinal);
+    }
+
     private static async Task<string> RenderAsync(
         DependencyHierarchyDocument document,
         IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
@@ -324,12 +365,13 @@ public sealed class DependencyHierarchyOutputAdapterTests
         int target,
         ImmutableArray<int> roots,
         int? sourceProjection = null,
-        int? targetProjection = null) =>
+        int? targetProjection = null,
+        string relationship = "package-dependency") =>
         new(
             id,
             source,
             target,
-            "package-dependency",
+            relationship,
             roots,
             MinimumDepth: 1,
             DependencyGraphResolutionState.Resolved,
