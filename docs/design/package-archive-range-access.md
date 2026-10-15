@@ -337,8 +337,21 @@ equals the requested length. `Content-Length`, which nuget.org does expose,
 is the slice's length and is checked against the body as on other hosts;
 where any other header is visible it is cross-checked the same way. Both a suffix
 `Range` and `If-Range` trigger a CORS preflight, which nuget.org allows
-(`access-control-allow-headers: range,if-range`, probed 2026-09-23). The
-contract suite runs the reader in a headers-hidden mode to gate these rules;
+(`access-control-allow-headers: range,if-range`, probed 2026-09-23).
+
+Every ranged request bypasses the browser's HTTP cache (`fetch` cache mode
+`no-store`). A ranged read is answered only by the source, so the bytes, the
+status, and the validator are the ones the rules above check. Without the
+bypass, Chromium answers a range that overlaps bytes it already holds by
+requesting only the rest, with its own `If-Range` carrying the stored `ETag`.
+nuget.org's `ETag` is unquoted, and its CDN answers an `ETag` `If-Range` with
+`200` and the whole archive, so the read ends as `RangeIgnored` and the
+caller downloads the complete package (probed 2026-10-15). The bypass does
+not add a preflight. Reuse across reads comes from the
+[package cache policy](package-cache-policy.md)'s entry cache, not the HTTP
+cache.
+
+The contract suite runs the reader in a headers-hidden mode to gate these rules;
 the end-to-end browser read is `unverified` until the Inspect Web adoption
 slice adds its Playwright gate.
 
