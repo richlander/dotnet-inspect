@@ -20,22 +20,40 @@ agent HAL root could contain this subset of its registered destinations:
 ```json
 {
   "_links": {
-    "self": {"href": "inspect-resource:/catalog?projection=hal"}
+    "self": {"href": "inspect-resource:/catalog?projection=hal"},
+    "subjects": {"href": "inspect-resource:/subjects?projection=hal"},
+    "operations": {"href": "inspect-resource:/operations?projection=hal"}
   },
   "_embedded": {
-    "resources": [
+    "subjects": [
       {
         "key": "workspace",
-        "summary": "Declare package and platform content for an inspection environment.",
+        "summary": "A declaration of content and configuration for an inspection environment.",
         "_links": {
-          "self": {"href": "inspect-resource:/workspace?projection=hal"}
+          "self": {"href": "inspect-resource:/subjects/workspace?projection=hal"}
         }
       },
       {
-        "key": "find",
-        "summary": "Find results at a selected grain within the requested population.",
+        "key": "package",
+        "summary": "A package whose content, metadata and relationships can be inspected.",
         "_links": {
-          "self": {"href": "inspect-resource:/find?projection=hal"}
+          "self": {"href": "inspect-resource:/subjects/package?projection=hal"}
+        }
+      }
+    ],
+    "operations": [
+      {
+        "key": "find",
+        "summary": "Find packages or code by properties and relationships at a selected result grain.",
+        "_links": {
+          "self": {"href": "inspect-resource:/operations/find?projection=hal"}
+        }
+      },
+      {
+        "key": "package",
+        "summary": "Inspect a package's content and metadata.",
+        "_links": {
+          "self": {"href": "inspect-resource:/operations/package?projection=hal"}
         }
       }
     ]
@@ -50,18 +68,47 @@ Each emitted link must be usable through its host after adoption. The catalog
 resource supplies the logical root; existing resource paths need not be renamed
 under a common string prefix to become its graph descendants.
 
-The Workspace purpose matches the construction question. Its next reading
+The Workspace subject description matches the construction question. Its next reading
 advertises component kinds, including a package contribution: a package
 reference plus requested realization configuration such as TFM/RID. The kind
 contract carries field semantics, requirements and meaningful next operations.
 It does not embed every potential package or deployed library.
 
-For a different question, **which packages depend on Polly?**, the root's Find
-purpose leads to package-grain discovery and then dependency facets. `find`
-and its proposed `--packages` grain are the user's consolidation direction;
+## Cross between subjects and operations
+
+`subjects` lists kinds, not all existing instances. Package, Library, Type and
+Member are subject kinds; Find, Depends, Diff and the Package/Type inspection
+operations describe work. Workspace is a declarative subject in this graph.
+Both collections contain explanation resources, while their semantic roles
+remain distinct. Facets, schemas and vocabularies can be further graph nodes
+without being forced into one of these two roles.
+
+The two `package` entries above are deliberately different. Their role-qualified
+identities and addresses remain distinct even though their local keys match.
+The mockup's path namespaces illustrate that distinction; they do not require
+renaming every existing address or deriving identity from a command name.
+Direct JSON must preserve the same identities and typed relationships.
+
+| Starting question | Proposed route |
+| --- | --- |
+| I have a package; what can I do with it? | Subjects -> Package -> owner-registered applicable operations |
+| I need to compare subjects | Operations -> Diff -> accepted input kinds/roles and context |
+| Which packages depend on Polly? | Operations -> Find -> package result grain -> dependency facets |
+| How can I construct the inspection environment? | Subjects -> Workspace -> contribution contracts and construction affordances |
+
+Subject-to-operation relationships preserve declared conditions. An operation
+advertises accepted input subjects separately from produced kinds and selectable
+result grains; none is inferred from its name. For example, the subjects Diff
+compares do not establish that its result rows are also those subjects.
+Following an operation's explanation link reads its contract, not its results.
+The reader executes work only through the owner-advertised operation binding.
+
+Find and its proposed `--packages` grain are the user's consolidation direction;
 current query migration owns availability and actual command binding. A reader
 with the relevant keys can address that capability directly instead of walking
-through Workspace construction.
+through Workspace construction. A subject-first reader reaches that same
+operation through an applicable-operation relationship. These are connected
+entry routes rather than independent command and subject manuals.
 
 ## Extract a current component
 

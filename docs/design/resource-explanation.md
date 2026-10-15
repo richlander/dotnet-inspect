@@ -144,6 +144,33 @@ does not mean enumerating every possible package, member or future Workspace.
 A public path remains an address projection, not semantic ownership or a
 requirement to duplicate the root's prefix in every existing address.
 
+The lean root exposes subject kinds and operations as distinct, connected
+collections. Subject kinds describe what can be configured or inspected, such
+as Workspace, Package, Library, Type and Member. Operations describe available
+work, such as Find, Depends, Diff and the Package or Type inspection operation.
+These are two navigation entrances into one graph, not an exhaustive taxonomy
+of every node: facets, schemas and vocabularies remain reachable through their
+registered relationships. Operation descriptions are themselves addressable
+explanation resources without becoming subject kinds.
+
+Identity preserves the distinction when labels overlap. A Package subject kind
+and the Package operation have separate owner-issued typed identities even if
+both display as `package`. A CLI spelling is an operation binding, not the
+identity or discriminator of either node. Lowerings preserve each role and
+relationship target; consumers cannot join the collections by display name or
+bare key text.
+
+A subject kind links to its owner-registered applicable or conditional
+operations. An operation links to its declared input subject kinds and roles,
+produced subject kinds where applicable, selectable result grains, and required
+context or availability conditions. Input kinds and result grains remain
+separate facts: a Diff operation's compared subjects need not have the same
+grain as its change results. Resource Explanation projects these relationships
+from owner declarations; it neither infers applicability from matching names
+nor defines operation/query semantics. Readers can approach from either the
+subject they have or the work they want to perform, then cross to the other
+collection through a meaningful relationship.
+
 Root and collection readings preserve the owner-issued identity, purpose and
 usable next destinations needed to choose among immediate members. Where
 registered, result grain, scope and representative questions further distinguish
@@ -248,7 +275,9 @@ reuse the existing catalog, typed snapshots and lowerings. The required-operand
 bootstrap and superseded discovery summaries are retired in their host adoption.
 
 Before production claims, shared gates must check root coverage over registered
-resources/kinds, bounded collection outcomes, equivalent direct/HAL routing,
+resources/kinds, distinct subject/operation identities for overlapping labels,
+owner-issued applicability/input/result relationships, bounded collection
+outcomes, equivalent direct/HAL routing,
 exact detached-field preservation, valid kind dispatch, local identity scope and
 unavailable context. Workspace's own validation/default/version gates remain
 authoritative. CLI gates cover independent help and root admission; Browser
