@@ -1062,10 +1062,11 @@ website-shaped descriptor or a graph-depth expansion.
 The claim is: a query-preparation selection preserves the selected
 facets' issued meaning, operators, operand kinds, examples, listed values,
 effects, registered input rules, declared required context, related-operation
-affordances, and applicable consumer-binding syntax and exposure. When a route
-registers host-neutral presentation, the same selection also preserves its
-order, control and presentation kinds, execution class, grouping, combining
-behavior, structured options, and external option-source identity. Its stated
+affordances, and applicable consumer-binding syntax and exposure. Registered
+execution class, external option-source identity, and value descriptions also belong to
+reading knowledge. A presentation consumer explicitly requests the richer
+profile, preserving registered order, control and presentation kinds,
+grouping, combining behavior, and structured options. Its stated
 preparation questions resolve locally. Direct JSON and HAL carry equivalent
 selected knowledge; lowering
 vocabulary does not choose a larger population or add domain meaning.
@@ -1117,8 +1118,12 @@ evidence rather than current payload-size claims. These are byte measurements,
 not runtime or agent-performance claims. The examples retain whole prose rules;
 they do not trim conditional constraints by guessing which sentences matter.
 
-The shared implementation emits `scope.profile = query-preparation/v1` in
-both lowerings. The scope names the query space by its owner-issued identity,
+The [compact reading demo](../../tools/ExplainReadingScenarios/query-reading/README.md)
+retains production JSON, dependency preparation with jq, and the explicit
+presentation boundary under [#10125](https://github.com/richlander/dotnet-inspect/issues/10125).
+
+The shared reading implementation emits `scope.profile = query-preparation/v2`
+in both lowerings. The scope names the query space by its owner-issued identity,
 the requested root by its routing path, selected-facet completeness, and the
 original catalog facet count. Missing optional array properties inside a
 complete selected facet mean known empty registered arrays; an unselected
@@ -1126,11 +1131,28 @@ facet remains unknown. Operators are always present. Direct JSON has keyed
 facet and binding tables plus `facet_order`; HAL embeds the same complete
 records as relation arrays. Binding keys retain their owner-issued identities
 and records retain consumer kind, gesture, input rules, and selected exposure.
-Registered presentation fields use the same `snake_case` lowering as the core
-facet fields. An explicitly absent presentation or optional presentation value
-is `null`; unavailable or failed observations reject the selection rather than
-becoming absence. `related_operations` retains owner-issued operation
-identities and is present as an array, including when empty.
+The reading profile carries registered `execution_class` and `option_source`
+only when present. `value_descriptions` maps native option values to their
+whole owner-issued summaries; it omits picker labels and repeats no option
+objects. An omitted description table means no registered option descriptions,
+not that arbitrary operands are invalid or that every valid value is listed.
+The original `values` list remains available independently. No summary is
+inferred from a label or rewritten by the reader. Registered empty arrays and
+explicit absence permit omission; unavailable or failed observations reject
+the selection even when a field is outside this reading profile.
+
+`ToQueryPresentationJson` explicitly retains `query-preparation/v1` for
+presentation consumers, including every registered presentation field in
+`snake_case`. Explicitly absent presentation values remain `null`. Browser
+startup consumes this profile to build controls; ordinary Browser explanation
+and CLI `.data`, `.hal`, and command-local `--explain` consume v2. This is an
+output-profile distinction within Resource Explanation, not a second query
+model or a new CLI projection switch. The shared selection closes the same
+prerequisites in both profiles. A narrowing selection never changes the
+profile. Control order, picker kinds, selection/replacement groups and their
+combining behavior are presentation knowledge, not a promise of additional
+query validation in the reading profile. `related_operations` retains
+owner-issued operation identities and is present as an array, including when empty.
 
 `ResourceExplanationDataset.Create` optionally accepts facet keys at a query
 space root, closes declared context, retains all registered rule prose, and
@@ -1146,7 +1168,11 @@ available; automatic schema navigation is omitted from this reading profile.
 
 Gates: `QueryPreparationSelectionTests` compares all retained semantic fields
 against the catalog, equivalent lowerings, declared order, selected exposure,
-context closure, unknown/empty key refusals, and host-bound navigation.
+context closure, unknown/empty key refusals, and host-bound navigation. It also
+compares value descriptions with registered option summaries and compares the
+explicit presentation profile with every owner-issued control field.
+`BrowserPackageQueryOperationsTests` retains the website startup controls;
+`BrowserPackageQueryExplanationTests` exercises the compact reading entrance.
 `ResourceExplanationCommandTests` and `PackageQueryExplanationTests` exercise
 installed entrances and preparation plans; `ResourceExplanationDatasetTests`
 and `ResourceExplanationDataProjectionTests` retain generic outcome and bound

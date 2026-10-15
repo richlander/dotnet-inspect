@@ -22,7 +22,7 @@ public sealed class QueryPreparationSelectionTests
         JsonElement direct = selected.ToJson(path => "inspect-resource:/" + path.Value);
         JsonElement hal = selected.ToJson(path => "inspect-resource:/" + path.Value, hal: true,
             bindHalAddress: path => "inspect-resource:/" + path.Value + "?projection=hal");
-        Assert.Equal("query-preparation/v1", direct.GetProperty("scope").GetProperty("profile").GetString());
+        Assert.Equal("query-preparation/v2", direct.GetProperty("scope").GetProperty("profile").GetString());
         Assert.Equal(19, direct.GetProperty("scope").GetProperty("catalog_facets").GetInt32());
         Assert.True(JsonElement.DeepEquals(direct.GetProperty("scope"), hal.GetProperty("scope")));
         Dictionary<string, JsonElement> facets = hal.GetProperty("_embedded").GetProperty("facets")
@@ -35,7 +35,7 @@ public sealed class QueryPreparationSelectionTests
             var original = ResourceExplanationDataProjection.Create(catalog.Explain(
                 Resolve(catalog, "package-query/query/facets/" + facet.Name),
                 ResourceExplanationRequest.ForHost(0)).Content, path => path.Value).GetProperty("facts");
-            foreach (string field in new[] { "summary", "operators", "value-kind", "examples", "effects", "input-rules", "values" })
+            foreach (string field in new[] { "name", "summary", "operators", "value-kind", "examples", "effects", "input-rules", "values" })
             {
                 string projected = field.Replace('-', '_');
                 JsonElement expected = original.GetProperty(field);
@@ -49,6 +49,31 @@ public sealed class QueryPreparationSelectionTests
                     Assert.True(JsonElement.DeepEquals(expected, facet.Value.GetProperty(projected)));
                     Assert.True(JsonElement.DeepEquals(expected, halFacet.GetProperty(projected)));
                 }
+            }
+            Assert.Equal(original.GetProperty("execution-class").GetString(),
+                facet.Value.GetProperty("execution_class").GetString());
+            Assert.True(JsonElement.DeepEquals(facet.Value.GetProperty("execution_class"),
+                halFacet.GetProperty("execution_class")));
+            JsonElement options = original.GetProperty("options");
+            if (options.GetArrayLength() > 0)
+            {
+                JsonElement descriptions = facet.Value.GetProperty("value_descriptions");
+                Assert.Equal(options.GetArrayLength(), descriptions.EnumerateObject().Count());
+                foreach (JsonElement option in options.EnumerateArray())
+                    Assert.True(JsonElement.DeepEquals(option.GetProperty("summary"),
+                        descriptions.GetProperty(option.GetProperty("value").GetString()!)));
+                Assert.True(JsonElement.DeepEquals(descriptions, halFacet.GetProperty("value_descriptions")));
+            }
+            else
+            {
+                Assert.False(facet.Value.TryGetProperty("value_descriptions", out _));
+                Assert.False(halFacet.TryGetProperty("value_descriptions", out _));
+            }
+            foreach (string field in new[] { "presentation_order", "control_kind", "presentation_kind",
+                "selection_group", "combines_within_selection_group", "replacement_group", "options" })
+            {
+                Assert.False(facet.Value.TryGetProperty(field, out _));
+                Assert.False(halFacet.TryGetProperty(field, out _));
             }
             if (facet.Value.TryGetProperty("requires", out JsonElement requires))
             {
@@ -70,6 +95,45 @@ public sealed class QueryPreparationSelectionTests
                 hal.GetProperty("_links").GetProperty("collection").GetProperty("href").GetString());
             Assert.False(direct.GetProperty("facets").TryGetProperty("license", out _));
             Assert.Equal("Complete", direct.GetProperty("scope").GetProperty("completeness").GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("depends,dependency-target")]
+    [InlineData("library-literal")]
+    public void PresentationSelection_PreservesAllRegisteredControls(string? keys)
+    {
+        ResourceExplanationCatalog catalog = Catalog();
+        ResourceExplanationDataset selected = ResourceExplanationDataset.Create(catalog,
+            Resolve(catalog, "package-query/query"), keys?.Split(','));
+        JsonElement presentation = selected.ToQueryPresentationJson();
+        JsonElement reading = selected.ToJson(path => path.Value);
+        Assert.Equal("query-preparation/v1", presentation.GetProperty("scope").GetProperty("profile").GetString());
+        Assert.True(JsonElement.DeepEquals(presentation.GetProperty("facet_order"), reading.GetProperty("facet_order")));
+        Assert.True(JsonElement.DeepEquals(presentation.GetProperty("bindings"), reading.GetProperty("bindings")));
+        foreach (JsonProperty facet in presentation.GetProperty("facets").EnumerateObject())
+        {
+            JsonElement original = ResourceExplanationDataProjection.Create(catalog.Explain(
+                Resolve(catalog, "package-query/query/facets/" + facet.Name),
+                ResourceExplanationRequest.ForHost(0)).Content, path => path.Value);
+            foreach (string field in new[] { "presentation-order", "control-kind", "presentation-kind",
+                "execution-class", "selection-group", "combines-within-selection-group", "replacement-group",
+                "option-source", "options" })
+            {
+                JsonElement actual = facet.Value.GetProperty(field.Replace('-', '_'));
+                if (original.GetProperty("facts").TryGetProperty(field, out JsonElement expected))
+                    Assert.True(JsonElement.DeepEquals(expected, actual));
+                else
+                {
+                    Assert.Equal("Absent", original.GetProperty("fact_states").GetProperty(field)
+                        .GetProperty("state").GetString());
+                    Assert.Equal(JsonValueKind.Null, actual.ValueKind);
+                }
+            }
+            foreach (JsonProperty field in reading.GetProperty("facets").GetProperty(facet.Name).EnumerateObject())
+                if (field.Name != "value_descriptions")
+                    Assert.True(JsonElement.DeepEquals(field.Value, facet.Value.GetProperty(field.Name)));
         }
     }
 
