@@ -16,8 +16,8 @@ public sealed class DesktopPackageLicenseManifestSource(
             sourceOptions,
             log);
 
-    private readonly DesktopPackageDependencyTraversalManifestSource
-        _manifestSource = new(composition);
+    private readonly DesktopPackageSourceComposition _composition =
+        composition;
 
     public async Task<PackageLicenseManifestResult> AcquireAsync(
         PackageSourceCoordinate coordinate,
@@ -41,27 +41,27 @@ public sealed class DesktopPackageLicenseManifestSource(
                 PackageLicenseManifestFailureReason.AuthorizationDenied);
         }
 
-        PackageDependencyTraversalManifestResult manifest =
-            await _manifestSource.AcquireAsync(
+        ConfiguredPackageManifestResult manifest =
+            await _composition.AcquireCandidateManifestAsync(
                 candidate.Candidate
                     ?? throw new InvalidOperationException(
                         "A resolved package candidate did not carry a candidate."),
                 cancellationToken,
                 operationContext).ConfigureAwait(false);
-        return manifest switch
+        if (manifest.Manifest is { } acquired)
         {
-            PackageDependencyTraversalManifestResult.Acquired acquired =>
-                new PackageLicenseManifestResult.Acquired(
-                    acquired.Manifest.Content.ToArray()),
-            PackageDependencyTraversalManifestResult.Incomplete =>
-                new PackageLicenseManifestResult.Unavailable(
+            return new PackageLicenseManifestResult.Acquired(
+                acquired.Content.ToArray());
+        }
+
+        bool operationTimedOut = manifest.Failures.Any(
+            failure => failure.Timeout?.Kind
+                == PackageSourceTimeoutKind.Operation);
+        return operationTimedOut
+                ? new PackageLicenseManifestResult.Unavailable(
                     PackageLicenseManifestFailureReason
-                        .AcquisitionIncomplete),
-            PackageDependencyTraversalManifestResult.Failed =>
-                new PackageLicenseManifestResult.Unavailable(
-                    PackageLicenseManifestFailureReason.AcquisitionFailed),
-            _ => throw new InvalidOperationException(
-                "Unknown package manifest acquisition result."),
-        };
+                        .AcquisitionIncomplete)
+                : new PackageLicenseManifestResult.Unavailable(
+                    PackageLicenseManifestFailureReason.AcquisitionFailed);
     }
 }

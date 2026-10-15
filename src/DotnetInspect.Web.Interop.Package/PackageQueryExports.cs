@@ -177,15 +177,24 @@ namespace DotnetInspect.Web.Interop.Package
             PackageQueryDependencyTraversalServices? traversalServices = null;
             if (sourceLease is not null)
             {
-                var candidateSource =
-                    new AuthorizedPackageDependencyCandidateSource(
-                        BrowserPackageWorkspace.PackageSourceAuthorization,
-                        sourceLease);
                 traversalServices = new(
                     new PackageDependencyTraversalCandidateAdapter(
-                        candidateSource),
-                    new AuthorizedPackageDependencyManifestSource(
-                        candidateSource));
+                        BrowserPackageWorkspace.PackageSourceAuthorization),
+                    new AuthorizedPackageDependencyManifestSource(),
+                    token =>
+                    {
+                        TimeSpan operationTimeout =
+                            deadline is null
+                                ? BrowserPackageWorkspace
+                                    .GalleryOperationTimeout
+                                : BrowserPackageWorkspace
+                                    .SourceSettlementOperationTimeout(
+                                        deadline.Remaining);
+                        return sourceLease.IssueOperationLease(
+                            token,
+                            operationTimeout,
+                            operationTimeout);
+                    });
             }
             await using PackageSourceSettlementLease? semanticSettlement =
                 plan.RequiresLibraryLiteralEvaluation

@@ -987,11 +987,8 @@ public partial class DependsCommand
                 options.Tfm is { } framework
                     ? CreateTraversalTargetPolicy(framework)
                     : TraversalTargetFrameworkPolicy.ProductDefault;
-            var candidateSource =
-                new DesktopPackageDependencyCandidateSource(
-                    composition,
-                    options.SourceOptions,
-                    context.Logger.Log);
+            using PackageSourceOperationLease traversalOperation =
+                composition.IssueSettlementOperation(cancellationToken);
             packageTraversal =
                 await PackageDependencyTraversalQuery.ExecuteAsync(
                     new PackageDependencyTraversalRequest(
@@ -1017,15 +1014,15 @@ public partial class DependsCommand
                         ],
                         traversalTargetPolicy,
                         new PackageDependencyTraversalCandidateAdapter(
-                            candidateSource),
-                        new DesktopPackageDependencyTraversalManifestSource(
-                            composition),
+                            composition.CreateDependencySourceAuthorization(
+                                options.SourceOptions),
+                            context.Logger.Log),
+                        new AuthorizedPackageDependencyManifestSource(),
                         new PackageDependencyTraversalWorkBudget(
                             PackageManifestTraversalBudget,
                             PackageDeclarationTraversalBudget),
                         traversalDepth),
-                    cancellationToken,
-                    operationContext).ConfigureAwait(false);
+                    traversalOperation).ConfigureAwait(false);
             if (plan.Traversal)
             {
                 graphDocuments.Add(

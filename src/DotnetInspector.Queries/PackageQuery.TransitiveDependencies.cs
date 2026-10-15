@@ -78,6 +78,8 @@ public static partial class PackageQuery
                 "Dependency traversal could not completely project the selected declarations.");
         }
 
+        using PackageSourceOperationLease operation =
+            services.IssueOperation(cancellationToken);
         PackageDependencyTraversalOutcome traversal =
             await PackageDependencyTraversalQuery.ExecuteAsync(
                 new PackageDependencyTraversalRequest(
@@ -94,7 +96,7 @@ public static partial class PackageQuery
                         MaximumDependencyTraversalManifestProjections,
                         MaximumDependencyTraversalDeclarationResolutions),
                     maximumDepth),
-                cancellationToken).ConfigureAwait(false);
+                operation).ConfigureAwait(false);
         if (!traversal.IsSuccessful)
         {
             return PackageQueryDependencyTraversalEvaluation.Failed(

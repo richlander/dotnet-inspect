@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspector.Packages;
+using InertText;
 using NuGetFetch;
 
 namespace DotnetInspector.Queries;
@@ -41,17 +42,11 @@ public static class PackageDependencyTraversalQuery
 
     public static async Task<PackageDependencyTraversalOutcome> ExecuteAsync(
         PackageDependencyTraversalRequest request,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(request);
-        using NuGetOperationContext? ownedOperation = operationContext is null
-            ? new NuGetOperationContext(cancellationToken)
-            : null;
-        NuGetOperationContext operation = operationContext ?? ownedOperation!;
-        CancellationToken token = ResolveInvocationToken(
-            operation,
-            cancellationToken);
+        ArgumentNullException.ThrowIfNull(operation);
+        CancellationToken token = operation.CancellationToken;
         token.ThrowIfCancellationRequested();
 
         var engine = new Engine(request, operation, token);
@@ -95,21 +90,6 @@ public static class PackageDependencyTraversalQuery
             PackageDependencyEvidenceQuery.Execute(
                 new PackageDependencyEvidenceRequest([input]));
         return (outcome.Roots[0], null);
-    }
-
-    private static CancellationToken ResolveInvocationToken(
-        NuGetOperationContext operationContext,
-        CancellationToken invocationToken)
-    {
-        if (invocationToken != default
-            && invocationToken != operationContext.CancellationToken)
-        {
-            throw new ArgumentException(
-                "The invocation token must match the operation context's caller token.",
-                nameof(invocationToken));
-        }
-
-        return operationContext.CancellationToken;
     }
 
     /// <summary>One candidate-acquired or root-supplied manifest projection under construction.</summary>
@@ -192,7 +172,7 @@ public static class PackageDependencyTraversalQuery
     /// </summary>
     private sealed class Engine(
         PackageDependencyTraversalRequest request,
-        NuGetOperationContext operation,
+        PackageSourceOperationLease operation,
         CancellationToken token)
     {
         private readonly List<PackageSourceCoordinate> _nodeCoordinates = [];
@@ -215,6 +195,8 @@ public static class PackageDependencyTraversalQuery
         private readonly Dictionary<int, List<int>> _edgeAdmittingRoots = [];
         private readonly Dictionary<int, List<int>> _depthBoundaryRoots = [];
         private readonly HashSet<int> _manifestBudgetFailureProjections = [];
+        private readonly HashSet<int> _operationDeadlineFailureProjections = [];
+        private bool _operationDeadlineObserved;
 
         private int _manifestProjectionsUsed;
         private int _declarationResolutionsUsed;
@@ -258,22 +240,40 @@ public static class PackageDependencyTraversalQuery
             while (currentLevel.Count > 0)
             {
                 var nextLevel = new List<(int RootIndex, int ProjectionIndex)>();
-                foreach ((int rootIndex, int projectionIndex) in currentLevel)
+                for (int index = 0; index < currentLevel.Count; index++)
                 {
+                    (int rootIndex, int projectionIndex) = currentLevel[index];
                     token.ThrowIfCancellationRequested();
                     await VisitAsync(
                         rootIndex,
                         projectionIndex,
                         distance,
                         nextLevel).ConfigureAwait(false);
+                    if (_operationDeadlineObserved)
+                    {
+                        RecordUnfinishedOperationDeadline(
+                            currentLevel,
+                            index + 1);
+                        RecordUnfinishedOperationDeadline(nextLevel, 0);
+                        currentLevel.Clear();
+                        nextLevel.Clear();
+                        break;
+                    }
                 }
 
+                if (_operationDeadlineObserved)
+                    break;
                 currentLevel = nextLevel;
                 distance++;
             }
 
             PackageDependencyTraversalOutcome outcome = BuildOutcome();
             token.ThrowIfCancellationRequested();
+            if (RecordFinalPublicationOperationDeadline())
+            {
+                outcome = BuildOutcome();
+                token.ThrowIfCancellationRequested();
+            }
             return outcome;
         }
 
@@ -333,6 +333,11 @@ public static class PackageDependencyTraversalQuery
                     nextLevel.Add((rootIndex, node.ProjectionIndex));
                 }
             }
+
+            RecordOperationDeadlineIfExpired(
+                projection.NodeIndex,
+                projectionIndex,
+                rootIndex);
         }
 
         private async Task EnsureExpandedAsync(
@@ -369,6 +374,9 @@ public static class PackageDependencyTraversalQuery
                     .ConfigureAwait(false);
                 projection.Expansion =
                     PackageDependencyTraversalProjectionExpansion.Expanded;
+                RecordOperationDeadlineIfExpired(
+                    projection.NodeIndex,
+                    projectionIndex);
             }
         }
 
@@ -379,7 +387,6 @@ public static class PackageDependencyTraversalQuery
             PackageDependencyTraversalManifestResult manifestResult =
                 await request.ManifestAcquirer.AcquireAsync(
                     projection.Candidate!,
-                    token,
                     operation).ConfigureAwait(false);
             switch (manifestResult)
             {
@@ -409,6 +416,14 @@ public static class PackageDependencyTraversalQuery
                             acquired.Manifest,
                             projection.Candidate!.Coordinate,
                             request.TraversalTargetPolicy);
+                    if (RecordOperationDeadlineIfExpired(
+                            projection.NodeIndex,
+                            projectionIndex))
+                    {
+                        projection.Expansion =
+                            PackageDependencyTraversalProjectionExpansion.Expanded;
+                        return;
+                    }
                     token.ThrowIfCancellationRequested();
                     if (manifestFailure is not null)
                     {
@@ -434,6 +449,9 @@ public static class PackageDependencyTraversalQuery
                         PackageDependencyTraversalProjectionExpansion.Expanded;
                     return;
                 case PackageDependencyTraversalManifestResult.Incomplete incomplete:
+                    ObserveOperationDeadlineFailure(
+                        projectionIndex,
+                        incomplete.Failures);
                     RecordFailure(
                         projection.NodeIndex,
                         projectionIndex,
@@ -517,7 +535,6 @@ public static class PackageDependencyTraversalQuery
                 PackageDependencyTraversalCandidateResult result =
                     await request.CandidateResolver.ResolveAsync(
                         declaration,
-                        token,
                         operation).ConfigureAwait(false);
                 AddResolutionEdge(
                     projection,
@@ -525,6 +542,15 @@ public static class PackageDependencyTraversalQuery
                     sourceCoordinate,
                     declaration,
                     result);
+                ObserveOperationDeadlineFailure(
+                    projectionIndex,
+                    result);
+                if (RecordOperationDeadlineIfExpired(
+                        projection.NodeIndex,
+                        projectionIndex))
+                {
+                    return;
+                }
             }
         }
 
@@ -753,6 +779,147 @@ public static class PackageDependencyTraversalQuery
             int projectionIndex,
             PackageDependencyTraversalManifestFailureDetail detail) =>
             _failures.Add(new RawFailure(nodeIndex, projectionIndex, detail));
+
+        private bool RecordOperationDeadlineIfExpired(
+            int nodeIndex,
+            int projectionIndex,
+            int? rootIndex = null)
+        {
+            if (rootIndex is int caringRoot)
+            {
+                AddCaring(
+                    _projectionCaringRoots,
+                    projectionIndex,
+                    caringRoot);
+            }
+
+            try
+            {
+                operation.ThrowIfExpired();
+                return false;
+            }
+            catch (NuGetOperationTimeoutException)
+            {
+                _operationDeadlineObserved = true;
+                RecordOperationDeadlineFailure(nodeIndex, projectionIndex);
+                return true;
+            }
+        }
+
+        private void RecordUnfinishedOperationDeadline(
+            List<(int RootIndex, int ProjectionIndex)> work,
+            int startIndex)
+        {
+            for (int index = startIndex; index < work.Count; index++)
+            {
+                (int rootIndex, int projectionIndex) = work[index];
+                AddCaring(
+                    _projectionCaringRoots,
+                    projectionIndex,
+                    rootIndex);
+                RecordOperationDeadlineFailure(
+                    _projections[projectionIndex].NodeIndex,
+                    projectionIndex);
+            }
+        }
+
+        private bool RecordFinalPublicationOperationDeadline()
+        {
+            if (_operationDeadlineObserved)
+                return false;
+
+            try
+            {
+                operation.ThrowIfExpired();
+                return false;
+            }
+            catch (NuGetOperationTimeoutException)
+            {
+                _operationDeadlineObserved = true;
+                for (int rootIndex = 0;
+                     rootIndex < request.Roots.Length;
+                     rootIndex++)
+                {
+                    int projectionIndex =
+                        _rootOwnProjectionIndex[rootIndex];
+                    AddCaring(
+                        _projectionCaringRoots,
+                        projectionIndex,
+                        rootIndex);
+                    RecordOperationDeadlineFailure(
+                        _projections[projectionIndex].NodeIndex,
+                        projectionIndex);
+                }
+
+                return true;
+            }
+        }
+
+        private void RecordOperationDeadlineFailure(
+            int nodeIndex,
+            int projectionIndex)
+        {
+            if (!_operationDeadlineFailureProjections.Add(projectionIndex))
+                return;
+
+            RecordFailure(
+                nodeIndex,
+                projectionIndex,
+                new PackageDependencyTraversalManifestFailureDetail
+                    .IncompleteAcquisition(
+                        [
+                            new PackageAuthorityFailure(
+                                InertString.Empty,
+                                PackageAuthorityFailureKind.Timeout,
+                                "The dependency traversal operation deadline expired before local projection and publication completed.")
+                            {
+                                Timeout = new(
+                                    PackageSourceTimeoutKind.Operation,
+                                    operation.OperationTimeout),
+                            },
+                        ]));
+        }
+
+        private void ObserveOperationDeadlineFailure(
+            int projectionIndex,
+            ImmutableArray<PackageAuthorityFailure> failures)
+        {
+            if (!HasOperationDeadlineFailure(failures))
+                return;
+
+            _operationDeadlineObserved = true;
+            _operationDeadlineFailureProjections.Add(projectionIndex);
+        }
+
+        private void ObserveOperationDeadlineFailure(
+            int projectionIndex,
+            PackageDependencyTraversalCandidateResult result)
+        {
+            ImmutableArray<PackageAuthorityFailure> failures = result switch
+            {
+                PackageDependencyTraversalCandidateResult.Incomplete
+                {
+                    Evidence:
+                        PackageDependencyTraversalCandidateIncomplete
+                            .PinnedAuthorization pinned,
+                } => pinned.Failures,
+                PackageDependencyTraversalCandidateResult.Incomplete
+                {
+                    Evidence:
+                        PackageDependencyTraversalCandidateIncomplete
+                            .VersionDiscovery discovery,
+                } => discovery.Failures,
+                _ => [],
+            };
+            ObserveOperationDeadlineFailure(projectionIndex, failures);
+        }
+
+        private static bool HasOperationDeadlineFailure(
+            ImmutableArray<PackageAuthorityFailure> failures) =>
+            failures.Any(
+                failure =>
+                    failure.Timeout?.Kind
+                        == PackageSourceTimeoutKind.Operation);
 
         private static void AddCaring(
             Dictionary<int, List<int>> map,

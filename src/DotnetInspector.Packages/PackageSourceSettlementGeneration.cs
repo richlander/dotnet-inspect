@@ -499,7 +499,8 @@ internal sealed class PackageSourceSettlementGeneration
         string packageId,
         IPackageSourceAuthorization sourceAuthorization,
         PackageVersionDiscoveryContract contract,
-        NuGetOperationContext operationContext)
+        NuGetOperationContext operationContext,
+        Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
@@ -513,7 +514,8 @@ internal sealed class PackageSourceSettlementGeneration
             authorization,
             contract,
             cancellationToken,
-            operationContext);
+            operationContext,
+            log);
     }
 
     /// <summary>
