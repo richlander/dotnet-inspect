@@ -1,5 +1,6 @@
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
+using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
 using QuerySpace;
@@ -182,6 +183,73 @@ public sealed class StringLiteralComparisonQueryTests
             Assert.Single(Assert.IsType<
                 FindingComparison<StringLiteralUseOccurrence>.Complete>(
                 comparisons[1].Comparison.Value).Pairs).Value);
+    }
+
+    [Fact]
+    public async Task Participant_set_comparison_equals_the_path_set_comparison()
+    {
+        StringLiteralComparisonQueryPlan plan =
+            Assert.IsType<StringLiteralComparisonQueryPlanResult.Accepted>(
+                StringLiteralComparisonQuery.ResolveIntent(
+                    StringLiteralComparisonQuery.CreateIntent(
+                        PortableQueryOperator.StartsWith,
+                        "https://"),
+                    TestContext.Current.CancellationToken)).Plan;
+        string path = FixtureCatalog.AnalysisStringLiterals.AssemblyPath();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup before = Group(workspace, path);
+        using AssemblyContextGroup after = Group(workspace, path);
+
+        RetainedFindingComparisonSet expected =
+            StringLiteralComparisonQuery.ExecutePathSets(
+                [new("Common.dll", path)],
+                [new("common.DLL", path), new("Companion.dll", path)],
+                "library:fixture",
+                plan,
+                cancellationToken: TestContext.Current.CancellationToken);
+        RetainedFindingComparisonSet result =
+            StringLiteralComparisonQuery.ExecuteParticipantSets(
+                [new("Common.dll", before, before.Participants[0])],
+                [
+                    new("common.DLL", after, after.Participants[0]),
+                    new("Companion.dll", after, after.Participants[0]),
+                ],
+                "library:fixture",
+                plan,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        var expectedComparisons = expected.Get<StringLiteralUseOccurrence>(
+            StringLiteralUseFindings.Descriptor);
+        var comparisons = result.Get<StringLiteralUseOccurrence>(
+            StringLiteralUseFindings.Descriptor);
+        Assert.Equal(
+            expectedComparisons.Select(static comparison => comparison.Subject),
+            comparisons.Select(static comparison => comparison.Subject));
+        for (int index = 0; index < comparisons.Length; index++)
+        {
+            Assert.Equal(
+                Pairs(expectedComparisons[index].Comparison.Value),
+                Pairs(comparisons[index].Comparison.Value));
+        }
+
+        static AssemblyContextGroup Group(
+            InspectionWorkspace workspace,
+            string path)
+            => workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        ResolvedAssemblyReference.CreateFromPath(
+                            path,
+                            AssemblyResolutionProvenance.Local(
+                                "String-literal participant tests")),
+                        NoResolverAssemblyBindingPolicy.Instance),
+                ]);
+
+        static IEnumerable<PairFinding<StringLiteralUseOccurrence>> Pairs(
+            object? comparison)
+            => Assert.IsType<
+                FindingComparison<StringLiteralUseOccurrence>.Complete>(
+                comparison).Pairs;
     }
 
     private static PortableQueryFailure Rejection(
