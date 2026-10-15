@@ -262,9 +262,7 @@ public partial class DiffCommand
         // (docs/design/package-transfer-receipt.md#delivery).
         if (options.EvidenceEnvelopePath is not null
             && (!hasPackage
-                || !AdmitsPackageEndpointScope(
-                    implementationTransport,
-                    analysisPlan)
+                || !AdmitsPackageEndpointScope(implementationTransport)
                 || analysisPlan is null
                     && !UsesSharedLibraryApiDiff(1, 1, options)))
         {
@@ -337,9 +335,7 @@ public partial class DiffCommand
             if (hasPackage)
             {
                 var result =
-                    AdmitsPackageEndpointScope(
-                        implementationTransport,
-                        analysisPlan)
+                    AdmitsPackageEndpointScope(implementationTransport)
                         ? await TryExecuteScopedPackageDiffAsync(
                             options,
                             analysisPlan is not null,
@@ -1051,15 +1047,11 @@ public partial class DiffCommand
     /// views (Analysis, Implementation, Complexity, Structural, PDB source,
     /// the workspace implementation comparison, Annotated Source Diff, and
     /// analysis sets that read method bodies) over the implementation
-    /// participants. String literals keep the legacy path until their
-    /// multi-Library comparison lands.
+    /// participants, string literals among them.
     /// </summary>
-    static bool AdmitsPackageEndpointScope(
-        bool implementationTransport,
-        DiffAnalysisPlan? analysisPlan)
+    static bool AdmitsPackageEndpointScope(bool implementationTransport)
         => !LegacyPackageEndpointsForTesting.Value
-            && !implementationTransport
-            && analysisPlan?.StringLiteralQuery is null;
+            && !implementationTransport;
 
     /// <summary>
     /// Whether an admitted request reads method bodies, so its package
