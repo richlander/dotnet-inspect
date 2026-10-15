@@ -39,7 +39,9 @@ public sealed record SourceDocumentObservation(
         || CanonicalPath.EndsWith(".fs", StringComparison.OrdinalIgnoreCase);
 }
 
-public sealed record MemberSourceQuery(IReadOnlySet<int>? MetadataTokens = null);
+public sealed record MemberSourceQuery(
+    IReadOnlySet<int>? MetadataTokens = null,
+    bool IncludeStateMachineImplementations = false);
 
 public sealed record MemberSourceInfo(
     MemberAnchor Anchor,
@@ -53,6 +55,8 @@ public sealed record MemberSourceInfo(
     bool IsPrimaryDocument = false,
     bool IsFinalizer = false)
 {
+    public int SequencePointMethodToken { get; init; } = MetadataToken;
+    public PdbMemberDocumentAssociationKind AssociationKind { get; init; }
     public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
 }
 
@@ -68,6 +72,8 @@ public sealed record MemberSourceObservation(
     bool IsPrimaryDocument,
     bool IsFinalizer = false)
 {
+    public int SequencePointMethodToken { get; init; } = MetadataToken;
+    public PdbMemberDocumentAssociationKind AssociationKind { get; init; }
     public ImmutableArray<int> SequencePointStartLines { get; init; } = [];
 }
 
@@ -176,7 +182,10 @@ public static class SourceLinkFindings
         {
             var pathResolver = source.PathResolver;
             var mappings = source.Context
-                .EnumerateMemberDocuments(query?.MetadataTokens)
+                .EnumerateMemberDocuments(
+                    query?.MetadataTokens,
+                    query?.IncludeStateMachineImplementations
+                        ?? false)
                 .Select(mapping =>
                 {
                     var path = pathResolver.Resolve(mapping.FilePath);
@@ -192,6 +201,9 @@ public static class SourceLinkFindings
                         mapping.IsPrimaryDocument,
                         mapping.IsFinalizer)
                     {
+                        SequencePointMethodToken =
+                            mapping.SequencePointMethodToken,
+                        AssociationKind = mapping.AssociationKind,
                         SequencePointStartLines = mapping.SequencePointStartLines,
                     };
                 });
@@ -302,6 +314,13 @@ public static class SourceLinkFindings
         var materialized = mappings.Select(mapping => mapping ?? throw new ArgumentException(
             "Member source inventory cannot contain null observations.",
             parameterName));
+        if (query?.IncludeStateMachineImplementations != true)
+        {
+            materialized = materialized.Where(
+                static mapping =>
+                    mapping.AssociationKind
+                        == PdbMemberDocumentAssociationKind.Direct);
+        }
         if (query?.MetadataTokens is { } tokens)
             materialized = materialized.Where(mapping => tokens.Contains(mapping.MetadataToken));
 
@@ -318,6 +337,9 @@ public static class SourceLinkFindings
                 mapping.IsPrimaryDocument,
                 mapping.IsFinalizer)
             {
+                SequencePointMethodToken =
+                    mapping.SequencePointMethodToken,
+                AssociationKind = mapping.AssociationKind,
                 SequencePointStartLines = mapping.SequencePointStartLines,
             }),
             subject,
@@ -337,6 +359,7 @@ public static class SourceLinkFindings
             mapping.CanonicalPath,
             $"{mapping.StartLine:D10}:{mapping.EndLine:D10}",
             mapping.IsPrimaryDocument ? "1" : "0",
+            mapping.AssociationKind.ToString(),
             string.Join(",", mapping.SequencePointStartLines));
 
     static FindingInspection<T> InspectInventory<T>(
@@ -411,6 +434,7 @@ public static class SourceLinkFindings
             && oldMapping.StartLine == newMapping.StartLine
             && oldMapping.EndLine == newMapping.EndLine
             && oldMapping.IsPrimaryDocument == newMapping.IsPrimaryDocument
+            && oldMapping.AssociationKind == newMapping.AssociationKind
             && oldMapping.SequencePointStartLines.SequenceEqual(
                 newMapping.SequencePointStartLines);
 

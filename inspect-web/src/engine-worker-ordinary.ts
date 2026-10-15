@@ -44,6 +44,7 @@ type PackageOperationName =
   | "openPlatformForwarderView"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
+  | "containPackageDocumentHtml"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "matchPackageDependencyCoordinate"
@@ -66,6 +67,7 @@ type PackageOperationName =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackageDependencies"
+  | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
@@ -1200,6 +1202,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["getPackageDocument"]>
       ) => facades.package.getPackageDocument(...args),
     ),
+    containPackageDocumentHtml: valueOperation(
+      "ordinary-package-contain-document-html",
+      1,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["containPackageDocumentHtml"]>
+      ) => facades.package.containPackageDocumentHtml(...args),
+    ),
     queryMemberDocumentation: valueOperation(
       "ordinary-package-query-member-documentation",
       5,
@@ -1239,6 +1249,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
+    ),
+    queryPackageHierarchy: valueOperation(
+      "ordinary-package-query-hierarchy",
+      3,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageHierarchy"]>
+      ) => facades.package.queryPackageHierarchy(...args),
     ),
     queryPackageIcon: valueOperation(
       "ordinary-package-query-icon",
@@ -2173,7 +2191,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     explainVocabularies: valueOperation(
       "ordinary-catalog-explain-vocabularies",
-      2,
+      3,
       (
         facades,
         ...args: Parameters<CatalogFacade["explainVocabularies"]>
@@ -2492,6 +2510,9 @@ export function bindEngineWorkerOrdinaryClient(
       getPackageDocument: bind(
         engineWorkerOrdinaryOperations.package.getPackageDocument,
       ),
+      containPackageDocumentHtml: bind(
+        engineWorkerOrdinaryOperations.package.containPackageDocumentHtml,
+      ),
       queryMemberDocumentation: bind(
         engineWorkerOrdinaryOperations.package.queryMemberDocumentation,
       ),
@@ -2507,6 +2528,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryPackageHierarchy: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageHierarchy,
       ),
       queryPackageIcon: bind(
         engineWorkerOrdinaryOperations.package.queryPackageIcon,

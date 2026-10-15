@@ -151,6 +151,8 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
             new List<PackageAssemblyContextAdditionalPackageAsset>();
         var platformTargets =
             new List<PlatformFamilyTarget>();
+        ImmutableArray<PackageRootBinding> workspaceBindings =
+            graphPreparation.WorkspaceBindings;
         var successorBindings =
             graphPreparation.GraphBindings.ToList();
         var attempted =
@@ -325,7 +327,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                     await AdmitPackagesAsync(
                                             workspace,
                                             registrations,
-                                            successorBindingSnapshot,
+                                            workspaceBindings,
                                             request.WorkspaceDeadline,
                                             token)
                                         .ConfigureAwait(false);
@@ -574,6 +576,16 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                     selected.Target));
         }
         PackageDependencyMemberCallGraphGeneration? provisional = null;
+        async ValueTask ReleaseConstructedSuccessorAsync()
+        {
+            PackageDependencyMemberCallGraphGeneration? constructed =
+                provisional;
+            provisional = null;
+            if (constructed is not null)
+            {
+                await constructed.DisposeAsync().ConfigureAwait(false);
+            }
+        }
         WorkspaceScopeSnapshot? successorScope = null;
         WorkspaceRegistrationRevision? successorRegistrations = null;
         ImmutableArray<PackageAssemblyContextPlatformLibrary>
@@ -589,13 +601,13 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                     {
                         WorkspaceRegistrationRevision registrations =
                             Registration(workspace);
-                        ImmutableArray<PackageRootBinding> bindings =
+                        ImmutableArray<PackageRootBinding> graphBindings =
                             [.. successorBindings];
                         WorkspaceScopeSnapshot scope =
                             await AdmitPackagesAsync(
                                     workspace,
                                     registrations,
-                                    bindings,
+                                    graphPreparation.WorkspaceBindings,
                                     request.WorkspaceDeadline,
                                     token)
                                 .ConfigureAwait(false);
@@ -626,7 +638,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                                     workspace,
                                     scope,
                                     registrations,
-                                    bindings,
+                                    graphBindings,
                                     graphPreparation.Root,
                                     lowerRequest.Focus,
                                     lowerRequest.Graph,
@@ -644,6 +656,7 @@ public sealed class PackageDependencyMemberCallGraphContinuation :
                             successor,
                             provisional.FocalScope);
                     },
+                    ReleaseConstructedSuccessorAsync,
                     _source.IntrinsicCoreLibraryCatalogBounds,
                     cancellationToken)
                 .ConfigureAwait(false);

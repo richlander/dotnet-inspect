@@ -472,7 +472,7 @@ public sealed partial class DesktopPackageSourceComposition
             fileDemand: fileDemand,
             libraryCompanionDemand: libraryCompanionDemand);
 
-    private static bool TryCreateSelectionRequest(
+    internal static bool TryCreateSelectionRequest(
         string packageId,
         string? versionSelector,
         bool includePrerelease,

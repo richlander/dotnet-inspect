@@ -13,7 +13,7 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class LibraryApiDiffOutput
 {
-    static readonly InspectionEnvelopeJsonContract<LibraryApiDiffOutcome> JsonContract =
+    internal static readonly InspectionEnvelopeJsonContract<LibraryApiDiffOutcome> JsonContract =
         new("library-api-diff", 1, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
 
     internal static int Write(
@@ -21,8 +21,23 @@ internal static class LibraryApiDiffOutput
         string name,
         string beforeVersion,
         string afterVersion,
-        DiffOptions options)
+        DiffOptions options,
+        string? beforeFramework = null,
+        string? afterFramework = null)
     {
+        // Each endpoint selects its own framework unless --tfm names one for
+        // both; when they differ, the versions name them
+        // (docs/design/package-endpoint-scope.md, step 4 part 1).
+        string beforeLabel = beforeVersion;
+        string afterLabel = afterVersion;
+        if (beforeFramework is not null
+            && afterFramework is not null
+            && !beforeFramework.Equals(afterFramework, StringComparison.OrdinalIgnoreCase))
+        {
+            beforeLabel = $"{beforeVersion} ({beforeFramework})";
+            afterLabel = $"{afterVersion} ({afterFramework})";
+        }
+
         foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
             CommandError.WriteNote(diagnostic.Summary.ToString());
 
@@ -49,7 +64,7 @@ internal static class LibraryApiDiffOutput
             {
                 var document = new DiffDocumentView(
                     DiffViewText.Field($"Diff: {name}"),
-                    DiffViewText.Field($"{beforeVersion} -> {afterVersion}"),
+                    DiffViewText.Field($"{beforeLabel} -> {afterLabel}"),
                     DiffViewText.Field(reason),
                     null, null, null, null, null, null, null,
                     null, null, null,
@@ -71,7 +86,7 @@ internal static class LibraryApiDiffOutput
         string summary = Summary(types);
         var detailed = new DiffDetailedChangesView(
             DiffViewText.Field($"API Diff: {name}"),
-            DiffViewText.Field($"{beforeVersion} -> {afterVersion}"),
+            DiffViewText.Field($"{beforeLabel} -> {afterLabel}"),
             DiffViewText.Field(summary))
         {
             Rows = types.SelectMany(DetailedRows).ToList() is { Count: > 0 } rows
@@ -148,7 +163,10 @@ internal static class LibraryApiDiffOutput
         {
             var view = new DiffFullView(
                 detailed.TitleText,
-                DiffViewText.Field($"**{beforeVersion}** → **{afterVersion}**"),
+                DiffViewText.Field(
+                    beforeLabel == beforeVersion
+                        ? $"**{beforeVersion}** → **{afterVersion}**"
+                        : $"**{beforeVersion}** ({beforeFramework}) → **{afterVersion}** ({afterFramework})"),
                 types.Count == 0
                     ? InertString.Empty
                     : DiffViewText.Field($"**Summary:** {summary}"))

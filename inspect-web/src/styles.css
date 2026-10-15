@@ -1868,6 +1868,11 @@ kbd {
   container: package-dependencies / inline-size;
   grid-template-rows: var(--content-heading-height) minmax(0, 1fr);
 }
+.package-hierarchy-tree { overflow-x: auto; font: 12px/1.7 var(--mono); }
+.package-hierarchy-tree ul { margin: 0; padding-left: 22px; list-style: none; border-left: 1px solid var(--line); }
+.package-hierarchy-tree > ul { padding-left: 0; border-left: 0; }
+.package-hierarchy-tree li { margin: 2px 0; white-space: nowrap; }
+.package-hierarchy-tree small { color: var(--muted); }
 .overview-surface { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: var(--content-heading-height) minmax(0, 1fr); container: overview-surface / inline-size; background: var(--bg); }
 .package-overview-surface { grid-template-rows: minmax(0, 1fr); }
 .overview-surface-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
@@ -2820,6 +2825,7 @@ kbd {
 .dep-name.as-link { border: 0; background: transparent; padding: 0; text-align: left; cursor: pointer; color: var(--blue); }
 .dep-name.as-link:hover { text-decoration: underline; }
 .dep-version { flex: 0 0 auto; font: 13px var(--mono); color: var(--dim); white-space: nowrap; }
+.platform-reference-list li { grid-template-columns: minmax(0, 1fr); }
 .package-vulnerabilities-basis { padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--chrome); color: var(--muted); font-size: 12px; }
 .package-vulnerabilities-basis p { margin: 0; }
 .package-vulnerabilities-state { min-height: 240px; align-content: center; }
@@ -3154,6 +3160,12 @@ kbd {
 .fact-table > * { min-width: 90px; padding: 9px 10px; border-bottom: 1px solid var(--line); }
 .fact-table strong { color: var(--dim); font: 12px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
 .fact-table code { color: var(--text); font: 13px/1.45 var(--mono); white-space: nowrap; }
+.sync-calls-table-wrap { overflow-x: auto; }
+.sync-calls-table { width: 100%; min-width: 720px; border-collapse: collapse; font: 12px/1.45 var(--mono); }
+.sync-calls-table th { padding: 8px 10px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 10px; font-weight: 500; text-align: left; text-transform: uppercase; }
+.sync-calls-table td { padding: 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.sync-calls-table code { color: var(--text); white-space: normal; overflow-wrap: anywhere; }
+.sync-call-kind { color: var(--dim); text-transform: lowercase; }
 .finding { display: grid; grid-template-columns: 52px 1fr; gap: 12px; padding: 15px 10px; border-top: 1px solid var(--line); }
 .finding-level { align-self: start; padding: 3px 5px; border: 1px solid currentColor; font: 10px var(--mono); }
 .finding-level.warn { color: var(--yellow); }

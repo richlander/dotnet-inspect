@@ -311,7 +311,7 @@
     },
     {
       "id": "inspect-web-metadata-facade-project-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-8-exports; composition tracker #8779",
+      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-30-exports; composition tracker #8779",
       "graphs": [
         "project"
       ],
@@ -338,7 +338,7 @@
     },
     {
       "id": "inspect-web-metadata-facade-assembly-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-8-exports; composition tracker #8779",
+      "source": "docs/design/member-target-resolution.md#assembly-context-exact-selection; docs/design/inspect-web-jsexport-partitioning.md#metadata-facade-30-exports; composition tracker #8779",
       "graphs": [
         "assembly"
       ],

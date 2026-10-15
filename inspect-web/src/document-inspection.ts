@@ -15,8 +15,8 @@ export interface PackageDocumentRequest {
 }
 
 export interface DocumentViewerMeta {
-  name: string;
-  version: string;
+  nameHtml: string;
+  versionHtml: string;
   descriptionHtml: string;
 }
 
@@ -78,6 +78,7 @@ export interface DocumentInspectionDependencies {
   state: DocumentInspectionState;
   queryDocument:
     (request: PackageDocumentRequest) => Promise<BrowserPackageDocumentContent>;
+  renderText: (text: string) => Promise<string>;
   renderMarkdown: (text: string) => Promise<string>;
   renderMarkdownInline: (text: string) => Promise<string>;
   describeError: (error: unknown) => string;
@@ -165,17 +166,18 @@ export function createDocumentInspectionCoordinator(
         const { meta, body } = documentMarkdown(request, content.text);
         const html = await dependencies.renderMarkdown(body);
         if (state.docViewer !== pending) return;
-        const descriptionHtml = meta?.description
-          ? await dependencies.renderMarkdownInline(meta.description)
-          : "";
-        if (state.docViewer !== pending) return;
-        const projectedMeta = meta && (meta.name || meta.description)
-          ? {
-              name: meta.name || request.document.name,
-              version: meta.version || "",
-              descriptionHtml,
-            }
-          : null;
+        let projectedMeta: DocumentViewerMeta | null = null;
+        if (meta && (meta.name || meta.description)) {
+          const [nameHtml, versionHtml, descriptionHtml] = await Promise.all([
+            dependencies.renderText(meta.name || request.document.name),
+            meta.version ? dependencies.renderText(meta.version) : "",
+            meta.description
+              ? dependencies.renderMarkdownInline(meta.description)
+              : "",
+          ]);
+          if (state.docViewer !== pending) return;
+          projectedMeta = { nameHtml, versionHtml, descriptionHtml };
+        }
         state.docViewer = {
           status: "ready",
           request,

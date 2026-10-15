@@ -103,8 +103,14 @@ public sealed partial class PackageRangedRealizationTests
     {
         using var bytes = new MemoryStream();
         bytes.Write(ReadPclStorage());
+        DateTimeOffset directoryTimestamp =
+            new(2040, 1, 2, 3, 4, 6, TimeSpan.Zero);
         using (var zip = new ZipArchive(bytes, ZipArchiveMode.Update, leaveOpen: true))
-            zip.CreateEntry("lib/net99.0/");
+        {
+            ZipArchiveEntry entry =
+                zip.CreateEntry("lib/net99.0/");
+            entry.LastWriteTime = directoryTimestamp;
+        }
         byte[] archive = bytes.ToArray();
         var server = new RangeFeed(PclStorage, PclStorageVersion, archive);
         await using RangedEnvironment environment = RangedEnvironment.Create(server);
@@ -120,12 +126,19 @@ public sealed partial class PackageRangedRealizationTests
             Assert.Contains("lib/net99.0", list.Directories!);
             Assert.Contains("lib/net45", list.Directories!);
             Assert.DoesNotContain(list.Entries, entry => entry.Path.EndsWith('/'));
+            PackageContentEntry directoryEntry =
+                Assert.Single(
+                    list.DirectoryEntries!,
+                    entry => entry.Path == "lib/net99.0/");
+            Assert.Equal(
+                directoryTimestamp.DateTime,
+                directoryEntry.LastWriteTime!.Value.DateTime);
             Assert.Empty(acquired.Payload.Content.EnumerateEntries());
             Assert.Contains("net99.0", TfmSelector.GetPackageFrameworkFolders(list.Directories!));
         }
-        // The first non-range request probes size; ranged acquisition abandons its body.
-        Assert.Equal(1, server.FullRequests);
-        Assert.Equal(complete ? 0 : 1, server.RangedRequests);
+        // Directory-first performs useful ranges without a complete size probe.
+        Assert.Equal(0, server.FullRequests);
+        Assert.Equal(complete ? 2 : 1, server.RangedRequests);
     }
 
     [Fact]
@@ -202,9 +215,9 @@ public sealed partial class PackageRangedRealizationTests
         PackageTransferReceipt receipt = Transfer(
             acquired,
             PackagePayloadOrigin.Download);
-        Assert.Equal(PackageTransferPath.Download, receipt.Path);
-        Assert.Equal(1, server.FullRequests);
-        Assert.Equal(0, server.RangedRequests);
+        Assert.Equal(PackageTransferPath.CompletedByRanges, receipt.Path);
+        Assert.Equal(0, server.FullRequests);
+        Assert.Equal(2, server.RangedRequests);
     }
 
     [Fact]
@@ -239,7 +252,7 @@ public sealed partial class PackageRangedRealizationTests
         ];
         AssertFileList(first);
         AssertFileList(second);
-        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.FullRequests);
 
         void AssertFileList(PackageHouseSettlement.Acquired acquired)
         {
@@ -248,6 +261,10 @@ public sealed partial class PackageRangedRealizationTests
             PackageHouseFileList fileList =
                 Assert.IsType<PackageHouseFileList>(
                     acquired.Result.Evidence.FileList);
+            Assert.All(
+                fileList.Entries,
+                static entry => Assert.NotNull(
+                    entry.LastWriteTime));
             Assert.Equal(
                 expected,
                 fileList.Entries.Select(static entry => entry.Path));
@@ -294,7 +311,7 @@ public sealed partial class PackageRangedRealizationTests
             PackagePayloadOrigin.Ranged);
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             receipt.Requests.Select(static request => request.Purpose));
@@ -395,7 +412,7 @@ public sealed partial class PackageRangedRealizationTests
                 [new PackageContentEntry("README.md", 1)]));
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             Transfer(acquired, PackagePayloadOrigin.Ranged)
@@ -1802,7 +1819,7 @@ public sealed partial class PackageRangedRealizationTests
         AssertEquivalent(ranged);
         AssertEquivalent(complete);
         AssertEquivalent(cached);
-        Assert.Equal(1, completeServer.FullRequests);
+        Assert.Equal(0, completeServer.FullRequests);
 
         static void AssertEquivalent(
             PackageHouseSettlement.Acquired acquired)
@@ -1868,7 +1885,7 @@ public sealed partial class PackageRangedRealizationTests
                 StringComparison.Ordinal));
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             Transfer(acquired, PackagePayloadOrigin.Ranged)
@@ -1961,7 +1978,7 @@ public sealed partial class PackageRangedRealizationTests
         AssertEquivalent(ranged);
         AssertEquivalent(complete);
         AssertEquivalent(cached);
-        Assert.Equal(1, completeServer.FullRequests);
+        Assert.Equal(0, completeServer.FullRequests);
 
         static void AssertEquivalent(
             PackageHouseSettlement.Acquired acquired)
@@ -2008,7 +2025,7 @@ public sealed partial class PackageRangedRealizationTests
         {
             Host = "failed-narrowing.example",
             EntryRangeStatus = HttpStatusCode.InternalServerError,
-            SubsequentFullRequestStatus = HttpStatusCode.BadGateway,
+            FullRequestStatus = HttpStatusCode.BadGateway,
         };
         var successful = new RangeFeed(
             AddressPackageId,
@@ -2044,9 +2061,9 @@ public sealed partial class PackageRangedRealizationTests
                 .Selection
                 .TargetFramework);
         Assert.Empty(acquired.Payload.Content.EnumerateEntries());
-        Assert.Equal(PackagePayloadOrigin.Download, acquired.Payload.Origin);
+        Assert.Equal(PackagePayloadOrigin.Ranged, acquired.Payload.Origin);
         Assert.True(failing.RangedRequests > 1);
-        Assert.Equal(1, successful.FullRequests);
+        Assert.Equal(0, successful.FullRequests);
     }
 
     [Fact]
@@ -2200,7 +2217,7 @@ public sealed partial class PackageRangedRealizationTests
         Assert.Empty(current.Payload.Content.EnumerateEntries());
         Assert.Equal(
             [
-                PackageTransferRequestPurpose.SizeProbe,
+
                 PackageTransferRequestPurpose.DirectoryTail,
             ],
             Transfer(current, PackagePayloadOrigin.Ranged)
@@ -2264,7 +2281,7 @@ public sealed partial class PackageRangedRealizationTests
             rejected.Reason.ToString(),
             StringComparison.Ordinal);
         Assert.Null(settlement.Result.Evidence.FileList);
-        Assert.Equal(1, server.FullRequests);
+        Assert.Equal(0, server.FullRequests);
         Assert.Equal(1, server.RangedRequests);
         Assert.Null(
             await entryStore.ReadEntryAsync(

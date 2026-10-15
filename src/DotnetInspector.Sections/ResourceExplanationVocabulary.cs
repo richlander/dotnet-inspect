@@ -584,6 +584,10 @@ internal static class ResourceExplanationVocabulary
                     IntegerFact("members", "Members"),
                     OptionalTextFact("shape", "Shape"),
                     OptionalTextFact("cardinality", "Cardinality"),
+                    OptionalTextFact("summary", "Summary"),
+                    OptionalTextFact("basis", "Basis"),
+                    OptionalTextFact("empty", "Empty"),
+                    OptionalTextFact("boundary", "Boundary"),
                 ],
                 [
                     Relationship(

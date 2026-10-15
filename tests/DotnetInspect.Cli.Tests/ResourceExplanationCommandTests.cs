@@ -16,7 +16,7 @@ using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class ResourceExplanationCommandTests : IDisposable
+public sealed partial class ResourceExplanationCommandTests : IDisposable
 {
     public void Dispose()
     {
@@ -81,7 +81,7 @@ public sealed class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task SelectedFacetData_PreservesPackageQueryPresentationAndAffordances()
+    public async Task SelectedFacetData_PreservesValueMeaningsAndAffordancesWithoutControls()
     {
         var result = await RunAsync(
             "explain",
@@ -94,10 +94,9 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             .GetProperty("facets")
             .GetProperty("dependency-target");
 
-        Assert.Equal("input", facet.GetProperty("control_kind").GetString());
-        Assert.Equal(
-            "value-query",
-            facet.GetProperty("presentation_kind").GetString());
+        Assert.False(facet.TryGetProperty("control_kind", out _));
+        Assert.False(facet.TryGetProperty("presentation_kind", out _));
+        Assert.False(facet.TryGetProperty("options", out _));
         Assert.Equal(
             "nuspec",
             facet.GetProperty("execution_class").GetString());
@@ -115,9 +114,9 @@ public sealed class ResourceExplanationCommandTests : IDisposable
                 "net48",
                 "net472",
             ],
-            facet.GetProperty("options")
-                .EnumerateArray()
-                .Select(option => option.GetProperty("value").GetString()));
+            facet.GetProperty("value_descriptions")
+                .EnumerateObject()
+                .Select(option => option.Name));
         Assert.Equal(
             ["package.dependencies.inspect"],
             facet.GetProperty("related_operations")
@@ -142,7 +141,8 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(
             "product-ecosystems",
             facet.GetProperty("option_source").GetString());
-        Assert.Empty(facet.GetProperty("options").EnumerateArray());
+        Assert.False(facet.TryGetProperty("options", out _));
+        Assert.False(facet.TryGetProperty("value_descriptions", out _));
     }
 
     [Fact]
@@ -400,6 +400,68 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         JsonElement root = document.RootElement.GetProperty("resources")[0];
         Assert.Equal(shape, TextFact(root, "shape"));
         Assert.Equal(cardinality, TextFact(root, "cardinality"));
+    }
+
+    [Theory]
+    [InlineData("library-metrics")]
+    [InlineData("dependency-structure")]
+    [InlineData("member-metrics")]
+    [InlineData("top-leverage")]
+    [InlineData("clone-candidates")]
+    [InlineData("array-pool-escapes")]
+    [InlineData("performance-boxing")]
+    public async Task Explain_LibrarySection_ReportsOwnerDescription(
+        string section)
+    {
+        // Adopted Library sections explain what they report: Summary, Basis,
+        // and Empty are owner-issued text, never the section name.
+        var result = await RunAsync(
+            "explain",
+            $"library/sections/{section}",
+            ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        string name = TextFact(root, "name");
+        foreach (string part in new[] { "summary", "basis", "empty" })
+        {
+            string text = TextFact(root, part);
+            Assert.False(string.IsNullOrWhiteSpace(text));
+            Assert.NotEqual(name, text);
+        }
+    }
+
+    [Fact]
+    public async Task Explain_LibrarySectionDescription_RendersAndUndeclaredIsAbsent()
+    {
+        var described = await RunAsync(
+            "explain",
+            "library/sections/top-leverage");
+
+        Assert.Equal(0, described.ExitCode);
+        Assert.Empty(described.Error);
+        Assert.Contains("Summary: ", described.Output);
+        Assert.Contains("Basis: ", described.Output);
+        Assert.Contains("Empty: ", described.Output);
+
+        // A section that has not declared a description reports every part
+        // absent rather than substituting its name or an empty string.
+        var undeclared = await RunAsync(
+            "explain",
+            "library/sections/references",
+            ".contract", "--json");
+
+        Assert.Equal(0, undeclared.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(undeclared.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        foreach (string part in new[] { "summary", "basis", "empty", "boundary" })
+        {
+            Assert.Equal(
+                "Absent",
+                Fact(root, part).GetProperty("state").GetString());
+        }
     }
 
     [Fact]

@@ -93,6 +93,77 @@ internal static class MemberGroupDocumentOutput
             ?? throw new InvalidOperationException(
                 "The native MemberGroup route requires one unambiguous "
                 + "ordinary method name.");
+        MemberDocumentationAttachmentRequest? documentation =
+            options.ShowDocs
+                && RequestsReturnedRowDocumentation(options)
+                ? new(DocumentationDemand.CompiledXml)
+                : null;
+        return documentation is null
+            ? await WriteResolvedAsync(
+                type,
+                subject,
+                assemblyPath,
+                cancellationToken)
+                .ConfigureAwait(false)
+            : await WriteDocumentedAsync(
+                type,
+                subject,
+                assemblyPath,
+                documentation,
+                cancellationToken)
+                .ConfigureAwait(false);
+    }
+
+    private static async Task<int> WriteResolvedAsync(
+        ApiType type,
+        MemberGroupSubject subject,
+        string assemblyPath,
+        CancellationToken cancellationToken)
+    {
+        var plan = new MemberDocumentResolutionPlan(
+            subject,
+            s_bounds);
+        InspectionEnvelope<MemberDocumentResolutionOutcome>? inspection =
+            await ExactLibraryInspectionExecutor.ExecuteAsync<
+                InspectionEnvelope<MemberDocumentResolutionOutcome>>(
+                assemblyPath,
+                "member group document",
+                session =>
+                session.ExecuteMemberDocumentResolution(
+                    plan,
+                    cancellationToken),
+                cancellationToken);
+        if (inspection is null)
+            return 1;
+
+        WriteDiagnostics(inspection.Diagnostics);
+        switch (inspection.Content)
+        {
+            case MemberDocumentResolutionOutcome.Exact exact:
+                MemberGroupPresentation.WriteTree(
+                    exact.Document,
+                    type.FullName,
+                    Console.Out);
+                return 0;
+            case MemberDocumentResolutionOutcome.Overview overview:
+                MemberGroupPresentation.WriteTree(
+                    overview.Document,
+                    type.FullName,
+                    Console.Out);
+                return 0;
+            default:
+                CommandError.Write(Describe(inspection.Content));
+                return 1;
+        }
+    }
+
+    private static async Task<int> WriteDocumentedAsync(
+        ApiType type,
+        MemberGroupSubject subject,
+        string assemblyPath,
+        MemberDocumentationAttachmentRequest documentation,
+        CancellationToken cancellationToken)
+    {
         var plan = new MemberOverloadPopulationInspectionPlan(
             subject,
             new MemberOverloadPopulationRequest(
@@ -103,43 +174,23 @@ internal static class MemberGroupDocumentOutput
                 MemberOverloadReceiverFilter.All,
                 includeHidden: false),
             s_bounds);
-        MemberDocumentationAttachmentRequest? documentation =
-            options.ShowDocs
-                && RequestsReturnedRowDocumentation(options)
-                ? new(DocumentationDemand.CompiledXml)
-                : null;
         InspectionEnvelope<MemberGroupDocumentInspectionOutcome>? inspection =
-            documentation is null
-                ? await ExactLibraryInspectionExecutor.ExecuteAsync<
-                    InspectionEnvelope<
-                        MemberGroupDocumentInspectionOutcome>>(
-                    assemblyPath,
-                    "member group document",
-                    session =>
-                        session.ExecuteMemberGroupDocument(
-                            plan,
-                            cancellationToken),
-                    cancellationToken)
-                : await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
-                    InspectionEnvelope<
-                        MemberGroupDocumentInspectionOutcome>>(
-                    assemblyPath,
-                    "member group document",
-                    session =>
-                        session.ExecuteMemberGroupDocumentAsync(
-                            plan,
-                            documentation,
-                            cancellationToken),
-                    includeCompiledDocumentation: true,
-                    cancellationToken: cancellationToken);
+            await ExactLibraryInspectionExecutor.ExecuteComposedAsync<
+                InspectionEnvelope<
+                MemberGroupDocumentInspectionOutcome>>(
+                assemblyPath,
+                "member group document",
+                session =>
+                session.ExecuteMemberGroupDocumentAsync(
+                    plan,
+                    documentation,
+                    cancellationToken),
+                includeCompiledDocumentation: true,
+                cancellationToken: cancellationToken);
         if (inspection is null)
             return 1;
 
-        foreach (InspectionDiagnostic diagnostic in inspection.Diagnostics)
-        {
-            CommandError.WriteLine(
-                $"{diagnostic.Code}: {diagnostic.Summary}");
-        }
+        WriteDiagnostics(inspection.Diagnostics);
         if (inspection.Content
             is not MemberGroupDocumentInspectionOutcome.Available available)
         {
@@ -168,15 +219,6 @@ internal static class MemberGroupDocumentOutput
             CommandError.Write(
                 "The member-group document did not contain its complete overload population.");
             return 1;
-        }
-
-        if (document.ReturnedRowDocumentation.IsEmpty)
-        {
-            MemberGroupPresentation.WriteTree(
-                document,
-                type.FullName,
-                Console.Out);
-            return 0;
         }
 
         Console.WriteLine(
@@ -210,6 +252,16 @@ internal static class MemberGroupDocumentOutput
                     }),
             ]);
         return 0;
+    }
+
+    private static void WriteDiagnostics(
+        IReadOnlyList<InspectionDiagnostic> diagnostics)
+    {
+        foreach (InspectionDiagnostic diagnostic in diagnostics)
+        {
+            CommandError.WriteLine(
+                $"{diagnostic.Code}: {diagnostic.Summary}");
+        }
     }
 
     internal static string? ResolveCanonicalMethodName(
@@ -300,6 +352,20 @@ internal static class MemberGroupDocumentOutput
                 $"The member-group document reached {incomplete.Bound} "
                     + $"({incomplete.Measured} > {incomplete.Limit}).",
             MemberGroupDocumentInspectionOutcome.Failed failed =>
+                $"The member-group document failed ({failed.Reason}).",
+            _ => "The member-group document returned an unknown outcome.",
+        };
+
+    private static string Describe(
+        MemberDocumentResolutionOutcome outcome) =>
+        outcome switch
+        {
+            MemberDocumentResolutionOutcome.Rejected rejected =>
+                $"The member-group document was rejected ({rejected.Reason}).",
+            MemberDocumentResolutionOutcome.Incomplete incomplete =>
+                $"The member-group document reached {incomplete.Bound} "
+                    + $"({incomplete.Measured} > {incomplete.Limit}).",
+            MemberDocumentResolutionOutcome.Failed failed =>
                 $"The member-group document failed ({failed.Reason}).",
             _ => "The member-group document returned an unknown outcome.",
         };

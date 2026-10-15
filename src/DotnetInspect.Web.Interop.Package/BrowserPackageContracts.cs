@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using DotnetInspector.InspectionContracts;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using InertText;
 using TsJsExport;
 
 namespace DotnetInspect.Web.Interop.Package;
@@ -334,6 +335,10 @@ public sealed record BrowserPackageDocumentContent(
     string Name,
     string Path,
     string Text);
+
+public sealed record BrowserPackageDocumentHtml(
+    [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
+    InertString Html);
 
 public sealed record BrowserExceptionSurface(
     string Type,
@@ -1228,10 +1233,11 @@ public sealed record BrowserPackageQueryMatchCreditResponse(
 }
 
 /// <summary>
-/// Declared package dependency groups and one selected assembly's direct references. Dependency
-/// parsing and compatible target-framework selection belong to
-/// <c>PackageDependencyGroupsQuery</c>; direct references belong to
-/// <c>AssemblyContextReferencesQuery</c>.
+/// Declared package dependency groups, platform references, and one selected
+/// assembly's direct references. Dependency parsing and compatible
+/// target-framework selection belong to <c>PackageDependencyGroupsQuery</c>;
+/// explicit platform evidence belongs to PackageHouse; direct assembly
+/// references belong to <c>AssemblyContextReferencesQuery</c>.
 /// </summary>
 public sealed record BrowserPackageDependencies(
     string Package,
@@ -1239,10 +1245,35 @@ public sealed record BrowserPackageDependencies(
     string ActiveFramework,
     string? Assembly,
     BrowserPackageDependencyGroup[] DependencyGroups,
+    BrowserPackagePlatformReference[] PlatformReferences,
+    BrowserPackagePlatformReference? DefaultPlatformReference,
     BrowserPackageDependencyDeclarationFailure[] DeclarationFailures,
     BrowserAssemblyReferenceResult AssemblyReferences,
     string? DependencyGroupError,
+    string? PlatformReferenceError,
     BrowserCompileLibraryAvailability CompileLibrary);
+
+/// <summary>One rooted transitive dependency occurrence for the Browser.</summary>
+public sealed record BrowserPackageHierarchyRow(
+    int Id,
+    int? ParentId,
+    int Depth,
+    string Label,
+    string Disposition,
+    string Resolution);
+
+public sealed record BrowserPackageHierarchy(
+    string Package,
+    string Version,
+    string Framework,
+    bool IsComplete,
+    string Completion,
+    BrowserPackageHierarchyRow[] Rows,
+    string[] Failures);
+
+public sealed record BrowserPackagePlatformReference(
+    string Family,
+    string Label);
 
 public sealed record BrowserLibraryQueryInspection(
     BrowserLibraryQueryDocument Content,
@@ -1290,6 +1321,7 @@ public sealed record BrowserPackageDependencyGroup(
     int Index,
     string Framework,
     bool IsActive,
+    bool IsComplete,
     BrowserPackageDependency[] Dependencies);
 
 public sealed record BrowserPackageDependency(
@@ -1423,6 +1455,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
+[JsonSerializable(typeof(BrowserPackageDocumentHtml))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
@@ -1439,6 +1472,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserPackageHierarchy))]
 [JsonSerializable(typeof(BrowserLibraryQueryInspection))]
 [JsonSerializable(typeof(BrowserPackageVulnerabilityResult))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]

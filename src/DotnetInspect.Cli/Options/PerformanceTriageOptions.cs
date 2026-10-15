@@ -98,8 +98,12 @@ public sealed record PerformanceTriageOptions
         return segment;
     }
 
-    public static IReadOnlyList<string> KnownShapes =>
-        ILInspector.Analysis.OptimizationOpportunityRowSpace.KnownShapes;
+    public static IReadOnlyList<string> KnownShapes { get; } =
+    [
+        .. ILInspector.Analysis.OptimizationOpportunityRowSpace
+            .KnownShapes,
+        PerformanceKinds.SyncCallsInAsyncShape,
+    ];
 
     public bool LoopOnly { get; init; }
     public string? MinConfidence { get; init; }

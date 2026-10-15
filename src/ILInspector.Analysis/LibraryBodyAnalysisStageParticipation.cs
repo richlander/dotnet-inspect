@@ -19,7 +19,6 @@ public enum LibraryBodyAnalysisStage
     CallAnalysis,
     StringMaterializationAnalysis,
     OptimizationOpportunityAnalysis,
-    AsyncSiblingAnalysis,
     ResultAggregation,
 }
 

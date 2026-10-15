@@ -1210,23 +1210,15 @@ public sealed class BrowserPackageQueryOperationsTests
     }
 
     [Fact]
-    public async Task InspectQueryFacets_UsesSharedExplanationAndPreparesSerialization()
+    public async Task InspectQueryFacets_UsesSharedPresentationAndPreparesSerialization()
     {
         string json = PackageExports.InspectPackageQueryFacets();
         await BrowserPackageQueryOperations.WaitForSerializationPreparationAsync();
         using JsonDocument document = JsonDocument.Parse(json);
-        BrowserPackageQueryExplanationResult explanation =
-            PackageExports.ExplainPackageQueryCore(
-                "inspect-resource:/package-query/query?projection=data",
-                keys: null);
+        JsonElement presentation = PackageExports.InspectPackageQueryPresentation();
+        Assert.Equal(presentation.GetRawText(), document.RootElement.GetRawText());
+        Assert.Equal("query-preparation/v1", presentation.GetProperty("scope").GetProperty("profile").GetString());
 
-        Assert.Equal(
-            BrowserPackageQueryExplanationOutcome.Explained,
-            explanation.Outcome);
-        Assert.Null(explanation.Message);
-        Assert.Equal(
-            explanation.Content!.Value.GetRawText(),
-            document.RootElement.GetRawText());
     }
 
     [Fact]
@@ -2092,6 +2084,7 @@ public sealed class BrowserPackageQueryOperationsTests
         return new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 coordinate,
+                requestedTargetFramework: "net10.0",
                 compileTargetFramework: "net10.0",
                 selectionTargetFramework: "net10.0",
                 selectionRuntimeIdentifier: null,

@@ -437,6 +437,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var legacyRequest = new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 legacyCoordinate,
+                binding.Root.RequestedTargetFramework,
                 binding.CompileTargetFramework,
                 binding.ImplementationSelectionTargetFramework,
                 binding.Root.RequestedRuntimeIdentifier,
@@ -729,37 +730,38 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
-    public async Task ConfiguredRootPayloadProvider_NotFoundNamesAuthority()
+    public async Task ConfiguredRootHouseExecutor_NotFoundNamesAuthority()
     {
         const string Id = "Pinned.ProviderNotFound";
         var requests = new ConcurrentQueue<string>();
-        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
-            source => new NotFoundPayloadFeedHandler(
-                source,
+        DesktopPackageSourceComposition composition = CreateComposition(
+            (source, _) => new NotFoundPayloadFeedHandler(
+                source.Url,
                 Id,
                 requests));
-        await using var provider = new ConfiguredPackageRootPayloadProvider(
-            TimeSpan.FromSeconds(5),
-            new NuGetSourceOptions { Sources = [FirstFeed] });
+        var loadOptions = new WorkspaceContextLoadOptions
+        {
+            HttpClient = new HttpClient(),
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization(
+                    [new PackageSource("first", FirstFeed)]),
+            PackageStore = new InMemoryPackageStore(),
+        };
+        await using var executor =
+            new ConfiguredPackageRootHouseExecutor(
+                composition,
+                new NuGetSourceOptions { Sources = [FirstFeed] },
+                loadOptions);
 
-        PackageRootPayloadResult.Unavailable unavailable =
-            Assert.IsType<PackageRootPayloadResult.Unavailable>(
-                await provider.GetPayloadAsync(
-                    PackageSourceCoordinate.Create(Id, Version),
-                    requiredProducerKey: null,
-                    PackagePayloadLimits.Default,
+        PackageRootAcquisitionOutcome.Failed unavailable =
+            Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+                await PackageRootAcquisition.AcquireAsync(
+                    PackageRootAcquisitionRequest.Create(Id, Version),
+                    executor.Execution,
                     TestContext.Current.CancellationToken));
-
         Assert.Equal(
             PackageRootAcquisitionFailureKind.PackageUnavailable,
-            unavailable.FailureKind);
-        Assert.Equal(
-            PackageSourceFailureKind.NotFound,
-            unavailable.SourceFailureKind);
-        Assert.Contains(
-            FirstFeed,
-            unavailable.Producer.ToString(),
-            StringComparison.Ordinal);
+            unavailable.Kind);
         Assert.Contains(
             FirstFeed,
             unavailable.Message,
@@ -1721,9 +1723,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Empty(error);
         }
 
-        // The second run is a durable cache hit.
+        // Directory-first completion uses suffix and missing-prefix requests;
+        // the complete-package fallback and second run reuse that archive.
         Assert.Equal(
-            1,
+            2,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
@@ -2295,7 +2298,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null,
         IReadOnlyList<(string Id, string Version)>? dependencies = null,
         string? nuspecContent = null,
-        byte[]? pdb = null)
+        byte[]? pdb = null,
+        IReadOnlyList<(string Path, DateTimeOffset LastWriteTime)>?
+            explicitDirectories = null)
     {
         string dependenciesXml = dependencies is { Count: > 0 }
             ? "<dependencies><group targetFramework=\"net11.0\">"
@@ -2318,6 +2323,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     </metadata></package>
                     """);
             WriteEntry(archive, "README.md", readme);
+            if (explicitDirectories is not null)
+            {
+                foreach (var (path, lastWriteTime) in explicitDirectories)
+                {
+                    ZipArchiveEntry entry = archive.CreateEntry(path);
+                    entry.LastWriteTime = lastWriteTime;
+                }
+            }
             if (library is not null)
             {
                 using Stream entry = archive.CreateEntry(

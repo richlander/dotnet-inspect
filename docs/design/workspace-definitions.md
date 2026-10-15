@@ -3201,6 +3201,13 @@ One restoration attempt proceeds in this order:
    against that exact acquired realization. Every Workspace, Root
    occurrence, Scope revision, and Navigation identity is issued for that
    Workspace.
+   For a single-Package Dependency Hierarchy packet, the tuple framework is
+   the traversal target. Successful reacquisition under that requested target
+   may select a compatible compile-asset framework. Restore validates the
+   exact Package ID and version, retains the tuple's target for traversal and
+   packet round-trip, and does not treat the selected asset framework as a
+   different requested coordinate. Other views keep their exact coordinate
+   checks.
 5. Establish the requested retained context, active subject, and lens through
    ordinary Navigation in the new Workspace. Resolve each inactive
    coordinate's saved view and query state without executing expensive work

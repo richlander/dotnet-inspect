@@ -2785,6 +2785,17 @@ public partial class DependsCommand
                         .NotRequested
                 ? null
                 : summary.LatestVersions.DiscoveryFailed,
+            LatestVersionIncompatible = summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                ? null
+                : summary.LatestVersions.Incompatible,
+            LatestVersionCompatibilityUnavailable =
+                summary.LatestVersions.Completion
+                    == DependencyInspectionLatestVersionCompletion
+                        .NotRequested
+                    ? null
+                    : summary.LatestVersions.CompatibilityUnavailable,
             PruningRoots = summary.Pruning.Completion
                     == DependencyInspectionPruningCompletion.NotRequested
                 ? null
@@ -3133,11 +3144,15 @@ public partial class DependsCommand
             CommandError.WriteWarning(
                 "Package license inventory completed as Partial.");
         }
-        if (projection.Summary.LatestVersions.Completion
-            == DependencyInspectionLatestVersionCompletion.Partial)
+        if (projection.Summary.LatestVersions.DiscoveryFailed > 0)
         {
             CommandError.WriteWarning(
                 "Latest version discovery completed as Partial.");
+        }
+        if (projection.Summary.LatestVersions.CompatibilityUnavailable > 0)
+        {
+            CommandError.WriteWarning(
+                "Latest Compatible evaluation completed as Partial.");
         }
     }
 

@@ -48,6 +48,51 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Vocabulary reading admission
+
+The CLI admits `-Q` / `--query-help` on an exact vocabulary root only with a
+`.data` or `.hal` reading projection and JSON output. It narrows the selected
+native value identities; it does not choose the representation. A bare option
+selects the full reading population. A supplied comma/semicolon-separated list
+uses the existing projection-list parser; supplied empty or whitespace-only
+lists fail. Identities are exact and case-sensitive, independent of lower-case
+path segments and display labels. Deduplication, owner order, exact term closure,
+sparse membership, completeness and bounds come from
+[Resource Explanation's vocabulary reading selection](design/resource-explanation.md#vocabulary-reading-selection),
+not a CLI inventory or selector implementation.
+
+Admission preserves the exact-path branch of the
+[explain facade](design/contextual-resource-explanation.md#explain-facade-dispatch).
+The option fails for search text, other resource kinds, vocabulary collections
+and value-resource roots, ordinary compact output, explicit contracts, graph
+depth, search row limits and unsupported output formats. Failure emits a nonzero
+exit and a diagnostic, without a success-shaped stdout payload or opening the
+output destination. It does not fall through to search or subject acquisition.
+An emitted HAL vocabulary address can be narrowed with the option; its projection
+still cannot be overridden. A selected response advertises the full collection
+address rather than inventing an address for the narrower population.
+
+The production consumer is standalone CLI `explain`, under
+[#10015](https://github.com/richlander/dotnet-inspect/issues/10015) and overall
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762). This is the
+third of four vocabulary slices, after the proposal and shared implementation;
+Browser/Wasm admission remains the fourth, #10016. Full reads already use the
+shared profile, so this adoption retires no second CLI vocabulary serializer.
+It replaces full-only admission for this entrance. Ordinary compact and explicit
+contract inspection remain separate consumers. This host-specific gesture adds
+no Browser API and changes no shared selection semantics.
+
+Real witnesses are the composed `csharp.body-kinds`, `api.accessibility` and
+`csharp.style-choices` vocabularies at the implementation base
+`bafc7ab38e71bd922c22a62e6126937d78df71f2`, declared by their term owners.
+`ResourceExplanationCommandTests` gates valid direct/HAL reads, exact identity
+versus path spelling, selected term context and defaults, list/bare admission,
+failure outcomes and output-destination preservation. Exact NativeAOT CLI
+comparisons cover full and narrowed reads, retained row identity and meaningful
+jq answers, with close invalid-identity and unchanged-neighbor controls.
+Current behavior and worked commands belong in the CLI reference and reading
+examples, rather than duplicating their inventories here.
+
 ### Workspace top-level inventory
 
 The `workspace` command first distinguishes durable definition output from
