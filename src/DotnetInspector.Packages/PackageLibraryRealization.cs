@@ -91,7 +91,7 @@ public sealed class PackageLibrarySelector
                     StringComparison.Ordinal)
                 ? Value["compile:".Length..]
                 : Value;
-            string name = Path.GetFileName(value);
+            string name = PackageEntryPath.GetLeafName(value);
             return name.EndsWith(
                     ".dll",
                     StringComparison.OrdinalIgnoreCase)

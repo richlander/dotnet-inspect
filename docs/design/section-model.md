@@ -1136,7 +1136,8 @@ The section pipeline and derived catalog gates enforce these invariants:
 11. A section that declares a description supplies a non-empty Summary,
     Basis, and Empty. After a command owner completes adoption, every
     selectable section of that command declares a description. The adoption
-    gate for each command names the sections it covers; Library is the first.
+    gate for each command names the sections it covers; Library is the first,
+    gated by `LibraryDeclaresEverySelectableSectionDescription`.
 
 Derived tests should compare the authored catalog with the expected ownership
 sets so stale and missing entries both fail.
@@ -1164,6 +1165,7 @@ does not count.
 | Claim | Gate |
 | --- | --- |
 | Description parts are required and non-empty | Registration test over the compiled Library catalog |
+| Every selectable Library section declares a description (invariant 11) | `LibraryDeclaresEverySelectableSectionDescription` |
 | `DiscoveryDocument` preserves descriptions without CLI or Markout references | `DiscoveryDocumentTests` extension |
 | Explanation emits Summary, Basis, Empty, and Boundary as typed section-description facts, and reports an undeclared description as undeclared | Resource Explanation structural test over one adopted and one unadopted section |
 | Descriptions add no producer or probe execution | Discovery test asserting no producer invocation for `explain library/sections/<adopted>` |

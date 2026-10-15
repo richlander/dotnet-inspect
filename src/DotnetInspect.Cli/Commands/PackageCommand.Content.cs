@@ -2269,7 +2269,7 @@ public partial class PackageCommand
     /// which is the outcome this command exists to prevent.
     /// </summary>
     private static bool NamesAKind(string path)
-        => Path.GetFileName(path.AsSpan()).Contains('.');
+        => PackageEntryPath.GetLeafName(path).Contains('.');
 
     private static PackageFileContent ReadPackageFileContent(
         string extractPath,
