@@ -415,6 +415,14 @@ substrate, and `TypeDocumentInspectionOperation` names the final public
 document producer. Member-side names and any remaining host-local composition
 are separate residual work.
 
+CLI default and explicit Tree presentation for one name-only method group now
+consume `MemberDocumentResolutionOperation`. A singleton population renders
+the final `MemberDocument`; a multi-declaration population renders the final
+`MemberOverviewDocument`. The distinct returned-row compiled-documentation
+table remains on `MemberGroupDocumentInspectionOperation` until attachments
+have a final document-composition contract. Browser family views remain a
+separate host-adoption slice.
+
 Rendering work is not part of slices 1 through 6 and does not define the object
 model. CLI MemberGroup Tree presentation now streams the owner-issued complete
 exact-Member Rows through shared presentation without constructing a
