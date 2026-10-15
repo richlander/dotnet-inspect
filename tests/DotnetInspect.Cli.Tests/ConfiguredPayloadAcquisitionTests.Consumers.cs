@@ -542,12 +542,57 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task DiffHistoryRange_SparseCountReportsObservedChangedVersions(
-        bool envelope)
+    [InlineData("--major-versions", "--major-versions")]
+    [InlineData("--max-probes", "--max-probes", "3")]
+    [InlineData("--max-probes", "--sample-percent", "100", "--max-probes", "3")]
+    [InlineData("--sample-percent below 100", "--sample-percent", "50")]
+    [InlineData("--at with explicit checkpoints", "--at", "first", "--at", "last")]
+    [InlineData("--at with explicit checkpoints", "--at", "endpoints")]
+    public async Task DiffHistoryRange_SparseCountIsRejectedBeforeDiscovery(
+        string policy,
+        params string[] sparse)
     {
-        const string Id = "range.diff-history.count-observed";
+        const string Id = "range.diff-history.count-sparse";
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => CreateApiPackage(Id, version),
+                requests));
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                .. sparse,
+                "--count",
+            ]);
+
+        // A sample cannot establish which versions changed from their
+        // immediate predecessors, so Count is a request admission error,
+        // not an observed count over incomplete evidence.
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            $"Diff History Count requires every version in the range, but {policy} evaluates a sample.",
+            result.Error);
+        Assert.Contains("--at all", result.Error);
+        Assert.Contains("--sample-percent 100", result.Error);
+        Assert.Empty(requests);
+    }
+
+    [Theory]
+    [InlineData("--at", "all")]
+    [InlineData("--sample-percent", "100")]
+    public async Task DiffHistoryRange_FullPopulationPoliciesAdmitCount(
+        params string[] policy)
+    {
+        const string Id = "range.diff-history.count-full";
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
             new SelectionFeedHandler(
                 FirstFeed,
@@ -563,6 +608,45 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                         _ => FixtureCatalog.DiffV2.AssemblyPath(),
                     }),
                 new ConcurrentQueue<string>()));
+
+        var result = await RunCommandAsync(
+            [
+                "diff",
+                "--history",
+                "--package", $"{Id}@1.0.0..3.0.0",
+                "--type", RangeType,
+                "--finding", "api.type",
+                "--source", FirstFeed,
+                .. policy,
+                "--count",
+            ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        Assert.Equal("2", result.Output.Trim());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiffHistoryRange_FailedEvaluationCountReportsObservedChangedVersions(
+        bool envelope)
+    {
+        const string Id = "range.diff-history.count-observed";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0", "3.0.0"],
+                version => version == "2.0.0"
+                    ? [0x50, 0x4b, 0x00]
+                    : CreateApiPackage(
+                        Id,
+                        version,
+                        version == "1.0.0"
+                            ? FixtureCatalog.DiffV1.AssemblyPath()
+                            : FixtureCatalog.DiffV2.AssemblyPath()),
+                new ConcurrentQueue<string>()));
         List<string> args =
         [
             "diff",
@@ -571,8 +655,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--type", RangeType,
             "--finding", "api.type",
             "--source", FirstFeed,
-            "--at", "first",
-            "--at", "last",
             "--count",
         ];
         if (envelope)
@@ -580,15 +662,15 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         var result = await RunCommandAsync([.. args]);
 
-        // Deliberate sparse History succeeds for Rows, so its Count does
-        // too: the observed count prints, and the unknown middle transition
-        // is disclosed rather than reported as an exact zero.
-        Assert.True(result.Exit == 0, result.Error);
-        Assert.Contains(
-            "Diff History inspection incomplete",
-            result.Error);
+        // A failed middle version leaves both of its transitions unknown:
+        // Count prints the observed Changed Versions with the Rows'
+        // disclosure and nonzero exit, never an exact zero.
+        Assert.Equal(1, result.Exit);
         if (!envelope)
         {
+            Assert.Contains(
+                "Diff History inspection incomplete",
+                result.Error);
             Assert.Equal("0", result.Output.Trim());
             return;
         }
@@ -601,18 +683,64 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         JsonElement entry = count.GetProperty("counts")[0];
         Assert.Equal(0, entry.GetProperty("value").GetInt32());
         Assert.False(entry.GetProperty("is_exact").GetBoolean());
-        Assert.Equal(
-            "Unevaluated",
-            count.GetProperty("sources")[0]
-                .GetProperty("evidence")
-                .GetProperty("first_unestablished_assessment")
-                .GetProperty("state")
-                .GetString());
         Assert.Contains(
             document.RootElement.GetProperty("diagnostics").EnumerateArray(),
             static diagnostic =>
                 diagnostic.GetProperty("code").GetString()
                     == "diff-history.count-incomplete");
+        Assert.Contains(
+            document.RootElement.GetProperty("diagnostics").EnumerateArray(),
+            static diagnostic =>
+                diagnostic.GetProperty("code").GetString()
+                    == "diff-history.evaluation-failure");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiffHistoryRange_OneVersionCountIsExactZero(
+        bool envelope)
+    {
+        const string Id = "range.diff-history.count-one";
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(_ =>
+            new SelectionFeedHandler(
+                FirstFeed,
+                Id,
+                ["1.0.0", "2.0.0"],
+                version => CreateApiPackage(Id, version),
+                new ConcurrentQueue<string>()));
+        List<string> args =
+        [
+            "diff",
+            "--history",
+            "--package", $"{Id}@1.0.0..1.0.0",
+            "--type", RangeType,
+            "--finding", "api.type",
+            "--source", FirstFeed,
+            "--count",
+        ];
+        if (envelope)
+            args.AddRange(["--envelope", "--compact"]);
+
+        var result = await RunCommandAsync([.. args]);
+
+        // One evaluated version has no adjacent transitions: its Changed
+        // Versions cohort is exactly empty.
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Empty(result.Error);
+        if (!envelope)
+        {
+            Assert.Equal("0", result.Output.Trim());
+            return;
+        }
+
+        using var document = JsonDocument.Parse(result.Output);
+        JsonElement entry = document.RootElement
+            .GetProperty("content")
+            .GetProperty("count")
+            .GetProperty("counts")[0];
+        Assert.Equal(0, entry.GetProperty("value").GetInt32());
+        Assert.True(entry.GetProperty("is_exact").GetBoolean());
     }
 
     [Fact]
