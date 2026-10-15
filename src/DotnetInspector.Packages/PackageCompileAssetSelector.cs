@@ -186,6 +186,14 @@ public sealed record PackageCompileAssetSelection(
     static string? TryGetRelativePath(PackageCompileAsset asset)
     {
         string[] segments = asset.Path.Split('/');
+        if (segments.Length == 2
+            && segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase)
+            && PackageAssetSelector.IsFrameworkAgnostic(
+                asset.TargetFramework))
+        {
+            return segments[1];
+        }
+
         if (segments.Length >= 3
             && (segments[0].Equals("ref", StringComparison.OrdinalIgnoreCase)
                 || segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
@@ -463,7 +471,10 @@ public static class PackageCompileAssetSelector
                 .Concat(emptyReferenceGroups)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderByDescending(framework =>
-                    TfmResolver.GetTfmPriority(framework.ToLowerInvariant()))
+                    PackageAssetSelector.IsFrameworkAgnostic(framework)
+                        ? int.MinValue
+                        : TfmResolver.GetTfmPriority(
+                            framework.ToLowerInvariant()))
                 .ThenBy(framework => framework, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(framework => framework, StringComparer.Ordinal),
         ];
@@ -536,7 +547,14 @@ public static class PackageCompileAssetSelector
                 : selectionFrameworks.FirstOrDefault(framework =>
                     framework.Equals(
                         targetFramework,
-                        StringComparison.OrdinalIgnoreCase));
+                        StringComparison.OrdinalIgnoreCase))
+                    ?? (TrySplitFramework(
+                            targetFramework,
+                            out _,
+                            out _)
+                        ? selectionFrameworks.FirstOrDefault(
+                            PackageAssetSelector.IsFrameworkAgnostic)
+                        : null);
         }
         if (selectedFramework is null)
         {
@@ -572,12 +590,16 @@ public static class PackageCompileAssetSelector
                         selectedFramework,
                         StringComparison.OrdinalIgnoreCase)),
         ];
+        string implementationSelectionTargetFramework =
+            PackageAssetSelector.IsFrameworkAgnostic(selectedFramework)
+                ? selectedFramework
+                : implementationTargetFramework
+                    ?? targetFramework
+                    ?? selectedFramework;
         PackageAssetSelection implementationSelection =
             PackageAssetSelector.Select(
                 content,
-                implementationTargetFramework
-                    ?? targetFramework
-                    ?? selectedFramework,
+                implementationSelectionTargetFramework,
                 runtimeIdentifier);
         string? selectedImplementationTargetFramework =
             implementationSelection
@@ -745,6 +767,16 @@ public static class PackageCompileAssetSelector
 
     static PackageCompileAsset? Parse(string entry)
     {
+        if (TryParseRootLibrary(entry, out string[]? rootParts))
+        {
+            return new PackageCompileAsset(
+                AssetIdPrefix + entry,
+                entry,
+                rootParts![1],
+                PackageAssetSelector.FrameworkAgnosticTargetFramework,
+                PackageCompileAssetKind.Library);
+        }
+
         if (!TryParsePathParts(entry, out string[]? parts))
             return null;
 
@@ -787,7 +819,40 @@ public static class PackageCompileAssetSelector
     }
 
     static bool IsDirectCompileAsset(PackageCompileAsset asset) =>
-        asset.Path.Count(character => character == '/') == 2;
+        asset.Path.Count(character => character == '/')
+            == (PackageAssetSelector.IsFrameworkAgnostic(
+                    asset.TargetFramework)
+                ? 1
+                : 2);
+
+    static bool TryParseRootLibrary(
+        string entry,
+        out string[]? parts)
+    {
+        parts = null;
+        if (string.IsNullOrWhiteSpace(entry) || entry.Contains('\\'))
+            return false;
+
+        string[] candidate = entry.Split('/');
+        if (candidate.Length != 2
+            || candidate.Any(part =>
+                string.IsNullOrEmpty(part)
+                || part is "." or "..")
+            || !candidate[0].Equals(
+                "lib",
+                StringComparison.OrdinalIgnoreCase)
+            || !candidate[1].EndsWith(
+                ".dll",
+                StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrEmpty(
+                Path.GetFileNameWithoutExtension(candidate[1])))
+        {
+            return false;
+        }
+
+        parts = candidate;
+        return true;
+    }
 
     /// <summary>
     /// The target framework of an explicit empty reference group (<c>ref/&lt;tfm&gt;/_._</c>), or
@@ -827,6 +892,8 @@ public static class PackageCompileAssetSelector
         }
 
         return frameworks
+            .Where(framework =>
+                !PackageAssetSelector.IsFrameworkAgnostic(framework))
             .Select(framework =>
             {
                 bool parsed = TrySplitFramework(
@@ -864,7 +931,9 @@ public static class PackageCompileAssetSelector
                 StringComparer.OrdinalIgnoreCase)
             .ThenBy(candidate => candidate.Framework, StringComparer.Ordinal)
             .Select(candidate => candidate.Framework)
-            .FirstOrDefault();
+            .FirstOrDefault()
+            ?? frameworks.FirstOrDefault(
+                PackageAssetSelector.IsFrameworkAgnostic);
     }
 
     static bool TrySplitFramework(
