@@ -744,7 +744,7 @@ public abstract class PackageHouseRealizationReceipt
             selection.Assets
                 .Where(asset =>
                     selection.FindImplementationAsset(asset) is null)
-                .Select(asset => Path.GetFileName(asset.Path)),
+                .Select(asset => asset.AssemblyName),
             StringComparer.OrdinalIgnoreCase);
         return
         [

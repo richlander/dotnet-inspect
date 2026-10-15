@@ -2720,7 +2720,7 @@ internal static class BrowserPackageWorkspace
                             : throw new InvalidOperationException("Metadata realization did not issue a package Root.");
                 PackageRootBinding binding = selected.Handoff.ImplementationAsset is { } implementation
                     ? contribution.Binding.WithAssetDemand(PackageAssetDemand.SurfaceAndImplementation,
-                        PackageImplementationNames.Create([Path.GetFileName(implementation.Path)]))
+                        PackageImplementationNames.Create([implementation.AssemblyName]))
                     : contribution.Binding.WithAssetDemand(PackageAssetDemand.Surface);
                 BrowserSessionPackageStore retainedStore = selected.Acquired.Payload.Content is RangedPackageContent
                     ? selectedStore : store;
@@ -5774,6 +5774,7 @@ internal sealed class BrowserPackageCoordinate
 
     internal static bool MatchesAssembly(PackageCompileAsset asset, string name) =>
         asset.AssemblyName.Equals(name, StringComparison.OrdinalIgnoreCase)
-        || Path.GetFileNameWithoutExtension(asset.AssemblyName)
-            .Equals(Path.GetFileNameWithoutExtension(name), StringComparison.OrdinalIgnoreCase);
+        || asset.AssemblySimpleName.Equals(
+            PackageEntryPath.GetStemName(name),
+            StringComparison.OrdinalIgnoreCase);
 }
