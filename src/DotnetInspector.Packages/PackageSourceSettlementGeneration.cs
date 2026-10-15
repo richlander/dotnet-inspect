@@ -649,9 +649,7 @@ internal sealed class PackageSourceSettlementGeneration
             return _candidateIssuer.CreateIncompleteVersionDiscovery(
                 discovery,
                 [
-                    OperationTimeoutFailure(
-                        authority: null,
-                        operation),
+                    VersionDiscoveryOperationTimeoutFailure(operation),
                 ]);
         }
 
@@ -760,7 +758,10 @@ internal sealed class PackageSourceSettlementGeneration
             NuGetOperationContext operation)
     {
         var failures = new List<PackageAuthorityFailure>(
-            authorization.Authorities.Count - firstUnsettledAuthority);
+            authorization.Authorities.Count - firstUnsettledAuthority + 1)
+        {
+            VersionDiscoveryOperationTimeoutFailure(operation),
+        };
         for (int index = firstUnsettledAuthority;
              index < authorization.Authorities.Count;
              index++)
@@ -813,6 +814,19 @@ internal sealed class PackageSourceSettlementGeneration
                 OperationTimeoutFailure(authority, operation)));
         }
     }
+
+    private static PackageAuthorityFailure
+        VersionDiscoveryOperationTimeoutFailure(
+        NuGetOperationContext operation) =>
+        new(
+            InertString.Empty,
+            PackageAuthorityFailureKind.Timeout,
+            "The package version operation deadline expired before the aggregate completed.")
+        {
+            Timeout = new(
+                PackageSourceTimeoutKind.Operation,
+                operation.OperationTimeout),
+        };
 
     private static PackageAuthorityFailure OperationTimeoutFailure(
         ConfiguredPackageAuthority? authority,

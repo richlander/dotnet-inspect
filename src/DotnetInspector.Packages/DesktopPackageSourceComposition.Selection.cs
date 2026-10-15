@@ -169,12 +169,18 @@ public sealed partial class DesktopPackageSourceComposition
         try
         {
             operation.ThrowIfExpired();
-            PackageVersionDiscoveryResult discovery = await GetVersionsCoreAsync(
-                generation,
-                packageId,
-                includePrerelease || prefix is not null || range?.IncludesPrerelease == true,
-                limit: null, sourceOptions, log, operation,
-                includeUnlisted: false).ConfigureAwait(false);
+            PackageVersionDiscoveryResult discovery =
+                await DiscoverVersionsThroughSourceAsync(
+                    generation,
+                    packageId,
+                    includePrerelease
+                        || prefix is not null
+                        || range?.IncludesPrerelease == true,
+                    limit: null,
+                    sourceOptions,
+                    log,
+                    operation,
+                    includeUnlisted: false).ConfigureAwait(false);
             failures.AddRange(discovery.Failures);
             if (discovery.State != PackageVersionDiscoveryState.Authoritative)
                 return new(null, null, null, failures);

@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Runtime.ExceptionServices;
 using InertText;
-using NuGet.Versioning;
 using NuGetFetch;
 using NuGetFetch.Plugins;
 
@@ -370,13 +369,23 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
         bool includeUnlisted = false,
         NuGetOperationContext? operationContext = null) =>
         PackageSourceSettlementCompatibility.RunAsync(
-            _sourceLease, cancellationToken, operationContext,
-            (generation, operation) => GetVersionsCoreAsync(
-                generation, packageId, includePrerelease, limit, sourceOptions,
-                log, operation, includeUnlisted),
-            _options.RequestTimeout, _options.OperationTimeout);
+            _sourceLease,
+            cancellationToken,
+            operationContext,
+            (generation, operation) => DiscoverVersionsThroughSourceAsync(
+                generation,
+                packageId,
+                includePrerelease,
+                limit,
+                sourceOptions,
+                log,
+                operation,
+                includeUnlisted),
+            _options.RequestTimeout,
+            _options.OperationTimeout);
 
-    private async Task<PackageVersionDiscoveryResult> GetVersionsCoreAsync(
+    private Task<PackageVersionDiscoveryResult>
+        DiscoverVersionsThroughSourceAsync(
         PackageSourceSettlementGeneration generation,
         string packageId,
         bool includePrerelease,
@@ -393,216 +402,40 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
                 limit);
         if (!PackageExtractor.IsValidPackageId(packageId))
         {
-            return Failed(
-                null,
-                new PackageAuthorityFailure(
-                    InertString.Empty,
-                    PackageAuthorityFailureKind.Input,
-                    "The package ID must use the NuGet package ID grammar."),
-                contract);
+            return Task.FromResult(
+                Failed(
+                    null,
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Input,
+                        "The package ID must use the NuGet package ID grammar."),
+                    contract));
         }
 
         if (limit <= 0)
         {
-            return Failed(
-                packageId,
-                new PackageAuthorityFailure(
-                    InertString.Empty,
-                    PackageAuthorityFailureKind.Input,
-                    "The package version limit must be greater than zero."),
-                contract);
+            return Task.FromResult(
+                Failed(
+                    packageId,
+                    new PackageAuthorityFailure(
+                        InertString.Empty,
+                        PackageAuthorityFailureKind.Input,
+                        "The package version limit must be greater than zero."),
+                    contract));
         }
 
         var failures = new List<PackageAuthorityFailure>();
-        IReadOnlyList<PackageSource> sources = ResolveEligibleSources(
-            packageId, sourceOptions, failures);
-        if (sources.Count == 0)
-        {
-            return new PackageVersionDiscoveryResult(
-                packageId,
-                PackageVersionDiscoveryState.Failed,
-                [],
-                failures,
-                hasAnyCandidate: false,
-                contract: contract,
-                candidateIssuer: generation.CandidateIssuerIdentity);
-        }
-
-        CancellationToken cancellationToken = operation.CancellationToken;
-        IReadOnlyList<InertString> feedLabels = PackageSourceDisplay.ForVersionListings(sources);
-        var versions = new Dictionary<string, List<PackageVersionSourceInfo>>(StringComparer.OrdinalIgnoreCase);
-        var candidates = new List<ConfiguredPackageCandidateObservation>();
-        bool hasAnyCandidate = false;
-        bool operationTimedOut = false;
-
-        for (int sourceIndex = 0;
-             sourceIndex < sources.Count;
-             sourceIndex++)
-        {
-            PackageSource source = sources[sourceIndex];
-            try
-            {
-                operation.ThrowIfExpired();
-            }
-            catch (NuGetOperationTimeoutException)
-            {
-                operationTimedOut = true;
-                AddOperationTimeoutFailure(failures, operation);
-                for (int remainingIndex = sourceIndex;
-                     remainingIndex < sources.Count;
-                     remainingIndex++)
-                {
-                    PackageSource remaining =
-                        sources[remainingIndex];
-                    failures.Add(new PackageAuthorityFailure(
-                        PackageSourceDisplay.ForDiagnostics(remaining),
-                        PackageAuthorityFailureKind.Timeout,
-                        $"Package source {PackageSourceDisplay.ForDiagnostics(remaining)} was not consulted before the package operation deadline."));
-                }
-                break;
-            }
-
-            AuthorityEntry? authority = TryGetEligibleAuthority(source, failures);
-            if (authority is null)
-                continue;
-
-            log?.Invoke(
-                $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(source)}.");
-            PackageSourceOperationResult<PackageVersionResult> outcome =
-                await authority.Client.GetVersionsAsync(
-                    packageId,
-                    cancellationToken,
-                    operation).ConfigureAwait(false);
-
-            if (outcome.Failure is { } failure)
-            {
-                RequireAuthority(failure.Source, authority);
-                failures.Add(
-                    PackageAuthorityFailureAdapter.DescribeVersionFailure(
-                        source,
-                        failure));
-            }
-            else
-            {
-                PackageVersionResult value =
-                    outcome.Value
-                    ?? throw new InvalidOperationException(
-                        "The package source version operation returned neither a value nor a failure.");
-                RequireAuthority(value.Source, authority);
-                if (value.Source.TransportKind
-                        == PackageSourceKind.NuGetGallery
-                    && !value.HasAuthoritativeListingState)
-                {
-                    failures.Add(new PackageAuthorityFailure(
-                        PackageSourceDisplay.ForDiagnostics(source),
-                        PackageAuthorityFailureKind.IncompleteMetadata,
-                        $"Package source {PackageSourceDisplay.ForDiagnostics(source)} did not provide authoritative version listing state."));
-                }
-
-                foreach (PackageCandidateObservation candidate in
-                         value.Candidates)
-                {
-                    if (!ReferenceEquals(candidate.Source, value.Source)
-                        || !candidate.Coordinate.PackageId.Equals(
-                            packageId,
-                            StringComparison.OrdinalIgnoreCase))
-                    {
-                        throw new InvalidOperationException(
-                            "The package source returned version evidence for another authority or package.");
-                    }
-
-                    hasAnyCandidate = true;
-                    NuGetVersion parsed =
-                        NuGetVersion.Parse(candidate.Coordinate.Version);
-                    bool listed = !value.HasAuthoritativeListingState
-                        || candidate.ListingState
-                            != PackageListingState.Unlisted;
-                    if ((listed || includeUnlisted)
-                        && (includePrerelease || !parsed.IsPrerelease))
-                    {
-                        candidates.Add(new(authority.Authority, candidate));
-                        string version = candidate.Coordinate.Version;
-                        if (!versions.TryGetValue(version, out var rows))
-                        {
-                            rows = [];
-                            versions.Add(version, rows);
-                        }
-                        rows.Add(new PackageVersionSourceInfo(
-                            version, feedLabels[sourceIndex].ToString(), listed));
-                    }
-                }
-            }
-
-            try
-            {
-                operation.ThrowIfExpired();
-            }
-            catch (NuGetOperationTimeoutException)
-            {
-                operationTimedOut = true;
-                AddOperationTimeoutFailure(failures, operation);
-                for (int remainingIndex = sourceIndex + 1;
-                     remainingIndex < sources.Count;
-                     remainingIndex++)
-                {
-                    PackageSource remaining =
-                        sources[remainingIndex];
-                    failures.Add(new PackageAuthorityFailure(
-                        PackageSourceDisplay.ForDiagnostics(remaining),
-                        PackageAuthorityFailureKind.Timeout,
-                        $"Package source {PackageSourceDisplay.ForDiagnostics(remaining)} was not consulted before the package operation deadline."));
-                }
-                break;
-            }
-        }
-
-        List<PackageVersionSourceInfo> ordered =
-        [
-            .. versions.Keys
-                .Select(version => (
-                    Parsed: NuGetVersion.Parse(version),
-                    Original: version))
-                .OrderByDescending(candidate => candidate.Parsed)
-                .Take(limit ?? int.MaxValue)
-                .SelectMany(candidate => versions[candidate.Original]),
-        ];
-        HashSet<string> retainedVersions =
-            ordered.Select(row => row.Version)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        List<ConfiguredPackageCandidateObservation> retainedCandidates =
-        [
-            .. candidates.Where(candidate =>
-                retainedVersions.Contains(
-                    candidate.Observation.Coordinate.Version)),
-        ];
-        try
-        {
-            operation.ThrowIfExpired();
-        }
-        catch (NuGetOperationTimeoutException)
-        {
-            operationTimedOut = true;
-            AddOperationTimeoutFailure(failures, operation);
-        }
-
-        PackageVersionDiscoveryState state = operationTimedOut
-            ? PackageVersionDiscoveryState.Failed
-            : failures.Count switch
-        {
-            0 => PackageVersionDiscoveryState.Authoritative,
-            _ when ordered.Count > 0 =>
-                PackageVersionDiscoveryState.Partial,
-            _ => PackageVersionDiscoveryState.Failed,
-        };
-        return new PackageVersionDiscoveryResult(
+        PackageSourceAuthorization authorization = AuthorizeSourcesForCore(
             packageId,
-            state,
-            ordered,
-            failures,
-            hasAnyCandidate,
-            retainedCandidates,
+            sourceOptions,
+            operation.ThrowIfExpired,
+            failures);
+        return generation.DiscoverVersionsAsync(
+            packageId,
+            authorization,
             contract,
-            generation.CandidateIssuerIdentity);
+            operation,
+            log);
     }
 
     /// <summary>
@@ -947,26 +780,6 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             [failure],
             hasAnyCandidate: false,
             contract: contract);
-
-    private static void AddOperationTimeoutFailure(
-        List<PackageAuthorityFailure> failures,
-        NuGetOperationContext operation)
-    {
-        if (failures.Any(failure =>
-                failure.Authority == InertString.Empty
-                && failure.Kind == PackageAuthorityFailureKind.Timeout))
-        {
-            return;
-        }
-
-        failures.Add(new PackageAuthorityFailure(
-            InertString.Empty,
-            PackageAuthorityFailureKind.Timeout,
-            "The package version operation deadline expired before the aggregate completed.")
-        {
-            Timeout = new(PackageSourceTimeoutKind.Operation, operation.OperationTimeout),
-        });
-    }
 
     public ValueTask DisposeAsync()
     {
