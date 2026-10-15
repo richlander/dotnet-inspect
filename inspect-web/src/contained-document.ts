@@ -9,6 +9,8 @@ import type {
 declare const preparedLeafContainmentBrand: unique symbol;
 declare const containedLeafPopulationBrand: unique symbol;
 
+const maximumDocumentPresentationLeafIdentity = 2_147_483_647;
+
 export type DocumentTextPolicy =
   Exclude<BrowserDocumentTextPolicy, number>;
 
@@ -70,9 +72,13 @@ export function prepareDocumentLeafContainment(
   const identities = new Set<number>();
   const copied: DocumentPresentationLeaf[] = [];
   for (const leaf of leaves) {
-    if (!Number.isSafeInteger(leaf.identity) || leaf.identity < 0) {
+    if (
+      !Number.isSafeInteger(leaf.identity)
+      || leaf.identity < 0
+      || leaf.identity > maximumDocumentPresentationLeafIdentity
+    ) {
       throw new TypeError(
-        "A document presentation-leaf identity must be a non-negative safe integer.",
+        "A document presentation-leaf identity must be a non-negative 32-bit integer.",
       );
     }
     if (identities.has(leaf.identity)) {

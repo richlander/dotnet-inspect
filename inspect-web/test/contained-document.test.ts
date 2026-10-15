@@ -106,7 +106,7 @@ test("preparation rejects invalid or duplicate identities", () => {
       "document-4",
       [{ identity: -1, policy: "Field", text: "value" }],
     ),
-    /non-negative safe integer/,
+    /non-negative 32-bit integer/,
   );
   assert.throws(
     () => prepareDocumentLeafContainment(
@@ -117,6 +117,30 @@ test("preparation rejects invalid or duplicate identities", () => {
       ],
     ),
     /duplicated/,
+  );
+});
+
+test("preparation closes identity to the managed 32-bit range", () => {
+  const maximum = prepareDocumentLeafContainment(
+    "document-4",
+    [{
+      identity: 2_147_483_647,
+      policy: "Field",
+      text: "maximum",
+    }],
+  );
+  assert.equal(maximum.leaves[0]?.identity, 2_147_483_647);
+
+  assert.throws(
+    () => prepareDocumentLeafContainment(
+      "document-4",
+      [{
+        identity: 2_147_483_648,
+        policy: "Field",
+        text: "overflow",
+      }],
+    ),
+    /non-negative 32-bit integer/,
   );
 });
 

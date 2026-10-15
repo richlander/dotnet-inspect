@@ -331,6 +331,28 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageDocumentLeaves_AcceptMaximumIdentity()
+    {
+        const string leavesJson =
+            """[{"identity":2147483647,"policy":"Field","text":"maximum"}]""";
+
+        string json = PackageExports.ContainPackageDocumentLeaves(
+            "document-13",
+            leavesJson);
+        BrowserDocumentLeafContainmentContained contained =
+            Assert.IsType<BrowserDocumentLeafContainmentContained>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserPackageJsonContext.Default
+                        .BrowserDocumentLeafContainmentOutcome));
+
+        BrowserContainedDocumentPresentationLeaf leaf =
+            Assert.Single(contained.Leaves);
+        Assert.Equal(int.MaxValue, leaf.Identity);
+        Assert.Equal("maximum", leaf.Text.ToString());
+    }
+
+    [Fact]
     public async Task
         QueryMemberDocumentation_DottedAssemblyNameUsesSharedContract()
     {
