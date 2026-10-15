@@ -807,9 +807,10 @@ public static class TfmSelector
         if (normalizedAssemblyName.Contains('/'))
             return (null, []);
 
-        var assemblyLeaf = Path.GetFileName(assemblyName);
+        string assemblyLeaf =
+            PackageEntryPath.GetLeafName(normalizedAssemblyName);
         var bareName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? Path.GetFileNameWithoutExtension(assemblyLeaf)
+            ? PackageEntryPath.GetStemName(assemblyLeaf)
             : assemblyLeaf;
         var fileName = assemblyLeaf.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
             ? assemblyLeaf
