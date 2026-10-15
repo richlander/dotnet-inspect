@@ -581,10 +581,15 @@ internal static class LibrarySectionDescriptions
         + "and counts from the library's metadata inventories.",
         "The section is present whenever the assembly could be read, and a "
         + "fact with no value is omitted. The async and extension method "
-        + "counts are omitted when their analysis failed, and "
-        + "Classified Methods says why; the other inventory counts report 0 "
-        + "when their scan did not complete, so a 0 is read against "
-        + "Inspection Failures.");
+        + "counts are omitted when their analysis failed, and Classified "
+        + "Methods says why; the other inventory counts report 0 when their "
+        + "scan did not run or complete, so a 0 alone does not establish an "
+        + "empty inventory, and the inventory's own section is "
+        + "authoritative.",
+        "Counts are overview totals, not every row their sections list: "
+        + "Switches counts switches declared in metadata, not AppContext "
+        + "call sites, and Extension Methods counts methods, not extension "
+        + "properties.");
 
     public static SectionDescription InspectionFailures { get; } = new(
         "Scans run for this inspection that failed, with the section each "
