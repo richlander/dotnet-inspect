@@ -3737,6 +3737,31 @@ public sealed class InspectionPlanningTests
         Assert.Empty(result.Error);
     }
 
+    [Fact]
+    public async Task NestedGenericMemberFilterTreeRetainsStructuralMissSuggestions()
+    {
+        var result = await RunAppAsync(
+            "System.Collections.Immutable.ImmutableArray<T>.Builder",
+            "-m",
+            "Add",
+            "-D",
+            SectionNames.Signature,
+            "--schema",
+            "--tree");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "[type/type/ApiMember] unresolved 'Signature'",
+            result.Output);
+        Assert.Contains(
+            "Allocation Facts (suggestion)",
+            result.Output);
+        Assert.Contains(
+            "[member/member-target/ApiMemberDetail] Signature",
+            result.Output);
+        Assert.Empty(result.Error);
+    }
+
     [Theory]
     [InlineData("Add", "Clear")]
     [InlineData("Add:1", "Clear")]

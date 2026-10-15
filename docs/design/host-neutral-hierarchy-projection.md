@@ -72,6 +72,11 @@ verbosity, and exact spelling. Shared presentation owns the title,
 description, and streaming native Tree lowering without a CLI-built Markout
 graph.
 
+Structural discovery is the seventh adopter. The discovery document owns
+category, section, and renderable item identities, membership, ordering, and
+the selectable row address space. Shared presentation owns labels, resource
+paths, and streaming native Tree lowering without a CLI-built Markout graph.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:
