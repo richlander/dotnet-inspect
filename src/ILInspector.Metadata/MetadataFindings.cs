@@ -767,7 +767,7 @@ public static partial class MetadataFindings
         changes.Add(change);
     }
 
-    static void AddTypeFacetDetails(ApiType oldType, ApiType newType, ApiDiffScope scope, List<string> details)
+    internal static void AddTypeFacetDetails(ApiType oldType, ApiType newType, ApiDiffScope scope, List<string> details)
     {
         if (scope.HasFlag(ApiDiffScope.Signature))
         {
@@ -791,7 +791,7 @@ public static partial class MetadataFindings
             AddFacetDetail(details, "attributes", FormatSet(oldType.Attributes), FormatSet(newType.Attributes));
     }
 
-    static void AddMemberFacetDetails(ApiMember oldMember, ApiMember newMember, ApiDiffScope scope, List<string> details)
+    internal static void AddMemberFacetDetails(ApiMember oldMember, ApiMember newMember, ApiDiffScope scope, List<string> details)
     {
         if (scope.HasFlag(ApiDiffScope.Signature))
         {

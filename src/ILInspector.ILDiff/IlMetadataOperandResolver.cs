@@ -10,7 +10,7 @@ namespace ILInspector.ILDiff;
 
 public static partial class IlBodyDiff
 {
-    sealed class MetadataOperandResolver(
+    internal sealed class MetadataOperandResolver(
         MetadataReader reader,
         IlBodyDiffNormalization normalization,
         CompilerGeneratedOrdinalCorrespondence correspondence)

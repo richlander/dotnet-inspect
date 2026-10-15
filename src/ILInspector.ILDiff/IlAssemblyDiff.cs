@@ -566,6 +566,11 @@ public static class IlAssemblyDiff
         return new MethodMapResult(methods, failures.ToImmutable());
     }
 
+    // SPIKE (exp/staged-diff-spike): the method identity the assembly comparison
+    // pairs bodies by, for eng/measure-staged-diff.cs. Null when it cannot be resolved.
+    internal static string? SpikeMethodIdentity(MetadataReader reader, MethodDefinitionHandle handle)
+        => MethodKey(reader, handle, reader.GetMethodDefinition(handle)).Identity;
+
     static MethodIdentityResult MethodKey(
         MetadataReader reader,
         MethodDefinitionHandle handle,
