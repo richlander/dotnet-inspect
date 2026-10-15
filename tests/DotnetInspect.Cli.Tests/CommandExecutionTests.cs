@@ -1515,7 +1515,9 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
-        CreateLocalRootLibPackage(bool includeRealTfm = false)
+        CreateLocalRootLibPackage(
+            bool includeRealTfm = false,
+            bool uppercaseExtensions = false)
     {
         string packageId =
             typeof(CommandExecutionTests).Assembly.GetName().Name!;
@@ -1527,7 +1529,11 @@ public partial class CommandExecutionTests
         Directory.CreateDirectory(libDir);
         File.Copy(
             TestAssemblyPath,
-            Path.Combine(libDir, "Unexpected.FileName.dll"));
+            Path.Combine(
+                libDir,
+                uppercaseExtensions
+                    ? "Unexpected.FileName.DLL"
+                    : "Unexpected.FileName.dll"));
         var (systemRuntime, _, _, resolveError) =
             PlatformResolver.ResolveAssembly("System.Runtime");
         if (resolveError is not null || systemRuntime is null)
@@ -1536,7 +1542,9 @@ public partial class CommandExecutionTests
 
         File.Copy(
             systemRuntime,
-            Path.Combine(libDir, "Neighbor.dll"));
+            Path.Combine(
+                libDir,
+                uppercaseExtensions ? "Neighbor.DLL" : "Neighbor.dll"));
         string nestedDir = Path.Combine(libDir, "nested");
         Directory.CreateDirectory(nestedDir);
         File.Copy(

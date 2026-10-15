@@ -1046,6 +1046,43 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryCommand_RootLibUppercaseExtensionUsesCompilePopulation()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRootLibPackage(uppercaseExtensions: true);
+        try
+        {
+            var exact = await RunAppAsync(
+                "library",
+                "Neighbor.DLL",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.True(
+                exact.Exit == 0,
+                $"Error: {exact.Error}{Environment.NewLine}"
+                    + $"Output: {exact.Output}");
+            Assert.Empty(exact.Error);
+            Assert.Contains(
+                "# Neighbor.DLL",
+                exact.Output);
+            Assert.DoesNotContain(
+                "Unexpected.FileName.DLL",
+                exact.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_NamesakeLibrary_UsesManagedAssemblyIdentity()
     {
         string packageId =
