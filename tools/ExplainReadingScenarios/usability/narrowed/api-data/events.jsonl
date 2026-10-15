@@ -1,0 +1,11 @@
+{"kind": "view", "file": "view-01.txt", "source": "experimental skill prototype (data)", "time_ns": 17868375}
+{"kind": "request-start", "id": 1, "time_ns": 23674208}
+{"kind": "request", "id": 1, "time_ns": 51847208}
+{"kind": "view", "file": "view-02.txt", "source": "response-01.out", "time_ns": 23910458}
+{"kind": "request-start", "id": 2, "time_ns": 23799791}
+{"kind": "request", "id": 2, "time_ns": 140933500}
+{"kind": "view", "file": "view-03.txt", "source": "response-02.out", "time_ns": 29906708}
+{"kind": "view", "file": "view-04.txt", "source": "response-02.out", "time_ns": 21141958}
+{"kind": "request-start", "id": 3, "time_ns": 24328916}
+{"kind": "request", "id": 3, "time_ns": 141831166}
+{"kind": "view", "file": "view-05.txt", "source": "response-03.out", "time_ns": 25116458}

@@ -121,6 +121,17 @@ public sealed partial class ResourceExplanationDataset
             : WriteVocabularyReading(hal, bindHalAddress ?? bindAddress);
     }
 
+    /// <summary>
+    /// Returns registered query controls and reading facts for presentation consumers.
+    /// Ordinary ToJson reads use the compact query-preparation profile instead.
+    /// </summary>
+    public JsonElement ToQueryPresentationJson()
+    {
+        if (_kind != "query-facets")
+            throw new InvalidOperationException("Query presentation requires a query-facet selection.");
+        return WriteQueryPreparation(false, static path => path.Value, includePresentation: true);
+    }
+
     private IEnumerable<ExplanationResourceKey> Targets(ExplanationResourceKey source, string relation)
     {
         foreach (ResourceExplanationRelationship edge in _catalog.Relationships.Where(edge =>

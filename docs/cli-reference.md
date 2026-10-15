@@ -847,6 +847,8 @@ packet=$(dotnet-inspect workspace \
 dotnet-inspect package System.Text.Json --workspace "$packet"
 dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
+dotnet-inspect package System.Text.Json@10.0.0 \
+  --tfm netstandard2.0 -S "Dependency Hierarchy" --share url
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
@@ -890,6 +892,14 @@ Appending `--share` preserves ordinary stdout and writes a derived Package
 packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
+
+For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
+append `--share url` to keep the hierarchy on stdout and print its Inspect Web
+URL on stderr. The URL preserves the resolved exact Package version and target
+framework; the Browser reacquires that Package and runs the rooted dependency
+traversal. `--share packet` emits the packet instead. Local archives, other
+source selections, and hierarchy row or depth selections cannot currently be
+reproduced in the Browser and fail visibly.
 
 For one package with exactly `Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
@@ -1156,7 +1166,11 @@ dotnet-inspect library query --platform runtime \
 Library Query tests each candidate Library's direct `AssemblyRef` table;
 repeated `references` terms are ANDed. `--take` bounds candidates scanned,
 while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
-afterward. Use `library query -Q Libraries` to discover the current vocabulary.
+afterward; a lone `-n` stops scanning at its Nth match. A reached explicit
+`--take` is the answer's scope: a note names it and the exit is 0. The default
+256-candidate limit that omits Libraries is a partial view: rows and `--count`
+print what was observed, with a warning and exit 1. Use
+`library query -Q Libraries` to discover the current vocabulary.
 Native images beside managed Libraries in the directory are skipped; a
 directory with no managed Library is a failed source. Missing or malformed
 Metadata remains visible rather than silently becoming a nonmatch: rows and
@@ -1219,13 +1233,16 @@ evidence. Use `tool-format=v1` or `tool-format=v2` for settings-based format
 classification; the two specific formats are compatible filtering
 alternatives. Selecting a package-content term authorizes the required archive
 acquisition and defaults to at most 20 candidates. Use `--nuspec-only` to
-reject a query that would require package content. Without explicit `--take`, a
-simple `-n N` query pushes that semantic head into execution; explicit
-`--take` instead fixes the candidate population before row selection. Reached
-candidate limits and partial failures are reported explicitly. `--count`
-counts the selected matching package rows that the same query would render,
-with the same completion warnings and exit status. A reached candidate bound or
-partial failure therefore yields an observed count, not the scope's total.
+reject a query that would require package content. A simple `-n N` query
+pushes that semantic head into execution, inside an explicit `--take` window
+when one is given: evaluation stops at the Nth match or the window's end.
+Explicit `--take` fixes the requested candidate population; reaching it is the
+answer's scope, named by a note, and exits 0. A default candidate limit that
+stops evaluation, a page limit, or a partial failure is a partial view: a
+warning and exit 1. `--count` counts the selected matching package rows that
+the same query would render, with the same notes, warnings, and exit status: it
+is exact for a reached explicit `--take`, and an observed count, not the
+scope's total, under a default limit or partial failure.
 Incompleteness alone never withholds the count: only a search that fails before
 evaluating any candidate prints none, and an unsatisfied strict `--rows` window
 fails as it does for rows.
@@ -2133,8 +2150,9 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --member "Serialize:1" \
   --analysis api,call-site,allocation
 
-dotnet-inspect diff --package Microsoft.Identity.Client@4.89.0..4.90.0 \
-  --analysis string-literals --where "Literal contains https://"
+dotnet-inspect diff --package Microsoft.Azure.SignalR@1.20.0..1.33.1 \
+  --analysis string-literals \
+  --where "Literal contains https://"
 
 dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
   --analysis string-literals --where "Literal starts-with https://" --json
@@ -2144,7 +2162,11 @@ String-literal predicates use exact ordinal UTF-16 matching. The key is
 case-sensitive `Literal`; the supported operators are `contains` and
 `starts-with`. Each Transition row retains the complete decoded literal. Two
 matching positions within one literal still produce one row, while separate
-physical `ldstr` instructions remain separate occurrences.
+physical `ldstr` instructions remain separate occurrences. Package diffs with
+several Library assemblies compare corresponding assemblies by file name and
+name each assembly in the Transition target. An assembly present at only one
+endpoint contributes added or removed literals. The single-Library target
+remains the package name.
 
 Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to

@@ -1,0 +1,8 @@
+Error: Resource path 'vocabularies/csharp-body-kind' was not found.
+
+Did you mean:
+  vocabularies/csharp.body-kinds
+  vocabularies/csharp.style-tiers
+  vocabularies/csharp.style-choices
+  vocabularies/api.accessibility
+  vocabularies

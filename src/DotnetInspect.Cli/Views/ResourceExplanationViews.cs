@@ -59,6 +59,24 @@ public sealed class ResourceExplanationView
         init => field = LibraryViewText.Contain(value);
     }
 
+    public string? Basis
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Empty
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
+    public string? Boundary
+    {
+        get;
+        init => field = LibraryViewText.Contain(value);
+    }
+
     public string? Key
     {
         get;
@@ -254,6 +272,9 @@ public sealed class ResourceExplanationView
             Cardinality = details.Cardinality,
             Identity = details.Identity,
             Summary = details.Summary,
+            Basis = details.Basis,
+            Empty = details.EmptyResult,
+            Boundary = details.Boundary,
             Key = details.Key,
             SubjectRole = details.SubjectRole,
             ResultGrain = details.ResultGrain,
@@ -422,7 +443,10 @@ public sealed class ResourceExplanationView
         List<string>? Maps = null,
         List<string>? MapValues = null,
         List<string>? Defaults = null,
-        string? AllValues = null)
+        string? AllValues = null,
+        string? Basis = null,
+        string? EmptyResult = null,
+        string? Boundary = null)
     {
         internal static RootDetails Create(
             ResourceExplanationResource resource)
@@ -535,7 +559,12 @@ public sealed class ResourceExplanationView
                 resource.ResourceType.Value == "value-vocabulary"
                     && resource.Path is { } path
                     ? $"explain {path.Value} --depth 1"
-                    : null);
+                    : null,
+                ResourceExplanationFactView.OptionalText(resource, "basis"),
+                ResourceExplanationFactView.OptionalText(resource, "empty"),
+                ResourceExplanationFactView.OptionalText(
+                    resource,
+                    "boundary"));
         }
 
         private static RootDetails Empty(

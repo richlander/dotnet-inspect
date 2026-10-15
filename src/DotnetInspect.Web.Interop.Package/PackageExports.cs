@@ -1072,6 +1072,20 @@ public static partial class PackageExports
     }
 
     /// <summary>
+    /// Visually contains sanitized package-document HTML immediately before browser publication.
+    /// Markdown structure and active-content sanitization have already been applied by the host.
+    /// </summary>
+    [JSExport]
+    public static string ContainPackageDocumentHtml(string html)
+    {
+        BrowserPackageDocumentHtml document =
+            BrowserPackageWireProjection.ProjectDocumentHtml(html);
+        return JsonSerializer.Serialize(
+            document,
+            BrowserPackageJsonContext.Default.BrowserPackageDocumentHtml);
+    }
+
+    /// <summary>
     /// One exact member's unified documentation outcome from the
     /// PackageHouse-selected Library.
     /// </summary>

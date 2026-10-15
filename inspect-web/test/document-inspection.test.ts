@@ -92,6 +92,7 @@ function inspectionDependencies(
   return {
     state,
     queryDocument: async () => content("# Read me"),
+    renderText: async text => text,
     renderMarkdown: async text => `<p>${text}</p>`,
     renderMarkdownInline: async text => `<span>${text}</span>`,
     describeError: error =>
@@ -175,8 +176,8 @@ test("document frontmatter projects folded descriptions and version", async () =
 
   const viewer = readyViewer(state, document, "<h1>Body</h1>");
   assert.deepEqual(viewer.meta, {
-    name: "Package guide",
-    version: "2.0",
+    nameHtml: "Package guide",
+    versionHtml: "2.0",
     descriptionHtml: "<p>First line second line</p>",
   });
 });
@@ -206,9 +207,41 @@ test("frontmatter descriptions fall back to the document name", async () => {
   });
 
   assert.deepEqual(readyViewer(state, document).meta, {
-    name: "README.md",
-    version: "2.0",
+    nameHtml: "README.md",
+    versionHtml: "2.0",
     descriptionHtml: "<p>Description</p>",
+  });
+});
+
+test("frontmatter name and version use the contained text renderer", async () => {
+  const override = "\u202E";
+  const state = inspectionState();
+  const coordinator = createDocumentInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDocument: async () => content(
+        "---\n"
+        + `name: api.${override}tegun\n`
+        + "version: literal-\\u202E\n"
+        + "description: Package guide\n"
+        + "---\n"
+        + "Body"),
+      renderText: async text => {
+        if (text.includes(override)) return "api.\\u202Etegun";
+        if (text.includes("\\u202E")) return "literal-\\\\u202E";
+        throw new Error(`Unexpected frontmatter text: ${text}`);
+      },
+    }));
+
+  await coordinator.open({
+    packageId: "Example.Package",
+    version: "1.2.3",
+    document,
+  });
+
+  assert.deepEqual(readyViewer(state, document).meta, {
+    nameHtml: "api.\\u202Etegun",
+    versionHtml: "literal-\\\\u202E",
+    descriptionHtml: "<span>Package guide</span>",
   });
 });
 
@@ -888,8 +921,8 @@ test("closing replaces every document surface with a closed state", () => {
       },
       html: "<p>old</p>",
       meta: {
-        name: "Old",
-        version: "1.0",
+        nameHtml: "Old",
+        versionHtml: "1.0",
         descriptionHtml: "<p>old</p>",
       },
     },

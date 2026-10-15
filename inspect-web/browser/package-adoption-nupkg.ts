@@ -143,6 +143,7 @@ function nuspecBytes(
   packageId: string,
   version: string,
   dependency: ManifestDependency,
+  framework = fixtureFramework,
 ): Uint8Array {
   return Buffer.from(
     `<?xml version="1.0" encoding="utf-8"?>
@@ -151,7 +152,7 @@ function nuspecBytes(
     <id>${packageId}</id>
     <version>${version}</version>
     <dependencies>
-      <group targetFramework="${fixtureFramework}">
+      <group targetFramework="${framework}">
         <dependency id="${dependency.id}" version="${dependency.versionRange}" />
       </group>
     </dependencies>
@@ -174,11 +175,12 @@ export function manifestBackedNupkg(
   packageId: string,
   version: string,
   dependency: ManifestDependency,
+  framework = fixtureFramework,
 ): Buffer {
   return storedZip([
-    { name: `${packageId}.nuspec`, bytes: nuspecBytes(packageId, version, dependency) },
-    { name: `ref/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
-    { name: `lib/${fixtureFramework}/${assemblyFileName}`, bytes: assemblyBytes },
+    { name: `${packageId}.nuspec`, bytes: nuspecBytes(packageId, version, dependency, framework) },
+    { name: `ref/${framework}/${assemblyFileName}`, bytes: assemblyBytes },
+    { name: `lib/${framework}/${assemblyFileName}`, bytes: assemblyBytes },
   ]);
 }
 

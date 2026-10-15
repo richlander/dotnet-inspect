@@ -200,17 +200,11 @@ evidence that justifies the different acquisition tradeoff. Selecting fewer
 entries, or requesting only directory facts, does not itself justify overriding
 the cut. Fixture overrides may exercise both sides of the policy.
 
-The sole production exception is the CLI pairwise-diff endpoint admission
-check in `PackageEndpointDiffSession`. It uses a zero cut while deciding
-whether the modern endpoint scope can answer or must use the legacy selector.
-A complete download during that check is not available to the legacy fallback,
-which would download the same archive again. The exception avoids that duplicate
-complete transfer; it does not extend to ordinary endpoint realization.
-It retains a measured cost for small admitted archives, including the extra
-directory read documented in
-[endpoint-scope adoption step 2](package-endpoint-scope.md#adoption).
-It retires with the legacy selector in endpoint-scope adoption step 4. New
-consumers must not copy it.
+No production consumer overrides the cut. The CLI pairwise-diff endpoint
+admission check used a zero cut while it decided between the endpoint scope
+and the legacy selector; it retired in
+[endpoint-scope adoption step 4 part 2](package-endpoint-scope.md#adoption),
+when the scope became authoritative for the API views.
 
 The search Root's coverage fallback is sequential: it takes the complete
 archive only after the ranged read returns, so the two transfers never

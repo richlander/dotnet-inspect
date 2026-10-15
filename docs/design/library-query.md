@@ -203,7 +203,9 @@ Release gates cover:
 - route-derived query discovery and structural discovery without acquisition
   in `DotnetInspect.Cli.Tests`;
 - directory execution, row selection versus candidate bounds, Count, a
-  population exactly at and one larger than the default bound, and
+  population exactly at and one larger than the default bound (a partial view
+  with exit 1, a lone Head that stops early, and an explicit `--take` scope
+  with exit 0, `LibraryQuery_DefaultCandidateCeilingIsAPartialView`), and
   malformed-reference visibility in `DotnetInspect.Cli.Tests`; and
 - participant-backed execution, exact Browser asset-ID projection, and Worker
   transport in `DotnetInspector.Queries.Tests` and `DotnetInspect.Web.Tests`;

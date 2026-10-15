@@ -14,6 +14,49 @@ namespace DotnetInspector.Services.Tests;
 public sealed partial class PackageRangedRealizationTests
 {
     /// <summary>
+    /// Step 4 part 2: an endpoint's merged API surface holds every surface
+    /// participant's Types, ordered by name, with the participants' counts
+    /// summed and each Type naming the package asset it came from.
+    /// </summary>
+    [Fact]
+    public async Task EndpointScope_MergedApiSurface_HoldsEveryParticipant()
+    {
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, ReadAvalonia());
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        await using PackageEndpointScope scope = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                new InMemoryPackageStore(),
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(Avalonia, AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface)));
+        var log = new List<string>();
+
+        ILInspector.Metadata.ApiSurface surface = await PackageEndpointApiSurfaceQuery.ExecuteAsync(
+            scope,
+            Avalonia,
+            ApiSurfaceScope.Public,
+            log.Add,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(Avalonia, surface.Name);
+        Assert.Equal("net10.0", surface.Tfm);
+        Assert.Equal(scope.SurfaceParticipants.Length, log.Count(static line => line.StartsWith("  + ", StringComparison.Ordinal)));
+        Assert.Equal(surface.Types.Count, surface.PublicTypeCount);
+        Assert.Equal(
+            surface.Types.Select(static type => type.FullName).Order(),
+            surface.Types.Select(static type => type.FullName));
+        Assert.Contains(surface.Types, static type => type.FullName == "Avalonia.Controls.Button");
+        Assert.Contains(surface.Types, static type => type.FullName == "Avalonia.AvaloniaObject");
+        Assert.All(surface.Types, type =>
+            Assert.Contains(
+                scope.SurfaceParticipants,
+                participant => participant.Asset.Path == type.SourceAssemblyPath));
+        Assert.Empty(surface.InspectionFailures);
+    }
+
+    /// <summary>
     /// Gate 1: a <c>Surface</c> endpoint exposes one surface participant per
     /// selected compile asset, with package provenance, and no
     /// implementation role; its ranged read materializes only the surface
@@ -161,6 +204,129 @@ public sealed partial class PackageRangedRealizationTests
         await Assert.ThrowsAsync<ArgumentException>(async () =>
             await scope.UseSurfaceParticipantAsync(
                 dialogs,
+                static (_, _, _) => ValueTask.FromResult(0),
+                TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// Step 4 part 3: the body query hands each endpoint's implementation
+    /// participants to one comparison, each with its image, a descriptor
+    /// that reads that image, and a resolver that binds references within
+    /// the endpoint's implementation group. A <c>Surface</c> endpoint has no
+    /// implementation role.
+    /// </summary>
+    [Fact]
+    public async Task EndpointScope_BodyQuery_HandsImplementationParticipantsTheirImagesAndResolvers()
+    {
+        var server = new RangeFeed(Avalonia, AvaloniaVersion, ReadAvalonia());
+        await using RangedEnvironment environment = RangedEnvironment.Create(server);
+        var store = new InMemoryPackageStore();
+        var request = new PackageEndpointScopeRequest(
+            PackageSourceCoordinate.Create(Avalonia, AvaloniaVersion),
+            "net10.0",
+            PackageAssetDemand.SurfaceAndImplementation);
+        await using PackageEndpointScope before = AssertOpened(
+            await OpenEndpointAsync(environment, store, request));
+        await using PackageEndpointScope after = AssertOpened(
+            await OpenEndpointAsync(environment, store, request));
+
+        (int Before, int After, string? Bound) seen = await PackageEndpointBodyQuery.ExecuteAsync(
+            before,
+            after,
+            (beforeParticipants, afterParticipants, _) =>
+            {
+                Assert.Equal(
+                    before.ImplementationParticipants,
+                    beforeParticipants.Select(static participant => participant.Descriptor));
+                Assert.Equal(
+                    after.ImplementationParticipants,
+                    afterParticipants.Select(static participant => participant.Descriptor));
+                Assert.All(afterParticipants, participant =>
+                {
+                    Assert.StartsWith(
+                        AvaloniaImplementation,
+                        participant.Descriptor.Asset.Path,
+                        StringComparison.Ordinal);
+                    Assert.Equal(
+                        Path.GetFileNameWithoutExtension(participant.Descriptor.Asset.Path),
+                        participant.Assembly.Identity.Name);
+                    using Stream content = participant.Assembly.OpenRead();
+                    Assert.Equal(participant.Image.Length, content.Length);
+
+                    // SourceHouse reads the participant in the group that
+                    // holds it, with the package provenance its PDB
+                    // settlement keys on.
+                    Assert.Contains(participant.GroupParticipant, participant.Group.Participants);
+                    var provenance = Assert.IsType<ILInspector.Metadata.AssemblyResolutionProvenance.PackageAsset>(
+                        participant.GroupParticipant.Assembly.Provenance);
+                    Assert.Equal(
+                        (
+                            participant.Descriptor.Provenance.PackageId,
+                            participant.Descriptor.Provenance.PackageVersion,
+                            participant.Descriptor.Provenance.TargetFramework,
+                            participant.Descriptor.Provenance.AssetPath),
+                        (provenance.PackageId, provenance.PackageVersion, provenance.Tfm, provenance.AssetPath));
+                });
+
+                PackageEndpointBodyParticipant controls = afterParticipants.Single(
+                    static participant => participant.Assembly.Identity.Name == "Avalonia.Controls");
+                using var pe = new System.Reflection.PortableExecutable.PEReader(
+                    controls.Image);
+                System.Reflection.Metadata.MetadataReader reader =
+                    System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                ILInspector.Metadata.AssemblyReferenceIdentity baseReference = reader.AssemblyReferences
+                    .Select(handle => ILInspector.Metadata.AssemblyReferenceIdentity.From(reader, handle))
+                    .Single(static identity => identity.Name == "Avalonia.Base");
+                return ValueTask.FromResult((
+                    beforeParticipants.Length,
+                    afterParticipants.Length,
+                    controls.Resolver.Resolve(
+                        baseReference,
+                        ILInspector.Metadata.AssemblyResolutionScope.Any)?.Identity.Name));
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal((11, 11, "Avalonia.Base"), seen);
+
+        // Step 4 part 5: one endpoint's participants, as a forwarded
+        // target's scope reads them, bind within that endpoint alone.
+        string? single = await PackageEndpointBodyQuery.ExecuteAsync(
+            after,
+            (participants, _) =>
+            {
+                Assert.Equal(
+                    after.ImplementationParticipants,
+                    participants.Select(static participant => participant.Descriptor));
+                PackageEndpointBodyParticipant controls = participants.Single(
+                    static participant => participant.Assembly.Identity.Name == "Avalonia.Controls");
+                Assert.Contains(controls.GroupParticipant, controls.Group.Participants);
+                using var pe = new System.Reflection.PortableExecutable.PEReader(
+                    controls.Image);
+                System.Reflection.Metadata.MetadataReader reader =
+                    System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                ILInspector.Metadata.AssemblyReferenceIdentity baseReference = reader.AssemblyReferences
+                    .Select(handle => ILInspector.Metadata.AssemblyReferenceIdentity.From(reader, handle))
+                    .Single(static identity => identity.Name == "Avalonia.Base");
+                return ValueTask.FromResult(
+                    controls.Resolver.Resolve(
+                        baseReference,
+                        ILInspector.Metadata.AssemblyResolutionScope.Any)?.Identity.Name);
+            },
+            TestContext.Current.CancellationToken);
+        Assert.Equal("Avalonia.Base", single);
+
+        await using PackageEndpointScope surface = AssertOpened(
+            await OpenEndpointAsync(
+                environment,
+                store,
+                new PackageEndpointScopeRequest(
+                    PackageSourceCoordinate.Create(Avalonia, AvaloniaVersion),
+                    "net10.0",
+                    PackageAssetDemand.Surface)));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await PackageEndpointBodyQuery.ExecuteAsync(
+                surface,
+                after,
                 static (_, _, _) => ValueTask.FromResult(0),
                 TestContext.Current.CancellationToken));
     }

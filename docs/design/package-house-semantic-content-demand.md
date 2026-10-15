@@ -149,8 +149,8 @@ The snapshot is the singular basis for:
 - logical TFM Library inventory, implementation correspondence, and
   adjacent-PDB entry evidence;
 - the detached File List terminal;
-- entry offsets, compressed and expanded lengths, and compression facts used
-  by ranged-entry planning; and
+- entry offsets, compressed and expanded lengths, archive timestamps, and
+  compression facts used by ranged-entry planning; and
 - the entry identities used to query which content the entry cache already
   holds.
 
@@ -332,6 +332,14 @@ it. That inventory Root must be realized with Library-content demand before
 entering an assembly inspection. Complete acquisition below the size cut or
 when ranges are unavailable preserves the same inventory result.
 
+A compile inspection is the adjacent demand for a Package facts view that also
+contains a body-backed rollup. It preserves the same package-wide File List and
+compile-selection evidence, but additionally materializes the selected compile
+surface and implementation assets. It still does not authorize unrelated
+package entries or a complete archive; House chooses ranged acquisition,
+complete acquisition below the size cut, or fallback from that combined
+demand.
+
 The motivating asset is `Avalonia@12.1.3`, observed on 2026-10-07: a
 10,157,510-byte archive with 121 entries and separate reference and
 implementation folders. The website Summary currently obtains its Library rows
@@ -343,13 +351,24 @@ complete JSON equality against the base and cold/warm measurements.
 
 The website is the first production adopter, under website download-flow
 tracker [#9678](https://github.com/richlander/dotnet-inspect/issues/9678)
-and focused issue [#9754](https://github.com/richlander/dotnet-inspect/issues/9754). The CLI's inventory-only
-Package Info selection is the next adoption boundary; its complete-content
-sections retain their existing demand until that selection reaches acquisition.
+and focused issue [#9754](https://github.com/richlander/dotnet-inspect/issues/9754).
+The CLI Package Info selection consumes a compile-inspection settlement:
+package-wide File List evidence plus the selected compile assets required by
+its body-backed Ecosystem Dependencies rollup. It projects package structure
+and the existing `Built` field from owner-issued File List evidence, including
+archive timestamps for files and explicit directory entries, without mixing
+directories into the file-entry sequence or downloading unrelated package
+content. Full typed JSON retains the complete-package path because its
+serialized document includes body-backed binary signals beyond the selected
+visual section. Tool
+settings and dependency manifests that require body-backed tool
+classification, local archives, metadata enrichment, signature verification,
+and all complete-content sections retain the existing complete-package path.
 Release gates are `CompileInventoryDemandIsDeclaredBeforeAcquisition`,
 `CompileInventory_UsesHousePlanningAndPreservesMeasurementReceipts`,
 `PackageInventory_RangePreservesSelectionWithoutLibraryBodies`,
-`PackageInventory_RangePreservesEmptyAndNoMatch`, and the existing
+`PackageInventory_RangePreservesEmptyAndNoMatch`,
+`PackageInfo_RangedRead_UsesSelectedLibrariesWithoutUnrelatedBody`, and the existing
 `QueryPackageSummary_ToolPayloadPublishesExactManagedLibraries` and
 `PackageSummary_PreservesProductDefaultAlongsideCompleteLibraryInventory`. This slice consumes existing selection, measurement,
 Root, and QuerySpace child-row contracts rather than changing them.

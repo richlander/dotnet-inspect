@@ -11,7 +11,7 @@ public class MemberGroupPresentationTests
     [Fact]
     public void WriteTree_StreamsTheCompleteOrderedOverloadPopulation()
     {
-        MemberGroupDocument document = CreateDocument(
+        MemberOverviewDocument document = CreateOverview(
             Shape(
                 1,
                 "Run()",
@@ -48,7 +48,7 @@ public class MemberGroupPresentationTests
     [Fact]
     public void FormatTitle_UsesTheSingularOverloadLabel()
     {
-        MemberGroupDocument document = CreateDocument(
+        MemberDocument document = CreateExact(
             Shape(
                 1,
                 "Run()",
@@ -56,7 +56,7 @@ public class MemberGroupPresentationTests
                 MemberReceiver.Static));
 
         string title = MemberGroupPresentation.FormatTitle(
-            document.Subject,
+            document.Subject.Group,
             "Example.C",
             1);
 
@@ -66,50 +66,74 @@ public class MemberGroupPresentationTests
     }
 
     [Fact]
-    public void WriteTree_RejectsCountAndRowsThatDescribeDifferentPopulations()
+    public void WriteTree_RendersExactMemberAsSingletonPopulation()
     {
-        MemberGroupDocument complete = CreateDocument(
+        MemberDocument document = CreateExact(
             Shape(
                 1,
                 "Run()",
                 "public",
-                MemberReceiver.This));
-        var document = new MemberGroupDocument(
-            complete.Subject,
-            new(
-                complete.Overloads.Binding,
-                new MemberOverloadCountOutcome.Counted(2),
-                complete.Overloads.Rows));
+                MemberReceiver.Static));
         using var output = new StringWriter();
 
-        InvalidOperationException exception =
-            Assert.Throws<InvalidOperationException>(() =>
-                MemberGroupPresentation.WriteTree(
-                    document,
-                    "Example.C",
-                    output));
+        MemberGroupPresentation.WriteTree(
+            document,
+            "Example.C",
+            output);
 
         Assert.Equal(
-            "Member-group Count and Rows must describe the same population.",
-            exception.Message);
-        Assert.Empty(output.ToString());
+            """
+            method Example.C.Run (1 overload)
+            └─ public static Run()
+
+            """.ReplaceLineEndings(),
+            output.ToString());
     }
 
-    private static MemberGroupDocument CreateDocument(
+    private static MemberOverviewDocument CreateOverview(
         params MemberOverloadShape[] rows)
     {
         MetadataTypeDefinitionName type = Name("Example", "C");
         var subject = new MemberGroupSubject(type, "Run");
         MemberOverloadPopulationBinding binding = Binding(type);
-        var result = new MemberOverloadPopulationResult(
+        return new(
+            subject,
             binding,
-            new MemberOverloadCountOutcome.Counted(rows.Length),
-            new MemberOverloadRowsOutcome.Read(
-                MemberOverloadOrdering.Metadata,
-                [.. rows],
-                Continuation: null));
-        return new(subject, result);
+            [
+                .. rows.Select(row =>
+                    Declaration(subject, row)),
+            ]);
     }
+
+    private static MemberDocument CreateExact(MemberOverloadShape row)
+    {
+        MemberGroupSubject subject =
+            new(Name("Example", "C"), "Run");
+        MemberDeclaration declaration = Declaration(subject, row);
+        return new(
+            declaration.Subject,
+            declaration.DisplaySignature,
+            declaration.CanonicalSignature,
+            declaration.Accessibility,
+            declaration.Receiver);
+    }
+
+    private static MemberDeclaration Declaration(
+        MemberGroupSubject subject,
+        MemberOverloadShape row) =>
+        new(
+            new(
+                subject,
+                row.Binding,
+                row.MetadataToken,
+                row.Anchor,
+                row.BaselineOrdinal,
+                row.Fingerprint,
+                row.DocumentationId),
+            row.DisplaySignature,
+            row.CanonicalSignature,
+            row.Accessibility,
+            row.Receiver);
 
     private static MemberOverloadShape Shape(
         int ordinal,

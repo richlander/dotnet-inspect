@@ -10,16 +10,17 @@ using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
-/// Package endpoint scope gates 5 to 7, 9, and 10
+/// Package endpoint scope gates 5 to 7 and 9 to 11
 /// (docs/design/package-endpoint-scope.md#pathological-cases-and-gates):
-/// Library API Diff over pairwise <c>diff --package ID@A..B</c> opens each
-/// endpoint as a package endpoint scope read by range, every other API view
-/// keeps the legacy endpoints, and all output is byte-identical to the legacy
-/// extraction path, which is the oracle.
+/// every API view of pairwise <c>diff --package ID@A..B</c> opens each
+/// endpoint as a package endpoint scope read by range. Where the legacy
+/// selector and the House select the same assemblies, the output is
+/// byte-identical to the legacy extraction path, which is the oracle.
 /// </summary>
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
     private const string SystemTextJsonId = "System.Text.Json";
+    private const string NUnitId = "NUnit";
     private static readonly string[] SystemTextJsonVersions = ["9.0.0", "10.0.0"];
 
     /// <summary>
@@ -35,21 +36,23 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     ];
 
     /// <summary>
-    /// The merged-surface API views over the same archives, which the
-    /// endpoint scope doesn't serve at this step: API changes (a member target
-    /// leaves the Library API Diff route) and API Finding Transitions.
+    /// The merged-surface API views over the same archives: API changes (a
+    /// member target leaves the Library API Diff route), API Finding
+    /// Transitions, and an API analysis set with its default views, which
+    /// reads the merged surface though each endpoint is one Library.
     /// </summary>
     private static readonly string[][] SystemTextJsonMergedSurfaceViews =
     [
         ["--member", "System.Text.Json.JsonSerializer.SerializeAsync:1"],
         ["--type", "System.Text.Json.JsonSerializer", "--analysis", "api", "-S", "Transitions"],
+        ["--type", "System.Text.Json.JsonSerializer", "--analysis", "api"],
     ];
 
     /// <summary>
     /// Gates 5 and 6: Library API Diff output equals the legacy path's; the
-    /// cold run reads each endpoint's <c>lib/net8.0</c> and root folders and
-    /// nothing else by range, and the next run answers from the entry cache
-    /// with no package request.
+    /// cold run reads each endpoint's <c>lib/net8.0</c> folder and nothing
+    /// else by range, and the next run answers from the entry cache with no
+    /// package request.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_LibraryApiDiff_ReadsOnlyTheSurfaceFolderByRangeAndEqualsLegacy()
@@ -76,11 +79,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             Assert.DoesNotContain("takes the legacy path", result.Error, StringComparison.Ordinal);
             if (view == 0)
             {
-                // One abandoned size probe per endpoint, then ranged reads of
-                // the root folder (the admission check) and the surface
-                // folder only.
-                Assert.Equal(SystemTextJsonVersions.Length, feed.FullPackageResponses);
-                AssertEachCellReadsOnly(feed, packages, ["lib/net8.0", ""]);
+                // The directory first, then ranged reads of the surface
+                // folder only; no complete request.
+                Assert.Equal(0, feed.FullPackageResponses);
+                AssertEachCellReadsOnly(feed, packages, ["lib/net8.0"]);
                 continue;
             }
 
@@ -97,12 +99,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
-    /// API changes and API Finding Transitions take the legacy path before
-    /// any package read, under every host: nothing is read by range, and the
-    /// output equals the legacy path's.
+    /// Gate 11: API changes and API Finding Transitions read each endpoint's
+    /// merged participant surface: only the surface folder is read by range,
+    /// and the output equals the legacy path's.
     /// </summary>
     [Fact]
-    public async Task PairwiseDiff_MergedSurfaceViews_ReadNothingByRangeAndEqualLegacy()
+    public async Task PairwiseDiff_MergedSurfaceViews_ReadOnlyTheSurfaceFolderByRangeAndEqualLegacy()
     {
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
         string[][] requests =
@@ -117,17 +119,17 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
             Assert.True(legacy[view] == result.Output, result.Error);
-            Assert.DoesNotContain(
-                "package endpoint", result.Error, StringComparison.OrdinalIgnoreCase);
-            Assert.Equal(0, feed.RangedResponses);
+            Assert.Equal(
+                2,
+                CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));
         }
+        AssertEachCellReadsOnly(feed, packages, ["lib/net8.0"]);
     }
 
     /// <summary>
     /// Gate 7: offline, with both endpoints in the local package cache, the
-    /// API views give the same output; Library API Diff opens both exact
-    /// pins through the scope, with and without <c>--tfm</c>, and the other
-    /// views keep the legacy path.
+    /// API views give the same output, and each opens both exact pins
+    /// through the scope, with and without <c>--tfm</c>.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_OfflineWithCachedEndpoints_GivesTheSameOutput()
@@ -150,12 +152,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             {
                 var offline = await RunCommandAsync([.. requests[view], "--verbose"]);
                 Assert.True(online[view] == offline.Output, offline.Error);
-                // Step 4 part 1: exact pins open through the scope offline,
-                // from the legacy-compatible store, with no request.
-                bool merged = view >= SystemTextJsonLibraryApiDiffs.Length
-                    && view < requests.Length - 1;
+                // Exact pins open through the scope offline, from the
+                // legacy-compatible store, with no request.
                 Assert.Equal(
-                    merged ? 0 : 2,
+                    2,
                     CountOccurrences(offline.Error, "Using package endpoint scope for System.Text.Json@"));
             }
         }
@@ -167,99 +167,78 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
-    /// The legacy selector merges every <c>lib</c>, <c>ref</c>, and
+    /// Gate 11: the legacy selector merges every <c>lib</c>, <c>ref</c>, and
     /// <c>tools</c> DLL whose folder names the requested framework, so for
     /// the real Avalonia archives (<c>ref/net8.0</c> beside
-    /// <c>lib/net8.0</c>) it selects more than the endpoint scope's surface.
-    /// Those requests are excluded from the scope route before any surface
-    /// folder is read, stay byte-identical because the legacy path serves
-    /// them, and cost no network when repeated.
+    /// <c>lib/net8.0</c>) it reported change rows twice and an ambiguous
+    /// generic-constraint binding as an inspection failure. The endpoint
+    /// scope's merged surface is the House's compile selection, so a row
+    /// repeats only for overloads and the comparison is complete; only that
+    /// selection is read by range, and the same request again makes no
+    /// package request.
     /// </summary>
     [Fact]
-    public async Task PairwiseDiff_LegacySelectionBeyondTheSurface_TakesTheLegacyPath()
+    public async Task PairwiseDiff_MultiLibrarySurface_ReportsEachChangeOnce()
     {
         Dictionary<string, byte[]> packages = await ReadAvaloniaHistoryPackagesAsync();
         string[] request =
         [
             "diff",
             "--package", $"{AvaloniaId}@{AvaloniaHistoryVersions[0]}..{AvaloniaHistoryVersions[1]}",
-            "--type", "Avalonia.Controls.Button",
             "--tfm", "net8.0",
             "--source", FirstFeed,
-            "--tips", "q",
         ];
         string[] legacy = await RunLegacyPairwiseDiffsAsync(AvaloniaId, packages, [request]);
-
+        Assert.Contains("metadata inspection failed", legacy[0], StringComparison.Ordinal);
         var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, AvaloniaId, packages);
         UseFeed(feed);
         var result = await RunCommandAsync([.. request, "--verbose"]);
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.Contains(
+            "| Summary | **Summary:** 521 breaking, 600 additive, 220 potentially breaking across 462 types |",
+            result.Output,
+            StringComparison.Ordinal);
+        // Overloads repeat a row; the doubled selection repeats nearly every
+        // row of a Type both folders ship.
+        int repeated = DuplicatedChangeRows(result.Output);
+        int legacyRepeated = DuplicatedChangeRows(legacy[0]);
+        Assert.True(
+            repeated * 10 < legacyRepeated,
+            $"{repeated} repeated rows against the legacy selector's {legacyRepeated}");
+        Assert.DoesNotContain("metadata inspection failed", result.Output, StringComparison.Ordinal);
+        Assert.Equal(
+            2,
+            CountOccurrences(result.Error, "surface assemblies for net8.0;"));
+        AssertEachCellReadsOnly(feed, packages, ["ref/net8.0"]);
 
-        Assert.True(legacy[0] == result.Output, result.Error);
-        // Admission is decided from the archive directory: both endpoints'
-        // checks run to completion, and their ranged reads before the legacy
-        // download touch the root folder only, never a surface folder.
-        AssertEachCellReadsOnly(feed, packages, [""]);
-        foreach (string version in AvaloniaHistoryVersions)
-        {
-            Assert.Contains(
-                $"Package endpoint {AvaloniaId}@{version} takes the legacy path: "
-                    + "the legacy selector picks [lib/net8.0/Avalonia.Base.dll",
-                result.Error,
-                StringComparison.Ordinal);
-        }
-
-        // The same request again makes no package request at all: both
-        // directories are in the entry cache and both archives in the
-        // legacy cache.
         int ranged = feed.RangedResponses;
         int full = feed.FullPackageResponses;
         long served = feed.PackageBytesServed;
         var warm = await RunCommandAsync([.. request, "--verbose"]);
 
-        Assert.True(legacy[0] == warm.Output, warm.Error);
+        Assert.Equal(result.Output, warm.Output);
         Assert.Equal(ranged, feed.RangedResponses);
         Assert.Equal(full, feed.FullPackageResponses);
         Assert.Equal(served, feed.PackageBytesServed);
     }
 
     /// <summary>
-    /// A fallback below the ranged size cut: the real NUnit 4.1.0 and 4.2.2
+    /// Gate 11 below the ranged size cut: the real NUnit 4.1.0 and 4.2.2
     /// archives (0.7 MB each) ship two Libraries in <c>lib/net6.0</c>, so
-    /// Library API Diff doesn't apply. The admission check reads each
-    /// directory by range whatever the size, so no archive is downloaded
-    /// before the legacy path downloads it once; the output equals the
-    /// legacy oracle's.
+    /// the API changes read each endpoint's merged surface. Each archive is
+    /// read once, directory first, and the output equals the legacy
+    /// oracle's.
     /// </summary>
     [Fact]
-    public async Task PairwiseDiff_FallbackBelowTheSizeCut_DownloadsEachArchiveOnce()
+    public async Task PairwiseDiff_TwoLibrariesBelowTheSizeCut_DownloadEachArchiveOnce()
     {
-        const string NUnitId = "NUnit";
-        var hashes = new Dictionary<string, string>
-        {
-            ["4.1.0"] = "b2bce3d257f645e2b0e354e78a06707fcaea28a373191455ae0377851fef463a",
-            ["4.2.2"] = "fb4392ebb2136a5986f5aad80a0405ffe61b98f467077a4823291ec3492fa027",
-        };
-        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        foreach ((string version, string hash) in hashes)
-        {
-            byte[] package = await File.ReadAllBytesAsync(
-                Path.Combine(
-                    AppContext.BaseDirectory,
-                    "RealAssets",
-                    "PackageEndpointScope",
-                    $"nunit.{version}.nupkg"),
-                TestContext.Current.CancellationToken);
-            Assert.Equal(hash, Convert.ToHexStringLower(SHA256.HashData(package)));
-            Assert.True(package.Length < 1_000_000);
-            packages.Add(version, package);
-        }
+        Dictionary<string, byte[]> packages = await ReadNUnitPackagesAsync();
         string[] request =
         [
             "diff",
             "--package", $"{NUnitId}@4.1.0..4.2.2",
             "--tfm", "net6.0",
             "--source", FirstFeed,
-            "--tips", "q",
         ];
         string[] legacy = await RunLegacyPairwiseDiffsAsync(NUnitId, packages, [request]);
 
@@ -270,23 +249,19 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(legacy[0] == result.Output, result.Error);
         Assert.Equal(
             2,
-            CountOccurrences(result.Error, "takes the legacy path: its surface has 2 Libraries"));
-        // Each archive's body is read whole once, by the legacy download; the
-        // admission check read only its directory and root folder by range.
+            CountOccurrences(result.Error, "(2 surface assemblies for net6.0;"));
+        // Below the cut, each archive's directory is read first, then its
+        // missing prefix, and the archive is assembled complete: every byte
+        // once (docs/design/package-cache-policy.md#directory-first).
         long archives = packages.Values.Sum(static package => (long)package.Length);
-        Assert.True(
-            feed.FullBodyBytesRead >= archives
-                && feed.FullBodyBytesRead <= archives + (archives / 4),
-            $"complete-response bodies read {feed.FullBodyBytesRead} bytes: "
-                + string.Join(", ", feed.FullBodyReadsByResponse()));
-        AssertEachCellReadsOnly(feed, packages, [""]);
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.Equal(archives, feed.PackageBytesServed);
     }
 
     /// <summary>
-    /// Both endpoints already in a NuGet global-packages folder: the legacy
-    /// path answers Library API Diff from it with no network, so the scope
-    /// route steps aside before any request and the output equals the
-    /// legacy oracle's.
+    /// Both endpoints already in a NuGet global-packages folder: the scope
+    /// opens both from it through the legacy-compatible store with no
+    /// request, and the output equals the legacy oracle's.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_EndpointsInGlobalPackages_MakeNoRequest()
@@ -334,10 +309,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
             Assert.True(result.Exit == 0, result.Error);
             Assert.Equal(legacy.Output, result.Output);
-            Assert.Contains(
-                "endpoints are in the local package cache",
-                result.Error,
-                StringComparison.Ordinal);
+            Assert.Equal(
+                2,
+                CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));
         }
         finally
         {
@@ -387,7 +361,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             AssertEachCellReadsOnly(
                 feed,
                 new Dictionary<string, byte[]> { [version] = packages[version] },
-                [folder, ""]);
+                [folder]);
         }
 
         var explicitTarget = await RunCommandAsync([.. requests[1], "--verbose"]);
@@ -430,7 +404,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             .. endpoints.Select(static pair => new[]
             {
                 "diff", "--package", $"{SystemTextJsonId}@{pair.From}..{pair.To}",
-                "--tfm", "net8.0", "--source", FirstFeed, "--tips", "q",
+                "--tfm", "net8.0", "--source", FirstFeed,
             }),
         ];
         string[] legacy = await RunLegacyPairwiseDiffsAsync(
@@ -570,7 +544,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         "--package", $"{SystemTextJsonId}@{SystemTextJsonVersions[0]}..{SystemTextJsonVersions[1]}",
         .. targetFramework is null ? (string[])[] : ["--tfm", targetFramework],
         "--source", FirstFeed,
-        "--tips", "q",
         .. view,
     ];
 
@@ -617,6 +590,34 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         return outputs;
     }
 
+    /// <summary>
+    /// The real NUnit 4.1.0 and 4.2.2 archives, each below the ranged size
+    /// cut, which ship two Libraries in <c>lib/net6.0</c>.
+    /// </summary>
+    private static async Task<Dictionary<string, byte[]>> ReadNUnitPackagesAsync()
+    {
+        var hashes = new Dictionary<string, string>
+        {
+            ["4.1.0"] = "b2bce3d257f645e2b0e354e78a06707fcaea28a373191455ae0377851fef463a",
+            ["4.2.2"] = "fb4392ebb2136a5986f5aad80a0405ffe61b98f467077a4823291ec3492fa027",
+        };
+        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach ((string version, string hash) in hashes)
+        {
+            byte[] package = await File.ReadAllBytesAsync(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "PackageEndpointScope",
+                    $"nunit.{version}.nupkg"),
+                TestContext.Current.CancellationToken);
+            Assert.Equal(hash, Convert.ToHexStringLower(SHA256.HashData(package)));
+            Assert.True(package.Length < 1_000_000);
+            packages.Add(version, package);
+        }
+        return packages;
+    }
+
     private static async Task<Dictionary<string, byte[]>> ReadSystemTextJsonPackagesAsync()
     {
         var hashes = new Dictionary<string, string>
@@ -638,6 +639,24 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             packages.Add(version, package);
         }
         return packages;
+    }
+
+    /// <summary>
+    /// The change rows that repeat within one Type's section of a rendered
+    /// diff.
+    /// </summary>
+    private static int DuplicatedChangeRows(string output)
+    {
+        int duplicates = 0;
+        var section = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string line in output.Split('\n'))
+        {
+            if (line.StartsWith('#'))
+                section.Clear();
+            else if (line.StartsWith("- ", StringComparison.Ordinal) && !section.Add(line))
+                duplicates++;
+        }
+        return duplicates;
     }
 
     private static int CountOccurrences(string text, string value)

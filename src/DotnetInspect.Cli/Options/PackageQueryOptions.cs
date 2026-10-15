@@ -16,6 +16,17 @@ public sealed record PackageQueryOptions : IProjectionOptions
 
     public required PackageQueryPlan Plan { get; init; }
     public bool SemanticHeadPushedDown { get; init; }
+
+    /// <summary>
+    /// The candidate bound is part of the request: an explicit --take, or a
+    /// direct row path's Head. Reaching it is the answer's scope, not
+    /// incompleteness (cli-execution-bounds.md#count). A default ceiling is
+    /// not requested, so reaching it leaves a partial view.
+    /// </summary>
+    public bool CandidateBoundRequested { get; init; }
+
+    /// <summary>The user set the candidate bound with --take.</summary>
+    public bool ExplicitTake { get; init; }
     public RowSelectionIntent<string> RowSelection => Plan.RowSelection;
     public bool Count { get; init; }
     public bool JsonOutput { get; init; }
@@ -238,23 +249,32 @@ public sealed record PackageQueryOptions : IProjectionOptions
             return false;
         }
 
-        int? requestedHead = take is null
-            ? SingleHeadCount(rowSelection)
-            : null;
+        // A lone semantic Head within the match-budget maximum is pushed into
+        // execution with or without an explicit --take; inside a --take window
+        // it stops at the Nth match or the window's end, whichever comes first.
+        int? requestedHead = SingleHeadCount(rowSelection);
         int? semanticHead = requestedHead is <= MaximumCandidates
             ? requestedHead
             : null;
+        // Without --take, a direct metadata row path is one candidate per
+        // final row, so the Head is also its candidate bound: `-n 2` has the
+        // work shape `--take 2 -n 2`.
+        bool directHeadPath =
+            !requiresMetadataExpensive
+            && !requiresNuspecExpensive
+            && !requiresPackageContent
+            && requestedHead is not null
+            && (ecosystem is not null
+                || input?.Trim().EndsWith('*') == true)
+            && terms.Count == 0;
         int defaultMaximumCandidates = requiresMetadataExpensive
             ? PackageQuery.MaximumMetadataExpensiveCandidates
             : requiresNuspecExpensive
             ? PackageQuery.MaximumNuspecExpensiveCandidates
             : requiresPackageContent
                 ? PackageQuery.MaximumPackageContentCandidates
-                : requestedHead is int head
-                    && (ecosystem is not null
-                        || input?.Trim().EndsWith('*') == true)
-                    && terms.Count == 0
-                    ? Math.Min(head, MaximumCandidates)
+                : directHeadPath
+                    ? Math.Min(requestedHead!.Value, MaximumCandidates)
                     : PackageQuery.DefaultMaximumCandidates;
         int maximumCandidates = take ?? defaultMaximumCandidates;
         if (maximumCandidates is <= 0 or > MaximumCandidates)
@@ -308,6 +328,10 @@ public sealed record PackageQueryOptions : IProjectionOptions
         {
             Plan = ((PackageQueryPlanResult.Accepted)result).Plan,
             SemanticHeadPushedDown = semanticHead is not null,
+            CandidateBoundRequested =
+                take is not null
+                || (directHeadPath && semanticHead is not null),
+            ExplicitTake = take is not null,
         };
         error = "";
         return true;

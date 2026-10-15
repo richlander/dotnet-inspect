@@ -163,10 +163,12 @@ internal static class LibraryQueryCommandDefinitions
                 CommandError.Write(rowSelectionError!);
                 return 1;
             }
+            int? take =
+                CliExecutionBoundCommandRegistry.GetPreparedValue(
+                    parseResult);
             if (!LibraryQueryOptions.TryCreate(
                     parseResult.GetValue(opts.RowWhere) ?? [],
-                    CliExecutionBoundCommandRegistry.GetPreparedValue(
-                        parseResult),
+                    take,
                     rowSelection,
                     out LibraryQueryPlan? plan,
                     out OptionError planError))
@@ -231,6 +233,7 @@ internal static class LibraryQueryCommandDefinitions
             var options = new LibraryQueryOptions
             {
                 Plan = plan!,
+                ExplicitTake = take is not null,
                 Population = population,
                 SourceOptions =
                     opts.ParseNuGetSourceOptions(parseResult),

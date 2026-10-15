@@ -725,8 +725,11 @@ through the QuerySpace route in
   `InspectionEnvelope<MemberGroupDocumentInspectionOutcome>`;
 - CLI
   [`MemberGroupDocumentOutput`](../src/DotnetInspect.Cli/Output/MemberGroupDocumentOutput.cs)
-  lowers the default and explicit Tree gestures to the operation, then renders
-  the returned Count and Rows;
+  lowers default and explicit Tree gestures through
+  `MemberDocumentResolutionOperation`, then shared presentation renders the
+  final singleton `MemberDocument` or multi-declaration
+  `MemberOverviewDocument`; only the distinct returned-row compiled-
+  documentation table retains the transitional operation;
 - Inspect Web's TypeScript
   [member-group loader](../inspect-web/src/dotnet-inspect.ts) invokes the
   generated `queryMemberGroupDocument` facade for package, Platform, and
@@ -742,8 +745,9 @@ uses that row's owner-issued identity to select `MemberDocument` rather than
 exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
 family proves that the same operation returns the complete
 `MemberOverviewDocument`; a missing group remains typed rejection. CLI default
-Tree, explicit Tree, and Browser family views continue to consume the
-transitional operation until their focused adoption slice.
+Tree and explicit Tree consume this final resolution. The explicit returned-row
+documentation table and Browser family views continue to consume the
+transitional operation until their focused adoption slices.
 
 `MemberContextualExplanationOperation.ExplainResolvedMember` consumes only the
 completed overview or exact success variants from that resolver. It projects

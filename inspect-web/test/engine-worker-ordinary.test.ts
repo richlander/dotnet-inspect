@@ -120,6 +120,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
+    containPackageDocumentHtml: () =>
+      unexpected("containPackageDocumentHtml"),
     queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
@@ -128,6 +130,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryPackageHierarchy: () =>
+      unexpected("queryPackageHierarchy"),
     queryPackageIcon: () => unexpected("queryPackageIcon"),
     queryPackageVulnerabilities: () =>
       unexpected("queryPackageVulnerabilities"),
@@ -2435,6 +2439,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
+      "containPackageDocumentHtml",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
@@ -2450,6 +2455,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryPackageHierarchy",
       "queryPackageIcon",
       "queryPackageVulnerabilities",
       "queryPackageRoot",
@@ -2582,7 +2588,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 130);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 132);
 
   const state = fixture();
   const groups = [

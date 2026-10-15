@@ -114,6 +114,14 @@ external-context calls use the internal registered-work bridge. Desktop
 composition owns the root and awaits root quiescence before releasing its
 clients.
 
+`DesktopPackageSourceComposition.GetVersionsAsync` retains its compatibility
+input validation and exact configured-authority registration, but Package
+Source settlement now owns authority consultation, result association,
+aggregation, completeness, typed failures, timeout, and candidate issuance.
+The composition no longer contains a second version-enumeration loop. Its
+caller-supplied operation-context branch remains compatibility work until those
+callers adopt transferred operation leases.
+
 These compatibility paths do not claim that ordinary class aliases are
 borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
 No borrow crosses `await`.

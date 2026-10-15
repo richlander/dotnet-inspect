@@ -47,9 +47,9 @@ internal sealed class ExactLibraryInspectionSession(
             cancellationToken);
     }
 
-    public InspectionEnvelope<MemberGroupDocumentInspectionOutcome>?
-        ExecuteMemberGroupDocument(
-            MemberOverloadPopulationInspectionPlan plan,
+    public InspectionEnvelope<MemberDocumentResolutionOutcome>?
+        ExecuteMemberDocumentResolution(
+            MemberDocumentResolutionPlan plan,
             CancellationToken cancellationToken)
     {
         LibraryOperationLeaseIssueOutcome leaseIssue =
@@ -64,7 +64,7 @@ internal sealed class ExactLibraryInspectionSession(
         }
 
         using LibraryOperationLease lease = issued.Lease;
-        return MemberGroupDocumentInspectionOperation.Execute(
+        return MemberDocumentResolutionOperation.Execute(
             new(reference, plan),
             lease,
             cancellationToken);

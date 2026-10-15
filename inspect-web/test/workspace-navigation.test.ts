@@ -11,6 +11,7 @@ import {
   createNavigationHistory,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
+  hierarchyShareTargetFramework,
   parseWorkspaceLocation,
   parseWorkspaceRoute,
   recoverWorkspaceRouteFailure,
@@ -22,6 +23,7 @@ import {
   selectedBrowserCallGraphPackageTabIds,
   shouldInterceptLinkClick,
   workspaceUrlPreservationApplies,
+  workspaceHierarchyShareTabsMatchResolved,
   workspaceShareTabsMatchResolved,
   workspaceShareCaptureTopology,
   workspaceViewSignature,
@@ -464,31 +466,33 @@ test("workspace-subject URLs preserve retained coordinates and restore Workspace
   assert.equal(parsed.workspaceNotice, "");
 });
 
-test("canonical package dependency views restore the package root lens", () => {
-  const initial = workspaceState();
-  const state = workspaceState({
-    view: {
-      ...initial.view,
-      lens: "dependencies",
-      type: null,
-      memberAnchor: null,
-      memberSignature: null,
-      section: null,
-      libraries: [],
-    },
+for (const lens of ["dependencies", "hierarchy"]) {
+  test(`canonical package ${lens} views restore the package root lens`, () => {
+    const initial = workspaceState();
+    const state = workspaceState({
+      view: {
+        ...initial.view,
+        lens,
+        type: null,
+        memberAnchor: null,
+        memberSignature: null,
+        section: null,
+        libraries: [],
+      },
+    });
+
+    const parsed = parseWorkspaceLocation(
+      locationSnapshot(
+        "https://inspect.example/?package=Example.Second&w=canonical"),
+      () => decoded(state));
+
+    assert.equal(parsed.atPackageRoot, true);
+    assert.equal(parsed.workspaceSubjectOpen, false);
+    assert.equal(parsed.packageLens, lens);
+    assert.equal(parsed.lens, null);
+    assert.equal(parsed.type, null);
   });
-
-  const parsed = parseWorkspaceLocation(
-    locationSnapshot(
-      "https://inspect.example/?package=Example.Second&w=canonical"),
-    () => decoded(state));
-
-  assert.equal(parsed.atPackageRoot, true);
-  assert.equal(parsed.workspaceSubjectOpen, false);
-  assert.equal(parsed.packageLens, "dependencies");
-  assert.equal(parsed.lens, null);
-  assert.equal(parsed.type, null);
-});
+}
 
 test("canonical forwarded-Type Overview is distinct from Package Overview", () => {
   const initial = workspaceState();
@@ -795,6 +799,42 @@ test("canonical tabs must remain distinct and ordered after resolution", () => {
     workspaceShareTabsMatchResolved(
       requested,
       [resolved[1]!, resolved[0]!]),
+    false);
+});
+
+test("hierarchy share retains a requested target through compatible asset selection", () => {
+  const tab = {
+    ...workspaceState().tabs[0]!,
+    framework: "net11.0",
+  };
+  const resolved = { ...tab, framework: "net10.0" };
+  const basis = workspaceState({
+    tabs: [tab],
+    view: {
+      ...workspaceState().view,
+      lens: "hierarchy",
+      type: null,
+      section: null,
+      libraries: [],
+    },
+  });
+
+  assert.equal(workspaceShareTabsMatchResolved([tab], [resolved]), false);
+  assert.equal(workspaceHierarchyShareTabsMatchResolved([tab], [resolved]), true);
+  assert.equal(
+    hierarchyShareTargetFramework(
+      basis, { id: tab.source, version: tab.version! }, "hierarchy"),
+    "net11.0");
+  assert.equal(
+    hierarchyShareTargetFramework(
+      basis, { id: tab.source, version: tab.version! }, "overview"),
+    null);
+  assert.equal(
+    workspaceHierarchyShareTabsMatchResolved(
+      [tab], [{ ...resolved, version: "2.0.0" }]),
+    false);
+  assert.equal(
+    workspaceHierarchyShareTabsMatchResolved([tab, tab], [resolved, resolved]),
     false);
 });
 

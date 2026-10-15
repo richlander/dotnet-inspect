@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
@@ -1759,6 +1760,40 @@ public sealed class InspectionPlanningTests
                 SectionTerminalCapability.Count,
             ],
             aggregateDeclaration.Terminals);
+    }
+
+    [Fact]
+    public void LibraryDeclaresEverySelectableSectionDescription()
+    {
+        SectionCatalog<LibraryInspection> catalog =
+            LibrarySections.CreateCatalog().Sections;
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.DirectLibrary,
+                    InspectionCatalogIdentity.Library));
+        IReadOnlyDictionary<string, SectionDescription> projected =
+            Assert.IsAssignableFrom<
+                IReadOnlyDictionary<string, SectionDescription>>(
+                projection.SectionDescriptions);
+
+        // Section model, invariant 11: Library has completed description
+        // adoption, so every selectable section declares one. Stale and
+        // missing entries both fail, and the structural route carries a
+        // description for every section in its schema.
+        Assert.Equal(
+            catalog.SelectableSectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            catalog.SectionDescriptions.Keys.Order(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string section in projection.Schema.SectionNames)
+            Assert.True(projected.ContainsKey(section), section);
+        foreach (SectionDescription description in
+                 catalog.SectionDescriptions.Values)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(description.Summary));
+            Assert.False(string.IsNullOrWhiteSpace(description.Basis));
+            Assert.False(string.IsNullOrWhiteSpace(description.Empty));
+        }
     }
 
     [Fact]
