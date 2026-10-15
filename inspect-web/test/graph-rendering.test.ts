@@ -7,6 +7,7 @@ import {
 import {
   buildAnnotatedRelationshipGraphMermaid,
   buildAssemblyReferenceGraphMermaid,
+  buildPackageHierarchyGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -18,6 +19,30 @@ import {
 } from "./composition-root-test-fixture.ts";
 import { sampleInvocationTarget } from "./annotated-source-result-fixture.ts";
 import { callGraphLegendHtml } from "../src/graph-legends.ts";
+
+test("package hierarchy graph keeps repeated occurrences and bounds the preview", () => {
+  const rows = [
+    { id: 0, parentId: null, depth: 0, label: "Root", disposition: "Root", resolution: "Resolved" },
+    { id: 1, parentId: 0, depth: 1, label: "Shared", disposition: "First", resolution: "Resolved" },
+    { id: 2, parentId: 1, depth: 2, label: "Shared", disposition: "Cycle", resolution: "Resolved" },
+    ...Array.from({ length: 78 }, (_, index) => ({
+      id: index + 3, parentId: 2, depth: 3, label: `Child ${index}`,
+      disposition: "First", resolution: "Resolved",
+    })),
+  ];
+  const graph = buildPackageHierarchyGraphMermaid({
+    package: "Root", version: "1.0.0", framework: "net10.0",
+    isComplete: false, completion: "Partial", rows, failures: [],
+  });
+  assert.ok(graph);
+  assert.equal(graph.occurrenceCount, 81);
+  assert.equal(graph.shownOccurrenceCount, 80);
+  assert.equal(graph.truncated, true);
+  assert.match(graph.definition, /h0 --> h1/);
+  assert.match(graph.definition, /h1 --> h2/);
+  assert.match(graph.definition, /h2\["Shared \(cycle\)"\]/);
+  assert.doesNotMatch(graph.definition, /h80\[/);
+});
 
 test("Annotated Source relationship graphs aggregate stable edges without losing occurrences", () => {
   const graph = buildAnnotatedRelationshipGraphMermaid([

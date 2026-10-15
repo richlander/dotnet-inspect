@@ -1250,10 +1250,12 @@ test.describe("Package Query website over real Wasm", () => {
 
     await page.goto(`/?w=${packet}`);
 
-    await expect(page.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
-      .toContainText(fallbackReferences.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator('[data-inspector-tab][data-package-lens="dependencies"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
     await expect.poll(() => new URL(page.url()).searchParams.get("w"))
       .toBe(packet);
 
@@ -1264,9 +1266,12 @@ test.describe("Package Query website over real Wasm", () => {
       .toBeVisible();
     expect(new URL(page.url()).searchParams.get("w")).not.toBe(packet);
     await chooseSubject(page, "package");
-    await page.locator('[data-inspector-tab][data-package-lens="hierarchy"]').click();
-    await expect(page.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy");
+    await page.locator('[data-inspector-tab][data-package-lens="dependencies"]').click();
+    await expect(page.locator('[data-package-references-tab="dependencies"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await page.locator('[data-package-references-tab="hierarchy"]').click();
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true");
     await page.locator('[data-application-action="share"]').dispatchEvent("click");
     await expect.poll(() => page.evaluate(() =>
       (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
@@ -1275,8 +1280,8 @@ test.describe("Package Query website over real Wasm", () => {
     expect(new URL(shared).searchParams.get("w")).toBe(packet);
     const reopened = await context.newPage();
     await reopened.goto(shared);
-    await expect(reopened.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
+    await expect(reopened.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
   });
 
   test("opens a shared Package Dependency Hierarchy and reports partial traversal", async ({ page, context }) => {
@@ -1290,16 +1295,22 @@ test.describe("Package Query website over real Wasm", () => {
 
     await page.goto(`/?w=${packet}`);
 
-    await expect(page.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toContainText(references.packageId.toLowerCase(), { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
-      .toContainText(declaredDependency.id.toLowerCase(), { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText(declaredDependency.id.toLowerCase());
+    await expect(page.locator(".package-hierarchy-diagnostics"))
       .toContainText("Traversal partial", { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree details"))
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
       .toContainText("Could not acquire the dependency manifest");
+    await page.locator("#dependency-graph-explore").click();
+    await expect(page.getByRole("dialog", { name: "Dependency hierarchy" })
+      .locator("#package-hierarchy-graph-diagram svg")).toBeVisible();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible();
   });
 
   test("opens a coordinate result through retained definition activation", async ({
