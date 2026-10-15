@@ -358,6 +358,19 @@ pack is published.
 `PlatformWorkspace_LatestSentinelUsesVersionDiscovery`, and
 `PlatformWorkspace_VersionlessDiscoveryAdmitsPrereleasePlatformLine` gate those
 behaviors.
+
+Ordinary package-backed Platform Library opens, including name-only shared
+workspace restoration, use PlatformHouse selected-Library realization and the
+shared directory-first complete/Range size policy. The runtime manifest
+selects the image and its metadata supplies the complete identity; subsequent
+selections retain that identity and the pinned version/producer. Restoring a
+selected Library does not launch whole-platform warmup or version discovery.
+Explicit Platform catalog warmup and population-dependent forwarding work
+remain separate, broader operations.
+`PlatformWorkspace_ExactAssemblyFollowsSizePolicyAndReusesCache` and
+`PlatformWorkspace_NamedLibrariesAccumulateWithoutCompleteAcquisition` gate
+the size policy, cache reuse, and cumulative selected-Library path.
+
 Initial member graphs use the same escaped definition identity as subsequent
 graph descent. Platform graph loads and descents also carry the target's
 complete assembly identity and reject an acquired root that is not
@@ -2826,7 +2839,8 @@ make a legacy request Range-capable.
 | Package source/decompilation and pairwise API/body/source comparisons | Unbound endpoint scopes, complete archives | Adopt each endpoint while preserving source, body and correspondence demand. |
 | Multi-package Gallery queries and clone candidates | Public `ResolveAsync` uses House realization; single-request `ResolveAndOpenScopeAsync` uses complete acquisition | Preserve composed binding semantics when adopting the remaining single-request and configured-source paths. |
 | Workspace occurrence activation | Bound coordinate scope | Reuses its retained generation. |
-| Platform and platform dependency composition | Platform workspace and package adapters | Separate from ordinary package realization; not covered by these slices. |
+| Platform selected Library and Library workspace restoration | PlatformHouse selected-Library realization, shared complete/Range size policy | Explicit catalog warmup and population-dependent forwarding remain broader operations. |
+| Platform population and dependency composition | Platform workspace and package adapters | Separate from selected-Library acquisition. |
 
 <!-- markdownlint-enable MD013 -->
 

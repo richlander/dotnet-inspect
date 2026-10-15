@@ -388,8 +388,7 @@ public static class PackagePlatformLibraryMaterializer
                 Population:
                         PlatformPopulationDemand.Library
                 {
-                    Value:
-                                PlatformLibraryDemand.Assembly assembly,
+                    Value: var demand,
                 },
             }
             || view != expectedView
@@ -407,7 +406,8 @@ public static class PackagePlatformLibraryMaterializer
             PlatformLibraryArtifactMaterializationItem>(2);
         if (reference is not null)
         {
-            if (!ValidContribution(
+            if (demand is not PlatformLibraryDemand.Assembly assembly
+                || !ValidContribution(
                     request,
                     exact.Target,
                     reference.Contribution,
@@ -445,10 +445,7 @@ public static class PackagePlatformLibraryMaterializer
                 || implementation.Value.Coordinate.Target != exact.Target
                 || !TrySingle(
                     implementation.Value.Libraries,
-                    library =>
-                        AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                            assembly.Identity,
-                            library.Identity),
+                    library => MatchesImplementation(demand, library.Identity),
                     out PackageImplementationLibrary? library)
                 || !string.Equals(
                     library!.Framework.RuntimeIdentifier,
@@ -522,8 +519,7 @@ public static class PackagePlatformLibraryMaterializer
                 Population:
                     PlatformPopulationDemand.Library
                 {
-                    Value:
-                            PlatformLibraryDemand.Assembly assembly,
+                    Value: var demand,
                 },
             }
             || !ValidContribution(
@@ -535,10 +531,7 @@ public static class PackagePlatformLibraryMaterializer
             || implementation.Value.Coordinate.Target != target
             || !TrySingle(
                 implementation.Value.Libraries,
-                library =>
-                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                        assembly.Identity,
-                        library.Identity),
+                library => MatchesImplementation(demand, library.Identity),
                 out PackageImplementationLibrary? library)
             || !string.Equals(
                 library!.Framework.RuntimeIdentifier,
@@ -551,6 +544,21 @@ public static class PackagePlatformLibraryMaterializer
         item = ImplementationItem(implementation, library);
         return true;
     }
+
+    static bool MatchesImplementation(
+        PlatformLibraryDemand demand,
+        AssemblyReferenceIdentity identity) =>
+        demand switch
+        {
+            PlatformLibraryDemand.Assembly assembly =>
+                assembly.Identity.IsEquivalentTo(identity),
+            PlatformLibraryDemand.AssemblyName assembly =>
+                string.Equals(
+                    assembly.Name,
+                    identity.Name,
+                    StringComparison.OrdinalIgnoreCase),
+            _ => false,
+        };
 
     static bool TryPrepareReferencePopulation(
         PlatformHouseRequest request,
