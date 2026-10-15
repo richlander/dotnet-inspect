@@ -173,6 +173,10 @@ deadlines plus caller cancellation, creates the exact lower-owner
 The operation lease owns that context and the temporary authority needed to use
 the root generation's configured clients and candidate issuer. Its issuance is
 registered with the root settlement; its release removes that registration.
+A successful release completes and disposes the context without publishing a
+new cancellation observation because the lease rejects release while a source
+step remains active. Caller cancellation and operation expiry remain visible
+through the context before that release boundary.
 
 The operation lease:
 

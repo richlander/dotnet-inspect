@@ -311,7 +311,7 @@ public sealed class PackageSourceOperationLease : IDisposable
             _disposed = true;
             try
             {
-                _context.Dispose();
+                _context.Complete();
             }
             finally
             {
