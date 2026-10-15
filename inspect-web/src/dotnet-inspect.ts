@@ -26605,7 +26605,7 @@ async function restoreWorkspaceFromLocation(
     }
     state.loading = false;
     render();
-    startPlatformTargetWork(loadedPlatformTarget);
+    if (!loc.library) startPlatformTargetWork(loadedPlatformTarget);
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!commitRestoredWorkspaceNavigation(navigationSeq, failureHandler, commitHistory)) return;
