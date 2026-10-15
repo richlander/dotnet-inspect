@@ -396,7 +396,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         string source,
         string id,
         IReadOnlyDictionary<string, byte[]> packages,
-        bool ignoreRange = false) : HttpMessageHandler
+        bool ignoreRange = false,
+        bool unlistedArchivesNotFound = false) : HttpMessageHandler
     {
         private long _packageBytesServed;
         private int _rangedResponses;
@@ -458,7 +459,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             string? version = packages.Keys.SingleOrDefault(candidate =>
                 url == $"{flat}{lower}/{candidate}/{lower}.{candidate}.nupkg");
             if (version is null)
+            {
+                // A feed answers an archive it doesn't hold with 404.
+                if (unlistedArchivesNotFound
+                    && url.StartsWith($"{flat}{lower}/", StringComparison.Ordinal)
+                    && url.EndsWith(".nupkg", StringComparison.Ordinal))
+                {
+                    return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
+                }
                 throw new InvalidOperationException($"Unexpected history-feed request: {url}");
+            }
             byte[] package = packages[version];
             var etag = new EntityTagHeaderValue($"\"history-{version}\"");
 
