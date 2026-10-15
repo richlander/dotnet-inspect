@@ -16,7 +16,7 @@ public enum PackageVersionLag
 
 /// <summary>
 /// Latest In Major, lag, and majors behind for one current version against
-/// the latest version and the admitted listed population that produced it.
+/// the latest version and the admitted population that produced it.
 /// </summary>
 public sealed record PackageVersionComparison(
     string? LatestInMajor,
@@ -28,41 +28,37 @@ public sealed record PackageVersionComparison(
         VersionComparer.VersionReleaseMetadata;
 
     /// <summary>
-    /// Compares Current with Latest and the population that produced Latest.
-    /// Current need not be a member of that population.
+    /// Compares Current with Latest and the population that produced Latest,
+    /// reading per-major answers from the population's latest-per-major
+    /// representatives. Current need not be a member of that population.
     /// </summary>
     public static PackageVersionComparison Create(
         NuGetVersion current,
         NuGetVersion latest,
-        IEnumerable<NuGetVersion> listed)
+        PackageVersionVector population)
     {
         ArgumentNullException.ThrowIfNull(current);
         ArgumentNullException.ThrowIfNull(latest);
-        ArgumentNullException.ThrowIfNull(listed);
-        ImmutableArray<NuGetVersion> population = [.. listed];
-        NuGetVersion? latestInMajor = population
-            .Where(version => version.Major == current.Major)
-            .OrderByDescending(static version => version, Comparer)
-            .FirstOrDefault();
+        ArgumentNullException.ThrowIfNull(population);
+        ImmutableArray<NuGetVersion> representatives =
+        [
+            .. population
+                .ProjectMajorRepresentatives(
+                    PackageVersionMajorRepresentativePolicy.Latest)
+                .Addresses.Select(static address => address.Version),
+        ];
+        string? latestInMajor = representatives
+            .FirstOrDefault(version => version.Major == current.Major)
+            ?.ToNormalizedString();
         if (Comparer.Compare(latest, current) <= 0)
-        {
-            return new(
-                latestInMajor?.ToNormalizedString(),
-                PackageVersionLag.None,
-                MajorsBehind: 0);
-        }
+            return new(latestInMajor, PackageVersionLag.None, MajorsBehind: 0);
 
-        int majorsBehind = population
-            .Where(version =>
-                version.Major > current.Major
-                && Comparer.Compare(version, latest) <= 0)
-            .Select(static version => version.Major)
-            .Distinct()
-            .Count();
         return new(
-            latestInMajor?.ToNormalizedString(),
+            latestInMajor,
             Lag(current, latest),
-            majorsBehind);
+            representatives.Count(version =>
+                version.Major > current.Major
+                && version.Major <= latest.Major));
     }
 
     /// <summary>

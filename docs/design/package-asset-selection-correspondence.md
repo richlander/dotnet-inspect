@@ -38,6 +38,15 @@ is later rejected. Satellite resource assemblies remain excluded.
 Selected and non-selected slices therefore remain visible in selected,
 selected-empty, no-match, and invalid results.
 
+Direct `lib/*.dll` assets form one framework-agnostic slice whose receipt
+identity is `any`; nested paths do not join that slice. A recognized explicit
+target may select `any` only when no framework-qualified slice satisfies the
+request, and `HighestAvailable` ranks every framework-qualified slice ahead of
+`any`. An unrecognized target still fails closed unless an available
+framework-qualified slice matches its spelling exactly. The implementation
+universe applies the same `any` fallback, so a selected root `lib` asset is its
+own implementation counterpart.
+
 Compile roles are framework-local. A marker suppresses library fallback only
 when its exact slice is selected and that slice has no real reference asset. A
 real reference asset in the selected slice wins over a co-located marker; a
@@ -57,6 +66,11 @@ Navigation or its
 [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
 request. `DefaultAsset` matches file stems in selection order, while First
 Library matches owner-issued assembly names in Library order.
+
+The framework-agnostic slice is grounded by published packages that carry
+managed assemblies directly under `lib/`: WebGrease 1.6.0, Antlr 3.5.0.2, and
+EO.WebBrowser 26.3.18. Focused selector fixtures preserve that layout without
+retaining package binaries.
 
 ## Comparison counterparts
 
@@ -87,16 +101,20 @@ asset identities as comparison provenance.
 
 The policy-taking `PackageCompileAssetSelector.Evaluate` overload returns
 `PackageCompileAssetSelectionReceipt` with the same generation and request
-evidence plus the exact package ID, `HighestAvailable` or `ExplicitTarget`
-policy source, and `PackageCompileAssetSelection` outcome. Requested and
-selected target frameworks remain separate.
+evidence plus the exact package ID, `HighestAvailable`, `ExplicitTarget`, or
+`ExactTarget` policy source, nested-candidate eligibility, and
+`PackageCompileAssetSelection` outcome. Requested and selected target
+frameworks remain separate.
 
-`ExactTarget` is a transitional, non-PackageHouse policy for existing
-consumers that have not reached their aggregate-adoption slice. It selects only
-direct assets from an exactly named available slice while retaining nested
-candidates in `AvailableSlices`. PackageHouse correspondence rejects that
-policy, so an exact-only consumer cannot accidentally satisfy the new
-package-local contract.
+The existing exact-only selector convenience remains direct-only: it issues
+`ExactTarget`, selects direct assets from an exactly named available slice, and
+retains nested candidates only in `AvailableSlices`. PackageHouse may also
+issue `ExactTarget`, but its target context and receipt must agree separately
+on nested-candidate eligibility. Caller-authored exact-target realization
+retains the direct-only behavior. Frozen owner-selected realization accepts
+only the named framework while retaining owner-default eligibility, including
+nested compile assets. A standalone selector receipt therefore cannot satisfy
+House correspondence merely by naming the same policy and target.
 
 The receipts are resource-free. They do not retain `IPackageContent`, streams,
 filesystem paths outside the existing package-relative asset outcomes, package
@@ -111,10 +129,11 @@ through a lower-owner prerequisite.
 ## Composition and adoption
 
 The immediate consumer is the focused PackageHouse package-local compile
-contract in #7423. PackageHouse maps absent and explicit target context to the
-selector policies above and preserves the returned receipt unchanged. The
-aggregate recommendation and exact/namesake narrowing contract remains owned
-by Navigation in #7318.
+contract in #7423. PackageHouse maps absent, compatible explicit,
+caller-authored exact, and frozen owner-selected target contexts to the
+selector policy and candidate-eligibility facts above and preserves the
+returned receipt unchanged. The aggregate recommendation and exact/namesake
+narrowing contract remains owned by Navigation in #7318.
 
 PackageHouse may compare a selector receipt's generation and exact request
 arguments with its acquisition and target-context receipts. It does not
@@ -146,11 +165,13 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Compile evaluation retains generation, request, explicit policy, and outcome | `Evaluate_RetainsGenerationRequestAndSelection` |
 | An absent target records `HighestAvailable` and selects the highest slice | `Evaluate_AbsentTargetRetainsHighestAvailablePolicy` |
 | Explicit targets retain requested and compatible selected frameworks separately | `ExplicitTarget_SelectsCompatibleLowerSlice` and `ExactCompileRealizeBindsSelectionAndLibraryHandoff` |
-| Existing exact-only consumers cannot satisfy PackageHouse policy | `ExactTargetConveniencePathDoesNotApplyPackageLocalFallback` and `CompileReceiptRejectsExactTargetOutsideHousePolicy` |
+| Exact policy alone cannot satisfy PackageHouse correspondence | `ExactTargetConveniencePathDoesNotApplyPackageLocalFallback`, `CompileReceiptRejectsExactTargetOutsideHousePolicy`, `CompileReceiptRejectsDifferentCandidateEligibility`, and `FrozenTargetCompileRealizePreservesNestedOwnerEligibility` |
 | Policy and target cardinality must agree | `PackageLocalPolicyRejectsAnInconsistentTarget` |
 | Marker-only and highest-marker packages remain selected-empty inventory | `EmptyReferenceGroup_AloneIsASelectedEmptySlice` and `HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice` |
 | Marker suppression is framework-local and real references win | `EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice` and `EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework` |
 | Compile and implementation slices reduce separately | `CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately` |
+| Direct root `lib` assets form the framework-agnostic fallback and retain implementation correspondence | `RootLibraryAssets_FormFrameworkAgnosticCompileSlice`, `ExactTargetRootFallbackPreservesRootImplementationCounterpart`, `Select_RootLibraryIsFrameworkAgnosticFallback`, `Select_FrameworkSpecificFolderOutranksRootLibrary`, and `LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry` |
+| The framework-agnostic fallback does not admit unrecognized target spellings | `Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable` |
 | Invalid implementation selection retains complete candidate inventory | `Selection_CaseCollidingImplementationPathsAreRejected` |
 | Selected implementation assets retain RID qualification | `RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` |
 | PackageHouse preserves owner-default inventory and many Library handoffs | `OwnerDefaultCompileRealizePreservesHighestAvailableInventory` |

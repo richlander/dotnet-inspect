@@ -1,9 +1,11 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
+using NuGetFetch;
 
 namespace DotnetInspector.Sections;
 
@@ -30,95 +32,126 @@ public static class ExactLibraryApiInspectionOperation
     public static Task<ExactLibraryApiInspectionExecution>
         ExecuteAsync(
             ExactLibraryApiInspectionRequest request,
-            WorkspaceContextLoadOptions capabilities,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
             CancellationToken cancellationToken = default) =>
         ExecuteAsync(
             request,
-            capabilities,
+            house,
+            sourceOperation,
             DefaultLimits,
             cancellationToken);
 
     public static async Task<ExactLibraryApiInspectionExecution>
         ExecuteAsync(
             ExactLibraryApiInspectionRequest request,
-            WorkspaceContextLoadOptions capabilities,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
             ApiSurfaceProjectionLimits projectionLimits,
             CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(capabilities);
+        ArgumentNullException.ThrowIfNull(house);
+        ArgumentNullException.ThrowIfNull(sourceOperation);
         ArgumentNullException.ThrowIfNull(projectionLimits);
-        if (request.TargetSelectionMode
-            == PackageHouseTargetSelectionMode.OwnerDefault)
-        {
-            throw new ArgumentException(
-                "Cold exact Library API inspection requires an exact target framework.",
-                nameof(request));
-        }
-
-        WorkspaceContextInput input = new()
-        {
-            Framework = request.TargetFramework,
-            Members =
-            [
-                WorkspaceMemberCoordinate.Package(
-                    request.PackageId,
-                    request.PackageVersion,
-                    request.TargetFramework),
-            ],
-        };
-        var plan = new WorkspacePlan([], [input]);
-        var workspace = new InspectionWorkspace(plan);
-        ExactLibraryApiInspectionExecution result;
+        PackageEndpointScopeRequest endpointRequest;
         try
         {
-            WorkspacePackageRootAcquisitionOutcome acquisition =
-                await WorkspaceContextLoader.AcquirePackageRootAsync(
-                    input,
-                    capabilities,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            if (acquisition
-                is WorkspacePackageRootAcquisitionOutcome.Failed failed)
+            if (request.TargetSelectionMode
+                == PackageHouseTargetSelectionMode.OwnerDefault)
             {
-                result = UnavailableExecution(
-                    request,
-                    string.Join(
-                        Environment.NewLine,
-                        failed.Failures.Select(failure => failure.Message)));
+                throw new ArgumentException(
+                    "Cold exact Library API inspection requires an exact target framework.",
+                    nameof(request));
             }
-            else
-            {
-                PackageRootBinding root =
-                    ((WorkspacePackageRootAcquisitionOutcome.Acquired)
-                        acquisition).Root;
-                using PackageAssemblyContextRealization realization =
-                    await workspace
-                    .RealizePackageAssemblyContextRolesAsync(
-                        root,
-                        cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                result = Execute(
-                    root,
-                    realization,
-                    request,
-                    projectionLimits);
-            }
+
+            PackageLibrarySelectionKind selectionKind =
+                request.SelectionKind switch
+                {
+                    ExactLibraryApiSelectionKind.Query =>
+                        PackageLibrarySelectionKind.Query,
+                    ExactLibraryApiSelectionKind.AssetId =>
+                        PackageLibrarySelectionKind.AssetId,
+                    _ => throw new ArgumentOutOfRangeException(
+                        nameof(request)),
+                };
+            var selector =
+                new PackageLibrarySelector(
+                    request.Library,
+                    selectionKind);
+            PackageLibraryInspectionDemandPlan demand =
+                PackageLibraryInspectionDemandPlanner.Plan(
+                    selector,
+                    PackageLibraryInspectionRequirement.PublicApi);
+            endpointRequest = new(
+                PackageSourceCoordinate.Create(
+                    request.PackageId,
+                    request.PackageVersion),
+                request.TargetFramework,
+                demand.AssetDemand,
+                librarySelector: demand.Selector);
         }
-        catch (Exception failure)
+        catch
         {
-            await DirectWorkspaceOperationLifetime.CloseAfterFailureAsync(
-                    workspace,
-                    failure)
-                .ConfigureAwait(false);
+            sourceOperation.Dispose();
             throw;
         }
 
-        await DirectWorkspaceOperationLifetime.CloseAsync(
-                workspace,
-                "Exact Library API inspection")
+        PackageEndpointScopeOutcome opened =
+            await PackageEndpointScope.OpenAsync(
+                    house,
+                    sourceOperation,
+                    endpointRequest,
+                    cancellationToken)
             .ConfigureAwait(false);
-        return result;
+        if (opened is PackageEndpointScopeOutcome.Failed failed)
+        {
+            if (failed.Contribution is { } contribution)
+            {
+                ExactLibraryApiQueryExecution unavailable =
+                    ExactLibraryApiInspectionQuery
+                        .ExecuteWithoutRealizedParticipant(
+                            contribution.Binding,
+                            request,
+                            failed.Message);
+                return PreserveLegacyProducer(
+                    new(
+                        Envelope(unavailable.Result, request),
+                        unavailable.Surface),
+                    failed.LegacyProducerKey);
+            }
+            return UnavailableExecution(request, failed.Message);
+        }
+
+        await using PackageEndpointScope scope =
+            ((PackageEndpointScopeOutcome.Opened)opened).Scope;
+        ArtifactRootResult<ExactLibraryApiInspectionExecution> execution =
+            await scope.UsePackageAssemblyRolesAsync(
+                    (_, root, realization, _) =>
+                        ValueTask.FromResult(
+                            Execute(
+                                root,
+                                realization,
+                                request,
+                                projectionLimits)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return execution switch
+        {
+            ArtifactRootResult<ExactLibraryApiInspectionExecution>.Available
+                available =>
+                PreserveLegacyProducer(
+                    available.Value,
+                    scope.Payload.LegacyProducerKey),
+            ArtifactRootResult<ExactLibraryApiInspectionExecution>.Rejected
+                rejected =>
+                UnavailableExecution(
+                    request,
+                    "The admitted package Root rejected exact Library API "
+                        + $"inspection: {rejected.Failure}"),
+            _ => throw new InvalidOperationException(
+                "Package endpoint execution returned an unknown result."),
+        };
     }
 
     /// <summary>
@@ -341,5 +374,35 @@ public static class ExactLibraryApiInspectionOperation
         new(
             Envelope(Unavailable(request, detail), request),
             Surface: null);
+
+    static ExactLibraryApiInspectionExecution PreserveLegacyProducer(
+        ExactLibraryApiInspectionExecution execution,
+        string? legacyProducerKey)
+    {
+        ExactLibraryApiInspectionResult content =
+            execution.Inspection.Content;
+        if (legacyProducerKey is null
+            || content.Source is not { } source
+            || source.Producer.Equals(
+                legacyProducerKey,
+                StringComparison.Ordinal))
+        {
+            return execution;
+        }
+
+        ExactLibraryApiInspectionResult compatible = content with
+        {
+            Source = source with
+            {
+                Producer = legacyProducerKey,
+            },
+        };
+        return new(
+            new InspectionEnvelope<ExactLibraryApiInspectionResult>(
+                compatible,
+                execution.Inspection.Share,
+                execution.Inspection.Diagnostics),
+            execution.Surface);
+    }
 
 }

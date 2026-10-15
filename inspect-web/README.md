@@ -358,6 +358,19 @@ pack is published.
 `PlatformWorkspace_LatestSentinelUsesVersionDiscovery`, and
 `PlatformWorkspace_VersionlessDiscoveryAdmitsPrereleasePlatformLine` gate those
 behaviors.
+
+Ordinary package-backed Platform Library opens, including name-only shared
+workspace restoration, use PlatformHouse selected-Library realization and the
+shared directory-first complete/Range size policy. The runtime manifest
+selects the image and its metadata supplies the complete identity; subsequent
+selections retain that identity and the pinned version/producer. Restoring a
+selected Library does not launch whole-platform warmup or version discovery.
+Explicit Platform catalog warmup and population-dependent forwarding work
+remain separate, broader operations.
+`PlatformWorkspace_ExactAssemblyFollowsSizePolicyAndReusesCache` and
+`PlatformWorkspace_NamedLibrariesAccumulateWithoutCompleteAcquisition` gate
+the size policy, cache reuse, and cumulative selected-Library path.
+
 Initial member graphs use the same escaped definition identity as subsequent
 graph descent. Platform graph loads and descents also carry the target's
 complete assembly identity and reject an acquired root that is not
@@ -770,6 +783,15 @@ request the package-wide Type surface. All Libraries Overview, explicit Type
 navigation, and API browsing retain that broad request. Explicit links and
 restored subjects keep their requested selection.
 
+`System.Text.Json@10.0.12` targeting `net8.0` exposed a first-load presentation
+gap: its exact Library appears in the Summary inventory before the broad
+surface has produced assembly counts, so the Libraries list must show unknown
+counts rather than claim its surface is unavailable. A missing Library after a
+requested broad projection remains an unavailable result. The first-load
+browser regression uses the existing `System.Text.Json@10.0.0` fixture through
+the ordinary package-opening path; the package-model test covers the distinct
+summary and truncated-broad states.
+
 The initial package overview does not prefetch the package icon. The subject
 header displays its default icon immediately; after the initial render has had
 an opportunity to paint, the UI independently requests the embedded icon through
@@ -1081,9 +1103,25 @@ groups. The
 dependency list and graph both follow that explicit UI selection for the active
 package; other open packages use their product-selected groups. The selected
 compile participant's direct references come from the assembly-context query;
-the browser does not open another assembly session. Package Dependencies shows
-only NuGet dependency groups; Library References shows only the selected
-Library's assembly references.
+the browser does not open another assembly session.
+
+Package References combines the selected NuGet dependency group with platform
+references projected from the same exact PackageHouse realization.
+`Microsoft.NETCore.App` is shown as `.NET Runtime`, and
+`Microsoft.AspNetCore.App` is shown as `ASP.NET Core`. When NuGet selection
+successfully reports no dependency groups or an empty selected group,
+successful framework-reference evidence contains no explicit references, and
+the active target is a supported `net` or `netcoreapp` target, the Browser adds
+`.NET Runtime` as the target's default platform reference.
+It does not add that default to a non-empty NuGet group or turn unavailable or
+invalid framework-reference evidence into a successful fallback. The NuGet
+and platform rows remain separate lists and typed graph nodes. The managed
+boundary carries explicit references separately from eligible default-runtime
+evidence. Explicit platform references remain visible across dependency-group
+selection; the default appears only for a successfully normalized empty
+selected group, consistently in the list, status, and graph. Library References
+continues to show only the selected Library's assembly references.
+Internal `dependencies` route and contract identities remain unchanged.
 
 Each NuGet dependency row displays the package's embedded icon when its exact
 version resolves and the icon passes the existing package-icon bounds.
@@ -1285,6 +1323,46 @@ selection protection, detail, and focus-target identities; and
 `dotnet-inspect.ts` composes the modal with shell history, inert background,
 focus restoration, and layered Escape. A payload the portable model rejects
 remains a visible failure rather than rendering success-shaped empty output.
+
+## Browser vocabulary explanation admission
+
+`catalog.explainVocabularies(path, depth, valueIds)` reads installed vocabulary
+knowledge without acquiring an artifact. An explicit array of native value IDs
+narrows a vocabulary-root `inspect-resource:/` address with `projection=data` or
+`projection=hal`, at depth zero. Null reads the full population. Empty arrays,
+unknown IDs, wrong case, patterns and combined list strings fail with typed
+`InvalidSelection`, a diagnostic and no explanation. Array entries are native
+identities, not display labels or lower-case resource path segments.
+
+The facade delegates deduplication, owner order, exact term closure, sparse
+memberships, completeness and bounds to
+[Resource Explanation's shared selection](../docs/design/resource-explanation.md#vocabulary-reading-selection).
+Value selection is rejected for ordinary compact output, contracts, collections,
+value-resource roots and nonzero depth. Existing path/depth rejection outcomes
+remain for requests without value selection. An emitted HAL address is passed
+unchanged; selecting values does not override its projection. A narrowed HAL
+response has one full-vocabulary `collection` link. Follow it only when new task
+knowledge is needed, optionally with another selection.
+
+This is the fourth vocabulary slice under
+[#10016](https://github.com/richlander/dotnet-inspect/issues/10016) and overall
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762), after the proposal,
+shared implementation and CLI admission. Both production hosts consume the same
+profile; no second Browser vocabulary serializer remains to retire. This replaces
+full-only Browser admission. The Settings descriptor snapshot remains its own
+consumer. Structured shared datasets own direct/HAL lowering; the facade retains
+its existing explanation, Share and diagnostics envelope.
+
+Real witnesses are the composed API accessibility, C# body-kind and C# style
+declarations at base `ae8abb390b3dcd8cba666800eee8bc0454695eeb`.
+`BrowserVocabularyCompositionTests` gates shared selected knowledge, native
+identity/order, referenced context, defaults, typed rejection, export round trips
+and collection navigation. The generated-facade and published Wasm smoke gates
+exercise array transport and both full/selected representations. Exact NativeAOT
+facade measurements record payloads, retained jq answers and median/tail timings;
+they are native-host evidence, not Wasm timing claims. The
+[worked reading demo](../tools/ExplainReadingScenarios/vocabulary-reading/README.md#browser-value-reading)
+shows the production entrance.
 
 ## Run
 
@@ -2761,7 +2839,8 @@ make a legacy request Range-capable.
 | Package source/decompilation and pairwise API/body/source comparisons | Unbound endpoint scopes, complete archives | Adopt each endpoint while preserving source, body and correspondence demand. |
 | Multi-package Gallery queries and clone candidates | Public `ResolveAsync` uses House realization; single-request `ResolveAndOpenScopeAsync` uses complete acquisition | Preserve composed binding semantics when adopting the remaining single-request and configured-source paths. |
 | Workspace occurrence activation | Bound coordinate scope | Reuses its retained generation. |
-| Platform and platform dependency composition | Platform workspace and package adapters | Separate from ordinary package realization; not covered by these slices. |
+| Platform selected Library and Library workspace restoration | PlatformHouse selected-Library realization, shared complete/Range size policy | Explicit catalog warmup and population-dependent forwarding remain broader operations. |
+| Platform population and dependency composition | Platform workspace and package adapters | Separate from selected-Library acquisition. |
 
 <!-- markdownlint-enable MD013 -->
 

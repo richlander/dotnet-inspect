@@ -50,6 +50,7 @@ public sealed record SelectedContextExactTypeLiveTarget(
     AssemblyBindingOccurrence Occurrence,
     IAssemblyBindingPolicy BindingPolicy,
     string? AssemblyPath,
+    string? PackageAssetPath,
     string? PackageExtractPath)
 {
     /// <summary>
@@ -473,6 +474,7 @@ public static class SelectedContextExactTypeInspectionOperation
                         selected.Occurrence,
                         selected.BindingPolicy,
                         selected.AssemblyPath,
+                        selected.PackageAssetPath,
                         selected.PackageExtractPath)
                     {
                         OpenCompiledDocumentation =

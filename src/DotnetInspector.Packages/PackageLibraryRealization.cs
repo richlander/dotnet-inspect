@@ -60,12 +60,17 @@ public sealed class PackageLibrarySelector
             if (Kind == PackageLibrarySelectionKind.AssetId || identities.Length > 0)
                 return identities;
         }
+        string path = Kind == PackageLibrarySelectionKind.Query
+            && Value.Contains('/')
+            && !Value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? Value + ".dll"
+                : Value;
         return [.. selection.Assets.Where(asset =>
         {
             PackageCompileAsset? implementation = selection.FindImplementationAsset(asset);
             return Kind == PackageLibrarySelectionKind.AssetPath || Value.Contains('/')
-                ? asset.Path.Equals(Value, StringComparison.OrdinalIgnoreCase)
-                    || implementation?.Path.Equals(Value, StringComparison.OrdinalIgnoreCase) == true
+                ? asset.Path.Equals(path, StringComparison.OrdinalIgnoreCase)
+                    || implementation?.Path.Equals(path, StringComparison.OrdinalIgnoreCase) == true
                 : NameMatches(asset.AssemblyName, Value)
                     || implementation is not null && NameMatches(implementation.AssemblyName, Value);
         })];
@@ -86,7 +91,7 @@ public sealed class PackageLibrarySelector
                     StringComparison.Ordinal)
                 ? Value["compile:".Length..]
                 : Value;
-            string name = Path.GetFileName(value);
+            string name = PackageEntryPath.GetLeafName(value);
             return name.EndsWith(
                     ".dll",
                     StringComparison.OrdinalIgnoreCase)
@@ -296,7 +301,8 @@ public static class PackageLibraryRealization
             evidenceDemand: PackageHouseEvidenceDemand.None,
             libraryCompanionDemand: request.CompanionDemand,
             contentQuery: null,
-            allowReferenceOnlyImplementationNames: implementation);
+            allowReferenceOnlyImplementationNames: implementation,
+            materializeCompileAssets: false);
 
     private static PackageLibraryRealizationResult Project(
         PackageHouseSettlement settlement,

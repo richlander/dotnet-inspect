@@ -5,7 +5,8 @@ This is the worked evidence for
 owned by Resource Explanation. Product Vocabulary owns the declarations being
 read. These are **offline proposal examples**, not installed narrowing syntax.
 The examples remain pinned proposal evidence. Shared production reading is
-[implemented below](#shared-production-reading); host value narrowing is pending.
+[implemented below](#shared-production-reading); [CLI value reading](#cli-value-reading)
+is admitted, as is [Browser value reading](#browser-value-reading).
 
 The design starts with questions, as in the pinned
 [CVE schema design](https://github.com/dotnet/designs/blob/b9bc7465feae40aa606b8e781fc290c20b690748/accepted/2025/cve-schema/cve_schema.md#design-philosophy):
@@ -226,10 +227,9 @@ The same `read.jq` adapter reads production output. A full HAL root has one
 implemented `self` link; a shared API selection has one full-vocabulary
 `collection` link. The narrow API is `VocabularyExplanation.SelectData(path,
 valueIds)` or `ResourceExplanationDataset.Create(..., valueIds: ...)`; identities
-are exact and deduplicated in owner order, with exact term closure. No CLI `-Q`,
-value-root projection or Browser narrowing gesture is implied yet. Host admission
-remains #10015/#10016. The historical example sizes above are not current wire
-size claims.
+are exact and deduplicated in owner order, with exact term closure. CLI `-Q`
+admission is described below; value-root projection and Browser narrowing remain
+unadmitted. The historical example sizes above are not current wire size claims.
 
 Production conformance gates compare owner-declared values/map observations,
 complete selected groups/defaults, direct/HAL records and order, exact recursive
@@ -239,3 +239,101 @@ host bound. Existing partial-coverage and absent-Boolean refusal gates still
 apply. Both host suites exercise full reading and shared content pins; ordinary
 compact and explicit contract pins remain unchanged. Only selected facts are
 lowered; the installed catalog is still composed before selection.
+
+## CLI value reading
+
+[#10015](https://github.com/richlander/dotnet-inspect/issues/10015) admits exact
+value selection through standalone CLI `explain`. The owning contract is
+[Vocabulary reading admission](../../../docs/cli-architecture.md#vocabulary-reading-admission).
+This option narrows the data, leaving the direct/HAL choice explicit.
+
+An agent needs the exact Body Shapes `Kind` identity for object creations:
+
+```bash
+dotnet-inspect explain vocabularies/csharp.body-kinds .hal --json \
+  -Q ObjectCreationExpression > /tmp/body-kind.json
+jq '._embedded.vocabularies[] | select(.id == "csharp.body-kinds") |
+    ._embedded.values[].id' /tmp/body-kind.json
+```
+
+The answer is `ObjectCreationExpression`, with its exact case, and the agent
+stops. No schema or link request is necessary. The document describes one
+selected value from a 72-value catalog; selected completeness does not mean
+all catalog members are present.
+
+For the style question, retrieve only the choice and its exact tier:
+
+```bash
+dotnet-inspect explain vocabularies/csharp.style-choices .hal --json \
+  -Q slot-local-names > /tmp/slot-choice.json
+jq --arg form hal --arg vocabulary csharp.style-choices \
+  --arg value slot-local-names --arg task value \
+  -f tools/ExplainReadingScenarios/vocabulary-reading/read.jq \
+  /tmp/slot-choice.json
+```
+
+The existing adapter returns option/value, all flag memberships, no conflict
+group, and the local `Synthesis` meaning. The equivalent direct request uses
+`.data`, with `--arg form direct`. The source-defined map meanings and
+cardinalities remain available to interpret those values.
+
+A changed question requiring `qualify-field-access` returns `unselected` from
+the slot file; it cannot establish false. That question justifies another read.
+Follow the emitted collection address with a new value selection:
+
+```bash
+href=$(jq -r '._links.collection.href' /tmp/slot-choice.json)
+dotnet-inspect explain "$href" --json -Q qualify-field-access
+```
+
+The address is copied unchanged, its HAL projection retained, and `-Q` reduces
+its population before output. No HTTP request is made. Reading it again merely
+to confirm the finished slot answer has no task benefit.
+
+For a conflict question, select both known group alternatives explicitly:
+
+```bash
+dotnet-inspect explain vocabularies/csharp.style-choices .hal --json \
+  -Q 'guarded-boolean-return-style:conditional-expression;guarded-boolean-return-style:branchless'
+```
+
+The shared selection embeds their exact `Lens` term. It does not automatically
+expand optional group peers. A bare `-Q` after `.hal --json` requests the full
+reading; empty, unknown, pattern or case-mismatched identities fail visibly.
+`--depth` and capability-search `-n` retain their distinct meanings. Browser value admission is described below; release-owned skill recipe updates
+are tracked on #8151 before packaging.
+
+## Browser value reading
+
+The initialized generated catalog facade exposes the same shared selection via
+`explainVocabularies(address, depth, valueIds)`. Unlike CLI list syntax, the third
+argument is an array of exact native IDs, or null for the full reading. The
+address selects direct or HAL; the array only narrows its data.
+
+```javascript
+const address = "inspect-resource:/vocabularies/csharp.body-kinds?projection=hal";
+const result = catalog.explainVocabularies(address, 0, ["ObjectCreationExpression"]);
+if (result.outcome !== "Explained") throw new Error(result.rejection.message);
+const content = result.explanation.content;
+const kinds = content._embedded.vocabularies.find(v => v.id === "csharp.body-kinds");
+console.log(kinds._embedded.values[0].id); // ObjectCreationExpression
+```
+
+The agent stops with that identity. If its question changes to address
+expressions, the emitted collection address supports another narrowed read:
+
+```javascript
+catalog.explainVocabularies(content._links.collection.href, 0, ["AddressExpression"]);
+```
+
+Use null to discover the full population when identities are not yet known.
+Do not infer false from an unselected value or request the collection merely to
+verify an embedded answer. A style read of `["slot-local-names"]` embeds that
+choice and the exact `Synthesis` tier, as in the CLI demo. `projection=data`
+returns equivalent knowledge in lookup tables. Empty arrays, unknown or
+case-mismatched IDs, combined list strings and patterns return typed rejection,
+with no explanation. Depth is zero for both reading projections.
+
+[Browser admission](../../../inspect-web/README.md#browser-vocabulary-explanation-admission)
+owns the facade gesture under #10016. The Worker bridge transports the native
+array unchanged; reusable selection and JSON lowering remain shared.

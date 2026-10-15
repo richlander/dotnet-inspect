@@ -55,6 +55,34 @@ public class LibrarySourceAdapterTests
         Assert.Null(binding.PlatformAssembly);
     }
 
+    [Fact]
+    public void PackageBindingProjectsLibraryTargetLexically()
+    {
+        Assert.True(
+            LibrarySourceAdapter.TryDeclare(
+                @"lib\net10.0\Example.Component.dll",
+                "Example.Component@1.0.0",
+                platformAssembly: null,
+                "source",
+                out SourceIntent intent,
+                out string? error),
+            error);
+
+        Assert.True(
+            LibrarySourceAdapter.TryBind(
+                new LibraryOptions
+                {
+                    SourceIntent = intent,
+                    AssemblyName =
+                        @"lib\net10.0\Example.Component.dll",
+                },
+                out LibrarySourceBinding? binding,
+                out error),
+            error);
+
+        Assert.Equal("Example.Component.dll", binding!.Target);
+    }
+
     [Theory]
     [InlineData("Contoso", false)]
     [InlineData("Contoso@", true)]

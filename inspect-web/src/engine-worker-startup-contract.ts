@@ -62,6 +62,20 @@ function number(value: unknown): number {
   return value;
 }
 
+function decimalInteger(value: unknown): number {
+  if (typeof value !== "string"
+    || !/^(?:0|-?[1-9]\d*)$/.test(value)) {
+    throw new StartupPayloadError(
+      "Expected a canonical startup result decimal integer.");
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    throw new StartupPayloadError(
+      "Startup result decimal integer exceeds the safe integer range.");
+  }
+  return parsed;
+}
+
 function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new StartupPayloadError("Expected a startup result boolean.");
   return value;
@@ -95,7 +109,7 @@ function packageQueryFacet(
     examples: array(facet.examples ?? [], text),
     effects: array(facet.effects ?? [], text),
     inputRules: array(facet.input_rules ?? [], text),
-    presentationOrder: number(facet.presentation_order),
+    presentationOrder: decimalInteger(facet.presentation_order),
     controlKind: text(facet.control_kind),
     presentationKind: text(facet.presentation_kind),
     executionClass: text(facet.execution_class),

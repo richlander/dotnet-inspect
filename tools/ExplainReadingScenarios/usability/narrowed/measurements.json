@@ -1,0 +1,253 @@
+{
+  "package-hal": {
+    "guidance_requests": 3,
+    "guidance_retrieved_bytes": 29494,
+    "guidance_rendered_bytes": 13526,
+    "inspection_requests": 1,
+    "inspection_retrieved_bytes": 6517,
+    "inspection_rendered_bytes": 4064,
+    "requests": 4,
+    "retrieved_bytes": 36011,
+    "rendered_bytes": 17590,
+    "product_views": 7,
+    "guide_bytes": 3175,
+    "failed_requests": 0,
+    "jq_errors": 0,
+    "selected_hal_requests": 0,
+    "selected_data_requests": 0,
+    "contract_requests": 0,
+    "help_requests": 1,
+    "root_explain_requests": 0,
+    "primary_explanation_requests": 2,
+    "companion_requests": 0,
+    "query_help_requests": 1,
+    "retrieved_with_guide_bytes": 39186,
+    "rendered_with_guide_bytes": 20765,
+    "emitted_readings": [
+      {
+        "id": 2,
+        "format": "hal",
+        "profile": "query-preparation/v1",
+        "scope": {
+          "profile": "query-preparation/v1",
+          "resource": "package-query/query-space/v1",
+          "root": "package-query/query",
+          "population": "selected-facets",
+          "completeness": "Complete",
+          "catalog_facets": 19
+        }
+      },
+      {
+        "id": 3,
+        "format": "hal",
+        "profile": "query-preparation/v1",
+        "scope": {
+          "profile": "query-preparation/v1",
+          "resource": "package-query/query-space/v1",
+          "root": "package-query/query",
+          "population": "selected-facets",
+          "completeness": "Complete",
+          "catalog_facets": 19
+        }
+      }
+    ],
+    "format_violations": 0
+  },
+  "package-data": {
+    "guidance_requests": 5,
+    "guidance_retrieved_bytes": 11195,
+    "guidance_rendered_bytes": 10336,
+    "inspection_requests": 1,
+    "inspection_retrieved_bytes": 5828,
+    "inspection_rendered_bytes": 3782,
+    "requests": 6,
+    "retrieved_bytes": 17023,
+    "rendered_bytes": 14118,
+    "product_views": 9,
+    "guide_bytes": 3111,
+    "failed_requests": 0,
+    "jq_errors": 0,
+    "selected_hal_requests": 0,
+    "selected_data_requests": 2,
+    "contract_requests": 0,
+    "help_requests": 1,
+    "root_explain_requests": 2,
+    "primary_explanation_requests": 0,
+    "companion_requests": 0,
+    "query_help_requests": 2,
+    "retrieved_with_guide_bytes": 20134,
+    "rendered_with_guide_bytes": 17229,
+    "emitted_readings": [
+      {
+        "id": 4,
+        "format": "data",
+        "profile": "query-preparation/v1",
+        "scope": {
+          "profile": "query-preparation/v1",
+          "resource": "package-query/query-space/v1",
+          "root": "package-query/query/facets/depends",
+          "population": "selected-facets",
+          "completeness": "Complete",
+          "catalog_facets": 19
+        }
+      },
+      {
+        "id": 5,
+        "format": "data",
+        "profile": "query-preparation/v1",
+        "scope": {
+          "profile": "query-preparation/v1",
+          "resource": "package-query/query-space/v1",
+          "root": "package-query/query/facets/dependency-target",
+          "population": "selected-facets",
+          "completeness": "Complete",
+          "catalog_facets": 19
+        }
+      }
+    ],
+    "format_violations": 0
+  },
+  "api-hal": {
+    "guidance_requests": 3,
+    "guidance_retrieved_bytes": 13888,
+    "guidance_rendered_bytes": 13888,
+    "inspection_requests": 3,
+    "inspection_retrieved_bytes": 19175,
+    "inspection_rendered_bytes": 16859,
+    "requests": 6,
+    "retrieved_bytes": 33063,
+    "rendered_bytes": 30747,
+    "product_views": 6,
+    "guide_bytes": 3175,
+    "failed_requests": 0,
+    "jq_errors": 0,
+    "selected_hal_requests": 0,
+    "selected_data_requests": 0,
+    "contract_requests": 0,
+    "help_requests": 3,
+    "root_explain_requests": 0,
+    "primary_explanation_requests": 0,
+    "companion_requests": 0,
+    "query_help_requests": 0,
+    "retrieved_with_guide_bytes": 36238,
+    "rendered_with_guide_bytes": 33922,
+    "emitted_readings": [],
+    "format_violations": 0
+  },
+  "api-data": {
+    "guidance_requests": 1,
+    "guidance_retrieved_bytes": 3307,
+    "guidance_rendered_bytes": 3307,
+    "inspection_requests": 2,
+    "inspection_retrieved_bytes": 17654,
+    "inspection_rendered_bytes": 16343,
+    "requests": 3,
+    "retrieved_bytes": 20961,
+    "rendered_bytes": 19650,
+    "product_views": 4,
+    "guide_bytes": 3111,
+    "failed_requests": 0,
+    "jq_errors": 0,
+    "selected_hal_requests": 0,
+    "selected_data_requests": 0,
+    "contract_requests": 0,
+    "help_requests": 1,
+    "root_explain_requests": 0,
+    "primary_explanation_requests": 0,
+    "companion_requests": 0,
+    "query_help_requests": 0,
+    "retrieved_with_guide_bytes": 24072,
+    "rendered_with_guide_bytes": 22761,
+    "emitted_readings": [],
+    "format_violations": 0
+  },
+  "vocabulary-hal": {
+    "guidance_requests": 19,
+    "guidance_retrieved_bytes": 39975,
+    "guidance_rendered_bytes": 32220,
+    "inspection_requests": 0,
+    "inspection_retrieved_bytes": 0,
+    "inspection_rendered_bytes": 0,
+    "requests": 19,
+    "retrieved_bytes": 39975,
+    "rendered_bytes": 32220,
+    "product_views": 21,
+    "guide_bytes": 3175,
+    "failed_requests": 1,
+    "jq_errors": 0,
+    "selected_hal_requests": 1,
+    "selected_data_requests": 0,
+    "contract_requests": 0,
+    "help_requests": 3,
+    "root_explain_requests": 18,
+    "primary_explanation_requests": 0,
+    "companion_requests": 0,
+    "query_help_requests": 1,
+    "retrieved_with_guide_bytes": 43150,
+    "rendered_with_guide_bytes": 35395,
+    "emitted_readings": [
+      {
+        "id": 19,
+        "format": "hal",
+        "profile": "vocabulary-reading/v1",
+        "scope": {
+          "profile": "vocabulary-reading/v1",
+          "vocabulary": "csharp.body-kinds",
+          "population": "selected-values",
+          "completeness": "Complete"
+        }
+      }
+    ],
+    "format_violations": 0
+  },
+  "vocabulary-data": {
+    "guidance_requests": 24,
+    "guidance_retrieved_bytes": 43554,
+    "guidance_rendered_bytes": 28461,
+    "inspection_requests": 0,
+    "inspection_retrieved_bytes": 0,
+    "inspection_rendered_bytes": 0,
+    "requests": 24,
+    "retrieved_bytes": 43554,
+    "rendered_bytes": 28461,
+    "product_views": 26,
+    "guide_bytes": 3111,
+    "failed_requests": 3,
+    "jq_errors": 1,
+    "selected_hal_requests": 1,
+    "selected_data_requests": 2,
+    "contract_requests": 0,
+    "help_requests": 4,
+    "root_explain_requests": 22,
+    "primary_explanation_requests": 0,
+    "companion_requests": 0,
+    "query_help_requests": 3,
+    "retrieved_with_guide_bytes": 46665,
+    "rendered_with_guide_bytes": 31572,
+    "emitted_readings": [
+      {
+        "id": 23,
+        "format": "data",
+        "profile": "vocabulary-reading/v1",
+        "scope": {
+          "profile": "vocabulary-reading/v1",
+          "vocabulary": "csharp.body-kinds",
+          "population": "selected-values",
+          "completeness": "Complete"
+        }
+      },
+      {
+        "id": 24,
+        "format": "hal",
+        "profile": "vocabulary-reading/v1",
+        "scope": {
+          "profile": "vocabulary-reading/v1",
+          "vocabulary": "csharp.body-kinds",
+          "population": "selected-values",
+          "completeness": "Complete"
+        }
+      }
+    ],
+    "format_violations": 1
+  }
+}

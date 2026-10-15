@@ -6,8 +6,8 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class DiffAnalysisOutput
 {
-    private static readonly InspectionEnvelopeJsonContract<DiffAnalysisDocument>
-        s_jsonContract = new(
+    internal static readonly InspectionEnvelopeJsonContract<DiffAnalysisDocument>
+        JsonContract = new(
             "diff-analysis",
             2,
             DiffAnalysisInspectionJsonContext.Default.DiffAnalysisDocument);
@@ -17,7 +17,7 @@ internal static class DiffAnalysisOutput
         DiffOptions options)
         => InspectionEnvelopeOutput.TryWrite(
             inspection,
-            s_jsonContract,
+            JsonContract,
             options.EnvelopeOutput,
             options.CompactJson);
 }

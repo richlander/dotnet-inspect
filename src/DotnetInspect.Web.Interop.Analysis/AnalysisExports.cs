@@ -11,6 +11,7 @@ using ILInspector.Research;
 using QuerySpace.Composition;
 using QuerySpace.Rows;
 using ILAnalysis = ILInspector.Analysis;
+using ILAnalysisPlanning = ILInspector.Analysis.Planning;
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Analysis;
 
@@ -716,6 +717,8 @@ public static partial class AnalysisExports
         }
 
         return new BrowserPackagePerformanceSummary(
+            performance.SyncCallsInAsync,
+            performance.SyncCallsInAsyncCount,
             performance.InspectionError,
             performance.NonPublicOpportunities,
             performance.TotalOpportunities,
@@ -1842,6 +1845,8 @@ public static partial class AnalysisExports
         {
             return new BrowserPackagePerformance(
                 Members: [],
+                SyncCallsInAsync: [],
+                SyncCallsInAsyncCount: 0,
                 InspectionError: null,
                 NonPublicOpportunities: 0,
                 TotalOpportunities: 0,
@@ -1857,6 +1862,17 @@ public static partial class AnalysisExports
             scope.UseMetadataParticipant(
                 participant,
                 AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant);
+        AssemblyContextEntry<SyncCallsInAsyncResult> syncCallsResult =
+            scope.UseMetadataParticipant(
+                participant,
+                (group, selected) =>
+                    SyncCallsInAsyncQuery.ExecuteParticipant(
+                        group,
+                        selected,
+                        [
+                            SyncCallsInAsyncClosing.Rows,
+                            SyncCallsInAsyncClosing.Count,
+                        ]));
         BrowserWorkspaceParticipant? surfaceParticipant =
             scope.TryGetSurfaceParticipant(participant);
         BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
@@ -1915,15 +1931,183 @@ public static partial class AnalysisExports
                     participants,
                     scope),
                 failures);
+        (
+            BrowserSyncCallInAsync[] syncCallsInAsync,
+            int? syncCallsInAsyncCount
+        ) =
+            ProjectSyncCallsInAsync(syncCallsResult, failures);
 
         return new BrowserPackagePerformance(
             members,
+            syncCallsInAsync,
+            syncCallsInAsyncCount,
             failures.Count == 0
                 ? null
                 : string.Join("; ", failures),
             result.NonPublicOpportunities,
             result.TotalOpportunities,
             compileLibrary);
+    }
+
+    static (BrowserSyncCallInAsync[] Rows, int? Count)
+        ProjectSyncCallsInAsync(
+        AssemblyContextEntry<SyncCallsInAsyncResult> entry,
+        List<string> failures)
+    {
+        switch (entry)
+        {
+            case AssemblyContextEntry<SyncCallsInAsyncResult>.Rejected rejected:
+                failures.Add(
+                    $"{rejected.Subject.Identity.Name}: "
+                    + $"sync calls in async rejected: {rejected.Failure.Kind} "
+                    + $"({rejected.Failure.Detail})");
+                return ([], null);
+            case AssemblyContextEntry<SyncCallsInAsyncResult>.Failed failed:
+                failures.Add(
+                    $"{failed.Subject.Identity.Name}: "
+                    + "sync calls in async failed: "
+                    + failed.Error.Message);
+                return ([], null);
+            case AssemblyContextEntry<SyncCallsInAsyncResult>.Available available:
+                failures.AddRange(
+                    available.Value.Diagnostics.Select(
+                        diagnostic =>
+                            $"{available.Subject.Identity.Name}: "
+                            + "sync calls in async incomplete for "
+                            + $"{diagnostic.Method}: {diagnostic.Message}"));
+                return (
+                    ProjectSyncCallsInAsyncAnswer(
+                        available.Subject,
+                        available.Value.AnswerTo(
+                            SyncCallsInAsyncClosing.Rows),
+                        failures),
+                    ProjectSyncCallsInAsyncCount(
+                        available.Subject,
+                        available.Value.AnswerTo(
+                            SyncCallsInAsyncClosing.Count),
+                        failures));
+            default:
+                throw new InvalidOperationException(
+                    $"Unknown assembly context entry '{entry.GetType().Name}'.");
+        }
+    }
+
+    static BrowserSyncCallInAsync[] ProjectSyncCallsInAsyncAnswer(
+        AssemblyContextSubject subject,
+        SyncCallsInAsyncAnswer answer,
+        List<string> failures) =>
+        answer switch
+        {
+            SyncCallsInAsyncAnswer.Rows rows =>
+                [.. rows.Calls.Select(ProjectSyncCallInAsync)],
+            SyncCallsInAsyncAnswer.Failed failed =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"failed for {failed.Failure.Unit}: "
+                    + failed.Failure.Message,
+                    failures),
+            SyncCallsInAsyncAnswer.Aborted aborted =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"aborted for {aborted.Critical.Unit}: "
+                    + aborted.Critical.Message,
+                    failures),
+            _ => throw new InvalidOperationException(
+                $"Unexpected Sync Calls in Async answer '{answer.GetType().Name}'."),
+        };
+
+    static int? ProjectSyncCallsInAsyncCount(
+        AssemblyContextSubject subject,
+        SyncCallsInAsyncAnswer answer,
+        List<string> failures) =>
+        answer switch
+        {
+            SyncCallsInAsyncAnswer.Count count => count.Value,
+            SyncCallsInAsyncAnswer.Failed failed =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"count failed for {failed.Failure.Unit}: "
+                    + failed.Failure.Message,
+                    failures,
+                    (int?)null),
+            SyncCallsInAsyncAnswer.Aborted aborted =>
+                RecordSyncCallsInAsyncFailure(
+                    subject,
+                    $"count aborted for {aborted.Critical.Unit}: "
+                    + aborted.Critical.Message,
+                    failures,
+                    (int?)null),
+            _ => throw new InvalidOperationException(
+                $"Unexpected Sync Calls in Async answer '{answer.GetType().Name}'."),
+        };
+
+    static BrowserSyncCallInAsync[] RecordSyncCallsInAsyncFailure(
+        AssemblyContextSubject subject,
+        string detail,
+        List<string> failures)
+        => RecordSyncCallsInAsyncFailure(
+            subject,
+            detail,
+            failures,
+            Array.Empty<BrowserSyncCallInAsync>());
+
+    static T RecordSyncCallsInAsyncFailure<T>(
+        AssemblyContextSubject subject,
+        string detail,
+        List<string> failures,
+        T unavailable)
+    {
+        failures.Add(
+            $"{subject.Identity.Name}: sync calls in async {detail}");
+        return unavailable;
+    }
+
+    static BrowserSyncCallInAsync ProjectSyncCallInAsync(
+        ILAnalysisPlanning.AsyncSiblingRow row) =>
+        new(
+            FormatAnalysisMember(
+                row.Caller.DeclaringType,
+                row.Caller.Name,
+                row.Caller.ParameterTypes,
+                []),
+            FormatAnalysisMember(
+                row.Callee.DeclaringType,
+                row.Callee.Name,
+                row.Callee.ParameterTypes,
+                row.Callee.TypeArguments),
+            FormatAnalysisMember(
+                row.Alternative.DeclaringType,
+                row.Alternative.Name,
+                row.Alternative.ParameterTypes,
+                row.Alternative.TypeArguments),
+            row.PairKind.ToString());
+
+    static string FormatAnalysisMember(
+        ILAnalysis.TypeRef? declaringType,
+        string name,
+        IEnumerable<ILAnalysis.TypeRef> parameterTypes,
+        IEnumerable<ILAnalysis.TypeRef> typeArguments)
+    {
+        ILAnalysis.TypeRef[] arguments = [.. typeArguments];
+        if (arguments.Length > 0)
+        {
+            name +=
+                $"<{string.Join(
+                    ", ",
+                    arguments.Select(
+                        static argument =>
+                            argument.ToQualifiedDisplayString()))}>";
+        }
+
+        string signature =
+            $"{name}({string.Join(
+                ", ",
+                parameterTypes.Select(
+                    static parameter =>
+                        parameter.ToQualifiedDisplayString()))})";
+        return declaringType is null
+            ? signature
+            : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
     }
 
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(

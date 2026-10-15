@@ -16,8 +16,8 @@ The claim has three parts:
   authority-scoped store. This is the one claim this document transfers into
   the [package source model](package-source-model.md#candidate-and-payload-stores),
   which keeps every other store rule.
-- **Size first, for every package.** A consumer that asks for ranged access
-  learns the archive's size before transferring it: an archive at or under
+- **Directory first, for every ranged consumer.** A cold acquisition reads
+  the ZIP directory and learns the archive's size from it: an archive at or under
   the size cut is acquired complete and cached; a larger one is read by
   range. Platform packs follow the same rule; reference and runtime packs are
   both above the cut and are read by range, with the entry cache keeping each
@@ -47,7 +47,7 @@ builds, medians of eight cold/warm pairs:
 | ranged read (#8415) | 0.57 s | 0.57 s | 8 | 3.9 MB |
 
 The ranged read wins cold and loses warm, because nothing it reads is kept
-and, at #8415's head, HTTP authorities have no durable store: every
+and, at #8415's head, HTTP authorities had no durable store at that stage: every
 invocation repeats it. On that link the complete 10 MB archive arrives in
 0.4 s and is a 0.28 s cache hit afterwards.
 
@@ -58,8 +58,8 @@ On a fast link it exits no sooner than a complete download: the ranged read
 and then the download, about 0.8 s against 0.73 s. On a slow link the
 download does not finish before exit, so it restarts from zero in every
 invocation. It also needs cross-process mutable state for its wanted-list.
-Choosing by size before transferring takes one of the two paths per
-archive, with no background work. Learning the size costs a probe: the step
+The earlier size-first policy chose a path before transferring archive bodies,
+with no background work. Learning the size costs a probe: the step
 reads the complete response's advertised length and abandons that response
 for an archive over the cut, which costs one more round trip and, over
 HTTP/1.1, a new connection for the ranged read that follows. The tables below
@@ -153,9 +153,9 @@ changes for credential-free HTTP authorities, not only the ranged consumer:
 
 Platform packs acquired through the authority-scoped store become durably
 cached by this rule. Whether they are acquired complete or by range is the
-size-first rule below.
+directory-first rule below.
 
-### Size first
+### Directory first
 
 A consumer that sets ranged access consults every authorized complete store
 first, then every authorized entry cache, in the existing authority order.
@@ -165,27 +165,34 @@ cached directory also records the archive's total length, so an archive the
 entry cache knows needs no size probe: the step goes straight to the ranged
 read for its missing entries.
 
-Otherwise the step starts the ordinary complete acquisition. When the
-response advertises an archive length above the size cut, the step abandons
-that response before reading its body and reads the archive by range instead,
-as the
-[ranged payload realization](package-source-model.md#ranged-payload-realization)
-step does today, including its fallback to the complete fetch when the
-ranged read fails. Otherwise, including when no length is advertised, the
-complete acquisition proceeds and publishes to the authority's store.
-Desktop package payload transports set `MaxResponseDrainSize` to zero.
-Disposing an unread response closes its connection without draining its body;
-fully consumed responses remain eligible for connection reuse. Abandonment
-is ordinary disposal and does not read or depend on buffering timing.
-Browser/Wasm uses the browser fetch transport, which has no configurable
-HTTP response-drain policy; disposal follows browser cancellation behavior.
-The desktop no-drain guarantee is not claimed for that host.
+Otherwise a range-capable source opens the ZIP directory first. Its validated
+archive length selects the acquisition mode; no HEAD or abandoned complete GET
+is needed. At or below the decimal **1,000,000-byte** cut, acquisition completes
+the archive by reading only the prefix absent from the retained directory region.
+That boundary can precede the central directory itself because the tail includes
+neighboring bytes. Prefix and retained region must cover the archive exactly,
+without a gap or overlap. The assembled archive passes ordinary complete-payload
+validation and publication to the authorized complete store. An archive wholly
+contained in the retained region needs no prefix request.
 
-The size cut is 1 MB of archive and applies to every package, platform
-packs included. An archive at or under it costs one request the first time
-and none afterwards. An archive above it costs one abandoned request and the
-ranged read the first time; afterwards, only requests for entries not yet in
-the entry cache, and none when every selected entry is cached.
+Above the cut, the directory drives the unchanged semantic entry selection and
+coalesced ranged reads. Those reads publish directory and materialized entry
+evidence to the entry cache. A previously cached directory answers missing-entry
+reads through the existing ranged path. Complete stores and fully satisfied
+entry caches still answer before any cold acquisition.
+
+The cut applies to every ordinary ranged consumer, including platform packs.
+A typical small archive costs a directory-tail and prefix request; a tiny archive
+contained in the tail costs one. A larger archive costs its directory requests
+and selected-entry spans. There is no preliminary size-probe request. Non-range
+sources, invalid retained cache evidence, and ranged refusals retain the ordinary
+complete-fetch path. An ignored Range response currently falls back to a fresh
+complete fetch; retaining its offered body is not claimed here.
+
+Both hosts use this policy through shared PackageHouse acquisition. Browser cold
+suffix ranges can incur CORS preflight, and subsequent conditional ranges may
+also preflight; native timing does not establish browser latency. Host range
+request and validator semantics remain owned by package archive range access.
 
 Production consumers inherit this package-owned size cut rather than choosing
 their own. An exception requires a documented reason in this owning policy and
@@ -193,17 +200,11 @@ evidence that justifies the different acquisition tradeoff. Selecting fewer
 entries, or requesting only directory facts, does not itself justify overriding
 the cut. Fixture overrides may exercise both sides of the policy.
 
-The sole production exception is the CLI pairwise-diff endpoint admission
-check in `PackageEndpointDiffSession`. It uses a zero cut while deciding
-whether the modern endpoint scope can answer or must use the legacy selector.
-A complete download during that check is not available to the legacy fallback,
-which would download the same archive again. The exception avoids that duplicate
-complete transfer; it does not extend to ordinary endpoint realization.
-It retains a measured cost for small admitted archives, including the extra
-directory read documented in
-[endpoint-scope adoption step 2](package-endpoint-scope.md#adoption).
-It retires with the legacy selector in endpoint-scope adoption step 4. New
-consumers must not copy it.
+No production consumer overrides the cut. The CLI pairwise-diff endpoint
+admission check used a zero cut while it decided between the endpoint scope
+and the legacy selector; it retired in
+[endpoint-scope adoption step 4 part 2](package-endpoint-scope.md#adoption),
+when the scope became authoritative for the API views.
 
 The search Root's coverage fallback is sequential: it takes the complete
 archive only after the ranged read returns, so the two transfers never
@@ -386,7 +387,7 @@ matches between sides.
 | Newtonsoft | 408,803 → 343,246 |
 | Dapper | 437,579 → 437,579 |
 
-Newtonsoft's remaining requests are the abandoned size probe (zero consumed
+At that measured revision, Newtonsoft's remaining requests were the abandoned size probe (zero consumed
 body bytes), the initial directory tail (65,557), the nuspec span (1,818),
 and the exact net6.0 DLL span (275,871). The second directory tail is gone.
 That saves 65,557 consumed bytes, or 16.0%, and one of five requests. These
@@ -407,12 +408,15 @@ consumer that needs an entry it lacks reads that entry by range.
 
 ## Host scope
 
-Both hosts keep complete downloads, so size first is one package-owned rule
-for both. The CLI publishes them to the durable authority-scoped store.
-Inspect Web gets the same effect from the browser: nuget.org marks package
-archives `Cache-Control: max-age=86400`, and Inspect Web's requests do not
-opt out of the HTTP cache. A persistent Chromium profile, restarted between
-sessions, measured this on 2026-09-23 for `Avalonia` 12.1.2:
+Directory first is one package-owned acquisition rule for both hosts. The CLI
+publishes admitted complete archives to the durable authority-scoped store;
+Inspect Web retains assembled archives in its session store.
+
+Historical complete-GET evidence establishes browser HTTP-cache reuse for a
+complete response, not for an archive assembled from ranges. Nuget.org marks
+package archives `Cache-Control: max-age=86400`, and Inspect Web's requests do
+not opt out of the HTTP cache. A persistent Chromium profile, restarted between
+sessions, measured complete-GET reuse on 2026-09-23 for `Avalonia` 12.1.2:
 
 | Session | Time | Bytes from the network |
 | --- | --- | --- |
@@ -423,6 +427,13 @@ sessions, measured this on 2026-09-23 for `Avalonia` 12.1.2:
 After a day the browser revalidates with `Last-Modified`, which costs a
 request but not the archive. Ranged `206` responses do not get this reuse,
 which is a further reason to cache small archives complete.
+
+Directory-first completion produces an assembled archive rather than a complete
+HTTP response. The browser session store retains that archive in memory, but
+it does not automatically receive the HTTP-cache retention described above.
+Explicit persistent complete-archive retention is a required Browser adoption
+follow-up before claiming equivalent reuse across page or worker restarts.
+The common policy and NativeAOT measurements do not establish that host claim.
 
 Ranged responses are not reused by the browser's HTTP cache, so Inspect Web
 keeps its entry cache in an explicit browser store. That and longer retention
@@ -475,8 +486,8 @@ carrying `If-Range`. It preflighted every span, because all six start before
 the first preflight is cached. nuget.org also serves browsers over HTTP/1.1,
 so each request in flight holds its own connection. A preflight-free read
 sends only `bytes=a-b` ranges. It takes the tail's position from the complete
-response's `Content-Length`, which size first has already read and nuget.org
-exposes. It omits `If-Range` and compares each response's validator with the
+response's `Content-Length`, which the size-first policy used at the time
+had already read and nuget.org exposes. It omits `If-Range` and compares each response's validator with the
 first instead. The probe also found that nuget.org's `ETag` is unquoted, so an
 `If-Range` carrying it always returns the whole archive; only `Last-Modified`
 works as a validator there. How a browser sends ranged requests belongs to the
@@ -485,6 +496,25 @@ rule, which its Inspect Web slice amends with these findings. The probe drove
 JavaScript `fetch`, not the wasm engine. .NET's `HttpClient` on wasm uses the
 same `fetch`, so the network behavior carries over, but wasm decompression
 cost is unmeasured until that slice.
+
+## Directory-first cutoff validation
+
+The shared cutoff is decimal 1 MB, inclusive for complete admission. Fixtures
+at 999,999, 1,000,000 and 1,000,001 bytes enforce the boundary without relying on
+remote package size or latency. The first two reconstruct and cache complete
+archives with no preliminary complete GET; the last retains only selected
+ranged entries and leaves an unrelated padding entry unmaterialized.
+`PackageRangedRealizationTests.DirectoryFirst_DefaultCutoff_ChoosesFromDirectoryAndCachesCompleteOnly`
+owns this gate. Archive reconstruction is compared byte-for-byte with the
+original by `ArchiveRange_CompletePrefix_ReconstructsExactArchive`, including a
+tiny archive entirely present in the tail.
+
+The operator selected this policy on 2026-10-13 after comparing GET-first,
+HEAD-first, and directory-first acquisition on Newtonsoft, Avalonia.Base,
+Dapper and Markout. Directory-first with the 1 MB cut improved larger-package
+cold medians while adding a cold small-package request. The 4 MB control is
+not the chosen policy. Fresh exact-head evidence accompanies adoption; earlier
+experimental numbers are not a performance claim for a later revision.
 
 ## Pathological cases and gates
 
@@ -495,24 +525,24 @@ All gates run in Release.
 | 1. Credential-free HTTP authority | persistent key; query-distinct and path-distinct endpoints get distinct keys; the key contains no endpoint text | `PackageSourceAuthorization_CredentialFreeHttpAuthorityHasPersistentKey` and `..._PathSecretAuthoritiesHaveDistinctKeysWithoutEndpointText`; `AuthorityScopedPackageStoreTests.HttpAuthorities_WithEqualProducersKeepSeparateDurableSlots` |
 | 2. Configured credential, or user information in the endpoint | no persistent key | `PackageSourceAuthorization_CredentialPathAuthoritiesHaveNoPersistentKey` |
 | 3. Version-service priors for an HTTP authority | identity is still the endpoint | `PackageVersionServiceTests.Entry_RecordsTheSourceIdentityTheKeyUses` |
-| 4. Search of an archive under the cut, then a second invocation | first: one complete request, published durably; second: cache hit, no package request | `PackageRangedRealizationTests.SizeFirst_ArchiveAtOrUnderTheCut_IsAcquiredComplete`, then `RangedRealize_CachedPayloadAnswersWithoutTransfer` |
-| 5. Search of an archive over the cut, twice | first: one abandoned request, the ranged read, and the directory and entries published to the entry cache; second: no package request | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly`, two invocations; `PackageRangedRealizationTests.EntryCache_WarmReadOfTheSameSelection_MakesNoRequest` |
+| 4. Search of an archive under the cut, then a second invocation | first: directory tail then missing prefix, admitted and published complete; second: cache hit, no package request | `PackageRangedRealizationTests.DirectoryFirst_ArchiveAtOrUnderTheCut_IsAcquiredComplete`, then `RangedRealize_CachedPayloadAnswersWithoutTransfer` |
+| 5. Search of an archive over the cut, twice | first: useful directory and entry reads, and the directory and entries published to the entry cache; second: no package request | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly`, two invocations; `PackageRangedRealizationTests.EntryCache_WarmReadOfTheSameSelection_MakesNoRequest` |
 | 5a. A second query needing one more entry of the same immutable archive | one missing-entry request; no size probe or directory transfer | `PackageRangedRealizationTests.EntryCache_WarmReadMissingAnEntry_ReadsOnlyThatEntry` |
 | 5e. Entries named with `..`, a rooted path, and two names that differ only by case | each published inside the entry cache under its digest; all three read back to their own content | `PackageEntryStoreTests.EntryCache_HostileEntryNames_StayContainedAndDistinct` |
 | 5b. A cached entry whose bytes no longer match the cached directory, or a cached directory that cannot be read | one complete transfer answers the read; later reads are served from the complete store; the invalid item is left in place; a verbose diagnostic names it | `PackageRangedRealizationTests.EntryCache_InvalidItem_TakesTheCompleteFetch`, for an entry and for the directory |
 | 5c. A source violates immutability and returns a different archive length | the entry response is refused; complete fallback answers without publishing mixed cached entries | `PackageRangedRealizationTests.EntryCache_ChangedArchiveLength_TakesTheCompleteFetch` |
 | 5d. An authority without a persistent key | nothing published to the entry cache | `PackageEntryStoreTests.EntryCache_AuthorityWithoutPersistentKey_KeepsNothing` |
-| 6. No advertised length | complete acquisition | `PackageRangedRealizationTests.SizeFirst_NoAdvertisedLength_IsAcquiredComplete` |
+| 6. No advertised length | directory-derived length chooses the mode | `PackageRangedRealizationTests.DirectoryFirst_NoAdvertisedLength_UsesDirectorySizeToAcquireComplete` |
 | 7. A consumer other than the search Root | `package ID@VERSION` from a credential-free HTTP feed, twice: the second is a cache hit | `ConfiguredPayloadAcquisitionTests.ExtractPinnedPackage_CredentialFreeHttpPinIsDurable` |
 | 8. Ranged content that does not cover the Root's selection, then the complete fallback | one complete transfer | unverified: the ranged selection is the Root's own selection expanded to folders, so no fixture reaches the fallback |
 | 9. Two invocations acquiring the same coordinate | one publication | existing cache-concurrency gates |
-| 10. Motivating assets | `Avalonia` 12.1.2: cold about the ranged read of #8415 plus the size probe, warm no package request. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package request | `eng/measure-package-read-demand.sh` for `Avalonia`, a preserved probe as design evidence; the runtime pack is gated when platform packs adopt ranged access in step 4 |
+| 10. Motivating assets | `Avalonia` 12.1.2: cold directory and selected-entry reads, warm no package request. `Microsoft.NETCore.App.Runtime.linux-x64` 10.0.0, one assembly: cold about 0.1 s and 0.9 MB, warm no package request | `eng/measure-package-read-demand.sh` for `Avalonia`, a preserved probe as design evidence; the runtime pack is gated when platform packs adopt ranged access in step 4 |
 
 ## Adoption
 
 1. This document, with the persistent-key rule recorded in the package
    source model as the target of step 2.
-2. The persistent key for credential-free HTTP authorities, size first, and
+2. The persistent key for credential-free HTTP authorities, directory first, and
    the entry cache in the lease step, adopted by the exact-package search Root
    that #8415 put on the ranged path; gates 1 to 9. This step changes every
    consumer in the table above, and updates the comment in
@@ -522,7 +552,7 @@ All gates run in Release.
    authority-scoped store and the entry cache is a later step. The
    [package endpoint scope](package-endpoint-scope.md#offline) records the
    offline cases the House already answers.
-3. The remaining search scopes adopt ranged access, and with it size first,
+3. The remaining search scopes adopt ranged access, and with it directory first,
    in the second part of range-access adoption step 2.
 4. The [package-backed platform](package-backed-platform-realization.md)
    owner adopts ranged access for platform packs, so reference and runtime
@@ -531,7 +561,7 @@ All gates run in Release.
    settle "latest" through the
    [Package Version Service](package-version-service.md) as other packages
    do. Both changes are claims of those owners, adopted under their designs.
-5. The Inspect Web document viewer adopts ranged access, size first, and a
+5. The Inspect Web document viewer adopts ranged access, directory first, and a
    Cache Storage-backed browser entry cache for root README and Skill Markdown
    requests, with preflight-free ranged requests. Other Inspect Web package
    operations retain their existing acquisition paths until their owning
@@ -542,7 +572,7 @@ All gates run in Release.
 This document does not:
 
 - download anything in the background or after the command's work;
-- change the ranged read, its outcomes, or its fallback;
+- change entry selection, source ordering, or complete-fetch fallback;
 - change platform-pack acquisition or version selection, which their owners
   adopt in step 4;
 - evict or bound the durable cache's total size, which remains the cache

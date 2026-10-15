@@ -793,16 +793,19 @@ public sealed partial class WorkspacePortableCoordinateReplacementTests
         ViewFacetRegistry facets = InspectionViewFacetCatalog.Registry;
         ViewFacetAvailabilitySnapshot available =
             NavigationSnapshotTestData.AllAvailable(facets);
+        var contextLoad = new WorkspaceContextLoadOptions
+        {
+            HttpClient = new HttpClient(new RejectingHandler()),
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization(
+                    [new PackageSource("nuget.org", ProducerUrl)]),
+            PackageStore = store,
+        };
         return new()
         {
-            ContextLoad = new WorkspaceContextLoadOptions
-            {
-                HttpClient = new HttpClient(new RejectingHandler()),
-                SourceAuthorization =
-                    new UniformPackageSourceAuthorization(
-                        [new PackageSource("nuget.org", ProducerUrl)]),
-                PackageStore = store,
-            },
+            ContextLoad = contextLoad,
+            PackageRootHouse =
+                PackageRootTestHouseExecution.Create(contextLoad),
             ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
             Facets = facets,
             FacetAvailability = (_, _) => available,

@@ -184,6 +184,7 @@ export interface AppPackage {
   isRuntimePack: boolean;
   platformContextId?: string | null;
   surfaceRevision?: number;
+  isSummaryOnly?: boolean;
 }
 
 export interface AppPackageLibrary {
@@ -265,6 +266,7 @@ export function createNuGetPackageSummaryModel(
     packageChildren,
     isRuntimePack: false,
     surfaceRevision: 0,
+    isSummaryOnly: true,
   };
 }
 
@@ -307,7 +309,7 @@ export function packageLibrariesForModel(
         members: descriptor?.publicMembers ?? null,
         platformPack: descriptor?.platformPack ?? null,
         surfaceAvailable: descriptor !== undefined,
-        unavailableDetail: descriptor
+        unavailableDetail: descriptor || packageModel.isSummaryOnly
           ? null
           : "Library surface details are unavailable.",
       };
@@ -711,6 +713,7 @@ export function createNuGetPackageModel(
       : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
+    isSummaryOnly: false,
   };
   if (!packageChildren) return model;
 

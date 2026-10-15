@@ -1,0 +1,1 @@
+Error: Required argument 'resource-or-search' missing for command: 'explain'.

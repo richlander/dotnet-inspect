@@ -55,6 +55,26 @@ public sealed partial class PackageSourceClientTests
         return Assert.IsAssignableFrom<T>(result.Value);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ArchiveRange_CompletePrefix_ReconstructsExactArchive(bool small)
+    {
+        byte[] archive = small ? SmallArchive(("sample.txt", new byte[] { 1, 2, 3 })) : FixtureArchive();
+        var server = new RangeServer(archive) { ETag = "\"v1\"" };
+        var handler = new RecordingHandler { [ServiceIndex] = ServiceIndexWithFlatContainer };
+        handler.SetResponse(Package, server.Respond);
+        using IPackageSourceClient runtime = PackageSourceClientFactory.Create(
+            new PackageSource("feed", ServiceIndex), handler);
+        await using PackageArchiveReader reader = await Opened(
+            await Ranged(runtime).OpenArchiveAsync("contoso", "1.0.0", ZipReadLimits.Default,
+                TestContext.Current.CancellationToken));
+        int directoryRequests = server.Requests;
+        byte[] completed = await Opened(await reader.ReadCompleteAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(archive, completed);
+        Assert.Equal(directoryRequests + (small ? 0 : 1), server.Requests);
+    }
+
     [Fact]
     public async Task ArchiveRange_RetainedDirectory_ReopensWithFreshOperationAndNoDirectoryRequest()
     {

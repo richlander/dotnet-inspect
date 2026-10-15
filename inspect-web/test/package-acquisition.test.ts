@@ -1037,6 +1037,7 @@ test("query results open through the exact opaque Root request", async () => {
     size: 128,
   }]);
   assert.equal(packageLibrariesForModel(result)[0]?.types, null);
+  assert.equal(packageLibrariesForModel(result)[0]?.unavailableDetail, null);
 });
 
 test("exact Root opening preserves a product default second in inventory", async () => {

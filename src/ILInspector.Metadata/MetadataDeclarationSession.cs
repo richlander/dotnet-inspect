@@ -155,6 +155,7 @@ public sealed class MetadataDeclarationSession : IDisposable
             return new MetadataTypeDocumentInspectionOutcome.Failed();
 
         return MetadataTypeDocumentInspection.Read(
+            _assemblySession!.GetPEReaderForDeclarationSession(),
             _assemblySession!.GetMetadataReaderForDeclarationSession(),
             request,
             bounds,

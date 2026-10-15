@@ -926,11 +926,17 @@ internal static class BrowserPackageWorkspace
                 sourceOperation).ConfigureAwait(false);
         if (houseSettlement is not PackageHouseSettlement.Acquired acquired)
         {
+            if (librarySelector is null)
+            {
+                return new BrowserPackageRealizationResult.NotSettled(
+                    PackageVersionSettlementInspection.ProjectAcquisitionFailure(
+                        settled.Result.Request,
+                        houseSettlement.Result));
+            }
+
             string message = "Package realization did not acquire the settled package "
                 + $"({DescribePackageHouseResult(houseSettlement.Result)}).";
-            throw librarySelector is null
-                ? new InvalidOperationException(message)
-                : new BrowserPackageLibraryAcquisitionException(message);
+            throw new BrowserPackageLibraryAcquisitionException(message);
         }
         if (PackageHouseRootContributionAdapter.Create(houseSettlement)
             is not PackageHouseRootContributionOutcome.Contributed contributed)
@@ -973,9 +979,12 @@ internal static class BrowserPackageWorkspace
             acquired.Payload,
             cached.Bytes,
             store);
+        PackageHouseFrameworkReferenceOutcome frameworkReferences =
+            PackageHouseFrameworkReferenceProjection.Project(acquired);
         var coordinate = new BrowserPackageCoordinate(
             package,
-            contributed.Contribution.Binding);
+            contributed.Contribution.Binding,
+            frameworkReferences);
         var realization = new BrowserPackageRealization(
             coordinate,
             selectionRequest,
@@ -2711,7 +2720,7 @@ internal static class BrowserPackageWorkspace
                             : throw new InvalidOperationException("Metadata realization did not issue a package Root.");
                 PackageRootBinding binding = selected.Handoff.ImplementationAsset is { } implementation
                     ? contribution.Binding.WithAssetDemand(PackageAssetDemand.SurfaceAndImplementation,
-                        PackageImplementationNames.Create([Path.GetFileName(implementation.Path)]))
+                        PackageImplementationNames.Create([implementation.AssemblyName]))
                     : contribution.Binding.WithAssetDemand(PackageAssetDemand.Surface);
                 BrowserSessionPackageStore retainedStore = selected.Acquired.Payload.Content is RangedPackageContent
                     ? selectedStore : store;
@@ -5611,7 +5620,8 @@ internal sealed class BrowserPackageCoordinate
 {
     public BrowserPackageCoordinate(
         BrowserPackage package,
-        PackageRootBinding binding)
+        PackageRootBinding binding,
+        PackageHouseFrameworkReferenceOutcome? frameworkReferences = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(binding);
@@ -5634,6 +5644,7 @@ internal sealed class BrowserPackageCoordinate
         Package = package;
         Binding = binding;
         Root = binding.Root;
+        FrameworkReferences = frameworkReferences;
     }
 
     public BrowserPackageCoordinate(
@@ -5663,6 +5674,9 @@ internal sealed class BrowserPackageCoordinate
     public BrowserPackage Package { get; }
 
     public PackageRootBinding? Binding { get; }
+
+    public PackageHouseFrameworkReferenceOutcome? FrameworkReferences
+    { get; }
 
     public PackageRootRealization Root { get; }
 
@@ -5760,6 +5774,7 @@ internal sealed class BrowserPackageCoordinate
 
     internal static bool MatchesAssembly(PackageCompileAsset asset, string name) =>
         asset.AssemblyName.Equals(name, StringComparison.OrdinalIgnoreCase)
-        || Path.GetFileNameWithoutExtension(asset.AssemblyName)
-            .Equals(Path.GetFileNameWithoutExtension(name), StringComparison.OrdinalIgnoreCase);
+        || asset.AssemblySimpleName.Equals(
+            PackageEntryPath.GetStemName(name),
+            StringComparison.OrdinalIgnoreCase);
 }

@@ -593,7 +593,7 @@ value-type eligibility for optimization analysis. It does not own sibling
 selection or opportunity policy.
 `OptimizationOpportunities_GenericObjectEqualsBox_IsReported`,
 `OptimizationOpportunities_GenericObjectEqualsNearMiss_NotReported`, and
-`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings` gate those
+`AsyncSiblingProducer_FindsSyncCallsWithAsyncSiblings` gate those
 judgments.
 `LibraryBodyGeneratedProvenanceClassifier` owns primary-image
 source-generated type/enclosing-type classification and its acquisition-scoped
@@ -695,7 +695,7 @@ fail-closed boundary.
 `ResultSinks_WithStateMachineFieldSourceRemainEqualityStable`, and
 `AsyncFrameworkResultAndBuilder_RequireTrustedMatchingIdentity` gate that
 composition.
-`OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
+`AsyncSiblingProducer_ClassicAsyncUsesMoveNextEvidenceCoordinate`,
 `AsyncStateMachineAttribute_RequiresFrameworkOrigin`,
 `ScopedStateMachineExpansion_RequiresTrustedClassicSource`, and
 `OptimizationOpportunities_AsyncStateMachineTypesArePrewarmedBeforeParallelAnalysis`
@@ -815,24 +815,18 @@ name traversal, ambiguity selection, and source-dependent accessibility and
 dispatch filtering. It consumes builder callbacks for synchronized external
 resolution and the shared local type-definition index without owning metadata
 lifetime. Orchestration, diagnostics, and result ordering remain
-assembly-builder policy.
+producer execution policy.
 `AsyncSiblingProducer` publishes each positive match as an `AsyncSiblingRow`
 that retains the authenticated async source, exact physical `DirectCall`, and
 resolver-issued async candidate. `SyncCallsInAsyncQuery` exposes those rows to
 Library Analysis and Call Graph consumers through producer-planner and
-QuerySpace receipts; neither consumer requests the legacy
-`AsyncSiblingOpportunities` body-analysis feature.
-Every positive `sync-call-in-async` opportunity publishes
-`AsyncSiblingOpportunityEvidence`: the exact physical `DirectCall` selected by
-the orchestrator and resolver-issued async-candidate `MemberRef`. The parent
-opportunity's `Method` remains the authenticated async source, keeping the
-authored caller distinct from a lowered execution body while retaining the
-synchronous callee, call-site coordinate, and callable alternative without
-parsing finding text or rerunning candidate resolution. Other opportunity
-shapes carry no async-sibling evidence.
-`OptimizationOpportunities_FindSyncCallsWithAsyncSiblings`,
-`OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel`, and
-`OptimizationOpportunities_ClassicAsyncUsesMoveNextEvidenceCoordinate` gate
+QuerySpace receipts. The legacy `AsyncSiblingOpportunities` body-analysis
+feature, `sync-call-in-async` `OptimizationOpportunity` shape, and
+`AsyncSiblingOpportunityEvidence` wrapper are removed. Optimization analysis
+does not plan, execute, classify, count, or filter async-sibling findings.
+`AsyncSiblingProducer_FindsSyncCallsWithAsyncSiblings`,
+`AsyncSiblingProducer_InheritedSiblingUsesNearestNameLevel`, and
+`AsyncSiblingProducer_ClassicAsyncUsesMoveNextEvidenceCoordinate` gate
 the same-image, framework, inherited-generic, and lowered-body contracts.
 `CallerUnsafeMode_PointerSignatureIsImplicitWhenModuleNotOptedIn`,
 `OptimizationOpportunities_AsyncStateMachine_IsAmortized`, and

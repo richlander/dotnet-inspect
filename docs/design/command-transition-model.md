@@ -945,6 +945,27 @@ produces:
 | `csharp` | Member | `csharp.line` | `CSharpFindings.Compare` |
 | `il` | Member | `il.op` | `IlFindings.Compare` |
 
+For `string-literals`, a pairwise package Diff compares every selected Library
+assembly at the before and after endpoints. Assemblies correspond by their
+case-insensitive file name; each retains a distinct Library Finding subject and
+appears by file name in `Transitions.Target`. A Library present on only one side
+has an empty comparison side, so its matching literals are added or removed.
+When a package selects one assembly at each endpoint with the same file name,
+the existing one-Library subject and output remain unchanged. A package rename
+uses separate one-sided assembly subjects. Direct local `--library` pairs retain
+their existing pairwise subject and output even when the file names differ. A failed
+inspection of any selected assembly remains a failed comparison rather than a
+partial success. This work remains explicit through `--analysis string-literals`
+and one `Literal` predicate.
+
+`Microsoft.Azure.SignalR@1.20.0..1.33.1` is the motivating real
+asset: both versions select several Library assemblies, and the added HTTPS
+literal uses occur in `Microsoft.Azure.SignalR.Common.dll`. The pinned CLI test
+population retains both package versions and its focused slow test exercises
+the ordinary package acquisition path. The single-Library fixture and query
+tests cover complete literal identity, while the multi-Library query test
+covers assembly separation and an assembly present on only one side.
+
 `api` binds the existing `Changes` producer at every surface, including the
 filterless Library surface of `diff A B`. `ApiFindingComparison` carries keyed
 `api.type` and `api.member` comparisons beside Metadata's compatibility

@@ -115,11 +115,6 @@ internal interface ILibraryMethodAnalysisInfrastructure
     bool HasCompilerGeneratedAttribute(
         CustomAttributeHandleCollection attributes);
 
-    void ValidateAsyncSource(
-        MethodIdentity method,
-        MethodDefinition methodDefinition,
-        bool typeSourceGenerated);
-
     AsyncBodyAttribution? ResolveAsyncBody(
         MethodIdentity method,
         MethodDefinition methodDefinition,
@@ -131,14 +126,6 @@ internal interface ILibraryMethodAnalysisInfrastructure
 
     bool HasRejectedAsyncStateMachineAttribute(
         MethodDefinition methodDefinition);
-
-    ImmutableArray<OptimizationOpportunity>
-        CollectAsyncSiblingOpportunities(
-            MethodBodyAnalysisContext context,
-            ImmutableArray<DirectCall>.Builder calls,
-            MethodDefinition methodDefinition,
-            bool typeSourceGenerated,
-            ref MethodIdentity? asyncSource);
 
     AsyncSiblingOpportunityAnalyzer AsyncSiblingAnalyzer { get; }
 
@@ -706,8 +693,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             LibraryBodyAnalysisFeatures.Allocations);
         bool includeOpportunities = plan.Includes(
             LibraryBodyAnalysisFeatures.OptimizationOpportunities);
-        bool includeAsyncSiblingOpportunities = plan.Includes(
-            LibraryBodyAnalysisFeatures.AsyncSiblingOpportunities);
         bool includeImplementationProfiles = plan.Includes(
             LibraryBodyAnalysisFeatures.ImplementationProfiles);
         bool includeJsonWireContractFlow = plan.Includes(
@@ -859,19 +844,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 SetLocalThrowUnavailable(LocalThrowUnavailableReason.NoManagedBody);
                 result.RequiresCompleteFieldAccessCensus =
                     false;
-                if (includeAsyncSiblingOpportunities
-                    && (bodyScope is null
-                        || bodyScope.Contains(
-                            caller.MetadataToken))
-                    && (bodyTypeScope is null
-                        || bodyTypeScope(
-                            caller.DeclaringType)))
-                {
-                    _infrastructure.ValidateAsyncSource(
-                        caller,
-                        methodDefinition,
-                        typeSourceGenerated);
-                }
                 return result;
             }
 
@@ -967,9 +939,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                     || declaredMethod is not null
                         && CompilerGeneratedNames
                             .IsLocalFunctionOrLambda(
-                                declaredMethod.Name)
-                    || includeAsyncSiblingOpportunities
-                        && bodyTypeScope is not null;
+                                declaredMethod.Name);
                 if (needsUltimateResolution)
                 {
                     ownerResolution =
@@ -1297,10 +1267,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 includeOpportunities
                 && opportunityOwnershipResolved
                 && opportunityScopeSelected;
-            bool collectScopedAsyncSiblingOpportunities =
-                includeAsyncSiblingOpportunities
-                && opportunityOwnershipResolved
-                && opportunityScopeSelected;
             bool collectBodyIntrinsicOpportunities =
                 includeOpportunities
                 && (!plan.IsScoped
@@ -1534,49 +1500,6 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 opportunityStage?.Complete();
             }
 
-            if (collectScopedAsyncSiblingOpportunities
-                && opportunityOwnershipResolved)
-            {
-                MethodIdentity? asyncSource = null;
-                try
-                {
-                    using LibraryBodyAnalysisStageRecorder.StageAttempt?
-                        asyncSiblingStage = StartStage(
-                            LibraryBodyAnalysisStage
-                                .AsyncSiblingAnalysis);
-                    ImmutableArray<OptimizationOpportunity>
-                        asyncOpportunities =
-                            _infrastructure
-                                .CollectAsyncSiblingOpportunities(
-                                    context,
-                                    calls,
-                                    methodDefinition,
-                                    typeSourceGenerated,
-                                    ref asyncSource);
-                    if (!asyncOpportunities.IsDefaultOrEmpty)
-                    {
-                        result.Opportunities =
-                            result.Opportunities.IsDefaultOrEmpty
-                                ? asyncOpportunities
-                                : result.Opportunities.AddRange(
-                                    asyncOpportunities);
-                    }
-                    asyncSiblingStage?.Complete();
-                }
-                catch (Exception ex)
-                    when (IsRecoverableMethodFailure(ex))
-                {
-                    result.Diagnostic = new AnalysisDiagnostic(
-                        MetadataTokens.GetToken(methodHandle),
-                        MethodLabel(
-                            typeHandle,
-                            methodHandle),
-                        $"{ex.GetType().Name}: {ex.Message}",
-                        asyncSource?.MetadataToken,
-                        caller.DeclaringType,
-                        asyncSource?.DeclaringType);
-                }
-            }
         }
         catch (Exception ex)
             when (IsRecoverableMethodFailure(ex))

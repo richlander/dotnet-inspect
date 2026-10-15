@@ -263,9 +263,19 @@ section. The CLI projects exact rows as Caller, Callee, Alternative, and Pair
 Kind, emits them under `performance.sync_calls_in_async` in JSON, and uses the
 query's scalar Count instead of materializing rows for `--count`. The
 `Performance:*` tabular union retains one row family with optional columns for
-this distinct row shape. Its migration and the retirement of the
-`sync-call-in-async` shape follow the
-producer-planner migration in [Method Query Source](method-query-source.md).
+this distinct row shape. Inspect Web executes the same query for the selected
+assembly-context participant and publishes every Rows answer as a separate
+`BrowserSyncCallInAsync` population on `library:analysis`. Its optimization
+member ranking and opportunity totals exclude this shape, and its displayed
+sync-call total comes from the query's Count closing rather than from counting
+Rows in the host. Query rejection, failure, abort, and per-body diagnostics
+remain visible as incomplete inspection state. The Browser table preserves
+Caller, Callee, Alternative, and Pair Kind without manufacturing navigation
+identity. The former `sync-call-in-async` `OptimizationOpportunity` shape,
+`AsyncSiblingOpportunities` body-analysis feature, and wrapper evidence are
+retired; producer-planner plus QuerySpace is the only product path. The
+producer-planner mechanics follow
+[Method Query Source](method-query-source.md).
 
 ## Next semantic additions
 

@@ -596,6 +596,16 @@ public static class DiffOutputFormatter
             fromVersion,
             toVersion);
 
+    /// <summary>
+    /// Bolds the version of a version label, leaving a framework the label
+    /// names after it, as in <c>**8.0.0** (net8.0)</c>. A version has no
+    /// space, so the version ends at the first one.
+    /// </summary>
+    static string BoldVersion(string label)
+        => label.IndexOf(' ') is int space and > 0
+            ? $"**{label[..space]}**{label[space..]}"
+            : $"**{label}**";
+
     static DiffFullView BuildFullView(
         string name,
         IReadOnlyList<TypeDiff> typeDiffs,
@@ -605,7 +615,7 @@ public static class DiffOutputFormatter
     {
         var view = new DiffFullView(
             DiffViewText.Field($"API Diff: {name}"),
-            DiffViewText.Field($"**{fromVersion}** → **{toVersion}**"),
+            DiffViewText.Field($"{BoldVersion(fromVersion)} → {BoldVersion(toVersion)}"),
             InertString.Empty)
         {
             InspectionFailures =

@@ -121,7 +121,10 @@ public sealed record StructuralSchemaProjection(
         SectionCardinalityDeclaration>? SectionCardinalities,
     ImmutableDictionary<string, StructuralSectionInput> SectionInputs,
     OutputCapabilityCatalog? OutputCapabilities,
-    IReadOnlyDictionary<string, SectionShape>? SectionShapes = null);
+    IReadOnlyDictionary<string, SectionShape>? SectionShapes = null,
+    IReadOnlyDictionary<
+        string,
+        SectionDescription>? SectionDescriptions = null);
 
 public sealed record StructuralDiscoveryRequest(
     string[]? Discover,
@@ -873,6 +876,8 @@ public static class StructuralViewRegistry
             SectionCardinalityDeclaration>? sectionCardinalities = null;
         OutputCapabilityCatalog? outputCapabilities = null;
         IReadOnlyDictionary<string, SectionShape>? sectionShapes = null;
+        IReadOnlyDictionary<string, SectionDescription>? sectionDescriptions =
+            null;
         switch (route.Catalog)
         {
             case InspectionCatalogIdentity.Package:
@@ -892,6 +897,7 @@ public static class StructuralViewRegistry
                 // Package is the first Section shapes adopter: its formats
                 // derive from declared shapes rather than a hand-kept list.
                 sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
                 outputCapabilities = PackageOutputCapabilities.Catalog;
                 sectionCardinalities =
                     PackageSectionCardinality.Declarations;
@@ -911,6 +917,7 @@ public static class StructuralViewRegistry
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
                 sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
                 outputCapabilities =
                     LibraryOutputCapabilities.Catalog;
                 sectionCardinalities =
@@ -934,6 +941,7 @@ public static class StructuralViewRegistry
                 catalogHiddenSections =
                     catalog.Pipeline.GetCatalogHiddenSections();
                 sectionShapes = catalog.Sections.SectionShapes;
+                sectionDescriptions = catalog.Sections.SectionDescriptions;
                 outputCapabilities =
                     LibraryOutputCapabilities
                         .AggregateCardinalityCatalog;
@@ -957,6 +965,7 @@ public static class StructuralViewRegistry
                 // Type and member adopt Section shapes: formats derive from
                 // the declared shapes rather than a hand-kept list.
                 sectionShapes = pipeline.SectionShapes;
+                sectionDescriptions = pipeline.SectionDescriptions;
                 outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiTypeSectionCardinality.Declarations;
@@ -994,6 +1003,7 @@ public static class StructuralViewRegistry
                         route.Catalog
                             == InspectionCatalogIdentity.ApiMemberOverload);
                 sectionShapes = pipeline.SectionShapes;
+                sectionDescriptions = pipeline.SectionDescriptions;
                 outputCapabilities = ApiOutputCapabilities.For(route);
                 sectionCardinalities =
                     ApiMemberSectionCardinality.For(selectableSections);
@@ -1076,7 +1086,8 @@ public static class StructuralViewRegistry
             sectionCardinalities,
             inputs,
             outputCapabilities,
-            sectionShapes);
+            sectionShapes,
+            sectionDescriptions);
     }
 
     /// <summary>
@@ -1186,7 +1197,8 @@ public static class StructuralViewRegistry
                     requireExactSelection: true,
                     sectionCardinalities:
                         sectionCardinalities,
-                    sectionShapes: projection.SectionShapes);
+                    sectionShapes: projection.SectionShapes,
+                    sectionDescriptions: projection.SectionDescriptions);
             if (detailedProjection is null)
                 return 1;
 

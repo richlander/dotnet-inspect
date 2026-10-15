@@ -99,7 +99,7 @@ export function renderDocViewer(options: RenderDocViewerOptions): string {
     case "ready": {
       const metaCard = state.meta
         ? `<div class="doc-frontmatter">
-        <div class="doc-fm-head"><strong>${escapeHtml(state.meta.name)}</strong>${state.meta.version ? `<span class="doc-fm-version">v${escapeHtml(state.meta.version)}</span>` : ""}</div>
+        <div class="doc-fm-head"><strong>${state.meta.nameHtml}</strong>${state.meta.versionHtml ? `<span class="doc-fm-version">v${state.meta.versionHtml}</span>` : ""}</div>
         ${state.meta.descriptionHtml ? `<p class="doc-fm-desc">${state.meta.descriptionHtml}</p>` : ""}
       </div>`
         : "";

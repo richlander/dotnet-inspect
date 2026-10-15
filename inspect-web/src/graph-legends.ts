@@ -34,6 +34,15 @@ export function dependencyGraphLegendHtml(): string {
     <span><i class="legend-swatch target"></i>inspected package</span>
     <span><i class="legend-swatch same-prefix-package"></i>same prefix</span>
     <span><i class="legend-swatch external-package"></i>external</span>
+    <span><i class="legend-swatch external-package"></i>platform</span>
+  </div>`;
+}
+
+export function packageHierarchyGraphLegendHtml(): string {
+  return `<div class="graph-legend" aria-label="Graph legend">
+    <span><i class="legend-swatch target"></i>inspected package</span>
+    <span><i class="legend-swatch reference"></i>dependency occurrence</span>
+    <span><i class="legend-swatch hierarchy-qualified"></i>dashed: revisit, cycle, or unresolved</span>
   </div>`;
 }
 

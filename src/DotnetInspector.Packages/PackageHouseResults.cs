@@ -744,7 +744,7 @@ public abstract class PackageHouseRealizationReceipt
             selection.Assets
                 .Where(asset =>
                     selection.FindImplementationAsset(asset) is null)
-                .Select(asset => Path.GetFileName(asset.Path)),
+                .Select(asset => asset.AssemblyName),
             StringComparer.OrdinalIgnoreCase);
         return
         [
@@ -905,6 +905,8 @@ internal static class PackageHouseRealizationCorrespondence
             || !PolicyMatches(
                 request.TargetContext,
                 receipt.Policy)
+            || receipt.IncludesNestedCompileAssets
+                != (request.TargetContext?.IncludesNestedCompileAssets ?? true)
             || !RequestMatches(
                 request.TargetContext,
                 receipt.RequestedTargetFramework,
@@ -958,6 +960,10 @@ internal static class PackageHouseRealizationCorrespondence
         {
             PackageHouseTargetSelectionMode.Exact =>
                 policy == PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            PackageHouseTargetSelectionMode.ExactTarget =>
+                policy == PackageCompileAssetSelectionPolicy.ExactTarget,
+            PackageHouseTargetSelectionMode.FrozenTarget =>
+                policy == PackageCompileAssetSelectionPolicy.ExactTarget,
             PackageHouseTargetSelectionMode.OwnerDefault or null =>
                 policy == PackageCompileAssetSelectionPolicy.HighestAvailable,
             _ => false,
@@ -970,7 +976,9 @@ internal static class PackageHouseRealizationCorrespondence
     {
         bool frameworkMatches = target?.Mode switch
         {
-            PackageHouseTargetSelectionMode.Exact =>
+            PackageHouseTargetSelectionMode.Exact
+                or PackageHouseTargetSelectionMode.ExactTarget
+                or PackageHouseTargetSelectionMode.FrozenTarget =>
                 target.RequestedFramework!.Equals(
                     framework,
                     StringComparison.OrdinalIgnoreCase),

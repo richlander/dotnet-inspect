@@ -602,7 +602,7 @@ internal static class TypeSearchService
                         {
                             AssetPath: { Length: > 0 } assetPath,
                         } =>
-                            Path.GetFileNameWithoutExtension(assetPath),
+                            PackageEntryPath.GetStemName(assetPath),
                         _ =>
                             candidate.Observation.AssemblyIdentity.Name,
                     },

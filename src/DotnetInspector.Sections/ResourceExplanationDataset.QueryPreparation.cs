@@ -6,7 +6,8 @@ namespace DotnetInspector.Sections;
 
 public sealed partial class ResourceExplanationDataset
 {
-    private JsonElement WriteQueryPreparation(bool hal, Func<ResourcePath, string> bindHalAddress)
+    private JsonElement WriteQueryPreparation(bool hal, Func<ResourcePath, string> bindHalAddress,
+        bool includePresentation = false)
     {
         ResourceExplanationResource querySpace = _root.Key.ResourceType == ResourceExplanationVocabulary.QuerySpaceType
             ? _root : QuerySpaceForFacet();
@@ -63,10 +64,25 @@ public sealed partial class ResourceExplanationDataset
                     "options",
                 })
             {
-                record[field.Replace('-', '_')] = AvailableOrAbsent(
+                JsonNode? value = AvailableOrAbsent(
                     facts,
                     projections[identity].States,
                     field);
+                if (includePresentation)
+                    record[field.Replace('-', '_')] = value;
+                else if (field is "execution-class" or "option-source" && value is not null)
+                    record[field.Replace('-', '_')] = value;
+                else if (field == "options" && value is JsonArray { Count: > 0 } options)
+                {
+                    var descriptions = new JsonObject();
+                    foreach (JsonNode? option in options)
+                    {
+                        JsonObject item = option!.AsObject();
+                        descriptions.Add(Text(item, "value"),
+                            RequireFact(item, "summary").DeepClone());
+                    }
+                    record["value_descriptions"] = descriptions;
+                }
             }
             var requires = new JsonArray(Targets(identity, "required-context")
                 .Select(key => (JsonNode?)JsonValue.Create(localKeys[key])).ToArray());
@@ -97,7 +113,7 @@ public sealed partial class ResourceExplanationDataset
         }
         var scope = new JsonObject
         {
-            ["profile"] = "query-preparation/v1",
+            ["profile"] = includePresentation ? "query-preparation/v1" : "query-preparation/v2",
             ["resource"] = RequireFact(
                 projections[querySpace.Key].Facts,
                 "identity").DeepClone(),

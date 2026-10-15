@@ -1049,6 +1049,16 @@ public sealed partial class PackageHouseExecutionTests
             preparation.ResolvePackageBinding(lowerRoute);
 
         Assert.Equal(lowerVersion, selected.Coordinate.Version);
+        Assert.Contains(
+            preparation.WorkspaceBindings,
+            binding => ReferenceEquals(binding, selected));
+        Assert.Contains(
+            preparation.WorkspaceBindings,
+            binding =>
+                binding.Coordinate.PackageId.Equals(
+                    CallGraphTargetPackage,
+                    StringComparison.OrdinalIgnoreCase)
+                && binding.Coordinate.Version == higherVersion);
         Assert.DoesNotContain(
             preparation.GraphBindings,
             binding => ReferenceEquals(binding, selected));
