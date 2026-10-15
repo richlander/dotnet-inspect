@@ -18,6 +18,10 @@ public sealed record PackageCompileAsset(
     PackageCompileAssetKind Kind,
     string? RuntimeIdentifier = null)
 {
+    /// <summary>The assembly name without its final extension.</summary>
+    public string AssemblySimpleName =>
+        PackageEntryPath.GetStemName(AssemblyName);
+
     /// <summary>The same-directory XML documentation path, when this is a DLL.</summary>
     public string? DocumentationCompanionPath =>
         GetCompanionPath(".xml");
@@ -744,7 +748,7 @@ public static class PackageCompileAssetSelector
         }
 
         PackageCompileAsset defaultAsset = selected.FirstOrDefault(
-            asset => Path.GetFileNameWithoutExtension(asset.AssemblyName)
+            asset => asset.AssemblySimpleName
                 .Equals(packageId, StringComparison.OrdinalIgnoreCase))
             ?? selected[0];
         return new PackageCompileAssetSelection(
@@ -782,7 +786,8 @@ public static class PackageCompileAssetSelector
 
         string path = entry;
         if (!parts![^1].EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrEmpty(Path.GetFileNameWithoutExtension(parts[^1]))
+            || string.IsNullOrEmpty(
+                PackageEntryPath.GetStemName(parts[^1]))
             || !TfmResolver.IsTfmLike(parts[1]))
         {
             return null;

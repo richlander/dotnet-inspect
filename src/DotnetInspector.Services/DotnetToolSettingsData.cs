@@ -1,3 +1,5 @@
+using DotnetInspector.Packages;
+
 namespace DotnetInspector.Services;
 
 /// <summary>
@@ -38,5 +40,5 @@ public sealed record DotnetToolSettingsData(
     }
 
     private static string FileName(string path) =>
-        Path.GetFileName(path.Replace('\\', '/'));
+        PackageEntryPath.GetLeafName(path);
 }

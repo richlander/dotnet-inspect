@@ -285,7 +285,7 @@ public static class ExactLibraryApiInspectionQuery
         var asset = new ExactLibraryApiAsset(
             outcome.Selection.Path,
             outcome.Selection.Path,
-            Path.GetFileName(outcome.Selection.Path),
+            PackageEntryPath.GetLeafName(outcome.Selection.Path),
             outcome.Selection.TargetFramework
                 ?? request.TargetFramework,
             ExactLibraryApiAssetKind.Tool);
@@ -466,11 +466,11 @@ public static class ExactLibraryApiInspectionQuery
         if (normalized.Contains('/'))
             return [];
 
-        string leaf = Path.GetFileName(normalized);
+        string leaf = PackageEntryPath.GetLeafName(normalized);
         string bareName = leaf.EndsWith(
             ".dll",
             StringComparison.OrdinalIgnoreCase)
-            ? Path.GetFileNameWithoutExtension(leaf)
+            ? PackageEntryPath.GetStemName(leaf)
             : leaf;
         string fileName = leaf.EndsWith(
             ".dll",
@@ -482,7 +482,7 @@ public static class ExactLibraryApiInspectionQuery
                 asset.AssemblyName.Equals(
                     fileName,
                     StringComparison.OrdinalIgnoreCase)
-                || Path.GetFileNameWithoutExtension(asset.AssemblyName).Equals(
+                || asset.AssemblySimpleName.Equals(
                     bareName,
                     StringComparison.OrdinalIgnoreCase))
             .ToArray();
