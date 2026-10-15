@@ -45,6 +45,7 @@ type PackageOperationName =
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentHtml"
+  | "containPackageDocumentLeaves"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "matchPackageDependencyCoordinate"
@@ -1209,6 +1210,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["containPackageDocumentHtml"]>
       ) => facades.package.containPackageDocumentHtml(...args),
+    ),
+    containPackageDocumentLeaves: valueOperation(
+      "ordinary-package-contain-document-leaves",
+      2,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["containPackageDocumentLeaves"]>
+      ) => facades.package.containPackageDocumentLeaves(...args),
     ),
     queryMemberDocumentation: valueOperation(
       "ordinary-package-query-member-documentation",
@@ -2512,6 +2521,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       containPackageDocumentHtml: bind(
         engineWorkerOrdinaryOperations.package.containPackageDocumentHtml,
+      ),
+      containPackageDocumentLeaves: bind(
+        engineWorkerOrdinaryOperations.package.containPackageDocumentLeaves,
       ),
       queryMemberDocumentation: bind(
         engineWorkerOrdinaryOperations.package.queryMemberDocumentation,

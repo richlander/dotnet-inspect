@@ -266,6 +266,71 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageDocumentLeaves_PreserveIdentityPolicyAndInertBrand()
+    {
+        const string leavesJson =
+            """
+            [
+              { "identity": 2, "policy": "Prose", "text": "line\u202Eone" },
+              { "identity": 1, "policy": "Field", "text": "field\nvalue" }
+            ]
+            """;
+
+        string json = PackageExports.ContainPackageDocumentLeaves(
+            "document-11",
+            leavesJson);
+        BrowserDocumentLeafContainmentOutcome outcome =
+            JsonSerializer.Deserialize(
+                json,
+                BrowserPackageJsonContext.Default
+                    .BrowserDocumentLeafContainmentOutcome)
+            ?? throw new InvalidOperationException(
+                "The contained leaf outcome was absent.");
+        BrowserDocumentLeafContainmentContained contained =
+            Assert.IsType<BrowserDocumentLeafContainmentContained>(outcome);
+
+        Assert.Equal("document-11", contained.Generation);
+        Assert.Collection(
+            contained.Leaves,
+            leaf =>
+            {
+                Assert.Equal(2, leaf.Identity);
+                Assert.Equal(BrowserDocumentTextPolicy.Prose, leaf.Policy);
+                Assert.Equal("line\\u202Eone", leaf.Text.ToString());
+            },
+            leaf =>
+            {
+                Assert.Equal(1, leaf.Identity);
+                Assert.Equal(BrowserDocumentTextPolicy.Field, leaf.Policy);
+                Assert.Equal("field\\^Jvalue", leaf.Text.ToString());
+            });
+    }
+
+    [Fact]
+    public void PackageDocumentLeaves_PreserveTypedRejection()
+    {
+        const string generation = "document-12";
+        const string leavesJson =
+            """[{"identity":9,"policy":99,"text":"value"}]""";
+
+        string json = PackageExports.ContainPackageDocumentLeaves(
+            generation,
+            leavesJson);
+        BrowserDocumentLeafContainmentRejected rejected =
+            Assert.IsType<BrowserDocumentLeafContainmentRejected>(
+                JsonSerializer.Deserialize(
+                    json,
+                    BrowserPackageJsonContext.Default
+                        .BrowserDocumentLeafContainmentOutcome));
+
+        Assert.Equal(generation, rejected.Generation);
+        Assert.Equal(
+            BrowserDocumentLeafContainmentFailureKind.UnsupportedTextPolicy,
+            rejected.Failure.Kind);
+        Assert.Equal(9, rejected.Failure.Identity);
+    }
+
+    [Fact]
     public async Task
         QueryMemberDocumentation_DottedAssemblyNameUsesSharedContract()
     {
