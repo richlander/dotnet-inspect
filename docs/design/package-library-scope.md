@@ -93,12 +93,14 @@ non-success before any probe runs. A probe's non-success names the population it
 searched, for example `No namesake library found in lib/net10.0/`, in addition
 to the ordered candidates and participant evidence that Navigation requires.
 
-Which roles a probe may declare beyond the compile projection, how a package
-with no compile Library but RID-specific implementation assets selects its
-role, target, and RID, and whether framework-less `lib/` assets form a compile
-slice belong to Navigation, `PackageAssetSelector`, and compile selection.
-[#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries
-those decisions.
+Which roles a probe may declare beyond the compile projection and how a
+package with no compile Library but RID-specific implementation assets selects
+its role, target, and RID belong to Navigation, `PackageAssetSelector`, and
+compile selection. Direct framework-less `lib/*.dll` assets form the
+framework-agnostic `any` compile slice owned by
+[compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
+[#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries the
+remaining role and RID decisions.
 
 A survey of the 500 most downloaded nuget.org packages at their latest stable
 versions, under #9833, informs them:
@@ -348,17 +350,21 @@ probes. When compile selection returns `NoCompileAssets`, and under
 `--tfm all`, the CLI's package Library routes search the extracted archive
 through `TfmSelector` instead of consuming a role population; #9833 records
 each route. Observed results include a runtime pack yielding its
-implementation assemblies, an analyzer package its analyzers, a
-framework-less root `lib/` package its root assemblies, and a satellite-only
-package its satellite resource assemblies. Under `--tfm all` the search also
-merges frameworks and roles and ignores explicit empty groups; those routes
-are retired rather than repopulated, because `--tfm all` is package discovery
+implementation assemblies, an analyzer package its analyzers, and a
+satellite-only package its satellite resource assemblies. Direct root
+`lib/*.dll` packages no longer enter that search because compile selection
+issues their framework-agnostic population. The standalone exact
+`library --package` route consumes that same selected population when a package
+contains direct root Libraries, so a real framework-qualified slice still
+outranks the root slice. Under `--tfm all` the search also merges
+frameworks and roles and ignores explicit empty groups; those routes are
+retired rather than repopulated, because `--tfm all` is package discovery
 under [All-frameworks package discovery](package-tfm-all-discovery.md), which
 records that adoption. Without `--tfm all`, a selected explicit empty compile
 group fails before the search and reports the group's own folder spelling,
 such as `netstandard`. #9833 records the search's exact rules and decides the
-`NoCompileAssets` path after the root `lib/` and RID-implementation decisions
-above, and Browser adoption of Library probes is not yet recorded.
+remaining `NoCompileAssets` path after the RID-implementation decision above,
+and Browser adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
