@@ -1067,9 +1067,11 @@ public partial class DiffCommand
 
     /// <summary>
     /// Opens both endpoints as package endpoint scopes, or reports why one
-    /// did not open. Only an offline request the House can settle only by
-    /// discovery returns neither inputs nor error, so it takes the legacy
-    /// path (docs/design/package-endpoint-scope.md#offline).
+    /// did not open. Two requests return neither inputs nor error, so they
+    /// take the legacy path (docs/design/package-endpoint-scope.md, step 4
+    /// part 6): an offline request with an endpoint only discovery can
+    /// settle, and, without <c>--tfm</c>, a package the House selects no
+    /// compile assets for.
     /// </summary>
     private static async Task<(DiffInputs? inputs, string? error)>
         TryExecuteScopedPackageDiffAsync(
