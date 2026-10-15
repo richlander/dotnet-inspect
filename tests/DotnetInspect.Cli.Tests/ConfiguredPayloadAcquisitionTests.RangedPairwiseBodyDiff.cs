@@ -16,7 +16,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// <summary>
     /// The body views over System.Text.Json 9.0.0 and 10.0.0, which ship no
     /// <c>ref/</c>: Analysis Diff and Implementation Diff narrowed to one
-    /// Type, and a member-targeted analysis set that reads method bodies.
+    /// Type, a member-targeted analysis set that reads method bodies, and
+    /// string literals over the one Library.
     /// </summary>
     private static readonly string[][] SystemTextJsonBodyViews =
     [
@@ -27,6 +28,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--member", "SerializeAsync:1",
             "--analysis", "allocation,il",
         ],
+        ["--analysis", "string-literals", "--where", "Literal contains Json", "--json"],
     ];
 
     /// <summary>
@@ -58,6 +60,48 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                     "(1 surface assembly and 1 implementation assembly for net8.0;"));
         }
         AssertEachCellReadsOnly(feed, packages, ["lib/net8.0"]);
+    }
+
+    /// <summary>
+    /// Gate 12 for string literals over two Libraries: the real NUnit 4.1.0
+    /// and 4.2.2 archives ship <c>nunit.framework.dll</c> and
+    /// <c>nunit.framework.legacy.dll</c> in <c>lib/net6.0</c>. Each Library is
+    /// its own subject, read as an implementation participant, and the
+    /// output equals the legacy oracle's.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_StringLiteralsOverTwoLibraries_ReadParticipantsAndEqualLegacy()
+    {
+        Dictionary<string, byte[]> packages = await ReadNUnitPackagesAsync();
+        string[][] requests =
+        [
+            .. new[] { "--json", "--table" }.Select(format => new[]
+            {
+                "diff",
+                "--package", $"{NUnitId}@4.1.0..4.2.2",
+                "--tfm", "net6.0",
+                "--source", FirstFeed,
+                "--analysis", "string-literals",
+                "--where", "Literal contains {0}",
+                format,
+            }),
+        ];
+        string[] legacy = await RunLegacyPairwiseDiffsAsync(NUnitId, packages, requests);
+
+        UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, NUnitId, packages));
+        for (int view = 0; view < requests.Length; view++)
+        {
+            var result = await RunCommandAsync([.. requests[view], "--verbose"]);
+
+            Assert.True(result.Exit == 0, result.Error);
+            Assert.True(legacy[view] == result.Output, result.Error);
+            Assert.Equal(
+                2,
+                CountOccurrences(
+                    result.Error,
+                    "(2 surface assemblies and 2 implementation assemblies for net6.0;"));
+        }
+        Assert.Contains("nunit.framework.dll", legacy[0], StringComparison.Ordinal);
     }
 
     /// <summary>

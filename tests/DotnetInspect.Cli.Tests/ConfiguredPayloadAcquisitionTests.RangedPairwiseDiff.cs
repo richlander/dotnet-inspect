@@ -20,6 +20,7 @@ namespace DotnetInspect.Cli.Tests;
 public sealed partial class ConfiguredPayloadAcquisitionTests
 {
     private const string SystemTextJsonId = "System.Text.Json";
+    private const string NUnitId = "NUnit";
     private static readonly string[] SystemTextJsonVersions = ["9.0.0", "10.0.0"];
 
     /// <summary>
@@ -231,26 +232,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Fact]
     public async Task PairwiseDiff_TwoLibrariesBelowTheSizeCut_DownloadEachArchiveOnce()
     {
-        const string NUnitId = "NUnit";
-        var hashes = new Dictionary<string, string>
-        {
-            ["4.1.0"] = "b2bce3d257f645e2b0e354e78a06707fcaea28a373191455ae0377851fef463a",
-            ["4.2.2"] = "fb4392ebb2136a5986f5aad80a0405ffe61b98f467077a4823291ec3492fa027",
-        };
-        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        foreach ((string version, string hash) in hashes)
-        {
-            byte[] package = await File.ReadAllBytesAsync(
-                Path.Combine(
-                    AppContext.BaseDirectory,
-                    "RealAssets",
-                    "PackageEndpointScope",
-                    $"nunit.{version}.nupkg"),
-                TestContext.Current.CancellationToken);
-            Assert.Equal(hash, Convert.ToHexStringLower(SHA256.HashData(package)));
-            Assert.True(package.Length < 1_000_000);
-            packages.Add(version, package);
-        }
+        Dictionary<string, byte[]> packages = await ReadNUnitPackagesAsync();
         string[] request =
         [
             "diff",
@@ -606,6 +588,34 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 "dotnet-inspect-test", Path.Combine(_root, "cache-scoped"), skipNuGetCache: true);
         }
         return outputs;
+    }
+
+    /// <summary>
+    /// The real NUnit 4.1.0 and 4.2.2 archives, each below the ranged size
+    /// cut, which ship two Libraries in <c>lib/net6.0</c>.
+    /// </summary>
+    private static async Task<Dictionary<string, byte[]>> ReadNUnitPackagesAsync()
+    {
+        var hashes = new Dictionary<string, string>
+        {
+            ["4.1.0"] = "b2bce3d257f645e2b0e354e78a06707fcaea28a373191455ae0377851fef463a",
+            ["4.2.2"] = "fb4392ebb2136a5986f5aad80a0405ffe61b98f467077a4823291ec3492fa027",
+        };
+        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        foreach ((string version, string hash) in hashes)
+        {
+            byte[] package = await File.ReadAllBytesAsync(
+                Path.Combine(
+                    AppContext.BaseDirectory,
+                    "RealAssets",
+                    "PackageEndpointScope",
+                    $"nunit.{version}.nupkg"),
+                TestContext.Current.CancellationToken);
+            Assert.Equal(hash, Convert.ToHexStringLower(SHA256.HashData(package)));
+            Assert.True(package.Length < 1_000_000);
+            packages.Add(version, package);
+        }
+        return packages;
     }
 
     private static async Task<Dictionary<string, byte[]>> ReadSystemTextJsonPackagesAsync()
