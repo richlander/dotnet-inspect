@@ -924,7 +924,8 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_RootLibUsesLegacyNet0CompilePopulation()
+    public async Task
+        LibraryCommand_RootLibUsesFrameworkAgnosticCompilePopulation()
     {
         var (packagePath, tempDir) = CreateLocalRootLibPackage();
         try
@@ -1000,7 +1001,8 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_RealTfmSliceOutranksRootLegacy()
+    public async Task
+        LibraryCommand_RealTfmSliceOutranksRootFrameworkAgnostic()
     {
         var (packagePath, tempDir) =
             CreateLocalRootLibPackage(includeRealTfm: true);

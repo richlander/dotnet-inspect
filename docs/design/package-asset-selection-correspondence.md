@@ -27,23 +27,25 @@ rule as runtime asset selection: a neutral target does not admit a
 platform-specific slice, while a platform target admits its exact platform and
 neutral fallback.
 
-Available slices are the case-insensitive union of candidate asset frameworks,
-the legacy `net0` slice formed by direct `lib/*.dll` entries, and explicit
-`ref/<tfm>/_._` groups. The `net0` spelling and direct-entry boundary match
-NuGet's `ManagedCodeConventions` for `lib/{assembly}`. Every real framework
-slice outranks it, and an explicit recognized target selects it only after no
-real compatible slice applies. Nested `lib/` entries do not enter that legacy
-slice.
+Available slices are the case-insensitive union of candidate asset frameworks
+and explicit `ref/<tfm>/_._` groups. Each `PackageCompileAssetSlice` binds one
+framework identity to all of its `ref` and `lib` candidates plus the presence
+of an explicit empty reference group. `CandidateAssets` retains the same
+complete candidates as a deterministic flat compatibility projection,
+including nested candidates and candidates whose implementation correspondence
+is later rejected. Satellite resource assemblies remain excluded.
+`ExplicitEmptyTargetFrameworks` is the corresponding flat marker projection.
+Selected and non-selected slices therefore remain visible in selected,
+selected-empty, no-match, and invalid results.
 
-Each `PackageCompileAssetSlice` binds one framework identity to all of its
-`ref` and `lib` candidates plus the presence of an explicit empty reference
-group. `CandidateAssets` retains the same complete candidates as a
-deterministic flat compatibility projection, including nested candidates and
-candidates whose implementation correspondence is later rejected. Satellite
-resource assemblies remain excluded. `ExplicitEmptyTargetFrameworks` is the
-corresponding flat marker projection. Selected and non-selected slices
-therefore remain visible in selected, selected-empty, no-match, and invalid
-results.
+Direct `lib/*.dll` assets form one framework-agnostic slice whose receipt
+identity is `any`; nested paths do not join that slice. A recognized explicit
+target may select `any` only when no framework-qualified slice satisfies the
+request, and `HighestAvailable` ranks every framework-qualified slice ahead of
+`any`. An unrecognized target still fails closed unless an available
+framework-qualified slice matches its spelling exactly. The implementation
+universe applies the same `any` fallback, so a selected root `lib` asset is its
+own implementation counterpart.
 
 Compile roles are framework-local. A marker suppresses library fallback only
 when its exact slice is selected and that slice has no real reference asset. A
@@ -64,6 +66,11 @@ Navigation or its
 [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
 request. `DefaultAsset` matches file stems in selection order, while First
 Library matches owner-issued assembly names in Library order.
+
+The framework-agnostic slice is grounded by published packages that carry
+managed assemblies directly under `lib/`: WebGrease 1.6.0, Antlr 3.5.0.2, and
+EO.WebBrowser 26.3.18. Focused selector fixtures preserve that layout without
+retaining package binaries.
 
 ## Comparison counterparts
 
@@ -119,20 +126,6 @@ retains the existing highest-available behavior. This keeps later Query and
 host adoption in their assigned slices rather than changing them implicitly
 through a lower-owner prerequisite.
 
-`WebGrease@1.6.0` is the motivating real package: it carries
-`lib/WebGrease.dll` without a framework-specific compile slice. NuGet restore
-selects that asset for a .NET 11 project with its legacy compatibility warning.
-The CLI canary is:
-
-```text
-dotnet-inspect library --package WebGrease@1.6.0 --tfm net11.0 \
-  -S "Library Info"
-```
-
-Focused deterministic archives reproduce the direct root, nested root, real
-framework, and unrelated-role boundaries without making PR tests depend on
-nuget.org availability.
-
 ## Composition and adoption
 
 The immediate consumer is the focused PackageHouse package-local compile
@@ -172,20 +165,17 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Compile evaluation retains generation, request, explicit policy, and outcome | `Evaluate_RetainsGenerationRequestAndSelection` |
 | An absent target records `HighestAvailable` and selects the highest slice | `Evaluate_AbsentTargetRetainsHighestAvailablePolicy` |
 | Explicit targets retain requested and compatible selected frameworks separately | `ExplicitTarget_SelectsCompatibleLowerSlice` and `ExactCompileRealizeBindsSelectionAndLibraryHandoff` |
-| Direct root Libraries form the NuGet-compatible legacy slice | `RootLibraries_FormLegacyNet0CompileSlice` |
-| Real framework slices outrank the legacy slice | `RealTargetFrameworkSlice_OutranksLegacyNet0` |
-| An explicit recognized target uses the legacy slice only as the final fallback | `ExplicitTarget_UsesLegacyNet0AsFinalFallback` and `InvalidOrExactTarget_DoesNotApplyLegacyNet0Fallback` |
 | Exact policy alone cannot satisfy PackageHouse correspondence | `ExactTargetConveniencePathDoesNotApplyPackageLocalFallback`, `CompileReceiptRejectsExactTargetOutsideHousePolicy`, `CompileReceiptRejectsDifferentCandidateEligibility`, and `FrozenTargetCompileRealizePreservesNestedOwnerEligibility` |
 | Policy and target cardinality must agree | `PackageLocalPolicyRejectsAnInconsistentTarget` |
 | Marker-only and highest-marker packages remain selected-empty inventory | `EmptyReferenceGroup_AloneIsASelectedEmptySlice` and `HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice` |
 | Marker suppression is framework-local and real references win | `EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice` and `EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework` |
 | Compile and implementation slices reduce separately | `CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately` |
+| Direct root `lib` assets form the framework-agnostic fallback and retain implementation correspondence | `RootLibraryAssets_FormFrameworkAgnosticCompileSlice`, `ExactTargetRootFallbackPreservesRootImplementationCounterpart`, `Select_RootLibraryIsFrameworkAgnosticFallback`, `Select_FrameworkSpecificFolderOutranksRootLibrary`, and `LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry` |
+| The framework-agnostic fallback does not admit unrecognized target spellings | `Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable` |
 | Invalid implementation selection retains complete candidate inventory | `Selection_CaseCollidingImplementationPathsAreRejected` |
 | Selected implementation assets retain RID qualification | `RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` |
 | PackageHouse preserves owner-default inventory and many Library handoffs | `OwnerDefaultCompileRealizePreservesHighestAvailableInventory` |
 | PackageHouse preserves selected-empty, no-match, and exact receipt evidence | `ExactCompileRealizePreservesExplicitEmptyGroup` and `ExactCompileRealizePreservesNoMatchWithPayload` |
-| Exact root-Library demand retains complete central-directory inventory and materializes only the selected body | `EndpointScope_RootNet0DemandNarrowsFromCentralDirectory` |
-| CLI root-Library consumers use the selected legacy population and preserve real-slice precedence | `LibraryCommand_RootLibUsesLegacyNet0CompilePopulation` and `LibraryCommand_RealTfmSliceOutranksRootLegacy` |
 | Frozen Package Root evidence preserves immutable empty-slice inventory | `PackageRootSelectionIdentity_SelectionSequencesAreImmutable` |
 | A null runtime framework remains a typed invalid outcome | `Evaluate_PreservesNullTargetAsTypedInvalidSelection` |
 | Receipt instance type graphs retain no content or disposable resource | `SelectionReceiptsAreResourceFree` |
@@ -197,6 +187,4 @@ The receipts do not prove package coordinate, source, producer, authority,
 operation, dependency edge, or platform correspondence. Those associations
 require their respective owner-issued evidence at a composition boundary. The
 compile inventory does not select an initial UI subject, define aggregate
-structural identity, merge separately requested framework slices, or decide
-whether a package with no compile slice may expose one RID-specific
-implementation population.
+structural identity, or merge separately requested framework slices.

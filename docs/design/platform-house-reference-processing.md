@@ -727,8 +727,9 @@ View demand is closed:
 
 Population demand is also closed:
 
-- **Library** names one exact requested assembly identity or one owner-issued
-  platform-library identity; and
+- **Library** names one exact requested assembly identity, one assembly simple
+  name in an exact implementation target, or one owner-issued platform-library
+  identity; and
 - **Population** requests the complete applicable family population and any
   source-owned support closure.
 
@@ -737,6 +738,45 @@ realization, or population completeness work unless the selected source's
 atomic realization unit requires it. When a source must realize a larger
 coherent unit, the result says which unit was realized and why; the House does
 not relabel that cost as a one-file operation.
+
+An assembly-name demand is selection, not a partial managed identity. The
+package-backed implementation source settles it against its manifest-defined
+closure, validates the selected image, and returns that image's complete
+metadata identity. Absence and ambiguous membership remain explicit outcomes;
+the name never establishes correspondence between views or relaxes an exact
+assembly-identity demand. Sources that do not support name selection reject it
+before realization. Acquisition consumes the existing
+[package cache policy](package-cache-policy.md), including directory-first
+Range reads above the size cut.
+
+The motivating asset is
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,
+`net11.0`, `System.Private.CoreLib.dll`, tracked by #10065 under #9678.
+A cold restore of its Library Overview on website commit `b3d044e` fetched
+the complete 42,322,665-byte runtime archive, followed by an unrelated
+13,001,705-byte ASP.NET Core archive during automatic platform warmup.
+The exact archive independently accepted a one-byte HTTP Range request.
+The Browser's name-only Library selection must consume this House demand,
+retain the returned full identity for subsequent operations, and not start
+whole-platform warmup or version discovery when restoring a selected Library.
+Explicit Platform catalog work is unchanged.
+Focused package-source and Browser workspace tests cover name selection,
+unchanged exact-identity rejection, the shared size policy, and cumulative
+Library acquisition:
+`RangedCapableFeedSelectsAccessByPopulation`,
+`NamedImplementationRequiresManifestAndMetadataAgreement`,
+`ExactImplementationRealizationContributesRuntimePackEvidence`,
+`PackageImplementationOnly_AssignsBothRoles`,
+`PlatformWorkspace_ExactAssemblyFollowsSizePolicyAndReusesCache`, and
+`PlatformWorkspace_NamedLibrariesAccumulateWithoutCompleteAcquisition`.
+The pinned runtime package is already retained as an acquired real asset by
+`DotnetInspect.Web.Tests`. A cold Chromium run of the original share packet
+against the published Wasm candidate rendered CoreLib Overview with three
+HTTP `206` archive reads totaling 7,821,925 bytes: 65,557 directory bytes,
+4,976 manifest bytes, and 7,751,392 selected-image bytes. It made no ASP.NET
+Core archive or version-discovery requests. This is transfer evidence, not
+accepted performance evidence; exact-base/head NativeAOT performance evidence
+remains required before merge.
 
 Reference success does not satisfy implementation demand. A reference-only
 source can complete API inspection while implementation-body or call-graph

@@ -1,6 +1,3 @@
-using System.IO.Compression;
-using System.Text;
-
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -158,58 +155,6 @@ public sealed partial class PackageRangedRealizationTests
         Assert.False(
             content.IsMaterialized(
                 $"{AvaloniaSurface}Avalonia.Dialogs.dll"));
-    }
-
-    [Fact]
-    public async Task EndpointScope_RootNet0DemandNarrowsFromCentralDirectory()
-    {
-        const string Id = "Root.Library";
-        const string Version = "1.0.0";
-        const string SelectedPath = "lib/Root.First.dll";
-        const string SiblingPath = "lib/Root.Second.dll";
-        byte[] assembly = File.ReadAllBytes(
-            Path.Combine(
-                AppContext.BaseDirectory,
-                "RealAssets",
-                "PackageHouse",
-                "System.Text.Json.dll"));
-        byte[] archive = CreateRootLibraryArchive(
-            Id,
-            Version,
-            assembly);
-        var server = new RangeFeed(Id, Version, archive);
-        await using RangedEnvironment environment =
-            RangedEnvironment.Create(server);
-
-        await using PackageEndpointScope scope = AssertOpened(
-            await OpenEndpointAsync(
-                environment,
-                new InMemoryPackageStore(),
-                new PackageEndpointScopeRequest(
-                    PackageSourceCoordinate.Create(Id, Version),
-                    "net11.0",
-                    PackageAssetDemand.Surface,
-                    librarySelector: new PackageLibrarySelector(
-                        "Root.First.dll"))));
-
-        PackageEndpointParticipant participant =
-            Assert.Single(scope.SurfaceParticipants);
-        Assert.Equal(SelectedPath, participant.Asset.Path);
-        Assert.Equal(
-            PackageCompileAssetSelector.LegacyRootTargetFramework,
-            scope.TargetFramework);
-        Assert.Equal(
-            [SelectedPath, SiblingPath],
-            scope.Root.Root.AssetSelection.Assets.Select(
-                static asset => asset.Path));
-        var content =
-            Assert.IsType<RangedPackageContent>(scope.Payload.Content);
-        Assert.True(content.IsMaterialized(SelectedPath));
-        Assert.False(content.IsMaterialized(SiblingPath));
-        Assert.False(
-            content.IsMaterialized("lib/nested/Root.Nested.dll"));
-        Assert.False(
-            content.IsMaterialized("analyzers/Root.Analyzer.dll"));
     }
 
     /// <summary>
@@ -499,43 +444,6 @@ public sealed partial class PackageRangedRealizationTests
         Assert.NotNull(range);
         Assert.False(PackageHouseDemand.TryCreate(
             Avalonia, "not-a-version", includePrerelease: false, out _, out _));
-    }
-
-    private static byte[] CreateRootLibraryArchive(
-        string packageId,
-        string version,
-        byte[] assembly)
-    {
-        using var output = new MemoryStream();
-        using (var archive = new ZipArchive(
-            output,
-            ZipArchiveMode.Create,
-            leaveOpen: true))
-        {
-            Add(
-                $"{packageId}.nuspec",
-                Encoding.UTF8.GetBytes(
-                    "<?xml version=\"1.0\"?><package><metadata>"
-                    + $"<id>{packageId}</id>"
-                    + $"<version>{version}</version>"
-                    + "<authors>test</authors>"
-                    + "<description>test</description>"
-                    + "</metadata></package>"));
-            Add("lib/Root.First.dll", assembly);
-            Add("lib/Root.Second.dll", assembly);
-            Add("lib/nested/Root.Nested.dll", assembly);
-            Add("analyzers/Root.Analyzer.dll", assembly);
-
-            void Add(string path, byte[] content)
-            {
-                using Stream entry = archive.CreateEntry(
-                    path,
-                    CompressionLevel.NoCompression).Open();
-                entry.Write(content);
-            }
-        }
-
-        return output.ToArray();
     }
 
     private static PackageEndpointScope AssertOpened(PackageEndpointScopeOutcome outcome)

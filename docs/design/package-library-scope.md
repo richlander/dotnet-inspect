@@ -96,8 +96,8 @@ to the ordered candidates and participant evidence that Navigation requires.
 Which roles a probe may declare beyond the compile projection and how a
 package with no compile Library but RID-specific implementation assets selects
 its role, target, and RID belong to Navigation, `PackageAssetSelector`, and
-compile selection. Direct framework-less `lib/*.dll` assets form the legacy
-`net0` compile slice owned by
+compile selection. Direct framework-less `lib/*.dll` assets form the
+framework-agnostic `any` compile slice owned by
 [compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
 [#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries the
 remaining role and RID decisions.
@@ -353,7 +353,10 @@ each route. Observed results include a runtime pack yielding its
 implementation assemblies, an analyzer package its analyzers, and a
 satellite-only package its satellite resource assemblies. Direct root
 `lib/*.dll` packages no longer enter that search because compile selection
-issues their `net0` population. Under `--tfm all` the search also merges
+issues their framework-agnostic population. The standalone exact
+`library --package` route consumes that same selected population when a package
+contains direct root Libraries, so a real framework-qualified slice still
+outranks the root slice. Under `--tfm all` the search also merges
 frameworks and roles and ignores explicit empty groups; those routes are
 retired rather than repopulated, because `--tfm all` is package discovery
 under [All-frameworks package discovery](package-tfm-all-discovery.md), which

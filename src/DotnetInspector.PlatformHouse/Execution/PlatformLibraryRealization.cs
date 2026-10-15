@@ -101,6 +101,11 @@ public sealed class PlatformLibraryContentSelection
                 AssemblyReferenceIdentity.EquivalentComparer.Equals(
                     assembly.Identity,
                     identity.Identity),
+            PlatformLibraryDemand.AssemblyName assembly =>
+                string.Equals(
+                    assembly.Name,
+                    identity.Identity.Name,
+                    StringComparison.OrdinalIgnoreCase),
             PlatformLibraryDemand.AssemblyReferenceBinding binding =>
                 PlatformAssemblyReferenceBindingPolicy.OwnsName(
                     binding,

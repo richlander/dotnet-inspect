@@ -418,6 +418,7 @@ import {
 import {
   buildAnnotatedRelationshipGraphMermaid,
   buildAssemblyReferenceGraphMermaid,
+  buildPackageHierarchyGraphMermaid,
   buildDependencyGraphMermaid,
   buildTypeGraphMermaid,
   resolveMermaidCssVariables,
@@ -433,6 +434,7 @@ import {
 import {
   callGraphLegendHtml,
   dependencyGraphLegendHtml,
+  packageHierarchyGraphLegendHtml,
 } from "./graph-legends.ts";
 import { bindGraphExplore, createGraphExplorer } from "./graph-explorer.ts";
 import {
@@ -853,7 +855,6 @@ import type {
   BrowserPackageCacheStats,
   BrowserPackageDependencies,
   BrowserPackageHierarchy,
-  BrowserPackageHierarchyRow,
   BrowserPackageDependencyGroup,
   BrowserPackageIconInspection,
   BrowserPlatformForwarderRow,
@@ -5011,6 +5012,7 @@ const loadMarkdownModules =
   retainSuccessfulImport<[MarkedModule, DomPurifyModule]>(
     () => Promise.all([import("marked"), import("dompurify")]));
 const depGraphRenderSequence = createDependencyGraphRenderSequence();
+const hierarchyGraphRenderSequence = createDependencyGraphRenderSequence();
 const libraryReferenceGraphRenderSequence =
   createDependencyGraphRenderSequence();
 let mermaidRenderSequence = 0;
@@ -7672,7 +7674,8 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
 function packageLensesFor(pkg: AppPackage | null) {
   return packageLenses.filter(([id]) => {
     if (pkg?.isRuntimePack) return id === "overview";
-    if (id === "vulnerabilities" || id === "hierarchy")
+    if (id === "hierarchy") return false;
+    if (id === "vulnerabilities")
       return pkg?.source.kind === "nuget.org";
     return true;
   });
@@ -9198,7 +9201,7 @@ function stepHorizontal(delta: number) {
   if (scope() === "workspace" || scope() === "platform") return;
   if (state.atPackageRoot) {
     const strip = packageLensesFor(state.package);
-    const index = strip.findIndex(([id]) => id === state.packageLens);
+    const index = strip.findIndex(([id]) => id === (state.packageLens === "hierarchy" ? "dependencies" : state.packageLens));
     const next = strip[(index + delta + strip.length) % strip.length];
     if (!next) return;
     state.packageLens = next[0];
@@ -9746,7 +9749,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const visible = filteredTypeRows();
   // Keep the package lens on something the active package actually supports, so a restored
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
-  if (state.atPackageRoot && !packageLensesFor(pkg).some(([id]) => id === state.packageLens)) {
+  if (state.atPackageRoot && !(state.packageLens === "hierarchy" && pkg.source.kind === "nuget.org")
+    && !packageLensesFor(pkg).some(([id]) => id === state.packageLens)) {
     state.packageLens = "overview";
   }
   if (state.atLibraryRoot
@@ -9814,7 +9818,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     || (activeScope === "library" && state.libraryLens === "overview")
     || (activeScope === "type" && forwarder !== null);
   const packageDependenciesWorkingSurface =
-    activeScope === "package" && state.packageLens === "dependencies";
+    activeScope === "package" && (state.packageLens === "dependencies" || state.packageLens === "hierarchy");
   const packageVulnerabilitiesWorkingSurface =
     activeScope === "package" && state.packageLens === "vulnerabilities";
   const libraryMetadataWorkingSurface =
@@ -10978,7 +10982,7 @@ function renderScopeBar(
     return renderScopeBarPure({
       scope: sc,
       strip: packageLensesFor(state.package),
-      activeStripId: state.packageLens,
+      activeStripId: state.packageLens === "hierarchy" ? "dependencies" : state.packageLens,
       availableScopes,
       stripAttribute: "data-package-lens",
       panelId: "inspector-panel",
@@ -11189,9 +11193,7 @@ function packageLensBody() {
       });
     }
   }
-  // `packageLenses` drives the rendered strip directly, so a new catalog entry is offered
-  // to users the moment it is added. It used to fall through to a "not available"
-  // placeholder here, which is indistinguishable from a lens that is wired but empty.
+  // Every cataloged lens, including the Hierarchy tab's share token, has a body.
   return assertNever(state.packageLens, "package lens");
 }
 
@@ -11235,12 +11237,20 @@ function packageDependenciesSignature() {
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
+  const mode = state.packageLens === "hierarchy" ? "hierarchy" : "dependencies";
+  const tabs = ([
+    ["dependencies", "References"],
+    ["hierarchy", "Hierarchy"],
+  ] as const).filter(([id]) => id !== "hierarchy" || state.package?.source.kind === "nuget.org")
+    .map(([id, label]) => `<button type="button" role="tab" id="package-references-${id}" data-package-references-tab="${id}" aria-selected="${id === mode}" aria-controls="package-references-panel" tabindex="${id === mode ? 0 : -1}">${label}</button>`)
+    .join("");
   return `<section class="package-dependencies-surface" aria-labelledby="package-dependencies-surface-title">
     <header class="api-surface-head package-dependencies-surface-head">
       <h1 id="package-dependencies-surface-title">References</h1>
       <p data-package-dependencies-status>${escapeHtml(status)}</p>
+      <div class="package-references-tabs" role="tablist" aria-label="Package references views">${tabs}</div>
     </header>
-    <div class="package-dependencies-scroll">
+    <div id="package-references-panel" role="tabpanel" aria-labelledby="package-references-${mode}" tabindex="0" class="package-dependencies-scroll">
       ${content}
     </div>
   </section>`;
@@ -11405,29 +11415,25 @@ function renderPackageHierarchy() {
   } else if (!hierarchy) {
     content = `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving dependency hierarchy…</h2></section>`;
   } else {
-    const children = new Map<number | null, BrowserPackageHierarchyRow[]>();
-    for (const row of hierarchy.rows) {
-      const siblings = children.get(row.parentId) ?? [];
-      siblings.push(row);
-      children.set(row.parentId, siblings);
-    }
-    const branch = (parentId: number | null): string => {
-      const rows = children.get(parentId) ?? [];
-      if (!rows.length) return "";
-      return `<ul>${rows.map(row => `<li><span>${escapeHtml(row.label)}</span>${row.disposition === "Revisit" || row.disposition === "Cycle" ? ` <small>(${escapeHtml(row.disposition.toLowerCase())})</small>` : ""}${row.resolution !== "Resolved" ? ` <small>(${escapeHtml(row.resolution.toLowerCase())})</small>` : ""}${branch(row.id)}</li>`).join("")}</ul>`;
-    };
     const completion = hierarchy.isComplete
       ? ""
       : `<p class="inspection-notice">Traversal ${escapeHtml(hierarchy.completion.toLowerCase())}. Some dependencies may be missing.</p>`;
     const failures = hierarchy.failures.length
       ? `<details><summary>${hierarchy.failures.length} traversal issue${hierarchy.failures.length === 1 ? "" : "s"}</summary><ul>${hierarchy.failures.map(failure => `<li>${escapeHtml(failure)}</li>`).join("")}</ul></details>`
       : "";
-    content = `<section class="document-section package-hierarchy-tree">${completion}${branch(null)}${failures}</section>`;
+    content = `<div data-dependency-graph-surface>
+      <section class="document-section dependency-graph-section">
+        <div class="section-title"><h2>Dependency hierarchy</h2><span>occurrences from root to leaves</span></div>
+        <div id="package-hierarchy-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+        ${packageHierarchyGraphLegendHtml()}
+      </section>
+      <section class="document-section package-hierarchy-diagnostics">${completion}${failures}</section>
+    </div>`;
   }
   const status = hierarchy
     ? `${hierarchy.rows.length - 1} occurrences${hierarchy.isComplete ? "" : " · incomplete"}`
     : state.packageHierarchyLoading ? "resolving" : "unavailable";
-  return `<section class="package-dependencies-surface" aria-labelledby="package-hierarchy-title"><header class="api-surface-head package-dependencies-surface-head"><h1 id="package-hierarchy-title">Dependency Hierarchy</h1><p>${escapeHtml(status)}</p></header><div class="package-dependencies-scroll">${content}</div></section>`;
+  return renderPackageDependenciesSurface(content, status);
 }
 
 function platformReferenceSectionHtml(
@@ -11853,7 +11859,11 @@ function maybeAutoLoadPackageHierarchy() {
     || state.package?.source.kind !== "nuget.org") return;
   const pkg = currentPackage();
   const key = packageHierarchySignature();
-  if (state.packageHierarchyKey === key) return;
+  if (state.packageHierarchyKey === key) {
+    if (state.packageHierarchy)
+      observeAsync(renderPackageHierarchyGraph(), "Rendering the dependency hierarchy");
+    return;
+  }
   state.packageHierarchyKey = key;
   state.packageHierarchy = null;
   state.packageHierarchyLoading = true;
@@ -15405,6 +15415,7 @@ function bindEvents() {
   bindSettingsPanelEvents();
   bindMetadataViewerEvents();
   bindAnalysisInspectorEvents();
+  bindPackageReferencesTabs();
   bindPackageOpportunitiesEvents();
   bindTriageCodeEvents();
   bindGraphSourceEvents();
@@ -15465,6 +15476,33 @@ function bindEvents() {
   bindLibraryFastDiffEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
+}
+
+function bindPackageReferencesTabs() {
+  const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-package-references-tab]")];
+  for (const [index, tab] of tabs.entries()) {
+    tab.addEventListener("click", () => {
+      const lens = tab.dataset.packageReferencesTab;
+      if (lens !== "dependencies" && lens !== "hierarchy") return;
+      if (state.packageLens === lens) return;
+      state.packageLens = lens;
+      render();
+      document.querySelector<HTMLButtonElement>(`[data-package-references-tab="${lens}"]`)
+        ?.focus({ preventScroll: true });
+    });
+    tab.addEventListener("keydown", event => {
+      const target = event.key === "Home" ? tabs[0]
+        : event.key === "End" ? tabs.at(-1)
+          : event.key === "ArrowRight" ? tabs[(index + 1) % tabs.length]
+            : event.key === "ArrowLeft" ? tabs[(index + tabs.length - 1) % tabs.length]
+              : null;
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      for (const candidate of tabs) candidate.tabIndex = candidate === target ? 0 : -1;
+      target.focus();
+    });
+  }
 }
 
 function bindCallGraphTraversalFramework() {
@@ -23331,6 +23369,59 @@ async function renderDependencyGraph() {
   }
 }
 
+async function renderPackageHierarchyGraph() {
+  const container = document.querySelector<HTMLElement>("#package-hierarchy-graph-diagram");
+  const hierarchy = state.packageHierarchy;
+  if (!container || !hierarchy) return;
+  const built = buildPackageHierarchyGraphMermaid(hierarchy);
+  if (!built) {
+    container.innerHTML = '<p class="graph-empty">No hierarchy occurrences were returned.</p>';
+    return;
+  }
+  const signature = `${state.theme}:${built.definition}`;
+  if (container.dataset.graphDef === signature
+    && container.querySelector(".graph-viewport")) return;
+  const pending = createDependencyGraphPendingState(container.dataset);
+  if (pending.isPending(signature)) return;
+  const seq = hierarchyGraphRenderSequence.begin();
+  pending.begin(signature, seq);
+  try {
+    const { default: mermaid } = await loadMermaidModule();
+    if (!hierarchyGraphRenderSequence.isCurrent(seq)) return;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: state.theme === "light" ? "default" : "dark",
+      themeVariables: { fontSize: "16px" },
+      flowchart: { htmlLabels: false, curve: "basis" },
+    });
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolved = resolveMermaidCssVariables(
+      built.definition, name => rootStyle.getPropertyValue(name));
+    const id = `hierarchy-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
+    const { svg } = await mermaid.render(id, resolved);
+    if (!hierarchyGraphRenderSequence.isCurrent(seq)
+      || document.querySelector("#package-hierarchy-graph-diagram") !== container) return;
+    container.innerHTML = '<div class="dependency-graph-stage"><div class="graph-viewport"></div>'
+      + graphControlsHtml() + '</div>'
+      + (built.truncated
+        ? `<div class="graph-drill-error graph-diagnostics" role="status">Graph shows ${built.shownOccurrenceCount.toLocaleString()} of ${built.occurrenceCount.toLocaleString()} occurrences.</div>`
+        : "");
+    const viewport = container.querySelector<HTMLElement>(".graph-viewport");
+    if (!viewport) return;
+    viewport.innerHTML = svg;
+    container.dataset.graphDef = signature;
+    bindGraphPanZoom(container, viewport, { keybindings });
+  } catch (error) {
+    if (hierarchyGraphRenderSequence.isCurrent(seq)
+      && document.querySelector("#package-hierarchy-graph-diagram") === container) {
+      container.innerHTML = `<div class="graph-render-error" role="alert"><strong>Diagram rendering failed</strong><p>${escapeHtml(errorMessage(error))}</p></div>`;
+    }
+  } finally {
+    pending.complete(signature, seq);
+  }
+}
+
 async function renderLibraryReferenceGraph() {
   const container =
     document.querySelector<HTMLElement>("#library-reference-graph-diagram");
@@ -24028,6 +24119,10 @@ function callGraphSummary(graph: ReturnType<typeof currentCallGraph>) {
 }
 
 function dependencyGraphAvailable() {
+  if (state.packageLens === "hierarchy")
+    return state.packageHierarchyKey === packageHierarchySignature()
+      && !state.packageHierarchyLoading && !state.packageHierarchyError
+      && Boolean(state.packageHierarchy?.rows.length);
   return state.packageDependenciesKey === packageDependenciesSignature()
     && !state.packageDependenciesLoading
     && !state.packageDependenciesError
@@ -24057,6 +24152,9 @@ function graphExplorerKey(): string | null {
     || state.memberAnnotatedModal) return null;
   if (scope() === "package" && state.packageLens === "dependencies") {
     return JSON.stringify(["dependencies", packageDependenciesSignature()]);
+  }
+  if (scope() === "package" && state.packageLens === "hierarchy") {
+    return JSON.stringify(["hierarchy", packageHierarchySignature()]);
   }
   const type = selectedType();
   if (scope() === "type" && state.lens === "metadata" && type && state.package) {
@@ -24091,13 +24189,14 @@ function graphExplorerTarget() {
 
   const pkg = currentPackage();
   if (dependencies) {
+    const hierarchy = state.packageLens === "hierarchy";
     return {
       key,
       role: "dependency" as const,
-      kind: "Dependency graph",
+      kind: hierarchy ? "Dependency hierarchy" : "Dependency graph",
       subject: packageCoordinateLabel(pkg),
-      context: `Target framework ${pkg.activeFramework}`,
-      summary: DEPENDENCY_GRAPH_SUMMARY,
+      context: `Target framework ${hierarchy ? packageHierarchyTargetFramework(pkg) : pkg.activeFramework}`,
+      summary: hierarchy ? "occurrences from root to leaves" : DEPENDENCY_GRAPH_SUMMARY,
       content,
       invoker,
     };
@@ -26605,7 +26704,7 @@ async function restoreWorkspaceFromLocation(
     }
     state.loading = false;
     render();
-    startPlatformTargetWork(loadedPlatformTarget);
+    if (!loc.library) startPlatformTargetWork(loadedPlatformTarget);
     await loadSelectionData();
     if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (!commitRestoredWorkspaceNavigation(navigationSeq, failureHandler, commitHistory)) return;

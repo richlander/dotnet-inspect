@@ -311,7 +311,7 @@ internal static class WorkspaceImplementationComparisonRunner
                 PackageEndpointBodyParticipant[] matches =
                 [
                     .. participants.Where(participant =>
-                        Path.GetFileName(participant.Descriptor.Asset.Path).Equals(
+                        participant.Descriptor.Asset.AssemblyName.Equals(
                             forward.Identity.Name + ".dll",
                             StringComparison.OrdinalIgnoreCase)),
                 ];
