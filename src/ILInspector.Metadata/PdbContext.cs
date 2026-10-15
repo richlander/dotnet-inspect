@@ -2337,7 +2337,7 @@ public partial class PdbContext : IDisposable
                 CodeViewPdbPath = cvData.Path;
 
                 if (!cvData.Path.StartsWith("/_/", StringComparison.Ordinal) &&
-                    Path.GetDirectoryName(cvData.Path) is string dir && !string.IsNullOrEmpty(dir))
+                    HasCodeViewDirectory(cvData.Path))
                 {
                     HasNormalizedPaths = false;
                     NonNormalizedPaths ??= [];
@@ -2354,7 +2354,7 @@ public partial class PdbContext : IDisposable
                     PdbId = new CodeViewInfo(
                         cvData.Guid,
                         cvData.Age,
-                        Path.GetFileName(cvData.Path),
+                        GetCodeViewFileName(cvData.Path),
                         true,
                         entry.Stamp);
                 }
@@ -2367,7 +2367,7 @@ public partial class PdbContext : IDisposable
                         PdbId = new CodeViewInfo(
                             cvData.Guid,
                             cvData.Age,
-                            Path.GetFileName(cvData.Path),
+                            GetCodeViewFileName(cvData.Path),
                             false,
                             entry.Stamp);
                     }
@@ -2401,6 +2401,28 @@ public partial class PdbContext : IDisposable
                 expansionBudget);
         }
     }
+
+    private static bool HasCodeViewDirectory(string path)
+        => path.IndexOfAny('/', '\\') >= 0
+            || HasWindowsDrivePrefix(path);
+
+    private static string GetCodeViewFileName(string path)
+    {
+        int separator = Math.Max(
+            path.LastIndexOf('/'),
+            path.LastIndexOf('\\'));
+        int start = separator >= 0
+            ? separator + 1
+            : HasWindowsDrivePrefix(path)
+                ? 2
+                : 0;
+        return path[start..];
+    }
+
+    private static bool HasWindowsDrivePrefix(string path)
+        => path.Length >= 2
+            && char.IsAsciiLetter(path[0])
+            && path[1] == ':';
 
     private void ValidateDebugDirectoryBounds()
     {
