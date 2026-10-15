@@ -335,6 +335,88 @@ The command does not own Library, Type, Member, or other noun inspection
 queries. Users do not restate those subjects through a second Workspace
 grammar.
 
+### Narrow command boundary and inspection placement
+
+Status: **target clarified; CLI retirement is not implemented**.
+[#10183](https://github.com/richlander/dotnet-inspect/issues/10183) continues
+the definition-first boundary originally specified by #7379. The user approved
+prioritizing this correction before extending Workspace component explanation
+in [#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
+
+The `workspace` command creates, validates, summarizes and edits portable
+environment declarations. Ordinary construction and packet inspection operate
+on declared data without realizing their content. Realization is explicit when
+a transformation needs owner-issued facts that its resulting definition can
+retain. The CLI owner chooses the definition/packet/URL output binding; routine
+execution must no longer default to acquiring content for a live inventory.
+Packet and component inspection can describe declared membership, fields and
+configuration without implying that packages or libraries have been inspected.
+
+Inspection commands retain their subject, query, facet, traversal and result
+semantics. Where admitted by that command, `--package` supplies direct content
+and `--workspace` supplies aggregate context. Workspace context does not add a
+second query grammar or silently replay an attached scenario. The command's
+owner decides which inputs, scopes and combinations it supports; accepting a
+Workspace is not a universal promise to inspect every registered population.
+
+Environment definitions, query/view intent and scenarios retain separate
+semantic roles even when one packet carries them together. A scenario composes
+an environment with inspection intent. The selected inspection command authors
+that intent through its ordinary grammar, and its existing Share projection may
+capture the result. Portable query support does not justify adding query
+construction or lens execution to `workspace`. Existing Browser scenario
+activation, Navigation and shared inventory remain independent consumers of
+their owner-issued contracts.
+
+The migration preserves useful operations through their owning surfaces:
+
+| Transitional Workspace surface | Target placement and retirement requirement |
+| --- | --- |
+| Implicit realized top-level inventory | Ordinary Workspace output describes the portable declaration. Retain shared realized inventory for consumers that explicitly need it; declared component rows do not prove realized-result parity. |
+| `--active-package` | Package inspection selects the exact occurrence from Workspace context. Package packet input already exists; preserve context and target rather than substituting inventory position. |
+| `--library`, `--all-libraries` | Library inspection owns aggregate/exact asset selection. Existing packet input and aggregate/narrowing semantics supply the baseline. |
+| `--type` | Type inspection owns selection and facets within admitted Workspace context. Its existing packet route is the baseline. |
+| `--member`, `--lens` | Member and the selected operation own their query/facet grammar. #10184 adds the missing Member packet-context entrance before this path retires. |
+| `--active-ecosystem` | The Ecosystem command owns declaration description; Find and other operation owners own searches over its populations. The retirement slice must account for any remaining useful data. |
+| `--root-request` | #10185 moves exact Root reopening to its owning inspection/source surface. Preserve the opaque owner-issued request; package ID/version/TFM reconstruction is insufficient. |
+
+The motivating direct and Workspace-context routes use the same real subject:
+
+```bash
+packet=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 --share packet)
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.0 --tfm net10.0
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json --workspace "$packet"
+```
+
+These are existing binding shapes, not evidence that retirement has landed.
+Type packet adoption supplies their owning gates. A neighboring packet may
+contain the same Package in two contexts or focus a different Navigation tab.
+The consuming command preserves its selected-context and ambiguity rules; it
+cannot choose the first occurrence, inherit stale query intent or reconstruct
+context from a label. The multi-Library neighboring asset remains
+`Microsoft.Azure.SignalR@1.33.1` under Library packet-context adoption.
+
+Four counted slices precede #10137 in the expanded twelve-step #10132 plan:
+this command-boundary proposal; Member packet adoption (#10184); exact Root
+inspection admission (#10185); then CLI default correction and retirement
+(#10186). The last slice must prove equivalent ordinary command paths for the
+useful data it removes, retire obsolete CLI-only branches, update current
+guidance, and gate resource-free defaults, exact-context failures and explicit
+transformations. It does not remove shared Browser capabilities or change the
+packet format. Any additional independently owned prerequisite is filed and
+counted before adoption. This clarification adds no shared substrate; the user
+requested a CLI placement correction over existing cross-host contracts.
+
+Implementation and runtime/performance claims remain **unverified** until those
+adoption gates exist. Each implementation replacement must publish the
+repository-required exact-head NativeAOT comparison, with changed content
+accounted for; declaration output is not a cheaper measurement of live inventory.
+
 ### Schema-version-3 registration-bearing Workspaces
 
 Schema version 3 adds required `registrations` to a `workspace` record beside
