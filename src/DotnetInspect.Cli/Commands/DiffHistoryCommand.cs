@@ -357,10 +357,37 @@ internal static class DiffHistoryCommand
                 "Diff History Count cannot be combined with field or column projections.";
             return false;
         }
+        if (options.Count
+            && SparsePolicy(options) is { } sparse)
+        {
+            // Changed Versions compares each version with its immediate
+            // predecessor, so only a full-population evaluation can count
+            // it (diff-history.md#subject-specific-history-count).
+            error =
+                $"Diff History Count requires every version in the range, "
+                + $"but {sparse} evaluates a sample. Use the default full "
+                + "evaluation, --at all, or --sample-percent 100.";
+            return false;
+        }
 
         error = null;
         return true;
     }
+
+    static string? SparsePolicy(DiffOptions options) =>
+        options.MajorVersions
+            ? "--major-versions"
+        : options.MaxProbes is not null
+            ? "--max-probes"
+        : options.SamplePercent is < 100
+            ? "--sample-percent below 100"
+        : options.At.Length > 0
+            && !(options.At.Length == 1
+                && options.At[0].Equals(
+                    "all",
+                    StringComparison.OrdinalIgnoreCase))
+            ? "--at with explicit checkpoints"
+        : null;
 
     static bool TryValidateRequest(
         DiffOptions options,
