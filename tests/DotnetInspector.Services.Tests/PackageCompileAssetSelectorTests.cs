@@ -166,6 +166,60 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void RootLibraryAssets_FormFrameworkAgnosticCompileSlice()
+    {
+        IPackageContent content = InMemory(
+            "lib/Example.dll",
+            "lib/Example.Companion.dll",
+            "lib/nested/Ignored.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net10.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("any", selection.TargetFramework);
+        Assert.Equal(["any"], selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["lib/Example.Companion.dll", "lib/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            selection.Assets,
+            selection.ImplementationAssets);
+        Assert.Equal("any", selection.ImplementationTargetFramework);
+        Assert.True(selection.UsesCompatibleImplementationSelection);
+        Assert.Equal("lib/Example.dll", selection.DefaultAsset!.Path);
+        Assert.Same(
+            selection.DefaultAsset,
+            selection.FindImplementationAsset(selection.DefaultAsset));
+        PackageCompileAssetSlice slice =
+            Assert.Single(selection.AvailableSlices);
+        Assert.Equal("any", slice.TargetFramework);
+        Assert.Equal(selection.Assets, slice.CandidateAssets);
+    }
+
+    [Fact]
+    public void FrameworkSpecificCompileSliceOutranksRootLibrary()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "lib/Root.dll",
+                    "lib/net8.0/Example.dll"),
+                "Example");
+
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Equal(
+            ["net8.0", "any"],
+            selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
     public void RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback()
     {
         IPackageContent content = InMemory(
