@@ -1411,6 +1411,113 @@ public sealed partial class PackageDependencyTraversalQueryTests
     }
 
     [Fact]
+    public async Task
+        Traversal_OperationDeadlineAfterManifestAcquisitionReturnsTypedPartialOutcome()
+    {
+        var issuer = new PackageAcquisitionCandidateIssuer();
+        PackageSourceAuthorization authorization =
+            Authorize("deadline-after-manifest");
+        PackageAcquisitionCandidate candidate = Pinned(
+            issuer,
+            authorization,
+            "dependency",
+            "1.2.3");
+        var resolver = new StubCandidateResolver();
+        resolver.SetResponse(
+            "recursive",
+            "dependency",
+            () => Resolved(candidate));
+        var acquirer = new DelayedAcquiredManifestAcquirer(
+            TimeSpan.FromMilliseconds(25),
+            ManifestBytes("dependency", "1.2.3", ""));
+        PackageDependencyTraversalRootOccurrence directRoot = Root(
+            "direct",
+            "1.0.0",
+            Dependency("boundary", "[1.0.0]"),
+            PackageDependencyTraversalExpansionAuthority.DirectDeclarationsOnly);
+        PackageDependencyTraversalRootOccurrence recursiveRoot = Root(
+            "recursive",
+            "1.0.0",
+            Dependency("dependency", "[1.2.3]"),
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "The traversal deadline test does not consult a source client."));
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds(5));
+
+        PackageDependencyTraversalOutcome outcome =
+            await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    [directRoot, recursiveRoot],
+                    resolver,
+                    acquirer),
+                operation);
+
+        Assert.Equal(
+            PackageDependencyTraversalRootCompletion.SourceBounded,
+            outcome.Roots[0].Completion);
+        Assert.Equal(
+            PackageDependencyTraversalRootCompletion.Partial,
+            outcome.Roots[1].Completion);
+        var incomplete = Assert.IsType<
+            PackageDependencyTraversalManifestFailureDetail
+                .IncompleteAcquisition>(
+                    Assert.Single(outcome.Failures).Detail);
+        Assert.Contains(
+            incomplete.Failures,
+            failure => failure.Timeout?.Kind
+                == PackageSourceTimeoutKind.Operation);
+    }
+
+    [Fact]
+    public async Task
+        Traversal_ExpiredOperationBeforeLocalScheduleReturnsTypedPartialOutcome()
+    {
+        PackageDependencyTraversalRootOccurrence root = Root(
+            "root",
+            "1.0.0",
+            "",
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "The traversal deadline test does not consult a source client."));
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds(5));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(25),
+            TestContext.Current.CancellationToken);
+
+        PackageDependencyTraversalOutcome outcome =
+            await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    [root],
+                    new StubCandidateResolver(),
+                    new StubManifestAcquirer()),
+                operation);
+
+        Assert.Equal(
+            PackageDependencyTraversalRootCompletion.Partial,
+            Assert.Single(outcome.Roots).Completion);
+        var incomplete = Assert.IsType<
+            PackageDependencyTraversalManifestFailureDetail
+                .IncompleteAcquisition>(
+                    Assert.Single(outcome.Failures).Detail);
+        Assert.Contains(
+            incomplete.Failures,
+            failure => failure.Timeout?.Kind
+                == PackageSourceTimeoutKind.Operation);
+    }
+
+    [Fact]
     public async Task Traversal_HostAdaptersPreserveEquivalentGraph()
     {
         string folder = CreateTemporaryDirectory();
@@ -1957,6 +2064,26 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 new PackageDependencyTraversalManifestResult.Acquired(
                     manifest,
                     []));
+        }
+    }
+
+    private sealed class DelayedAcquiredManifestAcquirer(
+        TimeSpan delay,
+        byte[] bytes) :
+        IPackageDependencyTraversalManifestAcquirer
+    {
+        public async Task<PackageDependencyTraversalManifestResult> AcquireAsync(
+            PackageAcquisitionCandidate candidate,
+            PackageSourceOperationLease operation)
+        {
+            await Task.Delay(
+                delay,
+                operation.CancellationToken).ConfigureAwait(false);
+            PackageSourceResultFactory factory =
+                CreateResultFactoryFor(candidate.Authorities[0].Authority);
+            return new PackageDependencyTraversalManifestResult.Acquired(
+                factory.Manifest(candidate.Coordinate, bytes),
+                []);
         }
     }
 

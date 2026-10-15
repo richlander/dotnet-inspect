@@ -719,7 +719,10 @@ A line limit, row selector, renderer limit, or consumer cancellation is not a
 traversal work budget.
 
 Cancellation propagates. It does not publish a success-shaped partial result
-or convert cancellation into a source failure.
+or convert cancellation into a source failure. Operation-deadline expiry is
+different: completed roots retain their completion, while each root whose
+scheduled source, local projection, or final publication work remains
+unfinished retains typed timeout evidence and becomes partial.
 `Traversal_CancellationDoesNotPublishOutcome` cancels after provisional graph
 work begins and gates cancellation identity, absence of result publication,
 and absence of source-failure conversion.
@@ -963,7 +966,7 @@ Existing implementation gates and planned correction evidence:
 | Missing Platform realization does not prevent package traversal or manufacture Platform evidence. | Unverified until composed-operation adoption lands. |
 | A configured target with no compatible dependency group remains visible. | `Traversal_ConfiguredTargetNoMatchRemainsVisible` |
 | Manifest-only expansion never downloads a package archive. | `Traversal_ManifestExpansionUsesManifestBytesOnly` |
-| A shared operation deadline marks only roots with unfinished source work partial. | `Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots` |
+| A shared operation deadline marks only roots with unfinished traversal or publication work partial. | `Traversal_OperationDeadlineAffectsOnlyUnfinishedRoots`, `Traversal_OperationDeadlineAfterManifestAcquisitionReturnsTypedPartialOutcome`, `Traversal_ExpiredOperationBeforeLocalScheduleReturnsTypedPartialOutcome` |
 | Candidate resolver incompleteness is preserved without reinterpretation. | `Traversal_CandidateResolverIncompleteOutcomeRemainsVisible` |
 | Owner-classified exact declarations use pinned acquisition. | `Traversal_ExactDeclarationUsesPinnedAcquisition` |
 | Bare minimum-inclusive versions are not misclassified as exact. | `Traversal_BareVersionRequiresCandidateResolution` |

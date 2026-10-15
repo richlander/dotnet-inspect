@@ -132,7 +132,7 @@ public static partial class PackageExports
             PackageDependencyTraversalManifestFailureDetail.Acquisition =>
                 $"Could not acquire the dependency manifest for {subject}.",
             PackageDependencyTraversalManifestFailureDetail.IncompleteAcquisition =>
-                $"Timed out acquiring the dependency manifest for {subject}.",
+                $"Timed out before dependency traversal could finish for {subject}.",
             PackageDependencyTraversalManifestFailureDetail.Identity =>
                 $"The dependency manifest for {subject} is invalid.",
             PackageDependencyTraversalManifestFailureDetail.Declaration =>
