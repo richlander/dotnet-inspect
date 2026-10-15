@@ -206,7 +206,7 @@ above a capability identity or short task phrase.
 
 `MaximumResults` defaults to 20 and is admitted from 1 through 100. It is a
 semantic retrieval bound: the operation still evaluates the complete
-available-capability population, reports the total match count, and returns
+search population, reports the total match count, and returns
 the highest-ranked prefix. A host may map its ordinary row-limit gesture to
 this value, but it may not clip a larger hidden result and describe the
 remaining population as unknown.
@@ -217,15 +217,24 @@ plans, and pagination are outside this contract.
 
 ## Search population
 
-The input population is the settled **available-capability** projection from
-Inspection Capability Composition. A resource is searchable only when the
-composed graph proves that it is reachable from an executable registered
-route and at least one production consumer binding.
+The search population has two explicit families:
+
+1. the **capability family**, the settled available-capability projection
+   from Inspection Capability Composition; and
+2. the **structural family**, the host's admitted
+   [structural catalogs](#structural-catalog-population).
+
+A capability-family resource is searchable only when the composed graph
+proves that it is reachable from an executable registered route and at least
+one production consumer binding. A structural-family resource is searchable
+only when its catalog meets the admission rule of the structural catalog
+population. No resource is searchable by any other path.
 
 This excludes:
 
 - proposed or partially registered resources with no production binding;
-- legacy paths that do not participate in the modern composed graph;
+- command-local paths that neither participate in the composed graph nor
+  belong to an admitted structural catalog;
 - adoption-gap records used for engineering census;
 - parser commands and options that are not owner-issued product resources;
 - CLR types, source-code symbol names, and reflection-discovered values; and
@@ -281,12 +290,26 @@ even when its producer finds no rows for a given subject, because search
 describes installed capability, not subject applicability.
 
 A host admits only the structural catalogs whose exact paths it resolves
-under one root. The CLI admits the Library, Package, Type, and Member
-catalogs its combined `explain` catalog resolves. It does not admit the
-Library address route, whose coordinate-scoped `Context:` and
-`Metadata: Heap` sections share the `library` root and require an address
-operand that a search result cannot supply. Those sections remain reachable
-by exact path.
+under one root. The CLI admits the six structural catalogs its combined
+`explain` catalog resolves:
+
+<!-- markdownlint-disable MD013 -->
+
+| Catalog root | Structural view | Binding gesture |
+| --- | --- | --- |
+| `library` | `DirectLibrary` | `library -S` |
+| `package` | `Package` | `package -S` |
+| `type` | `Type` | `type -S` |
+| `member` | `MemberType` | `member -S` |
+| `member-overload` | `MemberTarget` | `member -S` |
+| `member-detail` | `MemberTarget` | `member -S` |
+
+<!-- markdownlint-enable MD013 -->
+
+It does not admit the Library address route. That route's coordinate-scoped
+`Context:` and `Metadata: Heap` sections share the `library` root with the
+Direct Library catalog, so its paths cannot resolve under a root of their
+own. Those sections remain reachable by exact path.
 
 A search over both families evaluates the complete union.
 `CandidateResourceCount` counts every admitted capability and structural
@@ -443,7 +466,7 @@ CapabilityCatalogSearchResult
   ProductionBindings[]
 ```
 
-`CandidateResourceCount` is the complete available-capability population
+`CandidateResourceCount` is the complete search population
 evaluated by this request. `MatchCount` is the number at or above the
 threshold before `MaximumResults`. `ReturnedCount` is the result-array length,
 and `IsTruncated` is true exactly when `MatchCount > ReturnedCount`.
@@ -459,7 +482,14 @@ represented by a fabricated capability identity.
 
 `CanonicalKeys` retains owner-issued keys applicable to the resource, including
 `library-literal` for the production witness. It is empty for a structural
-result. Each route and
+result.
+
+This changes the serialized result shape. `resource_identity` becomes absent
+for a structural result, and `structural_identity` is present only for one.
+Plain Content JSON, `--envelope`, and the Browser wire projection carry the
+same one-of shape. A host that admits no structural catalog, as the Browser
+does today, emits only capability-family results, whose existing serialized
+fields are unchanged. Each route and
 production-binding reference retains its typed composed identity. The CLI may
 render a copyable discovery or execution gesture from a CLI binding; the
 Browser may render a navigation action from a Browser binding. Those
@@ -693,7 +723,8 @@ publish a partially ranked prefix as complete.
 | `literal` discovers the `library-literal` query facet through its canonical key segment | Implemented: host-neutral search test over the composed Package Query capability graph |
 | A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
 | Search terms use owner-issued fields rather than adapter-authored explanation prose | Implemented: bounded-result regression proving generic Query Space and consumer-binding summaries do not participate |
-| A host searches every capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
+| A host searches every composed capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
+| A host searches every structural catalog it explains | Pending (#10068): CLI regression asserting that the admitted structural catalogs equal the six roots of the combined `explain` catalog |
 | Ranking is independent of registration order | Implemented: permutation test over equivalent composed catalogs |
 | Equal scores use provenance, complete-versus-segment, and path tie-breakers | Implemented: focused ordering tests over production and bounded synthetic capability graphs |
 | Search evaluates the complete available population before applying the result bound | Implemented: result-count and truncation test |
