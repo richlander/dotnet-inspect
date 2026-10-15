@@ -856,6 +856,12 @@ The PE file's debug directory contains CodeView entries that provide:
 - **Age**: Build counter (always 1 for Portable PDBs)
 - **MinorVersion**: `0x504d` indicates Portable PDB format
 
+The Path is producer-authored text and may use Windows or Unix separators
+regardless of the inspecting host. Metadata preserves the complete value for
+audit diagnostics and recognizes both separator forms only to project the leaf
+PDB filename and detect non-normalized producer directories. It never treats
+the value as a local filesystem path.
+
 ### Multiple CodeView entries
 
 **Important**: Some libraries have multiple CodeView entries. Windows ReadyToRun (R2R) assemblies typically have two:
