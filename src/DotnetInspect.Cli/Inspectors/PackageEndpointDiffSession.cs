@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using DotnetInspect.Cli.Output;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
@@ -273,7 +275,9 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             _ => failed.Message,
         };
         var lines = new List<string> { summary };
-        foreach (PackageHouseFailure failure in failed.HouseResult?.Evidence.Failures ?? [])
+        ImmutableArray<PackageHouseFailure> failures =
+            failed.HouseResult?.Evidence.Failures ?? ImmutableArray<PackageHouseFailure>.Empty;
+        foreach (PackageHouseFailure failure in failures)
         {
             string? detail = failure switch
             {
@@ -289,7 +293,27 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             if (detail is not null && !lines.Contains(detail))
                 lines.Add(detail);
         }
-        if (lines.Count == 1 && failed.Kind == PackageEndpointScopeFailureKind.NotFound)
+        // A source that didn't answer says nothing about the package, as the
+        // legacy path's feed-failure report put it.
+        if (failures.Any(static failure => failure is PackageHouseFailure.Authority
+            {
+                Failure.Kind: PackageAuthorityFailureKind.AuthenticationRequired,
+            }))
+        {
+            lines.Add("The package may exist; the source was not readable. Supply credentials for this source and retry.");
+        }
+        else if (failures.Any(static failure => failure is PackageHouseFailure.Timeout
+            or PackageHouseFailure.Authority
+            {
+                Failure.Kind: PackageAuthorityFailureKind.Transport
+                    or PackageAuthorityFailureKind.Timeout
+                    or PackageAuthorityFailureKind.InvalidResponse
+                    or PackageAuthorityFailureKind.ResponseRejected,
+            }))
+        {
+            lines.Add("The package may exist; the source was not readable. Retry, or check the source URL.");
+        }
+        else if (lines.Count == 1 && failed.Kind == PackageEndpointScopeFailureKind.NotFound)
         {
             lines.Add(demand is PackageHouseDemand.Exact
                 ? "No eligible source supplied this exact coordinate. Use --versions to see available versions."

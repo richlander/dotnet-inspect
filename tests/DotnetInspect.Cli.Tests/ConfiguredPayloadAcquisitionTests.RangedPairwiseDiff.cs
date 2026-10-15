@@ -430,6 +430,48 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
+    /// A source that doesn't answer is reported by the scope route with its
+    /// failure, and says the package may still exist, as the legacy path's
+    /// feed-failure report did.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_UnreadableSource_IsReportedByTheScope()
+    {
+        UseFeed(new UnreadableSourceHandler());
+
+        var result = await RunCommandAsync(
+        [
+            "diff",
+            "--package", $"{SystemTextJsonId}@9.0.0..10.0.0",
+            "--source", FirstFeed,
+            "--verbose",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.True(
+            result.Error.Contains(
+                $"Package '{SystemTextJsonId}' version '9.0.0' could not be acquired.",
+                StringComparison.Ordinal)
+                || result.Error.Contains(
+                    $"Package '{SystemTextJsonId}' version '10.0.0' could not be acquired.",
+                    StringComparison.Ordinal),
+            result.Error);
+        Assert.Contains(
+            "The package may exist; the source was not readable. Retry, or check the source URL.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain($"Comparing {SystemTextJsonId} v", result.Error, StringComparison.Ordinal);
+    }
+
+    private sealed class UnreadableSourceHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("The source refused the connection.");
+    }
+
+    /// <summary>
     /// Gate 10: a <c>*</c> pattern and <c>latest</c> settle in the House, as
     /// <c>package</c> settles them, once per endpoint. The feed lists a
     /// prerelease above the highest stable version, so a pattern, which
