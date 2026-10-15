@@ -568,6 +568,11 @@ public partial class DiffCommand
             }
         }
 
+        // String literals read the same assemblies as the other body
+        // analyses: a package endpoint scope's implementation participants,
+        // or extracted files.
+        DiffBodyPopulation literalPopulation = bodies
+            ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "string-literals");
         var input = new DiffAnalysisInput(
             fromSurface,
             toSurface,
@@ -599,7 +604,8 @@ public partial class DiffCommand
                 : () => implementation,
             hostUnavailability:
                 plan.StringLiteralQuery is not null
-                    && (fromPaths.Count == 0 || toPaths.Count == 0)
+                    && (literalPopulation.From.Count == 0
+                        || literalPopulation.To.Count == 0)
                 ? [
                     new DiffAnalysisHostUnavailability(
                         new AnalysisDeclarationId("string-literals"),
@@ -609,30 +615,11 @@ public partial class DiffCommand
                 : null,
             stringLiteralQuery: plan.StringLiteralQuery,
             prepareStringLiterals: plan.StringLiteralQuery is { } literal
-                ? fromPaths.Count == 1 && toPaths.Count == 1
-                    && (options.PackageVersionRange is null
-                        || string.Equals(
-                            Path.GetFileName(fromPaths[0]),
-                            Path.GetFileName(toPaths[0]),
-                            StringComparison.OrdinalIgnoreCase))
-                    ? () => StringLiteralComparisonQuery.ExecutePaths(
-                        fromPaths[0],
-                        toPaths[0],
-                        $"library:{name}",
-                        name,
-                        literal)
-                    : fromPaths.Count > 0 && toPaths.Count > 0
-                        ? () => StringLiteralComparisonQuery.ExecutePathSets(
-                            [.. fromPaths.Select(path =>
-                                new StringLiteralComparisonPath(
-                                    Path.GetFileName(path), path))],
-                            [.. toPaths.Select(path =>
-                                new StringLiteralComparisonPath(
-                                    Path.GetFileName(path), path))],
-                            $"library:{name}",
-                            literal)
-                        : () => throw new InvalidOperationException(
-                            "String-literal Diff has no Library assemblies to compare.")
+                ? () => CompareStringLiterals(
+                    name,
+                    literalPopulation,
+                    options,
+                    literal)
                 : null);
         return new AnalysisSetRun(
             DiffAnalysisInspection.Execute(
@@ -644,6 +631,84 @@ public partial class DiffCommand
                     selection,
                     input,
                     DocumentViews(plan.Views))));
+    }
+
+    /// <summary>
+    /// Compares string literals over each endpoint's Library assemblies. One
+    /// assembly a side, under the same file name across a version range, is
+    /// one Library subject; otherwise each assembly name is its own subject.
+    /// A package endpoint scope's assemblies are implementation participants
+    /// read in the group that holds them
+    /// (docs/design/package-endpoint-scope.md, step 4 part 3).
+    /// </summary>
+    static RetainedFindingComparisonSet CompareStringLiterals(
+        string name,
+        DiffBodyPopulation population,
+        DiffOptions options,
+        StringLiteralComparisonQueryPlan literal)
+    {
+        IReadOnlyList<DiffBodyAssembly> from = population.From;
+        IReadOnlyList<DiffBodyAssembly> to = population.To;
+        if (from.Count == 0 || to.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "String-literal Diff has no Library assemblies to compare.");
+        }
+
+        bool participants = from[0].GroupParticipant is not null;
+        if (from.Count == 1 && to.Count == 1
+            && (options.PackageVersionRange is null
+                || string.Equals(
+                    Path.GetFileName(from[0].SourcePath),
+                    Path.GetFileName(to[0].SourcePath),
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return participants
+                ? StringLiteralComparisonQuery.ExecuteParticipants(
+                    RequireGroup(from[0]),
+                    RequireParticipant(from[0]),
+                    RequireGroup(to[0]),
+                    RequireParticipant(to[0]),
+                    $"library:{name}",
+                    name,
+                    literal)
+                : StringLiteralComparisonQuery.ExecutePaths(
+                    from[0].SourcePath,
+                    to[0].SourcePath,
+                    $"library:{name}",
+                    name,
+                    literal);
+        }
+
+        return participants
+            ? StringLiteralComparisonQuery.ExecuteParticipantSets(
+                [.. from.Select(ToParticipant)],
+                [.. to.Select(ToParticipant)],
+                $"library:{name}",
+                literal)
+            : StringLiteralComparisonQuery.ExecutePathSets(
+                [.. from.Select(static body => new StringLiteralComparisonPath(
+                    Path.GetFileName(body.SourcePath), body.SourcePath))],
+                [.. to.Select(static body => new StringLiteralComparisonPath(
+                    Path.GetFileName(body.SourcePath), body.SourcePath))],
+                $"library:{name}",
+                literal);
+
+        static StringLiteralComparisonParticipant ToParticipant(
+            DiffBodyAssembly body) =>
+            new(
+                Path.GetFileName(body.SourcePath),
+                RequireGroup(body),
+                RequireParticipant(body));
+
+        static AssemblyContextGroup RequireGroup(DiffBodyAssembly body) =>
+            body.Group ?? throw new InvalidOperationException(
+                $"The string-literal assembly '{body.SourcePath}' has no implementation group.");
+
+        static AssemblyContextParticipant RequireParticipant(
+            DiffBodyAssembly body) =>
+            body.GroupParticipant ?? throw new InvalidOperationException(
+                $"The string-literal assembly '{body.SourcePath}' has no implementation group.");
     }
 
     /// <summary>

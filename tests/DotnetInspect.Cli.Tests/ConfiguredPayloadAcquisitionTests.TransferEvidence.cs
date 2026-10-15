@@ -240,20 +240,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [Fact]
     public async Task PairwiseDiffEvidenceEnvelope_RefusesMultiLibraryEndpointsBeforeOutput()
     {
-        const string NUnitId = "NUnit";
-        var packages = new Dictionary<string, byte[]>(StringComparer.Ordinal);
-        foreach (string version in new[] { "4.1.0", "4.2.2" })
-        {
-            packages.Add(
-                version,
-                await File.ReadAllBytesAsync(
-                    Path.Combine(
-                        AppContext.BaseDirectory,
-                        "RealAssets",
-                        "PackageEndpointScope",
-                        $"nunit.{version}.nupkg"),
-                    TestContext.Current.CancellationToken));
-        }
+        Dictionary<string, byte[]> packages = await ReadNUnitPackagesAsync();
         UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, NUnitId, packages));
         string sidecar = Path.Combine(_root, "nunit-evidence.json");
 
