@@ -220,6 +220,31 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void
+        ExactTargetRootFallbackPreservesRootImplementationCounterpart()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Evaluate(
+                InMemory(
+                    "lib/Example.dll",
+                    "lib/net8.0/Example.dll"),
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+                "net10.0").Selection;
+
+        PackageCompileAsset compile = Assert.Single(selection.Assets);
+        PackageCompileAsset implementation =
+            Assert.Single(selection.ImplementationAssets);
+        Assert.Equal("any", selection.TargetFramework);
+        Assert.Equal("lib/Example.dll", compile.Path);
+        Assert.Equal("any", selection.ImplementationTargetFramework);
+        Assert.Equal("lib/Example.dll", implementation.Path);
+        Assert.Same(
+            implementation,
+            selection.FindImplementationAsset(compile));
+    }
+
+    [Fact]
     public void RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback()
     {
         IPackageContent content = InMemory(

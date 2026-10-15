@@ -590,12 +590,16 @@ public static class PackageCompileAssetSelector
                         selectedFramework,
                         StringComparison.OrdinalIgnoreCase)),
         ];
+        string implementationSelectionTargetFramework =
+            PackageAssetSelector.IsFrameworkAgnostic(selectedFramework)
+                ? selectedFramework
+                : implementationTargetFramework
+                    ?? targetFramework
+                    ?? selectedFramework;
         PackageAssetSelection implementationSelection =
             PackageAssetSelector.Select(
                 content,
-                implementationTargetFramework
-                    ?? targetFramework
-                    ?? selectedFramework,
+                implementationSelectionTargetFramework,
                 runtimeIdentifier);
         string? selectedImplementationTargetFramework =
             implementationSelection
