@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
@@ -1762,42 +1763,32 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
-    public void LibraryStructuralRouteDeclaresAdoptedSectionDescriptions()
+    public void LibraryDeclaresEverySelectableSectionDescription()
     {
+        SectionCatalog<LibraryInspection> catalog =
+            LibrarySections.CreateCatalog().Sections;
         StructuralSchemaProjection projection =
             StructuralViewRegistry.Project(
                 StructuralViewRegistry.Route(
                     StructuralViewIdentity.DirectLibrary,
                     InspectionCatalogIdentity.Library));
-        IReadOnlyDictionary<string, SectionDescription> descriptions =
+        IReadOnlyDictionary<string, SectionDescription> projected =
             Assert.IsAssignableFrom<
                 IReadOnlyDictionary<string, SectionDescription>>(
                 projection.SectionDescriptions);
 
-        // Section model, Description adoption step 2: the sections the
-        // project-analysis skill relies on. Stale and missing entries both
-        // fail; full Library coverage is step 3.
-        string[] adopted =
-        [
-            SectionNames.LibraryMetrics,
-            SectionNames.DependencyStructure,
-            SectionNames.MemberMetrics,
-            SectionNames.TopLeverage,
-            SectionNames.NameFamilies,
-            SectionNames.ArchitecturalFamilies,
-            SectionNames.CloneCandidates,
-            SectionNames.UnsafeMembers,
-            SectionNames.PInvokeMethods,
-            SectionNames.ArrayPoolEscapes,
-            SectionNames.AsyncMethods,
-            .. PerformanceKinds.Sections,
-            SectionNames.PerformanceSyncCallsInAsync,
-        ];
+        // Section model, invariant 11: Library has completed description
+        // adoption, so every selectable section declares one. Stale and
+        // missing entries both fail, and the structural route carries a
+        // description for every section in its schema.
         Assert.Equal(
-            adopted.Order(StringComparer.OrdinalIgnoreCase),
-            descriptions.Keys.Order(StringComparer.OrdinalIgnoreCase),
+            catalog.SelectableSectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            catalog.SectionDescriptions.Keys.Order(StringComparer.OrdinalIgnoreCase),
             StringComparer.OrdinalIgnoreCase);
-        foreach (SectionDescription description in descriptions.Values)
+        foreach (string section in projection.Schema.SectionNames)
+            Assert.True(projected.ContainsKey(section), section);
+        foreach (SectionDescription description in
+                 catalog.SectionDescriptions.Values)
         {
             Assert.False(string.IsNullOrWhiteSpace(description.Summary));
             Assert.False(string.IsNullOrWhiteSpace(description.Basis));
