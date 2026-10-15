@@ -263,8 +263,8 @@ internal static class LibrarySectionDescriptions
         + "`library address`.",
         "The named metadata heap of the inspected image, read by address.",
         "The section exists only when `library address` supplies a heap "
-        + "coordinate; address 0 reads as nil and an address past the "
-        + "heap's end reads as malformed.",
+        + "coordinate; address 0 reads as nil, and an address past the "
+        + "heap's end fails the command and produces no section.",
         "The value is read by address alone, independent of any table row "
         + "that references it.");
 
@@ -579,9 +579,12 @@ internal static class LibrarySectionDescriptions
         + "of its other inventories.",
         "Assembly manifest metadata and PE headers, host source provenance, "
         + "and counts from the library's metadata inventories.",
-        "The section is present whenever the assembly could be read; a fact "
-        + "with no value is omitted, and a count that could not be produced "
-        + "states why it is unavailable.");
+        "The section is present whenever the assembly could be read, and a "
+        + "fact with no value is omitted. The async and extension method "
+        + "counts are omitted when their analysis failed, and "
+        + "Classified Methods says why; the other inventory counts report 0 "
+        + "when their scan did not complete, so a 0 is read against "
+        + "Inspection Failures.");
 
     public static SectionDescription InspectionFailures { get; } = new(
         "Scans run for this inspection that failed, with the section each "
@@ -633,7 +636,8 @@ internal static class LibrarySectionDescriptions
         + ScanFailure,
         "AppContext switch names are taken from the most recent string "
         + "literal before the call, so names computed at run time are not "
-        + "found.");
+        + "found. Names starting with `Switch.`, `TestSwitch.`, or "
+        + "`System.Resources.UseSystemResourceKeys` are not reported.");
 
     public static SectionDescription Integrations { get; } = new(
         "The library's public types and extension methods recognized as "
@@ -700,13 +704,16 @@ internal static class LibrarySectionDescriptions
         + "parent that references it.");
 
     public static SectionDescription ExtensionMethods { get; } = new(
-        "Public extension methods and extension properties the library "
-        + "declares, grouped by extended type with overload counts.",
+        "Extension methods and extension properties with public member "
+        + "visibility that the library declares, grouped by extended type "
+        + "with overload counts.",
         "Metadata type definitions and member signatures: static classes and "
         + "members marked with ExtensionAttribute, including C# extension "
         + "blocks.",
         "No visible extension member is declared; " + ScanFailure,
-        "Members that are not public, or whose class or member is hidden by "
+        "Visibility is checked on the member, not its class, so public "
+        + "members of an internal extension class are listed. Non-public "
+        + "members, and those whose class or member is hidden by "
         + "EditorBrowsable(Never) or a non-compiler Obsolete attribute, are "
         + "excluded; members whose signature cannot be decoded are skipped.");
 
@@ -753,6 +760,8 @@ internal static class LibrarySectionDescriptions
         "Every recorded path checked uses a deterministic root, and the "
         + "section is not shown; without a readable PDB only the CodeView "
         + "path is checked.",
-        "A path counts as normalized when it starts with `/_/` or `/_N/`; "
-        + "this is a reproducibility check, not a full determinism verdict.");
+        "A SourceLink map key counts as normalized when it starts with `/_/` "
+        + "or `/_N/`; the CodeView path counts as normalized when it starts "
+        + "with `/_/` or is a bare file name. This is a reproducibility "
+        + "check, not a full determinism verdict.");
 }
