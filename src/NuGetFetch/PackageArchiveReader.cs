@@ -378,7 +378,7 @@ internal sealed class PackageArchiveRangeSession : IDisposable
                     {
                         HttpRequestMessage attempt = Clone(request);
                         NuGetSourceRequest.ApplyCredential(attempt, _credential);
-                        NuGetHttpRequest.ConfigureBrowserRequest(attempt, _isBrowser);
+                        NuGetHttpRequest.ConfigureBrowserRangeRequest(attempt, _isBrowser);
                         sent = await _client.SendAsync(
                             attempt,
                             HttpCompletionOption.ResponseHeadersRead,
