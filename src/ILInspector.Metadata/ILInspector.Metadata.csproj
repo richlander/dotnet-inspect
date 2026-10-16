@@ -21,6 +21,7 @@
          complete diff's comparison primitives with early exit. -->
     <InternalsVisibleTo Include="measure-staged-diff" />
     <InternalsVisibleTo Include="measure-shared-predicate" />
+    <InternalsVisibleTo Include="measure-canonical-walker" />
     <!-- The dated legacy method classification oracle is the retired scanner
          verbatim, so it keeps its internal pointer-probe helpers. -->
     <InternalsVisibleTo Include="ILInspector.Metadata.LegacyOracles" />

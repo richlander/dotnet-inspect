@@ -19,6 +19,7 @@
          complete diff's comparison primitives with early exit. -->
     <InternalsVisibleTo Include="measure-staged-diff" />
     <InternalsVisibleTo Include="measure-shared-predicate" />
+    <InternalsVisibleTo Include="measure-canonical-walker" />
   </ItemGroup>
 
   <ItemGroup>
