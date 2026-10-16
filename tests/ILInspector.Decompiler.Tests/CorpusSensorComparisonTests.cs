@@ -1120,11 +1120,11 @@ public class CorpusSensorComparisonTests
 
         var firstSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             firstFunction,
-            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantA")),
+            WithTestPass(IrPasses.Default, new ReplaceLocalFunctionBodyWithBranchPass("QuadrantA")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var secondSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             secondFunction,
-            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            WithTestPass(IrPasses.Default, new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var firstOutput = Assert.Single(
             firstSites,
@@ -1169,13 +1169,13 @@ public class CorpusSensorComparisonTests
 
         var baselineSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             baselineFunction,
-            IrPasses.Default
-                .Add(new RemoveLocalFunctionPass("QuadrantA"))
-                .Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            WithTestPass(
+                WithTestPass(IrPasses.Default, new RemoveLocalFunctionPass("QuadrantA")),
+                new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var currentSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             currentFunction,
-            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            WithTestPass(IrPasses.Default, new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var baselineOutput = Assert.Single(
             baselineSites,
@@ -3207,6 +3207,15 @@ public class CorpusSensorComparisonTests
             block.ReplaceWith(replacement);
         }
     }
+
+    /// <summary>
+    /// Inserts a test-only mutation before the pipeline's final
+    /// <see cref="DefiniteAssignmentPass"/>. <c>IrPassComposition</c> validates
+    /// caller-supplied pipelines and requires that pass to stay last (#9403), so
+    /// a test pass appended after it is rejected rather than run.
+    /// </summary>
+    static ImmutableArray<IIrPass> WithTestPass(ImmutableArray<IIrPass> passes, IIrPass pass)
+        => passes.Insert(passes.Length - 1, pass);
 
     sealed class ReplaceLocalFunctionBodyWithBranchPass(string name) : IIrPass
     {
