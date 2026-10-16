@@ -18,6 +18,7 @@
     <!-- SPIKE (exp/staged-diff-spike): eng/measure-staged-diff.cs reuses the
          complete diff's comparison primitives with early exit. -->
     <InternalsVisibleTo Include="measure-staged-diff" />
+    <InternalsVisibleTo Include="measure-shared-predicate" />
   </ItemGroup>
 
   <ItemGroup>
