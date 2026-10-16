@@ -3,8 +3,8 @@
 ## Status and owner
 
 This document owns **Fast Diff**: one pass over a Library image pair that
-decides, for every Type, whether its API and its implementation differ,
-without building either complete diff, and the narrower
+decides, for every Type, whether its API and its implementation differ, with
+the same equality the complete diffs use, and the narrower
 [Type and Member levels](#levels) beneath it. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716) and
 supersedes the earlier body-free, presence-only design proposed in #9717.
@@ -21,13 +21,23 @@ more. Most Types in a version pair are unchanged, and proving that is the
 dominant cost, so Fast Diff makes the unchanged case cheap and stops each
 changed axis at its first difference.
 
+A second definition of "changed" drifts from the complete diffs and points to
+views that show nothing. Fast Diff therefore has no equality of its own: each
+axis answers with its complete diff's equality, read as **Exists**, and only
+the cost of reaching the answer differs.
+
 ## Contract
 
 > **Claim.** For one Library image pair, Fast Diff returns, for
 > every Type, an **API** state and a **Body** state, each `Unchanged`,
-> `Changed`, or `Indeterminate`. `Unchanged` is sound for the facts its axis
-> compares. `Changed` may over-report. A row that cannot be decoded makes the
-> unsettled axes of its Type `Indeterminate`, never `Unchanged`.
+> `Changed`, or `Indeterminate`. The API state is `Changed` exactly when the
+> complete Public API comparison reports a change to the Type or one of its
+> Members. The Body state is `Changed` exactly when a paired body of the Type
+> is not `Exact` under
+> [canonical IL comparison](il-diff-canonicalization.md#comparison-outcomes),
+> or a non-public method with a body is present on one side only. A row or
+> body that cannot be decoded makes the unsettled axes of its Type
+> `Indeterminate`, never `Unchanged`.
 
 The two axes are independent searches. Each stops at its own first
 difference, and a host derives **Any** as either axis `Changed`. A Type that
@@ -54,14 +64,35 @@ A Type is public by its own row (public, nested public, protected, or
 protected internal), matching the Public API surface, which admits a public
 nested Type of a non-public Type. Non-public Types have no API facts.
 
-The **Body** axis compares the implementation of every member, public or
-not, as `--all` would:
+These facts are a census, and the census decides `Unchanged` alone: equal
+census facts mean the complete comparison reports no change. Each fact kind is
+either **presented** or **uncertain**:
 
-- IL, compared in lockstep with symbolic operands, resolved user strings,
-  branch and switch operands, exception regions and catch Types, local
-  variable Types, `init locals`, and stack size;
-- the metadata of non-public members; and
-- `beforefieldinit`, when the Type has a static constructor.
+- A **presented** fact differs only when the complete comparison reports a
+  change, so its first difference decides `Changed` and stops the axis.
+  Examples are a Member, parameter, or Type present on one side only, a
+  parameter name, the virtual shape of a method, interfaces, generic
+  parameters and constraints, and explicit implementations.
+- An **uncertain** fact can differ while the complete comparison reports
+  nothing, such as a raw attribute blob, nullable context, or a flag that no
+  view presents. A Type whose census differs only in uncertain facts is
+  decided by building the Public API surface of that Type alone on each side
+  and comparing it as the complete comparison does.
+
+A fact is presented only where the Public API surface admits its Type and
+Member. A Type or Member the surface hides, such as one marked
+`EditorBrowsable(Never)`, makes its differences uncertain. A fact kind is
+presented only when a gate shows it (see [Gates](#gates)); every other kind
+is uncertain, which costs time, never correctness.
+
+The **Body** axis compares the IL of every method, public or not, with the
+equality of canonical IL comparison: `ldc.i4` forms and short branches fold to
+one family, branch and switch targets compare by aligned instruction, metadata
+tokens compare by symbolic name, and user strings by value. As in canonical
+comparison, body size, encoding, locals, stack size, `init locals`, and
+exception regions are not compared. The walk is allocation-free in lockstep and
+stops at the first difference; a retargeted branch is found once the body's
+instruction map is complete.
 
 An opcode that ECMA-335 does not define cannot be stepped over safely, so it
 makes the Body axis `Indeterminate` rather than comparing as equal.
@@ -73,7 +104,8 @@ on either side partitions its facts as public on both, so a visibility change is
 an API fact only.
 
 A Type present in one image only is reported whole by a presence rule: its API
-is `Changed` when it is visible and `Unchanged` otherwise, and its Body is
+is `Changed` when the Public API surface admits it and `Unchanged` otherwise,
+and its Body is
 `Changed`, or `NotCompared` when only the API axis is asked for. A malformed
 one-sided Type is `Indeterminate` on each axis compared.
 
@@ -142,41 +174,35 @@ the symbolic IL level of the body diff, so `Changed` should point to something
 a user can see. IL operand and signature keys never compare token numbers or
 referenced assembly identity, so a renumbered token there is not a change.
 
-`Changed` may still over-report. These compared facts are known divergences
-from that target:
+Because each axis reads its complete diff's equality, neither axis
+over-reports against that diff. The divergences the earlier census reported
+are settled as follows:
 
-- **Encoded IL.** The Body axis walks IL in lockstep and compares opcode
-  encodings (`br.s` against `br`), branch and switch offsets, body size, stack
-  size, and exception region offsets. An encoding-only difference, such as a
-  re-encoded branch that canonical comparison treats as equal, reports
-  `Changed`.
-- **Type flags no view presents.** Type flags are compared raw, except
-  `beforefieldinit`. Sealed, abstract, static, visibility, and layout are
-  presented; flags such as `Serializable` and the string format are not, on
-  the API axis for public Types and on the Body axis otherwise.
-  `beforefieldinit` is a Body fact when the Type has a static constructor, and
-  no view presents it.
-- **Attribute blobs.** Custom attribute values are compared as raw blob
-  bytes. A Type-valued or enum-typed argument is stored as an
-  assembly-qualified name that includes the referenced assembly version, so a
-  framework major-version move reports `Changed` for a semantically identical
-  attribute, for example on System.Linq.Queryable from 10 to 11. Comparing
-  those arguments by symbolic name is
-  [#9802](https://github.com/richlander/dotnet-inspect/issues/9802).
+- **Encoded IL.** Opcode encodings, branch offsets, body size, stack size, and
+  exception regions are no longer compared, so a re-encoded branch is
+  `Unchanged`, as canonical comparison treats it.
+- **Type and Member flags no view presents, nullable context, and attribute
+  blobs.** These are uncertain facts. A Type that differs only in them is
+  decided by its Public API surface, so a framework major-version move that
+  rewrites only a Type-valued attribute argument is `Unchanged`. Comparing
+  those arguments by symbolic name
+  ([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)) would
+  make them presented and cheaper, not more exact.
+- **Non-IL implementation facts.** The metadata of non-public Members and
+  `beforefieldinit` are not Body facts. Canonical body comparison does not
+  show them, so a Body cue for them would open a view with no change.
 
-Two other reported differences are observable and remain by design:
-
-- a renumbered compiler-generated name, such as a closure or state machine
-  renumbered by a new member earlier in the Type, which the IL view shows; and
-- non-IL implementation facts on the Body axis, such as an attribute added to
-  an internal member, which the complete views with every member show.
+A renumbered compiler-generated name, such as a closure or state machine
+renumbered by a new member earlier in the Type, remains a reported Body
+difference by design: the IL view shows it.
 
 Canonical IL comparison is read under rule 6 of Diff observability: it
 reports three System.Private.CoreLib 10 to 11 `calli` sites whose stand-alone
-signatures differ only in token numbers. Fast Diff decodes those signatures
-symbolically and correctly reports them `Unchanged`; IL diff canonicalization's
-adoption is
-[#9801](https://github.com/richlander/dotnet-inspect/issues/9801).
+signatures differ only in token numbers. The Body axis uses canonical equality
+there too, so it reports them `Changed`. Decoding stand-alone signatures
+symbolically belongs to canonical comparison
+([#9801](https://github.com/richlander/dotnet-inspect/issues/9801)), and
+Fast Diff follows it; the axis never keeps a private exception.
 
 ## Gates
 
@@ -187,11 +213,21 @@ adoption is
   local-function-only bodies, constraint Types, constants, defaults,
   parameter names, attributes, interfaces, visibility, and added and removed
   Types;
-- API soundness: every Type the complete Public API comparison (signatures
-  and attributes) reports changed is not API `Unchanged`, over three fixture
-  pairs; and
-- Body soundness: every declared owner of a body that canonical IL comparison
-  reports changed is not Body `Unchanged`, over the same fixture pairs.
+- API exactness: every Type's API state equals whether the complete Public
+  API comparison reports a change to it or one of its Members, over three
+  fixture pairs;
+- presented facts: for every fact kind treated as presented, a fixture case
+  in which that fact alone differs, and the complete comparison reports the
+  change; a kind without such a case is uncertain;
+- hidden subjects: a difference confined to a Type or Member the Public API
+  surface hides, such as `EditorBrowsable(Never)`, is not API `Changed`;
+- Body exactness: every method pair's Body verdict equals whether canonical IL
+  comparison reports it `Exact`, over the same fixture pairs; and
+- canonical encodings: a generated image pair whose bodies differ only in
+  `br.s` against `br`, `leave.s` against `leave`, the `ldc.i4` forms, and
+  shifted branch and switch offsets is Body `Unchanged`, and one with a
+  changed constant, a retargeted branch, a switch target count change, a
+  changed call or string, or an inserted instruction is Body `Changed`.
 
 `FastDiffIdentityTests` gates identity and decoding by outcome, over generated
 image pairs compared whole and stepped: a nested Type's body change beside a
@@ -215,27 +251,40 @@ and API-only states equal the API states of the full comparison with no body
 compared.
 
 `eng/measure-fast-diff.cs` runs the same checks over a real image pair and
-reports NativeAOT timing, API-only and stepped timing, and over-reporting. At introduction, over six real
-pairs, no Type was missed on either axis, apart from the three encoding-only
-`calli` sites described under [Observability](#observability). Medians cover
-both sides, every Type, API and bodies, on one Apple silicon development
-machine:
+reports NativeAOT timing, API-only and stepped timing, and every disagreement
+with the complete comparisons.
 
-| Pair | NativeAOT | API changed (complete) | Body changed (canonical IL owners) |
-| --- | ---: | --- | --- |
-| Aspire.Hosting 13.6.0 to 13.6.1 | 99 ms | 0 (0) | 2 (2) |
-| System.Text.Json 9.0.0 to 10.0.0 | 16 ms | 12 (12) | 112 (84) |
-| Newtonsoft.Json 13.0.3 to 13.0.4 | 20 ms | 36 (33) | 76 (36) |
-| Newtonsoft.Json 11.0.2 to 13.0.4 | 16 ms | 108 (83) | 213 (104) |
-| System.Private.Xml 10 to 11 | 68 ms | 3 (0) | 78 (74) |
-| System.Private.CoreLib 10 to 11 | 216 ms | 157 (133) | 641 (314) |
+The shared-equality design was measured by a spike
+([`exp/staged-diff-spike`](https://github.com/richlander/dotnet-inspect/tree/exp/staged-diff-spike)
+at `87f53a7cd`) over six real pairs. Medians cover both sides, every Type,
+API and bodies, on NativeAOT on one Apple silicon development machine.
+**Exists** is this design; **Complete** runs the same equality over every Type
+and explains only what it finds changed, against today's complete API and IL
+diffs:
 
-In these measurements, Fast Diff compares both sides of most Libraries,
-every Type, API and bodies, in under 100 ms on NativeAOT; only the largest
-assemblies, such as System.Private.CoreLib, take longer.
+| Pair | Earlier census | Exists | Models built | Complete | Today's complete |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 90 ms | 53 ms | 0 | 61 ms | 2,056 ms |
+| System.Text.Json 9.0.0 to 10.0.0 | 12 ms | 10 ms | 0 | 76 ms | 335 ms |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 15 ms | 26 ms | 36 | 72 ms | 507 ms |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 13 ms | 35 ms | 85 | 205 ms | 475 ms |
+| System.Private.Xml 10 to 11 | 63 ms | 46 ms | 3 | 150 ms | 2,211 ms |
+| System.Private.CoreLib 10 to 11 | 186 ms | 263 ms | 31 | 851 ms | 3,622 ms |
 
-Canonical IL comparison could not decode some bodies (for example 5,454 in
-CoreLib), so Body soundness is shown only for the bodies it compared.
+On every pair the API verdict per Type equalled the complete Public API
+comparison, every Type decided by a presented fact was changed in it, every
+one of 79,489 method pairs' Body verdict equalled canonical IL comparison, and
+Complete's output equalled today's complete diffs line for line. Per-Member
+API agreement was measured in an earlier round that confirmed every census
+difference with the Public API surface. The earlier census over-reported the API of 3, 25, 3, and 24 Types on
+the two Newtonsoft.Json pairs, System.Private.Xml, and CoreLib; Exists reports
+none of them. The remaining cost is the Public API surface built for Types
+whose census differs only in uncertain facts, about 50 ms on CoreLib, and the
+spike's fact classification, which allocates where the census need not.
+
+Canonical IL comparison's failure count for CoreLib (5,454) counts methods
+present on one side only, not bodies it could not decode; neither comparison
+failed to decode a body in these pairs.
 
 ### Malformed metadata
 
@@ -348,23 +397,27 @@ fact describes is read from the fact's structure, never from its spelling:
 
    Every other fact (the Type's own row and visibility, base Type,
    interfaces, generic parameters, attributes, layout, nullable context,
-   MethodImpl rows, and `beforefieldinit`) belongs to the residual.
+   and MethodImpl rows) belongs to the residual, and so does the IL of a
+   method no Member owns, such as a static constructor.
 2. **A fact keeps the axis the census gives it.** A Member's or the
    residual's state on an axis is `Changed` when any fact it owns on that
    axis differs, including a fact present on one side only. The census
    decides visibility, which includes explicit interface implementations,
    and partitions a Type public on either side as public on both. A public
-   Member of such a Type has API facts, and a non-public one has Body facts,
-   so a public property with a non-public setter has API facts from the
-   property row and getter and Body facts from the setter. Where the Type is
-   hidden on one side, the census records only its visibility there, so that
-   change makes the residual and every public Member API `Changed` and
-   leaves Body comparing as it would for a public Type. Every Member of a
-   Type hidden on both sides has Body facts only.
-3. **IL compares where the census compares it.** A Member's Body also covers
+   Member of such a Type has API facts; a non-public Member has none, and
+   its metadata is not compared. Where the Type is hidden on one side, the
+   census records only its visibility there, so that change makes the
+   residual and every public Member API `Changed`. Every Member of a Type
+   hidden on both sides has a Body state only. A Member or the residual
+   whose facts differ only in uncertain facts is decided as the
+   [API axis](#axes) decides a Type, by the Public API surface of that
+   Member or of the Type's own declaration.
+3. **IL compares where the Library level compares it.** A Member's Body is
    the IL of its methods present on both sides and of the generated code it
-   owns, to the first difference. The census does not compare the body of a
-   public method present on one side only, so neither does the Type level.
+   owns, to the first difference, with canonical equality. A non-public
+   method present on one side only makes its owner's Body `Changed`; the body
+   of a public method present on one side only is not compared, at either
+   level.
 
 Member API compares completely, so every changed public Member is marked;
 Member Body is an existence check. A Member declared on one side only is
@@ -421,18 +474,19 @@ Gates: for the fixture pairs, the Type-level states agree with the Library
 level per the partition claim, including an added public method, an added
 public property with a private setter, a public Type made internal, an enum
 underlying-type change, a
-`[field:]` attribute on a field-like event, an attribute added to an internal
-method, a base Type change on an internal Type, and a nested Type whose
+`[field:]` attribute on a field-like event, a base Type change on an internal
+Type, and a nested Type whose
 inherited nullable context changed; an added and a removed public Type, one
 of them with no Members, are reported whole by the Library level and have no
 Type-level rows; an undefined opcode in one method makes that Member Body
 `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
 name have no Type-level rows; a Member present on both sides carries both
-fingerprints, which differ after a nullable annotation change; every Member
-the complete Public API diff
-reports changed is not API `Unchanged`; and every owner of a body that
-canonical IL comparison reports changed is Body `Changed` or `Indeterminate`,
-or the change is a residual Body change. `eng/measure-fast-diff.cs` reports
+fingerprints, which differ after a nullable annotation change; an attribute
+added to an internal method changes no state; every Member's API state equals
+whether the complete Public API diff reports it changed; and every owner of a
+body that canonical IL comparison reports changed is Body `Changed` or
+`Indeterminate`, or the change is a residual Body change, and no other owner is
+Body `Changed`. `eng/measure-fast-diff.cs` reports
 NativeAOT time per Type for the largest changed Types of each measured pair.
 
 ### Member
@@ -474,6 +528,19 @@ Member Body inventory, which remains Library Compare's view.
    ([#9827](https://github.com/richlander/dotnet-inspect/issues/9827)).
 9. **CLI:** expose the same producer through `diff`.
 
+Two slices adopt the shared equality before step 7, which builds on both:
+
+- **Shared Body equality:** the Body axis walks IL with canonical equality
+  and compares no non-IL facts, gated per method against canonical IL
+  comparison and by the canonical encodings pair.
+- **Shared API equality:** the census decides `Unchanged` and presented
+  differences, and the Public API surface of one Type decides the rest,
+  gated for exactness against the complete Public API comparison.
+
+These slices make Fast Diff's equality the complete diffs' own, so a
+complete diff can adopt the same walk as its first pass and explain only what
+it finds changed. That adoption belongs to each complete diff's owner.
+
 By default, each Library page computes Fast Diff in the background after it
 first loads, against two baselines: `ApiAndBody` against the last patch
 version and `Api` against the last major version. An explicit Library Compare
@@ -485,7 +552,9 @@ selection belong to the background analysis design that adopts this export.
 ## Non-claims
 
 - Fast Diff does not define API semantics, canonical IL, or correspondence; it
-  is sound against the owners of those.
+  answers with the equality their owners define.
+- It does not report changes to the metadata of non-public Members or to
+  `beforefieldinit`; no Body view presents them.
 - It does not report which change was found, counts, classifications, or text;
   the Member level's complete diff does.
 - It does not replace Public API Diff or Member Body Diff; they remain the
