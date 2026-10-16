@@ -83,8 +83,8 @@ internal sealed class DeclaredSourceAttribution
                 reader,
                 PrimaryMetadataResolver.HasGeneratedCodeAttribute,
                 sourceGeneratedTypeClassified);
-        AsyncSourceResolver =
-            new LibraryBodyAsyncSourceResolver(
+        StateMachineSourceResolver =
+            new StateMachineSourceResolver(
                 reader,
                 AssemblyIdentity,
                 PrimaryMetadataResolver,
@@ -95,25 +95,25 @@ internal sealed class DeclaredSourceAttribution
                 typeDefinitionIndexBuilt,
                 stateMachineExecutionMethodsBuilt,
                 targetedStateMachineClaimsBuilt);
-        var liftedSourceOwnerResolver =
-            new LibraryBodyLiftedSourceOwnerResolver(
+        LiftedSourceOwnerResolver =
+            new LiftedSourceOwnerResolver(
                 reader,
                 peReader,
                 PrimaryMetadataResolver,
                 MethodReferenceResolver,
-                AsyncSourceResolver,
+                StateMachineSourceResolver,
                 methodBodyReferenceIndexed,
                 implementationMetricWork,
                 implementationMetricRecorder,
                 generatedExpansionWork,
                 liftedDeclaringTypeChainWalked);
         DeclaredSourceResolver =
-            new LibraryBodyDeclaredSourceResolver(
+            new DeclaredSourceResolver(
                 reader,
                 PrimaryMetadataResolver,
-                liftedSourceOwnerResolver,
-                AsyncSourceResolver,
-                implementationMetricWork);
+                LiftedSourceOwnerResolver,
+                StateMachineSourceResolver);
+        ImplementationMetricWork = implementationMetricWork;
     }
 
     internal string AssemblyName { get; }
@@ -142,9 +142,13 @@ internal sealed class DeclaredSourceAttribution
         GeneratedProvenanceClassifier
     { get; }
 
-    internal LibraryBodyAsyncSourceResolver AsyncSourceResolver { get; }
+    internal StateMachineSourceResolver StateMachineSourceResolver { get; }
 
-    internal LibraryBodyDeclaredSourceResolver DeclaredSourceResolver { get; }
+    internal LiftedSourceOwnerResolver LiftedSourceOwnerResolver { get; }
+
+    internal DeclaredSourceResolver DeclaredSourceResolver { get; }
+
+    internal ImplementationMetricWorkBudget? ImplementationMetricWork { get; }
 
     /// <summary>
     /// Adds the authenticated generated execution bodies of

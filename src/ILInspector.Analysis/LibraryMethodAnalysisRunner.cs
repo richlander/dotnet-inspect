@@ -2668,24 +2668,9 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             body,
             scope);
 
-    // Razor-generated render methods lack generated-code attributes. Trust-gate
-    // RenderTreeBuilder identity (#1708) so lookalikes do not suppress findings.
     internal static bool IsBlazorRenderMethod(
-        MethodIdentity caller)
-    {
-        foreach (var parameter in caller.ParameterTypes)
-        {
-            if (FrameworkIdentity.IsKnownFrameworkType(
-                    parameter,
-                    "Microsoft.AspNetCore.Components",
-                    "Microsoft.AspNetCore.Components.Rendering",
-                    "RenderTreeBuilder"))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
+        MethodIdentity caller) =>
+        FrameworkIdentity.IsBlazorRenderMethod(caller);
 
     string MethodLabel(
         TypeDefinitionHandle typeHandle,
@@ -2698,39 +2683,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     internal static string MethodLabel(
         MetadataReader reader,
         TypeDefinitionHandle typeHandle,
-        MethodDefinitionHandle methodHandle)
-    {
-        try
-        {
-            var typeDefinition =
-                reader.GetTypeDefinition(typeHandle);
-            string ns =
-                reader.GetString(typeDefinition.Namespace);
-            string typeName =
-                reader.GetString(typeDefinition.Name);
-            string methodName =
-                reader.GetString(
-                    reader.GetMethodDefinition(
-                        methodHandle).Name);
-            string fullTypeName =
-                ns.Length == 0
-                    ? typeName
-                    : $"{ns}.{typeName}";
-            return $"{fullTypeName}::{methodName}";
-        }
-        catch (Exception ex)
-            when (IsRecoverableMethodFailure(ex))
-        {
-            return
-                $"0x{MetadataTokens.GetToken(methodHandle):X8}";
-        }
-    }
+        MethodDefinitionHandle methodHandle) =>
+        AnalysisMethodFailures.Label(reader, typeHandle, methodHandle);
 
     internal static bool IsRecoverableMethodFailure(
         Exception ex) =>
-        ex is BadImageFormatException
-            or InvalidOperationException
-            or ArgumentException
-            or ArgumentOutOfRangeException
-            or IndexOutOfRangeException;
+        AnalysisMethodFailures.IsRecoverable(ex);
 }
