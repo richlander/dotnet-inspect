@@ -1661,6 +1661,14 @@ canaries:
   comparison semantics. The Metadata facade adapts those owner-issued values,
   and its typed paths plus positive dependency ceilings own product semantics,
   so its compiler ban input retains only runtime platform hazards.
+- Web Core owns package and Platform scope realization, exact Member
+  resolution, Clone Workspace acquisition, cancellation coordination, and
+  operation lifetime. Queries, Sections, Research, Analysis, Presentation, and
+  Decompiler Annotations own the typed method facts, Clone candidates,
+  integrations, opportunities, structural metrics, implementation profiles,
+  performance results, resource triage, and caret geometry that the Analysis
+  facade adapts. Its typed paths plus positive dependency ceilings own product
+  semantics, so its compiler ban input retains only runtime platform hazards.
 - Web Core's direct project and emitted assembly dependencies are separate
   positive ceilings. They admit the owner-issued package, Platform, workspace,
   query, presentation, call-graph, Metadata identity, and source-acquisition

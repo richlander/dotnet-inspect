@@ -35,7 +35,7 @@ with seven independently generated facade modules:
 | `inspect-web-host` | `DotnetInspect.Web` | `DotnetInspect.Web.ts` | `DotnetInspect.Web/facades/inspect-web-host.ts` | Browser/Wasm lifecycle, host configuration, and build identity |
 | `inspect-web-package` | `DotnetInspect.Web.Interop.Package` | `DotnetInspect.Web.Interop.Package.ts` | `DotnetInspect.Web/facades/inspect-web-package.ts` | Package and platform acquisition, query and activity operations, content, capability discovery, and workspace occurrences |
 | `inspect-web-metadata` | `DotnetInspect.Web.Interop.Metadata` | `DotnetInspect.Web.Interop.Metadata.ts` | `DotnetInspect.Web/facades/inspect-web-metadata.ts` | Metadata, exact Type and Member documents, declarations, populations, and Library comparisons |
-| `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, integration, opportunity, and performance results |
+| `inspect-web-analysis` | `DotnetInspect.Web.Interop.Analysis` | `DotnetInspect.Web.Interop.Analysis.ts` | `DotnetInspect.Web/facades/inspect-web-analysis.ts` | Analysis, clone search, integration, opportunity, performance, structural, and resource-triage results |
 | `inspect-web-source` | `DotnetInspect.Web.Interop.Source` | `DotnetInspect.Web.Interop.Source.ts` | `DotnetInspect.Web/facades/inspect-web-source.ts` | Source and annotated-source projection |
 | `inspect-web-call-graph` | `DotnetInspect.Web.Interop.CallGraph` | `DotnetInspect.Web.Interop.CallGraph.ts` | `DotnetInspect.Web/facades/inspect-web-call-graph.ts` | Package and platform call-graph expansion |
 | `inspect-web-catalog` | `DotnetInspect.Web.Interop.Catalog` | `DotnetInspect.Web.Interop.Catalog.ts` | `DotnetInspect.Web/facades/inspect-web-catalog.ts` | Product vocabulary, ecosystems, home demos, workspace-share transport, and retained-workspace lifecycle |
@@ -350,24 +350,60 @@ Those typed paths plus the exact positive project and compiled-assembly
 ceilings own product semantics, so the Metadata facade retains only runtime
 platform hazards that dependency layering cannot distinguish.
 
-### Analysis facade: 8 exports
+### Analysis facade: 25 exports
+
+Workspace Member, Clone, and triage presentation:
 
 - `QueryCloneCandidates`
 - `QueryMemberFacts`
+- `RenderTriageCaret`
+
+Package Analysis:
+
+- `CancelLibraryPerformanceAnalysis`
+- `QueryPackageImplementationProfiles`
 - `QueryPackageIntegrations`
+- `QueryPackageLibraryDependencyStructure`
+- `QueryPackageLibraryMetrics`
+- `QueryPackageLibraryStructuralSalience`
 - `QueryPackageOpportunities`
 - `QueryPackagePerformance`
+- `QueryPackagePerformanceStreaming`
+- `QueryPackageResourceTriage`
+- `QueryPackageTypeImplementationHeat`
+- `QueryPackageTypeMethodLeverage`
+
+Platform Analysis:
+
+- `QueryPlatformImplementationProfiles`
 - `QueryPlatformIntegrations`
+- `QueryPlatformLibraryDependencyStructure`
+- `QueryPlatformLibraryMetrics`
+- `QueryPlatformLibraryStructuralSalience`
 - `QueryPlatformOpportunities`
 - `QueryPlatformPerformance`
+- `QueryPlatformResourceTriage`
+- `QueryPlatformTypeImplementationHeat`
+- `QueryPlatformTypeMethodLeverage`
 
 The explicitly unavailable platform-performance operation stays in this facade
 so absence remains a visible capability result rather than a missing binding.
 `QueryCloneCandidates` belongs here because it adapts the Workspace structural
 Clone query and portable Presentation result without transferring candidate
 ranking or coverage semantics into the browser host.
-The module does not combine Analysis with call-graph topology; graph traversal
-has its own facade and product owner.
+Web Core owns package and Platform scope realization, exact Member resolution,
+Clone Workspace acquisition, cancellation coordination, and operation lifetime.
+Queries, Sections, Research Queries and Sections, Analysis, and Presentation
+own the typed method facts, Clone search, integration, opportunity, structural,
+implementation-profile, performance, and resource-triage results. Decompiler
+Annotations owns triage-caret geometry. The facade lowers those owner-issued
+values into Browser wire models and retains only browser cancellation, stream
+publication, and the documented navigable-member display cap. It does not open
+raw images or sessions, invoke low-level producer services, or combine Analysis
+with call-graph topology; graph traversal has its own facade and product owner.
+Those typed paths plus exact positive project and compiled-assembly ceilings
+own product semantics, so the Analysis facade retains only runtime platform
+hazards that dependency layering cannot distinguish.
 
 ### Source facade: 9 exports
 
