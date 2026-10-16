@@ -282,7 +282,7 @@ internal static class ClassicInverseNodeFacts
                 $"call:{Method(property.Accessor)}"
                 + $":{(property.IsVirtual ? "virt" : "direct")}",
             StoreProperty property =>
-                $"store:{Method(property.Accessor)}"
+                $"call:{Method(property.Accessor)}"
                 + $":{(property.IsVirtual ? "virt" : "direct")}",
             ArrayLength => "throw:array-length",
             LoadElement => "throw:element-access",

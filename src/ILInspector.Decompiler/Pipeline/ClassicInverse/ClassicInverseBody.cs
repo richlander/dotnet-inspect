@@ -85,13 +85,16 @@ internal sealed record ClassicInverseBlockNode(
 
 internal sealed record ClassicInverseIfNode(
     ClassicInverseBodyNode Condition,
-    ClassicInverseBodyNode Then)
+    ClassicInverseBodyNode Then,
+    ClassicInverseBodyNode? Else = null)
     : ClassicInverseBodyNode
 {
     internal override IrNode Materialize()
-        => new IfStatement(Expr(Condition), (Block)Then.Materialize(), null);
+        => new IfStatement(Expr(Condition), (Block)Then.Materialize(), Else is null ? null : (Block)Else.Materialize());
 
-    internal override string Signature => $"if({Condition.Signature},{Then.Signature})";
+    internal override string Signature => Else is null
+        ? $"if({Condition.Signature},{Then.Signature})"
+        : $"if({Condition.Signature},{Then.Signature},{Else.Signature})";
 }
 
 internal sealed record ClassicInverseInitObjectNode(TypeRef Type, ClassicInverseBodyNode Address)
@@ -587,6 +590,18 @@ internal sealed record ClassicInverseNewObjectNode(
         + $"({Children(Arguments)})";
 }
 
+internal sealed record ClassicInverseStorePropertyNode(
+    MethodRef Accessor, bool IsVirtual, bool HasInstance,
+    ImmutableArray<ClassicInverseBodyNode> Arguments) : ClassicInverseBodyNode
+{
+    internal override IrNode Materialize() => new StoreProperty(Accessor,
+        HasInstance ? Expr(Arguments[0]) : null,
+        [.. Arguments.Skip(HasInstance ? 1 : 0).Take(Arguments.Length - (HasInstance ? 1 : 0) - 1).Select(Expr)],
+        Expr(Arguments[^1])) { IsVirtual = IsVirtual };
+    internal override string Signature =>
+        $"storeproperty[{MethodText(Accessor)}:{IsVirtual}:{HasInstance}]({Children(Arguments)})";
+}
+
 internal sealed record ClassicInverseLoadPropertyNode(
     MethodRef Accessor,
     bool IsVirtual,
@@ -778,13 +793,14 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                         statements.Value);
             }
 
-            case IfStatement guarded when !guarded.HasElse:
+            case IfStatement guarded:
             {
                 var condition = TryCapture(guarded.Condition, budget);
                 var then = TryCapture(guarded.Then, budget);
-                return condition is null || then is null
+                var otherwise = guarded.HasElse ? TryCapture(guarded.Else!, budget) : null;
+                return condition is null || then is null || guarded.HasElse && otherwise is null
                     ? null
-                    : new ClassicInverseIfNode(condition, then);
+                    : new ClassicInverseIfNode(condition, then, otherwise);
             }
 
             case InitObject init:
@@ -1083,6 +1099,13 @@ internal sealed class ClassicInverseBodyCaptureSession(ClassicInverseTypeBinding
                         Detach(creation.Constructor, budget),
                         creation.AnonymousPropertyNames,
                         arguments.Value);
+            }
+
+            case StoreProperty store when store.UpdateKind == null:
+            {
+                var arguments = TryCaptureAll(store.Children, budget);
+                return arguments is null ? null : new ClassicInverseStorePropertyNode(
+                    Detach(store.Accessor, budget), store.IsVirtual, store.HasInstance, arguments.Value);
             }
 
             case LoadProperty load:

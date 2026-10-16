@@ -474,6 +474,37 @@ internal sealed partial class ClassicInverseLoweringProof
                 roles[address] = AwaitOperandAddress;
             }
 
+            // A configured value-type operand can contain a second private
+            // rvalue receiver spill (ValueTask -> ConfigureAwait -> GetAwaiter).
+            // Own only its exact address use; preserve the producing call.
+            if (isRawImport && operand is Call
+                {
+                    Callee: { Name: "ConfigureAwait", HasThis: true } configureMethod,
+                    IsVirtual: false, ConstrainedTo: null,
+                    Arguments: [LoadLocalAddress configuredReceiver, _],
+                    Parent: StoreLocal configuredStore,
+                } configure
+                && configureMethod.ParameterTypes is [TypeRef flagType]
+                && MemberIdentity.IsCoreLibraryType(flagType, "System", "Boolean"))
+            {
+                int configuredPosition = index.PositionOf(configuredStore);
+                if (configuredStore.Parent is not Block configuredBlock || configuredPosition <= 0
+                    || configuredBlock.Children[configuredPosition - 1] is not StoreLocal sourceStore
+                    || sourceStore.Index != configuredReceiver.Index
+                    || !sourceStore.Type.Equals(configuredReceiver.Type)
+                    || !sourceStore.Type.Equals(configureMethod.DeclaringType)
+                    || !ClassicInverseExpressionRules.IsKnownValueType(sourceStore.Type, body.TypeShapes)
+                    || sourceStore.Value is not Call
+                    || !Equals(sourceStore.Value.ResultType, sourceStore.Type)
+                    || !ProvesRvalueReceiverSlot(index, body, sourceStore.Index, sourceStore.Type, budget))
+                {
+                    failure = "configured await operand has no private adjacent rvalue receiver";
+                    return null;
+                }
+                roles[sourceStore] = AwaitOperandStore;
+                roles[configuredReceiver] = AwaitOperandAddress;
+            }
+
             roles[bind] = AwaiterBind;
             roles[getAwaiter] = GetAwaiterCall;
             if (receiver is Box)

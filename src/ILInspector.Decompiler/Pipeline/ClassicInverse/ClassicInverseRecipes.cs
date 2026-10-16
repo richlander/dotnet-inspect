@@ -11,12 +11,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <para>
 /// The preconditions below are mutually exclusive by construction (presence of
 /// a <c>try/finally</c>, of the compiler's <c>&lt;&gt;7__wrap</c> foreach
-/// triple, of a two-armed conditional temporary, and the arity of the
-/// builder's completion call). The core still detects a multiple match and
+/// triple, of a two-armed conditional temporary, the arity of the builder's
+/// completion call, and whether await results are consumed as values or void). The core still detects a multiple match and
 /// declines, so registration order can never decide an outcome.
 /// </para>
 /// </summary>
-internal static class ClassicInverseRecipes
+internal static partial class ClassicInverseRecipes
 {
     internal sealed class RecipeIndex
     {
@@ -422,6 +422,10 @@ internal static class ClassicInverseRecipes
             recipeIndex.GetResults,
             recipeIndex,
             budget));
+        if (budget.Exhausted)
+            return candidates;
+        Add(candidates, TryConditionalVoidPair(request.ExecutionBody, planning, shell,
+            setResult, recipeIndex.GetResults, recipeIndex, budget));
         if (budget.Exhausted)
             return candidates;
         Add(candidates, TrySequentialVoid(
