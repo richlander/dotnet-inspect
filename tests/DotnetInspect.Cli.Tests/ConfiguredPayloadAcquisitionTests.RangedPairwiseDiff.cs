@@ -385,6 +385,93 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
+    /// An endpoint that does not open is reported from its typed failure by
+    /// the scope route, never by the legacy path: a version no source
+    /// supplies, a pattern no listed version matches, and a framework the
+    /// package has no compile assets for.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        "9.0.0..99.0.0",
+        null,
+        "Error resolving v99.0.0: Package 'System.Text.Json' version '99.0.0' could not be acquired.")]
+    [InlineData(
+        "9.0.0..99.*",
+        null,
+        "Error resolving v99.*: Package 'System.Text.Json' selection '99.*' matched no available version.")]
+    [InlineData(
+        "9.0.0..10.0.0",
+        "net2.0",
+        "Error resolving v9.0.0: No assemblies found for target framework 'net2.0' in package 'System.Text.Json@9.0.0'.")]
+    public async Task PairwiseDiff_EndpointFailure_IsReportedByTheScope(
+        string range,
+        string? targetFramework,
+        string expected)
+    {
+        Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
+        UseFeed(new RangeHonoringHistoryFeedHandler(
+            FirstFeed, SystemTextJsonId, packages, unlistedArchivesNotFound: true));
+
+        var result = await RunCommandAsync(
+        [
+            "diff",
+            "--package", $"{SystemTextJsonId}@{range}",
+            .. targetFramework is null ? (string[])[] : ["--tfm", targetFramework],
+            "--source", FirstFeed,
+            "--verbose",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.True(result.Error.Contains(expected, StringComparison.Ordinal), result.Error);
+        Assert.Contains("did not open", result.Error, StringComparison.Ordinal);
+        // The legacy path announces its comparison before it resolves.
+        Assert.DoesNotContain($"Comparing {SystemTextJsonId} v", result.Error, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A source that doesn't answer is reported by the scope route with its
+    /// failure, and says the package may still exist, as the legacy path's
+    /// feed-failure report did.
+    /// </summary>
+    [Fact]
+    public async Task PairwiseDiff_UnreadableSource_IsReportedByTheScope()
+    {
+        UseFeed(new UnreadableSourceHandler());
+
+        var result = await RunCommandAsync(
+        [
+            "diff",
+            "--package", $"{SystemTextJsonId}@9.0.0..10.0.0",
+            "--source", FirstFeed,
+            "--verbose",
+        ]);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Empty(result.Output);
+        Assert.True(
+            result.Error.Contains(
+                $"Package '{SystemTextJsonId}' version '9.0.0' could not be acquired.",
+                StringComparison.Ordinal)
+                || result.Error.Contains(
+                    $"Package '{SystemTextJsonId}' version '10.0.0' could not be acquired.",
+                    StringComparison.Ordinal),
+            result.Error);
+        Assert.Contains(
+            "The package may exist; the source was not readable. Retry, or check the source URL.",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain($"Comparing {SystemTextJsonId} v", result.Error, StringComparison.Ordinal);
+    }
+
+    private sealed class UnreadableSourceHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("The source refused the connection.");
+    }
+
+    /// <summary>
     /// Gate 10: a <c>*</c> pattern and <c>latest</c> settle in the House, as
     /// <c>package</c> settles them, once per endpoint. The feed lists a
     /// prerelease above the highest stable version, so a pattern, which
@@ -442,24 +529,25 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// The scope route's demands: exact pins, <c>latest</c>, and <c>*</c>
     /// patterns online; an absent <c>--tfm</c> is the owner default. Offline,
     /// an endpoint only discovery can settle keeps the whole request on the
-    /// legacy path, and <c>--tfm all</c> always does.
+    /// legacy path. A request the House can't express is an error, never the
+    /// legacy path.
     /// </summary>
     [Theory]
-    [InlineData(false, "9.0.0", "10.0.0", null, true)]
-    [InlineData(false, "9.0.0", "latest", "net8.0", true)]
-    [InlineData(false, "9.*", "10.0.0", null, true)]
-    [InlineData(true, "9.0.0", "10.0.0", null, true)]
-    [InlineData(true, "9.0.0", "10.0.0", "net8.0", true)]
-    [InlineData(true, "9.0.0", "latest", "net8.0", false)]
-    [InlineData(true, "9.*", "10.0.0", "net8.0", false)]
-    [InlineData(false, "9.0.0", "10.0.0", "all", false)]
-    [InlineData(false, "9.0.0", "not-a-version", null, false)]
+    [InlineData(false, "9.0.0", "10.0.0", null, "scope")]
+    [InlineData(false, "9.0.0", "latest", "net8.0", "scope")]
+    [InlineData(false, "9.*", "10.0.0", null, "scope")]
+    [InlineData(true, "9.0.0", "10.0.0", null, "scope")]
+    [InlineData(true, "9.0.0", "10.0.0", "net8.0", "scope")]
+    [InlineData(true, "9.0.0", "latest", "net8.0", "legacy")]
+    [InlineData(true, "9.*", "10.0.0", "net8.0", "legacy")]
+    [InlineData(false, "9.0.0", "10.0.0", "all", "error")]
+    [InlineData(false, "9.0.0", "not-a-version", null, "error")]
     public void PairwiseDiff_ScopeSelection_FollowsThePackageGrammar(
         bool offline,
         string from,
         string to,
         string? targetFramework,
-        bool expected)
+        string route)
     {
         bool wasOffline = CoreHttpClientFactory.IsOffline;
         try
@@ -468,9 +556,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 new HttpClientFactoryOptions { Offline = offline });
             PackageEndpointDiffSelection? selection =
                 PackageEndpointDiffSession.TryCreateSelection(
-                    SystemTextJsonId, from, to, targetFramework);
+                    SystemTextJsonId, from, to, targetFramework, out string? error);
 
-            Assert.Equal(expected, selection is not null);
+            Assert.Equal(
+                route,
+                selection is not null ? "scope" : error is null ? "legacy" : "error");
             if (selection is not null)
             {
                 Assert.Equal(

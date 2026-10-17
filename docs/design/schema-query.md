@@ -106,9 +106,10 @@ output, and [Resource Explanation](resource-explanation.md) consume one
 completed value without re-resolving membership.
 
 Presentation still selects the resource kinds defined by its existing shape.
-In particular, a section tree projects structural `field` and `column` items;
-query-only items such as filterable and sortable keys remain available to flat
-discovery and future explanation without entering that tree.
+A section tree projects every owner-authored structural item, including
+`field`, `column`, `section`, and `suggestion` items. Query-only
+`default-order`, `order-step`, `filterable`, and `sortable` items remain
+available to flat discovery and future explanation without entering that tree.
 
 Names use the product's stable section, field, and column vocabulary. Schema
 owners must not derive identity from a rendered heading after formatting or

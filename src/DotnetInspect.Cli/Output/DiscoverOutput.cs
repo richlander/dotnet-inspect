@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
@@ -1070,166 +1071,45 @@ public static class DiscoverOutput
             DiscoveryResourceIdentity,
             ResourcePath>? resourcePaths = null)
     {
-        List<TreeNode> nodes = document is null
-            ? []
-            : CreateTreeNodes(
-                document,
-                sectionCostAnnotations,
-                resourcePaths);
+        bool synthesizedDocument = document is null;
+        document ??= DiscoveryDocumentFactory.CreateTreeDocument(
+            rootLabel ?? "discovery",
+            discover,
+            schema,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            sectionCostAnnotations,
+            exactOnlySections);
+        if (document is null)
+            return 1;
 
-        if (document is null && discover is { Length: > 0 })
-        {
-            // Resolve each section and build grouped tree
-            foreach (var name in discover)
-            {
-                if (SelectResolver.TryResolveCategory(
-                        name,
-                        sectionCategories,
-                        schema.SectionNames,
-                        out var categoryName,
-                        out var categorySections))
-                {
-                    nodes.Add(new TreeNode(categoryName)
-                    {
-                        Children = categorySections
-                            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                            .Select(section => new TreeNode(section)).ToList()
-                    });
-                    continue;
-                }
-
-                var resolved = ResolveDiscoverSection(
-                    name,
-                    schema,
-                    exactOnlySections);
-                if (resolved == null) return 1;
-
-                var section = schema.GetSection(resolved);
-                if (section == null || section.Items.Length == 0)
-                {
-                    nodes.Add(new TreeNode(resolved));
-                    continue;
-                }
-
-                // Single section: show items as top-level tree
-                if (discover.Length == 1)
-                {
-                    foreach (var item in section.Items)
-                        nodes.Add(new TreeNode($"{item.Name} ({item.Kind})"));
-                }
-                else
-                {
-                    var children = section.Items
-                        .Select(i => new TreeNode($"{i.Name} ({i.Kind})"))
-                        .ToList();
-                    nodes.Add(new TreeNode(resolved) { Children = children });
-                }
-            }
-        }
-        else if (document is null)
-        {
-            // Curated pipelines (listedCategoryDoors provided) mirror the flat GetDiscoveryRows
-            // catalog: topical doors (alpha) then the effective section group (alpha), with no cost
-            // annotations and no @All/@Default/@Hidden poles.
-            if (listedCategoryDoors != null)
-            {
-                var doorNodes = (sectionCategories ?? new Dictionary<string, string[]>())
-                    .Where(category => listedCategoryDoors.Contains(category.Key))
-                    .OrderBy(category => category.Key, StringComparer.OrdinalIgnoreCase)
-                    .Select(category => new TreeNode($"{category.Key} (category)")
-                    {
-                        Children = category.Value
-                            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                            .Select(section => new TreeNode(section)).ToList()
-                    });
-
-                var sectionNodes = schema.Discover()!
-                    .Where(i => catalogHiddenSections is null || !catalogHiddenSections.Contains(i.Name))
-                    .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(i =>
-                    {
-                        var children = new List<TreeNode>();
-                        var section = schema.GetSection(i.Name);
-                        if (section != null)
-                            foreach (var item in section.Items)
-                                children.Add(new TreeNode($"{item.Name} ({item.Kind})"));
-                        return new TreeNode(i.Name) { Children = children };
-                    });
-
-                nodes.AddRange(doorNodes);
-                nodes.AddRange(sectionNodes);
-            }
-            else
-            {
-            var sectionRows = schema.SectionNames
-                // Catalog-hidden sections appear only under their category node (drill-in), not as
-                // top-level entries — same entrypoint model as the flat bare -D listing.
-                .Where(name => catalogHiddenSections is null || !catalogHiddenSections.Contains(name))
-                .Select(name => new DiscoveryRow(name, AnnotateKind("section", name, sectionCostAnnotations)))
-                .ToList();
-            var categoryRows = sectionCategories?
-                .Keys
-                // See the flat catalog: @Hidden is shown only in the full schema (catalogHidden null).
-                .Where(name => catalogHiddenSections is null
-                    || !string.Equals(name, SectionCategoryNames.Hidden, StringComparison.OrdinalIgnoreCase))
-                .Select(name => new DiscoveryRow(name, "category"))
-                .ToList() ?? new List<DiscoveryRow>();
-
-            // Full tree: @categories, regular sections, then opt-in sections.
-            // Each group is alpha sorted.
-            var orderedRows = sectionRows.Concat(categoryRows)
-                .OrderBy(GetDiscoveryRowSortRank)
-                .ThenBy(row => row.Name, StringComparer.OrdinalIgnoreCase);
-            foreach (var row in orderedRows)
-            {
-                if (row.Kind.Equals("category", StringComparison.OrdinalIgnoreCase))
-                {
-                    nodes.Add(new TreeNode($"{row.Name} (category)")
-                    {
-                        Children = sectionCategories![row.Name]
-                            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                            .Select(section => new TreeNode(section)).ToList()
-                    });
-                    continue;
-                }
-
-                var sectionName = row.Name;
-                var children = new List<TreeNode>();
-                var section = schema.GetSection(sectionName);
-                if (section != null)
-                {
-                    foreach (var item in section.Items)
-                        children.Add(new TreeNode($"{item.Name} ({item.Kind})"));
-                }
-                var label = sectionCostAnnotations != null
-                    && sectionCostAnnotations.TryGetValue(sectionName, out var tier)
-                        ? $"{sectionName} ({tier})"
-                        : sectionName;
-                nodes.Add(new TreeNode(label) { Children = children });
-            }
-            }
-        }
-
-        if (!TryApplyTreeSelection(
-                nodes,
+        IReadOnlyList<DiscoveryHierarchyRow> discoveryRows =
+            DiscoveryHierarchyProjection.Rows(document);
+        if (!TryApplyRowSelection(
+                discoveryRows,
                 rows,
                 semanticRowSelection,
                 semanticSelectionName,
-                discover is { Length: > 0 },
-                out nodes))
+                out IReadOnlyList<DiscoveryHierarchyRow> selectedRows))
         {
             return 1;
         }
 
-        // Wrap in root node when label is provided and showing full tree
-        if (rootLabel != null && discover is null or { Length: 0 })
-            nodes = [new TreeNode(rootLabel) { Children = nodes }];
-
-        var view = new DiscoveryTreeView { Sections = nodes };
-        MarkoutSerializer.Serialize(
-            view,
-            output ?? Console.Out,
-            DiscoveryContext.Default);
+        DiscoveryHierarchyPresentation.Write(
+            document,
+            selectedRows,
+            new DiscoveryHierarchyPresentationPlan(
+                rootLabel:
+                    document.Selection.IsCatalog
+                        ? rootLabel
+                        : null,
+                sectionAnnotations: sectionCostAnnotations,
+                annotateCatalogSections:
+                    synthesizedDocument
+                    && listedCategoryDoors is null,
+                resourcePaths: resourcePaths),
+            output ?? Console.Out);
         return 0;
     }
 
@@ -1262,151 +1142,6 @@ public static class DiscoverOutput
                     ? path.Value
                     : null);
 
-    private static List<TreeNode> CreateTreeNodes(
-        DiscoveryDocument document,
-        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
-        IReadOnlyDictionary<
-            DiscoveryResourceIdentity,
-            ResourcePath>? resourcePaths)
-    {
-        if (document.Selection.IsCatalog)
-        {
-            return
-            [
-                .. document.Selection.Rows.Select(identity =>
-                    CreateTreeNode(
-                        document,
-                        identity,
-                        includeKind: identity.Kind
-                            == DiscoveryResourceKind.Category,
-                        sectionCostAnnotations,
-                        resourcePaths,
-                        includeMembers: true)),
-            ];
-        }
-
-        if (document.Selection.AddressedResources.Length == 1
-            && document.Selection.AddressedResources[0].Kind
-                == DiscoveryResourceKind.Section)
-        {
-            DiscoveryResource section = document.GetResource(
-                document.Selection.AddressedResources[0]);
-            DiscoveryResourceIdentity[] treeMembers =
-            [
-                .. TreeMembers(section),
-            ];
-            if (treeMembers.Length == 0)
-            {
-                return
-                [
-                    CreateTreeNode(
-                        document,
-                        section.Identity,
-                        includeKind: false,
-                        sectionCostAnnotations,
-                        resourcePaths),
-                ];
-            }
-
-            return
-            [
-                .. treeMembers.Select(identity =>
-                    CreateTreeNode(
-                        document,
-                        identity,
-                        includeKind: true,
-                        sectionCostAnnotations,
-                        resourcePaths)),
-            ];
-        }
-
-        return
-        [
-            .. document.Selection.AddressedResources.Select(identity =>
-                CreateTreeNode(
-                    document,
-                    identity,
-                    includeKind: false,
-                    sectionCostAnnotations,
-                    resourcePaths,
-                    includeMembers: true)),
-        ];
-    }
-
-    private static TreeNode CreateTreeNode(
-        DiscoveryDocument document,
-        DiscoveryResourceIdentity identity,
-        bool includeKind,
-        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
-        IReadOnlyDictionary<
-            DiscoveryResourceIdentity,
-            ResourcePath>? resourcePaths,
-        bool includeMembers = false)
-    {
-        DiscoveryResource resource = document.GetResource(identity);
-        string kind = resource.Identity.Kind switch
-        {
-            DiscoveryResourceKind.Category => "category",
-            DiscoveryResourceKind.Section => AnnotateKind(
-                "section",
-                resource.Identity.Name,
-                sectionCostAnnotations),
-            DiscoveryResourceKind.Item => resource.Identity.ItemKind!,
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(identity),
-                identity.Kind,
-                "Unknown discovery resource kind."),
-        };
-        string label = includeKind
-            ? $"{identity.Name} ({kind})"
-            : identity.Name;
-        if (resourcePaths is not null
-            && resourcePaths.TryGetValue(identity, out ResourcePath? path))
-        {
-            label = $"{label} [{path.Value}]";
-        }
-        if (identity.Kind == DiscoveryResourceKind.Category)
-        {
-            return new TreeNode(label)
-            {
-                Children =
-                [
-                    .. resource.Members.Select(member =>
-                        CreateTreeNode(
-                            document,
-                            member,
-                            includeKind: false,
-                            sectionCostAnnotations,
-                            resourcePaths)),
-                ],
-            };
-        }
-
-        return new TreeNode(label)
-        {
-            Children = includeMembers
-                ?
-                [
-                    .. TreeMembers(resource).Select(member =>
-                        CreateTreeNode(
-                            document,
-                            member,
-                            includeKind: member.Kind
-                                == DiscoveryResourceKind.Item,
-                            sectionCostAnnotations,
-                            resourcePaths)),
-                ]
-                : [],
-        };
-    }
-
-    private static IEnumerable<DiscoveryResourceIdentity> TreeMembers(
-        DiscoveryResource resource) =>
-        resource.Identity.Kind == DiscoveryResourceKind.Section
-            ? resource.Members.Where(member =>
-                member.ItemKind is "field" or "column")
-            : resource.Members;
-
     private static void WriteOutput(
         DiscoveryOutputRequest request,
         Action<TextWriter> write)
@@ -1414,72 +1149,6 @@ public static class DiscoverOutput
             request.OutputPath,
             request.Rows,
             write);
-
-    private static bool TryApplyTreeSelection(
-        List<TreeNode> nodes,
-        RowWindow? rows,
-        RowSelectionIntent<string>? semanticRowSelection,
-        string semanticSelectionName,
-        bool grouped,
-        out List<TreeNode> selectedNodes)
-    {
-        if (!grouped)
-        {
-            if (!TryApplyRowSelection(
-                    nodes,
-                    rows,
-                    semanticRowSelection,
-                    semanticSelectionName,
-                    out IReadOnlyList<TreeNode> selectedTopLevel))
-            {
-                selectedNodes = [];
-                return false;
-            }
-
-            selectedNodes = [.. selectedTopLevel];
-            return true;
-        }
-
-        var rowAddresses = new List<(int Parent, int? Child)>();
-        for (var parent = 0; parent < nodes.Count; parent++)
-        {
-            if (nodes[parent].Children is { Count: > 0 } children)
-            {
-                for (var child = 0; child < children.Count; child++)
-                    rowAddresses.Add((parent, child));
-            }
-            else
-            {
-                rowAddresses.Add((parent, null));
-            }
-        }
-
-        if (!TryApplyRowSelection(
-                rowAddresses,
-                rows,
-                semanticRowSelection,
-                semanticSelectionName,
-                out IReadOnlyList<(int Parent, int? Child)> selectedAddresses))
-        {
-            selectedNodes = [];
-            return false;
-        }
-
-        var result = new List<TreeNode>();
-        foreach (var parentGroup in selectedAddresses.GroupBy(address => address.Parent))
-        {
-            var source = nodes[parentGroup.Key];
-            var selectedChildren = parentGroup
-                .Where(address => address.Child.HasValue)
-                .Select(address => source.Children![address.Child!.Value])
-                .ToList();
-            result.Add(selectedChildren.Count == 0
-                ? source
-                : new TreeNode(source.Text) { Children = selectedChildren });
-        }
-        selectedNodes = result;
-        return true;
-    }
 
     private static bool TryApplyRowSelection<T>(
         IReadOnlyList<T> rows,

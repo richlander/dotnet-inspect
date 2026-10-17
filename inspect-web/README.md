@@ -792,9 +792,12 @@ restored subjects keep their requested selection.
 
 `System.Text.Json@10.0.12` targeting `net8.0` exposed a first-load presentation
 gap: its exact Library appears in the Summary inventory before the broad
-surface has produced assembly counts, so the Libraries list must show unknown
-counts rather than claim its surface is unavailable. A missing Library after a
-requested broad projection remains an unavailable result. The first-load
+surface has produced assembly counts. Those counts are pending, not
+unavailable, and may stay pending for the whole session because Library
+Overview never requests the broad surface. The Libraries list therefore shows
+no count detail for a pending Library rather than claiming its surface or its
+counts are unavailable. A missing Library or a null count after a requested
+broad projection remains an unavailable result. The first-load
 browser regression uses the existing `System.Text.Json@10.0.0` fixture through
 the ordinary package-opening path; the package-model test covers the distinct
 summary and truncated-broad states.

@@ -665,6 +665,7 @@ test("Package children retain navigable Libraries missing from the broad surface
   assert.equal(libraries[0]?.types, null);
   assert.equal(libraries[0]?.members, null);
   assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(libraries[0]?.countsPending, false);
   assert.equal(
     libraries[0]?.unavailableDetail,
     "Library surface details are unavailable.");
@@ -1038,6 +1039,7 @@ test("query results open through the exact opaque Root request", async () => {
   }]);
   assert.equal(packageLibrariesForModel(result)[0]?.types, null);
   assert.equal(packageLibrariesForModel(result)[0]?.unavailableDetail, null);
+  assert.equal(packageLibrariesForModel(result)[0]?.countsPending, true);
 });
 
 test("exact Root opening preserves a product default second in inventory", async () => {

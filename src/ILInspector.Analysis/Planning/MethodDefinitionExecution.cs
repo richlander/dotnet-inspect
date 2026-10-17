@@ -245,7 +245,8 @@ public sealed class MethodDefinitionExecution
                     ResolveDirectMethods(reader, breadth);
                 MethodDefinitionGeneratedExpansionResult expansion =
                     attribution!.ExpandGeneratedExecutionBodies(
-                        directMethods);
+                        directMethods,
+                        breadth.GeneratedRoles);
                 execution._sourceCoverage.RecordGeneratedExpansion(
                     expansion.Coverage);
                 execution._breadth =
