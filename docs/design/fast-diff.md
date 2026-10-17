@@ -324,15 +324,18 @@ whose census differs only in uncertain facts, about 50 ms on CoreLib, and the
 spike's fact classification, which allocates where the census need not.
 
 The earlier census is therefore a low-fidelity baseline, not a target: where
-it is faster, it is faster by over-reporting. The operator accepted the cost
-of exactness on these pairs. Its budget, on NativeAOT over these pairs:
+it is faster, it is faster by leaving uncertain differences unverified, which
+over-reports. The operator accepted the cost of exactness on these pairs. Its
+budget, checked by every NativeAOT measurement of these pairs:
 
 - **Exists** is no slower than the earlier census on a pair for which it builds
   no Public API surface;
-- its additional cost is bounded by the surfaces it builds, and every
-  measurement reports their count beside its time; and
-- each uncertain fact kind that a gate shows presented, such as attribute
-  arguments compared by symbolic name
+- on every pair, **Exists** is no slower than its time in the table above,
+  which is the ceiling a later slice must meet, and each measurement reports
+  the surfaces built and the time spent building them beside the total; and
+- the remaining cost of fact classification, about 27 ms on CoreLib, is
+  overhead to remove, and each uncertain fact kind that a gate shows
+  presented, such as attribute arguments compared by symbolic name
   ([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)), removes
   surface builds rather than exactness.
 
