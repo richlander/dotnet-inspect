@@ -1,4 +1,5 @@
 using DotnetInspector.PackageQueries;
+using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using QuerySpace.Rows;
 using ILInspector.Analysis;
@@ -196,32 +197,53 @@ internal static class DiffHistoryResults
                         DiffHistoryDocument.ApiMembers value =>
                             Count(
                                 value.Content.ChangedVersionAssessments,
-                                request),
+                                request,
+                                OneVersionEvaluated(
+                                    value.Content.Population,
+                                    value.Content.Evaluations)),
                         DiffHistoryDocument.ApiTypes value =>
                             Count(
                                 value.Content.ChangedVersionAssessments,
-                                request),
+                                request,
+                                OneVersionEvaluated(
+                                    value.Content.Population,
+                                    value.Content.Evaluations)),
                         DiffHistoryDocument.ApiAttributes value =>
                             Count(
                                 value.Content.ChangedVersionAssessments,
-                                request),
+                                request,
+                                OneVersionEvaluated(
+                                    value.Content.Population,
+                                    value.Content.Evaluations)),
                         DiffHistoryDocument.ExactApiMember value =>
                             Count(
                                 value.Content.History
                                     .ChangedVersionAssessments,
-                                request),
+                                request,
+                                OneVersionEvaluated(
+                                    value.Content.History.Population,
+                                    value.Content.History.Evaluations)),
                         DiffHistoryDocument.Allocations value =>
                             Count(
                                 value.Content.ChangedVersionAssessments,
-                                request),
+                                request,
+                                OneVersionEvaluated(
+                                    value.Content.Population,
+                                    value.Content.Evaluations)),
                         DiffHistoryDocument.CallSites value =>
                             Count(
                                 value.Content.ChangedVersionAssessments,
-                                request),
+                                request,
+                                OneVersionEvaluated(
+                                    value.Content.Population,
+                                    value.Content.Evaluations)),
                         DiffHistoryDocument.Unsafety value =>
                             Count(
                                 value.Content.ChangedVersionAssessments,
-                                request),
+                                request,
+                                OneVersionEvaluated(
+                                    value.Content.Population,
+                                    value.Content.Evaluations)),
                         _ => throw new InvalidOperationException(
                             "Unknown Diff History document."),
                     };
@@ -235,12 +257,14 @@ internal static class DiffHistoryResults
         DiffHistoryChangedVersionCountEvidence> Count<T>(
             IReadOnlyList<DiffHistoryChangedVersionAssessment<T>>
                 assessments,
-            DiffHistoryCountRequest request)
+            DiffHistoryCountRequest request,
+            bool oneVersionEvaluated)
         where T : notnull
     {
         CountSource<T> source = CountSource<T>.Create(
             assessments,
-            request.RowSelection);
+            request.RowSelection,
+            oneVersionEvaluated);
 
         RowsCohortResult<
             DiffHistoryCountCohort,
@@ -291,6 +315,32 @@ internal static class DiffHistoryResults
                 new(request.Cohort, evidence),
             ]);
     }
+
+    // A one-version population evaluated without failure has no adjacent
+    // transitions, so its Changed Versions cohort is exactly empty
+    // (diff-history.md#subject-specific-history-count).
+    static bool OneVersionEvaluated<T>(
+        PackageVersionVector population,
+        IReadOnlyList<DiffHistoryApiFindingEvaluation<T>> evaluations)
+        where T : notnull =>
+        population.Addresses.Length == 1
+        && evaluations is
+            [{ Inspection.Value: not FindingInspection<T>.Failed }];
+
+    static bool OneVersionEvaluated<T>(
+        PackageVersionVector population,
+        IReadOnlyList<DiffHistoryAnalysisEvaluation<T>> evaluations)
+        where T : notnull =>
+        population.Addresses.Length == 1
+        && evaluations is
+            [{ Inspection.Value: not FindingInspection<T>.Failed }];
+
+    static bool OneVersionEvaluated(
+        PackageVersionVector population,
+        IReadOnlyList<DiffHistoryApiMemberEvaluation> evaluations) =>
+        population.Addresses.Length == 1
+        && evaluations is
+            [{ Inspection.Value: not FindingInspection<ApiMemberHandle>.Failed }];
 
     static IEnumerable<InspectionDiagnostic> Diagnostics(
         DiffHistoryOutcome outcome)
@@ -450,7 +500,8 @@ internal static class DiffHistoryResults
         public static CountSource<T> Create(
             IReadOnlyList<DiffHistoryChangedVersionAssessment<T>>
                 assessments,
-            RowSelectionIntent<string> selection)
+            RowSelectionIntent<string> selection,
+            bool oneVersionEvaluated)
         {
             int? requiredPrefix = selection.RequiredPrefix();
             var rows =
@@ -487,7 +538,8 @@ internal static class DiffHistoryResults
                 }
             }
 
-            if (assessments.Count > 0 && firstUnestablished is null)
+            if (firstUnestablished is null
+                && (assessments.Count > 0 || oneVersionEvaluated))
             {
                 return new(rows, incompleteness: null);
             }
