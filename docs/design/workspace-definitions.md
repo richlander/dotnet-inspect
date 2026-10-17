@@ -359,6 +359,24 @@ second query grammar or silently replay an attached scenario. The command's
 owner decides which inputs, scopes and combinations it supports; accepting a
 Workspace is not a universal promise to inspect every registered population.
 
+Workspace input and Share output are independent. An adopting command such as
+`member` supports ordinary inspection, `--workspace`, `--share`, and both
+together. Without Workspace input it uses its ordinary source context; Share
+does not require a separately authored Workspace. With Workspace input it
+resolves the query in that context. With both, it preserves that environment
+and captures the newly resolved inspection intent through
+[CLI Workspace Sharing](cli-workspace-sharing.md#decisions). Ordinary inspection
+content and Share failure/output behavior remain with that owner; sharing adds
+no second inspection.
+
+The ordinary query determines its Package or descendant selection within the
+admitted context. It does not require a separate `--active-package` or an
+inventory ordinal. For example, `package Foo --workspace "$packet"` selects
+Foo for Package inspection; Member resolves its Type/Member query through its
+own grammar. This does not authorize choosing the first Package or using an
+unrelated focused tab. Exact-subject ambiguity or absence remains visible;
+queries that intentionally return multiple rows keep their declared cardinality.
+
 Environment definitions, query/view intent and scenarios retain separate
 semantic roles even when one packet carries them together. A scenario composes
 an environment with inspection intent. The selected inspection command authors
@@ -373,7 +391,7 @@ The migration preserves useful operations through their owning surfaces:
 | Transitional Workspace surface | Target placement and retirement requirement |
 | --- | --- |
 | Implicit realized top-level inventory | Ordinary Workspace output describes the portable declaration. Retain shared realized inventory for consumers that explicitly need it; declared component rows do not prove realized-result parity. |
-| `--active-package` | Package inspection selects the exact occurrence from Workspace context. Package packet input already exists; preserve context and target rather than substituting inventory position. |
+| `--active-package` | `package Foo --workspace "$packet"` selects Foo through its ordinary query; descendant commands likewise determine their subjects from their queries. Package packet input already exists; preserve context and target rather than substituting inventory position. |
 | `--library`, `--all-libraries` | Library inspection owns aggregate/exact asset selection. Existing packet input and aggregate/narrowing semantics supply the baseline. |
 | `--type` | Type inspection owns selection and facets within admitted Workspace context. Its existing packet route is the baseline. |
 | `--member`, `--lens` | Member and the selected operation own their query/facet grammar. #10184 adds the missing Member packet-context entrance before this path retires. |
@@ -394,7 +412,24 @@ dotnet-inspect type System.Text.Json.JsonSerializer \
 ```
 
 These are existing binding shapes, not evidence that retirement has landed.
-Type packet adoption supplies their owning gates. A neighboring packet may
+Type packet adoption supplies their owning gates. Member adoption must also
+demonstrate these four combinations over the same subject; the Workspace-input
+forms below are proposed, not current CLI behavior:
+
+```bash
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+  --package System.Text.Json@10.0.0 --tfm net10.0
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+  --package System.Text.Json@10.0.0 --tfm net10.0 --share
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+  --workspace "$packet"
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+  --workspace "$packet" --share
+```
+
+The query selects the same subject without a Workspace activation flag. The
+Share variant emits the resolved scenario alongside ordinary inspection
+content under the existing Share contract. A neighboring packet may
 contain the same Package in two contexts or focus a different Navigation tab.
 The consuming command preserves its selected-context and ambiguity rules; it
 cannot choose the first occurrence, inherit stale query intent or reconstruct
