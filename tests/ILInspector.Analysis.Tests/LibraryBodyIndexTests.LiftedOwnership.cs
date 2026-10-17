@@ -1962,7 +1962,7 @@ public partial class LibraryBodyIndexTests
                                 .AsyncStateMachineAttribute)
                         .Constructor;
                 }
-                return LibraryBodyAsyncSourceResolver
+                return StateMachineSourceResolver
                     .IsTrustedAsyncStateMachineAttribute(
                         reader,
                         constructor,

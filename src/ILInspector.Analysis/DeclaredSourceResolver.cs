@@ -9,31 +9,29 @@ using ILInspector.Metadata;
 namespace ILInspector.Analysis;
 
 /// <summary>
-/// Composes async and lifted-method ownership into declared source methods,
-/// including scoped evidence expansion and final declared-source publication.
+/// Composes async and lifted-method ownership into declared source methods.
 /// It consumes acquisition-scoped resolvers without owning metadata lifetime.
-/// <c>DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner</c> and
-/// <c>ScopeDiagnosticAggregation_FinalPublicationRetainsMetadataOrder</c>
-/// gate representative composition and publication behavior.
+/// <c>DirectCalls_AsyncLiftedMoveNextComposesToDeclaredOwner</c> gates
+/// representative composition.
 /// </summary>
-internal sealed class LibraryBodyDeclaredSourceResolver(
+/// <remarks>
+/// Owned by <c>docs/design/method-query-source.md#declared-source-relation</c>.
+/// Library Body Analysis reaches it through
+/// <see cref="LibraryBodyDeclaredSourcePublication"/>.
+/// </remarks>
+internal sealed class DeclaredSourceResolver(
     MetadataReader reader,
     LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
-    LibraryBodyLiftedSourceOwnerResolver liftedSourceOwnerResolver,
-    LibraryBodyAsyncSourceResolver asyncSourceResolver,
-    ImplementationMetricWorkBudget?
-        implementationMetricWork = null)
+    LiftedSourceOwnerResolver liftedSourceOwnerResolver,
+    StateMachineSourceResolver stateMachineSourceResolver)
 {
     readonly MetadataReader _reader = reader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver = primaryMetadataResolver;
-    readonly LibraryBodyLiftedSourceOwnerResolver
+    readonly LiftedSourceOwnerResolver
         _liftedSourceOwnerResolver = liftedSourceOwnerResolver;
-    readonly LibraryBodyAsyncSourceResolver
-        _asyncSourceResolver = asyncSourceResolver;
-    readonly ImplementationMetricWorkBudget?
-        _implementationMetricWork =
-            implementationMetricWork;
+    readonly StateMachineSourceResolver
+        _stateMachineSourceResolver = stateMachineSourceResolver;
 
     internal bool TryResolveAsyncSiblingSource(
         MethodIdentity method,
@@ -41,7 +39,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         bool typeSourceGenerated,
         [NotNullWhen(true)] ref MethodIdentity? asyncSource)
     {
-        asyncSource = _asyncSourceResolver.ResolveSourceMethod(
+        asyncSource = _stateMachineSourceResolver.ResolveSourceMethod(
             method,
             methodDefinition,
             typeSourceGenerated);
@@ -108,7 +106,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         }
 
         MethodIdentity? asyncSource =
-            _asyncSourceResolver.ResolveDeclaredSourceMethod(
+            _stateMachineSourceResolver.ResolveDeclaredSourceMethod(
                 method,
                 methodDefinition,
                 typeSourceGenerated);
@@ -192,7 +190,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         }
 
         AsyncSourceResolution asyncResolution =
-            _asyncSourceResolver.ResolveSourceOwnership(
+            _stateMachineSourceResolver.ResolveSourceOwnership(
                 method,
                 methodDefinition,
                 typeSourceGenerated,
@@ -208,7 +206,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         {
             ultimateOwner = null;
             bool stateMachineExecutionBody =
-                _asyncSourceResolver
+                _stateMachineSourceResolver
                     .IsAsyncStateMachineExecutionMethod(
                         methodHandle,
                         methodDefinition);
@@ -252,20 +250,6 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         return DeclaredOwnerResolution.Resolved;
     }
 
-    internal LibraryBodyAnalysisPlan ExpandEvidenceScope(
-        LibraryBodyAnalysisPlan plan)
-    {
-        // A lifted source method can itself be async, so expand source owners
-        // before asking the async resolver for the resulting state-machine body.
-        plan = _asyncSourceResolver.ExpandEvidenceScope(
-            plan,
-            IsAsyncScopeSourceAdmissible);
-        plan = ExpandLiftedEvidenceScope(plan);
-        return _asyncSourceResolver.ExpandEvidenceScope(
-            plan,
-            IsAsyncScopeSourceAdmissible);
-    }
-
     internal MethodDefinitionGeneratedExpansionResult
         ExpandGeneratedExecutionBodies(
             ImmutableArray<MethodDefinitionHandle> directMethods,
@@ -292,7 +276,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
             MethodDefinition sourceMethod =
                 _reader.GetMethodDefinition(sourceHandle);
 
-            if (_asyncSourceResolver
+            if (_stateMachineSourceResolver
                 .TryResolveTargetedStateMachineExecutionMethod(
                     sourceHandle,
                     sourceMethod,
@@ -394,112 +378,7 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         }
     }
 
-    internal LibraryBodyAnalysisResult MergeScopeExpansionDiagnostics(
-        LibraryBodyAnalysisResult analysis,
-        LibraryBodyAnalysisPlan plan)
-    {
-        if (plan.ScopeExpansionDiagnostics.IsDefaultOrEmpty)
-            return analysis;
-
-        return analysis with
-        {
-            Diagnostics = AnalysisDiagnosticAggregation
-                .MergeInMetadataOrder(
-                    analysis.Diagnostics,
-                    plan.ScopeExpansionDiagnostics),
-        };
-    }
-
-    internal LibraryBodyAnalysisResult PublishDeclaredSources(
-        LibraryBodyAnalysisResult analysis,
-        LibraryBodyAnalysisPlan plan)
-    {
-        IReadOnlyDictionary<int, MethodIdentity> asyncSources =
-            _asyncSourceResolver
-                .DeclaredSourceMethodsByMoveNextToken();
-        if (asyncSources.Count == 0)
-            return analysis;
-
-        var declaredSources = new Dictionary<int, MethodIdentity>(
-            analysis.Methods.DeclaredSources);
-        var publicationDiagnostics =
-            ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
-        foreach ((int token, MethodIdentity source) in asyncSources)
-        {
-            try
-            {
-                if (!declaredSources.ContainsKey(token))
-                {
-                    AuthenticatedSourceOwner sourceOwner =
-                        _asyncSourceResolver
-                            .CreateAuthenticatedSourceOwner(
-                                source);
-                    if (TryResolveUltimateLiftedOwner(
-                            sourceOwner,
-                            out AuthenticatedSourceOwner
-                                ultimateOwner))
-                    {
-                        declaredSources.Add(
-                            token,
-                            ultimateOwner.Method);
-                    }
-                    else if (!plan.IsScoped
-                        && !IsMalformedGeneratedLiftedOwner(
-                            sourceOwner))
-                    {
-                        declaredSources.Add(token, source);
-                    }
-                }
-            }
-            catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(ex))
-            {
-                var sourceHandle =
-                    (MethodDefinitionHandle)
-                    MetadataTokens.EntityHandle(
-                        source.MetadataToken);
-                MethodDefinition sourceDefinition =
-                    _reader.GetMethodDefinition(
-                        sourceHandle);
-                var diagnostic = new AnalysisDiagnostic(
-                    source.MetadataToken,
-                    LibraryMethodAnalysisRunner.MethodLabel(
-                        _reader,
-                        sourceDefinition.GetDeclaringType(),
-                        sourceHandle),
-                    $"{ex.GetType().Name}: {ex.Message}",
-                    DeclaringType: source.DeclaringType);
-                publicationDiagnostics.Add(diagnostic);
-            }
-        }
-        return analysis with
-        {
-            Diagnostics = AnalysisDiagnosticAggregation
-                .MergeInMetadataOrder(
-                    analysis.Diagnostics,
-                    publicationDiagnostics.ToImmutable()),
-            Methods = analysis.Methods with
-            {
-                DeclaredSources = declaredSources,
-            },
-        };
-    }
-
-    bool IsAsyncScopeSourceAdmissible(
-        MethodIdentity source)
-    {
-        AuthenticatedSourceOwner sourceOwner =
-            _asyncSourceResolver
-                .CreateAuthenticatedSourceOwner(source);
-        if (IsMalformedGeneratedLiftedOwner(sourceOwner))
-            return false;
-
-        return !_liftedSourceOwnerResolver
-            .HasMalformedPotentialOwnerChain(source);
-    }
-
-    bool TryResolveUltimateLiftedOwner(
+    internal bool TryResolveUltimateLiftedOwner(
         AuthenticatedSourceOwner source,
         out AuthenticatedSourceOwner ultimateOwner) =>
         ResolveUltimateLiftedOwner(
@@ -578,16 +457,16 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
         return DeclaredOwnerResolution.Resolved;
     }
 
-    bool IsMalformedGeneratedLiftedOwner(
+    internal bool IsMalformedGeneratedLiftedOwner(
         AuthenticatedSourceOwner source) =>
-        _asyncSourceResolver
+        _stateMachineSourceResolver
             .HasMalformedCompilerGeneratedLiftedName(source);
 
-    AuthenticatedSourceOwner CreateAuthenticatedSourceOwner(
+    internal AuthenticatedSourceOwner CreateAuthenticatedSourceOwner(
         MethodIdentity source)
     {
         AuthenticatedSourceOwner owner =
-            _asyncSourceResolver
+            _stateMachineSourceResolver
                 .CreateAuthenticatedSourceOwner(source);
         return owner with
         {
@@ -595,220 +474,5 @@ internal sealed class LibraryBodyDeclaredSourceResolver(
                 _liftedSourceOwnerResolver
                     .IsAuthenticatedTopLevelEntryPoint(source),
         };
-    }
-
-    LibraryBodyAnalysisPlan ExpandLiftedEvidenceScope(
-        LibraryBodyAnalysisPlan plan)
-    {
-        if (!(plan.Includes(
-                LibraryBodyAnalysisFeatures.MethodEvidence)
-                || plan.ImplementationMetrics is not null)
-            || !plan.IsScoped)
-        {
-            return plan;
-        }
-
-        var ownersByBody =
-            new Dictionary<MethodIdentity, MethodIdentity>();
-        ImmutableArray<AnalysisDiagnostic>.Builder diagnostics =
-            plan.ScopeExpansionDiagnostics.IsDefault
-                ? ImmutableArray.CreateBuilder<AnalysisDiagnostic>()
-                : plan.ScopeExpansionDiagnostics.ToBuilder();
-        bool attributionBudgetExhausted = false;
-        foreach (TypeDefinitionHandle typeHandle
-            in _reader.TypeDefinitions)
-        {
-            TypeDefinition typeDefinition =
-                _reader.GetTypeDefinition(typeHandle);
-            foreach (MethodDefinitionHandle methodHandle
-                in typeDefinition.GetMethods())
-            {
-                MethodIdentity method;
-                try
-                {
-                    MethodDefinition methodDefinition =
-                        _reader.GetMethodDefinition(methodHandle);
-                    GenericScope scope =
-                        _primaryMetadataResolver.CreateScope(
-                            typeDefinition,
-                            methodDefinition);
-                    method =
-                        _primaryMetadataResolver.CreateMethodIdentity(
-                            typeHandle,
-                            methodHandle,
-                            methodDefinition,
-                            scope);
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner
-                        .IsRecoverableMethodFailure(ex))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    MethodDefinition methodDefinition =
-                        _reader.GetMethodDefinition(methodHandle);
-                    bool directlySelectedBody =
-                        plan.RequestedMethodScope?.Contains(
-                            MetadataTokens.GetToken(methodHandle))
-                            == true
-                        || plan.TypeScope?.Invoke(
-                            method.DeclaringType)
-                            == true;
-                    if (_liftedSourceOwnerResolver
-                        .TryResolveForScopeExpansion(
-                            methodHandle,
-                            methodDefinition,
-                            method,
-                            out AuthenticatedSourceOwner sourceOwner,
-                            plan.MethodScope,
-                            plan.TypeScope,
-                            directlySelectedBody))
-                    {
-                        if (IsMalformedGeneratedLiftedOwner(
-                                sourceOwner))
-                        {
-                            continue;
-                        }
-                        ownersByBody[method] =
-                            sourceOwner.Method;
-                    }
-                }
-                catch (
-                    ImplementationMetricWorkLimitExceededException ex)
-                {
-                    if (!attributionBudgetExhausted)
-                    {
-                        diagnostics.Add(new AnalysisDiagnostic(
-                            ex.MethodToken,
-                            LibraryMethodAnalysisRunner
-                                .MethodLabel(
-                                    _reader,
-                                    typeHandle,
-                                    methodHandle),
-                            ex.Message,
-                            DeclaringType: method.DeclaringType));
-                    }
-                    attributionBudgetExhausted = true;
-                }
-                catch (Exception ex)
-                    when (LibraryMethodAnalysisRunner
-                        .IsRecoverableMethodFailure(ex))
-                {
-                    diagnostics.Add(new AnalysisDiagnostic(
-                        method.MetadataToken,
-                        LibraryMethodAnalysisRunner
-                            .MethodLabel(
-                                _reader,
-                                typeHandle,
-                                methodHandle),
-                        $"{ex.GetType().Name}: {ex.Message}",
-                        DeclaringType: method.DeclaringType));
-                }
-            }
-        }
-        ImplementationMetricWorkBudgetSnapshot? work =
-            _implementationMetricWork?.Snapshot();
-        if (!attributionBudgetExhausted
-            && work?.AttributionExhaustedLimit is { }
-                attributionLimit
-            && work.AttributionExhaustedMethodToken is { }
-                attributionToken)
-        {
-            diagnostics.Add(new AnalysisDiagnostic(
-                attributionToken,
-                $"0x{attributionToken:X8}",
-                ImplementationMetricWorkLimitExceededException
-                    .MessageFor(attributionLimit)));
-        }
-
-        IReadOnlySet<int>? methodScope = plan.MethodScope;
-        if (methodScope is not null)
-        {
-            var expanded = new HashSet<int>(methodScope);
-            foreach ((
-                MethodIdentity body,
-                MethodIdentity owner)
-                in ownersByBody)
-            {
-                MethodIdentity declared =
-                    ResolveDeclaredMethod(
-                        owner,
-                        ownersByBody);
-                if (methodScope.Contains(
-                        declared.MetadataToken))
-                {
-                    expanded.Add(body.MetadataToken);
-                }
-            }
-            methodScope = expanded;
-        }
-
-        Dictionary<int, ImmutableArray<TypeRef>>?
-            evidenceSources =
-            plan.TypeScopeEvidenceSources is null
-                ? null
-                : new Dictionary<
-                    int,
-                    ImmutableArray<TypeRef>>(
-                    plan.TypeScopeEvidenceSources);
-        if (plan.TypeScope is not null)
-        {
-            evidenceSources ??= [];
-            foreach ((
-                MethodIdentity body,
-                MethodIdentity owner)
-                in ownersByBody)
-            {
-                TypeRef declaredSourceType =
-                    ResolveDeclaredMethod(
-                        owner,
-                        ownersByBody)
-                    .DeclaringType;
-                ImmutableArray<TypeRef> existing =
-                    evidenceSources.GetValueOrDefault(
-                        body.MetadataToken);
-                if (existing.IsDefault)
-                    existing = [];
-                if (!existing.Contains(declaredSourceType))
-                {
-                    evidenceSources[body.MetadataToken] =
-                        existing.Add(declaredSourceType);
-                }
-            }
-        }
-
-        return plan with
-        {
-            MethodScope = methodScope,
-            TypeScopeEvidenceSources = evidenceSources,
-            ScopeExpansionDiagnostics = diagnostics.ToImmutable(),
-        };
-    }
-
-    static MethodIdentity ResolveDeclaredMethod(
-        MethodIdentity method,
-        IReadOnlyDictionary<MethodIdentity, MethodIdentity>
-            ownersByBody)
-    {
-        MethodIdentity current = method;
-        for (int depth = 0;
-            depth <= ownersByBody.Count;
-            depth++)
-        {
-            if (!ownersByBody.TryGetValue(
-                    current,
-                    out MethodIdentity? owner)
-                || owner == current)
-            {
-                return current;
-            }
-            current = owner;
-        }
-
-        throw new InvalidOperationException(
-            "Lifted source-owner resolution contains a cycle.");
     }
 }
