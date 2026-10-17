@@ -76,7 +76,7 @@ test("first Library load does not report the deferred package surface as unavail
 
   await expect(page.locator(".library-overview-surface")).toBeVisible();
   await expect(page.locator(".library-subject-list"))
-    .not.toContainText("Library surface details are unavailable.");
+    .not.toContainText("unavailable");
 });
 
 function packageCoordinateControl(

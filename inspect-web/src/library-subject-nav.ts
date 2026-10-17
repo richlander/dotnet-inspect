@@ -6,6 +6,7 @@ export interface LibrarySubjectNavItem {
   asset: string;
   types: number | null;
   members: number | null;
+  countsPending?: boolean;
   unavailableDetail?: string | null;
 }
 
@@ -74,6 +75,7 @@ export function renderLibrarySubjectNav(
   const { libraries, selectedLibraryId, escapeHtml } = options;
   const displayLabels = librarySubjectDisplayLabels(libraries);
   const countDetail = (library: LibrarySubjectNavItem) => {
+    if (library.countsPending) return "";
     const types = library.types === null
       ? "Type Count unavailable"
       : `${library.types} type${library.types === 1 ? "" : "s"}`;

@@ -169,6 +169,26 @@ test("Library navigation renders unknown Counts instead of zero", () => {
   assert.doesNotMatch(html, /0 types|0 members/);
 });
 
+test("Library navigation does not report pending Summary Counts as unavailable", () => {
+  const html = renderLibrarySubjectNav({
+    libraries: [{
+      id: "compile:lib/net10.0/Example.Pending.dll",
+      name: "Example.Pending",
+      asset: "lib/net10.0/Example.Pending.dll",
+      types: null,
+      members: null,
+      countsPending: true,
+      unavailableDetail: null,
+    }],
+    selectedLibraryId: "compile:lib/net10.0/Example.Pending.dll",
+    escapeHtml,
+  });
+
+  assert.match(html, /Example\.Pending/);
+  assert.doesNotMatch(html, /unavailable/i);
+  assert.doesNotMatch(html, /0 types|0 members/);
+});
+
 test("Library subjects sort alphabetically and prefer a case-insensitive namesake", () => {
   const libraries = [
     {
