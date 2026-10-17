@@ -67,9 +67,12 @@ kind.
 
 **Package** is not on the spectrum. A Package contains several target
 frameworks and several Libraries, so a Package question is a set of Library
-questions, one per selected framework and Library. A host may present the set,
-but the analysis runs at Library scope or narrower. **Workspace** and other
-Root surfaces compose Libraries the same way.
+questions, one per selected framework and Library, for every analysis whose
+answer lives at Library scope or narrower. A host may present the set. Facts
+that exist only at Package scope, such as package dependencies, stay Package
+analyses. **Root** and **Workspace** surfaces are also off the spectrum; an
+analysis of relationships across Libraries, such as the integrations census,
+answers at its own surface.
 
 ## Symmetry
 
@@ -81,8 +84,12 @@ Library, Type, and Member are first-class targets for every analysis:
    Type is never the scope left out.
 2. A request names its scope. The scope does not change the analysis, its
    equality, or its result shape; it changes only the subjects answered.
-3. The same subject answered at two scopes gets the same answer. A Member's
-   result inside a Type or Library answer equals that Member's own answer.
+3. A subject that two scopes both answer gets the same answer at each. A
+   Member's result inside a Type or Library answer equals that Member's own
+   answer. Completeness stays operation-scoped, as in
+   [Type-scoped comparison](library-api-diff-presentation.md#type-scoped-comparison):
+   a failure in a subject outside the requested scope does not make the
+   narrower answer unavailable.
 
 ## Scope-proportional work
 
@@ -97,13 +104,18 @@ slice with a filed, deferred pushdown.
 Work scales with the requested scope, not with the Library that contains it.
 Each adoption shows this with NativeAOT time at each scope over a large
 Library, such as System.Private.CoreLib; a one-Type CoreLib API diff, for
-example, takes 0.18 s against 1.27 s for the Library.
+example, takes 0.18 s against 1.27 s for the Library
+([Type-scoped comparison](library-api-diff-presentation.md#type-scoped-comparison)).
 
 ## One infrastructure and three terminals
 
-Every scope and every terminal use one infrastructure. The scope and the
-terminal are request terms; neither selects a different producer or a
-different equality:
+Every scope and every terminal answer with one owner-defined equality. The
+scope and the terminal are request terms; neither selects a different
+equality. How a terminal is planned and executed belongs to
+[QuerySpace composition](query-space-composition.md), which lowers Rows,
+Count, and Exists as distinct plans and lets a source answer a terminal
+natively. A cheaper walk that shares the equality, such as Fast Diff's
+per-Type Exists, conforms when it is gated exact against Rows:
 
 | Terminal | Answers | Precision |
 | --- | --- | --- |
@@ -116,13 +128,16 @@ the complete answer, and every terminal is exact:
 
 - **Exists** is `true` exactly when Rows at that scope is non-empty;
 - **Count** equals the number of Rows; and
-- a subject that cannot be decided is `Indeterminate`, never `false` or zero.
+- a subject that cannot be decided carries QuerySpace's typed undecided
+  outcome, never `false` or zero; Fast Diff's per-Type `Indeterminate` is one
+  example. A Count over children some of which are undecided reports them as
+  undecided rather than counting them either way.
 
 A cheaper terminal differs from Rows only in cost: it stops at the first
 deciding evidence and builds no row it does not report. A low-precision answer
-is the protocol of Exists, not a license to approximate. A second, faster
-producer with its own equality is not this pattern: its answers drift from the
-complete ones, as [Fast Diff](fast-diff.md#why) records.
+is the protocol of Exists, not a license to approximate. A faster path with
+its own equality is not this pattern: its answers drift from the complete
+ones, as [Fast Diff](fast-diff.md#why) records.
 
 The hard requirement is **low latency with exact accuracy for Exists**. It is
 what makes the lean root below worth entering.
@@ -195,8 +210,11 @@ Each adoption gates its own claims, by outcome:
 - **Symmetry:** the same subject answered at each scope its owner supports
   gives the same answer.
 - **Exactness:** Exists and Count equal the Rows they summarize, over the
-  owner's fixture pairs, with `Indeterminate` for any subject Rows cannot
+  owner's fixture pairs, with the undecided outcome for any subject Rows cannot
   decide.
+- **Exists latency:** NativeAOT time for Exists at the entered scope over a
+  large Library, reported in the PR beside Rows at the same scope, with any
+  latency budget the owner sets.
 - **Proportional work:** NativeAOT time at each scope over a large Library,
   reported in the PR, shows the narrower scope costs less.
 - **Retention:** a host that retains a wider computation reports its latency
