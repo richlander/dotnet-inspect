@@ -401,6 +401,8 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// the scope route, never by the legacy path: a version no source
     /// supplies, a pattern no listed version matches, and a framework the
     /// package has no compile assets for.
+    /// When both endpoints fail, whichever fails first cancels its sibling
+    /// and is reported, so a framework mismatch names either version.
     /// </summary>
     [Theory]
     [InlineData(
@@ -414,7 +416,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     [InlineData(
         "9.0.0..10.0.0",
         "net2.0",
-        "Error resolving v9.0.0: No assemblies found for target framework 'net2.0' in package 'System.Text.Json@9.0.0'.")]
+        "No assemblies found for target framework 'net2.0' in package 'System.Text.Json@")]
     public async Task PairwiseDiff_EndpointFailure_IsReportedByTheScope(
         string range,
         string? targetFramework,
