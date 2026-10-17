@@ -659,9 +659,10 @@ A description is projected through the existing structural chain.
 Explanation](resource-explanation.md#structural-resources) emits it as direct
 *section description* facts of the section resource, distinct from the
 declaration meanings of its own schema slice; hosts lower it like any other
-fact. Capability search may index it under its own owner's term rules
-([#10068](https://github.com/richlander/dotnet-inspect/issues/10068)); this
-section defines no search behavior.
+fact. [Capability catalog
+search](capability-catalog-search.md#structural-catalog-population) indexes its
+Summary under that owner's term rules; this section defines no search
+behavior.
 
 A description is static, network-free, and part of the compiled catalog, so it
 adds no acquisition, producer, or probe cost. It lives in the host-neutral
