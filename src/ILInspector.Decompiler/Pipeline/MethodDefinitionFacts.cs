@@ -106,19 +106,17 @@ internal static class MethodDefinitionFacts
             int index = parameter.SequenceNumber - 1;  // sequence 0 is the return parameter
             if (index < 0 || index >= kinds.Length || parameterTypes[index].Kind != TypeRefKind.ByRef)
                 continue;
-            if (HasAttribute(
-                reader,
-                parameter.GetCustomAttributes(),
-                "System.Runtime.CompilerServices",
-                "RequiresLocationAttribute"))
+            var kind = ParameterByRefKinds.Classify(reader, parameter);
+            // `in` and `ref readonly` both take a readonly reference; the call site
+            // spells them without a mutable-ref keyword (In, rendered bare), which
+            // is valid for a readonly or rvalue argument.
+            kinds[index] = kind switch
             {
-                kinds[index] = ArgumentRefKind.In;
-                hasRefReadOnly = true;
-            }
-            else
-            {
-                kinds[index] = ClassifyByRefParameter(reader, parameter);
-            }
+                ParameterByRefKind.Out => ArgumentRefKind.Out,
+                ParameterByRefKind.In or ParameterByRefKind.RefReadOnly => ArgumentRefKind.In,
+                _ => ArgumentRefKind.Ref,
+            };
+            hasRefReadOnly |= kind == ParameterByRefKind.RefReadOnly;
         }
         return new ParameterRefKindResult(
             ImmutableArray.Create(kinds),
@@ -503,20 +501,6 @@ internal static class MethodDefinitionFacts
                 return ("", "");
         }
     }
-
-    static ArgumentRefKind ClassifyByRefParameter(MetadataReader reader, System.Reflection.Metadata.Parameter parameter)
-    {
-        if (HasReadOnlyRefAttribute(reader, parameter.GetCustomAttributes()))
-            return ArgumentRefKind.In;
-        var attributes = parameter.Attributes;
-        if ((attributes & System.Reflection.ParameterAttributes.Out) != 0
-            && (attributes & System.Reflection.ParameterAttributes.In) == 0)
-            return ArgumentRefKind.Out;
-        return ArgumentRefKind.Ref;
-    }
-
-    static bool HasReadOnlyRefAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-        => HasAttribute(reader, attributes, "System.Runtime.CompilerServices", "IsReadOnlyAttribute");
 
     static bool HasAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes, string ns, string name)
     {
