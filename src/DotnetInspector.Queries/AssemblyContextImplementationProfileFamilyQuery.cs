@@ -43,6 +43,80 @@ public sealed record ImplementationProfileFamilySelection
 
     public string TypeDefinitionId { get; }
     public ImmutableArray<string> StableSelectors { get; }
+
+    internal int? PreparedTypeDefinitionToken
+    { get; init; }
+
+    public static ImplementationProfileFamilySelection CreatePrepared(
+        ApiType type,
+        IEnumerable<ApiMember> members)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(members);
+
+        ImmutableArray<ApiMember> family = [.. members];
+        if (family.Any(member =>
+                member.Kind is not ("method" or "extension-method")))
+        {
+            throw new ArgumentException(
+                "Implementation-profile family selection accepts public "
+                    + "methods only.",
+                nameof(members));
+        }
+        string[] names =
+        [
+            .. family.Select(member => member.Name)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        if (names.Length != 1)
+        {
+            throw new ArgumentException(
+                "Implementation-profile family selection requires one "
+                    + "method name.",
+                nameof(members));
+        }
+        ImmutableArray<ApiMember> completeFamily =
+        [
+            .. type.Members.Where(member =>
+                member.Name == names[0]
+                && member.Kind is "method" or "extension-method"),
+        ];
+        HashSet<string> requestedSelectors =
+        [
+            .. family.Select(member =>
+                ApiMemberIdentity
+                    .GetMemberAnchor(type, member)
+                    .StableSelector),
+        ];
+        if (completeFamily.Length != family.Length
+            || completeFamily.Any(member =>
+                !requestedSelectors.Contains(
+                    ApiMemberIdentity
+                        .GetMemberAnchor(type, member)
+                        .StableSelector)))
+        {
+            throw new ArgumentException(
+                $"Implementation-profile selection for "
+                    + $"'{AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type)}"
+                    + $".{names[0]}' must name the complete public overload "
+                    + "family.",
+                nameof(members));
+        }
+
+        var selection = new ImplementationProfileFamilySelection(
+            AssemblyContextApiSurfaceQuery.MetadataTypeIdentity(type),
+            family.Select(member =>
+                ApiMemberIdentity
+                    .GetMemberAnchor(type, member)
+                    .StableSelector));
+        return selection with
+        {
+            PreparedTypeDefinitionToken =
+                completeFamily.All(member => member.Kind == "method")
+                    ? type.MetadataToken
+                    : null,
+        };
+    }
 }
 
 public sealed record AssemblyImplementationProfileFamilyInspection(
@@ -81,7 +155,14 @@ public static class AssemblyContextImplementationProfileFamilyQuery
             AssemblyContextQueryExecutor.ExecuteParticipant(
                 group,
                 participant,
-                session => SelectFamily(session, selection));
+                session => SelectFamily(
+                    selection.PreparedTypeDefinitionToken is { } typeToken
+                        ? session.ApiTypeSurface(
+                            ApiSurfaceExtractionScope.Public,
+                            typeToken)
+                        : session.CompatibilityApiSurface(
+                            ApiSurfaceExtractionScope.Public),
+                    selection));
         return selected switch
         {
             AssemblyContextEntry<SelectedFamily>.Rejected rejected =>
@@ -203,12 +284,9 @@ public static class AssemblyContextImplementationProfileFamilyQuery
     }
 
     static SelectedFamily SelectFamily(
-        AssemblyInspectionSession session,
+        ApiSurface surface,
         ImplementationProfileFamilySelection selection)
     {
-        ApiSurface surface =
-            session.CompatibilityApiSurface(
-                ApiSurfaceExtractionScope.Public);
         ApiType[] matchingTypes =
         [
             .. surface.Types.Where(type =>

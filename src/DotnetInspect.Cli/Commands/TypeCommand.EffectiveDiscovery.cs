@@ -49,10 +49,11 @@ public static partial class TypeCommand
                         : TypeMemberGroupAccessibilityFilter.Public,
                     includeHidden: options.IncludeAll)
                 : null;
-        var inspectionPlan = new TypeDocumentInspectionPlan(
+        var inspectionPlan = new TypeSubjectInspectionPlan(
             typeName,
             s_directDiscoveryBounds,
-            declarations);
+            declarations,
+            new MetadataExactTypeInput(typeName));
         ResolvedAssemblyReference assembly;
         try
         {
@@ -68,33 +69,33 @@ public static partial class TypeCommand
         {
             return null;
         }
-        TypeDocumentExtensionPresenceInspectionResult? combined =
+        TypeSubjectExtensionPresenceInspectionResult? combined =
             requiresExtensionPresence
-                ? TypeDocumentInspectionOperation
+                ? TypeSubjectInspectionOperation
                     .ExecuteWithExtensionPresence(
                         assembly,
                         inspectionPlan,
                         options.IncludeAll,
                         cancellationToken)
                 : null;
-        InspectionEnvelope<TypeDocumentInspectionOutcome> envelope =
+        InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
             combined?.Document
-            ?? TypeDocumentInspectionOperation.Execute(
+            ?? TypeSubjectInspectionOperation.Execute(
                 assembly,
                 inspectionPlan,
                 cancellationToken);
         if (envelope.Content
-            is TypeDocumentInspectionOutcome.Rejected
+            is TypeSubjectInspectionOutcome.Rejected
             {
                 Reason:
-                    TypeDocumentInspectionRejection.TypeNotFound
-                    or TypeDocumentInspectionRejection.TypeAmbiguous,
+                    TypeSubjectInspectionRejection.TypeNotFound
+                    or TypeSubjectInspectionRejection.TypeAmbiguous,
             })
         {
             return null;
         }
         if (envelope.Content
-            is not TypeDocumentInspectionOutcome.Available available)
+            is not TypeSubjectInspectionOutcome.Available available)
         {
             WriteInspectionDiagnostics(envelope.Diagnostics);
             CommandError.Write(
@@ -113,12 +114,12 @@ public static partial class TypeCommand
         TypeMemberSelectorCounts? selectorCounts =
             available.Document.Declarations switch
             {
-                TypeDocumentDeclarations.Available declarationsAvailable
+                TypeSubjectMemberGroups.Available declarationsAvailable
                     when requiresMemberApplicability =>
                         declarationsAvailable.Population.SelectorCounts
                         ?? throw new InvalidOperationException(
                             "Exact Type discovery did not return selector Counts."),
-                TypeDocumentDeclarations.NotRequested
+                TypeSubjectMemberGroups.NotRequested
                     when !requiresMemberApplicability =>
                         EmptySelectorCounts(),
                 _ => null,

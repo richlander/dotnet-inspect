@@ -480,6 +480,17 @@ Platform participants use the same capability without a package candidate.
 Browser rendering, TypeScript exports, source-document fetching, and
 authored-versus-decompiled selection are unchanged.
 
+Desktop SourceHouse adoption under slice 5 starts with pairwise package
+`diff --pdb-source`. Its package endpoint scopes supply SourceHouse's
+settlement capability, so each implementation participant settles without
+ambient adjacent-PDB probing. The participant's realization provenance
+issues the deferred package-local candidate, and its endpoint's House and
+producer serve the exact PDB File. Extracted endpoints and the other CLI
+SourceHouse routes keep adjacent-PDB reads and `PdbAcquisitionService` until
+they adopt, route by route; the owning step is
+[package endpoint scope](design/package-endpoint-scope.md#adoption), step 4
+part 4.
+
 Each implementation adoption publishes exact-base/head NativeAOT evidence for
 the production command it changes. The CLI-first slice measures the
 `System.Text.Json` Source Locations command with an empty operation-owned store
@@ -844,6 +855,12 @@ The PE file's debug directory contains CodeView entries that provide:
 - **Stamp**: Final 4 bytes of the Portable PDB content identity
 - **Age**: Build counter (always 1 for Portable PDBs)
 - **MinorVersion**: `0x504d` indicates Portable PDB format
+
+The Path is producer-authored text and may use Windows or Unix separators
+regardless of the inspecting host. Metadata preserves the complete value for
+audit diagnostics and recognizes both separator forms only to project the leaf
+PDB filename and detect non-normalized producer directories. It never treats
+the value as a local filesystem path.
 
 ### Multiple CodeView entries
 

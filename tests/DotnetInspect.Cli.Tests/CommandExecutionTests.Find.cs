@@ -1113,7 +1113,7 @@ public partial class CommandExecutionTests
             missing,
             "--json");
 
-        Assert.Equal(0, exit);
+        Assert.Equal(1, exit);
         Assert.Equal("[]", output.Trim());
         string diagnostic =
             $"Library not found '{missing}', skipping.";
@@ -1121,6 +1121,20 @@ public partial class CommandExecutionTests
         Assert.Equal(
             error.IndexOf(diagnostic, StringComparison.Ordinal),
             error.LastIndexOf(diagnostic, StringComparison.Ordinal));
+
+        // The failed Member fallback holds no Member rows, so Count reports the
+        // observed Type rows with the same warning and exit as Rows.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "find",
+            "DefinitelyAbsentReview8977",
+            "--library",
+            missing,
+            "--count");
+
+        Assert.Equal(1, countExit);
+        Assert.Equal("0", countOutput.Trim());
+        Assert.Contains(diagnostic, countError, StringComparison.Ordinal);
+        Assert.DoesNotContain("Cannot count", countError, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -1300,13 +1314,10 @@ public partial class CommandExecutionTests
         Assert.Contains(
             "requires member row 2, but only 1 member rows are available",
             error);
-        Assert.DoesNotContain(
-            "one or more search sources were incomplete",
-            error);
     }
 
     [Fact]
-    public async Task Find_FiniteMemberWindowKeepsIncompleteSourceVisible()
+    public async Task Find_FiniteMemberWindowReportsObservedRowsAfterIncompleteSource()
     {
         string invalidAssembly = Path.GetTempFileName();
         await File.WriteAllTextAsync(
@@ -1327,15 +1338,31 @@ public partial class CommandExecutionTests
                 "1..3",
                 "--json",
                 "--compact");
+            var (countExit, countOutput, countError) = await RunAppAsync(
+                "find",
+                "*",
+                "--members",
+                "--library",
+                invalidAssembly,
+                "--library",
+                TestAssemblyPath,
+                "--rows",
+                "1..3",
+                "--count");
 
+            // The unreadable source precedes the window, so the observed rows
+            // and their Count print with the source warning and a nonzero exit.
             Assert.Equal(1, exit);
-            Assert.Empty(output);
+            using var rows = System.Text.Json.JsonDocument.Parse(output);
+            Assert.Equal(3, rows.RootElement.GetArrayLength());
             Assert.Contains(
                 $"Could not read {invalidAssembly}",
                 error);
+            Assert.Equal(1, countExit);
+            Assert.Equal("3", countOutput.Trim());
             Assert.Contains(
-                "one or more search sources were incomplete",
-                error);
+                $"Could not read {invalidAssembly}",
+                countError);
         }
         finally
         {
@@ -1390,7 +1417,8 @@ public partial class CommandExecutionTests
             "--json",
             "--compact");
 
-        Assert.Equal(0, exit);
+        // Reaching the missing directory leaves the window a partial view.
+        Assert.Equal(1, exit);
         Assert.False(string.IsNullOrWhiteSpace(output));
         Assert.Contains("Directory not found", error);
     }
@@ -1437,7 +1465,8 @@ public partial class CommandExecutionTests
             "--tail",
             "--json");
 
-        Assert.Equal(0, exit);
+        // Reaching the missing directory leaves the window a partial view.
+        Assert.Equal(1, exit);
         Assert.Contains(nameof(CommandExecutionTests), output);
         Assert.Contains("Directory not found", error);
     }
@@ -2469,7 +2498,8 @@ public partial class CommandExecutionTests
             "--tfm",
             "net10.0");
 
-        Assert.Equal(0, exit);
+        // The package source contributes nothing for the TFM: a partial view.
+        Assert.Equal(1, exit);
         Assert.Contains("## Results", output);
         Assert.DoesNotContain("## Coverage", output);
         Assert.DoesNotContain("## Gaps", output);

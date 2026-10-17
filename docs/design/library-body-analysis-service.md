@@ -602,9 +602,10 @@ The result distinguishes:
 - effective physical bodies after expansion and work bounds; and
 - declared methods that have no managed physical body.
 
-Existing `LibraryBodyDeclaredSourceResolver` and
-`LibraryBodyAsyncSourceResolver` remain the owners of authenticated expansion
-and attribution. Metric selection makes their scope expansion eligible even
+Existing `DeclaredSourceResolver` and
+`StateMachineSourceResolver` remain the owners of authenticated expansion
+and attribution, which `LibraryBodyDeclaredSourcePublication` applies to a
+plan. Metric selection makes that scope expansion eligible even
 when the coarse `MethodEvidence` feature is absent. The metric result retains
 each expansion edge with its physical token, declared owner token when known,
 and owner-issued reason.
@@ -1144,6 +1145,19 @@ directly and preserves the existing Library Metrics document, compatibility
 receipt, population coverage, diagnostics, ordering, and transport bytes.
 Other queries, including Implementation Profiles and exact-family Member
 Metrics, retain their existing result and execution routes.
+
+The CLI exact-family Member Metrics route carries the exact TypeDef token and
+complete public overload selectors already issued by its member projection.
+For ordinary method families, the Analysis query projects only that TypeDef's
+declared public API, authenticates the complete family against the participant,
+and resolves its body tokens and scoped failures without reconstructing the
+whole compatibility API surface before scoped body Analysis.
+Selector-only callers, including the current Browser exports, retain the
+compatibility projection and its validation. Prepared families containing
+receiver-contextual extension methods also retain that route because exact
+TypeDef projection intentionally excludes attached extensions. Both routes
+publish the same family inspection result and preserve the complete-family
+requirement.
 
 The Library Metrics physical plan uses one shallow decoded instruction array
 per admitted body. One scan computes instruction, branch, switch, backward-loop,

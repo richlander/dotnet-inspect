@@ -89,6 +89,13 @@ public interface ISectionDescriptor<TModel>
     static virtual SectionShape? Shape => null;
 
     /// <summary>
+    /// The owner's statement of what the section reports under
+    /// <c>docs/design/section-model.md#description</c>, or
+    /// <see langword="null"/> while the section has not declared one.
+    /// </summary>
+    static virtual SectionDescription? Description => null;
+
+    /// <summary>
     /// Returns <c>true</c> if the model contains data this section can render.
     /// Called without allocating a renderer instance.
     /// </summary>

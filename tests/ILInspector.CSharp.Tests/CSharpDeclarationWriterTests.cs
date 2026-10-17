@@ -1334,7 +1334,7 @@ public sealed class CSharpDeclarationWriterTests
         {
             Name = "M",
             Kind = "method",
-            Signature = "void M(ref int value, out string text, in long source, params byte[] bytes)"
+            Signature = "void M(ref int value, out string text, in long source, ref readonly System.Guid id, params byte[] bytes)"
         };
 
         var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
@@ -1342,7 +1342,7 @@ public sealed class CSharpDeclarationWriterTests
             member,
             new CSharpDeclarationOptions { AbbreviateSignature = true });
 
-        Assert.Equal("public void M(ref int, out string, in long, params byte[])", declaration);
+        Assert.Equal("public void M(ref int, out string, in long, ref readonly System.Guid, params byte[])", declaration);
     }
 
     [Fact]

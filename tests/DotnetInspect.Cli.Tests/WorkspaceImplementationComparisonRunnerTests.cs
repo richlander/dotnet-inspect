@@ -660,9 +660,9 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 allocRegressions: true,
                 table: true);
 
-        Assert.Equal(
-            0,
-            exitCode);
+        Assert.True(
+            exitCode == 0,
+            error + output);
         Assert.True(
             string.IsNullOrEmpty(error),
             error);
@@ -729,6 +729,153 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Package endpoint scope gate 14
+    /// (docs/design/package-endpoint-scope.md#pathological-cases-and-gates):
+    /// the workspace implementation comparison and Annotated Source Diff read
+    /// each endpoint's implementation participants, and open a forwarded
+    /// Type's target from the package the Root's manifest declares through
+    /// the House, never through a pinned extraction. Each view equals the
+    /// legacy oracle, which extracted both endpoints and the target.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_ScopeRouteMatchesLegacyOracle()
+    {
+        _ = CreateForwardedSide(
+            "1.0.0",
+            methodResult: 1);
+        _ = CreateForwardedSide(
+            "2.0.0",
+            methodResult: 2);
+        (string Sections, bool Json, bool IncludeIl)[] views =
+        [
+            ("Implementation Diff", true, false),
+            ("Implementation Diff", false, false),
+            ("Annotated Source Diff", true, true),
+        ];
+
+        foreach ((string sections, bool json, bool includeIl) in views)
+        {
+            UseCache("legacy-" + sections + json);
+            (int ExitCode, string Output, string Error) legacy;
+            DiffCommand.LegacyPackageEndpointsForTesting.Value = true;
+            try
+            {
+                legacy = await RunPackageCommandAsync(
+                    type: "N.Type",
+                    member: "Value",
+                    sections: sections,
+                    json: json,
+                    includeIl: includeIl,
+                    verbose: true);
+            }
+            finally
+            {
+                DiffCommand.LegacyPackageEndpointsForTesting.Value = false;
+            }
+            Assert.DoesNotContain(
+                "package endpoint scope",
+                legacy.Error,
+                StringComparison.Ordinal);
+
+            UseCache("scoped-" + sections + json);
+            var scoped = await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Value",
+                sections: sections,
+                json: json,
+                includeIl: includeIl,
+                verbose: true);
+
+            Assert.True(scoped.ExitCode == 0, scoped.Error);
+            Assert.Equal(legacy.ExitCode, scoped.ExitCode);
+            Assert.True(legacy.Output == scoped.Output, scoped.Error);
+            if (includeIl)
+            {
+                Assert.Equal(
+                    2,
+                    AnnotatedSourceDiffJson.Deserialize(scoped.Output).Forwarders.Count);
+            }
+            else
+            {
+                Assert.Contains("Type Forwarder", scoped.Output, StringComparison.Ordinal);
+            }
+            foreach (string version in new[] { "1.0.0", "2.0.0" })
+            {
+                Assert.Contains(
+                    $"Using package endpoint scope for {Facade}@{version} ",
+                    scoped.Error,
+                    StringComparison.Ordinal);
+                Assert.True(
+                    scoped.Error.Contains(
+                        $"Using package endpoint scope for forwarded target {Terminal}@{version} ",
+                        StringComparison.Ordinal),
+                    scoped.Error);
+            }
+            Assert.DoesNotContain(
+                "Extracting package",
+                scoped.Error,
+                StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// A Type the Root defines takes the same route with no forwarded
+    /// target, and equals the legacy oracle.
+    /// </summary>
+    [Fact]
+    public async Task PackageCommand_DirectTypeScopeRouteMatchesLegacyOracle()
+    {
+        _ = CreateDirectSide(
+            "1.0.0",
+            methodResult: 1,
+            writePackage: true);
+        _ = CreateDirectSide(
+            "2.0.0",
+            methodResult: 2,
+            writePackage: true);
+
+        UseCache("legacy-direct");
+        (int ExitCode, string Output, string Error) legacy;
+        DiffCommand.LegacyPackageEndpointsForTesting.Value = true;
+        try
+        {
+            legacy = await RunPackageCommandAsync(
+                type: "N.Type",
+                member: "Value",
+                sections: "Implementation Diff",
+                verbose: true);
+        }
+        finally
+        {
+            DiffCommand.LegacyPackageEndpointsForTesting.Value = false;
+        }
+
+        UseCache("scoped-direct");
+        var scoped = await RunPackageCommandAsync(
+            type: "N.Type",
+            member: "Value",
+            sections: "Implementation Diff",
+            verbose: true);
+
+        Assert.True(scoped.ExitCode == 0, scoped.Error);
+        Assert.True(legacy.Output == scoped.Output, scoped.Error);
+        Assert.Contains(
+            $"Using package endpoint scope for {Facade}@2.0.0 ",
+            scoped.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "forwarded target",
+            scoped.Error,
+            StringComparison.Ordinal);
+    }
+
+    void UseCache(string name) =>
+        NuGetCache.Initialize(
+            "dotnet-inspect-test",
+            Path.Combine(_root, "cache-" + name.Replace(' ', '-')),
+            skipNuGetCache: true);
+
     Task<(int ExitCode, string Output, string Error)>
         RunPackageCommandAsync(
         string type,
@@ -737,7 +884,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
         bool json = true,
         bool allocRegressions = false,
         bool table = false,
-        bool includeIl = false)
+        bool includeIl = false,
+        bool verbose = false)
     {
         Dictionary<string, byte[]> packages =
             PackagePayloads();
@@ -770,6 +918,8 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                     arguments.Add("--table");
                 if (includeIl)
                     arguments.Add("--il");
+                if (verbose)
+                    arguments.Add("--verbose");
                 arguments.AddRange(
                     [
                         "--source",

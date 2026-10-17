@@ -153,6 +153,7 @@ public sealed class ArtifactRootCorrespondenceTests
                     "tests",
                     framework: null,
                     runtimeIdentifier: null),
+                requestedTargetFramework: null,
                 compileTargetFramework: Framework,
                 selectionTargetFramework: Framework,
                 selectionRuntimeIdentifier: null,
@@ -167,6 +168,7 @@ public sealed class ArtifactRootCorrespondenceTests
                     "tests",
                     ExtendedFramework,
                     runtimeIdentifier: null),
+                ExtendedFramework.ToUpperInvariant(),
                 ExtendedFramework.ToUpperInvariant(),
                 ExtendedFramework.ToUpperInvariant(),
                 selectionRuntimeIdentifier: null,
@@ -231,6 +233,7 @@ public sealed class ArtifactRootCorrespondenceTests
                     "tests",
                     framework: null,
                     runtimeIdentifier: null),
+                requestedTargetFramework: null,
                 compileTargetFramework: "net10.0",
                 selectionTargetFramework: "net8.0",
                 selectionRuntimeIdentifier: null,
@@ -240,6 +243,7 @@ public sealed class ArtifactRootCorrespondenceTests
         PackageArtifactRootRequest absent =
             PackageArtifactRootRequest.Create(
                 selected.Coordinate,
+                requestedTargetFramework: null,
                 compileTargetFramework: "net10.0",
                 selectionTargetFramework: "net8.0",
                 selectionRuntimeIdentifier: null,

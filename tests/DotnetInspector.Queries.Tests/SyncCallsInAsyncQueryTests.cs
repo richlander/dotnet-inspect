@@ -1,3 +1,6 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+
 using DotnetInspector.Fixtures;
 using DotnetInspector.Services;
 using ILInspector.Analysis.Planning;
@@ -86,6 +89,42 @@ public sealed class SyncCallsInAsyncQueryTests
                 result.AnswerTo(SyncCallsInAsyncClosing.Count)).Value > 0);
     }
 
+    [Fact]
+    public void Execute_ExactAsyncSourceExpandsGeneratedExecutionBody()
+    {
+        using var stream = File.OpenRead(RepositoryPath);
+        using var reader = new PEReader(stream);
+        MetadataReader metadata = reader.GetMetadataReader();
+        MethodDefinitionHandle main = metadata.MethodDefinitions
+            .Single(handle =>
+                metadata.GetString(
+                    metadata.GetMethodDefinition(handle).Name)
+                    == "Main");
+        using var session = AssemblyInspectionSession.Open(RepositoryPath);
+        AssemblyReferenceBindingAccess binding =
+            CreateBinding(RepositoryPath);
+
+        SyncCallsInAsyncResult all = SyncCallsInAsyncQuery.Execute(
+            session,
+            binding,
+            [SyncCallsInAsyncClosing.Rows]);
+        SyncCallsInAsyncResult exact = SyncCallsInAsyncQuery.Execute(
+            session,
+            binding,
+            [SyncCallsInAsyncClosing.Rows],
+            MethodDefinitionSourceBreadth
+                .ExactMethods(main)
+                .IncludeGeneratedExecutionBodies());
+
+        Assert.Contains(
+            Rows(exact).Calls,
+            row => row.Caller.Name == "Main"
+                && row.Callee.Name == nameof(File.ReadAllText));
+        Assert.True(
+            exact.Receipts[0].Receipt.UnitsVisited
+                < all.Receipts[0].Receipt.UnitsVisited);
+    }
+
     static AssemblyReferenceBindingAccess CreateBinding(string path)
     {
         var resolver = new AssemblyDependencyResolver(
@@ -102,4 +141,9 @@ public sealed class SyncCallsInAsyncQueryTests
                     "sync calls in async query test")),
             new AssemblyReferenceBindingPolicy(resolver));
     }
+
+    static SyncCallsInAsyncAnswer.Rows Rows(
+        SyncCallsInAsyncResult result) =>
+        Assert.IsType<SyncCallsInAsyncAnswer.Rows>(
+            result.AnswerTo(SyncCallsInAsyncClosing.Rows));
 }

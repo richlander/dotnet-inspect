@@ -1,6 +1,7 @@
 import type {
   BrowserSourceComparisonResult,
 } from "./source-diff-transport.ts";
+import type { PackageQueryFacetData } from "./package-query-source.ts";
 import type {
   PackageQueryDurableRowPresentationLayout,
 } from "./package-query-durable-row.ts";
@@ -29,13 +30,13 @@ type PackageOperations =
   | "activateWorkspacePackageOccurrence"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
+  | "containPackageDocumentHtml"
   | "clearWorkspacePackageOccurrences"
   | "closePlatformForwarderView"
   | "getPlatformCatalog"
   | "getPlatformVersions"
   | "getPackageDocument"
   | "listPackageActivityEcosystems"
-  | "listPackageQueryCatalog"
   | "loadRuntimePack"
   | "loadRuntimePackAssembly"
   | "matchPackageDependencyCoordinate"
@@ -51,6 +52,7 @@ type PackageOperations =
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "queryPackageDependencies"
+  | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
   | "queryPackageVersions"
   | "queryWorkspacePackageOccurrences"
@@ -174,6 +176,7 @@ type CatalogOperations =
 export interface EngineClient {
   readonly host: AsyncFacade<HostFacade, "buildIdentity">;
   readonly package: AsyncFacade<PackageFacade, PackageOperations> & {
+    inspectPackageQueryFacets(): Promise<PackageQueryFacetData>;
     packageQueryDurableRowLayout():
       Promise<PackageQueryDurableRowPresentationLayout>;
     cancelPackageActivity(

@@ -612,7 +612,15 @@ public class ResourceExplanationTests
                 .SelectMany(static schema => schema.ResourceTypes)
                 .Single(static resource =>
                     resource.Identity.Value == "structural-section");
-        foreach (string factName in new[] { "shape", "cardinality" })
+        foreach (string factName in new[]
+                 {
+                     "shape",
+                     "cardinality",
+                     "summary",
+                     "basis",
+                     "empty",
+                     "boundary",
+                 })
         {
             Assert.Equal(
                 ExplanationObservationState.Absent,
@@ -623,6 +631,86 @@ public class ResourceExplanationTests
                 declaration.Facts.Single(fact =>
                     fact.Identity.Value == factName).Cardinality);
         }
+    }
+
+    [Fact]
+    public void DeclaredSectionDescriptionProjectsAsTypedFacts()
+    {
+        DiscoveryResourceIdentity described = Section("Top Leverage");
+        DiscoveryResourceIdentity bounded = Section("Library Metrics");
+        var discovery = new DiscoveryDocument(
+            "library",
+            [
+                new DiscoveryResource(
+                    described,
+                    outputModes: [DiscoveryOutputMode.Markdown],
+                    description: new SectionDescription(
+                        "Members ranked by static reach.",
+                        "Compiled IL method bodies.",
+                        "No Member reaches another.")),
+                new DiscoveryResource(
+                    bounded,
+                    outputModes: [DiscoveryOutputMode.Markdown],
+                    description: new SectionDescription(
+                        "Implementation volume.",
+                        "Compiled IL method bodies.",
+                        "The library has no method bodies.",
+                        "Not a maintainability score.")),
+            ],
+            [described, bounded],
+            new DiscoverySelection(
+                isCatalog: true,
+                addressedResources: [],
+                rows: [described, bounded]));
+        ResourceExplanationCatalog catalog =
+            ResourceExplanationCatalog.CreateStructural(
+                discovery,
+                [
+                    new(
+                        described,
+                        new ResourcePath("library/sections/top-leverage")),
+                    new(
+                        bounded,
+                        new ResourcePath("library/sections/library-metrics")),
+                ]);
+
+        ResourceExplanationResource Root(string path) =>
+            Assert.Single(
+                catalog.Explain(
+                    Assert.IsType<ResourcePathResolution.Resolved>(
+                        catalog.Resolve(path)),
+                    new(
+                        depth: 0,
+                        resourceLimit: 1,
+                        relationshipLimit: 100))
+                    .Content.Resources);
+        static ExplanationFactObservation Fact(
+            ResourceExplanationResource resource,
+            string name) =>
+            resource.Facts.Single(fact => fact.Fact.Value == name);
+        static string Text(ExplanationFactObservation fact) =>
+            Assert.IsType<ExplanationValue.Scalar>(Assert.Single(fact.Values))
+                .Value.Text!;
+
+        ResourceExplanationResource leverage =
+            Root("library/sections/top-leverage");
+        Assert.Equal(
+            "Members ranked by static reach.",
+            Text(Fact(leverage, "summary")));
+        Assert.Equal(
+            "Compiled IL method bodies.",
+            Text(Fact(leverage, "basis")));
+        Assert.Equal(
+            "No Member reaches another.",
+            Text(Fact(leverage, "empty")));
+        // An undeclared Boundary is absent, not an empty string.
+        Assert.Equal(
+            ExplanationObservationState.Absent,
+            Fact(leverage, "boundary").State);
+
+        Assert.Equal(
+            "Not a maintainability score.",
+            Text(Fact(Root("library/sections/library-metrics"), "boundary")));
     }
 
     [Fact]

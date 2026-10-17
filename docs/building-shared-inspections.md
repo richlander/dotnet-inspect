@@ -682,8 +682,11 @@ command.
 
 The compact Type declaration path now follows the same ownership split.
 [`TypeOverviewDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeOverviewDocumentInspection.cs)
-projects the existing exact-Type and Type MemberGroup population operation into
-one final `TypeOverviewDocument`. Its request requires compact Rows with a
+projects
+[`TypeSubjectInspectionOperation`](../src/DotnetInspector.Sections/TypeSubjectInspectionOperation.cs)
+into one final `TypeOverviewDocument`. The subject operation owns exact-Type
+resolution and the optional Type MemberGroup population; it is not itself a
+public document producer. The overview request requires compact Rows with a
 nested exact-Member Count for every MemberGroup, and its closed outcome
 promotes Type, population, and Rows non-successes rather than exposing
 success-shaped partial content. The operation preserves the owner-issued exact
@@ -691,7 +694,7 @@ Type and population binding, filtering intent, ordering, continuation, Share,
 and diagnostics; it does not spell complete Member signatures or adopt host
 rendering.
 
-[`CompleteTypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/CompleteTypeDocumentInspection.cs)
+[`TypeDocumentInspectionOperation`](../src/DotnetInspector.Sections/TypeDocumentDeclarationInspectionOperation.cs)
 uses the same exact-Type Library path but asks Metadata for the complete
 declaration population. Metadata spells every admitted method, property,
 field, and event during the same classified-Member scan that defines compact
@@ -722,8 +725,11 @@ through the QuerySpace route in
   `InspectionEnvelope<MemberGroupDocumentInspectionOutcome>`;
 - CLI
   [`MemberGroupDocumentOutput`](../src/DotnetInspect.Cli/Output/MemberGroupDocumentOutput.cs)
-  lowers the default and explicit Tree gestures to the operation, then renders
-  the returned Count and Rows;
+  lowers default and explicit Tree gestures through
+  `MemberDocumentResolutionOperation`, then shared presentation renders the
+  final singleton `MemberDocument` or multi-declaration
+  `MemberOverviewDocument`; only the distinct returned-row compiled-
+  documentation table retains the transitional operation;
 - Inspect Web's TypeScript
   [member-group loader](../inspect-web/src/dotnet-inspect.ts) invokes the
   generated `queryMemberGroupDocument` facade for package, Platform, and
@@ -739,8 +745,9 @@ uses that row's owner-issued identity to select `MemberDocument` rather than
 exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
 family proves that the same operation returns the complete
 `MemberOverviewDocument`; a missing group remains typed rejection. CLI default
-Tree, explicit Tree, and Browser family views continue to consume the
-transitional operation until their focused adoption slice.
+Tree and explicit Tree consume this final resolution. The explicit returned-row
+documentation table and Browser family views continue to consume the
+transitional operation until their focused adoption slices.
 
 `MemberContextualExplanationOperation.ExplainResolvedMember` consumes only the
 completed overview or exact success variants from that resolver. It projects

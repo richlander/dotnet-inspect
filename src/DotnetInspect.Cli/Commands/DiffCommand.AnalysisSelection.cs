@@ -504,7 +504,8 @@ public partial class DiffCommand
         string fromVersion,
         string toVersion,
         DiffOptions options,
-        DiffAnalysisPlan plan)
+        DiffAnalysisPlan plan,
+        DiffBodyPopulation? bodies = null)
     {
         AnalysisSetValidationResult.Accepted selection = plan.Selection;
         AnalysisReportSurfaceKind surface = selection.Surface;
@@ -546,12 +547,18 @@ public partial class DiffCommand
             {
                 implementation = RequireImplementationComparison(
                     ImplementationComparisonQuery.Execute(
-                        CreateImplementationComparisonInput(
-                            fromPaths,
-                            toPaths,
-                            options,
-                            fromSurface,
-                            toSurface)),
+                        bodies is null
+                            ? CreateImplementationComparisonInput(
+                                fromPaths,
+                                toPaths,
+                                options,
+                                fromSurface,
+                                toSurface)
+                            : CreateImplementationComparisonInput(
+                                bodies,
+                                options,
+                                fromSurface,
+                                toSurface)),
                     "--analysis");
             }
             catch (InvalidOperationException ex)
@@ -561,6 +568,11 @@ public partial class DiffCommand
             }
         }
 
+        // String literals read the same assemblies as the other body
+        // analyses: a package endpoint scope's implementation participants,
+        // or extracted files.
+        DiffBodyPopulation literalPopulation = bodies
+            ?? DiffBodyPopulation.FromPaths(fromPaths, toPaths, "string-literals");
         var input = new DiffAnalysisInput(
             fromSurface,
             toSurface,
@@ -571,13 +583,20 @@ public partial class DiffCommand
             targets?.MemberIdentities,
             descriptors => RequireBodySignalComparison(
                 BodySignalComparisonQuery.Execute(
-                    CreateBodySignalComparisonInput(
-                        fromPaths,
-                        toPaths,
-                        options,
-                        fromSurface,
-                        toSurface,
-                        descriptors)),
+                    bodies is null
+                        ? CreateBodySignalComparisonInput(
+                            fromPaths,
+                            toPaths,
+                            options,
+                            fromSurface,
+                            toSurface,
+                            descriptors)
+                        : CreateBodySignalComparisonInput(
+                            bodies,
+                            options,
+                            fromSurface,
+                            toSurface,
+                            descriptors)),
                 options,
                 "--analysis"),
             implementation is null
@@ -585,25 +604,22 @@ public partial class DiffCommand
                 : () => implementation,
             hostUnavailability:
                 plan.StringLiteralQuery is not null
-                    && (fromPaths.Count != 1 || toPaths.Count != 1)
+                    && (literalPopulation.From.Count == 0
+                        || literalPopulation.To.Count == 0)
                 ? [
                     new DiffAnalysisHostUnavailability(
                         new AnalysisDeclarationId("string-literals"),
-                        "String-literal Diff requires exactly one Library "
-                            + "assembly at each endpoint."),
+                        "String-literal Diff requires Library assemblies "
+                            + "at both endpoints."),
                 ]
                 : null,
             stringLiteralQuery: plan.StringLiteralQuery,
             prepareStringLiterals: plan.StringLiteralQuery is { } literal
-                ? fromPaths.Count == 1 && toPaths.Count == 1
-                    ? () => StringLiteralComparisonQuery.ExecutePaths(
-                        fromPaths[0],
-                        toPaths[0],
-                        $"library:{name}",
-                        name,
-                        literal)
-                    : () => throw new InvalidOperationException(
-                        "String-literal Diff endpoint cardinality was not admitted.")
+                ? () => CompareStringLiterals(
+                    name,
+                    literalPopulation,
+                    options,
+                    literal)
                 : null);
         return new AnalysisSetRun(
             DiffAnalysisInspection.Execute(
@@ -618,33 +634,147 @@ public partial class DiffCommand
     }
 
     /// <summary>
+    /// Compares string literals over each endpoint's Library assemblies. One
+    /// assembly a side, under the same file name across a version range, is
+    /// one Library subject; otherwise each assembly name is its own subject.
+    /// A package endpoint scope's assemblies are implementation participants
+    /// read in the group that holds them
+    /// (docs/design/package-endpoint-scope.md, step 4 part 3).
+    /// </summary>
+    static RetainedFindingComparisonSet CompareStringLiterals(
+        string name,
+        DiffBodyPopulation population,
+        DiffOptions options,
+        StringLiteralComparisonQueryPlan literal)
+    {
+        IReadOnlyList<DiffBodyAssembly> from = population.From;
+        IReadOnlyList<DiffBodyAssembly> to = population.To;
+        if (from.Count == 0 || to.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "String-literal Diff has no Library assemblies to compare.");
+        }
+
+        bool participants = from[0].GroupParticipant is not null;
+        if (from.Count == 1 && to.Count == 1
+            && (options.PackageVersionRange is null
+                || string.Equals(
+                    Path.GetFileName(from[0].SourcePath),
+                    Path.GetFileName(to[0].SourcePath),
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            return participants
+                ? StringLiteralComparisonQuery.ExecuteParticipants(
+                    RequireGroup(from[0]),
+                    RequireParticipant(from[0]),
+                    RequireGroup(to[0]),
+                    RequireParticipant(to[0]),
+                    $"library:{name}",
+                    name,
+                    literal)
+                : StringLiteralComparisonQuery.ExecutePaths(
+                    from[0].SourcePath,
+                    to[0].SourcePath,
+                    $"library:{name}",
+                    name,
+                    literal);
+        }
+
+        return participants
+            ? StringLiteralComparisonQuery.ExecuteParticipantSets(
+                [.. from.Select(ToParticipant)],
+                [.. to.Select(ToParticipant)],
+                $"library:{name}",
+                literal)
+            : StringLiteralComparisonQuery.ExecutePathSets(
+                [.. from.Select(static body => new StringLiteralComparisonPath(
+                    Path.GetFileName(body.SourcePath), body.SourcePath))],
+                [.. to.Select(static body => new StringLiteralComparisonPath(
+                    Path.GetFileName(body.SourcePath), body.SourcePath))],
+                $"library:{name}",
+                literal);
+
+        static StringLiteralComparisonParticipant ToParticipant(
+            DiffBodyAssembly body) =>
+            new(
+                Path.GetFileName(body.SourcePath),
+                RequireGroup(body),
+                RequireParticipant(body));
+
+        static AssemblyContextGroup RequireGroup(DiffBodyAssembly body) =>
+            body.Group ?? throw new InvalidOperationException(
+                $"The string-literal assembly '{body.SourcePath}' has no implementation group.");
+
+        static AssemblyContextParticipant RequireParticipant(
+            DiffBodyAssembly body) =>
+            body.GroupParticipant ?? throw new InvalidOperationException(
+                $"The string-literal assembly '{body.SourcePath}' has no implementation group.");
+    }
+
+    /// <summary>
     /// Runs the analysis set over the acquired endpoints and writes the
     /// selected views.
     /// </summary>
-    static int ExecuteAnalysisSet(
+    static async Task<int> ExecuteAnalysisSetAsync(
         DiffInputs inputs,
         DiffOptions options,
-        DiffAnalysisPlan plan)
+        DiffAnalysisPlan plan,
+        CancellationToken cancellationToken)
     {
-        AnalysisSetRun run = RunAnalysisSet(
+        // A package endpoint scope has no extracted files. An API-only set
+        // reads only its merged surface; a set that reads method bodies
+        // reads its implementation participants.
+        AnalysisSetRun run = inputs.From.PackageScope is null
+            ? RunAnalysisSet(
+                inputs.Name,
+                inputs.FromPaths,
+                inputs.ToPaths,
+                inputs.FromSurface,
+                inputs.ToSurface,
+                inputs.FromVersion,
+                inputs.ToVersion,
+                options,
+                plan)
+            : DiffAnalysisCatalog.ReadsOnlyApiSurface(plan.Selection)
+                ? RunAnalysisSet(
+                    inputs.Name,
+                    [],
+                    [],
+                    inputs.FromSurface,
+                    inputs.ToSurface,
+                    inputs.FromVersion,
+                    inputs.ToVersion,
+                    options,
+                    plan)
+                : await WithBodyPopulationAsync(
+                    inputs,
+                    bodied => RunAnalysisSet(
+                        inputs.Name,
+                        [],
+                        [],
+                        inputs.FromSurface,
+                        inputs.ToSurface,
+                        inputs.FromVersion,
+                        inputs.ToVersion,
+                        options,
+                        plan,
+                        bodied.Bodies),
+                    cancellationToken);
+        int written = WriteAnalysisSet(
             inputs.Name,
-            inputs.FromPaths,
-            inputs.ToPaths,
             inputs.FromSurface,
             inputs.ToSurface,
-            inputs.FromVersion,
-            inputs.ToVersion,
-            options,
-            plan);
-        return WriteAnalysisSet(
-            inputs.Name,
-            inputs.FromSurface,
-            inputs.ToSurface,
-            inputs.FromVersion,
-            inputs.ToVersion,
+            inputs.FromLabel,
+            inputs.ToLabel,
             options,
             plan,
             run);
+        return PublishAcquisitionEvidence(
+            inputs,
+            options,
+            run.Inspection,
+            DiffAnalysisOutput.JsonContract,
+            written);
     }
 
     /// <summary>

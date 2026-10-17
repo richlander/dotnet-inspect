@@ -241,6 +241,63 @@ public sealed class InspectionCapabilityCompositionTests
     }
 
     [Fact]
+    public void RouteRejectsInvalidQueryTermPresentations()
+    {
+        InspectionDocumentRegistration<string> document =
+            Document("test/presentation-document");
+        InspectionQueryTermPresentation valid =
+            PackageQueryCapability.Route.QueryTermPresentations.Single(
+                presentation =>
+                    presentation.SourceTerm
+                    == PackageQuery.TermBindingIdentity(
+                        PackageQuery.DependenciesTermKey));
+
+        InspectionRouteRegistration<object, string> Route(
+            params InspectionQueryTermPresentation[] presentations) =>
+            new(
+                new(
+                    $"test/presentation-route/{Guid.NewGuid():N}",
+                    "Presentation route",
+                    "A route with query-term presentation."),
+                document,
+                PackageQuery.QuerySpace,
+                static (_, _) =>
+                    ValueTask.FromResult(
+                        new InspectionEnvelope<string>(
+                            "content",
+                            new InspectionShare.NonProjectable(
+                                "test/share",
+                                "Test content is not shareable."))),
+                queryTermPresentations: presentations);
+
+        Assert.Throws<ArgumentException>(() =>
+            Route(new InspectionQueryTermPresentation(
+                "query.term.not-registered",
+                0,
+                "choice",
+                "fact",
+                "nuspec")));
+        Assert.Throws<ArgumentException>(() =>
+            Route(new InspectionQueryTermPresentation(
+                valid.SourceTerm,
+                valid.Order,
+                valid.ControlKind,
+                valid.PresentationKind,
+                valid.ExecutionClass,
+                [new("different", "Different", "Different value.")])));
+        Assert.Throws<ArgumentException>(() => Route(valid, valid));
+        Assert.Throws<ArgumentException>(() =>
+            new InspectionQueryTermPresentation(
+                valid.SourceTerm,
+                valid.Order,
+                valid.ControlKind,
+                valid.PresentationKind,
+                valid.ExecutionClass,
+                valid.Options,
+                optionSource: "external-options"));
+    }
+
+    [Fact]
     public void CatalogConstructionIsDeterministicAcrossModuleOrder()
     {
         var cli =

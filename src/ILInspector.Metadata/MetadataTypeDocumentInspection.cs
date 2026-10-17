@@ -1,4 +1,6 @@
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Text.Json.Serialization;
 
 namespace ILInspector.Metadata;
 
@@ -10,9 +12,16 @@ public sealed record MetadataTypeDocumentInspectionRequest
         MetadataTypeDefinitionAddress? expectedDeclarationPopulationType =
             null,
         MetadataTypeDeclarationPopulationRequest? memberDeclarations =
-            null)
+            null,
+        MetadataExactTypeInput? exactInput = null)
     {
         Type = type ?? throw new ArgumentNullException(nameof(type));
+        if (exactInput is not null && !type.Equals(exactInput.Type))
+        {
+            throw new ArgumentException(
+                "The exact input must describe the requested Type.",
+                nameof(exactInput));
+        }
         if (declarations is not null && declarations.Type != type)
         {
             throw new ArgumentException(
@@ -45,6 +54,7 @@ public sealed record MetadataTypeDocumentInspectionRequest
         ExpectedDeclarationPopulationType =
             expectedDeclarationPopulationType;
         MemberDeclarations = memberDeclarations;
+        ExactInput = exactInput;
     }
 
     public MetadataTypeDefinitionName Type { get; }
@@ -53,12 +63,30 @@ public sealed record MetadataTypeDocumentInspectionRequest
     { get; }
     public MetadataTypeDeclarationPopulationRequest? MemberDeclarations
     { get; }
+    public MetadataExactTypeInput? ExactInput { get; }
 }
 
 public sealed record MetadataTypeDocument(
     MetadataTypeDeclarationEvidence Subject,
     MetadataTypeDocumentDeclarations Declarations,
-    MetadataTypeDeclarationPopulationOutcome? MemberDeclarations = null);
+    MetadataTypeDeclarationPopulationOutcome? MemberDeclarations = null)
+{
+    /// <summary>The uniquely matched Metadata identity detached as contained byte ranges.</summary>
+    [JsonIgnore]
+    public MetadataUtf8TypeDefinitionName? MatchedName
+    {
+        get;
+        internal init;
+    }
+
+    /// <summary>Whether exact byte proof authorized reuse of host-owned query bytes.</summary>
+    [JsonIgnore]
+    public bool ReusedExactInput
+    {
+        get;
+        internal init;
+    }
+}
 
 public abstract record MetadataTypeDocumentDeclarations
 {
@@ -110,6 +138,7 @@ public abstract record MetadataTypeDocumentInspectionOutcome
 internal static class MetadataTypeDocumentInspection
 {
     internal static MetadataTypeDocumentInspectionOutcome Read(
+        PEReader peReader,
         MetadataReader reader,
         MetadataTypeDocumentInspectionRequest request,
         ApiSurfaceExtractionBounds bounds,
@@ -119,6 +148,7 @@ internal static class MetadataTypeDocumentInspection
             MetadataTypeDeclarationResult> postDeclaration,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(peReader);
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(bounds);
@@ -211,11 +241,29 @@ internal static class MetadataTypeDocumentInspection
                             bounds,
                             resolved,
                             cancellationToken);
+            MetadataExactTypeMatch? exactMatch =
+                request.ExactInput is null
+                    ? null
+                    : MetadataUtf8TypeDefinitionNameReader.Match(
+                        peReader,
+                        reader,
+                        resolved.Handle,
+                        request.ExactInput);
+            MetadataUtf8TypeDefinitionName matchedName =
+                exactMatch?.Name
+                ?? MetadataUtf8TypeDefinitionNameReader.Detach(
+                    peReader,
+                    reader,
+                    resolved.Handle);
             return new MetadataTypeDocumentInspectionOutcome.Available(
                 new(
                     subject,
                     declarations,
-                    memberDeclarations));
+                    memberDeclarations)
+                {
+                    MatchedName = matchedName,
+                    ReusedExactInput = exactMatch is not null,
+                });
         }
         catch (Exception exception) when (
             MetadataTypeMemberCompositionInspection.IsMetadataFailure(

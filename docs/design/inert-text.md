@@ -215,6 +215,33 @@ So containment goes late — but not "as late as possible", which is just the
 per-site approach with better manners. It goes at **the last structural boundary
 every rendered value must cross**.
 
+### Package README entering the browser reader
+
+`WrongTurn@0.1.15` is the motivating real package. Its root `README.md` carries
+U+202E RIGHT-TO-LEFT OVERRIDE and U+202C POP DIRECTIONAL FORMATTING around
+`tegun` in source URLs. Inspect Web previously decoded and sanitized the
+Markdown but published those format controls unchanged, so the browser rendered
+package-authored text in a different visual order.
+
+Raw Markdown remains untreated through package acquisition because it still has
+structural meaning. [Contained document
+publication](contained-document-publication.md) now owns the composition from
+owner-issued structure and displayed leaves to one publishable document. This
+owner retains the scalar rule: each displayed leaf constructs `InertString`
+under its declared `TextPolicy` only after Markdown or plain-text structural
+handling. Applying containment before Markdown parsing remains intentionally
+excluded because Markdown can consume backslash spellings and collapse
+distinct source text.
+
+`PackageDocument_RealWrongTurnReadmeIsContainedForBrowserPublication` retains
+the exact package archive by `PackageDownload` and gates the observed bidi
+shape. `PackageDocumentHtml_ContainsBidiAfterStructuralSanitization` gates
+visual containment, literal-spelling distinction, and scalar JSON transport.
+The document coordinator tests gate the same distinction for separately
+published frontmatter name and version values. These gates describe the safe
+transitional whole-HTML implementation; the contained-document adoption owns
+its eventual replacement.
+
 ### Package skills entering agent context
 
 A NuGet package can author `skills/**/SKILL.md`, and dotnet-inspect deliberately

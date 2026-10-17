@@ -38,6 +38,8 @@ public sealed class BrowserPackageQueryExplanationTests : IDisposable
             full.GetProperty("_embedded").GetProperty("bindings")[0].GetProperty("input_rules")));
         Assert.All(binding.GetProperty("exposed_facets").EnumerateArray(), f => Assert.Contains(f.GetString()!, expected));
         Assert.DoesNotContain(binding.GetProperty("exposed_facets").EnumerateArray(), f => f.GetString() == "library-target");
+        Assert.Equal("query-preparation/v2", selected.GetProperty("scope").GetProperty("profile").GetString());
+        Assert.All(facets, facet => Assert.False(facet.TryGetProperty("options", out _)));
         Assert.Equal("Complete", selected.GetProperty("scope").GetProperty("completeness").GetString());
         Assert.False(selected.GetProperty("_links").TryGetProperty("self", out _));
         string href = selected.GetProperty("_links").GetProperty("collection").GetProperty("href").GetString()!;

@@ -34,7 +34,8 @@ public static class ResourceExplanationCommand
         bool noHeaders,
         string? outputPath,
         bool contract = false,
-        string? selection = null)
+        string? selection = null,
+        string[]? valueIds = null)
     {
         if ((contract || selection is not null) && format != OutputFormat.Json)
         {
@@ -67,10 +68,22 @@ public static class ResourceExplanationCommand
                 normalizedOperand = normalizedOperand[..normalizedOperand.LastIndexOf('?')];
             }
         }
+        if (valueIds is not null && selection is not (".data" or ".hal"))
+        {
+            CommandError.Write("-Q requires a vocabulary .data or .hal reading projection and JSON output.");
+            return 1;
+        }
         ResourcePath.TryCreate(
             normalizedOperand,
             out ResourcePath? canonicalPath,
             out _);
+        if (valueIds is not null && (canonicalPath is null
+            || RootSegment(canonicalPath) != ResourceExplanationCatalog.VocabulariesCollectionSegment
+            || canonicalPath.Value.Split('/').Length != 2))
+        {
+            CommandError.Write("-Q value selection requires an exact vocabulary root.");
+            return 1;
+        }
         if (canonicalPath is not null)
         {
             string root = RootSegment(canonicalPath);
@@ -108,7 +121,7 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract, selection);
+                    contract, selection, valueIds: valueIds);
             }
 
             if (rootCatalog is not null)
@@ -121,7 +134,7 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract, selection);
+                    contract, selection, valueIds: valueIds);
             }
 
             ResourceExplanationCatalog? exactCatalog = root switch
@@ -145,7 +158,7 @@ public static class ResourceExplanationCommand
                     format,
                     envelopeOutput,
                     outputPath,
-                    contract, selection);
+                    contract, selection, valueIds: valueIds);
             }
 
             if (canonicalPath.Value.Contains('/'))
@@ -226,7 +239,8 @@ public static class ResourceExplanationCommand
                     $"{catalog} output capabilities are required."),
                 sectionCardinalities:
                     projection.SectionCardinalities,
-                sectionShapes: projection.SectionShapes);
+                sectionShapes: projection.SectionShapes,
+                sectionDescriptions: projection.SectionDescriptions);
         return structural is null
             ? null
             : ResourceExplanationCatalog.CreateStructural(
@@ -352,7 +366,8 @@ public static class ResourceExplanationCommand
         string? outputPath,
         bool contract,
         string? selection,
-        IEnumerable<string>? facetKeys = null)
+        IEnumerable<string>? facetKeys = null,
+        string[]? valueIds = null)
     {
         if (!catalog.TryResolveExact(
                 path,
@@ -375,7 +390,7 @@ public static class ResourceExplanationCommand
             format,
             envelopeOutput,
             outputPath,
-            contract, selection, facetKeys);
+            contract, selection, facetKeys, valueIds);
     }
 
     private static int WriteCompleteResolutionFailure(string path)
@@ -405,7 +420,8 @@ public static class ResourceExplanationCommand
         string? outputPath,
         bool contract,
         string? selection,
-        IEnumerable<string>? facetKeys = null)
+        IEnumerable<string>? facetKeys = null,
+        string[]? valueIds = null)
     {
         if (envelopeOutput
             || format is not (
@@ -423,11 +439,11 @@ public static class ResourceExplanationCommand
         {
             try
             {
-                ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution, facetKeys);
+                ResourceExplanationDataset dataset = ResourceExplanationDataset.Create(catalog, resolution, facetKeys,
+                    valueIds: valueIds is { Length: > 0 } ? valueIds : null);
                 JsonElement data = dataset.ToJson(static path => "inspect-resource:/" + path.Value,
                     hal: selection == ".hal",
-                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
-                    bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract");
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal");
                 OutputDestination.Write(outputPath, rowWindow: null,
                     output => output.WriteLine(data.GetRawText()));
                 return 0;

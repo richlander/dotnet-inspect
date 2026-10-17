@@ -30,6 +30,14 @@ public static partial class PackageExports
             PackageQueryCapabilityResourcePaths.Create(catalog));
     });
 
+    internal static JsonElement InspectPackageQueryPresentation()
+    {
+        ResourceExplanationCatalog catalog = QueryExplanationCatalog.Value;
+        if (catalog.Resolve("package-query/query") is not ResourcePathResolution.Resolved resolved)
+            throw new InvalidOperationException("Installed Package Query presentation is unavailable.");
+        return ResourceExplanationDataset.Create(catalog, resolved).ToQueryPresentationJson();
+    }
+
     /// <summary>
     /// Reads installed query knowledge without planning or acquiring packages.
     /// Null keys select the whole root; an explicit array selects exact facet keys.

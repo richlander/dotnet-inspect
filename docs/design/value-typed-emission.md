@@ -421,6 +421,64 @@ locals to the one two-local Boolean-to-enum web above. Every other residual
 group, zero late-decidable and nested webs, and the same four known pass bugs
 remain unchanged.
 
+### Decimal constant receiver spills
+
+The ordinary `StructReceiverInliningPass` may recompose an unnamed spill of a
+known core-library `System.Decimal` constant field (`Zero`, `One`, or
+`MinusOne`) into its adjacent member receiver. Both the field
+owner and field type must have exact canonical core-library decimal identity;
+the load must be static and nonvolatile. These known immutable fields are not
+mutable places. Ordinary field receivers, unknown field names, and foreign
+same-name types remain excluded.
+`MinValue` and `MaxValue` use a different compiler lowering and remain outside
+this field-read reconstruction.
+The separately scoped late arithmetic-carrier fold does not admit these fields.
+
+Roslyn lowers `decimal.Zero.CompareTo(value)` as a field read, receiver spill,
+and address load. Introducing `decimal zero = decimal.Zero` instead lets the
+compiler substitute the constant, changing `ldsfld; stloc` into `ldloca;
+initobj`. The pinned `Newtonsoft.Json` 13.0.4 `JValue.CompareBigInteger` body
+exposed by #9980 has this exact distinction. The pipeline must decide the
+receiver before printing; the writer must not recognize or repair the spill.
+
+The fold retains the existing unnamed-local, whole-slot receiver-use,
+same-basic-block adjacency, and evaluation-order proof. It consumes no control
+flow and does not admit field writes, alias escapes, multiply read values, or
+movement across effects. Compiler-produced Release fixtures pin the constant
+receiver lowering, and synthetic near misses retain these decline boundaries.
+
+### Decided enum conditional identity
+
+A conditional whose merged result type is a proven enum keeps that identity
+through Boolean folding. A Boolean condition selects the result arms; it does
+not by itself establish that the result is Boolean. Consequently,
+`BooleanFoldingPass` does not reinterpret enum-typed zero/one arms as
+`bool` merely because the condition is Boolean or because the slot range has
+no load before its next redefinition.
+
+The proof requires an existing enum `TypeShape` for the conditional's decided
+merged type. It preserves typed identity already established by earlier passes;
+it does not infer enum identity from names or numeric backing values, convert
+an independently Boolean result to an enum, admit mixed-type arms, or widen
+slot materialization. Non-enum zero/one conditionals retain their existing
+Boolean-folding behavior.
+
+The repository witness is
+`TypeRef.FunctionPointerParameterText`. Its fallback arm selects
+`ArgumentRefKind.Ref` or `ArgumentRefKind.Value`, while the other range of the
+same evaluation-stack slot loads an `ArgumentRefKind` from
+`FunctionPointerParameterRefKinds`. Preserving the first conditional's decided
+enum result lets the complete slot materialize as one `ArgumentRefKind` local
+instead of splitting into disconnected Boolean and enum residual locals.
+
+On the fixed 14-assembly, 89,065-method corpus at base `17aace859`, this retires
+exactly that one web. Residual-bound webs fall from 57 to 56, residual-bound
+locals from 96 to 94, affected methods from 31 to 30, and split webs from 26 to
+25. Every other residual group, zero late-decidable and nested webs, and the
+same four known pass bugs remain unchanged. Exact `boolean-folding` impact
+falls from 8,093 to 8,092 methods; the sole base/head delta is
+`TypeRef.FunctionPointerParameterText`.
+
 ### Late typed spill recomposition
 
 Typed identity decisions may make a previously separated expression tail safe

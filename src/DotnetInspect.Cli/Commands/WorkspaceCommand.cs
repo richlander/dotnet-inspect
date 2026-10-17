@@ -140,18 +140,19 @@ public static partial class WorkspaceCommand
             return await ExecuteCoreAsync(
                 options,
                 loadOptions,
-                payloadProvider: null,
+                rootHouse: null,
                 manifestProvider,
                 candidateSource,
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (options.RootRequest is null)
+        if (options.RootRequest is null
+            && options.UpdatePackage is null)
         {
             return await ExecuteCoreAsync(
                 options,
                 loadOptions,
-                payloadProvider: null,
+                rootHouse: null,
                 manifestProvider: null,
                 candidateSource: null,
                 cancellationToken).ConfigureAwait(false);
@@ -162,14 +163,15 @@ public static partial class WorkspaceCommand
                 HttpClientFactory.Shared.Timeout)
             ?? new DesktopPackageSourceComposition(
                 HttpClientFactory.Shared.Timeout);
-        await using var payloadProvider =
-            new ConfiguredPackageRootPayloadProvider(
+        await using var rootHouse =
+            new ConfiguredPackageRootHouseExecutor(
                 rootComposition,
-                runtimeSourceOptions);
+                runtimeSourceOptions,
+                loadOptions);
         return await ExecuteCoreAsync(
             options,
             loadOptions,
-            payloadProvider,
+            rootHouse.Execution,
             manifestProvider: null,
             candidateSource: null,
             cancellationToken).ConfigureAwait(false);
@@ -182,7 +184,20 @@ public static partial class WorkspaceCommand
         ExecuteCoreAsync(
             options,
             loadOptions,
-            payloadProvider: null,
+            rootHouse: null,
+            manifestProvider: null,
+            candidateSource: null,
+            cancellationToken);
+
+    internal static Task<int> ExecuteAsync(
+        WorkspaceOptions options,
+        WorkspaceContextLoadOptions loadOptions,
+        PackageRootHouseExecution rootHouse,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(
+            options,
+            loadOptions,
+            rootHouse,
             manifestProvider: null,
             candidateSource: null,
             cancellationToken);
@@ -196,7 +211,7 @@ public static partial class WorkspaceCommand
         ExecuteCoreAsync(
             options,
             loadOptions,
-            payloadProvider: null,
+            rootHouse: null,
             manifestProvider,
             candidateSource,
             cancellationToken);
@@ -204,7 +219,7 @@ public static partial class WorkspaceCommand
     static async Task<int> ExecuteCoreAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
-        IPackageRootPayloadProvider? payloadProvider,
+        PackageRootHouseExecution? rootHouse,
         IWorkspacePackageDependencyManifestProvider? manifestProvider,
         IPackageDependencyCandidateSource? candidateSource,
         CancellationToken cancellationToken)
@@ -219,8 +234,16 @@ public static partial class WorkspaceCommand
 
         if (options.UpdatePackage is not null)
         {
+            if (rootHouse is null)
+            {
+                throw new InvalidOperationException(
+                    "Package replacement requires package Root House execution.");
+            }
             return await ExecuteReplacementAsync(
-                options, loadOptions, cancellationToken).ConfigureAwait(false);
+                options,
+                loadOptions,
+                rootHouse,
+                cancellationToken).ConfigureAwait(false);
         }
 
         if (options.ShareFormat is { } definitionFormat)
@@ -295,7 +318,7 @@ public static partial class WorkspaceCommand
                 directMembers,
                 options,
                 loadOptions,
-                payloadProvider,
+                rootHouse,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception failure)
@@ -336,7 +359,7 @@ public static partial class WorkspaceCommand
         IReadOnlyList<WorkspaceMemberCoordinate> directMembers,
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
-        IPackageRootPayloadProvider? payloadProvider,
+        PackageRootHouseExecution? rootHouse,
         CancellationToken cancellationToken)
     {
         WorkspaceScopeReadResult read =
@@ -354,11 +377,16 @@ public static partial class WorkspaceCommand
         IReadOnlyList<PackageRootBinding> committedBindings = [];
         if (options.RootRequest is not null)
         {
+            if (rootHouse is null)
+            {
+                throw new InvalidOperationException(
+                    "--root-request requires package Root House execution.");
+            }
             PackageRootBinding? root =
                 await AcquireRootRequestAsync(
                     options,
                     loadOptions,
-                    payloadProvider,
+                    rootHouse,
                     cancellationToken).ConfigureAwait(false);
             if (root is null)
                 return 1;
@@ -986,7 +1014,7 @@ public static partial class WorkspaceCommand
     static async Task<PackageRootBinding?> AcquireRootRequestAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
-        IPackageRootPayloadProvider? payloadProvider,
+        PackageRootHouseExecution rootHouse,
         CancellationToken cancellationToken)
     {
         if (!PackageRootReacquisitionRequest.TryDecode(
@@ -1003,46 +1031,17 @@ public static partial class WorkspaceCommand
             return null;
         }
 
-        PackageRootBinding binding;
-        PackagePayloadOrigin origin;
-        if (payloadProvider is null)
-        {
-            PackageRootAcquisitionOutcome outcome =
-                await PackageRootAcquisition.AcquireAsync(
-                    request,
-                    loadOptions,
-                    cancellationToken).ConfigureAwait(false);
-            if (outcome is PackageRootAcquisitionOutcome.Failed failed)
-                return Failure(failed.Kind, failed.Message);
+        PackageRootAcquisitionOutcome outcome =
+            await PackageRootAcquisition.AcquireAsync(
+                request,
+                rootHouse,
+                cancellationToken).ConfigureAwait(false);
+        if (outcome is PackageRootAcquisitionOutcome.Failed failed)
+            return Failure(failed.Kind, failed.Message);
 
-            var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
-            binding = acquired.Binding;
-            origin = acquired.Payload.Origin;
-        }
-        else
-        {
-            PackageRootPayloadResult payload =
-                await payloadProvider.GetPayloadAsync(
-                    PackageSourceCoordinate.Create(
-                        request.Coordinate.PackageId,
-                        request.Coordinate.Version),
-                    request.Coordinate.Producer,
-                    loadOptions.PayloadLimits,
-                    cancellationToken).ConfigureAwait(false);
-            if (payload is PackageRootPayloadResult.Unavailable unavailable)
-                return Failure(unavailable.FailureKind, unavailable.Message);
-
-            var available = (PackageRootPayloadResult.Available)payload;
-            PackageRootRebindingOutcome rebound =
-                PackageRootAcquisition.BindReacquired(
-                    request,
-                    available.Payload);
-            if (rebound is PackageRootRebindingOutcome.Failed failed)
-                return Failure(failed.Kind, failed.Message);
-
-            binding = ((PackageRootRebindingOutcome.Bound)rebound).Binding;
-            origin = available.Payload.Origin;
-        }
+        var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
+        PackageRootBinding binding = acquired.Binding;
+        PackagePayloadOrigin origin = acquired.Payload.Origin;
 
         loadOptions.Log?.Invoke(
             $"Reopened {binding.Coordinate.PackageId}@{binding.Coordinate.Version} "

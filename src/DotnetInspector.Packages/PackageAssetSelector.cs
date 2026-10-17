@@ -141,11 +141,11 @@ public sealed class PackageAssetSelectionReceipt
 /// <remarks>
 /// <para>
 /// Candidate folders are the standard NuGet assembly layouts:
-/// <c>lib/{tfm}</c> and, when a runtime identifier is requested,
-/// <c>runtimes/{rid}/lib/{tfm}</c>. A requested runtime identifier matches its
-/// folder exactly and ordinally: runtime identifiers are canonically lowercase,
-/// so a differently-cased folder is a different name rather than a spelling of
-/// the requested one.
+/// <c>lib/{tfm}</c>, direct framework-agnostic <c>lib/*.dll</c>, and, when a
+/// runtime identifier is requested, <c>runtimes/{rid}/lib/{tfm}</c>. A requested
+/// runtime identifier matches its folder exactly and ordinally: runtime
+/// identifiers are canonically lowercase, so a differently-cased folder is a
+/// different name rather than a spelling of the requested one.
 /// </para>
 /// <para>
 /// Framework applicability and ordering come from the shared
@@ -178,8 +178,9 @@ public sealed class PackageAssetSelectionReceipt
 /// </list>
 /// <para>
 /// The highest-priority applicable candidate wins: base framework first,
-/// platform specificity second. Two distinct folders of equal rank are an
-/// ambiguity, not a coin flip.
+/// platform specificity second. The framework-agnostic <c>any</c> slice is the
+/// final fallback for a recognized target. Two distinct folders of equal rank
+/// are an ambiguity, not a coin flip.
 /// </para>
 /// <para>
 /// Exactly one framework is selected for the whole universe. Runtime-specific
@@ -198,6 +199,10 @@ public sealed class PackageAssetSelectionReceipt
 /// Gated by <c>PackageAssetSelectorTests</c>:
 /// <c>Select_TakesHighestApplicableFrameworkFolder</c> and
 /// <c>Select_RejectsAnIncompatibleFrameworkFamily</c> for framework selection;
+/// <c>Select_RootLibraryIsFrameworkAgnosticFallback</c>,
+/// <c>Select_FrameworkSpecificFolderOutranksRootLibrary</c>, and
+/// <c>Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable</c> for the
+/// framework-agnostic slice;
 /// <c>Select_NeutralTargetRejectsAPlatformSpecificFolder</c>,
 /// <c>Select_NeutralTargetPrefersTheNeutralFolder</c>,
 /// <c>Select_PlatformTargetPrefersTheExactPlatformFolder</c>,
@@ -219,6 +224,8 @@ public sealed class PackageAssetSelectionReceipt
 /// </remarks>
 public static class PackageAssetSelector
 {
+    internal const string FrameworkAgnosticTargetFramework = "any";
+
     const string AssemblyExtension = ".dll";
     const string SatelliteSuffix = ".resources.dll";
 
@@ -473,6 +480,9 @@ public static class PackageAssetSelector
 
         (int FallbackRank, Version Version, int PlatformRank) Rank(string tfm)
         {
+            if (IsFrameworkAgnostic(tfm))
+                return (-1, EmptyVersion, 0);
+
             FrameworkFolder folder = FrameworkFolder.Parse(tfm);
             Version version =
                 TfmResolver.TryGetFrameworkIdentity(
@@ -506,6 +516,14 @@ public static class PackageAssetSelector
     /// </remarks>
     static bool IsApplicable(FrameworkFolder candidate, FrameworkFolder target)
     {
+        if (IsFrameworkAgnostic(candidate.FullName))
+        {
+            return IsFrameworkAgnostic(target.FullName)
+                || TfmResolver.TryGetFrameworkIdentity(
+                    target.BaseFramework,
+                    out _);
+        }
+
         if (PackageCoordinateResolver.IsAcquisitionTargetText(
                 candidate.FullName)
             && PackageCoordinateResolver.IsAcquisitionTargetText(
@@ -575,6 +593,18 @@ public static class PackageAssetSelector
     {
         string[] segments = entryPath.Split('/');
 
+        // lib/{assembly}
+        if (segments.Length == 2
+            && segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CandidateEntry(
+                entryPath,
+                FrameworkAgnosticTargetFramework,
+                segments[1],
+                segments[1],
+                RuntimeIdentifier: null);
+        }
+
         // lib/{tfm}/{relative-path}
         if (segments.Length >= 3
             && segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
@@ -609,6 +639,11 @@ public static class PackageAssetSelector
 
         return null;
     }
+
+    internal static bool IsFrameworkAgnostic(string framework) =>
+        framework.Equals(
+            FrameworkAgnosticTargetFramework,
+            StringComparison.OrdinalIgnoreCase);
 
     static bool IsSatelliteAsset(
         CandidateEntry candidate,

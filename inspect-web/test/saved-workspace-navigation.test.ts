@@ -41,7 +41,13 @@ import {
   publishRetainedWorkspace,
 } from "../src/retained-workspaces.ts";
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
-import { workspaceDependencyKey } from "../src/package-inspection.ts";
+import {
+  normalizePackageIntegrationsSnapshot,
+  normalizePackageVulnerabilitySnapshot,
+  workspaceDependencyKey,
+  type PackageIntegrationsState,
+  type PackageVulnerabilityState,
+} from "../src/package-inspection.ts";
 import {
   isProductHomeDemosPath,
 } from "../src/product-home-demos.ts";
@@ -403,6 +409,12 @@ function harness() {
         isActive: boolean;
       }[];
     } | null,
+    packageVulnerabilities: {
+      status: "idle",
+    } as PackageVulnerabilityState,
+    packageIntegrations: {
+      status: "idle",
+    } as PackageIntegrationsState,
     dependenciesGroupIndex: null as number | null,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
@@ -635,6 +647,8 @@ function harness() {
     normalizeDocumentViewerSnapshot,
     normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
+    normalizePackageIntegrationsSnapshot,
+    normalizePackageVulnerabilitySnapshot,
     normalizeSourceResultSnapshot,
     retainedWorkspaces: {
       get activeWorkspaceId() {
@@ -1046,6 +1060,14 @@ test("capture settles a loading document viewer without claiming ready content",
   h.state.memberSource = { status: "loading", signature: "member" };
   h.state.memberGroupDocumentLoading = true;
   h.state.memberGroupDocumentKey = "member-group";
+  h.state.packageVulnerabilities = {
+    status: "loading",
+    request: { key: "package-vulnerabilities" },
+  };
+  h.state.packageIntegrations = {
+    status: "loading",
+    request: { key: "package-integrations" },
+  };
   h.state.typeSource = {
     status: "failed",
     signature: "type",
@@ -1064,6 +1086,8 @@ test("capture settles a loading document viewer without claiming ready content",
     && "memberSource" in snapshotState
     && "memberGroupDocumentLoading" in snapshotState
     && "memberGroupDocumentKey" in snapshotState
+    && "packageIntegrations" in snapshotState
+    && "packageVulnerabilities" in snapshotState
     && "typeSource" in snapshotState);
 
   assert.deepEqual(snapshotState.docViewer, {
@@ -1074,6 +1098,16 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.deepEqual(snapshotState.memberSource, { status: "idle" });
   assert.equal(snapshotState.memberGroupDocumentLoading, false);
   assert.equal(snapshotState.memberGroupDocumentKey, "");
+  assert.ok(snapshotState.packageVulnerabilities !== null
+    && typeof snapshotState.packageVulnerabilities === "object"
+    && "status" in snapshotState.packageVulnerabilities);
+  assert.equal(
+    snapshotState.packageVulnerabilities.status,
+    "idle");
+  assert.ok(snapshotState.packageIntegrations !== null
+    && typeof snapshotState.packageIntegrations === "object"
+    && "status" in snapshotState.packageIntegrations);
+  assert.equal(snapshotState.packageIntegrations.status, "idle");
   assert.deepEqual(snapshotState.typeSource, h.state.typeSource);
   assert.equal(h.state.docViewer.status, "loading");
   assert.deepEqual(
@@ -1081,6 +1115,61 @@ test("capture settles a loading document viewer without claiming ready content",
     { status: "loading", signature: "member" });
   assert.equal(h.state.memberGroupDocumentLoading, true);
   assert.equal(h.state.memberGroupDocumentKey, "member-group");
+  assert.equal(h.state.packageVulnerabilities.status, "loading");
+  if (h.state.packageVulnerabilities.status === "loading") {
+    assert.equal(
+      h.state.packageVulnerabilities.request.key,
+      "package-vulnerabilities");
+  }
+  assert.equal(h.state.packageIntegrations.status, "loading");
+  if (h.state.packageIntegrations.status === "loading") {
+    assert.equal(
+      h.state.packageIntegrations.request.key,
+      "package-integrations");
+  }
+
+  h.state.packageVulnerabilities = {
+    status: "failed",
+    key: "package-vulnerabilities",
+    error: "advisory service unavailable",
+  };
+  h.state.packageIntegrations = {
+    status: "failed",
+    key: "package-integrations",
+    error: "integration scan unavailable",
+  };
+  const terminalSnapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(terminalSnapshot !== null && typeof terminalSnapshot === "object"
+    && "state" in terminalSnapshot);
+  const terminalState = terminalSnapshot.state;
+  assert.ok(terminalState !== null && typeof terminalState === "object"
+    && "packageIntegrations" in terminalState
+    && "packageVulnerabilities" in terminalState);
+  const terminalVulnerabilities = terminalState.packageVulnerabilities;
+  assert.ok(terminalVulnerabilities !== null
+    && typeof terminalVulnerabilities === "object"
+    && "status" in terminalVulnerabilities);
+  assert.equal(
+    terminalVulnerabilities.status,
+    "failed");
+  assert.ok("key" in terminalVulnerabilities);
+  assert.equal(terminalVulnerabilities.key, "package-vulnerabilities");
+  assert.ok("error" in terminalVulnerabilities);
+  assert.equal(
+    terminalVulnerabilities.error,
+    "advisory service unavailable");
+  const terminalIntegrations = terminalState.packageIntegrations;
+  assert.ok(terminalIntegrations !== null
+    && typeof terminalIntegrations === "object"
+    && "status" in terminalIntegrations);
+  assert.equal(terminalIntegrations.status, "failed");
+  assert.ok("key" in terminalIntegrations);
+  assert.equal(terminalIntegrations.key, "package-integrations");
+  assert.ok("error" in terminalIntegrations);
+  assert.equal(terminalIntegrations.error, "integration scan unavailable");
 });
 
 test("capture settles Spotlight package loading to cache or idle", () => {

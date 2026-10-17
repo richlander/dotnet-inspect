@@ -437,7 +437,7 @@ public partial class LibraryCommand
 
         var inspection = new LibraryInspection
         {
-            FileName = Path.GetFileName(handoff.Asset.Path),
+            FileName = handoff.Asset.AssemblyName,
             Tfm = targetFramework,
             Source = SourceKind.NuGet,
         };

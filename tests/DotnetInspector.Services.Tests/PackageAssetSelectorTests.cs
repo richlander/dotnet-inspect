@@ -97,6 +97,50 @@ public sealed class PackageAssetSelectorTests
     }
 
     [Fact]
+    public void Select_RootLibraryIsFrameworkAgnosticFallback()
+    {
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            null,
+            "lib/Sample.dll",
+            "lib/Companion.dll",
+            "lib/nested/Ignored.dll");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("any", universe.TargetFramework);
+        Assert.Equal(
+            ["lib/Companion.dll", "lib/Sample.dll"],
+            universe.Assets.Select(asset => asset.EntryPath));
+    }
+
+    [Fact]
+    public void Select_FrameworkSpecificFolderOutranksRootLibrary()
+    {
+        PackageAssetSelection selection = Select(
+            "net10.0",
+            null,
+            "lib/Root.dll",
+            "lib/net8.0/Sample.dll");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("net8.0", universe.TargetFramework);
+        Assert.Equal(
+            "lib/net8.0/Sample.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable()
+    {
+        PackageAssetSelection selection = Select(
+            "futureframework1.0",
+            null,
+            "lib/Sample.dll");
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(selection);
+    }
+
+    [Fact]
     public void Select_FallsBackToACompatibleOlderFramework()
     {
         PackageAssetSelection selection = Select(

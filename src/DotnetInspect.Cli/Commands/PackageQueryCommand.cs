@@ -214,8 +214,8 @@ internal static class PackageQueryCommand
             WriteDiagnostics(
                 document.Failures,
                 summary,
-                options.SemanticHeadPushedDown);
-            return wrote ? ExitCode(summary) : 1;
+                options);
+            return wrote ? ExitCode(summary, options.CandidateBoundRequested) : 1;
         }
 
         if (!CliSemanticRowSelection.TrySelect(
@@ -232,7 +232,7 @@ internal static class PackageQueryCommand
             WriteDiagnostics(
                 document.Failures,
                 summary,
-                options.SemanticHeadPushedDown);
+                options);
             return 1;
         }
         // Count reports the rows Rows would render, with the same
@@ -246,7 +246,7 @@ internal static class PackageQueryCommand
             WriteDiagnostics(
                 document.Failures,
                 summary,
-                options.SemanticHeadPushedDown);
+                options);
             CommandError.Write(
                 "Cannot count Package Query rows because the package search "
                 + "failed before any candidate was evaluated.");
@@ -279,15 +279,15 @@ internal static class PackageQueryCommand
         WriteDiagnostics(
             document.Failures,
             summary,
-            options.SemanticHeadPushedDown);
+            options);
 
-        return ExitCode(summary);
+        return ExitCode(summary, options.CandidateBoundRequested);
     }
 
     private static void WriteDiagnostics(
         IReadOnlyList<PackageQueryFailure> failures,
         PackageQuerySummary summary,
-        bool semanticHeadPushedDown)
+        PackageQueryOptions options)
     {
         foreach (PackageQueryFailure failure in failures)
         {
@@ -295,10 +295,28 @@ internal static class PackageQueryCommand
                 $"{failure.PackageId ?? "Package Query"}: "
                 + $"{failure.Kind}: {failure.Message}");
         }
+        // A reached requested bound is the answer's scope, not incompleteness
+        // (cli-execution-bounds.md#disclosure): an explicit --take names its
+        // candidate population, and a direct path's Head is the answer.
+        if (summary.Completion == PackageQueryCompletionKind.CandidateLimitReached
+            && options.CandidateBoundRequested)
+        {
+            if (options.ExplicitTake)
+            {
+                CommandError.WriteNote(
+                    $"Package Query scope: the first {summary.CandidateLimit} "
+                    + (summary.CandidateLimit == 1
+                        ? "package candidate"
+                        : "package candidates")
+                    + " (--take); matches cover only that population, not "
+                    + "the whole package-ID scope.");
+            }
+            return;
+        }
         if (summary.Completion is not (
                 PackageQueryCompletionKind.Exhausted
                 or PackageQueryCompletionKind.ExactPackageComplete)
-            && !(semanticHeadPushedDown
+            && !(options.SemanticHeadPushedDown
                 && summary.Completion
                     == PackageQueryCompletionKind.MatchLimitReached))
         {
@@ -436,12 +454,23 @@ internal static class PackageQueryCommand
         }
     }
 
-    internal static int ExitCode(PackageQuerySummary summary) =>
-        summary.Failures == 0 && summary.Completion is
-            PackageQueryCompletionKind.Exhausted
-            or PackageQueryCompletionKind.ExactPackageComplete
-            or PackageQueryCompletionKind.MatchLimitReached
-            or PackageQueryCompletionKind.CandidateLimitReached
+    /// <summary>
+    /// A failure, a page limit, or a default candidate ceiling that stopped
+    /// evaluation leaves a partial view and exits nonzero; a reached requested
+    /// bound or a filled pushed-down Head is complete for the request
+    /// (cli-execution-bounds.md#disclosure).
+    /// </summary>
+    internal static int ExitCode(
+        PackageQuerySummary summary,
+        bool candidateBoundRequested) =>
+        summary.Failures == 0
+            && (summary.Completion is
+                    PackageQueryCompletionKind.Exhausted
+                    or PackageQueryCompletionKind.ExactPackageComplete
+                    or PackageQueryCompletionKind.MatchLimitReached
+                || summary.Completion
+                    == PackageQueryCompletionKind.CandidateLimitReached
+                    && candidateBoundRequested)
             ? 0 : 1;
 
     internal sealed class ContentProvider(

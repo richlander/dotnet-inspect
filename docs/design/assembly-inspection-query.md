@@ -814,6 +814,22 @@ through this path. The CLI still owns endpoint-range parsing, compatibility filt
 ranking, and rendering; it does not select package TFMs, merge assembly surfaces, or manage
 extraction directories.
 
+**Directory sources.** A directory source (`--bin`, caller scopes, corpus entries)
+contributes its top-level managed images to the Library population. A readable PE image that
+declares no CLR header is a native image, not a population member: the resolver skips it and
+logs the skip only under `--verbose`. The resolver asks `MetadataFormatAdmission.IsNativeImage`
+rather than decoding PE headers itself. A file that is not a readable PE, or that declares a
+CLR header without readable metadata, is malformed and stays in the set so Metadata admission
+reports it visibly. A directory with native images and no managed image is a failed source,
+reported by one warning diagnostic exactly as a missing directory is; an empty directory
+contributes nothing and reports nothing. An explicitly named non-managed library is not a
+directory member and remains a failure. This matches assembly projection on the Workspace
+path, which admits managed participants only
+(`ResolvedAssemblyReference.CreateFromArtifactIfManaged`).
+Gated by `AssemblySetResolverTests.CollectAsync_DirectorySkipsNativeImagesBesideManagedLibraries`,
+`CollectAsync_NativeOnlyDirectoryIsAFailedSource`, and
+`MetadataFormatAdmissionTests.NativeImageDeclaresNoClrHeader`.
+
 **Declaration and contextual Member populations.** Assembly Inspection can
 publish a completed declaration-only `ApiSurface` through
 `AssemblyInspectionSession.ApiSurface`, its bounded peer, and the underlying
@@ -1226,9 +1242,18 @@ framework that distinguish equal coordinates served by different sources. The
 operation requires the selected asset to remain associated with that package
 Root and exact surface-role participant. It projects exactly that participant
 through
-`AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` with
+`AssemblyContextApiSurfaceQuery.ExecuteBounded` with
 `ApiSurfaceScope.Public`; it does not reconstruct a path-shaped inspection or
 project every package participant and filter afterward.
+
+The operation does not request cross-assembly generic-constraint resolution.
+Its adopted consumers use the Type listing catalog and detached inventory
+counts, neither of which consumes that classification. Requesting it would
+authorize sibling Library bodies outside the exact semantic demand and turn
+their intentional absence into false incomplete-inspection warnings.
+Non-constraint extraction failures remain visible. Type/member detail,
+selected sections, and every richer API route remain on their existing
+resolution-aware compatibility paths.
 
 The detached `InspectionEnvelope<ExactLibraryApiInspectionResult>` contains:
 
@@ -1252,13 +1277,23 @@ The detached `InspectionEnvelope<ExactLibraryApiInspectionResult>` contains:
   retirement contracts from
   [Library ownership and borrowing](library-ownership-and-borrowing.md).
 
-The CLI adapter acquires the exact package Root, realizes package assembly roles
-inside a #6752 candidate Workspace, cuts over, enters operation authority,
-invokes the shared semantic operation, and returns only the detached envelope.
+The CLI adapter plans Public API demand for the exact Library before
+acquisition, lowers it to a PackageHouse exact compile-Library request, and
+opens a `PackageEndpointScope` over the resulting `Surface` Root. The House
+owns cache, ranged-entry, and complete-fallback policy. The scope owns
+Workspace admission and the retained role realization; the operation returns
+only the detached envelope and execution companion. A missing or ambiguous
+selector still projects its established typed result from the complete compile
+selection evidence, and a selected assembly that cannot enter an assembly
+context remains a participant-unavailable result rather than becoming a
+generic context-load failure. The cold adapter preserves the legacy configured
+source identity in the detached output.
+
 Inspect Web invokes the same semantic operation while its existing
 `BrowserScopeLease` retains the package Root and role realization. Shared cache
 or transport resources may back both hosts; semantic association and lifetime
-authority remain explicit in each composition.
+authority remain explicit in each composition. The CLI no longer acquires this
+eligible exact-Library route through `WorkspaceContextLoader`.
 
 The Browser/Wasm interop adapter losslessly projects every field of the same
 complete envelope into its assembly-local generated wire records. Assembly
@@ -1287,10 +1322,14 @@ owned package projection.
 The Release gates are:
 
 - `ExactLibraryApiInspectionOperationTests` for exact asset and compatibility
-  selection, missing and malformed Libraries, bounds, diagnostics, detached
-  identity/authority, and cold/in-scope equivalence;
+  selection, missing and malformed Libraries, bounds, no sibling
+  generic-constraint demand, diagnostics, detached identity/authority, and
+  cold/in-scope equivalence;
 - `ExactLibraryWorkspaceRouteTests` for unchanged CLI output and non-vacuous
-  retirement of the eligible `ApiSourceResolver` path; and
+  retirement of the eligible `WorkspaceContextLoader` path;
+- `EndpointScope_ExactLibraryDemandNarrowsTransferAndParticipants` for complete
+  compile-selection evidence with only the selected Library body and
+  participant materialized; and
 - `BrowserEngineBoundaryTests.QueryLibraryApiProjection_*` plus Library
   Overview TypeScript tests for exact-asset Browser consumption, generated
   contract stability, and producer-owned namespace/type-kind presentation.

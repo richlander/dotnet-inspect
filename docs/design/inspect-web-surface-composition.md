@@ -977,13 +977,20 @@ of the package identity.
 The surface contains:
 
 ```text
-Dependencies                         package and reference count or state
-target-framework groups and graph
-package dependencies and assembly references
+References                              count or state  References | Hierarchy
+selected view's graph and controls
+reference lists or hierarchy diagnostics
 ```
 
-The quiet header labels the lens and reports the selected dependency group's
-package count together with the selected assembly's direct reference count.
+The quiet header labels the lens and reports the selected view's count or state.
+References is the default tab. Hierarchy is available for NuGet packages and
+uses the same bounded graph viewport, pan and zoom controls, and Graph Explore
+action. Each hierarchy occurrence is a separate graph node, including revisits
+and cycles. Its preview is bounded with an explicit shown/total count; traversal
+incompleteness and acquisition failures remain visible below the graph. Shared
+hierarchy URLs open the Hierarchy tab within References.
+For References, the header reports the selected dependency group's package
+count together with the selected assembly's direct reference count.
 Version navigation remains available in the Package master pane; the framework
 shortcut opens the master pane's framework choices. Dependency-group
 selection remains with the result because it selects a manifest group rather
@@ -1054,6 +1061,23 @@ advisories and Complete, Partial, or Unavailable availability without
 reinterpreting ranges or constructing another feed model. Each advisory keeps
 GHSA and optional CVE identity, severity, published and updated dates, and its
 GitHub destination.
+
+A Package Vulnerabilities request has one closed browser-owned state:
+`idle`, `loading` for one exact package-coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize an interrupted `loading`
+request to `idle`, since a snapshot has no live acquisition that can settle it.
+This contract owns only the Package Vulnerabilities surface; it does not define
+a generic asynchronous-state framework or migrate another Inspect Web
+resource.
+
+The motivating production flow is `Newtonsoft.Json` 12.0.1 from nuget.org:
+opening that exact coordinate, navigating away, and returning while advisory
+acquisition is pending must not let the retired request replace newer evidence.
+Focused coordinator tests preserve the same replacement and invalidation
+boundary deterministically.
 
 A complete empty result states only that no GitHub-reviewed NuGet advisory
 matched the exact package version. Partial and unavailable results retain typed
@@ -1136,6 +1160,23 @@ Library/coordinate freshness checks. Each mode keeps its own loading, failure,
 partial, empty, and available outcomes. Integrations presents its detected and
 suggested evidence together while preserving the independent completion and
 failure state of each source.
+
+Detected Integrations evidence has one closed Browser-owned state: `idle`,
+`loading` for one exact Library/coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize interrupted `loading` to
+`idle`. Suggested Opportunities remains an independently settling neighboring
+source. This contract does not define a generic asynchronous-state framework or
+migrate another Analysis mode.
+
+`Microsoft.Extensions.Http` 10.0.0 on nuget.org supplies the motivating
+production flow: its `Microsoft.Extensions.Http` Library produces HTTP Client
+signals including `IHttpClientFactory` and `AddHttpClient`. Replacing that
+Library/coordinate while the scan is pending must not let the retired request
+replace newer detected evidence. Focused coordinator tests preserve the same
+replacement and invalidation boundary deterministically.
 
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the

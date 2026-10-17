@@ -49,7 +49,7 @@ public sealed partial class BrowserEngineBoundaryTests
             await using var apiLease = await api;
             Assert.Same(documentLease.Scope, apiLease.Scope);
         }
-        Assert.Equal(1, inner.OrdinaryPackageResponses);
+        Assert.Equal(0, inner.OrdinaryPackageResponses);
         Assert.Single(documentLease.Scope.SurfaceParticipants);
         Assert.Single(documentLease.Scope.ImplementationParticipants);
         RangedPackageContent content = Assert.IsType<RangedPackageContent>(documentLease.Scope.Coordinates[0].Package.Content);
@@ -300,7 +300,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(selectedContent.IsMaterialized($"lib/net11.0/{id}.dll"));
         Assert.Equal(rangesBeforeLibrary + (string.IsNullOrEmpty(target) ? 1 : 2),
             handler.RangedPackageResponses);
-        Assert.Equal(1, handler.OrdinaryPackageResponses);
+        Assert.Equal(0, handler.OrdinaryPackageResponses);
     }
 
     [Theory]

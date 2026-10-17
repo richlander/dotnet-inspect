@@ -131,15 +131,20 @@ The checked-in rules provide full gate coverage for these dependency claims:
    staged claims.
 7. The Inspect Web CallGraph facade depends directly only on the .NET
    platform, Web Core, Queries, and Sections.
-8. The Inspect Web Package facade cannot expand beyond its current nine
-   evaluated project edges or its current fifteen repository assembly edges.
+8. The Inspect Web Package facade cannot expand beyond its current eleven
+   evaluated project edges or its current seventeen repository assembly edges.
    The direct-reference path consumes detached rows from Queries rather than
    projecting Metadata identities in the host, and the exact-Library path
    consumes a detached Queries-owned identity value. Web Core also projects
    Platform-forwarder display and route evidence without exposing Metadata
    values to the facade. Separate graph rules prevent the retired Metadata and
    Networking project edges, and the retired compiled Metadata edge, from
-   returning.
+   returning. Web Core owns package and Platform scope realization and
+   operation lifetime, while owner-issued Package Query, activity,
+   vulnerability, ecosystem, documentation, capability, and ranking operations
+   supply the facade's typed behavior. Those paths and the exact positive
+   ceilings own product semantics, so the facade retains only runtime
+   platform-hazard compiler bans.
 9. The Inspect Web Library facade cannot expand beyond its current five
    evaluated project edges or its current ten repository assembly edges.
    The separate graph rules preserve those different ceilings while focused
@@ -151,12 +156,21 @@ The checked-in rules provide full gate coverage for these dependency claims:
    evaluated project edges or its current twelve repository and external
    assembly edges. Its home-demo call-graph path reaches the host-neutral
    projection through Web Core, so both graph rules reject a direct
-   `ILInspector.Analysis` dependency.
+   `ILInspector.Analysis` dependency. Owner-declared product vocabulary
+   factories account for its transitive Decompiler assembly edge; the typed
+   facade paths and positive dependency ceilings own product semantics, so its
+   compiler ban input retains only runtime platform hazards.
 11. The Inspect Web Metadata facade cannot expand beyond its current twelve
-    evaluated project edges or its current twenty repository and external
+    evaluated project edges or its current twenty-one repository and external
     assembly edges. Queries owns exact type, declaration, and physical-body
     selection over bounded participant surfaces, so both graph rules reject
-    the facade's retired direct `ILInspector.Analysis` dependency.
+    the facade's retired direct `ILInspector.Analysis` dependency. Web Core
+    owns package, Platform, retained-workspace, and uploaded-Library scope
+    lifetime, while owner-issued Queries, Sections, LibraryMetadata, CSharp,
+    and Research operations supply metadata projection, exact Type and Member
+    documents, declarations, populations, and comparisons. Those typed paths
+    and the exact positive ceilings own product semantics, so the facade
+    retains only runtime platform-hazard compiler bans.
 12. The Inspect Web Source facade cannot expand beyond its current thirteen
     evaluated project edges or its current twenty-four repository and external
     assembly edges. Services projects detached resolved and attributable browse

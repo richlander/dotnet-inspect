@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Text;
 
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -35,14 +36,19 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+        PackageRootAcquisitionOutcome outcome =
             await PackageRootAcquisition.AcquireAsync(
                 PackageRootAcquisitionRequest.Create(
                     PackageId,
                     Version,
                     Framework),
                 Options(http, store),
-                TestContext.Current.CancellationToken));
+                TestContext.Current.CancellationToken);
+        Assert.True(
+            outcome is PackageRootAcquisitionOutcome.Acquired,
+            (outcome as PackageRootAcquisitionOutcome.Failed)?.Message);
+        var acquired =
+            (PackageRootAcquisitionOutcome.Acquired)outcome;
         PackageRootBinding full = acquired.Binding;
         Assert.Equal(PackageAssetDemand.SurfaceAndImplementation, full.Root.AssetDemand);
 
@@ -128,10 +134,11 @@ public sealed class PackageRootAcquisitionTests
         Assert.Equal(PackageId, binding.Coordinate.PackageId);
         Assert.Equal(Version, binding.Coordinate.Version);
         Assert.Equal(
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            PackageProducerIdentity.NuGetOrg.PortableKey,
             binding.Coordinate.Producer);
         Assert.Equal(Framework, binding.Coordinate.Framework);
         Assert.Null(binding.Coordinate.RuntimeIdentifier);
+        Assert.Equal(Framework, binding.Root.RequestedTargetFramework);
         Assert.Equal(
             $"lib/{Framework}/{AssemblyName}.dll",
             binding.Root.AssetSelection.Assets.Single().Path);
@@ -139,8 +146,332 @@ public sealed class PackageRootAcquisitionTests
         // The issued request is the binding's own, so a consumer that started
         // from an explicit coordinate holds a reacquirable handle immediately.
         Assert.Equal(binding.CreateReacquisitionRequest(), acquired.Request);
+        Assert.Equal(Framework, acquired.Request.RequestedTargetFramework);
         Assert.Equal(Framework, acquired.Request.CompileTargetFramework);
         Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
+    }
+
+    [Fact]
+    public async Task ExplicitCoordinate_UntargetedRootPreservesCallerIntent()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(LibraryPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(PackageId, Version),
+                execution,
+                TestContext.Current.CancellationToken));
+
+        Assert.Null(acquired.Binding.Coordinate.Framework);
+        Assert.Null(acquired.Binding.Root.RequestedTargetFramework);
+        Assert.Null(acquired.Request.RequestedTargetFramework);
+        Assert.Equal(Framework, acquired.Request.CompileTargetFramework);
+        Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
+
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                acquired.Request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+        var reacquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                execution,
+                TestContext.Current.CancellationToken));
+
+        Assert.Null(reacquired.Binding.Coordinate.Framework);
+        Assert.Null(reacquired.Binding.Root.RequestedTargetFramework);
+        Assert.Equal(acquired.Request, reacquired.Request);
+    }
+
+    [Fact]
+    public async Task
+        UntargetedRoot_ReacquiresNestedOwnerSelectedCompileAsset()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(NestedLibraryPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(PackageId, Version),
+                execution,
+                TestContext.Current.CancellationToken));
+        Assert.Null(acquired.Request.RequestedTargetFramework);
+        Assert.Equal(Framework, acquired.Request.CompileTargetFramework);
+        Assert.Equal(Framework, acquired.Request.SelectionTargetFramework);
+        Assert.Equal(
+            $"lib/{Framework}/nested/{AssemblyName}.dll",
+            acquired.Binding.Root.AssetSelection.Assets.Single().Path);
+
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                acquired.Request.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+        var reacquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(acquired.Request, reacquired.Request);
+        Assert.Equal(
+            acquired.Binding.Root.AssetSelection.Assets.Single().Path,
+            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+    }
+
+    [Fact]
+    public async Task
+        OwnerDefaultHouseContribution_ReacquiresNestedSelectedCompileAsset()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(NestedLibraryPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            execution.Operation,
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: PackageAssetDemand.SurfaceAndImplementation);
+        PackageHouseSettlement settlement =
+            await execution.Executor.ExecuteAsync(
+                request,
+                requiredProducerKey: null,
+                TestContext.Current.CancellationToken);
+        PackageHouseRootContribution contribution =
+            Assert.IsType<PackageHouseRootContributionOutcome.Contributed>(
+                PackageHouseRootContributionAdapter.Create(settlement))
+                .Contribution;
+        PackageRootReacquisitionRequest rootRequest =
+            contribution.Binding.CreateReacquisitionRequest();
+
+        Assert.Null(contribution.Binding.Root.RequestedTargetFramework);
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal(Framework, rootRequest.CompileTargetFramework);
+        Assert.Equal(Framework, rootRequest.SelectionTargetFramework);
+        Assert.Equal(
+            $"lib/{Framework}/nested/{AssemblyName}.dll",
+            contribution.Binding.Root.AssetSelection.Assets.Single().Path);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                rootRequest.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var reacquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(rootRequest, reacquired.Request);
+        Assert.Equal(
+            contribution.Binding.Root.AssetSelection.Assets.Single().Path,
+            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+    }
+
+    [Fact]
+    public async Task
+        NullTargetHouseContribution_ReacquiresNestedSelectedCompileAsset()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(NestedLibraryPackage());
+        PackageRootHouseExecution execution = Options(http, store);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            execution.Operation,
+            targetContext: null,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: PackageAssetDemand.SurfaceAndImplementation);
+        PackageHouseSettlement settlement =
+            await execution.Executor.ExecuteAsync(
+                request,
+                requiredProducerKey: null,
+                TestContext.Current.CancellationToken);
+        PackageHouseRootContribution contribution =
+            Assert.IsType<PackageHouseRootContributionOutcome.Contributed>(
+                PackageHouseRootContributionAdapter.Create(settlement))
+                .Contribution;
+        PackageRootReacquisitionRequest rootRequest =
+            contribution.Binding.CreateReacquisitionRequest();
+
+        Assert.Null(contribution.Binding.Root.RequestedTargetFramework);
+        Assert.Null(rootRequest.RequestedTargetFramework);
+        Assert.Equal(Framework, rootRequest.CompileTargetFramework);
+        Assert.Equal(Framework, rootRequest.SelectionTargetFramework);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                rootRequest.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var reacquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(rootRequest, reacquired.Request);
+        Assert.Equal(
+            $"lib/{Framework}/nested/{AssemblyName}.dll",
+            reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
+    }
+
+    [Fact]
+    public async Task
+        HouseContribution_UnrepresentableSelectionReturnsNoContribution()
+    {
+        const string selectedFramework = "net8.0_custom";
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(
+            LibraryPackage(selectedFramework));
+        PackageRootHouseExecution execution = Options(http, store);
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(PackageId, Version)),
+            execution.Operation,
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Compile);
+        PackageHouseSettlement settlement =
+            await execution.Executor.ExecuteAsync(
+                request,
+                requiredProducerKey: null,
+                TestContext.Current.CancellationToken);
+
+        PackageHouseRootContributionOutcome.NoContribution outcome =
+            Assert.IsType<PackageHouseRootContributionOutcome.NoContribution>(
+                PackageHouseRootContributionAdapter.Create(settlement));
+
+        Assert.Equal(
+            PackageHouseRootNoContributionReason.CoordinateNotRepresentable,
+            outcome.Reason);
+    }
+
+    [Fact]
+    public async Task
+        UntargetedRoot_ReplacementWithoutCompileAssetsReturnsTypedMismatch()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        var store = new InMemoryPackageStore();
+        string producer = PackageProducerIdentity.NuGetOrg.Key;
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(LibraryPackage()),
+            TestContext.Current.CancellationToken);
+        PackageRootHouseExecution execution = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(PackageId, Version),
+                execution,
+                TestContext.Current.CancellationToken));
+        Assert.Null(acquired.Request.RequestedTargetFramework);
+        Assert.True(acquired.Request.HasSelectedImplementationUniverse);
+
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            producer,
+            new MemoryStream(NoCompileAssetsPackage()),
+            TestContext.Current.CancellationToken);
+        var failed = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                acquired.Request,
+                execution,
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.SelectionRequestNotReproduced,
+            failed.Kind);
+    }
+
+    [Theory]
+    [InlineData("invalid/package", Version, Framework)]
+    [InlineData(PackageId, "not-a-version", Framework)]
+    [InlineData(PackageId, Version, "net8.0_custom")]
+    [InlineData(PackageId, Version, "net8.0\u202e")]
+    public async Task ExplicitCoordinate_InvalidCoordinateFailsBeforeHouse(
+        string packageId,
+        string version,
+        string framework)
+    {
+        PackageRootAcquisitionOutcome outcome =
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    packageId,
+                    version,
+                    framework),
+                new PackageRootHouseExecution(
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Realize),
+                    new FailOnHouseExecution()),
+                TestContext.Current.CancellationToken);
+
+        var failed =
+            Assert.IsType<PackageRootAcquisitionOutcome.Failed>(outcome);
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.InvalidCoordinate,
+            failed.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(failed.Message));
+    }
+
+    [Theory]
+    [InlineData("net8.0_custom")]
+    [InlineData("net8.0\u202e")]
+    public async Task
+        OwnerDefault_UnrepresentableSelectionFailsBeforeIssuanceOrReacquisition(
+            string selectedFramework)
+    {
+        using var http = new HttpClient(new FailingHandler());
+        IPackageStore store = await CachedStoreAsync(
+            LibraryPackage(selectedFramework));
+
+        var initial = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(PackageId, Version),
+                Options(http, store),
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.InvalidCoordinate,
+            initial.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(initial.Message));
+        Assert.DoesNotContain(
+            selectedFramework,
+            initial.Message,
+            StringComparison.Ordinal);
+
+        PackageRootReacquisitionRequest previouslyIssued = Request(
+            acquisitionFramework: null,
+            acquisitionRuntimeIdentifier: null,
+            selectionTargetFramework: selectedFramework,
+            selectionRuntimeIdentifier: null,
+            ownerDefaultTarget: true);
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                previouslyIssued.Encode(),
+                out PackageRootReacquisitionRequest? decoded));
+
+        var reopened = Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+            await PackageRootAcquisition.AcquireAsync(
+                decoded,
+                new PackageRootHouseExecution(
+                    PackageHouseOperation.Create(
+                        PackageHouseOperationProfile.Realize),
+                    new FailOnHouseExecution()),
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            PackageRootAcquisitionFailureKind.InvalidCoordinate,
+            reopened.Kind);
+        Assert.False(string.IsNullOrWhiteSpace(reopened.Message));
+        Assert.DoesNotContain(
+            selectedFramework,
+            reopened.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -148,7 +479,7 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var first = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -169,7 +500,7 @@ public sealed class PackageRootAcquisitionTests
             first.Binding.ContentGenerationIdentity);
         Assert.Equal(
             first.Binding.Coordinate.Producer,
-            first.Payload.ProducerKey);
+            first.Payload.Producer!.PortableKey);
         Assert.Equal(content.ProducerKey, first.Payload.ProducerKey);
 
         var second = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
@@ -195,7 +526,7 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var first = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -234,7 +565,7 @@ public sealed class PackageRootAcquisitionTests
                 PackageSourceAssociation.Create(),
                 new FailingHandler());
         PackageProducerIdentity producer = source.Source.Producer;
-        string contentProducerKey = NuGetCache.GetSourceKey(Private.Url);
+        string contentProducerKey = producer.Key;
         var store = new InMemoryPackageStore();
         await store.CommitAsync(
             PackageId,
@@ -308,7 +639,7 @@ public sealed class PackageRootAcquisitionTests
     [Fact]
     public async Task CurrentNuGetProducerKey_ReacquiresWithoutRewritingRequest()
     {
-        string contentProducerKey = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        string contentProducerKey = PackageProducerIdentity.NuGetOrg.Key;
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
         using var http = new HttpClient(new FailingHandler());
         PackageRootReacquisitionRequest request = RequestForProducer(
@@ -365,7 +696,7 @@ public sealed class PackageRootAcquisitionTests
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(
             LibraryPackage("netstandard2.0"));
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         PackageRootAcquisitionRequest explicitRequest =
             PackageRootAcquisitionRequest.CreateFrameworkNeutral(
@@ -384,6 +715,12 @@ public sealed class PackageRootAcquisitionTests
                 TestContext.Current.CancellationToken));
 
         Assert.Null(acquired.Binding.Coordinate.Framework);
+        Assert.Equal(
+            "netstandard2.0",
+            acquired.Binding.Root.RequestedTargetFramework);
+        Assert.Equal(
+            "netstandard2.0",
+            acquired.Request.RequestedTargetFramework);
         Assert.Equal(
             "netstandard2.0",
             acquired.Request.SelectionTargetFramework);
@@ -405,6 +742,9 @@ public sealed class PackageRootAcquisitionTests
                 TestContext.Current.CancellationToken));
         Assert.Equal(acquired.Request, reacquired.Request);
         Assert.Equal(
+            "netstandard2.0",
+            reacquired.Binding.Root.RequestedTargetFramework);
+        Assert.Equal(
             $"lib/netstandard2.0/{AssemblyName}.dll",
             reacquired.Binding.Root.AssetSelection.Assets.Single().Path);
     }
@@ -414,14 +754,14 @@ public sealed class PackageRootAcquisitionTests
     {
         using var http = new HttpClient(new FailingHandler());
         var store = new InMemoryPackageStore();
-        string producer = NuGetCache.GetSourceKey(NuGetOrg.Url);
+        string producer = PackageProducerIdentity.NuGetOrg.Key;
         await store.CommitAsync(
             PackageId,
             Version,
             producer,
             new MemoryStream(SplitPackage("net8.0")),
             TestContext.Current.CancellationToken);
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -434,6 +774,12 @@ public sealed class PackageRootAcquisitionTests
 
         Assert.Equal("net10.0", acquired.Request.CompileTargetFramework);
         Assert.Equal("net8.0", acquired.Request.SelectionTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            acquired.Binding.Root.RequestedTargetFramework);
+        Assert.Equal(
+            "net10.0",
+            acquired.Request.RequestedTargetFramework);
         Assert.True(acquired.Request.HasSelectedImplementationUniverse);
 
         await store.CommitAsync(
@@ -454,11 +800,48 @@ public sealed class PackageRootAcquisitionTests
     }
 
     [Fact]
+    public async Task ExactRequest_ReacquiresEmptyCompileGroup()
+    {
+        using var http = new HttpClient(new FailingHandler());
+        var store = new InMemoryPackageStore();
+        await store.CommitAsync(
+            PackageId,
+            Version,
+            PackageProducerIdentity.NuGetOrg.Key,
+            new MemoryStream(EmptyCompileGroupPackage()),
+            TestContext.Current.CancellationToken);
+        PackageRootHouseExecution execution = Options(http, store);
+
+        var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+            await PackageRootAcquisition.AcquireAsync(
+                PackageRootAcquisitionRequest.Create(
+                    PackageId,
+                    Version,
+                    "net10.0"),
+                execution,
+                TestContext.Current.CancellationToken));
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            acquired.Binding.Root.AssetSelection.Status);
+
+        var reacquired =
+            Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
+                await PackageRootAcquisition.AcquireAsync(
+                    acquired.Request,
+                    Options(http, store),
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(acquired.Request, reacquired.Request);
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            reacquired.Binding.Root.AssetSelection.Status);
+    }
+
+    [Fact]
     public async Task ExactRequest_ReopensAfterCandidateWorkspaceDisposal()
     {
         using var http = new HttpClient(new FailingHandler());
         IPackageStore store = await CachedStoreAsync(LibraryPackage());
-        WorkspaceContextLoadOptions options = Options(http, store);
+        PackageRootHouseExecution options = Options(http, store);
 
         var acquired = Assert.IsType<PackageRootAcquisitionOutcome.Acquired>(
             await PackageRootAcquisition.AcquireAsync(
@@ -604,6 +987,12 @@ public sealed class PackageRootAcquisitionTests
                     null,
                     usesCompatibleImplementationSelection: true),
                 Request(null, null, "netstandard2.0", null),
+                Request(
+                    null,
+                    null,
+                    Framework,
+                    null,
+                    ownerDefaultTarget: true),
                 Request(null, null, null, null),
             })
         {
@@ -629,7 +1018,7 @@ public sealed class PackageRootAcquisitionTests
         string legacyToken = LegacyToken(
             PackageId,
             Version,
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            PackageProducerIdentity.NuGetOrg.Key,
             Framework,
             null,
             Framework,
@@ -640,6 +1029,7 @@ public sealed class PackageRootAcquisitionTests
                 out PackageRootReacquisitionRequest? legacy));
         Assert.Equal(Framework, legacy.CompileTargetFramework);
         Assert.Equal(Framework, legacy.SelectionTargetFramework);
+        Assert.Equal(Framework, legacy.RequestedTargetFramework);
         Assert.False(legacy.AllowsCompatibleTargetSelection);
         Assert.False(legacy.UsesCompatibleImplementationSelection);
         Assert.True(legacy.HasSelectedImplementationUniverse);
@@ -664,6 +1054,7 @@ public sealed class PackageRootAcquisitionTests
                 out PackageRootReacquisitionRequest? older));
         Assert.True(older.AllowsCompatibleTargetSelection);
         Assert.True(older.UsesCompatibleImplementationSelection);
+        Assert.Equal("net6.0", older.RequestedTargetFramework);
         Assert.True(older.HasSelectedImplementationUniverse);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
@@ -687,10 +1078,37 @@ public sealed class PackageRootAcquisitionTests
                 out PackageRootReacquisitionRequest? earlier));
         Assert.True(earlier.AllowsCompatibleTargetSelection);
         Assert.True(earlier.UsesCompatibleImplementationSelection);
+        Assert.Equal(Framework, earlier.RequestedTargetFramework);
         Assert.True(earlier.HasSelectedImplementationUniverse);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             earlier.Encode(),
+            StringComparison.Ordinal);
+
+        string currentPreviousToken = VersionedToken(
+            "pkgroot5",
+            PackageId,
+            Version,
+            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            Framework,
+            null,
+            Framework,
+            Framework,
+            null,
+            "compatible",
+            "exact",
+            "selected");
+        Assert.True(
+            PackageRootReacquisitionRequest.TryDecode(
+                currentPreviousToken,
+                out PackageRootReacquisitionRequest? currentPrevious));
+        Assert.True(currentPrevious.AllowsCompatibleTargetSelection);
+        Assert.False(currentPrevious.UsesCompatibleImplementationSelection);
+        Assert.True(currentPrevious.HasSelectedImplementationUniverse);
+        Assert.Equal(Framework, currentPrevious.RequestedTargetFramework);
+        Assert.StartsWith(
+            PackageRootReacquisitionRequest.TokenPrefix,
+            currentPrevious.Encode(),
             StringComparison.Ordinal);
 
         string previousToken = VersionedToken(
@@ -712,6 +1130,7 @@ public sealed class PackageRootAcquisitionTests
         Assert.True(previous.AllowsCompatibleTargetSelection);
         Assert.False(previous.UsesCompatibleImplementationSelection);
         Assert.True(previous.HasSelectedImplementationUniverse);
+        Assert.Equal(Framework, previous.RequestedTargetFramework);
         Assert.StartsWith(
             PackageRootReacquisitionRequest.TokenPrefix,
             previous.Encode(),
@@ -1040,7 +1459,8 @@ public sealed class PackageRootAcquisitionTests
         string? compileTargetFramework = null,
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false,
-        bool? hasSelectedImplementationUniverse = null)
+        bool? hasSelectedImplementationUniverse = null,
+        bool ownerDefaultTarget = false)
         => RequestForProducer(
             NuGetCache.GetSourceKey(NuGetOrg.Url),
             acquisitionFramework,
@@ -1050,7 +1470,8 @@ public sealed class PackageRootAcquisitionTests
             compileTargetFramework,
             usesCompatibleImplementationSelection,
             allowsCompatibleTargetSelection,
-            hasSelectedImplementationUniverse);
+            hasSelectedImplementationUniverse,
+            ownerDefaultTarget);
 
     static PackageRootReacquisitionRequest RequestForProducer(
         string producer,
@@ -1061,7 +1482,8 @@ public sealed class PackageRootAcquisitionTests
         string? compileTargetFramework = null,
         bool usesCompatibleImplementationSelection = false,
         bool allowsCompatibleTargetSelection = false,
-        bool? hasSelectedImplementationUniverse = null)
+        bool? hasSelectedImplementationUniverse = null,
+        bool ownerDefaultTarget = false)
     {
         Assert.True(
             RealizedMemberCoordinate.Package.TryCreate(
@@ -1076,6 +1498,10 @@ public sealed class PackageRootAcquisitionTests
         return new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 coordinate,
+                ownerDefaultTarget
+                    ? null
+                    : compileTargetFramework
+                        ?? selectionTargetFramework,
                 compileTargetFramework ?? selectionTargetFramework,
                 selectionTargetFramework,
                 selectionRuntimeIdentifier,
@@ -1091,6 +1517,15 @@ public sealed class PackageRootAcquisitionTests
             fields = [.. fields, fields[8]];
         if (fields.Length == 10)
             fields = [.. fields, "selected"];
+        if (fields.Length == 11)
+        {
+            fields =
+            [
+                .. fields[..5],
+                fields[5],
+                .. fields[5..],
+            ];
+        }
 
         return VersionedToken(
             PackageRootReacquisitionRequest.TokenPrefix,
@@ -1137,17 +1572,18 @@ public sealed class PackageRootAcquisitionTests
         return builder.ToString();
     }
 
-    static WorkspaceContextLoadOptions Options(
+    static PackageRootHouseExecution Options(
         HttpClient client,
         IPackageStore store,
         IPackageSourceAuthorization? authorization = null) =>
-        new()
+        PackageRootTestHouseExecution.Create(
+            new()
         {
             HttpClient = client,
             SourceAuthorization = authorization
                 ?? new UniformPackageSourceAuthorization([NuGetOrg]),
             PackageStore = store,
-        };
+        });
 
     static async Task<IPackageStore> CachedStoreAsync(byte[] nupkg)
     {
@@ -1155,10 +1591,20 @@ public sealed class PackageRootAcquisitionTests
         await store.CommitAsync(
             PackageId,
             Version,
-            NuGetCache.GetSourceKey(NuGetOrg.Url),
+            PackageProducerIdentity.NuGetOrg.Key,
             new MemoryStream(nupkg),
             TestContext.Current.CancellationToken);
         return store;
+    }
+
+    sealed class FailOnHouseExecution : IPackageRootHouseExecutor
+    {
+        public Task<PackageHouseSettlement> ExecuteAsync(
+            PackageHouseRequest request,
+            string? requiredProducerKey,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException(
+                "Invalid package coordinates must fail before House execution.");
     }
 
     static byte[] LibraryPackage(string framework = Framework)
@@ -1174,6 +1620,39 @@ public sealed class PackageRootAcquisitionTests
                 .CreateEntry($"lib/{framework}/{AssemblyName}.dll")
                 .Open();
             stream.Write(image, 0, image.Length);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] NestedLibraryPackage()
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            using Stream stream = archive
+                .CreateEntry(
+                    $"lib/{Framework}/nested/{AssemblyName}.dll")
+                .Open();
+            stream.Write(image);
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] NoCompileAssetsPackage()
+    {
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            archive.CreateEntry("content/readme.txt");
         }
 
         return buffer.ToArray();
@@ -1201,6 +1680,25 @@ public sealed class PackageRootAcquisitionTests
             {
                 implementation.Write(image);
             }
+        }
+
+        return buffer.ToArray();
+    }
+
+    static byte[] EmptyCompileGroupPackage()
+    {
+        byte[] image = IntegrationAssembly();
+        using var buffer = new MemoryStream();
+        using (var archive = new ZipArchive(
+            buffer,
+            ZipArchiveMode.Create,
+            leaveOpen: true))
+        {
+            archive.CreateEntry("ref/net10.0/_._");
+            using Stream implementation = archive
+                .CreateEntry($"lib/net8.0/{AssemblyName}.dll")
+                .Open();
+            implementation.Write(image);
         }
 
         return buffer.ToArray();

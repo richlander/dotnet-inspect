@@ -39,6 +39,12 @@ public static class ResourceExplanationCommandDefinitions
             DefaultValueFactory = static _ => 0,
         };
         var outputPathOption = SharedOptions.CreateOutputPathOption();
+        var valuesOption = new Option<string?>("-Q")
+        {
+            Description = "Narrow vocabulary .data/.hal to exact native value IDs (comma/semicolon-separated; bare: all)",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        valuesOption.Aliases.Add("--query-help");
 
         depthOption.Validators.Add(result =>
         {
@@ -56,10 +62,18 @@ public static class ResourceExplanationCommandDefinitions
         opts.AddEnvelopeOptionTo(command);
         command.Options.Add(opts.Limit);
         command.Options.Add(outputPathOption);
+        command.Options.Add(valuesOption);
         SharedOptions.AddOutputPathValidator(command, outputPathOption);
 
         command.SetAction(parseResult =>
-            ResourceExplanationCommand.Execute(
+        {
+            string[]? valueIds = SharedOptions.ParseProjectionList(parseResult, valuesOption);
+            if (parseResult.GetValue(valuesOption) is not null && valueIds is not { Length: > 0 })
+            {
+                CommandError.Write("-Q requires at least one exact vocabulary value identity when a value is supplied.");
+                return 1;
+            }
+            return ResourceExplanationCommand.Execute(
                 parseResult.GetValue(operandArgument)!,
                 parseResult.GetValue(depthOption),
                 parseResult.GetResult(depthOption) is { Implicit: false },
@@ -70,7 +84,9 @@ public static class ResourceExplanationCommandDefinitions
                 parseResult.GetValue(outputPathOption),
                 parseResult.GetValue(projectionArgument) == ".contract",
                 parseResult.GetValue(projectionArgument) is ".data" or ".hal"
-                    ? parseResult.GetValue(projectionArgument) : null));
+                    ? parseResult.GetValue(projectionArgument) : null,
+                valueIds);
+        });
         return command;
     }
 }

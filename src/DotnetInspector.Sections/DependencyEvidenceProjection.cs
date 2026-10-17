@@ -36,6 +36,7 @@ public enum DependencyEvidenceFailurePhase
     Library,
     Pruning,
     License,
+    LatestVersion,
 }
 
 /// <summary>The closed parent family of one restored graph edge.</summary>

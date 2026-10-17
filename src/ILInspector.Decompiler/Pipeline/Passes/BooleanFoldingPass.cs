@@ -316,6 +316,11 @@ public sealed class BooleanFoldingPass : IIrPass
     static bool MaterializeBoolConditional(IrFunction function, Conditional conditional, Stepper stepper)
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");
+        if (conditional.MergedType is { } mergedType
+            && CoercionRendering.IsEnum(mergedType, function.TypeShapes))
+        {
+            return false;
+        }
         if (!CanMaterializeBoolExpression(conditional, out bool hasBoolEvidence, out bool needsRewrite)
             || !hasBoolEvidence
             || !needsRewrite)

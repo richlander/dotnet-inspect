@@ -558,6 +558,8 @@ public static class ZipArchiveReader
             ReadOnlySpan<byte> record = bytes.AsSpan(offset);
             ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(record[8..]);
             ushort method = BinaryPrimitives.ReadUInt16LittleEndian(record[10..]);
+            ushort lastWriteTime = BinaryPrimitives.ReadUInt16LittleEndian(record[12..]);
+            ushort lastWriteDate = BinaryPrimitives.ReadUInt16LittleEndian(record[14..]);
             uint crc = BinaryPrimitives.ReadUInt32LittleEndian(record[16..]);
             uint compressedLength = BinaryPrimitives.ReadUInt32LittleEndian(record[20..]);
             uint expandedLength = BinaryPrimitives.ReadUInt32LittleEndian(record[24..]);
@@ -580,6 +582,7 @@ public static class ZipArchiveReader
                 bytes.AsSpan(offset + CentralDirectoryEntryLength, nameLength).ToArray(),
                 flags,
                 method,
+                DecodeDosTimestamp(lastWriteDate, lastWriteTime),
                 crc,
                 compressedLength,
                 expandedLength,
@@ -591,6 +594,42 @@ public static class ZipArchiveReader
         if (offset != bytes.Length)
             throw Malformed("The archive's central-directory extent is inconsistent.");
         return entries;
+    }
+
+    private static DateTimeOffset? DecodeDosTimestamp(
+        ushort date,
+        ushort time)
+    {
+        int year = 1980 + ((date >> 9) & 0x7F);
+        int month = (date >> 5) & 0x0F;
+        int day = date & 0x1F;
+        int hour = (time >> 11) & 0x1F;
+        int minute = (time >> 5) & 0x3F;
+        int second = (time & 0x1F) * 2;
+        if (month is < 1 or > 12
+            || day is < 1 or > 31
+            || hour > 23
+            || minute > 59
+            || second > 59)
+        {
+            return null;
+        }
+
+        try
+        {
+            return new DateTimeOffset(new DateTime(
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                DateTimeKind.Local));
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     private readonly record struct LocalHeader(

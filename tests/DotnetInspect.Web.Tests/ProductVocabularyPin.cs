@@ -30,7 +30,7 @@ internal static class ProductVocabularyPin
         new(
             "vocabularies",
             1,
-            "sha256:edf9e7452c84cc3afa291beb10c7d9cec28f3d4c5c4cf5e353800cb010153f07"),
+            "sha256:bdeebf807d5103849c42b51649e736e5e811036c8a2cc8fd90a63c4aee725a50"),
         new(
             "vocabularies/csharp.style-choices",
             1,
@@ -43,9 +43,9 @@ internal static class ProductVocabularyPin
         new("vocabularies/csharp.style-choices", 1,
             "sha256:1bdcda51e030a5d1cf430751feaa72082b3da996f134ecd34491f9d58b88aa95"),
         new("vocabularies/csharp.style-choices", 0,
-            "sha256:7467eb944127bbb922868e316257d72cc2600102673e38359c57335288718599", "data"),
+            "sha256:b728f429ac8d2166fbe17f9b3beba032a6b4813674662b1153cef8fe53f3c50e", "data"),
         new("vocabularies/csharp.style-choices", 0,
-            "sha256:bc1e3c9beb4694a2a9bb605c0da43a2bc490fe8ad471c8009e26aad3dc56fa7c", "hal"),
+            "sha256:ffc3639e94ee0dd9972af847103e79b12abc58e0f228337cd45ac8eba3ba76da", "hal"),
     ];
 }
 

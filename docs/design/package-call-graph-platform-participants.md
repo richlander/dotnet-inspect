@@ -168,9 +168,12 @@ Graph construction is bound to one Workspace generation. The package-only
 predecessor graph is what proves CoreLib non-participation, so it is always
 built first and never against a context that already has Platform
 participants. Continuation publication replaces the generation. The
-inspection discards the predecessor graph session, builds once against the
-successor, and retains the continuation receipt in the outcome. At most one
-continuation and one rebuild occur for each request.
+replacement republishes the predecessor's complete logical Package scope in
+the same order; graph-only package-version coalescing remains the analysis
+input and cannot truncate the replacement Workspace. The inspection discards
+the predecessor graph session, builds once against the successor, and retains
+the continuation receipt in the outcome. At most one continuation and one
+rebuild occur for each request.
 
 - A rejected or failed continuation returns the predecessor graph with that
   typed outcome visible.

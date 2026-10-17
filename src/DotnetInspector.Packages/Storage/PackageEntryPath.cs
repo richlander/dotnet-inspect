@@ -3,6 +3,43 @@ namespace DotnetInspector.Packages;
 /// <summary>Validates package-root path segments shared by package-content stores.</summary>
 public static class PackageEntryPath
 {
+    /// <summary>
+    /// Returns the final lexical segment of a package or archive entry.
+    /// Both separator forms are recognized independently of the inspecting host.
+    /// </summary>
+    public static string GetLeafName(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        int separator = Math.Max(
+            path.LastIndexOf('/'),
+            path.LastIndexOf('\\'));
+        return path[(separator + 1)..];
+    }
+
+    /// <summary>
+    /// Returns the final lexical segment without its final extension.
+    /// </summary>
+    public static string GetStemName(string path)
+    {
+        string leaf = GetLeafName(path);
+        int extension = leaf.LastIndexOf('.');
+        return extension < 0
+            ? leaf
+            : leaf[..extension];
+    }
+
+    /// <summary>
+    /// Returns the final lexical segment's final extension, including its dot.
+    /// </summary>
+    public static string GetExtension(string path)
+    {
+        string leaf = GetLeafName(path);
+        int extension = leaf.LastIndexOf('.');
+        return extension < 0 || extension == leaf.Length - 1
+            ? string.Empty
+            : leaf[extension..];
+    }
+
     /// <summary>Recognizes the standard package tool-settings entry layout.</summary>
     public static bool IsToolSettingsPath(string path)
     {
@@ -28,8 +65,7 @@ public static class PackageEntryPath
             && !segment.Contains('/')
             && !segment.Contains('\\')
             && !segment.Contains(':')
-            && !segment.Contains('\0')
-            && !Path.IsPathRooted(segment);
+            && !segment.Contains('\0');
     }
 
     /// <summary>

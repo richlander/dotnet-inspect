@@ -361,10 +361,10 @@ public static partial class PackageExports
                     return new PackageLibraryChildCandidate(
                         path,
                         path,
-                        Path.GetFileNameWithoutExtension(path),
+                        PackageEntryPath.GetStemName(path),
                         measurements.SelectedTargetFramework,
                         entryPointFileNames.Contains(
-                            Path.GetFileName(path))
+                            PackageEntryPath.GetLeafName(path))
                             ? PackageLibraryChildRole.ToolEntryPoint
                             : PackageLibraryChildRole.ToolLibrary);
                 })
@@ -783,13 +783,18 @@ public static partial class PackageExports
         string targetFramework,
         string assemblyId)
     {
-        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-            await BrowserPackageWorkspace.OpenScopeAsync(
+        BrowserPackageCoordinate realizedCoordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
                 targetFramework);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [realizedCoordinate],
+                CancellationToken.None);
         BrowserInspectionScope scope = scopeLease.Scope;
-        BrowserPackageCoordinate coordinate = scope.Coordinates[0];
+        BrowserPackageCoordinate coordinate =
+            scope.Coordinate(realizedCoordinate);
         BrowserCompileLibraryAvailability compileLibrary =
             BrowserPackageWireProjection.Project(
                 BrowserCompileLibraryProjection.Project(coordinate.Selection));
@@ -871,6 +876,24 @@ public static partial class PackageExports
                     : null;
         BrowserPackageDependencyDeclarationFailure[] declarationFailures =
             ProjectDependencyDeclarationFailures(dependencies);
+        bool GroupIsComplete(PackageDependencyEvidenceGroup group) =>
+            !dependencies.Failures.Any(failure =>
+                DependencyDeclarationFailureBelongsToGroup(
+                    failure,
+                    group.Identity));
+        bool canSelectEmptyCompleteGroup =
+            dependencyEvidence.Selection.Status switch
+            {
+                PackageDependencyEvidenceSelectionStatus.NoDependencyGroups =>
+                    dependencies.Failures.IsEmpty,
+                PackageDependencyEvidenceSelectionStatus.Selected =>
+                    dependencies.Groups.Any(group =>
+                        group.Declarations.IsEmpty
+                        && GroupIsComplete(group)),
+                _ => false,
+            };
+        BrowserPackagePlatformReferenceProjection platformReferences =
+            BrowserPackagePlatformReferences.Project(realizedCoordinate);
         return new BrowserPackageDependencies(
                 coordinate.PackageId,
                 coordinate.Version,
@@ -884,6 +907,7 @@ public static partial class PackageExports
                                 group.FrameworkScope.SourceSpelling.ToString()),
                             group.Identity
                                 == dependencyEvidence.Selection.SelectedGroup,
+                            GroupIsComplete(group),
                             [
                                 .. group.Declarations.Select(dependency =>
                                     new BrowserPackageDependency(
@@ -891,9 +915,22 @@ public static partial class PackageExports
                                         dependency.SourceVersionConstraintSpelling.ToString())),
                             ])),
                 ],
+                [
+                    .. platformReferences.References.Select(reference =>
+                        new BrowserPackagePlatformReference(
+                            reference.Family,
+                            reference.Label)),
+                ],
+                canSelectEmptyCompleteGroup
+                    && platformReferences.DefaultReference is { } defaultReference
+                        ? new BrowserPackagePlatformReference(
+                            defaultReference.Family,
+                            defaultReference.Label)
+                        : null,
                 declarationFailures,
                 assemblyReferences,
                 dependencyGroupError,
+                platformReferences.Error,
                 compileLibrary);
     }
 
@@ -1032,6 +1069,20 @@ public static partial class PackageExports
         return JsonSerializer.Serialize(
             document,
             BrowserPackageJsonContext.Default.BrowserPackageDocumentContent);
+    }
+
+    /// <summary>
+    /// Visually contains sanitized package-document HTML immediately before browser publication.
+    /// Markdown structure and active-content sanitization have already been applied by the host.
+    /// </summary>
+    [JSExport]
+    public static string ContainPackageDocumentHtml(string html)
+    {
+        BrowserPackageDocumentHtml document =
+            BrowserPackageWireProjection.ProjectDocumentHtml(html);
+        return JsonSerializer.Serialize(
+            document,
+            BrowserPackageJsonContext.Default.BrowserPackageDocumentHtml);
     }
 
     /// <summary>

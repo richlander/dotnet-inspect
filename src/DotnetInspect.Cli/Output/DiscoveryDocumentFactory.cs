@@ -26,7 +26,10 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration>? sectionCardinalities = null,
-        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null) =>
+        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null,
+        IReadOnlyDictionary<
+            string,
+            SectionDescription>? sectionDescriptions = null) =>
         CreateCore(
             catalog,
             discover,
@@ -40,6 +43,7 @@ internal static class DiscoveryDocumentFactory
             requireExactSelection,
             sectionCardinalities,
             sectionShapes,
+            sectionDescriptions,
             includeResourcePaths: false)?.Document;
 
     public static Projection? CreateProjection(
@@ -56,7 +60,10 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<
             string,
             SectionCardinalityDeclaration>? sectionCardinalities = null,
-        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null) =>
+        IReadOnlyDictionary<string, SectionShape>? sectionShapes = null,
+        IReadOnlyDictionary<
+            string,
+            SectionDescription>? sectionDescriptions = null) =>
         CreateCore(
             catalog,
             discover,
@@ -70,6 +77,7 @@ internal static class DiscoveryDocumentFactory
             requireExactSelection,
             sectionCardinalities,
             sectionShapes,
+            sectionDescriptions,
             includeResourcePaths: true);
 
     private static Projection? CreateCore(
@@ -87,6 +95,9 @@ internal static class DiscoveryDocumentFactory
             string,
             SectionCardinalityDeclaration>? sectionCardinalities,
         IReadOnlyDictionary<string, SectionShape>? sectionShapes,
+        IReadOnlyDictionary<
+            string,
+            SectionDescription>? sectionDescriptions,
         bool includeResourcePaths)
     {
         IReadOnlyDictionary<string, string[]> categories =
@@ -101,6 +112,8 @@ internal static class DiscoveryDocumentFactory
             new List<StructuralResourcePathRegistration>();
         IReadOnlyDictionary<string, SectionShape> shapes =
             NormalizeShapes(sectionShapes, schema.SectionNames);
+        IReadOnlyDictionary<string, SectionDescription> descriptions =
+            NormalizeDescriptions(sectionDescriptions, schema.SectionNames);
         List<DiscoveryResource> resources =
             CreateResources(
                 catalog,
@@ -109,6 +122,7 @@ internal static class DiscoveryDocumentFactory
                 capabilities,
                 cardinalities,
                 shapes,
+                descriptions,
                 includeResourcePaths ? resourcePaths : null);
         List<DiscoveryResourceIdentity> catalogEntries =
             CreateCatalogEntries(
@@ -147,6 +161,7 @@ internal static class DiscoveryDocumentFactory
             string,
             SectionCardinalityDeclaration> cardinalities,
         IReadOnlyDictionary<string, SectionShape> shapes,
+        IReadOnlyDictionary<string, SectionDescription> descriptions,
         List<StructuralResourcePathRegistration>? resourcePaths)
     {
         var resources = new List<DiscoveryResource>();
@@ -234,6 +249,9 @@ internal static class DiscoveryDocumentFactory
                 shapes.TryGetValue(sectionName, out SectionShape declaredShape)
                     ? declaredShape
                     : null;
+            descriptions.TryGetValue(
+                sectionName,
+                out SectionDescription? description);
             resources.Add(
                 new DiscoveryResource(
                     sectionIdentity,
@@ -241,7 +259,8 @@ internal static class DiscoveryDocumentFactory
                     outputModes:
                         capabilities.FormatsForSection(sectionName),
                     cardinality: cardinality,
-                    shape: shape));
+                    shape: shape,
+                    description: description));
             if (resourcePaths is not null)
             {
                 AddPath(
@@ -334,6 +353,30 @@ internal static class DiscoveryDocumentFactory
             // section hidden from the current route) is simply not advertised.
             if (known.TryGetValue(name, out string? canonicalName))
                 normalized[canonicalName] = shape;
+        }
+
+        return normalized;
+    }
+
+    private static IReadOnlyDictionary<string, SectionDescription>
+        NormalizeDescriptions(
+            IReadOnlyDictionary<string, SectionDescription>? descriptions,
+            IReadOnlyList<string> sectionNames)
+    {
+        var normalized = new Dictionary<string, SectionDescription>(
+            StringComparer.OrdinalIgnoreCase);
+        if (descriptions is null)
+            return normalized;
+
+        var known = sectionNames.ToDictionary(
+            static name => name,
+            StringComparer.OrdinalIgnoreCase);
+        foreach ((string name, SectionDescription description) in descriptions)
+        {
+            // As with shapes, a description for a section outside this schema
+            // is simply not advertised.
+            if (known.TryGetValue(name, out string? canonicalName))
+                normalized[canonicalName] = description;
         }
 
         return normalized;

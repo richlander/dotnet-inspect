@@ -39,7 +39,7 @@ internal sealed record SearchAssemblySource(
         string root = $"{package.PackageId}@{package.PackageVersion}";
         string display = $"{root}/{asset.Path}";
         return new(
-            Path.GetFileNameWithoutExtension(asset.AssemblyName),
+            asset.AssemblySimpleName,
             package.PackageId,
             package.PackageVersion,
             display,

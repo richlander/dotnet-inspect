@@ -16,7 +16,7 @@ using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class ResourceExplanationCommandTests : IDisposable
+public sealed partial class ResourceExplanationCommandTests : IDisposable
 {
     public void Dispose()
     {
@@ -50,17 +50,17 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement vocabularies = document.RootElement.GetProperty("vocabularies");
         JsonElement choices = vocabularies.GetProperty("csharp.style-choices");
-        Assert.Equal(17, choices.GetProperty("values").GetArrayLength());
-        Assert.Equal(4, vocabularies.GetProperty("csharp.style-tiers").GetProperty("values").GetArrayLength());
+        Assert.Equal(17, choices.GetProperty("values").EnumerateObject().Count());
+        Assert.Equal(4, vocabularies.GetProperty("csharp.style-tiers").GetProperty("values").EnumerateObject().Count());
         JsonElement sets = choices.GetProperty("property_sets");
         Assert.Equal(2, sets.GetProperty("byte_divergent").GetArrayLength());
         Assert.Equal(5, sets.GetProperty("oracle_endorsed").GetArrayLength());
         Assert.Single(sets.GetProperty("corpus_endorsed").EnumerateArray());
         Assert.Equal(2, choices.GetProperty("property_groups").GetProperty("conflict_group").EnumerateObject().Count());
-        foreach (JsonElement choice in choices.GetProperty("values").EnumerateArray())
+        foreach (JsonProperty choice in choices.GetProperty("values").EnumerateObject())
         {
-            Assert.False(choice.TryGetProperty("byte_divergent", out _));
-            Assert.False(choice.TryGetProperty("conflict_group", out _));
+            Assert.False(choice.Value.TryGetProperty("byte_divergent", out _));
+            Assert.False(choice.Value.TryGetProperty("conflict_group", out _));
         }
     }
 
@@ -78,6 +78,71 @@ public sealed class ResourceExplanationCommandTests : IDisposable
             .GetProperty("exposed_facets");
         Assert.Equal(["library-literal"], exposed.EnumerateArray().Select(value => value.GetString()).ToArray());
         Assert.DoesNotContain(exposed.EnumerateArray(), value => value.GetString() == "library-target");
+    }
+
+    [Fact]
+    public async Task SelectedFacetData_PreservesValueMeaningsAndAffordancesWithoutControls()
+    {
+        var result = await RunAsync(
+            "explain",
+            "package-query/query/facets/dependency-target",
+            ".data",
+            "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement facet = document.RootElement
+            .GetProperty("facets")
+            .GetProperty("dependency-target");
+
+        Assert.False(facet.TryGetProperty("control_kind", out _));
+        Assert.False(facet.TryGetProperty("presentation_kind", out _));
+        Assert.False(facet.TryGetProperty("options", out _));
+        Assert.Equal(
+            "nuspec",
+            facet.GetProperty("execution_class").GetString());
+        Assert.Equal(
+            [
+                "all",
+                "net11.0",
+                "net10.0",
+                "net9.0",
+                "net8.0",
+                "net7.0",
+                "net6.0",
+                "netstandard2.1",
+                "netstandard2.0",
+                "net48",
+                "net472",
+            ],
+            facet.GetProperty("value_descriptions")
+                .EnumerateObject()
+                .Select(option => option.Name));
+        Assert.Equal(
+            ["package.dependencies.inspect"],
+            facet.GetProperty("related_operations")
+                .EnumerateArray()
+                .Select(operation => operation.GetString()));
+    }
+
+    [Fact]
+    public async Task SelectedFacetData_ReferencesProductEcosystemOptionsByIdentity()
+    {
+        var result = await RunAsync(
+            "explain",
+            "package-query/query/facets/depends-ecosystem",
+            ".data",
+            "--json");
+        Assert.Equal(0, result.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement facet = document.RootElement
+            .GetProperty("facets")
+            .GetProperty("depends-ecosystem");
+
+        Assert.Equal(
+            "product-ecosystems",
+            facet.GetProperty("option_source").GetString());
+        Assert.False(facet.TryGetProperty("options", out _));
+        Assert.False(facet.TryGetProperty("value_descriptions", out _));
     }
 
     [Fact]
@@ -215,10 +280,10 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         Assert.False(root.TryGetProperty("facts", out _));
         Assert.False(root.TryGetProperty("identity", out _));
         Assert.False(root.TryGetProperty("selection", out _));
-        Assert.Equal(path.StartsWith("vocabularies/", StringComparison.Ordinal), root.TryGetProperty("name", out _));
+        Assert.False(root.TryGetProperty("name", out _));
         JsonElement links = root.GetProperty("_links");
         Assert.False(links.TryGetProperty("curies", out _));
-        Assert.Equal(path.StartsWith("vocabularies/", StringComparison.Ordinal), links.TryGetProperty("describedby", out _));
+        Assert.False(links.TryGetProperty("describedby", out _));
         Assert.Equal("application/hal+json", links.GetProperty("self").GetProperty("type").GetString());
         string href = links.GetProperty("self").GetProperty("href").GetString()!;
         var followed = await RunAsync("explain", href, "--json");
@@ -235,7 +300,9 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         JsonElement embedded = root.GetProperty("_embedded");
         Assert.All(embedded.EnumerateObject(), relation => Assert.Equal(JsonValueKind.Array, relation.Value.ValueKind));
         if (path.StartsWith("vocabularies/", StringComparison.Ordinal))
-            Assert.Equal(17, embedded.GetProperty("values").GetArrayLength());
+            Assert.Equal(17, embedded.GetProperty("vocabularies").EnumerateArray()
+                .Single(vocabulary => vocabulary.GetProperty("id").GetString() == "csharp.style-choices")
+                .GetProperty("_embedded").GetProperty("values").GetArrayLength());
         else
             Assert.Equal(19, embedded.GetProperty("facets").GetArrayLength());
     }
@@ -333,6 +400,70 @@ public sealed class ResourceExplanationCommandTests : IDisposable
         JsonElement root = document.RootElement.GetProperty("resources")[0];
         Assert.Equal(shape, TextFact(root, "shape"));
         Assert.Equal(cardinality, TextFact(root, "cardinality"));
+    }
+
+    [Theory]
+    [InlineData("library-metrics")]
+    [InlineData("dependency-structure")]
+    [InlineData("member-metrics")]
+    [InlineData("top-leverage")]
+    [InlineData("clone-candidates")]
+    [InlineData("array-pool-escapes")]
+    [InlineData("performance-boxing")]
+    public async Task Explain_LibrarySection_ReportsOwnerDescription(
+        string section)
+    {
+        // Adopted Library sections explain what they report: Summary, Basis,
+        // and Empty are owner-issued text, never the section name.
+        var result = await RunAsync(
+            "explain",
+            $"library/sections/{section}",
+            ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        string name = TextFact(root, "name");
+        foreach (string part in new[] { "summary", "basis", "empty" })
+        {
+            string text = TextFact(root, part);
+            Assert.False(string.IsNullOrWhiteSpace(text));
+            Assert.NotEqual(name, text);
+        }
+    }
+
+    [Fact]
+    public async Task Explain_LibrarySectionDescription_RendersAndUndeclaredIsAbsent()
+    {
+        var described = await RunAsync(
+            "explain",
+            "library/sections/top-leverage");
+
+        Assert.Equal(0, described.ExitCode);
+        Assert.Empty(described.Error);
+        Assert.Contains("Summary: ", described.Output);
+        Assert.Contains("Basis: ", described.Output);
+        Assert.Contains("Empty: ", described.Output);
+
+        // A section that has not declared a description reports every part
+        // absent rather than substituting its name or an empty string.
+        // Library has completed adoption, so the undeclared case is a
+        // section of a command that has not.
+        var undeclared = await RunAsync(
+            "explain",
+            "member/sections/derived-types",
+            ".contract", "--json");
+
+        Assert.Equal(0, undeclared.ExitCode);
+        using JsonDocument document = JsonDocument.Parse(undeclared.Output);
+        JsonElement root = document.RootElement.GetProperty("resources")[0];
+        foreach (string part in new[] { "summary", "basis", "empty", "boundary" })
+        {
+            Assert.Equal(
+                "Absent",
+                Fact(root, part).GetProperty("state").GetString());
+        }
     }
 
     [Fact]

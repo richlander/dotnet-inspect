@@ -43,6 +43,8 @@ public enum PackageHouseEvidenceDemand
 public enum PackageHouseTargetSelectionMode
 {
     Exact,
+    ExactTarget,
+    FrozenTarget,
     OwnerDefault,
 }
 
@@ -168,6 +170,61 @@ public abstract class PackageHouseDemand
 
         public PackageVersionSelectionRequest Request { get; }
     }
+
+    /// <summary>
+    /// The demand one package version spelling declares, as <c>package</c>
+    /// reads it: an exact version is an <see cref="Exact"/> coordinate,
+    /// <c>latest</c> an always-check selection, and a <c>*</c> pattern a
+    /// wildcard selection. Ranges and the bare Current requirement are not
+    /// one endpoint's spelling.
+    /// </summary>
+    public static bool TryCreate(
+        string packageId,
+        string version,
+        bool includePrerelease,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out PackageHouseDemand? demand,
+        out string? error)
+    {
+        demand = null;
+        error = null;
+        if (string.IsNullOrWhiteSpace(version)
+            || version.Contains("..", StringComparison.Ordinal))
+        {
+            error = "One package version, latest, or a wildcard pattern is required.";
+            return false;
+        }
+
+        if (!version.Contains('*')
+            && !version.Equals("latest", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                demand = new Exact(PackageSourceCoordinate.Create(packageId, version));
+                return true;
+            }
+            catch (ArgumentException exception)
+            {
+                error = exception.Message;
+                return false;
+            }
+        }
+
+        if (!DesktopPackageSourceComposition.TryCreateSelectionRequest(
+                packageId,
+                version,
+                includePrerelease,
+                rangeAddress: null,
+                out PackageVersionSelectionRequest? selection,
+                out ConfiguredPackagePayloadResult? failure))
+        {
+            error = failure!.Failures.FirstOrDefault()?.Message
+                ?? "The package version selection is invalid.";
+            return false;
+        }
+
+        demand = new Selecting(selection!);
+        return true;
+    }
 }
 
 /// <summary>One package-owned target-selection context.</summary>
@@ -177,12 +234,14 @@ public sealed class PackageHouseTargetContext
         PackageHouseTargetSelectionMode mode,
         string? requestedFramework,
         string? runtimeIdentifier,
-        PlatformFamilyTarget? platformTarget)
+        PlatformFamilyTarget? platformTarget,
+        bool includesNestedCompileAssets)
     {
         Mode = mode;
         RequestedFramework = requestedFramework;
         RuntimeIdentifier = runtimeIdentifier;
         PlatformTarget = platformTarget;
+        IncludesNestedCompileAssets = includesNestedCompileAssets;
     }
 
     public PackageHouseTargetSelectionMode Mode { get; }
@@ -192,6 +251,8 @@ public sealed class PackageHouseTargetContext
     public string? RuntimeIdentifier { get; }
 
     public PlatformFamilyTarget? PlatformTarget { get; }
+
+    public bool IncludesNestedCompileAssets { get; }
 
     public static PackageHouseTargetContext Exact(
         string requestedFramework,
@@ -219,7 +280,8 @@ public sealed class PackageHouseTargetContext
             PackageHouseTargetSelectionMode.Exact,
             framework,
             runtime,
-            platformTarget);
+            platformTarget,
+            includesNestedCompileAssets: true);
     }
 
     public static PackageHouseTargetContext OwnerDefault(
@@ -230,7 +292,48 @@ public sealed class PackageHouseTargetContext
             ValidateRuntimeIdentifier(
                 runtimeIdentifier,
                 nameof(runtimeIdentifier)),
-            platformTarget: null);
+            platformTarget: null,
+            includesNestedCompileAssets: true);
+
+    public static PackageHouseTargetContext ExactTarget(
+        string requestedFramework,
+        string? runtimeIdentifier = null)
+    {
+        string framework = NormalizeFramework(
+            requestedFramework,
+            nameof(requestedFramework));
+        string? runtime = ValidateRuntimeIdentifier(
+            runtimeIdentifier,
+            nameof(runtimeIdentifier));
+        return new PackageHouseTargetContext(
+            PackageHouseTargetSelectionMode.ExactTarget,
+            framework,
+            runtime,
+            platformTarget: null,
+            includesNestedCompileAssets: false);
+    }
+
+    /// <summary>
+    /// Repeats one owner-selected exact target while preserving owner-default
+    /// compile-candidate eligibility.
+    /// </summary>
+    public static PackageHouseTargetContext FrozenTarget(
+        string requestedFramework,
+        string? runtimeIdentifier = null)
+    {
+        string framework = NormalizeFramework(
+            requestedFramework,
+            nameof(requestedFramework));
+        string? runtime = ValidateRuntimeIdentifier(
+            runtimeIdentifier,
+            nameof(runtimeIdentifier));
+        return new PackageHouseTargetContext(
+            PackageHouseTargetSelectionMode.FrozenTarget,
+            framework,
+            runtime,
+            platformTarget: null,
+            includesNestedCompileAssets: true);
+    }
 
     internal static string NormalizeFramework(
         string value,
@@ -297,7 +400,8 @@ public sealed class PackageHouseRequest
             evidenceDemand,
             libraryCompanionDemand,
             contentQuery,
-            allowReferenceOnlyImplementationNames: false)
+            allowReferenceOnlyImplementationNames: false,
+            materializeCompileAssets: false)
     {
     }
 
@@ -314,7 +418,8 @@ public sealed class PackageHouseRequest
         PackageHouseEvidenceDemand evidenceDemand,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand,
         PackageHouseContentQuery? contentQuery,
-        bool allowReferenceOnlyImplementationNames)
+        bool allowReferenceOnlyImplementationNames,
+        bool materializeCompileAssets)
     {
         ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(operation);
@@ -406,6 +511,12 @@ public sealed class PackageHouseRequest
                 Terminals.Count: 1,
             }
             && contentQuery.CompileLibraryTerminal.AssetDemand == assetDemand;
+        if (materializeCompileAssets && !compileInventory)
+        {
+            throw new ArgumentException(
+                "Compile-asset materialization requires a package-only compile inventory realization.",
+                nameof(materializeCompileAssets));
+        }
         if (contentQuery?.CompileLibraryTerminal is not null && !compileLibrary)
             throw new ArgumentException("An exact compile Library terminal requires its package-only compile realization.", nameof(contentQuery));
         if (contentQuery is not null
@@ -510,6 +621,7 @@ public sealed class PackageHouseRequest
 
         IsCompileInventory = compileInventory;
         IsCompileLibrary = compileLibrary;
+        MaterializeCompileAssets = materializeCompileAssets;
         Demand = demand;
         Operation = operation;
         TargetContext = targetContext;
@@ -551,6 +663,8 @@ public sealed class PackageHouseRequest
     /// <summary>Whether this request declares exact compile Library content.</summary>
     public bool IsCompileLibrary { get; }
 
+    internal bool MaterializeCompileAssets { get; }
+
     /// <summary>
     /// Declares package-wide File List and compile selection before acquisition.
     /// Library inspection requires a later Library-content realization.
@@ -571,6 +685,40 @@ public sealed class PackageHouseRequest
             contentQuery: new PackageHouseContentQuery(
                 new PackageHouseContentNarrowing.PackageWide(),
                 [new PackageHouseContentTerminal.FileList()]));
+    }
+
+    /// <summary>
+    /// Declares package-wide File List and compile selection while retaining
+    /// the selected compile assets for a body-backed package inspection.
+    /// </summary>
+    public static PackageHouseRequest CompileInspection(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand =
+            PackageAssetDemand.SurfaceAndImplementation)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return new(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            association: null,
+            assetDemand,
+            implementationNames: null,
+            fileDemand: null,
+            evidenceDemand:
+                PackageHouseEvidenceDemand.FrameworkReferences,
+            libraryCompanionDemand:
+                PackageHouseLibraryCompanionDemand.None,
+            contentQuery: new PackageHouseContentQuery(
+                new PackageHouseContentNarrowing.PackageWide(),
+                [new PackageHouseContentTerminal.FileList(
+                    includeDirectories: true)]),
+            allowReferenceOnlyImplementationNames: false,
+            materializeCompileAssets: true);
     }
 
     /// <summary>Declares an exact Library selector before House acquisition planning.</summary>

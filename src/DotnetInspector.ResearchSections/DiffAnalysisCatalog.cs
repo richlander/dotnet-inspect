@@ -165,6 +165,21 @@ public static class DiffAnalysisCatalog
                 .Participation.ProducerRoute == RetainedResearchRoute);
     }
 
+    /// <summary>
+    /// Whether every selected analysis compares API metadata only, through
+    /// the API or API-attribute route, and reads no method body.
+    /// </summary>
+    public static bool ReadsOnlyApiSurface(
+        AnalysisSetValidationResult.Accepted selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.Analyses.All(analysis =>
+            analysis.ParticipationFor(selection.Operation)
+                ?.For(selection.Surface)
+                ?.ProducerRoute is { } route
+            && (route == ApiRoute || route == ApiAttributeRoute));
+    }
+
     public static bool RequiresStringLiteralQuery(
         AnalysisSetValidationResult.Accepted selection)
     {

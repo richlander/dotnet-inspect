@@ -100,7 +100,9 @@ not infer Platform identity from a package or file name.
 
 Windows Metadata (`.winmd`) is not a supported input format, and rejection is
 only partially enforced. Directory and package scans select `*.dll`, so a
-`.winmd` beside them is skipped without comment. A `.winmd` named explicitly —
+`.winmd` beside them is skipped without comment. A native `*.dll` in a
+directory scan is also skipped; a directory with only native images is
+reported as a failed source. A `.winmd` named explicitly —
 `library ./Foo.winmd`, `find --library ./Foo.winmd` — is rejected rather than
 inspected, though not every surface names the reason: `find` reports
 "Windows Metadata is not a supported metadata format", while `library` reports
@@ -845,6 +847,8 @@ packet=$(dotnet-inspect workspace \
 dotnet-inspect package System.Text.Json --workspace "$packet"
 dotnet-inspect package System.Text.Json \
   --workspace "$packet" --share packet
+dotnet-inspect package System.Text.Json@10.0.0 \
+  --tfm netstandard2.0 -S "Dependency Hierarchy" --share url
 dotnet-inspect package query 'Azure.AI*' --take 100 --tsv
 ```
 
@@ -888,6 +892,14 @@ Appending `--share` preserves ordinary stdout and writes a derived Package
 packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
+
+For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
+append `--share url` to keep the hierarchy on stdout and print its Inspect Web
+URL on stderr. The URL preserves the resolved exact Package version and target
+framework; the Browser reacquires that Package and runs the rooted dependency
+traversal. `--share packet` emits the packet instead. Local archives, other
+source selections, and hierarchy row or depth selections cannot currently be
+reproduced in the Browser and fail visibly.
 
 For one package with exactly `Files` selected, `-n`, `--tail`, and
 `--rows A..B` select complete path/size rows after archive extraction, file
@@ -1154,9 +1166,15 @@ dotnet-inspect library query --platform runtime \
 Library Query tests each candidate Library's direct `AssemblyRef` table;
 repeated `references` terms are ANDed. `--take` bounds candidates scanned,
 while `-n`, `--head`, `--tail`, and `--rows` select matching Library rows
-afterward. Use `library query -Q Libraries` to discover the current vocabulary.
-Missing or malformed Metadata remains visible and makes unbounded Count
-inexact rather than silently becoming a nonmatch.
+afterward; a lone `-n` stops scanning at its Nth match. A reached explicit
+`--take` is the answer's scope: a note names it and the exit is 0. The default
+256-candidate limit that omits Libraries is a partial view: rows and `--count`
+print what was observed, with a warning and exit 1. Use
+`library query -Q Libraries` to discover the current vocabulary.
+Native images beside managed Libraries in the directory are skipped; a
+directory with no managed Library is a failed source. Missing or malformed
+Metadata remains visible rather than silently becoming a nonmatch: rows and
+`--count` print what was observed, with the failure warning and exit 1.
 
 License selection also stays at the manifest boundary. `license=any` matches
 any nuspec license declaration. Closed semantic values match nuspec metadata
@@ -1215,13 +1233,16 @@ evidence. Use `tool-format=v1` or `tool-format=v2` for settings-based format
 classification; the two specific formats are compatible filtering
 alternatives. Selecting a package-content term authorizes the required archive
 acquisition and defaults to at most 20 candidates. Use `--nuspec-only` to
-reject a query that would require package content. Without explicit `--take`, a
-simple `-n N` query pushes that semantic head into execution; explicit
-`--take` instead fixes the candidate population before row selection. Reached
-candidate limits and partial failures are reported explicitly. `--count`
-counts the selected matching package rows that the same query would render,
-with the same completion warnings and exit status. A reached candidate bound or
-partial failure therefore yields an observed count, not the scope's total.
+reject a query that would require package content. A simple `-n N` query
+pushes that semantic head into execution, inside an explicit `--take` window
+when one is given: evaluation stops at the Nth match or the window's end.
+Explicit `--take` fixes the requested candidate population; reaching it is the
+answer's scope, named by a note, and exits 0. A default candidate limit that
+stops evaluation, a page limit, or a partial failure is a partial view: a
+warning and exit 1. `--count` counts the selected matching package rows that
+the same query would render, with the same notes, warnings, and exit status: it
+is exact for a reached explicit `--take`, and an observed count, not the
+scope's total, under a default limit or partial failure.
 Incompleteness alone never withholds the count: only a search that fails before
 evaluating any candidate prints none, and an unsatisfied strict `--rows` window
 fails as it does for rows.
@@ -2129,8 +2150,9 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
   --type System.Text.Json.JsonSerializer --member "Serialize:1" \
   --analysis api,call-site,allocation
 
-dotnet-inspect diff --package Microsoft.Identity.Client@4.89.0..4.90.0 \
-  --analysis string-literals --where "Literal contains https://"
+dotnet-inspect diff --package Microsoft.Azure.SignalR@1.20.0..1.33.1 \
+  --analysis string-literals \
+  --where "Literal contains https://"
 
 dotnet-inspect diff --library old/Foo.dll..new/Foo.dll \
   --analysis string-literals --where "Literal starts-with https://" --json
@@ -2140,7 +2162,11 @@ String-literal predicates use exact ordinal UTF-16 matching. The key is
 case-sensitive `Literal`; the supported operators are `contains` and
 `starts-with`. Each Transition row retains the complete decoded literal. Two
 matching positions within one literal still produce one row, while separate
-physical `ldstr` instructions remain separate occurrences.
+physical `ldstr` instructions remain separate occurrences. Package diffs with
+several Library assemblies compare corresponding assemblies by file name and
+name each assembly in the Transition target. An assembly present at only one
+endpoint contributes added or removed literals. The single-Library target
+remains the package name.
 
 Omitting `--analysis` selects the default set, `api`, so `diff A B` output is
 unchanged. One selected analysis defaults to `Changes` for `api` and to
@@ -2756,17 +2782,56 @@ dotnet-inspect explain package-query/query .data --json
 dotnet-inspect explain package-query/query/facets/library-literal .hal --json
 ```
 
-`.hal` presents direct resource state, a titled `_links` menu, and related
-resources in `_embedded` arrays with simple, descriptive relation names. HAL links
-advertise `application/hal+json` and preserve the selection through
-`?projection=hal`; JSON detail links advertise `application/json`. A root
-`describedby` link selects the full contract through `?projection=contract`.
-Pass either address unchanged to `explain --json`. Receipt details stay in the
-contract representation; completeness and non-available data qualifications
-remain beside the data they affect. Both
-selections require `--json` and reject `--depth` and search operands. Selection
-closure is bounded to 256 resources and 4,096 observed targets; excess or
+`.hal` embeds the reading resources under `_embedded`. Vocabulary reading uses
+`_embedded.vocabularies` and each vocabulary's `_embedded.values`; direct `.data`
+uses keyed `vocabularies`/`values` tables plus owner-order arrays. Both preserve
+native identities, map meanings and sparse property indices. `scope` reports the
+reading profile and complete selected population. Vocabulary `catalog_values`
+counts are bounded JSON numbers; integer map values retain their lossless decimal
+text representation.
+
+For an exact vocabulary root, add `-Q` / `--query-help` to either reading
+projection to select native value identities before serialization:
+
+```bash
+dotnet-inspect explain vocabularies/csharp.body-kinds .hal --json \
+  -Q ObjectCreationExpression
+dotnet-inspect explain vocabularies/csharp.style-choices .data --json \
+  -Q slot-local-names
+dotnet-inspect explain vocabularies/api.accessibility .hal --json \
+  -Q 'public;private'
+```
+
+Lists accept commas or semicolons, trim whitespace, deduplicate, and preserve
+owner order. A bare `-Q` after the projection selects all values; a supplied empty
+list fails. Matching is exact and case-sensitive: `ObjectCreationExpression` is
+a native body-kind identity, while `objectcreationexpression` is its path segment.
+No wildcard, display-label or path-segment matching is inferred. Shared selection
+includes only the exact referenced term values, so one style choice includes its
+tier meaning without the unrelated tier population. Optional groups and defaults
+contain selected members only; they do not enumerate all catalog alternatives.
+
+`-Q` narrows data while `.data`/`.hal` selects its representation. It requires the
+reading projection and JSON; it is rejected for ordinary compact output,
+`.contract`, vocabulary collections, value-resource roots, other resource kinds,
+search text, `--depth`, and `-n`. Capability-search `-n` still caps search results;
+`--depth` still controls ordinary graph expansion. Root `explain -Q` does not
+replace command-local Package Query `--explain -Q` facet selection.
+
+Full reading HAL has one implemented `self` link. A value-selected HAL response
+has one full-vocabulary `collection` link. Links advertise
+`application/hal+json` and use `?projection=hal`; pass an emitted href unchanged
+to `explain --json`. You can add `-Q` to narrow that HAL address while retaining
+its projection. Reading profiles omit automatic contract/member navigation;
+request `.contract --json` explicitly when declaration inspection is necessary.
+Ordinary compact resource navigation can still expose other JSON detail links.
+
+The reading projections require JSON and reject `--depth` and search operands.
+Closure is bounded to 256 resources and 4,096 observed targets; excess or
 incomplete selected observations fail visibly instead of producing sparse tables
-with ambiguous negatives. Neither selection supplies validation rules or host
-flag mappings that the catalog has not registered. The [worked reading comparison](../tools/ExplainReadingScenarios/README.md#actual-selected-data-comparison)
-includes runnable jq exploration and actual JSON examples.
+with ambiguous negatives. Absence from a Boolean set establishes false only for
+a selected member with complete available property coverage. Unselected values
+remain unknown. Neither projection supplies validation rules or host flag
+mappings that the catalog has not registered. The
+[worked vocabulary reads](../tools/ExplainReadingScenarios/vocabulary-reading/README.md#cli-value-reading)
+include reusable jq exploration and a concrete agent workflow.

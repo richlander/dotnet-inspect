@@ -99,8 +99,6 @@ public sealed class LibraryBodyAnalysisExecutionTests
         AssertStageParticipated(
             LibraryBodyAnalysisStage
                 .OptimizationOpportunityAnalysis);
-        AssertStageParticipated(
-            LibraryBodyAnalysisStage.AsyncSiblingAnalysis);
         Assert.True(
             profiled.Receipt.StageParticipation!
                 .For(

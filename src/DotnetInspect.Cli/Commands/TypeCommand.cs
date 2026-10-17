@@ -97,14 +97,14 @@ public static partial class TypeCommand
     internal static Task<int> ExecuteAsync(
         TypeOptions options,
         ResolvedMemberInspectionPlan plan,
-        PackageHouse exactTypeHouse,
+        PackageHouse packageHouse,
         Func<CancellationToken, PackageSourceOperationLease>
-            issueExactTypeOperation)
+            issuePackageOperation)
         => ExecuteCoreAsync(
             options,
             plan,
-            exactTypeHouse: exactTypeHouse,
-            issueExactTypeOperation: issueExactTypeOperation);
+            packageHouse: packageHouse,
+            issuePackageOperation: issuePackageOperation);
 
     internal static Task<int> ExecuteAsync(
         TypeOptions options,
@@ -215,9 +215,9 @@ public static partial class TypeCommand
         ApiServices.LoadedApiSurface? loadedSurface = null,
         ApiType? preselectedType = null,
         WorkspaceContextLoadOptions? exactTypeCapabilities = null,
-        PackageHouse? exactTypeHouse = null,
+        PackageHouse? packageHouse = null,
         Func<CancellationToken, PackageSourceOperationLease>?
-            issueExactTypeOperation = null,
+            issuePackageOperation = null,
         WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime = null,
         TypeCommandPlan? commandPlan = null,
         CancellationToken cancellationToken = default)
@@ -318,7 +318,7 @@ public static partial class TypeCommand
                 options,
                 out ExactTypeInspectionRequest? exactTypeRequest))
         {
-            return await (exactTypeHouse is null
+            return await (packageHouse is null
                 ? ExecuteSharedExactTypeAsync(
                     options,
                     plan,
@@ -328,8 +328,8 @@ public static partial class TypeCommand
                     options,
                     plan,
                     exactTypeRequest,
-                    exactTypeHouse,
-                    (issueExactTypeOperation
+                    packageHouse,
+                    (issuePackageOperation
                         ?? throw new InvalidOperationException(
                             "An injected exact-Type PackageHouse requires "
                                 + "a source-operation issuer."))(
@@ -343,11 +343,21 @@ public static partial class TypeCommand
                 options,
                 out ExactLibraryApiInspectionRequest? exactLibraryRequest))
         {
-            return await ExecuteSharedExactLibraryApiAsync(
+            return await (packageHouse is null
+                ? ExecuteSharedExactLibraryApiAsync(
                     options,
                     exactLibraryRequest,
-                    exactTypeCapabilities)
-                .ConfigureAwait(false);
+                    cancellationToken)
+                : ExecuteSharedExactLibraryApiAsync(
+                    options,
+                    exactLibraryRequest,
+                    packageHouse,
+                    (issuePackageOperation
+                        ?? throw new InvalidOperationException(
+                            "An injected exact-Library PackageHouse requires "
+                                + "a source-operation issuer."))(
+                        cancellationToken),
+                    cancellationToken)).ConfigureAwait(false);
         }
 
         if (options.EnvelopeOutput)
@@ -1181,37 +1191,56 @@ public static partial class TypeCommand
             && !options.RequestAllTaste;
     }
 
-    static Task<int> ExecuteSharedExactLibraryApiAsync(
+    static async Task<int> ExecuteSharedExactLibraryApiAsync(
         TypeOptions options,
         ExactLibraryApiInspectionRequest request,
-        WorkspaceContextLoadOptions? capabilities) =>
-        ExecuteSharedExactLibraryApiCoreAsync(
-            options,
-            request,
-            capabilities
-            ?? new WorkspaceContextLoadOptions
-            {
-                HttpClient = HttpClientFactory.Shared,
-                SourceAuthorization =
-                    new SourcePolicyPackageSourceAuthorization(
-                        options.SourceOptions),
-                PackageStore = new FileSystemPackageStore(),
-                UseVersionCache = true,
-                Log = options.Verbose
-                    ? CommandError.WriteLine
-                    : null,
-            });
-
-    static async Task<int> ExecuteSharedExactLibraryApiCoreAsync(
-        TypeOptions options,
-        ExactLibraryApiInspectionRequest request,
-        WorkspaceContextLoadOptions capabilities)
+        CancellationToken cancellationToken)
     {
-        ExactLibraryApiInspectionExecution execution =
-            await ExactLibraryApiInspectionOperation.ExecuteAsync(
+        var logger = new VerboseLogger(options.Verbose);
+        await using var composition =
+            new DesktopPackageSourceComposition(
+                HttpClientFactory.Shared.Timeout);
+        using var stores =
+            new SearchPackageStores("inspect-library-api");
+        PackageHouse house =
+            composition.CreateDependencyContentQueryHouse(
+                stores.GetLegacyCompatibleStore,
+                options.SourceOptions,
+                options.Verbose ? logger.Log : null);
+        using PackageSourceOperationLease sourceOperation =
+            composition.IssueSettlementOperation(cancellationToken);
+        return await ExecuteSharedExactLibraryApiAsync(
+                options,
+                request,
+                house,
+                sourceOperation,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    static async Task<int> ExecuteSharedExactLibraryApiAsync(
+        TypeOptions options,
+        ExactLibraryApiInspectionRequest request,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        CancellationToken cancellationToken)
+    {
+        ExactLibraryApiInspectionExecution execution;
+        try
+        {
+            execution =
+                await ExactLibraryApiInspectionOperation.ExecuteAsync(
                     request,
-                    capabilities)
+                    house,
+                    sourceOperation,
+                    cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            CommandError.Write(failure);
+            return 1;
+        }
         InspectionEnvelope<ExactLibraryApiInspectionResult> envelope =
             execution.Inspection;
         ExactLibraryApiInspectionResult result = envelope.Content;
@@ -2019,6 +2048,18 @@ public static partial class TypeCommand
             {
                 return new WorkspaceTypeAssemblyPath(
                     Path.GetFullPath(existing),
+                    temporaryDirectory: null);
+            }
+            if (target.PackageExtractPath is { } packageExtractPath
+                && target.PackageAssetPath is { } packageAssetPath)
+            {
+                return new WorkspaceTypeAssemblyPath(
+                    Path.GetFullPath(
+                        Path.Combine(
+                            packageExtractPath,
+                            packageAssetPath.Replace(
+                                '/',
+                                Path.DirectorySeparatorChar))),
                     temporaryDirectory: null);
             }
 

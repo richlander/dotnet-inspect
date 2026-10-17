@@ -213,7 +213,9 @@ public class SearchScopeResolutionTests
             "-n",
             "1");
 
-        Assert.Equal(0, exit);
+        // The missing source leaves an incomplete (empty) answer, not a
+        // platform fallback.
+        Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("Directory not found", error, StringComparison.Ordinal);
     }

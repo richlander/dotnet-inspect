@@ -452,11 +452,13 @@ public sealed class PackageDependencyMemberCallGraphPreparation
     internal PackageDependencyMemberCallGraphPreparation(
         PackageDependencyWorkspaceRouteOutcome.Completed routes,
         PackageDependencyTraversalOutcome traversal,
+        ImmutableArray<PackageRootBinding> workspaceBindings,
         ImmutableArray<PackageRootBinding> graphBindings,
         PackageRootIdentity root)
     {
         Routes = routes;
         Traversal = traversal;
+        WorkspaceBindings = workspaceBindings;
         GraphBindings = graphBindings;
         Root = root;
     }
@@ -467,6 +469,8 @@ public sealed class PackageDependencyMemberCallGraphPreparation
     internal PackageDependencyTraversalOutcome Traversal { get; }
 
     public WorkspaceScopeSnapshot Scope => Routes.Scope;
+
+    public ImmutableArray<PackageRootBinding> WorkspaceBindings { get; }
 
     public ImmutableArray<PackageRootBinding> GraphBindings { get; }
 
@@ -760,6 +764,10 @@ public static class PackageDependencyMemberCallGraphOperation
         var completedRoutes =
             (PackageDependencyWorkspaceRouteOutcome.Completed)
                 routeOutcome;
+        ImmutableArray<PackageRootBinding> workspaceBindings =
+            WorkspaceBindings(
+                request,
+                completedRoutes);
         ImmutableArray<PackageRootBinding> graphBindings =
             GraphBindings(
                 request,
@@ -772,6 +780,7 @@ public static class PackageDependencyMemberCallGraphOperation
                 new(
                     completedRoutes,
                     request.Traversal,
+                    workspaceBindings,
                     graphBindings,
                     root));
     }
@@ -1188,6 +1197,78 @@ public static class PackageDependencyMemberCallGraphOperation
                 "Dependency call-graph composition requires at least one routed Package Root.");
         }
         return bindings.ToImmutable();
+    }
+
+    private static ImmutableArray<PackageRootBinding> WorkspaceBindings(
+        PackageDependencyMemberCallGraphRequest request,
+        PackageDependencyWorkspaceRouteOutcome.Completed routes)
+    {
+        var candidates =
+            new Dictionary<
+                WorkspacePackageOccurrenceIdentity,
+                PackageRootBinding>(
+                    ReferenceEqualityComparer.Instance);
+        foreach (PackageRootBinding binding in request.RootBindings)
+        {
+            WorkspacePackageOccurrenceDescriptor? occurrence =
+                routes.Scope.FindExactPackageOccurrence(binding);
+            if (occurrence is null)
+            {
+                throw new InvalidOperationException(
+                    "A dependency call-graph root must retain its exact final Workspace occurrence.");
+            }
+            AddWorkspaceBinding(
+                candidates,
+                occurrence,
+                binding);
+        }
+        foreach (PackageDependencyWorkspaceDestination.Package package
+            in routes.Destinations.OfType<
+                PackageDependencyWorkspaceDestination.Package>())
+        {
+            WorkspacePackageOccurrenceDescriptor? occurrence =
+                routes.Scope.FindExactPackageOccurrence(package.Binding);
+            if (!ReferenceEquals(occurrence, package.Occurrence))
+            {
+                throw new InvalidOperationException(
+                    "A completed dependency Package route must retain the exact contributed binding or fail before Workspace replacement.");
+            }
+            AddWorkspaceBinding(
+                candidates,
+                package.Occurrence,
+                package.Binding);
+        }
+
+        var bindings = ImmutableArray.CreateBuilder<PackageRootBinding>();
+        foreach (WorkspacePackageOccurrenceDescriptor occurrence
+            in routes.Scope.Packages)
+        {
+            if (candidates.TryGetValue(
+                    occurrence.Occurrence.Identity,
+                    out PackageRootBinding? binding))
+            {
+                bindings.Add(binding);
+            }
+        }
+        return bindings.ToImmutable();
+    }
+
+    private static void AddWorkspaceBinding(
+        IDictionary<
+            WorkspacePackageOccurrenceIdentity,
+            PackageRootBinding> candidates,
+        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageRootBinding binding)
+    {
+        WorkspacePackageOccurrenceIdentity identity =
+            occurrence.Occurrence.Identity;
+        if (candidates.TryGetValue(
+                identity,
+                out _))
+        {
+            return;
+        }
+        candidates.Add(identity, binding);
     }
 
     private static void SelectExactGraphBinding(
