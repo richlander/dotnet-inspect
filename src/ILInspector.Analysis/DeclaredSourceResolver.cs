@@ -253,9 +253,15 @@ internal sealed class DeclaredSourceResolver(
     internal MethodDefinitionGeneratedExpansionResult
         ExpandGeneratedExecutionBodies(
             ImmutableArray<MethodDefinitionHandle> directMethods,
-            MethodDefinitionGeneratedExpansionWork work)
+            MethodDefinitionGeneratedExpansionWork work,
+            MethodDefinitionGeneratedBodyRoles roles =
+                MethodDefinitionGeneratedBodyRoles.Execution)
     {
         ArgumentNullException.ThrowIfNull(work);
+        MethodDefinitionGeneratedBodyRoles helperRoles =
+            roles
+            & (MethodDefinitionGeneratedBodyRoles.UserHelper
+                | MethodDefinitionGeneratedBodyRoles.Scaffolding);
 
         var selected = directMethods
             .Select(static handle =>
@@ -281,16 +287,38 @@ internal sealed class DeclaredSourceResolver(
                     sourceHandle,
                     sourceMethod,
                     work,
-                    out MethodDefinitionHandle executionMethod))
+                    out MethodDefinitionHandle executionMethod,
+                    out TypeDefinitionHandle stateMachineType))
             {
                 work.RecordCandidateDefinition(executionMethod);
                 work.RecordRelationshipNode(executionMethod);
+                MethodDefinitionHandle stateMachineOwner =
+                    declaredOwnerByToken[
+                        MetadataTokens.GetToken(sourceHandle)];
                 AddGenerated(
                     executionMethod,
-                    declaredOwnerByToken[
-                        MetadataTokens.GetToken(sourceHandle)],
+                    stateMachineOwner,
                     MethodDefinitionGeneratedExpansionOriginKind
                         .StateMachineExecutionBody);
+                if (helperRoles != MethodDefinitionGeneratedBodyRoles.None)
+                {
+                    foreach ((MethodDefinitionHandle helper,
+                        MethodDefinitionGeneratedBodyRoles role)
+                        in _stateMachineSourceResolver.StateMachineHelperMethods(
+                            stateMachineType,
+                            executionMethod,
+                            work))
+                    {
+                        if ((role & helperRoles) == 0)
+                            continue;
+                        AddGenerated(
+                            helper,
+                            stateMachineOwner,
+                            MethodDefinitionGeneratedExpansionOriginKind
+                                .StateMachineExecutionBody,
+                            role);
+                    }
+                }
             }
 
             foreach (MethodDefinitionHandle liftedHandle
@@ -361,13 +389,16 @@ internal sealed class DeclaredSourceResolver(
         void AddGenerated(
             MethodDefinitionHandle method,
             MethodDefinitionHandle owner,
-            MethodDefinitionGeneratedExpansionOriginKind kind)
+            MethodDefinitionGeneratedExpansionOriginKind kind,
+            MethodDefinitionGeneratedBodyRoles role =
+                MethodDefinitionGeneratedBodyRoles.Execution)
         {
             var origin =
                 new MethodDefinitionGeneratedExpansionOrigin(
                     method,
                     owner,
-                    kind);
+                    kind,
+                    role);
             work.RecordGeneratedMethod(origin);
             int token = MetadataTokens.GetToken(method);
             if (!selected.Add(token))
