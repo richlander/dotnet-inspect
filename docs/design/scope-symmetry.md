@@ -152,14 +152,21 @@ it or makes an explicit gesture, where their latency is spent on a question the
 user asked.
 
 In an interactive host, Library-scope Rows is never the default on entry: most
-of it would be discarded unseen, and its compute would not pay for itself. A
-Library-scope Rows view remains first-class, entered by an explicit gesture.
+of it would be discarded unseen, and its compute would not pay for itself.
+Library-scope Rows remains first-class as a single-level view, entered by an
+explicit gesture: one row per child the analysis reports, with that child's
+Rows on open (see [No rows within rows](#no-rows-within-rows)). The nested
+whole-Library answer is a persistent artifact.
 Type is the interesting middle: it is often small enough that Rows are cheap,
 and the right default there is an adoption decision backed by measurement.
 
 The CLI applies the same rule through its own disclosure model: the default
 answer is the cheap one at the requested scope, and broader or heavier work
 takes an explicit option ([Progressive disclosure](progressive-disclosure.md)).
+CLI output belongs to its caller, who may keep it, so an explicitly requested
+rows-within-rows CLI answer is a legitimate artifact. Whether a command's
+current default, such as `diff`'s whole-Library output, changes is that
+command owner's adoption decision.
 
 ## No rows within rows
 
@@ -222,9 +229,11 @@ Two consequences need a decision in their owners' adoptions:
   changed Type in the Library from the whole-Library comparison. Under this
   pattern they come from an exact Exists per Type, Fast Diff's Library answer,
   rather than from Rows nobody requested.
-- **Member Body Diff's inventory.** The Library-wide inventory remains the
-  Library-scope Rows view, entered explicitly; a Member request does not build
-  it.
+- **Member Body Diff's inventory.** The Library-wide inventory, every Type
+  with its changed Members, is a rows-within-rows view. On the website it is
+  reframed as single-level Rows, Types with Exists or Count, with a Type's
+  Members on open, or offered as a persistent artifact; a Member request does
+  not build it.
 
 ## Gates
 
@@ -236,7 +245,8 @@ Each adoption gates its own claims, by outcome:
   owner's fixture pairs, with QuerySpace's typed outcome for any subject Rows
   cannot decide.
 - **No rows within rows:** each rows-within-rows query the owner offers names
-  its persistent consumer; an ephemeral host view uses none.
+  its persistent consumer; an ephemeral host view uses none, including a view
+  entered by an explicit gesture, and shows single-level Rows instead.
 - **Exists latency:** NativeAOT time for Exists at the entered scope over a
   large Library, reported in the PR beside Rows at the same scope, with any
   latency budget the owner sets.
