@@ -12,7 +12,7 @@ cost across them. It owns:
 - one infrastructure for every scope and for the Rows, Count, and Exists
   terminals, with Exists exact;
 - **lean roots, heavy leaves**: how a host spends cost as a user narrows scope;
-  and
+- **no rows within rows** for ephemeral output; and
 - the retention rule for results nobody requested.
 
 It is tracked by
@@ -128,9 +128,8 @@ the complete answer, and every terminal is exact:
 
 - **Exists** is `true` exactly when Rows at that scope is non-empty;
 - **Count** equals the number of Rows; and
-- a subject that cannot be decided carries QuerySpace's typed undecided
-  outcome, never `false` or zero; Fast Diff's per-Type `Indeterminate` is one
-  example. A Count over children some of which are undecided reports them as
+- a subject that cannot be decided carries QuerySpace's typed outcome for it,
+  never `false` or zero; Fast Diff's per-Type `Indeterminate` is one example. A Count over children some of which are undecided reports them as
   undecided rather than counting them either way.
 
 A cheaper terminal differs from Rows only in cost: it stops at the first
@@ -161,6 +160,30 @@ and the right default there is an adoption decision backed by measurement.
 The CLI applies the same rule through its own disclosure model: the default
 answer is the cheap one at the requested scope, and broader or heavier work
 takes an explicit option ([Progressive disclosure](progressive-disclosure.md)).
+
+## No rows within rows
+
+A **rows-within-rows** query answers Rows at one scope and, inside each row,
+Rows at the next narrower scope: every Type of a Library, each with every
+changed Member and its detail. Its cost is the product of the scopes, the
+query-level form of a nested loop. A full Library diff is exactly this shape.
+
+A rows-within-rows query is legitimate when its consumer keeps the result as a
+**persistent artifact** it refers to many times, such as a report, a file the
+CLI writes, or a document cached by build commit: the cost is paid once and
+read often. For **ephemeral** output, such as a website view that is rendered
+and discarded, it is avoided for the same reason a nested loop is avoided in
+code.
+
+The usual way out is to reframe the question rather than speed up the nested
+query. The outer scope asks for a terminal that needs no inner Rows, Exists or
+Count per child, and inner Rows run only for the child the user opens. Fast
+Diff is this reframing at Library scope: "which Types changed?" replaces
+"every change in every Type", and the complete diff of one Type or Member
+answers the question the user then asks.
+
+An adopting owner names each rows-within-rows query it offers and the
+persistent consumer that justifies it.
 
 ## Retention
 
@@ -210,8 +233,10 @@ Each adoption gates its own claims, by outcome:
 - **Symmetry:** the same subject answered at each scope its owner supports
   gives the same answer.
 - **Exactness:** Exists and Count equal the Rows they summarize, over the
-  owner's fixture pairs, with the undecided outcome for any subject Rows cannot
-  decide.
+  owner's fixture pairs, with QuerySpace's typed outcome for any subject Rows
+  cannot decide.
+- **No rows within rows:** each rows-within-rows query the owner offers names
+  its persistent consumer; an ephemeral host view uses none.
 - **Exists latency:** NativeAOT time for Exists at the entered scope over a
   large Library, reported in the PR beside Rows at the same scope, with any
   latency budget the owner sets.
