@@ -1,0 +1,75 @@
+{
+  "comparison": {
+    "name": "NUnit",
+    "beforeVersion": "4.1.0",
+    "afterVersion": "4.2.2",
+    "surface": "Library",
+    "views": "Transitions",
+    "analyses": [
+      "string-literals"
+    ],
+    "predicates": [
+      {
+        "key": "Literal",
+        "operator": "contains",
+        "value": "{0}"
+      }
+    ]
+  },
+  "outcomes": [
+    {
+      "analysis": "string-literals",
+      "kind": "Compared",
+      "findings": [
+        "analysis.string-literal-use"
+      ]
+    }
+  ],
+  "apiInspectionFailures": [],
+  "transitions": [
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "nunit.framework.dll",
+      "from": "4.1.0",
+      "to": "4.2.2",
+      "old": "absent",
+      "new": "{0} matching item ",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Added",
+      "finding": "analysis.string-literal-use",
+      "target": "nunit.framework.dll",
+      "from": "4.1.0",
+      "to": "4.2.2",
+      "old": "absent",
+      "new": "{0} matching items ",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Removed",
+      "finding": "analysis.string-literal-use",
+      "target": "nunit.framework.dll",
+      "from": "4.1.0",
+      "to": "4.2.2",
+      "old": "{0} item ",
+      "new": "absent",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    },
+    {
+      "transition": "PairFinding.Removed",
+      "finding": "analysis.string-literal-use",
+      "target": "nunit.framework.dll",
+      "from": "4.1.0",
+      "to": "4.2.2",
+      "old": "{0} items ",
+      "new": "absent",
+      "oldInspection": "complete",
+      "newInspection": "complete"
+    }
+  ]
+}

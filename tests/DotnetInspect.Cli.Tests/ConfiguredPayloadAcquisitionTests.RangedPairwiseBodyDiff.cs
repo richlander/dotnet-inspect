@@ -53,6 +53,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
             Assert.True(legacy[view] == result.Output, result.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
                 CountOccurrences(
@@ -95,6 +96,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
             Assert.True(result.Exit == 0, result.Error);
             Assert.True(legacy[view] == result.Output, result.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
                 CountOccurrences(
@@ -144,15 +146,18 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.Contains("Microsoft.CodeAnalysis.EmbeddedAttribute", legacy[0], StringComparison.Ordinal);
 
         UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, UnsafeId, packages));
-        foreach ((string[] arguments, string framework) in new[]
-        {
+        (string[] Arguments, string Framework)[] targets =
+        [
             (request, "netcoreapp2.0"),
             ([.. request, "--tfm", "netstandard2.0"], "netstandard2.0"),
-        })
+        ];
+        for (int view = 0; view < targets.Length; view++)
         {
+            (string[] arguments, string framework) = targets[view];
             var result = await RunCommandAsync([.. arguments, "--verbose"]);
 
             Assert.True(result.Exit == 0, result.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
                 CountOccurrences(

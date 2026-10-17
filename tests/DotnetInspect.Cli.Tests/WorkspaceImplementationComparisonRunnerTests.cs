@@ -790,6 +790,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
             Assert.True(scoped.ExitCode == 0, scoped.Error);
             Assert.Equal(legacy.ExitCode, scoped.ExitCode);
             Assert.True(legacy.Output == scoped.Output, scoped.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", scoped.Output, scoped.Error, Array.IndexOf(views, (sections, json, includeIl)));
             if (includeIl)
             {
                 Assert.Equal(
@@ -860,6 +861,7 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
 
         Assert.True(scoped.ExitCode == 0, scoped.Error);
         Assert.True(legacy.Output == scoped.Output, scoped.Error);
+        RecordedOutput.AssertEqual("PackageEndpointScope", scoped.Output, scoped.Error);
         Assert.Contains(
             $"Using package endpoint scope for {Facade}@2.0.0 ",
             scoped.Error,

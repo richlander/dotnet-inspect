@@ -73,6 +73,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
             Assert.True(legacy[view] == result.Output, result.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
                 CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));
@@ -119,6 +120,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
             Assert.True(legacy[view] == result.Output, result.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
                 CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));
@@ -152,6 +154,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             {
                 var offline = await RunCommandAsync([.. requests[view], "--verbose"]);
                 Assert.True(online[view] == offline.Output, offline.Error);
+                RecordedOutput.AssertEqual("PackageEndpointScope", offline.Output, offline.Error, view);
                 // Exact pins open through the scope offline, from the
                 // legacy-compatible store, with no request.
                 Assert.Equal(
@@ -247,6 +250,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync([.. request, "--verbose"]);
 
         Assert.True(legacy[0] == result.Output, result.Error);
+        RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error);
         Assert.Equal(
             2,
             CountOccurrences(result.Error, "(2 surface assemblies for net6.0;"));
@@ -309,6 +313,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
             Assert.True(result.Exit == 0, result.Error);
             Assert.Equal(legacy.Output, result.Output);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error);
             Assert.Equal(
                 2,
                 CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));
@@ -344,6 +349,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var ownerDefault = await RunCommandAsync([.. requests[0], "--verbose"]);
 
         Assert.True(legacy[0] == ownerDefault.Output, ownerDefault.Error);
+        RecordedOutput.AssertEqual("PackageEndpointScope", ownerDefault.Output, ownerDefault.Error, 0);
         Assert.Contains(
             "**9.0.0** (net9.0) → **10.0.0** (net10.0)",
             ownerDefault.Output,
@@ -367,6 +373,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var explicitTarget = await RunCommandAsync([.. requests[1], "--verbose"]);
 
         Assert.True(legacy[1] == explicitTarget.Output, explicitTarget.Error);
+        RecordedOutput.AssertEqual("PackageEndpointScope", explicitTarget.Output, explicitTarget.Error, 1);
         Assert.Contains("**9.0.0** → **10.0.0**", explicitTarget.Output, StringComparison.Ordinal);
         Assert.Equal(
             2,
@@ -508,6 +515,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         {
             var result = results[view];
             Assert.True(legacy[view] == result.Output, result.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
                 CountOccurrences(result.Error, "Using package endpoint scope for System.Text.Json@"));

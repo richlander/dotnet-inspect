@@ -41,6 +41,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
             Assert.True(legacy[view] == result.Output, result.Error);
+            RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Contains("| PDB Source |", result.Output, StringComparison.Ordinal);
             Assert.Equal(
                 2,
