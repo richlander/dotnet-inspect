@@ -30,14 +30,17 @@ the cost of reaching the answer differs.
 
 > **Claim.** For one Library image pair, Fast Diff returns, for
 > every Type, an **API** state and a **Body** state, each `Unchanged`,
-> `Changed`, or `Indeterminate`. The API state is `Changed` exactly when the
-> complete Public API comparison reports a change to the Type or one of its
-> Members. The Body state is `Changed` exactly when a paired body of the Type
-> is not `Exact` under
-> [canonical IL comparison](il-diff-canonicalization.md#comparison-outcomes),
-> or a non-public method with a body is present on one side only. A row or
-> body that cannot be decoded makes the unsettled axes of its Type
-> `Indeterminate`, never `Unchanged`.
+> `Changed`, or `Indeterminate`; when a caller asks for the API axis alone,
+> every Body state is `NotCompared`. The API state is `Changed` exactly when
+> the complete Public API comparison reports a change to the Type or one of
+> its Members. The Body state is `Changed` exactly when the Type is present on
+> one side only, a method of it with a body is present on one side only, a
+> paired method has a body on one side only, or a paired body is not `Exact`
+> under
+> [canonical IL comparison](il-diff-canonicalization.md#comparison-outcomes)
+> with the [Body policy](#axes). A row or body that cannot be decoded or
+> resolved makes the unsettled axes of its Type `Indeterminate`, never
+> `Unchanged`.
 
 The two axes are independent searches. Each stops at its own first
 difference, and a host derives **Any** as either axis `Changed`. A Type that
@@ -86,27 +89,50 @@ presented only when a gate shows it (see [Gates](#gates)); every other kind
 is uncertain, which costs time, never correctness.
 
 The **Body** axis compares the IL of every method, public or not, with the
-equality of canonical IL comparison: `ldc.i4` forms and short branches fold to
-one family, branch and switch targets compare by aligned instruction, metadata
-tokens compare by symbolic name, and user strings by value. As in canonical
-comparison, body size, encoding, locals, stack size, `init locals`, and
-exception regions are not compared. The walk is allocation-free in lockstep and
-stops at the first difference; a retargeted branch is found once the body's
-instruction map is complete.
+equality of canonical IL comparison under one named policy, the **Body
+policy**: `IlBodyDiffNormalization.NormalizeAssemblyScope`
+([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)), so
+every Type and member operand compares by name and signature without its
+defining or referenced assembly. Dependency versions are not an input to Body
+change: a Library rebuilt only because a dependency's version moved is Body
+`Unchanged`, and for an app whose two dependencies each changed one method,
+the Body diffs of those dependencies find those two methods and the app's
+finds nothing. Package and Library versions are compared as candidates in
+their own right, not as Type changes.
+
+Under that policy, `ldc.i4` forms and short branches fold to one family,
+branch and switch targets compare by aligned instruction, metadata tokens
+compare by symbolic name, and user strings by value. Other opcodes keep their
+encoding and slot operands, so `ldloc.s` and `ldloc`, or `ldloc.0` and
+`ldloc.s 0`, differ, as the IL view shows them. As in canonical comparison,
+body size, the local signature, stack size, `init locals`, and exception
+regions are not compared, and stand-alone signatures compare as canonical
+comparison compares them. The walk is allocation-free in lockstep and stops at
+the first difference; a retargeted branch is found once the body's instruction
+map is complete.
+
+A paired method whose body is present on one side only, such as an `abstract`
+method made `virtual` or an interface member given a default implementation,
+is a Body difference, as canonical comparison's endpoint topology reports it
+(`NoApplicableInput`). A body that cannot be decoded or an operand that cannot
+be resolved is `Indeterminate`, never a difference or equality.
 
 An opcode that ECMA-335 does not define cannot be stepped over safely, so it
 makes the Body axis `Indeterminate` rather than comparing as equal.
 
 Neither axis's facts are configurable. A caller can ask for the API axis alone;
-every Body state is then `NotCompared` and no IL is read. A public member
-present on one side only is an API fact; its body is not compared. A Type public
+every Body state is then `NotCompared` and no IL is read. A method with a body
+present on one side only, public or not, is a Body difference without reading
+its IL; a public one is an API difference too. Presence is a change in its own
+right, independent of a body to compare with, and is the basis a later
+**Moved** state refines. A Type public
 on either side partitions its facts as public on both, so a visibility change is
 an API fact only.
 
 A Type present in one image only is reported whole by a presence rule: its API
 is `Changed` when the Public API surface admits it and `Unchanged` otherwise,
-and its Body is
-`Changed`, or `NotCompared` when only the API axis is asked for. A malformed
+and its Body is `Changed`, whether or not it declares a body, or
+`NotCompared` when only the API axis is asked for. A malformed
 one-sided Type is `Indeterminate` on each axis compared.
 
 ### Steps
@@ -124,8 +150,9 @@ Cancellation is observed at the same boundaries.
 
 Metadata tokens, in IL operands and in signatures, compare by symbolic name,
 resolved once per side and memoized. They never compare by token number or
-referenced assembly identity, so a renumbered or retargeted reference in an
-operand or signature is not a difference. Custom attribute and constant
+by defining or referenced assembly identity, as the [Body policy](#axes)
+states, so a renumbered or retargeted reference, or a dependency's version
+change, in an operand or signature is not a difference. Custom attribute and constant
 values are compared as raw blob bytes (see [Observability](#observability)).
 
 Symbolic names are injective by construction, as containment is for
@@ -172,15 +199,18 @@ Fast Diff adopts [Diff observability](diff-observability.md). The API axis
 targets the semantic level of the Public API diff, and the Body axis targets
 the symbolic IL level of the body diff, so `Changed` should point to something
 a user can see. IL operand and signature keys never compare token numbers or
-referenced assembly identity, so a renumbered token there is not a change.
+assembly identity, and the IL view uses the same Body policy, so a renumbered
+token or a dependency version change is not a change in either.
 
 Because each axis reads its complete diff's equality, neither axis
 over-reports against that diff. The divergences the earlier census reported
 are settled as follows:
 
-- **Encoded IL.** Opcode encodings, branch offsets, body size, stack size, and
-  exception regions are no longer compared, so a re-encoded branch is
-  `Unchanged`, as canonical comparison treats it.
+- **Encoded IL.** Short and long branch forms, `ldc.i4` forms, branch
+  offsets, body size, stack size, and exception regions are no longer
+  compared, so a re-encoded branch is `Unchanged`, as canonical comparison
+  treats it. Local and argument macro forms and slots remain compared, as the
+  IL view shows them.
 - **Type and Member flags no view presents, nullable context, and attribute
   blobs.** These are uncertain facts. A Type that differs only in them is
   decided by its Public API surface, so a framework major-version move that
@@ -221,8 +251,15 @@ Fast Diff follows it; the axis never keeps a private exception.
   change; a kind without such a case is uncertain;
 - hidden subjects: a difference confined to a Type or Member the Public API
   surface hides, such as `EditorBrowsable(Never)`, is not API `Changed`;
-- Body exactness: every method pair's Body verdict equals whether canonical IL
-  comparison reports it `Exact`, over the same fixture pairs; and
+- Body exactness: every method pair's Body verdict equals canonical IL
+  comparison's endpoint verdict under the Body policy over the same fixture
+  pairs: `Exact` is `Unchanged`, a body on one side only or any other verdict
+  is `Changed`, and a decode or resolution failure is `Indeterminate`, with
+  fixture cases for an `abstract` method made `virtual` and a default
+  interface implementation added;
+- dependency versions: a generated image pair whose only difference is the
+  version of a non-platform referenced assembly is Body `Unchanged` for every
+  Type; and
 - canonical encodings: a generated image pair whose bodies differ only in
   `br.s` against `br`, `leave.s` against `leave`, the `ldc.i4` forms, and
   shifted branch and switch offsets is Body `Unchanged`, and one with a
@@ -282,9 +319,12 @@ none of them. The remaining cost is the Public API surface built for Types
 whose census differs only in uncertain facts, about 50 ms on CoreLib, and the
 spike's fact classification, which allocates where the census need not.
 
-Canonical IL comparison's failure count for CoreLib (5,454) counts methods
-present on one side only, not bodies it could not decode; neither comparison
-failed to decode a body in these pairs.
+Canonical IL comparison's failure count for CoreLib (5,454) counts methods or
+bodies present on one side only, not bodies it could not decode; neither
+comparison failed to decode a body in these pairs. The spike compared with
+`NormalizeCurrentAssemblyScope | NormalizePlatformAssemblyScope`. No pair
+changed a non-platform reference's identity, so its verdicts equal the Body
+policy's on these pairs; the dependency-versions gate covers that case.
 
 ### Malformed metadata
 
@@ -414,10 +454,10 @@ fact describes is read from the fact's structure, never from its spelling:
    Member or of the Type's own declaration.
 3. **IL compares where the Library level compares it.** A Member's Body is
    the IL of its methods present on both sides and of the generated code it
-   owns, to the first difference, with canonical equality. A non-public
-   method present on one side only makes its owner's Body `Changed`; the body
-   of a public method present on one side only is not compared, at either
-   level.
+   owns, to the first difference, with canonical equality under the Body
+   policy. A method with a body present on one side only, or a paired method
+   with a body on one side only, makes its owner's Body `Changed`, at either
+   level, without reading its IL.
 
 Member API compares completely, so every changed public Member is marked;
 Member Body is an existence check. A Member declared on one side only is
@@ -531,8 +571,10 @@ Member Body inventory, which remains Library Compare's view.
 Two slices adopt the shared equality before step 7, which builds on both:
 
 - **Shared Body equality:** the Body axis walks IL with canonical equality
-  and compares no non-IL facts, gated per method against canonical IL
-  comparison and by the canonical encodings pair.
+  under the Body policy and compares no non-IL facts, gated per method against
+  canonical IL comparison and by the canonical encodings and dependency
+  versions pairs. It depends on the policy's normalization
+  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
 - **Shared API equality:** the census decides `Unchanged` and presented
   differences, and the Public API surface of one Type decides the rest,
   gated for exactness against the complete Public API comparison.
@@ -555,6 +597,8 @@ selection belong to the background analysis design that adopts this export.
   answers with the equality their owners define.
 - It does not report changes to the metadata of non-public Members or to
   `beforefieldinit`; no Body view presents them.
+- It does not report referenced assembly or package version changes as Type
+  changes; those versions are compared as candidates in their own right.
 - It does not report which change was found, counts, classifications, or text;
   the Member level's complete diff does.
 - It does not replace Public API Diff or Member Body Diff; they remain the
