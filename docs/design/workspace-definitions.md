@@ -379,11 +379,12 @@ and captures the newly resolved inspection intent through
 content and Share failure/output behavior remain with that owner; sharing adds
 no second inspection.
 
-The ordinary query determines its Package or descendant selection within the
-admitted context. It does not require a separate `--active-package` or an
-inventory ordinal. For example, `package Foo --workspace "$packet"` selects
-Foo for Package inspection; Member resolves its Type/Member query through its
-own grammar. This does not authorize choosing the first Package or using an
+`package Foo --workspace "$packet"` is the command-level rewrite of the former
+`--active-package` operation: select Foo as the active Package for this
+inspection and inspect it. The `package` command carries that selection role;
+Foo identifies its target. Descendant commands likewise express their subject
+selection through their ordinary command grammar. This does not authorize
+choosing the first Package or using an
 unrelated focused tab. Exact-subject ambiguity or absence remains visible;
 queries that intentionally return multiple rows keep their declared cardinality.
 
@@ -429,7 +430,7 @@ The migration preserves useful operations through their owning surfaces:
 | Transitional Workspace surface | Target placement and retirement requirement |
 | --- | --- |
 | Implicit realized top-level inventory | Ordinary Workspace output describes the portable declaration. Retain shared realized inventory for consumers that explicitly need it; declared component rows do not prove realized-result parity. |
-| `--active-package` | `package Foo --workspace "$packet"` selects Foo through its ordinary query; descendant commands likewise determine their subjects from their queries. Package packet input already exists; preserve context and target rather than substituting inventory position. |
+| `--active-package` | `package Foo --workspace "$packet"` is its command form: select Foo as the active Package for inspection. Descendant commands likewise carry their own subject-selection role. Package packet input already exists; preserve context and target rather than substituting inventory position. |
 | `--library`, `--all-libraries` | Library inspection owns aggregate/exact asset selection. Existing packet input and aggregate/narrowing semantics supply the baseline. |
 | `--type` | Type inspection owns selection and facets within admitted Workspace context. Its existing packet route is the baseline. |
 | `--member`, `--lens` | Member and the selected operation own their query/facet grammar. #10184 adds the missing Member packet-context entrance before this path retires. |
