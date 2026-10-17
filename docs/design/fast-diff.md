@@ -123,9 +123,9 @@ makes the Body axis `Indeterminate` rather than comparing as equal.
 Neither axis's facts are configurable. A caller can ask for the API axis alone;
 every Body state is then `NotCompared` and no IL is read. A method with a body
 present on one side only, public or not, is a Body difference without reading
-its IL; a public one is an API difference too. Presence is a change in its own
-right, independent of a body to compare with, and is the basis a later
-**Moved** state refines. A Type public
+its IL; a public one is an API difference too. The presence of a method with a
+body is a change in its own right, independent of a body to compare with, and
+is the basis a later **Moved** state refines. A Type public
 on either side partitions its facts as public on both, so a visibility change is
 an API fact only.
 
@@ -199,8 +199,12 @@ Fast Diff adopts [Diff observability](diff-observability.md). The API axis
 targets the semantic level of the Public API diff, and the Body axis targets
 the symbolic IL level of the body diff, so `Changed` should point to something
 a user can see. IL operand and signature keys never compare token numbers or
-assembly identity, and the IL view uses the same Body policy, so a renumbered
-token or a dependency version change is not a change in either.
+assembly identity, so a renumbered token or a dependency version change is not
+a Body change. Today the IL view of Member Body Diff compares with no
+normalization and shows a dependency version change on every call into that
+dependency, as shipped Fast Diff already does not. The Shared Body equality
+slice (see [Adoption](#adoption)) closes that divergence: the IL view requests
+the Body policy in the same slice, so a Body cue and the view it opens agree.
 
 Because each axis reads its complete diff's equality, neither axis
 over-reports against that diff. The divergences the earlier census reported
@@ -574,7 +578,9 @@ Two slices adopt the shared equality before step 7, which builds on both:
   under the Body policy and compares no non-IL facts, gated per method against
   canonical IL comparison and by the canonical encodings and dependency
   versions pairs. It depends on the policy's normalization
-  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
+  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)), and
+  in the same slice Member Body Diff's IL comparison requests the Body policy,
+  gated by the dependency versions pair showing no IL row there either.
 - **Shared API equality:** the census decides `Unchanged` and presented
   differences, and the Public API surface of one Type decides the rest,
   gated for exactness against the complete Public API comparison.
