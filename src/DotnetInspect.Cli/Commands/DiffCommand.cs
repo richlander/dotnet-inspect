@@ -1066,8 +1066,10 @@ public partial class DiffCommand
             : !DiffAnalysisCatalog.ReadsOnlyApiSurface(analysisPlan.Selection);
 
     /// <summary>
-    /// Opens both endpoints as package endpoint scopes, or returns neither
-    /// inputs nor error so the request takes the legacy path unchanged.
+    /// Opens both endpoints as package endpoint scopes, or reports why one
+    /// did not open. Only an offline request with an endpoint only discovery
+    /// can settle returns neither inputs nor error, so it takes the legacy
+    /// path (docs/design/package-endpoint-scope.md#offline).
     /// </summary>
     private static async Task<(DiffInputs? inputs, string? error)>
         TryExecuteScopedPackageDiffAsync(
@@ -1079,20 +1081,20 @@ public partial class DiffCommand
             CancellationToken cancellationToken)
     {
         var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
-        if (packageName is null
-            || fromVersion is null
-            || toVersion is null
-            || PackageEndpointDiffSession.TryCreateSelection(
-                    packageName,
-                    fromVersion,
-                    toVersion,
-                    options.Tfm) is not { } selection)
+        if (packageName is null || fromVersion is null || toVersion is null)
+            return (null, "Invalid version range. Use format: Package@v1..v2");
+        if (PackageEndpointDiffSession.TryCreateSelection(
+                packageName,
+                fromVersion,
+                toVersion,
+                options.Tfm,
+                out string? selectionError) is not { } selection)
         {
-            return (null, null);
+            return (null, selectionError);
         }
 
-        PackageEndpointDiffSession? session =
-            await PackageEndpointDiffSession.TryOpenAsync(
+        (PackageEndpointDiffSession? session, string? openError) =
+            await PackageEndpointDiffSession.OpenAsync(
                 httpClient,
                 selection,
                 readsMethodBodies
@@ -1102,7 +1104,7 @@ public partial class DiffCommand
                 logger,
                 cancellationToken);
         if (session is null)
-            return (null, null);
+            return (null, openError);
 
         try
         {
