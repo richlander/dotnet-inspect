@@ -452,17 +452,27 @@ never retain a participant after the scope is disposed.
           reported, unless the after endpoint's failure cancelled it. A
           request the House can't express is an error too: an invalid
           package ID, version spelling, or target framework, and
-          `--tfm all`. Two requests keep the legacy path:
-          - an offline request with an endpoint that only discovery can
-            settle, as [Offline](#offline) states; and
-          - without `--tfm`, a package the House selects no compile assets
-            for under the owner default, as when it ships its assemblies only
-            under `tools/` or `build/` (`dotnet-ef`,
-            `Microsoft.SourceLink.GitHub`). The legacy selector takes those
-            assemblies, so the request keeps the output it had. By operator
-            decision (Rich, 2026-10-15), this exception stays until the House
-            selects these layouts (#10180), and that work is a prerequisite of the
-            second part. With `--tfm`, the failure is reported.
+          `--tfm all`. Only an offline request with an endpoint that only
+          discovery can settle keeps the legacy path, as
+          [Offline](#offline) states.
+
+          A package that ships its assemblies only outside `lib/` and `ref/`,
+          under `tools/`, `build/`, or `analyzers/` (`dotnet-ef`,
+          `Microsoft.SourceLink.GitHub`, `xunit.analyzers`), has no compile
+          assets, so it is no longer a diff candidate, with or without
+          `--tfm`. The
+          legacy selector compared those assemblies; by operator decision
+          (Rich, 2026-10-17), the scope reports that the package isn't
+          compared, as an intentional output change, and the House selection
+          of those layouts is follow-up work (#10180).
+
+          Without `--tfm`, a package whose default framework has an empty
+          compile group (`_._`), as System.Memory 4.5 has for
+          `netcoreapp2.1`, is reported too. The legacy selector compared
+          `netstandard2.0` instead, without saying so. By the same decision,
+          the report names the frameworks to pass with `--tfm`, and the
+          owner default's treatment of an empty group is follow-up work
+          (#10206).
         - **The legacy route and the testing switch retire.** The online
           legacy package route and the testing switch retire, and the parity
           gates are rewritten as scope gates. The offline `*` route retires
@@ -525,7 +535,7 @@ All gates run in Release.
 | 12. Body views, after step 4 part 3 | implementation participants, never reference stubs, with or without `--tfm`; output byte-identical to the legacy path where both select the same assemblies | contract suite for the body query; CLI harness, real assets: `System.Text.Json` 9.0.0 and 10.0.0 Analysis Diff, Implementation Diff, a member-targeted body analysis set, and string literals, read by range; `NUnit` 4.1.0..4.2.2 string literals over its two Libraries, and, checked live but not gated, `Avalonia` 11.3.14..12.1.2 `--tfm net8.0` string literals over its 11 `lib/net8.0` Libraries, where the legacy path failed on its doubled `ref/` and `lib/` selection; `System.Runtime.CompilerServices.Unsafe` 4.7.1 and 5.0.0, which ship `ref/` and `lib/`, against the legacy oracle's reference stubs |
 | 13. PDB source, after step 4 part 4 | each participant's Portable PDB settles through its endpoint's House, never from an adjacent path; output byte-identical to the legacy path where both select the same assemblies | contract suite for the body query's group participants; CLI harness: the SourceDiff fixture pair packed with adjacent PDBs, on the pair and batch routes, against the legacy oracle |
 | 14. Workspace implementation comparison and Annotated Source Diff, after step 4 part 5 | each Root is the endpoint's implementation participant named for the package; a forwarded Type's target opens as a package endpoint scope through the House, from the dependency the Root's manifest declares, never from a pinned extraction; output byte-identical to the legacy path where both select the same assemblies | CLI harness: the forwarded fixture packages, a facade and the terminal package it declares, for Implementation Diff in Markdown and JSON and for Annotated Source Diff, against the legacy oracle; a direct Type on the same route. Checked live, not gated: `NuGet.Packaging.Core` 6.8.0..6.9.1, whose Root forwards `PackageIdentity` to `NuGet.Packaging` |
-| 15. Endpoint failures, after step 4 part 6's first part | an endpoint that doesn't open is reported from its typed failure by the scope route, never the legacy path | CLI harness, `System.Text.Json` 9.0.0 and 10.0.0 on a feed that answers an unlisted archive with 404: an exact version no source supplies, a pattern no listed version matches, and `--tfm net2.0`; a source that refuses every connection; the selection theory for malformed requests; a tools-only fixture pair keeps the legacy path without `--tfm`, against the legacy oracle, and is reported with `--tfm net8.0`. Checked live, not gated: `dotnet-ef` 7.0.0..8.0.0 and 8.0.0..8.0.1 and `Microsoft.SourceLink.GitHub` 1.1.1..8.0.0, byte-identical to main |
+| 15. Endpoint failures, after step 4 part 6's first part | an endpoint that doesn't open is reported from its typed failure by the scope route, never the legacy path | CLI harness, `System.Text.Json` 9.0.0 and 10.0.0 on a feed that answers an unlisted archive with 404: an exact version no source supplies, a pattern no listed version matches, and `--tfm net2.0`; a source that refuses every connection; the selection theory for malformed requests; a tools-only fixture pair is reported, not compared, with and without `--tfm`; a System.Memory-shaped fixture pair (an empty `netcoreapp2.1` group beside `netstandard2.0`) is reported without `--tfm`, naming `netstandard2.0`, and compared with it |
 | 16. Legacy retired, after step 4 part 6 | no `diff --package` request reaches the `AssemblySet` endpoint path, except an offline `*` pattern until the House settles `Wildcard` offline | CLI harness |
 | 17. Performance, every step 4 part that changes code | exact-head NativeAOT numbers against `main`, built on linux-x64 and run back to back under `perf-guard`, in the PR body and the session: cold and warm wall time, bytes received, and disk written | perf hosts, fixed pairs: `System.Text.Json` 10.0.0..11.0 with and without `--tfm`; `Avalonia` 11.3.14..12.1.2 `--tfm net8.0`; `NUnit` 4.1.0..4.2.2; `MediatR` 12.2.0..12.4.1; `Microsoft.Extensions.Hosting` 8.0.0..9.0.0; `Microsoft.CodeAnalysis.CSharp` 4.12.0..4.14.0 |
 | 18. Exact CLI Library API inspection | unchanged detached output and typed missing/malformed outcomes; complete compile evidence with only the selected Library body materialized | Sections, Services, and CLI contract suites; real assets `System.Text.Json` 10.0.0, `Avalonia` 12.1.3, and `Microsoft.CodeAnalysis.CSharp` 5.9.0 |

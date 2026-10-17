@@ -137,27 +137,12 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     }
 
     /// <summary>
-    /// Whether <paramref name="failed"/> is the one endpoint failure that
-    /// keeps the legacy path: under the owner default, the House selected no
-    /// compile assets at all, as for a package that ships its assemblies only
-    /// under <c>tools/</c> or <c>build/</c>, which the legacy selector takes.
-    /// </summary>
-    internal static bool IsLegacySelectorOnly(
-        PackageEndpointScopeOutcome.Failed failed,
-        PackageHouseTargetContext target) =>
-        failed.Kind == PackageEndpointScopeFailureKind.NoCompatibleFramework
-        && target.Mode == PackageHouseTargetSelectionMode.OwnerDefault
-        && failed.Selection?.Status == PackageCompileAssetSelectionStatus.NoCompileAssets;
-
-    /// <summary>
     /// Opens both endpoints by range with <paramref name="assetDemand"/>:
     /// <c>Surface</c> for the API views, <c>SurfaceAndImplementation</c> for
     /// the body views. Each endpoint settles its own demand in the House.
     /// When an endpoint does not open, returns no session and the report of
     /// that endpoint's typed failure: the before endpoint's when it failed on
-    /// its own, otherwise the after endpoint's. Returns neither session nor
-    /// error when that failure keeps the legacy path
-    /// (<see cref="IsLegacySelectorOnly"/>).
+    /// its own, otherwise the after endpoint's.
     /// </summary>
     internal static async Task<(PackageEndpointDiffSession? Session, string? Error)> OpenAsync(
         HttpClient httpClient,
@@ -226,17 +211,6 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                         $"Error resolving {packageId}@{selection.FromVersion}..{selection.ToVersion}: "
                             + "neither package endpoint completed.");
                 }
-                // Without --tfm, a package whose assemblies only the legacy
-                // selector takes (tools/ or build/ only) keeps the legacy
-                // path until the House selects them
-                // (docs/design/package-endpoint-scope.md, step 4 part 6).
-                if (IsLegacySelectorOnly(failed, target))
-                {
-                    logger.Log(
-                        $"Package endpoint {packageId}@{version} has no House compile selection; "
-                            + "the request takes the legacy path.");
-                    return (null, null);
-                }
                 return (null, DescribeFailure(packageId, version, demand, target, failed));
             }
 
@@ -304,9 +278,34 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
             // The House settled no payload: a source failed or refused it.
             PackageEndpointScopeFailureKind.RealizationFailed
                 when failed.HouseResult is not PackageHouseResult.Settled => unacquired,
+            // A package whose assemblies are only outside lib/ and ref/
+            // (tools/, build/, analyzers/) has no compile assets, and isn't
+            // compared until the House selects those layouts.
+            PackageEndpointScopeFailureKind.NoCompatibleFramework
+                when failed.Selection?.Status == PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                $"Package '{packageId}@{version}' has no compile assets; "
+                    + "assemblies outside lib/ and ref/, such as tools/, build/, or analyzers/, aren't compared.",
+            // An empty group (_._) for the framework the owner default
+            // selects means that framework provides the Library.
+            PackageEndpointScopeFailureKind.NoCompatibleFramework
+                when target.RequestedFramework is null
+                    && failed.Selection is
+                    {
+                        Status: PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+                        TargetFramework: { } selected,
+                    } empty =>
+                $"Package '{packageId}@{version}' has an empty compile group for {selected}, "
+                    + "the framework it selects by default, which provides the Library itself. "
+                    + "Use --tfm to compare it for "
+                    + (empty.AvailableTargetFrameworks.Where(framework =>
+                            !empty.ExplicitEmptyTargetFrameworks.Contains(framework, StringComparer.OrdinalIgnoreCase))
+                        .ToArray() is { Length: > 0 } frameworks
+                            ? "one of: " + string.Join(", ", frameworks) + "."
+                            : "another framework."),
             PackageEndpointScopeFailureKind.NoCompatibleFramework => target.RequestedFramework is { } framework
                 ? $"No assemblies found for target framework '{framework}' in package '{packageId}@{version}'."
-                : $"Package '{packageId}@{version}' has no compile assets for any framework.",
+                : $"Package '{packageId}@{version}' has no compile assets for its selected framework "
+                    + $"({failed.Selection?.Status}).",
             _ => failed.Message,
         };
         var lines = new List<string> { summary };
