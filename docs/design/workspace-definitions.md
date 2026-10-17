@@ -352,6 +352,15 @@ execution must no longer default to acquiring content for a live inventory.
 Packet and component inspection can describe declared membership, fields and
 configuration without implying that packages or libraries have been inspected.
 
+Ecosystem creation and editing are the primary authoring workflow: compose and
+revise the environment's portable ecosystem declarations, populations and
+configuration. Existing Package component edits remain useful. The current
+`--register-ecosystem` selects a shipped declaration; it does not yet provide
+this editing workflow. #10210 adopts owner-issued ecosystem declarations and
+Workspace's immutable editing boundary, retaining semantic validation and
+non-projectability with their owners. Edits produce a portable Workspace value;
+they do not mutate the compiled product catalog.
+
 Inspection commands retain their subject, query, facet, traversal and result
 semantics. Where admitted by that command, `--package` supplies direct content
 and `--workspace` supplies aggregate context. Workspace context does not add a
@@ -386,6 +395,34 @@ capture the result. Portable query support does not justify adding query
 construction or lens execution to `workspace`. Existing Browser scenario
 activation, Navigation and shared inventory remain independent consumers of
 their owner-issued contracts.
+
+Applying a packet is a separate control-plane activation entrance. The website
+already accepts a packet through its URL and activates its declared environment
+and scenario under the receiving host's capabilities. The CLI counterpart
+should consume the same portable activation input, rather than requiring the
+user to reconstruct its contents through inspection flags. Activation lifetime,
+source authorization and saved-scenario execution remain with their owners.
+
+The CLI router adoption in #4647 owns the proposed `-w PACKET` and direct raw
+packet entrances. It must use the existing codec and activation handoff; these
+examples are proposed bindings, not current CLI behavior:
+
+```bash
+ecosystem_packet=$(dotnet-inspect workspace \
+  --register-ecosystem runtime --share packet)
+
+dotnet-inspect workspace --packet "$ecosystem_packet" --share url
+dotnet-inspect -w "$ecosystem_packet"
+dotnet-inspect "$ecosystem_packet"
+```
+
+The first command authors a portable value and the second emits its website
+activation URL. The two router forms apply that value through CLI adoption.
+In contrast, `member ... --workspace PACKET` supplies context to the query the
+caller chose; it does not replay saved scenario intent. This gives authoring,
+application and inspection distinct entrances without a second packet model.
+Exact router recognition, malformed-input handling and landing behavior require
+the focused CLI adoption; this owner does not redefine them.
 
 The migration preserves useful operations through their owning surfaces:
 
@@ -442,10 +479,11 @@ cannot choose the first occurrence, inherit stale query intent or reconstruct
 context from a label. The multi-Library neighboring asset remains
 `Microsoft.Azure.SignalR@1.33.1` under Library packet-context adoption.
 
-Four counted slices precede #10137 in the expanded twelve-step #10132 plan:
-this command-boundary proposal; Member packet adoption (#10184); exact Root
-inspection admission (#10185); then CLI default correction and retirement
-(#10186). The last slice must prove equivalent ordinary command paths for the
+Six counted slices precede #10137 in the expanded fourteen-step #10132 plan:
+this command-boundary proposal; ecosystem authoring (#10210); Member packet
+adoption (#10184); exact Root inspection admission (#10185); CLI default
+correction and retirement (#10186); and router activation (#4647).
+The retirement slice must prove equivalent ordinary command paths for the
 useful data it removes, retire obsolete CLI-only branches, update current
 guidance, and gate resource-free defaults, exact-context failures and explicit
 transformations. It does not remove shared Browser capabilities or change the
