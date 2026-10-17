@@ -361,7 +361,8 @@ Workspace is not a universal promise to inspect every registered population.
 
 Workspace input and Share output are independent. An adopting command such as
 `member` supports ordinary inspection, `--workspace`, `--share`, and both
-together. Without Workspace input it uses its ordinary source context; Share
+together, subject to its owner's input and projection admission. Without
+Workspace input it uses its ordinary source context; Share
 does not require a separately authored Workspace. With Workspace input it
 resolves the query in that context. With both, it preserves that environment
 and captures the newly resolved inspection intent through
@@ -413,23 +414,28 @@ dotnet-inspect type System.Text.Json.JsonSerializer \
 
 These are existing binding shapes, not evidence that retirement has landed.
 Type packet adoption supplies their owning gates. Member adoption must also
-demonstrate these four combinations over the same subject; the Workspace-input
-forms below are proposed, not current CLI behavior:
+demonstrate these four combinations over the same exact-overload query. They
+show independent context input and Share output, not a promise that every query
+is projectable. `Serialize:1` uses the existing exact-overload selector grammar;
+the Workspace-input forms below are proposed, not current CLI behavior:
 
 ```bash
-dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
   --package System.Text.Json@10.0.0 --tfm net10.0
-dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
   --package System.Text.Json@10.0.0 --tfm net10.0 --share
-dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
   --workspace "$packet"
-dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize \
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
   --workspace "$packet" --share
 ```
 
-The query selects the same subject without a Workspace activation flag. The
-Share variant emits the resolved scenario alongside ordinary inspection
-content under the existing Share contract. A neighboring packet may
+The query selects the same subject without a Workspace activation flag. For a
+projectable selection, Share emits the resolved scenario alongside ordinary
+inspection content under the existing Share contract. Invalid or unsupported
+projection follows that owner's visible refusal and output rules. For example,
+an unqualified `Serialize` query cannot be made projectable by silently selecting
+an overload or changing its result cardinality. A neighboring packet may
 contain the same Package in two contexts or focus a different Navigation tab.
 The consuming command preserves its selected-context and ambiguity rules; it
 cannot choose the first occurrence, inherit stale query intent or reconstruct
