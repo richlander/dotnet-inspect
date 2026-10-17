@@ -304,7 +304,7 @@ internal sealed class DeclaredSourceResolver(
                 {
                     foreach ((MethodDefinitionHandle helper,
                         MethodDefinitionGeneratedBodyRoles role)
-                        in _asyncSourceResolver.StateMachineHelperMethods(
+                        in _stateMachineSourceResolver.StateMachineHelperMethods(
                             stateMachineType,
                             executionMethod,
                             work))
