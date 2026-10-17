@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
@@ -183,10 +184,6 @@ public static class ResourceExplanationCommand
             return 1;
         }
 
-        (
-            InspectionCapabilityCatalog capabilityCatalog,
-            ResourceExplanationCatalog capabilityExplanation) =
-                CreateCapabilityExplanation();
         CapabilityCatalogSearchRequest searchRequest;
         try
         {
@@ -201,10 +198,33 @@ public static class ResourceExplanationCommand
             return 1;
         }
 
+        (
+            InspectionCapabilityCatalog capabilityCatalog,
+            ResourceExplanationCatalog capabilityExplanation) =
+                CreateCapabilityExplanation();
+        ImmutableArray<(
+            InspectionCatalogIdentity Identity,
+            ResourceExplanationCatalog Catalog)> structuralCatalogs =
+                CreateStructuralCatalogs()
+                ?? throw new InvalidOperationException(
+                    "The structural explanation catalogs could not be "
+                    + "built.");
+        // Search resolves only its two families' paths, so its exact
+        // catalog is the structural catalogs plus the capability catalog;
+        // analyses and vocabularies are not part of the search population.
         InspectionEnvelope<CapabilityCatalogSearchDocument> search =
             CapabilityCatalogSearch.Search(
                 capabilityCatalog,
-                capabilityExplanation,
+                ResourceExplanationCatalog.Combine(
+                    [
+                        .. structuralCatalogs.Select(static structural =>
+                            structural.Catalog),
+                        capabilityExplanation,
+                    ]),
+                structuralCatalogs.Select(static structural =>
+                    StructuralSearchCatalog(
+                        structural.Identity,
+                        structural.Catalog)),
                 searchRequest);
         WriteSearch(
             search,
@@ -311,9 +331,19 @@ public static class ResourceExplanationCommand
                 PackageFileInventoryCommandCapability.Module,
             ]);
 
-    private static ResourceExplanationCatalog? CreateCompleteCatalog()
+    private static ResourceExplanationCatalog? CreateCompleteCatalog() =>
+        CreateStructuralCatalogs() is { } structuralCatalogs
+            ? CombineCompleteCatalog(structuralCatalogs)
+            : null;
+
+    private static ImmutableArray<(
+        InspectionCatalogIdentity Identity,
+        ResourceExplanationCatalog Catalog)>? CreateStructuralCatalogs()
     {
-        var structuralCatalogs = new List<ResourceExplanationCatalog>();
+        var structuralCatalogs =
+            ImmutableArray.CreateBuilder<(
+                InspectionCatalogIdentity,
+                ResourceExplanationCatalog)>();
         foreach ((
                      StructuralViewIdentity view,
                      InspectionCatalogIdentity identity)
@@ -323,8 +353,16 @@ public static class ResourceExplanationCommand
                 CreateStructuralCatalog(view, identity);
             if (catalog is null)
                 return null;
-            structuralCatalogs.Add(catalog);
+            structuralCatalogs.Add((identity, catalog));
         }
+        return structuralCatalogs.ToImmutable();
+    }
+
+    private static ResourceExplanationCatalog CombineCompleteCatalog(
+        ImmutableArray<(
+            InspectionCatalogIdentity Identity,
+            ResourceExplanationCatalog Catalog)> structuralCatalogs)
+    {
         (
             _,
             ResourceExplanationCatalog capabilities) =
@@ -334,7 +372,8 @@ public static class ResourceExplanationCommand
                 DiffAnalysisCommandCapability.Catalog);
         return ResourceExplanationCatalog.Combine(
             [
-                .. structuralCatalogs,
+                .. structuralCatalogs.Select(static structural =>
+                    structural.Catalog),
                 capabilities,
                 analyses,
                 ResourceExplanationCatalog.CreateVocabularies(
@@ -575,6 +614,46 @@ public static class ResourceExplanationCommand
                         : new MarkdownFormatter(),
                     CapabilityCatalogSearchViewContext.Default);
             });
+    }
+
+    /// <summary>
+    /// Admits one explained structural catalog to capability search: its
+    /// catalog root as the owning route, and the command's <c>-S</c> section
+    /// selection as its CLI binding. The section or category name stays a
+    /// separate result value; search composes no command line.
+    /// </summary>
+    private static CapabilityCatalogSearchStructuralCatalog
+        StructuralSearchCatalog(
+            InspectionCatalogIdentity identity,
+            ResourceExplanationCatalog catalog)
+    {
+        string root = StructuralViewRegistry.CatalogPathName(identity);
+        string command = identity switch
+        {
+            InspectionCatalogIdentity.Library => "library",
+            InspectionCatalogIdentity.Package => "package",
+            InspectionCatalogIdentity.ApiType => "type",
+            InspectionCatalogIdentity.ApiMember
+                or InspectionCatalogIdentity.ApiMemberOverload
+                or InspectionCatalogIdentity.ApiMemberDetail => "member",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(identity),
+                identity,
+                "No section-selection command is registered for this "
+                + "structural catalog."),
+        };
+        return new(
+            catalog,
+            new CapabilityCatalogSearchRoute(
+                $"dotnet-inspect.cli/{root}-catalog",
+                root,
+                root),
+            new CapabilityCatalogSearchBinding(
+                $"dotnet-inspect.cli/{root}-sections",
+                "dotnet-inspect CLI",
+                InspectionConsumerKind.Cli,
+                $"{command} -S",
+                root));
     }
 
     /// <summary>

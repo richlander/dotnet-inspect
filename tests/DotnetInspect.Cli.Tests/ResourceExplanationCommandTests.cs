@@ -911,6 +911,90 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
+    [Theory]
+    [InlineData("unsafe", "library/sections/unsafe-members")]
+    [InlineData("metrics", "library/sections/library-metrics")]
+    [InlineData("leverage", "library/sections/top-leverage")]
+    [InlineData("families", "library/sections/architectural-families")]
+    public async Task TaskTerm_SearchesTheLibraryStructuralCatalog(
+        string text,
+        string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement result = document.RootElement
+            .GetProperty("results")
+            .EnumerateArray()
+            .Single(candidate =>
+                candidate.GetProperty("resource_path").GetString() == path);
+        Assert.Equal(1.0, result.GetProperty("similarity").GetDouble());
+        Assert.Equal(
+            "Section",
+            result.GetProperty("resource_kind").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            result.GetProperty("resource_identity").ValueKind);
+        Assert.Equal(
+            "library",
+            result.GetProperty("structural_identity")
+                .GetProperty("catalog")
+                .GetString());
+        JsonElement binding =
+            Assert.Single(
+                result.GetProperty("production_bindings")
+                    .EnumerateArray());
+        Assert.Equal("library -S", binding.GetProperty("gesture").GetString());
+        Assert.Equal("library", binding.GetProperty("resource_path").GetString());
+
+        var explanation = await RunAsync("explain", path, "--json");
+        Assert.Equal(0, explanation.ExitCode);
+        Assert.Empty(explanation.Error);
+        using JsonDocument exact = JsonDocument.Parse(explanation.Output);
+        Assert.Equal(path, exact.RootElement.GetProperty("path").GetString());
+    }
+
+    [Theory]
+    [InlineData("files", "package/sections/files", "package -S")]
+    [InlineData("delegates", "type/sections/delegates", "type -S")]
+    [InlineData("unsafe", "member/sections/unsafe-members", "member -S")]
+    [InlineData(
+        "unsafe",
+        "member-overload/sections/unsafe-operations",
+        "member -S")]
+    [InlineData(
+        "unsafe",
+        "member-detail/sections/unsafe-operations",
+        "member -S")]
+    public async Task Search_AdmitsEveryExplainedStructuralCatalog(
+        string text,
+        string path,
+        string gesture)
+    {
+        var search = await RunAsync("explain", text, "-n", "100", "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement result = document.RootElement
+            .GetProperty("results")
+            .EnumerateArray()
+            .Single(candidate =>
+                candidate.GetProperty("resource_path").GetString() == path);
+        Assert.Equal(
+            path[..path.IndexOf('/')],
+            result.GetProperty("structural_identity")
+                .GetProperty("catalog")
+                .GetString());
+        Assert.Equal(
+            gesture,
+            result.GetProperty("production_bindings")[0]
+                .GetProperty("gesture")
+                .GetString());
+    }
+
     [Fact]
     public async Task Literal_SearchesCapabilitiesAndReturnsAnExactPath()
     {
@@ -1445,8 +1529,11 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(0, requests);
     }
 
-    [Fact]
-    public async Task CapabilitySearch_DoesNotAttemptPackageAcquisition()
+    [Theory]
+    [InlineData("literal")]
+    [InlineData("unsafe")]
+    public async Task CapabilitySearch_DoesNotAttemptPackageAcquisition(
+        string text)
     {
         int requests = 0;
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
@@ -1455,7 +1542,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
 
         var result = await RunAsync(
             "explain",
-            "literal");
+            text);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, requests);
