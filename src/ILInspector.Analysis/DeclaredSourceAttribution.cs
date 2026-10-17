@@ -153,14 +153,19 @@ internal sealed class DeclaredSourceAttribution
     /// <summary>
     /// Adds the authenticated generated bodies of
     /// <paramref name="directMethods"/> in the requested
-    /// <paramref name="roles"/> under the configured expansion work.
+    /// <paramref name="roles"/> under the configured expansion work, and
+    /// classifies the methods of compiler-generated types nested under
+    /// <paramref name="reachFromTypes"/>.
     /// </summary>
     internal MethodDefinitionGeneratedExpansionResult
         ExpandGeneratedExecutionBodies(
             System.Collections.Immutable.ImmutableArray<MethodDefinitionHandle>
                 directMethods,
             MethodDefinitionGeneratedBodyRoles roles =
-                MethodDefinitionGeneratedBodyRoles.Execution)
+                MethodDefinitionGeneratedBodyRoles.Execution,
+            System.Collections.Immutable.ImmutableArray<TypeDefinitionHandle>
+                reachFromTypes = default,
+            bool includeUnauthenticatedCandidates = false)
     {
         if (GeneratedExpansionWork is null)
         {
@@ -171,7 +176,9 @@ internal sealed class DeclaredSourceAttribution
         return DeclaredSourceResolver.ExpandGeneratedExecutionBodies(
             directMethods,
             GeneratedExpansionWork,
-            roles);
+            roles,
+            reachFromTypes,
+            includeUnauthenticatedCandidates);
     }
 
     /// <summary>
