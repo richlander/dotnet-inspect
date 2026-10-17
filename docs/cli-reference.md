@@ -1508,6 +1508,36 @@ dotnet-inspect workspace package remove \
   packages/markout@0.35.2/net10.0/~ --packet "$w"
 ```
 
+Author and compose portable Ecosystem declarations without acquiring content:
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add ecosystem.runtime --from runtime)
+w=$(dotnet-inspect workspace ecosystem add ecosystem.json \
+  --namespace-root System.Text.Json --core-package System.Text.Json \
+  --package-prefix System.Text.Json --packet "$base")
+
+dotnet-inspect workspace ecosystem update ecosystem.json \
+  --namespace-root System.Text.Json.Serialization --packet "$w"
+dotnet-inspect workspace ecosystem remove ecosystem.json --packet "$w"
+```
+
+`add` appends a new canonical `ecosystem.NAME` identity; omit `--packet` to
+create an ecosystem-only Workspace. `update` replaces an existing declaration
+in place; `remove` deletes it. Both require `--packet`. All emit a new canonical
+packet on stdout, or a website URL with `--share url`, preserving unrelated
+Package, registration, context and Navigation state. The input is unchanged.
+
+Repeat `--namespace-root`, `--core-package`, `--platform`, `--package-prefix`
+or `--library` to author contributions. Core Package IDs are unversioned.
+Platform names are `PlatformFamily` names such as `DotNetRuntime` and
+`AspNetCore`; exact Libraries use
+`package@version/assembly@assembly-version`. Population options retain their
+command-line order. Without `--from`, these options describe the complete
+replacement, so omitted groups become empty. With `--from NAME`, they replace
+only the specified groups of a shipped declaration. A retained scanner makes
+the result visibly non-projectable; it is never removed to make sharing work.
+Formats 3, 4 and 5 stay unchanged; earlier formats are refused.
+
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
 in declaration order. Overlap is preserved because committed content and

@@ -252,6 +252,26 @@ public sealed class BrowserWorkspaceShareOperationsTests
     }
 
     [Fact]
+    public void AuthoredEcosystems_RoundTripThroughProductionBrowserCodec()
+    {
+        var declaration = new DotnetInspector.Queries.WorkspaceEcosystemRegistrationDeclaration(
+            DotnetInspector.Queries.WorkspaceEcosystemRegistrationId.Create("ecosystem.json"),
+            ["System.Text.Json"], [new DotnetInspector.Packages.PackageCoordinate("System.Text.Json")], []);
+        WorkspaceSharePacketProjectionResult authored = WorkspaceEcosystemEditor.Add(null, declaration);
+        Assert.True(authored.Succeeded, authored.Failure?.Message);
+        string packet = WorkspaceSharePacketCodec.Encode(authored.Packet!);
+
+        BrowserWorkspaceShareEncodeResult result = BrowserWorkspaceShareOperations.Canonicalize(packet);
+
+        Assert.True(result.Succeeded, result.Failure?.Message);
+        Assert.Equal(packet, result.Packet);
+        WorkspaceSharePacket restored = WorkspaceSharePacketCodec.Decode(result.Packet!, TestContext.Current.CancellationToken);
+        var ecosystem = Assert.IsType<DotnetInspector.Queries.WorkspaceRegistration.Ecosystem>(Assert.Single(restored.Registrations));
+        Assert.Equal(declaration.Id, ecosystem.Declaration.Id);
+        Assert.Equal("System.Text.Json", Assert.Single(ecosystem.Declaration.CorePackages).PackageId);
+    }
+
+    [Fact]
     public void Format5Packet_RoundTripsThroughManagedBrowserBoundary()
     {
         const string json =

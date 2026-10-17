@@ -901,7 +901,7 @@ public static partial class WorkspaceCommand
         }
     }
 
-    static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
+    internal static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
         string value)
     {
         EcosystemPackId id = ParseEcosystemPackId(value);
@@ -961,7 +961,7 @@ public static partial class WorkspaceCommand
         return normalized.ToLowerInvariant();
     }
 
-    static ExactLibrarySourceCoordinate.Package ParseExactPackageLibrary(
+    internal static ExactLibrarySourceCoordinate.Package ParseExactPackageLibrary(
         string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);

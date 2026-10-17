@@ -355,9 +355,9 @@ configuration without implying that packages or libraries have been inspected.
 Ecosystem creation and editing are the primary authoring workflow: compose and
 revise the environment's portable ecosystem declarations, populations and
 configuration. Existing Package component edits remain useful. The current
-`--register-ecosystem` selects a shipped declaration; it does not yet provide
-this editing workflow. #10210 adopts owner-issued ecosystem declarations and
-Workspace's immutable editing boundary, retaining semantic validation and
+`--register-ecosystem` selects a shipped declaration. The resource-free
+authoring commands below adopt owner-issued ecosystem declarations under
+issue #10210 and Workspace's immutable editing boundary, retaining semantic validation and
 non-projectability with their owners. Edits produce a portable Workspace value;
 they do not mutate the compiled product catalog.
 
@@ -532,6 +532,73 @@ Implementation and runtime/performance claims remain **unverified** until those
 adoption gates exist. Each implementation replacement must publish the
 repository-required exact-head NativeAOT comparison, with changed content
 accounted for; declaration output is not a cheaper measurement of live inventory.
+
+### Resource-free ecosystem authoring
+
+The `workspace ecosystem add`, `update` and `remove` commands implement
+portable declaration authoring under #10210. They do not construct a live
+Workspace, resolve core-package versions, expand populations, or invoke a
+scanner. The shared `WorkspaceEcosystemEditor` operates on the same typed
+declarations and validated packet model consumed by the Browser.
+
+`add` accepts a canonical `ecosystem.NAME` identity and optionally an input
+packet. Without a packet it creates an ecosystem-only Workspace. With a packet
+it appends the declaration, refusing an existing identity. `update` requires
+that identity to exist and replaces its declaration in place. `remove` requires
+an existing identity. Both require an input packet. Every edit produces a new
+value; input packets, unrelated registrations, Package membership, context and
+Navigation state remain unchanged. No operation edits the compiled catalog.
+
+Contribution options are repeatable `--namespace-root`, `--core-package`,
+`--platform`, `--package-prefix` and `--library`. They construct existing
+owner-issued namespace, unversioned core-package and population declarations;
+mixed population options retain command-line order. Platform names use the
+existing `PlatformFamily` names. The Library spelling reuses the existing
+Package-origin exact-Library registration binding. Other exact-Library
+coordinate producers retain their current interfaces.
+
+Without `--from`, `add` and `update` author a complete declaration: omitted
+contribution groups are empty. This makes replacement and removal of
+contributions explicit without a second patch grammar. With `--from NAME`,
+the starting value is a shipped declaration. Specified namespace roots, core
+packages or populations replace that entire contribution group; omitted
+groups and any scanner capability remain from the starting declaration.
+A scanner-bearing value is non-projectable, never silently stripped.
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add ecosystem.runtime --from runtime)
+
+derived=$(dotnet-inspect workspace ecosystem add ecosystem.json \
+  --namespace-root System.Text.Json --core-package System.Text.Json \
+  --package-prefix System.Text.Json --packet "$base")
+
+edited=$(dotnet-inspect workspace ecosystem update ecosystem.json \
+  --namespace-root System.Text.Json.Serialization --packet "$derived")
+
+dotnet-inspect workspace ecosystem remove ecosystem.json --packet "$edited"
+```
+
+The final command returns the original base. The motivating declaration is
+the shipped Runtime's `System` namespace and `DotNetRuntime` population. The
+neighboring content witness is System.Text.Json 10.0.0/net10.0: editing an
+ecosystem beside that direct Package must preserve its target, context, focus,
+and source declarations. Core-package identity remains unversioned under its
+owning contract; it is not direct Package membership.
+
+Output follows existing immutable-edit scalar behavior: a canonical packet on
+stdout by default, or its website URL with `--share url`. Packet formats 3, 4
+and 5 are preserved. Formats 1 and 2 are visibly refused rather than upgraded.
+The canonical codec gates the complete result, including duplicate identities,
+size and registration limits. Failure emits no partial scalar. Ordinary
+top-level Workspace defaults and inspection retirement remain #10186.
+
+`WorkspaceEcosystemEditingTests` gates format/state preservation and capacity;
+`WorkspaceEcosystemCommandTests` gates CLI composition, replacement, removal,
+ordering, invalid contributions and scanner refusal with a fail-fast
+package-source transport. `AuthoredEcosystems_RoundTripThroughProductionBrowserCodec`
+gates the generated value through the production Browser canonicalization
+facade. These operations do not change realization or population-search
+support; their existing owner gates still apply.
 
 ### Schema-version-3 registration-bearing Workspaces
 
