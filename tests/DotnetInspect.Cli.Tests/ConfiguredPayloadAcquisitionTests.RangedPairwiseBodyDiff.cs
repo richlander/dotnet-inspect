@@ -34,25 +34,21 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// <summary>
     /// Gate 12 for a package without <c>ref/</c>: the implementation
     /// participants are the surface folder's assemblies, so the body views
-    /// read only <c>lib/net8.0</c> by range, and the output equals the legacy
-    /// oracle's.
+    /// read only <c>lib/net8.0</c> by range, and the output equals the
+    /// recording.
     /// </summary>
     [Fact]
-    public async Task PairwiseDiff_BodyViews_ReadImplementationParticipantsAndEqualLegacy()
+    public async Task PairwiseDiff_BodyViews_ReadImplementationParticipants()
     {
         Dictionary<string, byte[]> packages = await ReadSystemTextJsonPackagesAsync();
         string[][] requests =
             [.. SystemTextJsonBodyViews.Select(PairwiseSystemTextJsonDiff)];
-        string[] legacy = await RunLegacyPairwiseDiffsAsync(
-            SystemTextJsonId, packages, requests);
-
         var feed = new RangeHonoringHistoryFeedHandler(FirstFeed, SystemTextJsonId, packages);
         UseFeed(feed);
         for (int view = 0; view < requests.Length; view++)
         {
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
-            Assert.True(legacy[view] == result.Output, result.Error);
             RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
@@ -68,10 +64,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// and 4.2.2 archives ship <c>nunit.framework.dll</c> and
     /// <c>nunit.framework.legacy.dll</c> in <c>lib/net6.0</c>. Each Library is
     /// its own subject, read as an implementation participant, and the
-    /// output equals the legacy oracle's.
+    /// output equals the recording.
     /// </summary>
     [Fact]
-    public async Task PairwiseDiff_StringLiteralsOverTwoLibraries_ReadParticipantsAndEqualLegacy()
+    public async Task PairwiseDiff_StringLiteralsOverTwoLibraries_ReadParticipants()
     {
         Dictionary<string, byte[]> packages = await ReadNUnitPackagesAsync();
         string[][] requests =
@@ -87,15 +83,12 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                 format,
             }),
         ];
-        string[] legacy = await RunLegacyPairwiseDiffsAsync(NUnitId, packages, requests);
-
         UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, NUnitId, packages));
         for (int view = 0; view < requests.Length; view++)
         {
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
             Assert.True(result.Exit == 0, result.Error);
-            Assert.True(legacy[view] == result.Output, result.Error);
             RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Equal(
                 2,
@@ -103,16 +96,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
                     result.Error,
                     "(2 surface assemblies and 2 implementation assemblies for net6.0;"));
         }
-        Assert.Contains("nunit.framework.dll", legacy[0], StringComparison.Ordinal);
     }
 
     /// <summary>
     /// Gate 12 for a package that ships <c>ref/</c>: the real
     /// System.Runtime.CompilerServices.Unsafe 4.7.1 and 5.0.0 archives. The
-    /// legacy path compares the reference stubs without <c>--tfm</c>, which
-    /// carry the compiler's <c>Microsoft.CodeAnalysis.EmbeddedAttribute</c>,
-    /// and fails with <c>--tfm</c> on its doubled selection. The scope
-    /// compares the <c>lib/</c> implementation either way.
+    /// retired legacy path compared the reference stubs without
+    /// <c>--tfm</c>, which carry the compiler's
+    /// <c>Microsoft.CodeAnalysis.EmbeddedAttribute</c>, and failed with
+    /// <c>--tfm</c> on its doubled selection. The scope compares the
+    /// <c>lib/</c> implementation either way, as recorded.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_BodyViewsOfAPackageWithRef_CompareTheImplementation()
@@ -142,9 +135,6 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             "--source", FirstFeed,
             "-S", "Implementation Diff",
         ];
-        string[] legacy = await RunLegacyPairwiseDiffsAsync(UnsafeId, packages, [request]);
-        Assert.Contains("Microsoft.CodeAnalysis.EmbeddedAttribute", legacy[0], StringComparison.Ordinal);
-
         UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, UnsafeId, packages));
         (string[] Arguments, string Framework)[] targets =
         [

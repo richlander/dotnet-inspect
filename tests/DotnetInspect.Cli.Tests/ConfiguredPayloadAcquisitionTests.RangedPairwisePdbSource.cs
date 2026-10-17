@@ -17,8 +17,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     /// <summary>
     /// The SourceDiff fixture pair, packed with each assembly's adjacent
     /// Portable PDB. The selected member takes the pair route; two members
-    /// take the batch route. Each equals the legacy oracle, which read the
-    /// PDB beside the extracted assembly.
+    /// take the batch route. Each equals the recording, made while the
+    /// legacy oracle, which read the PDB beside the extracted assembly, was
+    /// still the comparison.
     /// </summary>
     [Fact]
     public async Task PairwiseDiff_PdbSource_SettlesEachParticipantsPdbThroughItsHouse()
@@ -33,14 +34,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             PairwiseSourceDiff("--member", "Value"),
             PairwiseSourceDiff("--member", "Value", "--member", "Reordered"),
         ];
-        string[] legacy = await RunLegacyPairwiseDiffsAsync(SourceDiffId, packages, requests);
-
         UseFeed(new RangeHonoringHistoryFeedHandler(FirstFeed, SourceDiffId, packages));
         for (int view = 0; view < requests.Length; view++)
         {
             var result = await RunCommandAsync([.. requests[view], "--verbose"]);
 
-            Assert.True(legacy[view] == result.Output, result.Error);
             RecordedOutput.AssertEqual("PackageEndpointScope", result.Output, result.Error, view);
             Assert.Contains("| PDB Source |", result.Output, StringComparison.Ordinal);
             Assert.Equal(
