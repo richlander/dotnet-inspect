@@ -323,6 +323,19 @@ none of them. The remaining cost is the Public API surface built for Types
 whose census differs only in uncertain facts, about 50 ms on CoreLib, and the
 spike's fact classification, which allocates where the census need not.
 
+The earlier census is therefore a low-fidelity baseline, not a target: where
+it is faster, it is faster by over-reporting. The operator accepted the cost
+of exactness on these pairs. Its budget, on NativeAOT over these pairs:
+
+- **Exists** is no slower than the earlier census on a pair for which it builds
+  no Public API surface;
+- its additional cost is bounded by the surfaces it builds, and every
+  measurement reports their count beside its time; and
+- each uncertain fact kind that a gate shows presented, such as attribute
+  arguments compared by symbolic name
+  ([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)), removes
+  surface builds rather than exactness.
+
 Canonical IL comparison's failure count for CoreLib (5,454) counts methods or
 bodies present on one side only, not bodies it could not decode; neither
 comparison failed to decode a body in these pairs. The spike compared with
