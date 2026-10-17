@@ -286,9 +286,10 @@ Supporting boundaries remain independently owned:
   owns realization and authority; Browser host adoption consumes the same
   shared explanation result without importing that authority into a packet.
 
-The fourteen-step composition plan is tracked in #10132: this proposal; the
+The fifteen-step composition plan is tracked in #10132: this proposal; the
 Workspace-owned command-placement proposal (#10183), ecosystem authoring
-(#10210), Member context adoption, exact Root inspection admission and CLI
+(#10210), Package add-and-activate (#10211), Member context adoption,
+exact Root inspection admission and CLI
 retirement (#10184 through #10186), and router activation (#4647); Workspace
 owner declarations; shared graph/projection implementation; CLI root/help;
 contextual component admission; Browser adoption; individually owned index

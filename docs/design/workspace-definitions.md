@@ -373,19 +373,54 @@ Workspace input and Share output are independent. An adopting command such as
 together, subject to its owner's input and projection admission. Without
 Workspace input it uses its ordinary source context; Share
 does not require a separately authored Workspace. With Workspace input it
-resolves the query in that context. With both, it preserves that environment
-and captures the newly resolved inspection intent through
+resolves the query in that context. With both, it carries the resulting
+environment and captures the newly resolved inspection intent through
 [CLI Workspace Sharing](cli-workspace-sharing.md#decisions). Ordinary inspection
 content and Share failure/output behavior remain with that owner; sharing adds
 no second inspection.
 
 `package Foo --workspace "$packet"` is the command-level rewrite of the former
-`--active-package` operation: select Foo as the active Package for this
-inspection and inspect it. The `package` command carries that selection role;
-Foo identifies its target. Descendant commands likewise express their subject
-selection through their ordinary command grammar. This does not authorize
-choosing the first Package or using an
-unrelated focused tab. Exact-subject ambiguity or absence remains visible;
+`--active-package` operation, extended to allow adding Foo to a derived
+Workspace as well as making it active and inspecting it. Foo need not already
+be a direct Package contribution. The `package` command carries the
+add-and-activate role; Foo identifies its target. An existing admitted member
+is reused; an admitted addition produces a new portable definition, retaining
+the base ecosystem declarations and unrelated context and membership. The
+input packet remains unchanged. Share projects the resulting environment and
+inspection intent, subject to its existing projectability and output contract.
+
+This supports two uses of an ecosystem Workspace:
+
+```bash
+base=$(dotnet-inspect workspace --register-ecosystem runtime --share packet)
+
+dotnet-inspect package System.Text.Json@10.0.0 \
+  --workspace "$base" --share packet
+
+dotnet-inspect find JsonSerializer --workspace "$base"
+```
+
+The first command uses the existing shipped-declaration authoring entrance;
+the Workspace command's authoring target includes one or more ecosystem
+declarations. The Package invocation is a **proposed add-and-activate route**
+under #10211: this base has no direct System.Text.Json contribution, so the
+resulting Workspace includes that Package and makes it active. Ordinary
+inspection content goes to stdout; the requested derived packet is the final
+non-empty stderr line under the Share contract. It can be retained as input to
+later commands. The Find invocation illustrates the search-space role owned by
+[Find Workspace scope](find-workspace-scope.md); its packet/population adoption
+is tracked there. Search matches do not automatically add Package contributions
+or change the active Package. The unchanged base can be reused for either path.
+
+Package addition and Find search follow their source, target and population
+owners' admission rules; ecosystem registration does not promise arbitrary
+acquisition. The current Package packet route selects an existing member and
+does not yet implement #10211. Descendant commands likewise express their
+subject selection through their ordinary command grammar. This does not
+authorize choosing the first Package or using an unrelated focused tab.
+Ambiguous or failed resolution remains visible rather than triggering an
+addition; absence permits addition only on the explicitly admitted Package
+route. Other exact-subject absence retains its ordinary outcome, and
 queries that intentionally return multiple rows keep their declared cardinality.
 
 Environment definitions, query/view intent and scenarios retain separate
@@ -430,7 +465,7 @@ The migration preserves useful operations through their owning surfaces:
 | Transitional Workspace surface | Target placement and retirement requirement |
 | --- | --- |
 | Implicit realized top-level inventory | Ordinary Workspace output describes the portable declaration. Retain shared realized inventory for consumers that explicitly need it; declared component rows do not prove realized-result parity. |
-| `--active-package` | `package Foo --workspace "$packet"` is its command form: select Foo as the active Package for inspection. Descendant commands likewise carry their own subject-selection role. Package packet input already exists; preserve context and target rather than substituting inventory position. |
+| `--active-package` | `package Foo --workspace "$packet"` is its command form, including adding Foo to a derived Workspace when admitted, then making it active for inspection. #10211 extends existing-member packet input with add-and-activate before retirement; preserve context and target rather than substituting inventory position. |
 | `--library`, `--all-libraries` | Library inspection owns aggregate/exact asset selection. Existing packet input and aggregate/narrowing semantics supply the baseline. |
 | `--type` | Type inspection owns selection and facets within admitted Workspace context. Its existing packet route is the baseline. |
 | `--member`, `--lens` | Member and the selected operation own their query/facet grammar. #10184 adds the missing Member packet-context entrance before this path retires. |
@@ -480,9 +515,10 @@ cannot choose the first occurrence, inherit stale query intent or reconstruct
 context from a label. The multi-Library neighboring asset remains
 `Microsoft.Azure.SignalR@1.33.1` under Library packet-context adoption.
 
-Six counted slices precede #10137 in the expanded fourteen-step #10132 plan:
-this command-boundary proposal; ecosystem authoring (#10210); Member packet
-adoption (#10184); exact Root inspection admission (#10185); CLI default
+Seven counted slices precede #10137 in the expanded fifteen-step #10132 plan:
+this command-boundary proposal; ecosystem authoring (#10210); Package
+add-and-activate (#10211); Member packet adoption (#10184); exact Root
+inspection admission (#10185); CLI default
 correction and retirement (#10186); and router activation (#4647).
 The retirement slice must prove equivalent ordinary command paths for the
 useful data it removes, retire obsolete CLI-only branches, update current
@@ -727,9 +763,12 @@ dotnet-inspect type System.Text.Json.JsonSerializer \
   --share packet
 ```
 
-That packet preserves the input Workspace definition and adds only the
-projectable owner-issued subject, context, facet, query, or Navigation state
-resolved by the noun command. Bounded acquisition may establish an exact
+For selection-only commands, that packet preserves the input Workspace
+definition and adds only the projectable owner-issued subject, context, facet,
+query, or Navigation state resolved by the noun command. The proposed Package
+add-and-activate route instead carries the derived definition described above;
+it preserves the base declarations while adding the admitted contribution.
+Bounded acquisition may establish an exact
 portable identity, but inspected content and query results do not enter the
 packet. If the command's semantic selection cannot be represented faithfully,
 the existing CLI Workspace Sharing refusal contract applies.
@@ -854,6 +893,11 @@ proposal #4647 remains historical context; #7555 supersedes only its
 Type-command portion and adds no root `-W` surface or serialized CLI grammar.
 
 #### Package packet-context adoption
+
+This existing adoption selects members already present in the selected
+context. The proposed #10211 add-and-activate route extends it separately;
+the no-match refusal and unchanged-definition rules below describe the current
+selection-only route, not the complete target Package workflow.
 
 The second noun-command adoption is implemented under
 [#7765](https://github.com/richlander/dotnet-inspect/issues/7765). Its exact CLI
