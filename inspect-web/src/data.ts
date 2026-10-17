@@ -40,6 +40,25 @@ export const packageLenses = [
   ["vulnerabilities", "Vulnerabilities"],
 ] as const;
 
+interface PackageInspectorContext {
+  isRuntimePack?: boolean;
+  source: { kind: string };
+  packageChildren?: { content: { status: string } };
+}
+
+export function isEmptyPackageFramework(pkg: PackageInspectorContext | null): boolean {
+  return pkg?.packageChildren?.content.status === "SelectedEmpty";
+}
+
+export function packageLensesFor(pkg: PackageInspectorContext | null) {
+  return packageLenses.filter(([id]) => {
+    if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) return id === "overview";
+    if (id === "hierarchy") return false;
+    if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
+    return true;
+  });
+}
+
 export const libraryLenses = [
   ["overview", "Overview"],
   ["references", "References"],
