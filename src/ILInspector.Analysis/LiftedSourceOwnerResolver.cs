@@ -47,7 +47,7 @@ internal enum LiftedSourceOwnerResolution
 /// Owns assembly-scoped lifted-method source-owner correlation, including
 /// top-level execution and async state-machine authentication.
 /// </summary>
-internal sealed class LibraryBodyLiftedSourceOwnerResolver
+internal sealed class LiftedSourceOwnerResolver
 {
     const int MaxLiftedOwnerRelationships =
         MetadataSafetyPolicy.MaxRelationshipNodes;
@@ -58,7 +58,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         _primaryMetadataResolver;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
-    readonly LibraryBodyAsyncSourceResolver
+    readonly StateMachineSourceResolver
         _asyncSourceResolver;
     readonly Action<MethodDefinitionHandle>? _methodBodyReferenceIndexed;
     readonly ImplementationMetricWorkBudget?
@@ -102,12 +102,12 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
         LiftedOwnerGroupKey,
         ImmutableArray<MethodDefinitionHandle>>>
         _liftedMethodsByOwner;
-    internal LibraryBodyLiftedSourceOwnerResolver(
+    internal LiftedSourceOwnerResolver(
         MetadataReader reader,
         PEReader peReader,
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
         LibraryBodyMethodReferenceResolver methodReferenceResolver,
-        LibraryBodyAsyncSourceResolver asyncSourceResolver,
+        StateMachineSourceResolver asyncSourceResolver,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
         ImplementationMetricWorkBudget?
             implementationMetricWork = null,
@@ -1371,8 +1371,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                     calledDefinitions.Add(definitionToken);
             }
             catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(ex))
+                when (AnalysisMethodFailures.IsRecoverable(ex))
             {
                 var failure = ExceptionDispatchInfo.Capture(ex);
                 invalidDefinitionOperands.Add(operandToken, failure);
@@ -1401,8 +1400,7 @@ internal sealed class LibraryBodyLiftedSourceOwnerResolver
                         methodHandle));
             }
             catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(ex))
+                when (AnalysisMethodFailures.IsRecoverable(ex))
             {
                 referenceFailure ??= ExceptionDispatchInfo.Capture(ex);
             }
