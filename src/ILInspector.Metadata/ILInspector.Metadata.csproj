@@ -33,6 +33,8 @@
          exactly MetadataTableProjector.ContainCellText; making that factory
          public would expose a larger surface. -->
     <InternalsVisibleTo Include="DotnetInspector.MetadataRendering.Tests" />
+    <!-- SPIKE (exp/type-diff-cost): single-Type Fast Diff decision. -->
+    <InternalsVisibleTo Include="measure-type-diff-cost" />
   </ItemGroup>
 
   <ItemGroup>
