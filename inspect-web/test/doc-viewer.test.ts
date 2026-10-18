@@ -255,7 +255,7 @@ test("loaded state with frontmatter renders the name, version, and description",
         '<div class="doc-frontmatter">'
           + '<div class="doc-fm-head"><strong>Changelog</strong>'
           + '<span class="doc-fm-version">v1.2.3</span></div>'
-          + '<p class="doc-fm-desc">What changed.</p></div>'
+          + '<div class="doc-fm-desc">What changed.</div></div>'
           + '<article class="markdown-body"><p>Body content.</p></article>',
       ),
     },
@@ -265,7 +265,7 @@ test("loaded state with frontmatter renders the name, version, and description",
   assert.match(html, /doc-frontmatter/);
   assert.match(html, /<strong>Changelog<\/strong>/);
   assert.match(html, /doc-fm-version">v1\.2\.3/);
-  assert.match(html, /doc-fm-desc">What changed\.<\/p>/);
+  assert.match(html, /doc-fm-desc">What changed\.<\/div>/);
 });
 
 test("frontmatter without a version omits the version badge", () => {
@@ -318,7 +318,7 @@ test("contained document fragments pass through without reinterpreting structure
         '<div class="doc-frontmatter">'
           + '<div class="doc-fm-head">'
           + "<strong>&lt;script&gt;alert(1)&lt;/script&gt;</strong>"
-          + "</div><p class=\"doc-fm-desc\">trusted markdown</p></div>"
+          + "</div><div class=\"doc-fm-desc\">trusted markdown</div></div>"
           + '<article class="markdown-body"></article>',
       ),
     },
@@ -327,7 +327,7 @@ test("contained document fragments pass through without reinterpreting structure
 
   assert.doesNotMatch(html, /<script>alert/);
   assert.match(html, /&lt;script&gt;alert/);
-  assert.match(html, /doc-fm-desc">trusted markdown<\/p>/);
+  assert.match(html, /doc-fm-desc">trusted markdown<\/div>/);
 });
 
 test("empty ready content remains a successful empty document", () => {

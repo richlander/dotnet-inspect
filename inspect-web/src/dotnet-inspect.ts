@@ -25251,11 +25251,11 @@ function packageDocumentStructure(
     }
     card.appendChild(head);
     if (description) {
-      const paragraph = document.createElement("p");
-      paragraph.className = "doc-fm-desc";
+      const descriptionContainer = document.createElement("div");
+      descriptionContainer.className = "doc-fm-desc";
       collectDocumentPresentationTargets(description, "Prose", targets);
-      paragraph.appendChild(description);
-      card.appendChild(paragraph);
+      descriptionContainer.appendChild(description);
+      card.appendChild(descriptionContainer);
     }
     template.content.appendChild(card);
   }

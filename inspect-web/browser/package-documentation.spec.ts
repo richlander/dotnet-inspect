@@ -60,7 +60,7 @@ test("publishes body and frontmatter through one contained fragment", async ({ p
         "---",
         "name: package\u202Ename",
         "version: literal-\\u202E",
-        "description: description\u202Evalue",
+        "description: <p>description\u202Evalue</p>",
         "---",
         "# Heading \u202E",
         "",
@@ -82,7 +82,10 @@ test("publishes body and frontmatter through one contained fragment", async ({ p
   await expect(viewer.locator("code")).toHaveText("code\\u202E");
   await expect(viewer.locator(".doc-frontmatter")).toContainText("package\\u202Ename");
   await expect(viewer.locator(".doc-frontmatter")).toContainText("literal-\\\\u202E");
-  await expect(viewer.locator(".doc-frontmatter")).toContainText("description\\u202Evalue");
+  await expect(
+    viewer.locator(".doc-frontmatter > .doc-fm-desc > p"),
+  ).toHaveText("description\\u202Evalue");
+  await expect(viewer.locator(".doc-frontmatter > p")).toHaveCount(0);
 
   const containment = await page.locator("html").getAttribute("data-package-document-containment");
   expect(containment).not.toBeNull();
