@@ -541,6 +541,9 @@ public sealed class BrowserEngineLayeringTests
                     StringComparison.OrdinalIgnoreCase)
                 && !project.Equals(
                     MetadataProjectPath,
+                    StringComparison.OrdinalIgnoreCase)
+                && !project.Equals(
+                    AnalysisProjectPath,
                     StringComparison.OrdinalIgnoreCase)),
         ];
 
@@ -588,6 +591,12 @@ public sealed class BrowserEngineLayeringTests
     public void MetadataFacadePinsPlatformHazardsNotBroadInventory()
     {
         AssertPinsPlatformHazardsNotBroadInventory(MetadataProjectPath);
+    }
+
+    [Fact]
+    public void AnalysisFacadePinsPlatformHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(AnalysisProjectPath);
     }
 
     static void AssertPinsPlatformHazardsNotBroadInventory(string project)
@@ -788,6 +797,12 @@ public sealed class BrowserEngineLayeringTests
         "src",
         "DotnetInspect.Web.Interop.Metadata",
         "DotnetInspect.Web.Interop.Metadata.csproj");
+
+    static string AnalysisProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Analysis",
+        "DotnetInspect.Web.Interop.Analysis.csproj");
 
     static string CallGraphProjectPath => Path.Combine(
         RepositoryRoot(),

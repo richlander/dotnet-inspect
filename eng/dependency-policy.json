@@ -374,6 +374,63 @@
       ]
     },
     {
+      "id": "inspect-web-analysis-facade-project-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#analysis-facade-25-exports; composition tracker #8779",
+      "graphs": [
+        "project"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Analysis"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Analysis/DotnetInspect.Web.Interop.Analysis.csproj"
+      ],
+      "allowOnly": [
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.ResearchSections",
+        "DotnetInspector.Sections",
+        "ILInspector.Analysis",
+        "ILInspector.Metadata",
+        "TsJsExport.Contracts"
+      ]
+    },
+    {
+      "id": "inspect-web-analysis-facade-assembly-dependencies-stay-within-capability-ratchet",
+      "source": "docs/design/inspect-web-jsexport-partitioning.md#analysis-facade-25-exports; composition tracker #8779",
+      "graphs": [
+        "assembly"
+      ],
+      "targets": [
+        "DotnetInspect.Web.Interop.Analysis"
+      ],
+      "projectPaths": [
+        "src/DotnetInspect.Web.Interop.Analysis/DotnetInspect.Web.Interop.Analysis.csproj"
+      ],
+      "allowOnly": [
+        "$platform",
+        "DotnetInspect.Web.Core",
+        "DotnetInspector.InspectionContracts",
+        "DotnetInspector.Packages",
+        "DotnetInspector.Presentation",
+        "DotnetInspector.Queries",
+        "DotnetInspector.ResearchQueries",
+        "DotnetInspector.ResearchSections",
+        "DotnetInspector.Sections",
+        "ILInspector.Analysis",
+        "ILInspector.Decompiler",
+        "ILInspector.Metadata",
+        "ILInspector.MetadataPrimitives",
+        "ILInspector.Research",
+        "InertText",
+        "Inspector.Findings",
+        "QuerySpace.Primitives",
+        "TsJsExport.Contracts"
+      ]
+    },
+    {
       "id": "inspect-web-source-facade-project-dependencies-stay-within-capability-ratchet",
       "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-9-exports; composition tracker #8779",
       "graphs": [
