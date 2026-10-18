@@ -1324,30 +1324,6 @@ public sealed partial class PackageHouse
                         failures);
                 }
 
-                if (request.AssetSelection
-                        == PackageHouseAssetSelectionKind.Runtime
-                    && request.TargetContext?.RequestedFramework is null)
-                {
-                    failures.Add(
-                        new PackageHouseFailure.Stage(
-                            PackageHouseFailureStage.Selection,
-                            Reason(
-                                "Runtime package realization requires an exact target framework.")));
-                    PackageHouseEvidence rejectedEvidence = new(
-                        request,
-                        decision,
-                        acquisition,
-                        failures: failures);
-                    return new PackageHouseSettlement.Acquired(
-                        new PackageHouseResult.Rejected(
-                            rejectedEvidence,
-                            Reason(
-                                "Runtime package realization requires an exact target framework.")),
-                        payload,
-                        payloadResult,
-                        selectionUsesOriginalSources);
-                }
-
                 PackageHouseRealizationReceipt realization =
                     CreateRealization(
                         request,
@@ -2363,12 +2339,9 @@ public sealed partial class PackageHouse
         IPackageContent directory,
         PackageImplementationNames? names)
     {
-        if (request.TargetContext?.RequestedFramework is not { } framework)
-            return new([]);
-        if (PackageAssetSelector.Evaluate(
-                directory,
-                framework,
-                request.TargetContext.RuntimeIdentifier).Selection
+        if (EvaluateRuntimeSelection(
+                request,
+                directory).Selection
             is not PackageAssetSelection.Selected selected)
         {
             return new([]);
@@ -2471,10 +2444,9 @@ public sealed partial class PackageHouse
                 new PackageHouseRealizationReceipt.Runtime(
                     acquisition,
                     NameImplementation(
-                        PackageAssetSelector.Evaluate(
-                            content,
-                            request.TargetContext!.RequestedFramework!,
-                            request.TargetContext.RuntimeIdentifier),
+                        EvaluateRuntimeSelection(
+                            request,
+                            content),
                         request.ImplementationNames)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
@@ -2515,6 +2487,32 @@ public sealed partial class PackageHouse
             request.TargetContext?.RequestedFramework,
             request.TargetContext?.RuntimeIdentifier,
             request.TargetContext?.IncludesNestedCompileAssets ?? true);
+
+    private static PackageAssetSelectionReceipt EvaluateRuntimeSelection(
+        PackageHouseRequest request,
+        IPackageContent content)
+    {
+        PackageHouseTargetContext? target = request.TargetContext;
+        if (target?.RequestedFramework is { } framework)
+        {
+            PackageAssetSelectionReceipt explicitSelection =
+                PackageAssetSelector.Evaluate(
+                    content,
+                    framework,
+                    target.RuntimeIdentifier);
+            if (target.RuntimeIdentifier is not null
+                || explicitSelection.Selection
+                    is not PackageAssetSelection.NoMatch)
+            {
+                return explicitSelection;
+            }
+        }
+
+        return PackageAssetSelector.EvaluateSingleRuntime(
+            content,
+            target?.RequestedFramework,
+            target?.RuntimeIdentifier);
+    }
 
     private static PackageAssetSelectionReceipt NameImplementation(
         PackageAssetSelectionReceipt receipt,

@@ -95,12 +95,15 @@ to the ordered candidates and participant evidence that Navigation requires.
 
 Which roles a probe may declare beyond the compile projection and how a
 package with no compile Library but RID-specific implementation assets selects
-its role, target, and RID belong to Navigation, `PackageAssetSelector`, and
-compile selection. Direct framework-less `lib/*.dll` assets form the
+its role belong to Navigation. When that role is implementation,
+`PackageAssetSelector` can issue one owner-default runtime population by
+inferring a RID only when exactly one eligible
+`runtimes/<rid>/lib/<tfm>` RID occurs; it never merges RIDs or uses the broader
+platform-pack population. Direct framework-less `lib/*.dll` assets form the
 framework-agnostic `any` compile slice owned by
 [compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
 [#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries the
-remaining role and RID decisions.
+remaining Navigation role adoption and archive-search retirement.
 
 A survey of the 500 most downloaded nuget.org packages at their latest stable
 versions, under #9833, informs them:
