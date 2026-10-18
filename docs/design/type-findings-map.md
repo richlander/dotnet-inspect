@@ -151,8 +151,8 @@ In the two-version form, a Member row carries:
 A Member is listed exactly when either of its Fast Diff states is not
 `Unchanged`, so the map's Rows and Fast Diff's Type state cannot disagree. A
 Member present on one side is listed on each axis where Fast Diff gives it
-facts: a method with a body is a Body change, and a public Member is an API
-change. A one-sided Member that owns no compared facts, such as an added
+facts: a method with a body is a Body change, and a public Member of a Type
+visible on either side is an API change. A one-sided Member that owns no compared facts, such as an added
 private field, is not listed, because Fast Diff does not compare it. Findings
 never decide listing. A Member whose Body changed while all its admitted facts pair
 as `Present`, such as a changed constant, is listed with a `Complete` outcome
@@ -239,7 +239,10 @@ requires, and a row whose state is undecided, such as `Indeterminate`, is
 counted neither way:
 
 - **Count** reports the number of decided Rows and, separately, the
-  undecided rows, with QuerySpace's typed outcome.
+  undecided rows, with QuerySpace's typed outcome. A row is decided when any
+  of its states is a change, such as `Changed` on one axis and
+  `Indeterminate` on the other, and undecided when its only non-`Unchanged`
+  states are undecided.
 - **Exists** is `true` when a decided Row exists, undecided when no decided
   Row exists but an undecided row does, and `false` only when the outcome is
   complete and there are no rows.
@@ -362,9 +365,11 @@ detail does.
   Type's Exists equals Fast Diff's Library-level state, including
   `Indeterminate` for Fast Diff's fixture with two Type rows of one name.
 - **Agreement:** for every listed Member of the fixture Types, and for each
-  method it owns on both sides, the admitted non-`Present` transitions of
-  that method's annotated source diff equal that method's part of the row's
-  findings.
+  method it owns on both sides that the map compares, the admitted
+  non-`Present` transitions of that method's annotated source diff equal that
+  method's part of the row's findings. For each kind of generated code that
+  step 2 folds into its owning method, a fixture shows the generated method
+  adds no findings of its own, so no fact is counted twice.
 - **Own IL:** on fixtures, an unlisted Member's admitted transitions are only
   those that read another Type's metadata, such as `alloc.new` after a
   `class` to `struct` change.
