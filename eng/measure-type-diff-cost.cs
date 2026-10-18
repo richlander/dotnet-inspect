@@ -36,6 +36,7 @@
 
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -48,6 +49,12 @@ using ILInspector.ILDiff;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
+
+// DIAGNOSTIC (exp/fastdiff-misses): --explain <before> <after> <type>...
+// prints, per Type, Fast Diff's states and first differences, every method
+// on one side only, and the canonical IL rows of every changed pair.
+if (args is ["--explain", var explainBefore, var explainAfter, .. var explainTypes])
+    return ExplainMisses(explainBefore, explainAfter, explainTypes);
 
 if (args.Length is < 3 or > 8)
 {
@@ -376,6 +383,75 @@ static Dictionary<SymbolKey, MethodDefinitionHandle> MethodsOf(FastDiff.Side sid
     return methods;
 }
 
+static int ExplainMisses(string beforePath, string afterPath, string[] typeNames)
+{
+    using var peA = new PEReader(File.OpenRead(beforePath));
+    using var peB = new PEReader(File.OpenRead(afterPath));
+    MetadataReader mdA = peA.GetMetadataReader(), mdB = peB.GetMetadataReader();
+    var a = new FastDiff.Side(peA);
+    var b = new FastDiff.Side(peB);
+    var unitsA = a.Units();
+    var unitsB = b.Units();
+    foreach (string name in typeNames)
+    {
+        var unitA = unitsA.Values.FirstOrDefault(unit => unit.FullName == name);
+        var unitB = unitsB.Values.FirstOrDefault(unit => unit.FullName == name);
+        if (unitA is null || unitB is null)
+        {
+            Console.WriteLine($"## {name}: not paired");
+            continue;
+        }
+        FastDiffTypeState state = FastDiff.CompareUnit(a, unitA, b, unitB, FastDiffAxes.ApiAndBody, new FastDiff.Work());
+        var (apiWhy, bodyWhy) = FastDiff.Explain(peA, peB, name);
+        Console.WriteLine($"## {name}: fastApi={state.Api} fastBody={state.Body} generatedA={unitA.Generated.Count} generatedB={unitB.Generated.Count}");
+        Console.WriteLine($"   apiWhy: {apiWhy?.Replace("\n", " | ")}");
+        Console.WriteLine($"   bodyWhy: {bodyWhy?.Replace("\n", " | ")}");
+        var methodsA = MethodsOf(a, unitA);
+        var methodsB = MethodsOf(b, unitB);
+        foreach (var (key, handle) in methodsA)
+        {
+            if (!methodsB.ContainsKey(key))
+                Console.WriteLine($"   - before only: {Describe(mdA, handle, unitA.Owner)}  key={key}");
+        }
+        foreach (var (key, handle) in methodsB)
+        {
+            if (!methodsA.TryGetValue(key, out MethodDefinitionHandle handleA))
+            {
+                Console.WriteLine($"   + after only:  {Describe(mdB, handle, unitB.Owner)}  key={key}");
+                continue;
+            }
+            MethodDefinition x = mdA.GetMethodDefinition(handleA), y = mdB.GetMethodDefinition(handle);
+            if ((x.RelativeVirtualAddress == 0) != (y.RelativeVirtualAddress == 0))
+            {
+                Console.WriteLine($"   ~ body on one side: {Describe(mdA, handleA, unitA.Owner)} -> {Describe(mdB, handle, unitB.Owner)}");
+                continue;
+            }
+            if (x.RelativeVirtualAddress == 0)
+                continue;
+            IlBodyDiffResult diff = IlBodyDiff.Compare(
+                mdA, peA.GetMethodBody(x.RelativeVirtualAddress),
+                mdB, peB.GetMethodBody(y.RelativeVirtualAddress), Normalization);
+            if (diff.IsExact)
+                continue;
+            Console.WriteLine($"   * changed: {Describe(mdB, handle, unitB.Owner)} outcome={diff.Outcome} failure={diff.Failure}");
+            foreach (IlDiffRow row in diff.Rows)
+                Console.WriteLine($"       {row.Kind} {row.Operation.OpcodeFamily} {row.Operation.Operand?.Value} :: {row.Message}");
+            MethodBodyBlock bodyA = peA.GetMethodBody(x.RelativeVirtualAddress), bodyB = peB.GetMethodBody(y.RelativeVirtualAddress);
+            Console.WriteLine($"       size {bodyA.Size}/{bodyB.Size} maxstack {bodyA.MaxStack}/{bodyB.MaxStack} il {System.Convert.ToHexString(bodyA.GetILBytes()!)} / {System.Convert.ToHexString(bodyB.GetILBytes()!)}");
+        }
+    }
+    return 0;
+
+    static string Describe(MetadataReader md, MethodDefinitionHandle handle, TypeDefinitionHandle owner)
+    {
+        MethodDefinition method = md.GetMethodDefinition(handle);
+        TypeDefinitionHandle declaring = method.GetDeclaringType();
+        string where = declaring == owner ? "" : $"[in {md.GetString(md.GetTypeDefinition(declaring).Name)}] ";
+        return $"{where}{md.GetString(method.Name)} access={method.Attributes & MethodAttributes.MemberAccessMask} "
+            + $"attrs={method.Attributes} impl={method.ImplAttributes} rva={(method.RelativeVirtualAddress != 0 ? "body" : "none")}";
+    }
+}
+
 static TypeBodyDiff DiffBodies(
     FastDiff.Side sideA, FastDiff.Unit unitA, FastDiff.Side sideB, FastDiff.Unit unitB,
     PEReader peA, MetadataReader mdA, PEReader peB, MetadataReader mdB)
@@ -506,3 +582,4 @@ sealed class TypeFindings
         $"throw+{ThrowAdded}/-{ThrowRemoved} branch+{BranchAdded}/-{BranchRemoved} "
         + $"alloc+{AllocationAdded}/-{AllocationRemoved} call+{CallAdded}/-{CallRemoved} unavail={Unavailable}";
 }
+
