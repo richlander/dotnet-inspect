@@ -164,10 +164,14 @@ the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
 `TextConcern` retains why visual containment occurred: control, format/bidi,
-unpaired surrogate, line separator, or paragraph separator. The flags are
+unpaired surrogate, line separator, or paragraph separator. An ill-formed UTF-8
+byte reports the surrogate concern because it is spelled as its surrogate escape
+(see [Inert UTF-8](inert-bytes.md#inert-utf-8)). The flags are
 captured while the untreated scalar is available and travel with the
-`InertString` through composition, policy tightening, bounding, and persistence
-restoration. An audit can therefore aggregate categories without importing the
+`InertString` through composition, bounding, and persistence restoration.
+Policy tightening recomputes them while re-spelling the decoded source, so they
+describe what the stricter policy spelled; two adjacent surrogate escapes that
+decode to one permitted scalar no longer report a surrogate concern. An audit can therefore aggregate categories without importing the
 decoder or retaining a second raw copy. `RequiredContainment` is exactly
 `Concerns != None`; a literal backslash may affect `VisualForm` to preserve
 invertibility but contributes no concern.
