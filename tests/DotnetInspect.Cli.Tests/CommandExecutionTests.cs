@@ -1895,31 +1895,36 @@ public partial class CommandExecutionTests
 
     private static Task<(int Exit, string Output, string Error)> RunAppAsync(params string[] args)
     {
-        return ConsoleCapture.RunAsync(async () =>
+        return ConsoleCapture.RunAsync(
+            () => InvokeAppAsync(args));
+    }
+
+    private static async Task<int> InvokeAppAsync(string[] args)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        if (CommandLineBuilder.TryGetRemovedCommandError(
+                args,
+                out var removedCommandError))
         {
-            var root = CommandLineBuilder.CreateRootCommand();
-            if (CommandLineBuilder.TryGetRemovedCommandError(
-                    args,
-                    out var removedCommandError))
-            {
-                CommandError.Write(removedCommandError!);
-                return 1;
-            }
+            CommandError.Write(removedCommandError!);
+            return 1;
+        }
 
-            // Mirror Program.cs: stale spellings are raw-token questions, so
-            // the product answers them before parsing rather than in a validator.
-            if (CommandLineBuilder.TryGetStaleArgumentError(
-                    args,
-                    root,
-                    out var staleArgumentError))
-            {
-                CommandError.Write(staleArgumentError!);
-                return 1;
-            }
+        // Mirror Program.cs: stale spellings are raw-token questions, so
+        // the product answers them before parsing rather than in a validator.
+        if (CommandLineBuilder.TryGetStaleArgumentError(
+                args,
+                root,
+                out var staleArgumentError))
+        {
+            CommandError.Write(staleArgumentError!);
+            return 1;
+        }
 
-            args = CommandLineBuilder.PreprocessArgs(args, root);
-            return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
-        });
+        args = CommandLineBuilder.PreprocessArgs(args, root);
+        return await CommandLineBuilder.InvokeAsync(
+            root.Parse(args),
+            args);
     }
 
     private static async Task<(int Exit, string Output, string Error)>

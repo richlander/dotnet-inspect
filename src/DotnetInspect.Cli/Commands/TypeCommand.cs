@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -74,6 +75,7 @@ public static partial class TypeCommand
             options,
             plan,
             commandPlan: commandPlan,
+            writeUtf8: Utf8StandardOutput.Write,
             cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteAsync(
@@ -220,6 +222,7 @@ public static partial class TypeCommand
             issuePackageOperation = null,
         WorkspacePackagePrefixHierarchyRuntime? packagePrefixRuntime = null,
         TypeCommandPlan? commandPlan = null,
+        Action<Action<IBufferWriter<byte>>>? writeUtf8 = null,
         CancellationToken cancellationToken = default)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
@@ -281,6 +284,14 @@ public static partial class TypeCommand
 
         if (resolvedSource is null && loadedSurface is null)
         {
+            int? directTypeInfo =
+                TryExecuteDirectLibraryExactTypeInfo(
+                    options,
+                    writeUtf8,
+                    cancellationToken);
+            if (directTypeInfo is { } directTypeInfoExitCode)
+                return directTypeInfoExitCode;
+
             int? directLibraryDiscovery =
                 TryExecuteDirectLibraryEffectiveDiscovery(
                     options,
@@ -2213,16 +2224,16 @@ public static partial class TypeCommand
             inspection.DerivedTypes,
         }.OfType<TypeHierarchyRelationSectionInspection>())
         {
-        WriteInspectionDiagnostics(section.Inspection.Diagnostics);
-        if (section.Inspection.Content.Relations.Rows
-            is SubjectRelationPopulationRowsOutcome.Read
-        {
-            Continuation: not null,
-        })
-        {
-            CommandError.WriteWarning(
-                "Hierarchy relation output reached the CLI row bound and "
-                    + "is incomplete.");
+            WriteInspectionDiagnostics(section.Inspection.Diagnostics);
+            if (section.Inspection.Content.Relations.Rows
+                is SubjectRelationPopulationRowsOutcome.Read
+                {
+                    Continuation: not null,
+                })
+            {
+                CommandError.WriteWarning(
+                    "Hierarchy relation output reached the CLI row bound and "
+                        + "is incomplete.");
             }
         }
     }
@@ -2428,14 +2439,14 @@ public static partial class TypeCommand
                 ? new AssemblyDependencyResolver(
                     new AssemblyDependencyResolutionOptions(
                         definingAssemblyPath)
-                {
-                    ProjectAssetsPath = options.ProjectAssetsPath,
-                    TargetFramework = options.Tfm,
-                    IncludeDepsJsonAssets = false,
-                    IncludeAspNetCoreSharedFramework = false,
-                    PreferImplementationAssemblies = true,
-                    AllowPlatformAssemblyVersionRollForward = true,
-                })
+                    {
+                        ProjectAssetsPath = options.ProjectAssetsPath,
+                        TargetFramework = options.Tfm,
+                        IncludeDepsJsonAssets = false,
+                        IncludeAspNetCoreSharedFramework = false,
+                        PreferImplementationAssemblies = true,
+                        AllowPlatformAssemblyVersionRollForward = true,
+                    })
                 : throw new InvalidOperationException(
                     "A pathless selected API participant requires its "
                         + "authoritative binding policy."));
