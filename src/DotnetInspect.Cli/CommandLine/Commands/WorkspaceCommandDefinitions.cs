@@ -13,7 +13,7 @@ using DotnetInspect.Cli.Services;
 
 namespace DotnetInspect.Cli.CommandLine;
 
-public static class WorkspaceCommandDefinitions
+public static partial class WorkspaceCommandDefinitions
 {
     public static Command CreateWorkspaceCommand(SharedOptions opts)
     {
@@ -343,6 +343,8 @@ public static class WorkspaceCommandDefinitions
             UtilityCommandDefinitions.CreateWorkspacePacketCommand());
         command.Subcommands.Add(CreateWorkspaceComponentCommand());
         command.Subcommands.Add(CreateWorkspacePackageCommand(opts));
+        command.Subcommands.Add(CreateWorkspaceRegistrationCommand(ecosystem: true));
+        command.Subcommands.Add(CreateWorkspaceRegistrationCommand(ecosystem: false));
         return command;
     }
 

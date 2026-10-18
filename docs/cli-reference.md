@@ -1508,6 +1508,33 @@ dotnet-inspect workspace package remove \
   packages/markout@0.35.2/net10.0/~ --packet "$w"
 ```
 
+Compose shipped ecosystems and independent Package prefixes without acquiring
+content:
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add runtime)
+w=$(dotnet-inspect workspace prefix add Microsoft.Extensions. --packet "$base")
+
+dotnet-inspect workspace prefix remove Microsoft.Extensions. --packet "$w"
+dotnet-inspect workspace ecosystem remove runtime --packet "$w"
+dotnet-inspect workspace prefix add Polly. --share url
+```
+
+`workspace ecosystem add` selects a shipped declaration, including its existing
+namespace hints, core packages and populations. It accepts a short name such as
+`runtime` or a canonical identity such as `ecosystem.runtime`. The command
+registers that knowledge unchanged. `workspace prefix add` registers a literal
+Package ID prefix independently of any ecosystem. An independent prefix and an
+ecosystem containing that prefix may coexist; removing one leaves the other.
+
+Add without `--packet` creates a registration-only Workspace. With a packet it
+appends a new registration; remove requires a packet and an existing
+registration. Both return a new canonical packet on stdout, or a website URL
+with `--share url`. The input and unrelated content remain unchanged. Duplicate
+or absent registrations, invalid prefixes, unsupported empty results and
+non-projectable scanner capabilities are visibly refused without partial output.
+Formats 3, 4 and 5 are preserved; earlier packet formats are refused.
+
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
 in declaration order. Overlap is preserved because committed content and

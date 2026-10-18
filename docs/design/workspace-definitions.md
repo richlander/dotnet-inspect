@@ -352,14 +352,14 @@ execution must no longer default to acquiring content for a live inventory.
 Packet and component inspection can describe declared membership, fields and
 configuration without implying that packages or libraries have been inspected.
 
-Ecosystem creation and editing are the primary authoring workflow: compose and
-revise the environment's portable ecosystem declarations, populations and
-configuration. Existing Package component edits remain useful. The current
-`--register-ecosystem` selects a shipped declaration; it does not yet provide
-this editing workflow. #10210 adopts owner-issued ecosystem declarations and
-Workspace's immutable editing boundary, retaining semantic validation and
-non-projectability with their owners. Edits produce a portable Workspace value;
-they do not mutate the compiled product catalog.
+Ecosystem selection and composition are the primary Workspace authoring
+workflow. The ecosystem catalog supplies namespace hints, core-package roots
+and population declarations; Workspace construction consumes that knowledge.
+Workspace edits add or remove those registrations, and may register an
+independent Package prefix without creating or editing an ecosystem. Existing
+Package component edits remain useful. The resource-free composition commands
+below implement #10210 using immutable Workspace values. They preserve owner
+validation and projection outcomes and do not modify the compiled catalog.
 
 Inspection commands retain their subject, query, facet, traversal and result
 semantics. Where admitted by that command, `--package` supplies direct content
@@ -532,6 +532,76 @@ Implementation and runtime/performance claims remain **unverified** until those
 adoption gates exist. Each implementation replacement must publish the
 repository-required exact-head NativeAOT comparison, with changed content
 accounted for; declaration output is not a cheaper measurement of live inventory.
+
+### Resource-free registration composition
+
+The `workspace ecosystem add/remove` and `workspace prefix add/remove` commands
+compose portable registrations under #10210. They do not construct a live
+Workspace, resolve package versions, expand a prefix, or invoke a scanner.
+The host-neutral `WorkspaceRegistrationEditor` consumes existing typed
+registrations and produces the same validated packet used by the Browser.
+
+Ecosystem add selects a shipped declaration by its short name or canonical
+identity. That declaration supplies its existing namespace hints, core-package
+roots, populations and capabilities unchanged. The command exposes no
+knowledge-authoring overrides. Ecosystem remove uses the packet identity and
+does not require that identity to remain in the current shipped catalog.
+
+An ecosystem remains a first-class registration with its identity and grouped
+contents intact. The portable packet embeds its declaration for self-contained
+restoration; it does not flatten ecosystem contents into independent Workspace
+registrations or retain only a reference to the current catalog.
+
+Prefix add registers an independent literal Package ID prefix. It requires no
+ecosystem, may coexist with ecosystem registrations, and does not modify an
+ecosystem that happens to declare the same prefix internally. Removing the
+independent registration leaves that ecosystem's declaration unchanged.
+Prefix validation and declaration equality remain with the prefix owner.
+
+If a prefix exists only inside an ecosystem, `workspace prefix remove` fails
+because there is no independent registration to remove. If the same prefix is
+also registered independently, removal deletes only that independent
+registration; the ecosystem still contributes its prefix. These commands do
+not edit an ecosystem's internal populations.
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add runtime)
+derived=$(dotnet-inspect workspace prefix add Microsoft.Extensions. \
+  --packet "$base")
+
+dotnet-inspect workspace prefix remove Microsoft.Extensions. --packet "$derived"
+dotnet-inspect workspace prefix add Polly.
+```
+
+Add without `--packet` creates a registration-only Workspace; add with a packet
+appends, refusing an existing registration of the same identity. Remove
+requires a packet and an existing registration. Every edit produces a new
+value, preserving the input and unrelated registrations, direct Packages,
+contexts, Navigation, query/view state and package sources. Removing the last
+contribution is refused when the resulting empty packet is not supported by
+the codec. No edit silently upgrades packet versions.
+
+Output retains existing immutable-edit scalar behavior: a canonical packet on
+stdout by default, or its website URL with `--share url`. Formats 3, 4 and 5
+are preserved; formats 1 and 2 are refused. The codec validates the complete
+composition and capacity. Scanner-bearing ecosystem selection remains visibly
+non-projectable; the command does not remove the scanner to emit a packet.
+Failure emits no partial scalar. Top-level Workspace defaults and duplicate
+inspection retirement remain #10186.
+
+The motivating base is the shipped Runtime declaration. An independent
+Microsoft.Extensions. or Polly. prefix widens the declared search space without
+inventing an ecosystem. A neighboring System.Text.Json 10.0.0/net10.0 direct
+Package must retain its target, context, focus and source declarations.
+Registration alone does not prove population-search support: selecting
+operations retain their own execution and acquisition policies.
+
+`WorkspaceRegistrationCommandTests` gates CLI composition, invalid input,
+removed metadata options and scanner refusal with a fail-fast source transport.
+`WorkspaceRegistrationEditingTests` gates state/version preservation and
+capacity. `ComposedRegistrations_RoundTripThroughProductionBrowserCodec` gates
+the resulting value through the Browser's production codec facade. Existing
+ecosystem knowledge, realization and search contracts remain unchanged.
 
 ### Schema-version-3 registration-bearing Workspaces
 
