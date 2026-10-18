@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="analysis-harness" />
+    <!-- SPIKE: eng/check-state-machine-owners.cs reads the lifted-owner and state-machine resolvers (#10227). -->
+    <InternalsVisibleTo Include="check-state-machine-owners" />
     <InternalsVisibleTo Include="ILInspector.CallGraph" />
     <InternalsVisibleTo Include="ILInspector.Analysis.Tests" />
     <InternalsVisibleTo Include="ILInspector.JsExportSurface.Tests" />
