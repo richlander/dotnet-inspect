@@ -21,7 +21,11 @@
 // Baselines: shipped FastDiff.Compare (both axes, API only), today's complete
 // API comparison (Extract + CompareApi) and IL diff (IlAssemblyDiff.Compare).
 //
-// Usage: measure-unified-diff <before.dll> <after.dll> [iterations] [--no-correctness] [--detail]
+//   B2  (#10227 Q1) B1opt with the complete IL diff's text method and operand
+//       identities replaced by SymbolKey ids (IlSymbolicExistsSession).
+//
+// Usage: measure-unified-diff <before.dll> <after.dll> [iterations] [--no-correctness] [--detail] [--q1]
+//   --q1  only Fast Diff, B1opt, and B2 (timing, attribution, Body gates).
 
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -45,6 +49,7 @@ string afterPath = positional[1];
 int iterations = positional.Length > 2 ? int.Parse(positional[2]) : 7;
 bool correctness = !args.Contains("--no-correctness");
 bool detail = args.Contains("--detail");
+bool q1 = args.Contains("--q1");
 byte[] beforeBytes = File.ReadAllBytes(beforePath);
 byte[] afterBytes = File.ReadAllBytes(afterPath);
 var options = new ApiDiffOptions(ApiDiffScope.All);
@@ -110,22 +115,50 @@ Row("fast(Api)", fastApiMs);
     return (MedianOf(totals), MedianOf(sessions), MedianOf(walks), last);
 }
 
-var b1 = MeasureB1(iterations, Policy, lite: false);
-var b1Lite = MeasureB1(iterations, Policy, lite: true);
-var b1Ord = MeasureB1(few, Policy | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals, lite: false);
-// Optimizations inside the complete diffs, added one at a time (cumulative).
-var b1Map = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo);
-var b1Res = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo);
-var b1Fam = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo, familyCache: true);
-var b1Key = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo | IlSessionSpikeOptions.KeyCompare, familyCache: true);
-var b1Chk = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~(IlSessionSpikeOptions.SharedDecode | IlSessionSpikeOptions.BlockGraphTopology), familyCache: true);
-var b1Shr = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~IlSessionSpikeOptions.BlockGraphTopology, familyCache: true);
 var b1Opt = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All, familyCache: true);
+var b1 = q1 ? b1Opt : MeasureB1(iterations, Policy, lite: false);
+var b1Lite = q1 ? b1Opt : MeasureB1(iterations, Policy, lite: true);
+var b1Ord = q1 ? b1Opt : MeasureB1(few, Policy | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals, lite: false);
+// Optimizations inside the complete diffs, added one at a time (cumulative).
+var b1Map = q1 ? b1Opt : MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo);
+var b1Res = q1 ? b1Opt : MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo);
+var b1Fam = q1 ? b1Opt : MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo, familyCache: true);
+var b1Key = q1 ? b1Opt : MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo | IlSessionSpikeOptions.KeyCompare, familyCache: true);
+var b1Chk = q1 ? b1Opt : MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~(IlSessionSpikeOptions.SharedDecode | IlSessionSpikeOptions.BlockGraphTopology), familyCache: true);
+var b1Shr = q1 ? b1Opt : MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~IlSessionSpikeOptions.BlockGraphTopology, familyCache: true);
+
+// B2: B1opt with symbolic method and operand identity.
+(double Total, double Session, double Walk, BodyRun Run) MeasureB2(int n)
+{
+    IlBodyDiff.SpikeFamilyCache = true;
+    var totals = new List<double>(); var sessions = new List<double>(); var walks = new List<double>();
+    BodyRun last = default!;
+    for (int i = 0; i <= n; i++)
+    {
+        using var b = Open(beforeBytes); using var a = Open(afterBytes);
+        long t = Stopwatch.GetTimestamp();
+        var session = new IlSymbolicExistsSession(b, a, Policy);
+        double s = Ms(t);
+        long w = Stopwatch.GetTimestamp();
+        var run = BodyRun.Walk(session);
+        double walk = Ms(w);
+        double total = Ms(t);
+        if (i == 0) continue;
+        totals.Add(total); sessions.Add(s); walks.Add(walk);
+        run.SessionTimes = session.Times;
+        last = run;
+    }
+    IlBodyDiff.SpikeFamilyCache = false;
+    return (MedianOf(totals), MedianOf(sessions), MedianOf(walks), last);
+}
+var b2 = MeasureB2(iterations);
 void PrintB1(string label, (double Total, double Session, double Walk, BodyRun Run) m)
     => Row(label, m.Total,
         $"session={m.Session:F2}\tmethodMap={m.Run.SessionTimes.MethodMap:F2}\tpartition={m.Run.SessionTimes.Partition:F2}"
         + $"\tordinals={m.Run.SessionTimes.Ordinals:F2}\tcomparer={m.Run.SessionTimes.Comparer:F2}\twalk={m.Walk:F2}"
         + $"\tunits={m.Run.States.Count}\tbodies={m.Run.Bodies}");
+if (!q1)
+{
 PrintB1("B1(full decode)", b1);
 PrintB1("B1(instructions-only decode)", b1Lite);
 PrintB1("B1+ordinals(full decode)", b1Ord);
@@ -135,7 +168,9 @@ PrintB1("B1 +map,resolver memo,family cache", b1Fam);
 PrintB1("B1 +map,resolver memo,family cache,key compare", b1Key);
 PrintB1("B1 +...,checked decode", b1Chk);
 PrintB1("B1 +...,shared decode for byte-identical bodies", b1Shr);
+}
 PrintB1("B1opt (+block-graph-only region topology)", b1Opt);
+PrintB1("B2 (B1opt + symbolic method and operand identity)", b2);
 
 // Attribution: one instrumented walk (not the timed one).
 {
@@ -169,13 +204,35 @@ PrintB1("B1opt (+block-graph-only region topology)", b1Opt);
     decode = lite.Comparer.DecodeTicks * 1000.0 / Stopwatch.Frequency;
     resolve = lite.Comparer.ResolveTicks * 1000.0 / Stopwatch.Frequency;
     Console.WriteLine($"attr-body-lite\tinstrumentedWalk={walk:F2}\tdecode(lite)={decode:F2}\tresolve={resolve:F2}\tcanonicalise+compare={walk - decode - resolve:F2}");
+
+    // B2 attribution: session (symbolic method map, partition), then decode, operand
+    // identity (memo misses only, as for B1opt), and comparison.
+    IlBodyDiff.SpikeFamilyCache = true;
+    long st = Stopwatch.GetTimestamp();
+    var sym = new IlSymbolicExistsSession(b, a, Policy);
+    double symSession = Ms(st);
+    sym.Comparer.Instrument = true;
+    w = Stopwatch.GetTimestamp();
+    BodyRun.Walk(sym);
+    walk = Ms(w);
+    decode = sym.Comparer.DecodeTicks * 1000.0 / Stopwatch.Frequency;
+    resolve = sym.Comparer.ResolveTicks * 1000.0 / Stopwatch.Frequency;
+    Console.WriteLine($"attr-body-b2\tsession={symSession:F2}\tmethodMap={sym.Times.MethodMap:F2}\tpartition={sym.Times.Partition:F2}"
+        + $"\tinstrumentedWalk={walk:F2}\tdecode(checked)={decode:F2}\tresolve={resolve:F2}\tresolveMisses={sym.Comparer.ResolveMisses}"
+        + $"\tcompare={walk - decode - resolve:F2}\tsharedDecodes={sym.Comparer.SharedDecodes}\tkeys={sym.Table.Count}\tkeyBytes={sym.Table.Bytes}"
+        + $"\tmethods={b.GetMetadataReader().MethodDefinitions.Count}+{a.GetMetadataReader().MethodDefinitions.Count}");
+    IlBodyDiff.SpikeFamilyCache = false;
 }
 
 // ============================================================ A1: API via the complete comparison, no census
 ApiSurface sa = default!, sb = default!;
+ApiFindingComparison wholeApi = default!;
+CensusApiRun a2 = default!;
+ApiRun a1 = default!;
+if (!q1)
+{
 var extractTimes = new List<double>();
 var compareTimes = new List<double>();
-ApiRun a1 = default!;
 for (int i = 0; i <= iterations; i++)
 {
     using var b = Open(beforeBytes); using var a = Open(afterBytes);
@@ -212,7 +269,6 @@ Row("A1", MedianOf(extractTimes) + MedianOf(compareTimes),
 }
 
 // Whole-Library CompareApi over the A1 surfaces (reference).
-ApiFindingComparison wholeApi = default!;
 double compareApiMs = Median(few, () =>
 {
     long t = Stopwatch.GetTimestamp();
@@ -249,7 +305,6 @@ Row("CompareApi(whole Library, surfaces given)", compareApiMs);
 }
 
 // ============================================================ A2: census as the API comparison's first stage
-CensusApiRun a2 = default!;
 var a2Times = new List<(double Total, double Units, double Census, double Model, double Classify)>();
 for (int i = 0; i <= iterations; i++)
 {
@@ -286,6 +341,7 @@ double todayIlMs = Median(few, () =>
     return Ms(t);
 });
 Row("today-complete", todayApiMs + todayIlMs, $"api={todayApiMs:F2}\til={todayIlMs:F2}\tcomparedBodies={todayIl.ComparedBodyCount}");
+}
 
 if (!correctness)
     return 0;
@@ -375,9 +431,72 @@ static string Bucket(string reason)
     return cut > 0 ? r[..cut] : r;
 }
 
-BodyAgreement("body-B1", b1.Run);
-BodyAgreement("body-B1lite", b1Lite.Run);
+if (!q1)
+{
+    BodyAgreement("body-B1", b1.Run);
+    BodyAgreement("body-B1lite", b1Lite.Run);
+}
 BodyAgreement("body-B1opt", b1Opt.Run);
+BodyAgreement("body-B2", b2.Run);
+{
+    // B2 pairing against the complete IL diff's text pairing, handle for handle, and the
+    // symbolic comparer against IlBodyDiff.Compare on every symbolic pair.
+    IlBodyDiff.SpikeFamilyCache = true;
+    var sym = new IlSymbolicExistsSession(pb, pa, Policy);
+    static int RowOf(MethodDefinitionHandle h) => MetadataTokens.GetRowNumber(h);
+    var textPairs = new HashSet<(int, int)>(); var textOld = new HashSet<int>(); var textNew = new HashSet<int>();
+    foreach (var unit in oracleSession.Units)
+    {
+        foreach (var key in unit.OldMethods)
+        {
+            if (oracleSession.TryNewHandle(key, out var nh)) textPairs.Add((RowOf(oracleSession.OldHandle(key)), RowOf(nh)));
+            else textOld.Add(RowOf(oracleSession.OldHandle(key)));
+        }
+        foreach (var key in unit.NewMethods)
+            if (!oracleSession.TryOldHandle(key, out _)) textNew.Add(RowOf(oracleSession.NewHandle(key)));
+    }
+    var symPairs = new HashSet<(int, int)>(); var symOld = new HashSet<int>(); var symNew = new HashSet<int>();
+    foreach (var unit in sym.Units)
+    {
+        foreach (var key in unit.OldMethods)
+        {
+            if (sym.TryNewHandle(key, out var nh)) symPairs.Add((RowOf(sym.OldHandle(key)), RowOf(nh)));
+            else symOld.Add(RowOf(sym.OldHandle(key)));
+        }
+        foreach (var key in unit.NewMethods)
+            if (!sym.TryOldHandle(key, out _)) symNew.Add(RowOf(sym.NewHandle(key)));
+    }
+    Console.WriteLine($"gate-b2-map\ttextPairs={textPairs.Count}\tsymPairs={symPairs.Count}\tpairsOnlyText={textPairs.Count(p => !symPairs.Contains(p))}"
+        + $"\tpairsOnlySym={symPairs.Count(p => !textPairs.Contains(p))}\toldOneSided(text/sym)={textOld.Count}/{symOld.Count}\tnewOneSided(text/sym)={textNew.Count}/{symNew.Count}"
+        + $"\toneSidedEqual={textOld.SetEquals(symOld) && textNew.SetEquals(symNew)}\tidentityFailures(text/sym)={oracleSession.IdentityFailures}/{sym.IdentityFailures}"
+        + $"\tunits(text/sym)={oracleSession.Units.Count}/{sym.Units.Count}");
+    foreach (var p in textPairs.Where(p => !symPairs.Contains(p)).Take(5)) Console.WriteLine($"  b2-map-only-text\t{p}");
+    foreach (var p in symPairs.Where(p => !textPairs.Contains(p)).Take(5)) Console.WriteLine($"  b2-map-only-sym\t{p}");
+    int pairs = 0, disagree = 0;
+    foreach (var unit in sym.Units)
+        foreach (var key in unit.OldMethods)
+        {
+            if (!sym.TryNewHandle(key, out var nh)) continue;
+            var om = pb.GetMetadataReader().GetMethodDefinition(sym.OldHandle(key));
+            var nm = pa.GetMetadataReader().GetMethodDefinition(nh);
+            if (om.RelativeVirtualAddress == 0 || nm.RelativeVirtualAddress == 0) continue;
+            var ob = pb.GetMethodBody(om.RelativeVirtualAddress);
+            var nb = pa.GetMethodBody(nm.RelativeVirtualAddress);
+            var exists = sym.Comparer.Compare(ob, nb, rawFastPath: false, memoTokens: true, liteDecode: false, out _, out _);
+            var expected = pairStats.Expected.TryGetValue((RowOf(sym.OldHandle(key)), RowOf(nh)), out var e)
+                ? e
+                : IlBodyDiff.Compare(sym.OldReader, ob, sym.NewReader, nb, Policy) is var d && !d.IsAvailable ? IlExistsOutcome.Unavailable
+                    : d.IsExact ? IlExistsOutcome.Exact : IlExistsOutcome.Changed;
+            pairs++;
+            if (exists != expected)
+            {
+                disagree++;
+                if (disagree <= 10) Console.WriteLine($"  b2-pair-disagree\t{sym.Table[key.Item1]}\tb2={exists}\tcompare={expected}");
+            }
+        }
+    Console.WriteLine($"gate-b2-pairs\tpairs={pairs}\tb2VsCompare-disagree={disagree}");
+    IlBodyDiff.SpikeFamilyCache = false;
+}
 {
     // Optimized comparer per method pair, checked completeness on every body, and map memo equality.
     IlBodyDiff.SpikeFamilyCache = true;
@@ -415,12 +534,16 @@ BodyAgreement("body-B1opt", b1Opt.Run);
             && p.First.OldMethods.SequenceEqual(p.Second.OldMethods) && p.First.NewMethods.SequenceEqual(p.Second.NewMethods));
     Console.WriteLine($"gate-opt\tpairs={pairs}\toptVsCompare-disagree={disagree}\tbodies={bodies}\tcheckedCompleteness-disagree={completeness}\tmapMemoEqual={mapsEqual}");
 }
+if (!q1)
 {
     int changed = b1Ord.Run.States.Count(kv => kv.Value.State != b1.Run.States[kv.Key].State);
     Console.WriteLine($"ordinals\tunitsWhoseVerdictMoves={changed}");
     foreach (var kv in b1Ord.Run.States.Where(kv => kv.Value.State != b1.Run.States[kv.Key].State).Take(10))
         Console.WriteLine($"  ordinal-move\t{kv.Key}\t{S(b1.Run.States[kv.Key].State)}->{S(kv.Value.State)}");
 }
+
+if (q1)
+    return 0;
 
 // ---- API verdicts
 var apiOracle = new HashSet<string>(StringComparer.Ordinal);
@@ -484,6 +607,8 @@ sealed class PairStats
 {
     public int Pairs, Agree, Disagree, LiteDisagree, CalliOnly;
     public List<string> Examples { get; } = [];
+    /// <summary>IlBodyDiff.Compare's outcome per (old row, new row) method pair.</summary>
+    public Dictionary<(int, int), IlExistsOutcome> Expected { get; } = [];
 }
 
 sealed class BodyRun
@@ -503,6 +628,29 @@ sealed class BodyRun
     public static string Identifier(IlLibraryExistsSession session, IlLibraryExistsSession.Unit unit)
     {
         var (reader, handle) = unit.OldPresent ? (session.OldReader, unit.Old) : (session.NewReader, unit.New);
+        return Identifier(reader, handle, unit.Identity);
+    }
+
+    public static string Identifier(IlSymbolicExistsSession session, IlSymbolicExistsSession.Unit unit)
+    {
+        var (reader, handle) = unit.OldPresent ? (session.OldReader, unit.Old) : (session.NewReader, unit.New);
+        return Identifier(reader, handle, unit.Identity);
+    }
+
+    public static BodyRun Walk(IlSymbolicExistsSession session)
+    {
+        var run = new BodyRun();
+        foreach (var unit in session.Units)
+        {
+            var state = session.CompareType(unit, out string? reason);
+            run.States[Identifier(session, unit)] = new BodyVerdict { State = Map(state), Reason = reason };
+        }
+        run.Bodies = session.BodiesCompared;
+        return run;
+    }
+
+    public static string Identifier(MetadataReader reader, TypeDefinitionHandle handle, string identity)
+    {
         var segments = ImmutableArray.CreateBuilder<string>();
         var current = handle;
         TypeDefinition root;
@@ -517,7 +665,7 @@ sealed class BodyRun
         string ns = root.Namespace.IsNil ? "" : reader.GetString(root.Namespace);
         return MetadataTypeDefinitionName.Create(ns, segments.ToImmutable()) is MetadataTypeDefinitionNameResult.Valid { Name: var name }
             ? name.ToEscapedFullName()
-            : "!" + unit.Identity;
+            : "!" + identity;
     }
 
     public static BodyRun Walk(IlLibraryExistsSession session)
@@ -581,6 +729,7 @@ sealed class BodyRun
                 var exists = full.Compare(ob, nb, rawFastPath: false, memoTokens: true, liteDecode: false, out _, out _);
                 var existsLite = lite.Compare(ob, nb, rawFastPath: false, memoTokens: true, liteDecode: true, out _, out _);
                 var expected = !diff.IsAvailable ? IlExistsOutcome.Unavailable : diff.IsExact ? IlExistsOutcome.Exact : IlExistsOutcome.Changed;
+                stats.Expected[(MetadataTokens.GetRowNumber(session.OldHandle(key)), MetadataTokens.GetRowNumber(nh))] = expected;
                 if (exists == expected) stats.Agree++;
                 else { stats.Disagree++; if (stats.Examples.Count < 20) stats.Examples.Add($"{key.Identity} exists={exists} compare={expected}"); }
                 if (existsLite != expected) stats.LiteDisagree++;

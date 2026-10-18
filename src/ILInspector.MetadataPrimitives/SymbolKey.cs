@@ -35,6 +35,12 @@ internal readonly struct SymbolKey : IEquatable<SymbolKey>, IComparable<SymbolKe
 
     SymbolKey(byte[] bytes) => _bytes = bytes;
 
+    // SPIKE (exp/unified-diff-exists): an intern table copies a key it has not seen.
+    internal static SymbolKey FromSpan(ReadOnlySpan<byte> bytes) => new(bytes.ToArray());
+
+    /// <summary>SPIKE: the retained size of this key's bytes.</summary>
+    internal int Length => _bytes.Length;
+
     public ReadOnlySpan<byte> Bytes => _bytes;
 
     /// <summary>Whether this is the default value, which no builder makes.</summary>
@@ -140,6 +146,16 @@ internal readonly struct SymbolKey : IEquatable<SymbolKey>, IComparable<SymbolKe
 
         /// <summary>Discards every open key, after a build was abandoned by an exception.</summary>
         public void Reset() => _length = 0;
+
+        // SPIKE (exp/unified-diff-exists, #9918 interning): read the key opened at
+        // mark without copying it, then drop it, so an intern table can look it up
+        // by span and copy only a key it has not seen.
+        public ReadOnlySpan<byte> Peek(int mark) => _buffer.AsSpan(mark, _length - mark);
+
+        public void Truncate(int mark) => _length = mark;
+
+        /// <summary>SPIKE: appends a blob part from bytes already in hand.</summary>
+        public Builder Payload(ReadOnlySpan<byte> payload) => Framed(SymbolPart.Blob, payload);
 
         public Builder Mark(SymbolPart part)
         {
@@ -317,4 +333,68 @@ internal enum SymbolPart : byte
     Constraint,
     Attribute,
     Constant,
+
+    // SPIKE (exp/unified-diff-exists): the IL diff's canonical identity profile.
+    // An assembly scope as the canonical comparison spells it: a named scope,
+    // the shared current or platform scope, or an exact reference identity.
+    Scope,
+    CurrentScope,
+    PlatformScope,
+    ExactScope,
+    UserString,
+    SignatureBlob,
+    Rejected,
+    ArrayDimension,
+    MethodIdentity,
+    FieldIdentity,
+}
+
+/// <summary>
+/// SPIKE (exp/unified-diff-exists, #9918 step 3): a span-keyed intern table.
+/// A key's id is valid only inside one table and is never persisted.
+/// </summary>
+internal sealed class SymbolKeyTable
+{
+    readonly Dictionary<SymbolKey, int> _ids = new(new Comparer());
+    readonly Dictionary<SymbolKey, int>.AlternateLookup<ReadOnlySpan<byte>> _lookup;
+    readonly List<SymbolKey> _keys = [];
+
+    public SymbolKeyTable() => _lookup = _ids.GetAlternateLookup<ReadOnlySpan<byte>>();
+
+    public int Count => _keys.Count;
+
+    public SymbolKey this[int id] => _keys[id];
+
+    public long Bytes { get; private set; }
+
+    /// <summary>The id of a key, adding a copy of it when it is new.</summary>
+    public int Intern(ReadOnlySpan<byte> key)
+    {
+        if (_lookup.TryGetValue(key, out int id))
+            return id;
+        var copy = SymbolKey.FromSpan(key);
+        id = _keys.Count;
+        _keys.Add(copy);
+        _ids.Add(copy, id);
+        Bytes += key.Length;
+        return id;
+    }
+
+    public bool TryGet(SymbolKey key, out int id) => _ids.TryGetValue(key, out id);
+
+    sealed class Comparer : IEqualityComparer<SymbolKey>, IAlternateEqualityComparer<ReadOnlySpan<byte>, SymbolKey>
+    {
+        public bool Equals(SymbolKey x, SymbolKey y) => x.Bytes.SequenceEqual(y.Bytes);
+        public int GetHashCode(SymbolKey key) => Hash(key.Bytes);
+        public bool Equals(ReadOnlySpan<byte> alternate, SymbolKey other) => alternate.SequenceEqual(other.Bytes);
+        public int GetHashCode(ReadOnlySpan<byte> alternate) => Hash(alternate);
+        public SymbolKey Create(ReadOnlySpan<byte> alternate) => SymbolKey.FromSpan(alternate);
+
+        static int Hash(ReadOnlySpan<byte> bytes)
+        {
+            var hash = new HashCode();
+            hash.AddBytes(bytes);
+            return hash.ToHashCode();
+        }
+    }
 }

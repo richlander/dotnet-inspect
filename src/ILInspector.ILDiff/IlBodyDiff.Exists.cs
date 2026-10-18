@@ -103,6 +103,40 @@ internal sealed class IlBodyExistsComparer
         _normalization = normalization;
     }
 
+    // SPIKE (exp/unified-diff-exists, B2): token operands compare by interned SymbolKey ids
+    // (IlBodyDiff.SymbolicIdentity over one table shared by both sides) instead of text.
+    readonly IlBodyDiff.SymbolicIdentity? _oldSymbols;
+    readonly IlBodyDiff.SymbolicIdentity? _newSymbols;
+
+    public IlBodyExistsComparer(
+        IlBodyDiff.SymbolicIdentity oldSymbols,
+        IlBodyDiff.SymbolicIdentity newSymbols,
+        IlBodyDiffNormalization normalization)
+    {
+        _old = IlBodyDiff.CreateSpikeResolver(oldSymbols.Reader, normalization);
+        _new = IlBodyDiff.CreateSpikeResolver(newSymbols.Reader, normalization);
+        _oldSymbols = oldSymbols;
+        _newSymbols = newSymbols;
+        _normalization = normalization;
+    }
+
+    public bool Symbolic => _oldSymbols is not null;
+
+    bool TryTokenId(DecodedInstruction instruction, IlBodyDiff.SymbolicIdentity symbols, out int id, out string? failure)
+    {
+        if (!Instrument)
+            return symbols.TryOperand(instruction, out id, out failure);
+        long misses = symbols.OperandMisses;
+        long start = System.Diagnostics.Stopwatch.GetTimestamp();
+        bool ok = symbols.TryOperand(instruction, out id, out failure);
+        if (symbols.OperandMisses != misses)
+        {
+            ResolveTicks += System.Diagnostics.Stopwatch.GetTimestamp() - start;
+            ResolveMisses++;
+        }
+        return ok;
+    }
+
     // SPIKE (exp/unified-diff-exists): attribution counters, read only when Instrument is set.
     public bool Instrument { get; set; }
     public long DecodeTicks { get; set; }
@@ -235,6 +269,16 @@ internal sealed class IlBodyExistsComparer
             if (!IlBodyDiff.SpikeIsTokenOperand(instruction.Operand))
                 continue;
             InstructionsCompared++;
+            if (_oldSymbols is not null)
+            {
+                if (!TryTokenId(instruction, _oldSymbols, out int oi, out failure)
+                    || !TryTokenId(instruction, _newSymbols!, out int ni, out failure))
+                    return IlExistsOutcome.Unavailable;
+                TokensResolved += 2;
+                if (oi != ni)
+                    return IlExistsOutcome.Changed;
+                continue;
+            }
             if (!TryToken(instruction, _old, _oldMemo, out var ot, out failure)
                 || !TryToken(instruction, _new, _newMemo, out var nt, out failure))
                 return IlExistsOutcome.Unavailable;
@@ -255,7 +299,7 @@ internal sealed class IlBodyExistsComparer
     /// external edge, and an empty region list gives the topology no block-graph reason.
     /// An instruction with targets that does not end its block falls back to the full decode.
     /// </summary>
-    bool TryCheckedDecode(byte[] il, MethodBodyBlock body, string side, out ImmutableArray<DecodedInstruction> instructions, out string? failure)
+    internal bool TryCheckedDecode(byte[] il, MethodBodyBlock body, string side, out ImmutableArray<DecodedInstruction> instructions, out string? failure)
     {
         failure = null;
         // A body with regions also takes this path: its block graph is complete exactly when
@@ -408,6 +452,25 @@ internal sealed class IlBodyExistsComparer
             var o = oldInstructions[i];
             var n = newInstructions[i];
             InstructionsCompared++;
+            if (_oldSymbols is not null && IlBodyDiff.SpikeIsTokenOperand(o.Operand))
+            {
+                if (!TryTokenId(o, _oldSymbols, out int oi, out failure))
+                    return IlExistsOutcome.Unavailable;
+                if (!IlBodyDiff.SpikeIsTokenOperand(n.Operand))
+                    return IlBodyDiff.SpikeOpcodeFamily(o, _normalization) == IlBodyDiff.SpikeOpcodeFamily(n, _normalization)
+                        ? throw new InvalidOperationException("Equal families with different operand shapes.")
+                        : IlExistsOutcome.Changed;
+                if (!TryTokenId(n, _newSymbols!, out int ni, out failure))
+                    return IlExistsOutcome.Unavailable;
+                TokensResolved += 2;
+                string ofo = IlBodyDiff.SpikeOpcodeFamily(o, _normalization);
+                string ofn = IlBodyDiff.SpikeOpcodeFamily(n, _normalization);
+                if (!ReferenceEquals(ofo, ofn) && ofo != ofn)
+                    return IlExistsOutcome.Changed;
+                if (oi != ni)
+                    return IlExistsOutcome.Changed;
+                continue;
+            }
             if (IlBodyDiff.SpikeIsTokenOperand(o.Operand))
             {
                 if (!TryToken(o, _old, _oldMemo, out var ot, out failure))
@@ -429,7 +492,9 @@ internal sealed class IlBodyExistsComparer
             if (IlBodyDiff.SpikeIsTokenOperand(n.Operand))
             {
                 // Resolve the new token as canonicalisation would before deciding.
-                if (!TryToken(n, _new, _newMemo, out _, out failure))
+                if (_newSymbols is not null
+                    ? !TryTokenId(n, _newSymbols, out _, out failure)
+                    : !TryToken(n, _new, _newMemo, out _, out failure))
                     return IlExistsOutcome.Unavailable;
                 return IlExistsOutcome.Changed;
             }
@@ -458,7 +523,7 @@ internal sealed class IlBodyExistsComparer
     }
 
     /// <summary>The operand identity tag and value IlBodyDiff spells as text: 0 none, 1 immediate, 2 slot.</summary>
-    static int Immediate(DecodedInstruction instruction, bool variableLayout, out long value)
+    internal static int Immediate(DecodedInstruction instruction, bool variableLayout, out long value)
     {
         switch (instruction.OpCode)
         {
@@ -517,7 +582,7 @@ internal sealed class IlBodyExistsComparer
         return true;
     }
 
-    static int IndexAt(ImmutableArray<DecodedInstruction> instructions, int offset)
+    internal static int IndexAt(ImmutableArray<DecodedInstruction> instructions, int offset)
     {
         int lo = 0, hi = instructions.Length - 1;
         while (lo <= hi)

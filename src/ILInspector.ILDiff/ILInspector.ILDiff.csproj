@@ -33,4 +33,9 @@
     <ProjectReference Include="..\Inspector.Text\Inspector.Text.csproj" />
   </ItemGroup>
 
+  <!-- SPIKE (exp/unified-diff-exists): XxHash128 for one-version Body fact fingerprints. -->
+  <ItemGroup>
+    <PackageReference Include="System.IO.Hashing" />
+  </ItemGroup>
+
 </Project>
