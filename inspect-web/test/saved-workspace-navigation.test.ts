@@ -43,9 +43,11 @@ import {
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import {
   normalizePackageIntegrationsSnapshot,
+  normalizePackageOpportunitiesSnapshot,
   normalizePackageVulnerabilitySnapshot,
   workspaceDependencyKey,
   type PackageIntegrationsState,
+  type PackageOpportunitiesState,
   type PackageVulnerabilityState,
 } from "../src/package-inspection.ts";
 import {
@@ -415,6 +417,9 @@ function harness() {
     packageIntegrations: {
       status: "idle",
     } as PackageIntegrationsState,
+    packageOpportunities: {
+      status: "idle",
+    } as PackageOpportunitiesState,
     dependenciesGroupIndex: null as number | null,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
@@ -648,6 +653,7 @@ function harness() {
     normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
     normalizePackageIntegrationsSnapshot,
+    normalizePackageOpportunitiesSnapshot,
     normalizePackageVulnerabilitySnapshot,
     normalizeSourceResultSnapshot,
     retainedWorkspaces: {
@@ -1068,6 +1074,10 @@ test("capture settles a loading document viewer without claiming ready content",
     status: "loading",
     request: { key: "package-integrations" },
   };
+  h.state.packageOpportunities = {
+    status: "loading",
+    request: { key: "package-opportunities" },
+  };
   h.state.typeSource = {
     status: "failed",
     signature: "type",
@@ -1087,6 +1097,7 @@ test("capture settles a loading document viewer without claiming ready content",
     && "memberGroupDocumentLoading" in snapshotState
     && "memberGroupDocumentKey" in snapshotState
     && "packageIntegrations" in snapshotState
+    && "packageOpportunities" in snapshotState
     && "packageVulnerabilities" in snapshotState
     && "typeSource" in snapshotState);
 
@@ -1108,6 +1119,10 @@ test("capture settles a loading document viewer without claiming ready content",
     && typeof snapshotState.packageIntegrations === "object"
     && "status" in snapshotState.packageIntegrations);
   assert.equal(snapshotState.packageIntegrations.status, "idle");
+  assert.ok(snapshotState.packageOpportunities !== null
+    && typeof snapshotState.packageOpportunities === "object"
+    && "status" in snapshotState.packageOpportunities);
+  assert.equal(snapshotState.packageOpportunities.status, "idle");
   assert.deepEqual(snapshotState.typeSource, h.state.typeSource);
   assert.equal(h.state.docViewer.status, "loading");
   assert.deepEqual(
@@ -1127,6 +1142,12 @@ test("capture settles a loading document viewer without claiming ready content",
       h.state.packageIntegrations.request.key,
       "package-integrations");
   }
+  assert.equal(h.state.packageOpportunities.status, "loading");
+  if (h.state.packageOpportunities.status === "loading") {
+    assert.equal(
+      h.state.packageOpportunities.request.key,
+      "package-opportunities");
+  }
 
   h.state.packageVulnerabilities = {
     status: "failed",
@@ -1138,6 +1159,11 @@ test("capture settles a loading document viewer without claiming ready content",
     key: "package-integrations",
     error: "integration scan unavailable",
   };
+  h.state.packageOpportunities = {
+    status: "failed",
+    key: "package-opportunities",
+    error: "opportunity scan unavailable",
+  };
   const terminalSnapshot: unknown = runInNewContext(
     "captureCanonicalWorkspaceRestoreSnapshot()",
     h.context,
@@ -1147,6 +1173,7 @@ test("capture settles a loading document viewer without claiming ready content",
   const terminalState = terminalSnapshot.state;
   assert.ok(terminalState !== null && typeof terminalState === "object"
     && "packageIntegrations" in terminalState
+    && "packageOpportunities" in terminalState
     && "packageVulnerabilities" in terminalState);
   const terminalVulnerabilities = terminalState.packageVulnerabilities;
   assert.ok(terminalVulnerabilities !== null
@@ -1170,6 +1197,52 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.equal(terminalIntegrations.key, "package-integrations");
   assert.ok("error" in terminalIntegrations);
   assert.equal(terminalIntegrations.error, "integration scan unavailable");
+  const terminalOpportunities = terminalState.packageOpportunities;
+  assert.ok(terminalOpportunities !== null
+    && typeof terminalOpportunities === "object"
+    && "status" in terminalOpportunities);
+  assert.equal(terminalOpportunities.status, "failed");
+  assert.ok("key" in terminalOpportunities);
+  assert.equal(terminalOpportunities.key, "package-opportunities");
+  assert.ok("error" in terminalOpportunities);
+  assert.equal(terminalOpportunities.error, "opportunity scan unavailable");
+
+  const opportunityResult = {
+    package: "Source",
+    version: "1.2.3",
+    activeFramework: "net9.0",
+    categories: [],
+    totalOpportunities: 0,
+    isComplete: true,
+    inspectionError: null,
+    compileLibrary: {
+      status: "Selected" as const,
+      targetFramework: "net9.0",
+      message: null,
+    },
+    inspection: null,
+  };
+  h.state.packageOpportunities = {
+    status: "ready",
+    key: "package-opportunities",
+    result: opportunityResult,
+  };
+  const readySnapshot: unknown = runInNewContext(
+    "captureCanonicalWorkspaceRestoreSnapshot()",
+    h.context,
+  );
+  assert.ok(readySnapshot !== null && typeof readySnapshot === "object"
+    && "state" in readySnapshot);
+  const readyState = readySnapshot.state;
+  assert.ok(readyState !== null && typeof readyState === "object"
+    && "packageOpportunities" in readyState);
+  const readyOpportunities = readyState.packageOpportunities;
+  assert.ok(readyOpportunities !== null
+    && typeof readyOpportunities === "object"
+    && "status" in readyOpportunities);
+  assert.equal(readyOpportunities.status, "ready");
+  assert.ok("result" in readyOpportunities);
+  assert.deepEqual(readyOpportunities.result, opportunityResult);
 });
 
 test("capture settles Spotlight package loading to cache or idle", () => {
