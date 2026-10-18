@@ -235,16 +235,40 @@ establishes that no remaining consumer requires it.
 
 ## CLI and Markout boundary
 
-Ordinary CLI package-document output currently preserves exact document
-content; it is not a rich Markdown renderer and does not become one through
-this pattern. Exact-byte output remains outside contained publication.
+The assessment tracked by #10260 found no CLI adopter for this pattern.
+Ordinary CLI package-document output is a payload projection, not a rich
+Markdown publication path:
 
-Markout already owns host-neutral structure for product-generated documents,
-and many of its view models carry `InertString` leaves. The planned CLI slice
-assesses whether any externally authored structured document crosses Markout
-without complete typed leaf containment. It adopts this pattern only for such a
-consumer. It does not migrate every Markout document merely to introduce a new
-wrapper around already-contained product values.
+- `package -S README --print`, `package --content`, and
+  `project -S README --print` do not parse package Markdown into Markout
+  structure;
+- an explicit unscoped unary file destination preserves the package bytes
+  exactly, while terminal-facing or scoped output uses the existing payload
+  containment contract; and
+- printable `--markdown` output places the selected source in a CLI-owned
+  Markout `CodeSection`; it does not interpret that source as Markdown
+  structure.
+
+Authored C# source and compiled XML documentation summaries likewise enter
+CLI-owned Markout code, paragraph, or table leaves. The surrounding document
+structure is product-generated. Package inspection metadata already crosses
+`PackageInspectionText` as `InertString` before Markout lowering. Generic
+Markout row and direct-writer leaf containment remains an Inert Text concern;
+its existing residual is tracked by #3463. A raw or insufficiently typed leaf
+inside product-owned structure does not become externally authored document
+structure and does not justify a contained-document wrapper.
+
+The CLI therefore adds no prepared-document or publishable-document type in
+this slice and preserves exact package-document transfer unchanged.
+`PayloadLensContainmentTests` gates encoded terminal output and exact file
+export. `PackageInspectionTextTests` and `MarkoutRowContainmentTests` gate the
+existing package-metadata and declared-row boundaries.
+
+A future CLI consumer must adopt this pattern if it parses or sanitizes an
+externally authored document grammar, retains that source's structure, and
+publishes the resulting structure through Markout or another host sink. Merely
+placing external text in a product-owned code block, paragraph, table cell, or
+payload stream remains a leaf-containment or exact-transfer concern.
 
 ## Failure and bounds
 
@@ -292,9 +316,11 @@ this table.
    Inert Text without changing that owner's scalar policy. Completed by #10113.
 2. Implement the smallest shared leaf-containment and correspondence contract.
    Completed by #10175.
-3. Adopt it in Inspect Web package README publication. Tracked by #10248.
+3. Adopt it in Inspect Web package README publication. Completed by #10255.
 4. Assess the CLI/Markout boundary and adopt only an identified externally
-   authored structured-document consumer.
+   authored structured-document consumer. The #10260 assessment found no
+   adopter and preserves the existing exact-transfer and leaf-containment
+   boundaries.
 5. Retire the transitional Browser whole-HTML containment operation.
 
 The Browser package README is the first production consumer. Additional
