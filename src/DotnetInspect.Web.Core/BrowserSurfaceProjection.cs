@@ -156,7 +156,7 @@ internal static class BrowserSurfaceProjection
                 identity.PublicKeyToken,
                 participant.Asset,
                 publicTypes.Length,
-                publicTypes.Sum(DefaultBucketMembers),
+                publicTypes.Sum(type => type.Members),
                 platformPack));
             types.AddRange(assemblyTypes);
         }
@@ -190,7 +190,7 @@ internal static class BrowserSurfaceProjection
             [.. surfaces.Accessibility.Select(Descriptor)],
             identified
                 .Where(type => IsDefaultBucket(surfaces, type))
-                .Sum(DefaultBucketMembers),
+                .Sum(type => type.Members),
             noticeEntries,
             notice,
             truncation is not null);
@@ -335,7 +335,7 @@ internal static class BrowserSurfaceProjection
                         identityPublicKeyToken,
                         asset,
                         publicTypes.Length,
-                        publicTypes.Sum(DefaultBucketMembers),
+                        publicTypes.Sum(type => type.Members),
                         PlatformPack: null),
                 ]
                 : [],
@@ -343,7 +343,7 @@ internal static class BrowserSurfaceProjection
             [.. inventory.KindFacets.Select(Descriptor)],
             [.. inventory.TraitFacets.Select(Descriptor)],
             [.. accessibility.Select(Descriptor)],
-            publicTypes.Sum(DefaultBucketMembers),
+            publicTypes.Sum(type => type.Members),
             noticeEntries,
             notice,
             truncation is not null);
@@ -389,13 +389,25 @@ internal static class BrowserSurfaceProjection
             assembly,
             assemblyId,
             assemblyName,
-            members.Length,
+            MemberCount(presentation, members),
             presentation.Signature,
             members,
             platformPack);
         textBudget?.Retain(projected);
         return projected;
     }
+
+    // A public Type's member Count is its default population, the public bucket, so the
+    // Library total that sums it agrees with the exact Library's public surface. Extensions
+    // attached from non-public Types stay in Api in their narrower buckets
+    // (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
+    static int MemberCount(
+        ApiTypeSurfacePresentation presentation,
+        BrowserMemberSurfaceInfo[] members) =>
+        ApiAccessibility.Classify(presentation.Accessibility).IsDefault
+            ? members.Count(member =>
+                ApiAccessibility.Classify(member.Accessibility).IsDefault)
+            : members.Length;
 
     internal static BrowserMemberSurfaceInfo Member(
         ApiType type,
@@ -453,13 +465,6 @@ internal static class BrowserSurfaceProjection
         textBudget?.Retain(projected);
         return projected;
     }
-
-    // A Library's member Count is its default population: the public bucket. A public Type
-    // also carries attached extensions in narrower buckets, which the Count excludes
-    // (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
-    static int DefaultBucketMembers(BrowserTypeSurfaceInfo type) =>
-        type.Api.Count(member =>
-            ApiAccessibility.Classify(member.Accessibility).IsDefault);
 
     static bool IsDefaultBucket(
         ImmutableArray<ApiAccessibilityBucket> accessibility,

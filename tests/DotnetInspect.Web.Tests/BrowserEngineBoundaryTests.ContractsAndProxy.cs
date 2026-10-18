@@ -492,11 +492,12 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     // The composed surface attaches extensions declared by non-public Types to public
-    // receivers in narrower buckets. A Library's member Count stays its default
-    // population, so it agrees with the public-scope surface that exact Library
-    // Overview counts.
+    // receivers in narrower buckets. A public Type's member Count and the Library
+    // total that sums it stay the default population, so they agree with the
+    // public-scope surface that exact Library Overview counts, and a partial merge
+    // that adds or removes Types by their Counts keeps the total.
     [Fact]
-    public async Task SurfaceProjection_LibraryMemberCountExcludesNarrowerAttachedExtensions()
+    public async Task SurfaceProjection_MemberCountsExcludeNarrowerAttachedExtensions()
     {
         string path = Path.Combine(
             AppContext.BaseDirectory,
@@ -544,6 +545,20 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Contains(
             reader.Api,
             member => member.IsExtension && member.Accessibility == "internal");
+        Assert.True(reader.Members < reader.Api.Length);
+        BrowserTypeSurfaceInfo[] publicTypes =
+        [
+            .. projected.Types.Where(type =>
+                ApiAccessibility.Classify(type.Accessibility).IsDefault),
+        ];
+        Assert.All(
+            publicTypes,
+            type => Assert.Equal(
+                publicSurface.Types.Single(candidate =>
+                    DotnetInspector.Presentation.ApiSurfacePresentation.Type(candidate).DefinitionId
+                        == type.DefinitionId).Members.Count,
+                type.Members));
+        Assert.Equal(publicMembers, publicTypes.Sum(type => type.Members));
         Assert.Equal(
             publicMembers,
             Assert.Single(projected.Assemblies).PublicMembers);
