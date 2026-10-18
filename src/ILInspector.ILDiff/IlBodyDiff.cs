@@ -521,8 +521,10 @@ public static partial class IlBodyDiff
         {
             // SPIKE (exp/unified-diff-exists): the spelling below is a pure function of the
             // opcode, so cache it rather than format an enum name per instruction.
-            var cache = s_spikeFamilies ??= new System.Collections.Concurrent.ConcurrentDictionary<ILOpCode, string>();
-            return cache.GetOrAdd(opcode, static op => SpellFamily(op));
+            int slot = (int)opcode < 0x100 ? (int)opcode : 0x100 + ((int)opcode & 0xFF);
+            if ((uint)slot < (uint)s_spikeFamilies.Length)
+                return s_spikeFamilies[slot] ??= SpellFamily(opcode);
+            return SpellFamily(opcode);
         }
         return SpellFamily(opcode);
     }
@@ -534,7 +536,7 @@ public static partial class IlBodyDiff
 
     // SPIKE (exp/unified-diff-exists): off by default so before/after is measurable in one process.
     internal static bool SpikeFamilyCache { get; set; }
-    static System.Collections.Concurrent.ConcurrentDictionary<ILOpCode, string>? s_spikeFamilies;
+    static readonly string?[] s_spikeFamilies = new string?[0x200];
 
     static bool TryOperandIdentity(
         DecodedInstruction instruction,
