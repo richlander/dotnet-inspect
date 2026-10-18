@@ -505,6 +505,7 @@ internal sealed record TypeHierarchyRelationCandidate(
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    public string? WorkspacePacket { get; init; }
     public ExplanationProjection? Explanation { get; init; }
     public bool EnvelopeOutput { get; init; }
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }
