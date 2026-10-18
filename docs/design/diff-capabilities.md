@@ -27,6 +27,7 @@ It consumes and does not redefine:
 | [Diff system](diff-system.md#request) | The diff request, its axes per step, version windows, and the operation |
 | [API population scope](api-population-scope.md) | The ordinary and widened API populations; this document changes which one a comparison uses |
 | [Diff observability](diff-observability.md) | A reported change has a view; over-reporting stays within observability |
+| [IL diff canonicalization](il-diff-canonicalization.md) | Canonical body equality, and a failed inspection for an endpoint it cannot decode |
 | [Fast Diff](fast-diff.md) | Today's Exists provision: its census, identity, axes, and Type level |
 | [Annotated Type Map](annotated-type-map.md) | The per-Member differences of a Type |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The complete diff of one Member |
@@ -107,7 +108,8 @@ Every rung answers per **axis**:
   internal Type is not on the API axis. That is the visibility
   [Fast Diff's API axis](fast-diff.md#axes) admits; `private protected`
   declarations belong to Body. Hidden is a facet of the subject, not a reason
-  to skip it; `Obsolete` is a facet already. The ordinary population, the `public` bucket without hidden
+  to skip it; `Obsolete` is a facet already.
+  The ordinary population, the `public` bucket without hidden
   declarations, becomes a presentation default. This changes that owner's rule
   that API Diff keeps its existing visibility behavior; adoption step 1 makes
   the change there.
@@ -176,8 +178,10 @@ document only states that each step names its axes.
    never reports `Unchanged` for it. Exists stops at the first difference, so
    it may report `Changed` for a subject whose later content the complete diff
    cannot decode, such as a body that differs and then holds an undefined
-   opcode. The complete diff then shows the difference it found and the
-   decode failure, visibly, never an empty view.
+   opcode. For that subject, the complete diff's visible decode-failure view,
+   the failed inspection the [IL diff](il-diff-canonicalization.md) reports
+   for an endpoint it cannot decode, satisfies rule 2: the view is not empty,
+   and it does not claim the subject is unchanged.
 
 Rung 4 is read for these rules under each axis's policy, such as the Body
 policy's assembly-scope normalization
@@ -294,7 +298,8 @@ Each step is its own focused effort:
 
 1. **Axes.** The API axis compares the `public` and `protected` buckets, less
    `private protected`, with hidden declarations admitted, in Fast Diff, the
-   Public API surface and its complete comparison, [API population scope](api-population-scope.md), and
+   Public API surface and its complete comparison,
+   [API population scope](api-population-scope.md), and
    the [Annotated Type Map](annotated-type-map.md). The Body axis includes
    declaration and implementation facts, in Fast Diff's Body census and the
    Annotated Type Map's listing. Each row gains a declaration view, and the
@@ -317,13 +322,14 @@ Each step is its own focused effort:
 
 ## Gates
 
-- **Unchanged is exact:** over the Fast Diff fixtures and the six measured pairs, every
+- **Unchanged is exact:** over the Fast Diff fixtures and the six measured pairs,
+  every
   subject Exists reports `Unchanged` on an axis has no difference in the
   complete diff on that axis.
 - **Changed is observable:** every subject Exists reports `Changed` has at
-  least one difference in the complete diff on that axis, including a fixture
-  whose body differs and then holds an undefined opcode, where the complete
-  diff shows the difference and the decode failure.
+  least one difference in the complete diff on that axis, or, for a fixture
+  whose body differs and then holds an undefined opcode, the complete diff's
+  visible decode-failure view.
 - **Coverage:** for each fixture Type, its rung-1 state follows from its
   rung-2 states, its presence, and Fast Diff's identity rule as stated above,
   and each decided row's rung-2 state equals whether its rung-3 entry and its
