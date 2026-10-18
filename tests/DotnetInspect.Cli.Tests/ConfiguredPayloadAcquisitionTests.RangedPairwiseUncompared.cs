@@ -47,11 +47,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
-        Assert.Contains(
-            $"Package '{ToolsOnlyId}@1.0.0' has no compile assets; "
-                + "assemblies outside lib/ and ref/, such as tools/, build/, or analyzers/, aren't compared.",
+        // Both endpoints fail; whichever fails first is reported.
+        AssertReportsEitherEndpoint(
             result.Error,
-            StringComparison.Ordinal);
+            version => $"Package '{ToolsOnlyId}@{version}' has no compile assets; "
+                + "assemblies outside lib/ and ref/, such as tools/, build/, or analyzers/, aren't compared.");
         Assert.DoesNotContain($"Comparing {ToolsOnlyId} v", result.Error, StringComparison.Ordinal);
     }
 
@@ -83,12 +83,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
 
         Assert.Equal(1, result.Exit);
         Assert.Empty(result.Output);
-        Assert.Contains(
-            $"Package '{EmptyGroupId}@1.0.0' has an empty compile group for netcoreapp2.1, "
-                + "the framework it selects by default, which provides the Library itself. "
-                + "Use --tfm to compare it for one of: netstandard2.0.",
+        AssertReportsEitherEndpoint(
             result.Error,
-            StringComparison.Ordinal);
+            version => $"Package '{EmptyGroupId}@{version}' has an empty compile group for netcoreapp2.1, "
+                + "the framework it selects by default, which provides the Library itself. "
+                + "Use --tfm to compare it for one of: netstandard2.0.");
         Assert.DoesNotContain($"Comparing {EmptyGroupId} v", result.Error, StringComparison.Ordinal);
 
         var targeted = await RunCommandAsync([.. request, "--tfm", "netstandard2.0"]);
@@ -96,6 +95,17 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         Assert.True(targeted.Exit == 0, targeted.Error);
         Assert.Contains("Member 'GenericIdentity' was added", targeted.Output, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// Asserts that <paramref name="error"/> reports one endpoint of a pair
+    /// whose endpoints both fail: the one that failed first cancels its
+    /// sibling and is reported.
+    /// </summary>
+    private static void AssertReportsEitherEndpoint(string error, Func<string, string> report) =>
+        Assert.True(
+            error.Contains(report("1.0.0"), StringComparison.Ordinal)
+                || error.Contains(report("2.0.0"), StringComparison.Ordinal),
+            error);
 
     private static byte[] EmptyGroupPackage(string version, string assemblyPath)
     {
