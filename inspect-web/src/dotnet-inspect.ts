@@ -185,9 +185,11 @@ import {
 import {
   createPackageInspectionCoordinator,
   normalizePackageIntegrationsSnapshot,
+  normalizePackageMetadataSnapshot,
   normalizePackageOpportunitiesSnapshot,
   normalizePackageVulnerabilitySnapshot,
   packageIntegrationsStateKey,
+  packageMetadataStateKey,
   packageOpportunitiesStateKey,
   packageVulnerabilityStateKey,
   projectPackagePerformanceType,
@@ -196,6 +198,7 @@ import {
   type PackagePerformance,
   type PackageResourceTriage,
   type PackageIntegrationsState,
+  type PackageMetadataState,
   type PackageOpportunitiesState,
   type PackageVulnerabilityState,
 } from "./package-inspection.ts";
@@ -585,7 +588,6 @@ import {
   selectMetadataImage,
   type ExplorerFocus,
   type MetadataRootSelection,
-  type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
   bindSettingsPanel,
@@ -1619,10 +1621,7 @@ const initialState = {
   packageLibraryDependencyStructureLoading: false,
   packageLibraryDependencyStructureError: "",
   packageLibraryDependencyStructureKey: "",
-  packageMetadata: null,
-  packageMetadataLoading: false,
-  packageMetadataError: "",
-  packageMetadataKey: "",
+  packageMetadata: { status: "idle" as const },
   packageMetadataRoot: "cli" as MetadataRootSelection,
   explorer: null,
   memberCallGraph: null,
@@ -1779,7 +1778,7 @@ interface StateOverrides {
   packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packageResourceTriage: PackageResourceTriage | null;
-  packageMetadata: PackageMetadata | null;
+  packageMetadata: PackageMetadataState;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
   directUseClusterBoundary:
@@ -2061,7 +2060,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
-  const packageMetadataLoading = snapshotState.packageMetadataLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
@@ -2083,7 +2081,8 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizePackageOpportunitiesSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
-  snapshotState.packageMetadataLoading = false;
+  snapshotState.packageMetadata =
+    normalizePackageMetadataSnapshot(snapshotState.packageMetadata);
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
   snapshotState.directUseClusterLoading = false;
@@ -2129,7 +2128,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
-  if (packageMetadataLoading) snapshotState.packageMetadataKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
   }
@@ -12217,7 +12215,9 @@ function maybeAutoLoadTypeLeverage() {
 function renderPackageMetadata() {
   const pkg = currentPackage();
   const isPlatform = pkg.isRuntimePack;
-  const fresh = state.packageMetadataKey === packageScopeSignature();
+  const metadataState = state.packageMetadata;
+  const fresh =
+    packageMetadataStateKey(metadataState) === packageScopeSignature();
   const scopedLibrary = selectedLibraryName();
   const platformMetadataSelect = isPlatform && state.rootKind !== "platform"
     ? platformLibrarySelectHtml({
@@ -12244,9 +12244,13 @@ function renderPackageMetadata() {
         </section>`
       : "",
     fresh,
-    loading: state.packageMetadataLoading,
-    error: state.packageMetadataError || "",
-    metadata: state.packageMetadata || null,
+    loading: fresh && metadataState.status === "loading",
+    error: fresh && metadataState.status === "failed"
+      ? metadataState.error
+      : "",
+    metadata: fresh && metadataState.status === "ready"
+      ? metadataState.result
+      : null,
     selectedRoot: state.packageMetadataRoot,
     escapeHtml,
     fmtBytes,
@@ -12266,7 +12270,8 @@ function maybeAutoLoadPackageMetadata() {
   if (!state.atLibraryRoot || state.libraryLens !== "metadata") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageMetadataKey === packageScopeSignature()) return;
+  if (packageMetadataStateKey(state.packageMetadata)
+      === packageScopeSignature()) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
@@ -12330,7 +12335,9 @@ function buildBaseExplorer(
   assemblyFileName: string,
   metadataRoot: MetadataRootSelection,
 ): AppExplorerState | null {
-  const data = state.packageMetadata;
+  const data = state.packageMetadata.status === "ready"
+    ? state.packageMetadata.result
+    : null;
   const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
     || (data?.assemblies || [])[0];
   if (!asm) return null;
