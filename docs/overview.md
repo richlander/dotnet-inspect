@@ -1050,6 +1050,10 @@ rules, this document describes subsystem ownership, and
   Library, Type, and Member are first-class analysis scopes with
   scope-proportional work, one infrastructure for Rows, Count, and exact
   Exists, lean roots and heavy leaves, and retention only of requested results.
+- [Type findings map](design/type-findings-map.md): the host-neutral map of
+  one Type's Members with findings, at one version (Colored Type Map) or
+  across two (Diff Findings): sparse Member rows, each with its own transition
+  and its finding transitions, at Library, Type, and Member scope.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
