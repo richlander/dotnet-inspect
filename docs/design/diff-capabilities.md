@@ -198,8 +198,9 @@ an implementation choice; their answers are bound by this contract and gated.
 
 An Exists provision compares facts more cheaply than the complete diff does,
 so a raw difference in some fact kinds may not be a difference the complete
-diff presents. Such a kind is **uncertain**. Each uncertain kind is settled at
-design time on each axis, in one of two ways:
+diff presents. Such a kind is **uncertain**. Each uncertain kind is settled
+on each axis once per kind, by a change to the Exists provision or the
+complete diff, rather than per comparison at run time, in one of two ways:
 
 - **Promote:** the Exists provision learns the kind's normalization, and a
   gate shows it now decides as the complete diff does. Promotion is admitted
@@ -213,8 +214,8 @@ make every Type `Changed` in a dependency-only change. A rare kind may be
 presented. A kind that must be promoted but cannot be without breaking
 Exists's latency is an operator decision, recorded in this document.
 
-Settling an uncertain kind at Exists time, by building the complete diff's
-model for the Type, is a temporary fallback. Every Exists measurement reports
+Settling an uncertain kind per comparison, at run time, by building the
+complete diff's model for the Type, is a temporary fallback. Every Exists measurement reports
 how often it happened, and the target is never.
 
 The
