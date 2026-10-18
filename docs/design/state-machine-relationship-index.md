@@ -657,6 +657,18 @@ own all policy above it:
 - **Implementation Diff** owns its populations, correspondence policy, budgets,
   and result shapes.
 
+Current consumers build one index per acquisition and reuse it:
+
+- `PdbContext` caches one for kickoff-keyed state-machine member queries;
+- the Decompiler's `MetadataSource` holds one lazily for classic async
+  correlation; and
+- Analysis's `StateMachineSourceResolver` holds one lazily and takes kickoff,
+  state-machine type, and execution `MoveNext` from it for its assembly-wide
+  forward and reverse paths, adding only its own attribute, runtime-async, and
+  generated-code policy. Its targeted generated-expansion lookup does not
+  consult the index, because an exact Method-source request builds no
+  module-wide index.
+
 The shared index does not require those consumers to accept identical
 populations. It gives each consumer the same authenticated physical facts so
 they do not independently reinterpret state-machine metadata.

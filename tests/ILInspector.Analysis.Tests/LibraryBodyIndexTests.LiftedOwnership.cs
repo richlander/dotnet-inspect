@@ -1835,13 +1835,23 @@ public partial class LibraryBodyIndexTests
                 result.Rows,
                 row => row.Caller.Name == "AnalyzeAsync");
 
-            Assert.Equal(3, result.Diagnostics.Length);
+            // The ForeignAssemblyAsync (row 4) claim is a certificate
+            // rejection (#10235), so its kickoff reports a diagnostic too.
+            Assert.Equal(4, result.Diagnostics.Length);
             Assert.Equal(
-                3,
+                4,
                 result.Diagnostics
                     .Select(diagnostic => diagnostic.MethodToken)
                     .Distinct()
                     .Count());
+            Assert.Contains(
+                result.Diagnostics,
+                diagnostic => diagnostic.MethodToken
+                        == MetadataTokens.GetToken(
+                            MetadataTokens.MethodDefinitionHandle(4))
+                    && diagnostic.Message.Contains(
+                        "does not map to a unique valid",
+                        StringComparison.Ordinal));
             Assert.Contains(
                 result.Diagnostics,
                 diagnostic => diagnostic.Message.Contains(
@@ -2649,9 +2659,15 @@ public partial class LibraryBodyIndexTests
                     == moveNext.MetadataToken);
     }
 
+    /// <summary>
+    /// A runtime-async method that carries a second claim on the same state
+    /// machine makes the shared claim a certificate rejection (#10235). The
+    /// resolver takes identity only from the certificate, so the execution
+    /// body fails closed instead of resolving to the remaining claimant.
+    /// </summary>
     [Fact]
     public void
-        DirectCalls_RuntimeAsyncDecoyDoesNotPoisonValidSource()
+        DirectCalls_RuntimeAsyncDecoyFailsClosedOnSharedClaim()
     {
         byte[] image =
             BuildMalformedAsyncSourceAssembly(
@@ -2670,19 +2686,18 @@ public partial class LibraryBodyIndexTests
             method => method.Name == "MoveNext"
                 && method.ParameterTypes.IsEmpty);
 
-        Assert.Equal(
-            source,
-            full.CallGraph.ResolveDeclaredMethod(moveNext));
-        Assert.Contains(
+        Assert.Null(full.CallGraph.ResolveDeclaredMethod(moveNext));
+        Assert.DoesNotContain(
             full.CallGraph.DirectCalls,
             call => call.EvidenceMethod == moveNext
-                && call.Caller == source
-                && call.Callee.Name == "Read");
-        Assert.DoesNotContain(
+                && call.Caller == source);
+        Assert.Contains(
             full.Receipt.Diagnostics,
             diagnostic =>
-                diagnostic.MethodToken
-                    == source.MetadataToken);
+                diagnostic.MethodToken == moveNext.MetadataToken
+                && diagnostic.Message.Contains(
+                    "Multiple async source methods",
+                    StringComparison.Ordinal));
 
         LibraryBodyAnalysisExecution sourceScoped =
             BodyAnalysisTestExecution.OpenFromPrefetchedImage(
@@ -2693,29 +2708,10 @@ public partial class LibraryBodyIndexTests
                 {
                     source.MetadataToken,
                 });
-        Assert.Equal(
-            source,
-            sourceScoped.CallGraph.ResolveDeclaredMethod(moveNext));
-        Assert.Contains(
+        Assert.DoesNotContain(
             sourceScoped.CallGraph.DirectCalls,
             call => call.EvidenceMethod == moveNext
                 && call.Caller == source);
-
-        MethodIdentity unrelated = Assert.Single(
-            full.CallGraph.DeclaredMethods,
-            method => method.Name == "Read");
-        LibraryBodyAnalysisExecution unrelatedScoped =
-            BodyAnalysisTestExecution.OpenFromPrefetchedImage(
-                "RuntimeAsyncDecoy.dll",
-                [.. image],
-                LibraryBodyAnalysisFeatures.MethodEvidence,
-                bodyScope: new HashSet<int>
-                {
-                    unrelated.MetadataToken,
-                });
-        Assert.Equal(
-            source,
-            unrelatedScoped.CallGraph.ResolveDeclaredMethod(moveNext));
     }
 
     [Fact]

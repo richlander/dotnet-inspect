@@ -7,6 +7,7 @@ using System.Reflection.Metadata.Ecma335;
 
 using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Analysis;
 
@@ -29,11 +30,6 @@ internal sealed class StateMachineSourceResolver
         _primaryMetadataResolver;
     readonly Func<TypeDefinitionHandle, bool>
         _isSourceGeneratedTypeOrEnclosing;
-    readonly Func<
-        IReadOnlyDictionary<
-            MetadataTypeDefinitionName,
-            TypeDefinitionHandle>>
-        _localTypeDefinitions;
     readonly Func<EntityHandle, TypeRef> _typeFromEntity;
     IReadOnlyDictionary<
         int,
@@ -41,21 +37,14 @@ internal sealed class StateMachineSourceResolver
     IReadOnlyDictionary<
         int,
         MethodIdentity>? _executionSourceMethodsByMoveNextToken;
-    IReadOnlyDictionary<
-        int,
-        MethodIdentity>? _declaredSourceMethodsByMoveNextToken;
-    IReadOnlySet<int>? _classicAsyncSourceMethodTokens;
-    IReadOnlySet<MetadataTypeDefinitionName>?
-        _ambiguousAsyncStateMachineTypes;
-    IReadOnlySet<MetadataTypeDefinitionName>?
+    IReadOnlySet<int>? _declaredAsyncSourceMethodTokens;
+    IReadOnlySet<TypeDefinitionHandle>?
         _unresolvedAsyncStateMachineTypes;
-    readonly Lazy<ClassicAsyncExecutionMethods>
-        _classicAsyncExecutionMethods;
-    readonly Lazy<StateMachineExecutionMethods>
-        _stateMachineExecutionMethods;
-    readonly Lazy<MetadataTypeDefinitionIndex>
-        _typeDefinitionIndex;
-    readonly Action? _typeDefinitionIndexBuilt;
+    readonly Lazy<StateMachineRelationshipIndex>
+        _relationships;
+    readonly Lazy<CertifiedStateMachines>
+        _certifiedStateMachines;
+    readonly Action? _relationshipIndexBuilt;
     readonly Action? _stateMachineExecutionMethodsBuilt;
     readonly Action? _targetedStateMachineClaimsBuilt;
     readonly ConcurrentDictionary<
@@ -73,19 +62,19 @@ internal sealed class StateMachineSourceResolver
         Lazy<IReadOnlyDictionary<string, TypeDefinitionHandle>>>
         _targetedNestedTypesByParent = new();
 
+    /// <param name="relationshipIndexBuilt">
+    /// Observes construction of the acquisition's
+    /// <see cref="StateMachineRelationshipIndex"/>, which owns the module's
+    /// TypeDef name index for claim resolution.
+    /// </param>
     internal StateMachineSourceResolver(
         MetadataReader reader,
         AssemblyReferenceIdentity assemblyIdentity,
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
         Func<TypeDefinitionHandle, bool>
             isSourceGeneratedTypeOrEnclosing,
-        Func<
-            IReadOnlyDictionary<
-                MetadataTypeDefinitionName,
-                TypeDefinitionHandle>>
-            localTypeDefinitions,
         Func<EntityHandle, TypeRef> typeFromEntity,
-        Action? typeDefinitionIndexBuilt = null,
+        Action? relationshipIndexBuilt = null,
         Action? stateMachineExecutionMethodsBuilt = null,
         Action? targetedStateMachineClaimsBuilt = null)
     {
@@ -94,21 +83,17 @@ internal sealed class StateMachineSourceResolver
         _primaryMetadataResolver = primaryMetadataResolver;
         _isSourceGeneratedTypeOrEnclosing =
             isSourceGeneratedTypeOrEnclosing;
-        _localTypeDefinitions = localTypeDefinitions;
         _typeFromEntity = typeFromEntity;
-        _typeDefinitionIndexBuilt = typeDefinitionIndexBuilt;
+        _relationshipIndexBuilt = relationshipIndexBuilt;
         _stateMachineExecutionMethodsBuilt =
             stateMachineExecutionMethodsBuilt;
         _targetedStateMachineClaimsBuilt =
             targetedStateMachineClaimsBuilt;
-        _classicAsyncExecutionMethods = new(
-            BuildClassicAsyncExecutionMethods,
+        _relationships = new(
+            BuildRelationshipIndex,
             LazyThreadSafetyMode.ExecutionAndPublication);
-        _stateMachineExecutionMethods = new(
-            BuildStateMachineExecutionMethods,
-            LazyThreadSafetyMode.ExecutionAndPublication);
-        _typeDefinitionIndex = new(
-            BuildTypeDefinitionIndex,
+        _certifiedStateMachines = new(
+            BuildCertifiedStateMachines,
             LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
@@ -138,15 +123,13 @@ internal sealed class StateMachineSourceResolver
                     continue;
                 }
 
+                // A pre-filter only: the certificate settles identity when
+                // the map this guards is built.
                 AsyncStateMachineAttributeInfo attribute =
                     AsyncStateMachineAttribute(
                         method.GetCustomAttributes());
-                if (attribute.SerializedType is { } serializedType
-                    && StateMachineTypeDefinitionName(
-                        serializedType) is not null)
-                {
+                if (attribute.Present && !attribute.Rejected)
                     return true;
-                }
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
@@ -249,8 +232,6 @@ internal sealed class StateMachineSourceResolver
             throw new BadImageFormatException(
                 "The async state-machine attribute is malformed or ambiguous.");
         }
-        if (stateMachineAttribute.Ignored)
-            return null;
 
         if (!HasAnalyzableIlBody(methodDefinition)
             && (stateMachineAttribute.Present
@@ -299,7 +280,7 @@ internal sealed class StateMachineSourceResolver
                 }
             }
             _ = AsyncStateMachineSourceMethods();
-            if (_classicAsyncSourceMethodTokens!.Contains(
+            if (_declaredAsyncSourceMethodTokens!.Contains(
                     physicalMethod.MetadataToken))
             {
                 return null;
@@ -308,11 +289,8 @@ internal sealed class StateMachineSourceResolver
                 "The classic async source does not map to a unique valid state-machine body.");
         }
 
-        if (physicalMethod.DeclaringType.Resolution?.Type
-                is not { } stateMachineType)
-        {
+        if (physicalMethod.DeclaringType.Resolution?.Type is null)
             return null;
-        }
         EntityHandle physicalHandle =
             MetadataTokens.EntityHandle(
                 physicalMethod.MetadataToken);
@@ -325,27 +303,15 @@ internal sealed class StateMachineSourceResolver
             return null;
         }
 
-        ClassicAsyncExecutionMethods executionMethods =
-            _classicAsyncExecutionMethods.Value;
+        TypeDefinitionHandle stateMachineType =
+            methodDefinition.GetDeclaringType();
         IReadOnlyDictionary<int, MethodIdentity>
             actionableSources =
                 DeclaredSourceMethodsByMoveNextToken();
-        StateMachineExecutionMethods stateMachineExecutions =
-            _stateMachineExecutionMethods.Value;
-        if (executionMethods.RejectedStateMachines.Contains(
-                stateMachineType)
-            || _ambiguousAsyncStateMachineTypes?.Contains(
-                stateMachineType) == true)
-        {
-            throw new BadImageFormatException(
-                "Multiple async source methods name this state-machine type.");
-        }
-        if (stateMachineExecutions.RejectedStateMachines.Contains(
-                stateMachineType))
-        {
-            throw new BadImageFormatException(
-                "The state-machine source is invalid or ambiguous.");
-        }
+        CertifiedStateMachines stateMachineExecutions =
+            _certifiedStateMachines.Value;
+        if (StateMachineRejection(stateMachineType) is { } rejection)
+            throw new BadImageFormatException(rejection);
         if (stateMachineExecutions.SourceByExecutionToken.TryGetValue(
                 physicalMethod.MetadataToken,
                 out MethodIdentity? executionSource))
@@ -366,28 +332,9 @@ internal sealed class StateMachineSourceResolver
                 lowering = AsyncLoweringKind.StateMachine;
             return actionableExecutionSource;
         }
-        if (executionMethods.SourceByMoveNextToken.TryGetValue(
-                physicalMethod.MetadataToken,
-                out MethodIdentity? source))
-        {
-            if (includeGeneratedIntermediate)
-            {
-                lowering = AsyncLoweringKind.StateMachine;
-                return ValidateGeneratedIntermediate(source);
-            }
-            MethodIdentity? actionableSource =
-                actionableSources.TryGetValue(
-                    physicalMethod.MetadataToken,
-                    out MethodIdentity? actionable)
-                ? actionable
-                : null;
-            if (actionableSource is not null)
-                lowering = AsyncLoweringKind.StateMachine;
-            return actionableSource;
-        }
         if (actionableSources.TryGetValue(
                 physicalMethod.MetadataToken,
-                out source))
+                out MethodIdentity? source))
         {
             lowering = AsyncLoweringKind.StateMachine;
             return source;
@@ -463,8 +410,7 @@ internal sealed class StateMachineSourceResolver
     internal void Prewarm()
     {
         _ = AsyncStateMachineSourceMethods();
-        _ = _stateMachineExecutionMethods.Value;
-        _ = _localTypeDefinitions();
+        _ = _certifiedStateMachines.Value;
     }
 
     internal AsyncSourceResolution ResolveSourceOwnership(
@@ -481,27 +427,19 @@ internal sealed class StateMachineSourceResolver
         if (source is not null)
             return AsyncSourceResolution.Resolved;
 
-        MetadataTypeDefinitionName? stateMachineType =
-            physicalMethod.DeclaringType.Resolution?.Type;
+        if (physicalMethod.DeclaringType.Resolution?.Type is null)
+            return AsyncSourceResolution.None;
+        TypeDefinitionHandle stateMachineType =
+            methodDefinition.GetDeclaringType();
         bool authenticated =
-            stateMachineType is not null
-            && _stateMachineExecutionMethods.Value
+            _certifiedStateMachines.Value
                 .AuthenticatedStateMachines.Contains(
                     stateMachineType);
-        return stateMachineType is not null
-            && !authenticated
+        return !authenticated
             && (_unresolvedAsyncStateMachineTypes?.Contains(
                     stateMachineType)
                     == true
-                || _ambiguousAsyncStateMachineTypes?.Contains(
-                    stateMachineType)
-                    == true
-                || _classicAsyncExecutionMethods.Value
-                    .RejectedStateMachines.Contains(
-                        stateMachineType)
-                || _stateMachineExecutionMethods.Value
-                    .RejectedStateMachines.Contains(
-                        stateMachineType))
+                || StateMachineRejection(stateMachineType) is not null)
             ? AsyncSourceResolution.Unresolved
             : AsyncSourceResolution.None;
     }
@@ -560,7 +498,7 @@ internal sealed class StateMachineSourceResolver
         foreach ((
             int executionToken,
             MethodIdentity source)
-            in _stateMachineExecutionMethods.Value
+            in _certifiedStateMachines.Value
                 .SourceByExecutionToken)
         {
             if (sources.TryGetValue(
@@ -573,29 +511,6 @@ internal sealed class StateMachineSourceResolver
             }
             sources[executionToken] = source;
         }
-        foreach ((
-            int moveNextToken,
-            MethodIdentity source)
-            in _classicAsyncExecutionMethods.Value
-                .SourceByMoveNextToken)
-        {
-            if (IsRejectedStateMachineSource(
-                    source,
-                    _stateMachineExecutionMethods.Value
-                        .RejectedStateMachines))
-            {
-                continue;
-            }
-            if (sources.TryGetValue(
-                    moveNextToken,
-                    out MethodIdentity? existing)
-                && existing != source)
-            {
-                sources.Remove(moveNextToken);
-                continue;
-            }
-            sources[moveNextToken] = source;
-        }
         _executionSourceMethodsByMoveNextToken = sources;
         return sources;
     }
@@ -606,82 +521,8 @@ internal sealed class StateMachineSourceResolver
     /// from this scope-independent fallback.
     /// </summary>
     internal IReadOnlyDictionary<int, MethodIdentity>
-        DeclaredSourceMethodsByMoveNextToken()
-    {
-        if (_declaredSourceMethodsByMoveNextToken is not null)
-            return _declaredSourceMethodsByMoveNextToken;
-
-        IReadOnlyDictionary<int, MethodIdentity> actionableSources =
-            AsyncStateMachineSourceMethods();
-        var rejected =
-            new HashSet<MetadataTypeDefinitionName>(
-                _classicAsyncExecutionMethods.Value
-                    .RejectedStateMachines);
-        rejected.UnionWith(
-            _stateMachineExecutionMethods.Value
-                .RejectedStateMachines);
-        if (rejected.Count == 0)
-        {
-            _declaredSourceMethodsByMoveNextToken =
-                actionableSources;
-            return actionableSources;
-        }
-
-        var filtered =
-            new Dictionary<int, MethodIdentity>();
-        foreach ((
-            int moveNextToken,
-            MethodIdentity source) in actionableSources)
-        {
-            if (!IsRejectedStateMachineSource(
-                    source,
-                    rejected))
-                filtered.Add(moveNextToken, source);
-        }
-        _declaredSourceMethodsByMoveNextToken = filtered;
-        return filtered;
-    }
-
-    bool IsRejectedStateMachineSource(
-        MethodIdentity source,
-        IReadOnlySet<MetadataTypeDefinitionName> rejected)
-    {
-        try
-        {
-            EntityHandle handle =
-                MetadataTokens.EntityHandle(
-                    source.MetadataToken);
-            if (handle.Kind
-                != HandleKind.MethodDefinition)
-            {
-                return true;
-            }
-            MethodDefinition definition =
-                _reader.GetMethodDefinition(
-                    (MethodDefinitionHandle)handle);
-            StateMachineAttributeInfo attribute =
-                StateMachineExecutionAttribute(
-                    definition.GetCustomAttributes());
-            if (attribute.Rejected)
-            {
-                return attribute.ClaimedSerializedTypes.Any(
-                    claimed =>
-                        StateMachineTypeDefinitionName(claimed)
-                            is { } claimedStateMachine
-                        && rejected.Contains(
-                            claimedStateMachine));
-            }
-            return attribute.SerializedType is { } serialized
-                && StateMachineTypeDefinitionName(serialized)
-                    is { } stateMachineType
-                && rejected.Contains(stateMachineType);
-        }
-        catch (Exception ex)
-            when (IsRecoverableMethodFailure(ex))
-        {
-            return true;
-        }
-    }
+        DeclaredSourceMethodsByMoveNextToken() =>
+        AsyncStateMachineSourceMethods();
 
     internal bool TryResolveClassicStateMachineMoveNext(
         MethodDefinitionHandle sourceHandle,
@@ -698,21 +539,18 @@ internal sealed class StateMachineSourceResolver
             throw new BadImageFormatException(
                 "The async state-machine attribute is malformed or ambiguous.");
         }
-        if (attribute.Ignored
-            || attribute.SerializedType is not { } serializedType)
-        {
+        if (!attribute.Present)
             return false;
-        }
-        if (StateMachineTypeDefinitionName(serializedType) is null
-            || !_classicAsyncExecutionMethods.Value
-                .MoveNextBySourceToken.TryGetValue(
-                    MetadataTokens.GetToken(sourceHandle),
-                    out moveNext))
+        if (!_certifiedStateMachines.Value.ByKickoffToken.TryGetValue(
+                MetadataTokens.GetToken(sourceHandle),
+                out CertifiedStateMachine certified)
+            || certified.Kind != StateMachineKind.ClassicAsync)
         {
             throw new BadImageFormatException(
                 "The classic async source does not map to a unique valid "
                 + "state-machine body.");
         }
+        moveNext = certified.Execution;
         return true;
     }
 
@@ -741,24 +579,17 @@ internal sealed class StateMachineSourceResolver
             throw new BadImageFormatException(
                 "The state-machine attribute is malformed or ambiguous.");
         }
-        if (attribute.Ignored)
-            return false;
 
-        StateMachineExecutionMethods executionMethods =
-            _stateMachineExecutionMethods.Value;
-        if (attribute.SerializedType is not { } serializedType
-            || StateMachineTypeDefinitionName(serializedType)
-                is not { } stateMachineType
-            || executionMethods.RejectedStateMachines.Contains(
-                stateMachineType)
-            || !executionMethods.ExecutionBySourceToken.TryGetValue(
+        if (!_certifiedStateMachines.Value.ByKickoffToken.TryGetValue(
                 MetadataTokens.GetToken(sourceHandle),
-                out executionMethod))
+                out CertifiedStateMachine certified)
+            || certified.Kind != attribute.Kind)
         {
             throw new BadImageFormatException(
                 "The state-machine source does not map to a unique valid "
                 + "execution body.");
         }
+        executionMethod = certified.Execution;
         return true;
     }
 
@@ -785,7 +616,8 @@ internal sealed class StateMachineSourceResolver
         resolvedStateMachine = default;
         StateMachineAttributeInfo attribute =
             StateMachineExecutionAttribute(
-                sourceMethod.GetCustomAttributes());
+                sourceMethod.GetCustomAttributes(),
+                includeClaims: true);
         if (!attribute.Present
             || MethodClassificationScanner.ClassifyAsyncMethod(
                     _reader,
@@ -799,12 +631,8 @@ internal sealed class StateMachineSourceResolver
             throw new BadImageFormatException(
                 "The state-machine attribute is malformed or ambiguous.");
         }
-        if (attribute.Ignored)
-            return false;
         if (!HasAnalyzableIlBody(sourceMethod)
-            || attribute.SerializedType is not { } serializedType
-            || StateMachineTypeDefinitionName(serializedType)
-                is not { } stateMachineType
+            || attribute.ClaimedType is not { } stateMachineType
             || !HasUniqueTargetedStateMachineClaim(
                 sourceHandle,
                 sourceMethod.GetDeclaringType(),
@@ -1064,24 +892,17 @@ internal sealed class StateMachineSourceResolver
 
                 StateMachineAttributeInfo candidate =
                     StateMachineExecutionAttribute(
-                        method.GetCustomAttributes());
+                        method.GetCustomAttributes(),
+                        includeClaims: true);
                 var claimedTypes =
-                    new HashSet<MetadataTypeDefinitionName>();
-                foreach (string claim
-                    in candidate.ClaimedSerializedTypes)
-                {
-                    if (StateMachineTypeDefinitionName(claim)
-                        is { } claimedType)
-                    {
-                        claimedTypes.Add(claimedType);
-                    }
-                }
+                    new HashSet<MetadataTypeDefinitionName>(
+                        candidate.ClaimedTypes);
 
                 foreach (MetadataTypeDefinitionName claimedType
                     in claimedTypes)
                 {
                     if (candidate.Rejected
-                        || candidate.SerializedType is null
+                        || candidate.ClaimedType is null
                         || !claims.TryAdd(
                             claimedType,
                             methodHandle))
@@ -1128,62 +949,156 @@ internal sealed class StateMachineSourceResolver
         return result;
     }
 
-    StateMachineExecutionMethods BuildStateMachineExecutionMethods()
+    StateMachineRelationshipIndex BuildRelationshipIndex()
+    {
+        _relationshipIndexBuilt?.Invoke();
+        return StateMachineRelationshipIndex.Create(_reader);
+    }
+
+    const string MultipleSourcesRejection =
+        "Multiple async source methods name this state-machine type.";
+    const string InvalidSourceRejection =
+        "The state-machine source is invalid or ambiguous.";
+
+    /// <summary>
+    /// Why the certificate, or this resolver's policy over it, rejects
+    /// <paramref name="stateMachineType"/>, or null when it does not. A keyed
+    /// rejection is never read as absence. After whole-module index failure
+    /// every keyed query reports that failure, so it applies only to
+    /// structural state-machine types rather than to every TypeDef.
+    /// </summary>
+    string? StateMachineRejection(TypeDefinitionHandle stateMachineType)
+    {
+        CertifiedStateMachines certified = _certifiedStateMachines.Value;
+        if (certified.RejectedStateMachines.Contains(stateMachineType)
+            || IsClaimedByRejectedAttribute(
+                certified,
+                stateMachineType))
+        {
+            return InvalidSourceRejection;
+        }
+
+        StateMachineRelationshipIndex relationships = _relationships.Value;
+        if (relationships.GetByStateMachine(stateMachineType)
+            is not StateMachineRelationshipResult.Rejected rejected)
+        {
+            return null;
+        }
+        if (relationships.Relationships
+            is not StateMachineRelationshipsResult.Available)
+        {
+            TypeDefinition type =
+                _reader.GetTypeDefinition(stateMachineType);
+            return ImplementsAsyncStateMachine(type)
+                || ImplementsIteratorStateMachine(type)
+                    ? InvalidSourceRejection
+                    : null;
+        }
+
+        ImmutableArray<MetadataMethodAddress> kickoffs =
+            rejected.Failure.KickoffCandidates;
+        if (!kickoffs.IsEmpty
+            && !kickoffs.Any(
+                kickoff => IsClaimingKickoff(kickoff.Handle)))
+        {
+            return null;
+        }
+        return rejected.Failure.Kind
+            is StateMachineRelationshipFailureKind.Duplicate
+                or StateMachineRelationshipFailureKind.CrossKind
+                or StateMachineRelationshipFailureKind.Ambiguous
+                ? MultipleSourcesRejection
+                : InvalidSourceRejection;
+    }
+
+    /// <summary>
+    /// A trusted state-machine attribute that this resolver rejects, such as
+    /// one with a malformed constructor, carries no certificate evidence that
+    /// links it to a type. Its claimed name, read with the reflection grammar,
+    /// keeps that type failing closed; the name never certifies identity.
+    /// </summary>
+    bool IsClaimedByRejectedAttribute(
+        CertifiedStateMachines certified,
+        TypeDefinitionHandle stateMachineType) =>
+        certified.RejectedAttributeClaims.Count > 0
+        && MetadataTypeDefinitionName.Read(_reader, stateMachineType)
+            is MetadataTypeDefinitionNameReadResult.Read read
+        && certified.RejectedAttributeClaims.Contains(read.Name);
+
+    /// <summary>
+    /// Whether this resolver's policy examines <paramref name="kickoff"/>'s
+    /// claim at all. A runtime-async method, a method without a trusted
+    /// state-machine attribute, and a bodiless method with a well-formed
+    /// attribute make no claim here, so a certificate rejection that only
+    /// they contribute to does not reject the state machine.
+    /// </summary>
+    bool IsClaimingKickoff(MethodDefinitionHandle kickoff)
+    {
+        try
+        {
+            MethodDefinition method = _reader.GetMethodDefinition(kickoff);
+            if (IsRuntimeAsync(method))
+                return false;
+            StateMachineAttributeInfo attribute =
+                StateMachineExecutionAttribute(
+                    method.GetCustomAttributes());
+            return attribute.Present
+                && (attribute.Rejected || HasAnalyzableIlBody(method));
+        }
+        catch (Exception ex)
+            when (IsRecoverableMethodFailure(ex))
+        {
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Projects the acquisition's state-machine certificates: kickoff,
+    /// state-machine type, and execution <c>MoveNext</c> come from
+    /// <see cref="StateMachineRelationshipIndex"/>. This resolver adds only its
+    /// own policy: the kickoff's trusted attribute must be present, unrejected,
+    /// and of the certified kind, and neither the kickoff nor the execution
+    /// method may be runtime async.
+    /// </summary>
+    CertifiedStateMachines BuildCertifiedStateMachines()
     {
         _stateMachineExecutionMethodsBuilt?.Invoke();
-        var sourcesByStateMachine = new Dictionary<
-            MetadataTypeDefinitionName,
-            StateMachineExecutionSource>();
-        var rejected =
+        var byKickoffToken =
+            new Dictionary<int, CertifiedStateMachine>();
+        var sourceByExecutionToken =
+            new Dictionary<int, MethodIdentity>();
+        var authenticatedStateMachines =
+            new HashSet<TypeDefinitionHandle>();
+        var rejected = new HashSet<TypeDefinitionHandle>();
+        var rejectedAttributeClaims =
             new HashSet<MetadataTypeDefinitionName>();
-        foreach (MethodDefinitionHandle sourceHandle
-            in _reader.MethodDefinitions)
+        if (_relationships.Value.Relationships
+            is not StateMachineRelationshipsResult.Available available)
+        {
+            // Every keyed query reports the whole-module failure; see
+            // StateMachineRejection.
+            return new(
+                byKickoffToken,
+                sourceByExecutionToken,
+                authenticatedStateMachines,
+                rejected,
+                rejectedAttributeClaims);
+        }
+
+        foreach (MethodDefinitionHandle method in _reader.MethodDefinitions)
         {
             try
             {
-                MethodDefinition sourceMethod =
-                    _reader.GetMethodDefinition(sourceHandle);
-                StateMachineAttributeInfo attribute =
-                    StateMachineExecutionAttribute(
-                        sourceMethod.GetCustomAttributes());
-                bool runtimeAsync =
-                    MethodClassificationScanner
-                        .ClassifyAsyncMethod(
-                            _reader,
-                            sourceMethod)
-                    == MethodClassification.RuntimeAsync;
-                if (!runtimeAsync)
+                MethodDefinition definition =
+                    _reader.GetMethodDefinition(method);
+                if (!IsRuntimeAsync(definition)
+                    && StateMachineExecutionAttribute(
+                        definition.GetCustomAttributes()).Rejected)
                 {
-                    foreach (string claimedType
-                        in attribute.ClaimedSerializedTypes)
-                    {
-                        if (attribute.Rejected
-                            && StateMachineTypeDefinitionName(
-                                claimedType)
-                                is { } claimedStateMachine)
-                        {
-                            rejected.Add(claimedStateMachine);
-                        }
-                    }
-                }
-                if (runtimeAsync
-                    || attribute.Rejected
-                    || attribute.SerializedType is not
-                        { } serializedType
-                    || StateMachineTypeDefinitionName(serializedType)
-                        is not { } stateMachineType
-                    || !HasAnalyzableIlBody(sourceMethod))
-                {
-                    continue;
-                }
-                if (rejected.Contains(stateMachineType))
-                    continue;
-                if (!sourcesByStateMachine.TryAdd(
-                        stateMachineType,
-                        new(sourceHandle, attribute.Kind)))
-                {
-                    sourcesByStateMachine.Remove(stateMachineType);
-                    rejected.Add(stateMachineType);
+                    rejectedAttributeClaims.UnionWith(
+                        StateMachineExecutionAttribute(
+                            definition.GetCustomAttributes(),
+                            includeClaims: true).ClaimedTypes);
                 }
             }
             catch (Exception ex)
@@ -1193,103 +1108,87 @@ internal sealed class StateMachineSourceResolver
             }
         }
 
-        var executionBySourceToken =
-            new Dictionary<int, MethodDefinitionHandle>();
-        var sourceByExecutionToken =
-            new Dictionary<int, MethodIdentity>();
-        var authenticatedStateMachines =
-            new HashSet<MetadataTypeDefinitionName>();
-        foreach ((
-            MetadataTypeDefinitionName stateMachineType,
-            StateMachineExecutionSource source)
-            in sourcesByStateMachine)
+        foreach (StateMachineRelationship relationship
+            in available.Relationships)
         {
-            if (rejected.Contains(stateMachineType))
-                continue;
+            MethodDefinitionHandle kickoff = relationship.Kickoff.Handle;
+            var stateMachine = (TypeDefinitionHandle)
+                MetadataTokens.EntityHandle(
+                    relationship.StateMachineType.Definition.Value);
             try
             {
-                if (!_typeDefinitionIndex.Value.TryGetUniqueDefinition(
-                        stateMachineType,
-                        out TypeDefinitionHandle stateMachineHandle)
-                    || stateMachineHandle.IsNil
-                    || !TryGetStateMachineExecutionMethod(
-                        source,
-                        stateMachineHandle,
-                        out MethodDefinitionHandle executionMethod))
+                MethodDefinition kickoffMethod =
+                    _reader.GetMethodDefinition(kickoff);
+                if (IsRuntimeAsync(kickoffMethod))
+                    continue;
+                StateMachineAttributeInfo attribute =
+                    StateMachineExecutionAttribute(
+                        kickoffMethod.GetCustomAttributes());
+                if (!attribute.Present)
+                    continue;
+                StateMachineKind kind = relationship.Kind switch
                 {
-                    rejected.Add(stateMachineType);
+                    StateMachineClaimKind.ClassicAsync =>
+                        StateMachineKind.ClassicAsync,
+                    StateMachineClaimKind.AsyncIterator =>
+                        StateMachineKind.AsyncIterator,
+                    _ => StateMachineKind.Iterator,
+                };
+                if (attribute.Rejected
+                    || attribute.Kind != kind
+                    || !relationship.TryGetMethod(
+                        StateMachineMethodRole.MoveNext,
+                        out MetadataMethodAddress executionAddress)
+                    || IsRuntimeAsync(
+                        _reader.GetMethodDefinition(
+                            executionAddress.Handle)))
+                {
+                    rejected.Add(stateMachine);
                     continue;
                 }
-                executionBySourceToken.Add(
-                    MetadataTokens.GetToken(source.Source),
-                    executionMethod);
-                MethodDefinition sourceMethod =
-                    _reader.GetMethodDefinition(source.Source);
-                TypeDefinitionHandle sourceTypeHandle =
-                    sourceMethod.GetDeclaringType();
-                TypeDefinition sourceType =
-                    _reader.GetTypeDefinition(sourceTypeHandle);
-                if (source.Kind != StateMachineKind.Iterator)
+
+                MethodDefinitionHandle execution =
+                    executionAddress.Handle;
+                if (kind != StateMachineKind.Iterator)
                 {
+                    TypeDefinitionHandle sourceTypeHandle =
+                        kickoffMethod.GetDeclaringType();
                     sourceByExecutionToken.Add(
-                        MetadataTokens.GetToken(
-                            executionMethod),
-                        _primaryMetadataResolver
-                            .CreateMethodIdentity(
-                                sourceTypeHandle,
-                                source.Source,
-                                sourceMethod,
-                                _primaryMetadataResolver
-                                    .CreateScope(
-                                        sourceType,
-                                        sourceMethod)));
+                        MetadataTokens.GetToken(execution),
+                        _primaryMetadataResolver.CreateMethodIdentity(
+                            sourceTypeHandle,
+                            kickoff,
+                            kickoffMethod,
+                            _primaryMetadataResolver.CreateScope(
+                                _reader.GetTypeDefinition(
+                                    sourceTypeHandle),
+                                kickoffMethod)));
                 }
-                authenticatedStateMachines.Add(
-                    stateMachineType);
+                byKickoffToken.Add(
+                    MetadataTokens.GetToken(kickoff),
+                    new(kickoff, kind, stateMachine, execution));
+                authenticatedStateMachines.Add(stateMachine);
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
-                rejected.Add(stateMachineType);
+                rejected.Add(stateMachine);
             }
         }
         return new(
-            executionBySourceToken,
+            byKickoffToken,
             sourceByExecutionToken,
             authenticatedStateMachines,
-            rejected);
+            rejected,
+            rejectedAttributeClaims);
     }
 
-    bool TryGetStateMachineExecutionMethod(
-        StateMachineExecutionSource source,
-        TypeDefinitionHandle stateMachineHandle,
-        out MethodDefinitionHandle executionMethod)
-    {
-        executionMethod = default;
-        switch (source.Kind)
-        {
-            case StateMachineKind.ClassicAsync:
-                return _classicAsyncExecutionMethods.Value
-                    .MoveNextBySourceToken.TryGetValue(
-                        MetadataTokens.GetToken(source.Source),
-                        out executionMethod);
-            case StateMachineKind.AsyncIterator:
-                return ImplementsAsyncIteratorStateMachine(
-                        _reader.GetTypeDefinition(
-                            stateMachineHandle))
-                    && TryGetAsyncStateMachineMoveNext(
-                        stateMachineHandle,
-                        out executionMethod,
-                        stateMachineInterfaceVerified: true);
-            case StateMachineKind.Iterator:
-                return TryGetIteratorStateMachineMoveNext(
-                    stateMachineHandle,
-                    out executionMethod);
-            default:
-                return false;
-        }
-    }
-
+    /// <summary>
+    /// MoveNext token → declared async source: the certified classic-async and
+    /// async-iterator kickoffs that Analysis's generated-code policy admits.
+    /// A lambda or local-function kickoff is admitted here and carried on to
+    /// its declared method by lifted-owner composition.
+    /// </summary>
     IReadOnlyDictionary<
         int,
         MethodIdentity> AsyncStateMachineSourceMethods()
@@ -1297,286 +1196,69 @@ internal sealed class StateMachineSourceResolver
         if (_asyncStateMachineSourceMethods is not null)
             return _asyncStateMachineSourceMethods;
 
-        var methodsByType = new Dictionary<
-            MetadataTypeDefinitionName,
-            MethodIdentity>();
-        var ambiguous = new HashSet<MetadataTypeDefinitionName>();
-        var unresolved = new HashSet<
-            MetadataTypeDefinitionName>();
-        foreach (var typeHandle in _reader.TypeDefinitions)
+        var methods = new Dictionary<int, MethodIdentity>();
+        var unresolved = new HashSet<TypeDefinitionHandle>();
+        foreach (CertifiedStateMachine certified
+            in _certifiedStateMachines.Value.ByKickoffToken.Values)
         {
-            TypeDefinition typeDefinition;
-            bool typeSourceGenerated;
-            try
-            {
-                typeDefinition =
-                    _reader.GetTypeDefinition(typeHandle);
-                typeSourceGenerated =
-                    _isSourceGeneratedTypeOrEnclosing(
-                        typeHandle);
-            }
-            catch (Exception ex)
-                when (IsRecoverableMethodFailure(ex))
-            {
-                continue;
-            }
-
-            foreach (var methodHandle in typeDefinition.GetMethods())
-            {
-                ImmutableArray<MetadataTypeDefinitionName>
-                    candidateTypes = [];
-                try
-                {
-                    var methodDefinition =
-                        _reader.GetMethodDefinition(methodHandle);
-                    if (IsRuntimeAsync(methodDefinition))
-                        continue;
-                    AsyncStateMachineAttributeInfo attribute =
-                        AsyncStateMachineAttribute(
-                            methodDefinition.GetCustomAttributes());
-                    var candidateBuilder =
-                        ImmutableArray.CreateBuilder<
-                            MetadataTypeDefinitionName>();
-                    foreach (string claimedType
-                        in attribute.ClaimedSerializedTypes)
-                    {
-                        if (StateMachineTypeDefinitionName(
-                                claimedType) is { } candidateType)
-                        {
-                            candidateBuilder.Add(candidateType);
-                        }
-                    }
-                    candidateTypes = candidateBuilder.ToImmutable();
-                    bool liftedSource =
-                        CompilerGeneratedNames
-                            .IsLocalFunctionOrLambda(
-                                _reader.GetString(
-                                    methodDefinition.Name));
-                    if (typeSourceGenerated
-                        || _primaryMetadataResolver
-                            .HasGeneratedCodeAttribute(
-                                methodDefinition.GetCustomAttributes())
-                        || !liftedSource
-                            && _primaryMetadataResolver
-                                .HasCompilerGeneratedAttribute(
-                                    methodDefinition
-                                        .GetCustomAttributes()))
-                    {
-                        unresolved.UnionWith(candidateTypes);
-                        continue;
-                    }
-
-                    if (attribute.Rejected
-                        || !HasAnalyzableIlBody(methodDefinition)
-                        || attribute.SerializedType is not
-                            { } serializedType
-                        || StateMachineTypeDefinitionName(serializedType)
-                            is not { } stateMachineType
-                        || ambiguous.Contains(stateMachineType))
-                    {
-                        unresolved.UnionWith(candidateTypes);
-                        continue;
-                    }
-
-                    var scope =
-                        _primaryMetadataResolver.CreateScope(
-                            typeDefinition,
-                            methodDefinition);
-                    MethodIdentity method =
-                        _primaryMetadataResolver.CreateMethodIdentity(
-                            typeHandle,
-                            methodHandle,
-                            methodDefinition,
-                            scope);
-                    if (IsBlazorRenderMethod(method))
-                    {
-                        unresolved.Add(stateMachineType);
-                        continue;
-                    }
-
-                    if (!methodsByType.TryAdd(
-                            stateMachineType,
-                            method))
-                    {
-                        methodsByType.Remove(stateMachineType);
-                        ambiguous.Add(stateMachineType);
-                    }
-                }
-                catch (Exception ex)
-                    when (IsRecoverableMethodFailure(ex))
-                {
-                    unresolved.UnionWith(candidateTypes);
-                    // The normal per-method pass retains the malformed method's
-                    // diagnostic; source-map prewarming must not abort the index.
-                }
-            }
-        }
-
-        var methods = new Dictionary<
-            int,
-            MethodIdentity>();
-        foreach ((
-            MetadataTypeDefinitionName stateMachineType,
-            MethodIdentity source) in methodsByType)
-        {
-            if (unresolved.Contains(stateMachineType))
+            if (certified.Kind == StateMachineKind.Iterator)
                 continue;
             try
             {
-                if (!_localTypeDefinitions().TryGetValue(
-                        stateMachineType,
-                        out TypeDefinitionHandle typeHandle)
-                    || typeHandle.IsNil
-                    || !TryGetAsyncStateMachineMoveNext(
-                        typeHandle,
-                        out MethodDefinitionHandle moveNext))
+                MethodDefinition methodDefinition =
+                    _reader.GetMethodDefinition(certified.Kickoff);
+                TypeDefinitionHandle typeHandle =
+                    methodDefinition.GetDeclaringType();
+                CustomAttributeHandleCollection attributes =
+                    methodDefinition.GetCustomAttributes();
+                bool liftedSource =
+                    CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                        _reader.GetString(methodDefinition.Name));
+                if (_isSourceGeneratedTypeOrEnclosing(typeHandle)
+                    || _primaryMetadataResolver
+                        .HasGeneratedCodeAttribute(attributes)
+                    || !liftedSource
+                        && _primaryMetadataResolver
+                            .HasCompilerGeneratedAttribute(attributes))
                 {
-                    ambiguous.Add(stateMachineType);
+                    unresolved.Add(certified.StateMachine);
                     continue;
                 }
 
-                if (!methods.TryAdd(
-                        MetadataTokens.GetToken(moveNext),
-                        source))
+                MethodIdentity method =
+                    _primaryMetadataResolver.CreateMethodIdentity(
+                        typeHandle,
+                        certified.Kickoff,
+                        methodDefinition,
+                        _primaryMetadataResolver.CreateScope(
+                            _reader.GetTypeDefinition(typeHandle),
+                            methodDefinition));
+                if (IsBlazorRenderMethod(method))
                 {
-                    ambiguous.Add(stateMachineType);
-                    methods.Remove(
-                        MetadataTokens.GetToken(moveNext));
+                    unresolved.Add(certified.StateMachine);
+                    continue;
                 }
+
+                methods.Add(
+                    MetadataTokens.GetToken(certified.Execution),
+                    method);
             }
             catch (Exception ex)
                 when (IsRecoverableMethodFailure(ex))
             {
-                ambiguous.Add(stateMachineType);
+                // The normal per-method pass retains the malformed method's
+                // diagnostic; source-map prewarming must not abort the index.
+                unresolved.Add(certified.StateMachine);
             }
         }
 
-        _ambiguousAsyncStateMachineTypes = ambiguous;
         _unresolvedAsyncStateMachineTypes = unresolved;
-        _classicAsyncSourceMethodTokens =
+        _declaredAsyncSourceMethodTokens =
             new HashSet<int>(
                 methods.Values.Select(
                     source => source.MetadataToken));
         _asyncStateMachineSourceMethods = methods;
         return methods;
-    }
-
-    ClassicAsyncExecutionMethods BuildClassicAsyncExecutionMethods()
-    {
-        var sourcesByStateMachine = new Dictionary<
-            MetadataTypeDefinitionName,
-            MethodDefinitionHandle>();
-        var ambiguous = new HashSet<MetadataTypeDefinitionName>();
-        foreach (MethodDefinitionHandle sourceHandle
-            in _reader.MethodDefinitions)
-        {
-            try
-            {
-                MethodDefinition sourceMethod =
-                    _reader.GetMethodDefinition(sourceHandle);
-                AsyncStateMachineAttributeInfo attribute =
-                    AsyncStateMachineAttribute(
-                        sourceMethod.GetCustomAttributes(),
-                        includeAsyncIterator: false);
-                if (attribute.Rejected
-                    || !HasAnalyzableIlBody(sourceMethod)
-                    || MethodClassificationScanner
-                        .ClassifyAsyncMethod(
-                            _reader,
-                            sourceMethod)
-                        == MethodClassification.RuntimeAsync
-                    || attribute.SerializedType is not
-                        { } serializedType
-                    || StateMachineTypeDefinitionName(serializedType)
-                        is not { } stateMachineType
-                    || ambiguous.Contains(stateMachineType))
-                {
-                    continue;
-                }
-                if (!sourcesByStateMachine.TryAdd(
-                        stateMachineType,
-                        sourceHandle))
-                {
-                    sourcesByStateMachine.Remove(stateMachineType);
-                    ambiguous.Add(stateMachineType);
-                }
-            }
-            catch (Exception ex)
-                when (IsRecoverableMethodFailure(ex))
-            {
-                // The direct source-method pass preserves malformed metadata
-                // diagnostics; this assembly map only retains valid pairs.
-            }
-        }
-
-        var moveNextBySourceToken =
-            new Dictionary<int, MethodDefinitionHandle>();
-        var sourceByMoveNextToken =
-            new Dictionary<int, MethodIdentity>();
-        var rejectedStateMachines =
-            new HashSet<MetadataTypeDefinitionName>(ambiguous);
-        foreach ((
-            MetadataTypeDefinitionName stateMachineType,
-            MethodDefinitionHandle sourceHandle)
-            in sourcesByStateMachine)
-        {
-            try
-            {
-                if (!_typeDefinitionIndex.Value.TryGetUniqueDefinition(
-                        stateMachineType,
-                        out TypeDefinitionHandle stateMachineHandle)
-                    || stateMachineHandle.IsNil
-                    || !TryGetAsyncStateMachineMoveNext(
-                        stateMachineHandle,
-                        out MethodDefinitionHandle moveNext))
-                {
-                    rejectedStateMachines.Add(stateMachineType);
-                    continue;
-                }
-                MethodDefinition sourceMethod =
-                    _reader.GetMethodDefinition(sourceHandle);
-                TypeDefinitionHandle sourceTypeHandle =
-                    sourceMethod.GetDeclaringType();
-                TypeDefinition sourceType =
-                    _reader.GetTypeDefinition(sourceTypeHandle);
-                MethodIdentity source =
-                    _primaryMetadataResolver.CreateMethodIdentity(
-                        sourceTypeHandle,
-                        sourceHandle,
-                        sourceMethod,
-                        _primaryMetadataResolver.CreateScope(
-                            sourceType,
-                            sourceMethod));
-                moveNextBySourceToken.Add(
-                    MetadataTokens.GetToken(sourceHandle),
-                    moveNext);
-                if (!sourceByMoveNextToken.TryAdd(
-                        MetadataTokens.GetToken(moveNext),
-                        source))
-                {
-                    sourceByMoveNextToken.Remove(
-                        MetadataTokens.GetToken(moveNext));
-                    rejectedStateMachines.Add(stateMachineType);
-                }
-            }
-            catch (Exception ex)
-                when (IsRecoverableMethodFailure(ex))
-            {
-                rejectedStateMachines.Add(stateMachineType);
-                // The direct source-method pass preserves malformed metadata
-                // diagnostics; this assembly map only retains valid pairs.
-            }
-        }
-        return new(
-            moveNextBySourceToken,
-            sourceByMoveNextToken,
-            rejectedStateMachines);
-    }
-
-    MetadataTypeDefinitionIndex BuildTypeDefinitionIndex()
-    {
-        _typeDefinitionIndexBuilt?.Invoke();
-        return MetadataTypeDefinitionIndex.Create(_reader);
     }
 
     bool TryGetAsyncStateMachineMoveNext(
@@ -1892,8 +1574,6 @@ internal sealed class StateMachineSourceResolver
         bool sawAttribute = false;
         bool sawIncludedAttribute = false;
         bool rejected = false;
-        var claimedTypes =
-            ImmutableArray.CreateBuilder<string>();
         foreach (var handle in attributes)
         {
             var attribute = _reader.GetCustomAttribute(handle);
@@ -1931,48 +1611,40 @@ internal sealed class StateMachineSourceResolver
                 continue;
             sawIncludedAttribute = true;
 
-            bool decoded =
-                TryReadSerializedStateMachineType(
+            // The claimed name is the certificate's to resolve; this checks
+            // only that the value is one well-formed serialized string.
+            if (!TryReadSerializedStateMachineType(
                     attribute,
-                    out string? typeName);
-            if (decoded
-                && typeName is not null
-                && IsCurrentAssemblyStateMachineType(typeName))
-            {
-                claimedTypes.Add(typeName);
-            }
-            if (!decoded
+                    out _)
                 || !HasAsyncStateMachineConstructorShape(
                     constructor))
             {
                 rejected = true;
             }
         }
-        ImmutableArray<string> claims =
-            claimedTypes.ToImmutable();
-        string? serializedType =
-            !rejected && claims.Length == 1
-                ? claims[0]
-                : null;
         return new(
             Present: sawIncludedAttribute,
             Rejected: sawIncludedAttribute
-                && rejected,
-            Ignored: sawIncludedAttribute
-                && !rejected
-                && serializedType is null,
-            serializedType,
-            claims);
+                && rejected);
     }
 
+    /// <param name="includeClaims">
+    /// Reads the claimed state-machine names. The targeted lookup, which must
+    /// not build the module-wide certificate index, uses them for identity;
+    /// the certificate projection uses them only to keep a type claimed by a
+    /// rejected attribute failing closed. Every other caller reads no name.
+    /// </param>
     StateMachineAttributeInfo StateMachineExecutionAttribute(
-        CustomAttributeHandleCollection attributes)
+        CustomAttributeHandleCollection attributes,
+        bool includeClaims = false)
     {
         bool present = false;
         bool rejected = false;
         StateMachineKind kind = default;
+        int claims = 0;
+        MetadataTypeDefinitionName? claimedType = null;
         var claimedTypes =
-            ImmutableArray.CreateBuilder<string>();
+            ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
         foreach (CustomAttributeHandle handle in attributes)
         {
             CustomAttribute attribute =
@@ -2008,11 +1680,12 @@ internal sealed class StateMachineSourceResolver
                 TryReadSerializedStateMachineType(
                     attribute,
                     out string? typeName);
-            if (decoded
-                && typeName is not null
-                && IsCurrentAssemblyStateMachineType(typeName))
+            if (includeClaims && decoded)
             {
-                claimedTypes.Add(typeName);
+                claims++;
+                claimedType = ReadClaimedStateMachineName(typeName!);
+                if (claimedType is not null)
+                    claimedTypes.Add(claimedType);
             }
             if (!decoded
                 || !HasAsyncStateMachineConstructorShape(
@@ -2021,21 +1694,13 @@ internal sealed class StateMachineSourceResolver
                 rejected = true;
             }
         }
-        ImmutableArray<string> claims =
-            claimedTypes.ToImmutable();
-        string? serializedType =
-            !rejected && claims.Length == 1
-                ? claims[0]
-                : null;
+        bool singleClaim = !rejected && claims == 1;
         return new(
             present,
             rejected,
-            present
-                && !rejected
-                && serializedType is null,
             kind,
-            serializedType,
-            claims);
+            singleClaim ? claimedType : null,
+            claimedTypes.ToImmutable());
     }
 
     internal static bool IsTrustedAsyncStateMachineAttribute(
@@ -2114,106 +1779,72 @@ internal sealed class StateMachineSourceResolver
         }
     }
 
-    bool IsCurrentAssemblyStateMachineType(
+    /// <summary>
+    /// Reads one claimed state-machine name with the runtime's reflection
+    /// Type-name grammar, so escaped commas, nesting, and the assembly
+    /// qualifier are parsed rather than split by hand. A claim that names
+    /// another assembly, is malformed, or is not a plain TypeDef name yields
+    /// null and maps to no state machine, as the certificate rejects it.
+    /// </summary>
+    MetadataTypeDefinitionName? ReadClaimedStateMachineName(
         string serializedType)
     {
-        int separator = serializedType.IndexOf(',');
-        if (separator < 0)
-            return true;
+        var options = new TypeNameParseOptions
+        {
+            MaxNodes = MetadataSafetyPolicy.MaxRelationshipNodes,
+        };
+        if (serializedType.Length
+                > MetadataSafetyPolicy.MaxTypeNameCharacters
+            || !TypeName.TryParse(
+                serializedType,
+                out TypeName? parsed,
+                options)
+            || parsed.AssemblyName is { } assembly
+                && !NamesCurrentAssembly(assembly))
+        {
+            return null;
+        }
 
-        string[] assemblyParts =
-            serializedType[(separator + 1)..].Split(',');
-        if (assemblyParts.Length == 0
-            || !string.Equals(
-                assemblyParts[0].Trim(),
+        return MetadataTypeDefinitionName.ParseSerialized(
+                parsed.AssemblyName is null
+                    ? serializedType
+                    : parsed.FullName)
+            is MetadataTypeDefinitionNameResult.Valid valid
+                ? valid.Name
+                : null;
+    }
+
+    bool NamesCurrentAssembly(AssemblyNameInfo qualification)
+    {
+        if (!string.Equals(
+                qualification.Name,
                 _assemblyIdentity.Name,
                 StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
-
-        foreach (string part in assemblyParts.Skip(1))
+        if (qualification.Version is { } version
+            && version != _assemblyIdentity.Version)
         {
-            int equals = part.IndexOf('=');
-            if (equals < 0)
-                return false;
-            string key = part[..equals].Trim();
-            string value = part[(equals + 1)..].Trim();
-            if (key.Equals(
-                    "Version",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                if (!Version.TryParse(
-                        value,
-                        out Version? version)
-                    || version != _assemblyIdentity.Version)
-                {
-                    return false;
-                }
-            }
-            else if (key.Equals(
-                    "Culture",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                string? culture = value.Equals(
-                    "neutral",
-                    StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : value;
-                if (!string.Equals(
-                        culture,
-                        _assemblyIdentity.Culture,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
-            else if (key.Equals(
-                    "PublicKeyToken",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                string? token = value.Equals(
-                    "null",
-                    StringComparison.OrdinalIgnoreCase)
-                        ? null
-                        : value;
-                if (!string.Equals(
-                        token,
-                        _assemblyIdentity.PublicKeyToken,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-            }
+            return false;
         }
-        return true;
-    }
-
-    static MetadataTypeDefinitionName?
-        StateMachineTypeDefinitionName(string serializedName)
-    {
-        int assemblySeparator = serializedName.IndexOf(',');
-        ReadOnlySpan<char> typeName = (
-            assemblySeparator < 0
-                ? serializedName.AsSpan()
-                : serializedName.AsSpan(0, assemblySeparator)).Trim();
-        if (typeName.IsEmpty || typeName.IndexOf('[') >= 0)
-            return null;
-        int nestedSeparator = typeName.IndexOf('+');
-        int rootEnd = nestedSeparator < 0
-            ? typeName.Length
-            : nestedSeparator;
-        int namespaceEnd = typeName[..rootEnd].LastIndexOf('.');
-        string ns = namespaceEnd < 0
-            ? ""
-            : typeName[..namespaceEnd].ToString();
-        string segments = typeName[(namespaceEnd + 1)..].ToString();
-        return MetadataTypeDefinitionName.Create(
-            ns,
-            [.. segments.Split('+')])
-            is MetadataTypeDefinitionNameResult.Valid valid
-                ? valid.Name
-                : null;
+        if (qualification.CultureName is { } culture
+            && !string.Equals(
+                AssemblyReferenceIdentity.NormalizeCulture(culture),
+                AssemblyReferenceIdentity.NormalizeCulture(
+                    _assemblyIdentity.Culture),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        if ((qualification.Flags & AssemblyNameFlags.PublicKey) != 0)
+            return false;
+        return qualification.PublicKeyOrToken.IsDefault
+            || string.Equals(
+                Convert.ToHexString(
+                    qualification.PublicKeyOrToken.AsSpan()),
+                _assemblyIdentity.PublicKeyToken ?? "",
+                StringComparison.OrdinalIgnoreCase);
     }
 
     static bool IsBlazorRenderMethod(MethodIdentity method) =>
@@ -2228,31 +1859,27 @@ internal sealed class StateMachineSourceResolver
         AnalysisMethodFailures.IsRecoverable(
             exception);
 
-    sealed record ClassicAsyncExecutionMethods(
-        IReadOnlyDictionary<int, MethodDefinitionHandle>
-            MoveNextBySourceToken,
-        IReadOnlyDictionary<int, MethodIdentity>
-            SourceByMoveNextToken,
-        IReadOnlySet<MetadataTypeDefinitionName>
-            RejectedStateMachines);
-
-    sealed record StateMachineExecutionMethods(
-        IReadOnlyDictionary<int, MethodDefinitionHandle>
-            ExecutionBySourceToken,
+    sealed record CertifiedStateMachines(
+        IReadOnlyDictionary<int, CertifiedStateMachine>
+            ByKickoffToken,
         IReadOnlyDictionary<int, MethodIdentity>
             SourceByExecutionToken,
-        IReadOnlySet<MetadataTypeDefinitionName>
+        IReadOnlySet<TypeDefinitionHandle>
             AuthenticatedStateMachines,
+        IReadOnlySet<TypeDefinitionHandle>
+            RejectedStateMachines,
         IReadOnlySet<MetadataTypeDefinitionName>
-            RejectedStateMachines);
+            RejectedAttributeClaims);
+
+    readonly record struct CertifiedStateMachine(
+        MethodDefinitionHandle Kickoff,
+        StateMachineKind Kind,
+        TypeDefinitionHandle StateMachine,
+        MethodDefinitionHandle Execution);
 
     sealed record TargetedSourceTypeChain(
         ImmutableArray<TypeDefinitionHandle> Types,
         bool Complete);
-
-    readonly record struct StateMachineExecutionSource(
-        MethodDefinitionHandle Source,
-        StateMachineKind Kind);
 
     enum StateMachineKind
     {
@@ -2264,15 +1891,11 @@ internal sealed class StateMachineSourceResolver
     readonly record struct StateMachineAttributeInfo(
         bool Present,
         bool Rejected,
-        bool Ignored,
         StateMachineKind Kind,
-        string? SerializedType,
-        ImmutableArray<string> ClaimedSerializedTypes);
+        MetadataTypeDefinitionName? ClaimedType,
+        ImmutableArray<MetadataTypeDefinitionName> ClaimedTypes);
 
     readonly record struct AsyncStateMachineAttributeInfo(
         bool Present,
-        bool Rejected,
-        bool Ignored,
-        string? SerializedType,
-        ImmutableArray<string> ClaimedSerializedTypes);
+        bool Rejected);
 }

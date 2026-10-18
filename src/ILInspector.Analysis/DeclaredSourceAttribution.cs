@@ -90,9 +90,10 @@ internal sealed class DeclaredSourceAttribution
                 PrimaryMetadataResolver,
                 GeneratedProvenanceClassifier
                     .IsSourceGeneratedTypeOrEnclosing,
-                LocalTypeDefinitions,
                 TypeFromEntity,
-                typeDefinitionIndexBuilt,
+                // The state-machine relationship index owns the TypeDef name
+                // index that claim resolution uses.
+                relationshipIndexBuilt: typeDefinitionIndexBuilt,
                 stateMachineExecutionMethodsBuilt,
                 targetedStateMachineClaimsBuilt);
         LiftedSourceOwnerResolver =
