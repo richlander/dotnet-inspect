@@ -1101,7 +1101,8 @@ One independently scrolling region begins with a bounded one-hop AssemblyRef
 graph and follows it with the complete reference rows. The graph uses the
 existing shared Mermaid viewport and pan/zoom controls, keeps the selected
 assembly as its root, and projects only the direct references already returned
-by the Library query. It performs no additional acquisition or transitive
+by the Library query. The root assembly name fits inside its rendered node
+without clipped text. It performs no additional acquisition or transitive
 inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
