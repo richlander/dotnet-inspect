@@ -31,6 +31,7 @@ type PackageOperations =
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentHtml"
+  | "containPackageDocumentLeaves"
   | "clearWorkspacePackageOccurrences"
   | "closePlatformForwarderView"
   | "getPlatformCatalog"

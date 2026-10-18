@@ -2,7 +2,7 @@
 
 ## Status and owner
 
-**Proposed focused pattern.**
+**Active focused pattern.**
 [#10111](https://github.com/richlander/dotnet-inspect/issues/10111) tracks the
 design, shared construction contract, first Browser adoption, CLI assessment,
 and retirement of the transitional package README path.
@@ -140,6 +140,29 @@ A host sink accepts only the publishable form. Serialization may lower that
 form after construction, but serialized Markdown or HTML is not itself proof
 of complete containment.
 
+## Shared leaf-completion contract
+
+`PresentationLeafContainment` in
+`DotnetInspector.InspectionContracts` implements the host-neutral bounded
+operation. It accepts one generation of unique identities, declared
+`TextPolicy` values, and rendered text; it returns either the complete
+identity-and-policy-preserving `InertString` population or one typed rejection.
+Leaf count and aggregate input and output text are bounded before the operation
+can report success.
+
+The package facade projects that contract across the generated Browser boundary
+as `containPackageDocumentLeaves`. The generated result retains the
+`InertString` brand. `inspect-web/src/contained-document.ts` verifies the
+current generation and exact identity-and-policy correspondence, restores
+request order, and constructs the Browser-local `ContainedLeafPopulation`
+brand only after every expected result is present exactly once.
+
+This is deliberately not a publishable document or contained DOM fragment.
+Structure, leaf placement, actionable values, and current-generation ownership
+remain with the adopter. The package README renderer does not call this
+operation yet; its whole-serialized-HTML transition remains active until the
+Browser adoption slice completes.
+
 ## Displayed and actionable values
 
 A link demonstrates the required split:
@@ -261,8 +284,9 @@ must name the focused executable gates that establish its subset of this table.
 ## Adoption sequence
 
 1. Lock this focused pattern and transfer package-document composition from
-   Inert Text without changing that owner's scalar policy.
+   Inert Text without changing that owner's scalar policy. Completed by #10113.
 2. Implement the smallest shared leaf-containment and correspondence contract.
+   The current implementation is tracked by #10167.
 3. Adopt it in Inspect Web package README publication.
 4. Assess the CLI/Markout boundary and adopt only an identified externally
    authored structured-document consumer.

@@ -1050,6 +1050,10 @@ rules, this document describes subsystem ownership, and
   Library, Type, and Member are first-class analysis scopes with
   scope-proportional work, one infrastructure for Rows, Count, and exact
   Exists, lean roots and heavy leaves, and retention only of requested results.
+- [Annotated Type Map](design/annotated-type-map.md): one Type's shape and a
+  keyed collection of its Members' findings at one version, and the map diff
+  of two such maps by the same implementation, with Rows as a projection, at
+  Library, Type, and Member scope.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
