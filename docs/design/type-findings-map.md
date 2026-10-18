@@ -3,12 +3,14 @@
 ## Status and owner
 
 This document owns the **Type findings map**: a host-neutral document that
-lists, for one Type, the Members with findings, and for each Member the
-findings themselves. It owns:
+lists, for one Type, its change or observation at Type level and the Members
+with findings, and for each Member its findings. It owns:
 
 - the map's shape, at one version and across two;
 - its sparsity rule and what an unlisted Member means;
-- how a Member is listed and what its row carries;
+- what the Type row and each Member row carry, and when a Member is listed;
+- which findings the map admits;
+- the map's tally projection;
 - the map at Library, Type, and Member scope, and its terminals; and
 - the disclosure ladder from Exists to source, and what a host retains.
 
@@ -24,11 +26,11 @@ It consumes and does not redefine:
 | Owner | Contract consumed |
 | --- | --- |
 | [Finding nomenclature](finding-nomenclature.md) and [Finding coordinates](finding-coordinates.md) | `Finding<T>`, `PairFinding<T>`, `IFinding`, `IPairFinding`, `FindingKey`, and inspection and comparison outcomes |
-| [Annotated Source diff document](annotated-source-diff-document.md#fact-comparison) | The fact comparison: how one Member's facts pair across versions, and their keys |
-| [Annotated Source Finding provenance](annotated-source-finding-provenance.md#descriptor-matrix) | The fact descriptor vocabulary |
-| [Fast Diff](fast-diff.md) and [IL diff canonicalization](il-diff-canonicalization.md) | The API and Body equality that decides whether a Member changed |
-| [Library API diff presentation](library-api-diff-presentation.md#type-scoped-comparison) | The Type-scoped API comparison and its Member change kinds |
+| [Fast Diff](fast-diff.md#type) | Per-Member and residual API and Body states, and Library-level Type presence |
+| [Annotated Source diff document](annotated-source-diff-document.md) | A Member's two-version correspondence and side outcomes, and the [fact comparison](annotated-source-diff-document.md#fact-comparison) |
+| [Annotated Source Finding provenance](annotated-source-finding-provenance.md#classification-contract) | The fact descriptors and their classifications |
 | [QuerySpace composition](query-space-composition.md) | Rows, Count, and Exists, and how they are planned |
+| [Diff system](diff-system.md#markout) | Lowering result documents to JSON and Markout |
 | [Diff observability](diff-observability.md) | Every reported change has a view |
 
 ## Why
@@ -39,10 +41,10 @@ the whole annotated source diff of each Member, which decompiles both sides.
 Nothing sits between them.
 
 A reader of a Type Compare view wants the middle answer first: "`Parse` gained
-a throw and an allocation; `TryParse` was added." That answer is the annotated
-source diff without the source: its fact comparison, kept, and its text,
-dropped. It is small, cheap, and enough to mark a row; the source is fetched
-when a Member is opened.
+an allocation; `TryParse` was added; the base Type changed." That answer is the
+annotated source diff without the source: its fact comparison, kept, and its
+text, dropped. It is small, cheap, and enough to mark a row; the source is
+fetched when a Member is opened.
 
 The same shape answers a one-version question, such as which Members of a Type
 use unsafe code. That is the Colored Type Map: the Type's Members marked by
@@ -52,10 +54,11 @@ their findings.
 
 A map is about one Type subject. It contains:
 
-- the Type's subject and its comparison or inspection outcome;
+- a **Type row**: the Type's outcome and, in the two-version form, its own
+  transition;
 - **Member rows**, one per listed Member, in the Type's declaration order; and
 - per Member row, its **findings**, in the order of their census or
-  comparison.
+  comparison, with the outcome that produced them.
 
 The two forms differ only in the finding element:
 
@@ -75,51 +78,100 @@ rows by descriptor and, in the two-version form, by transition kind.
 ## Sparsity
 
 A map lists only the Members with something to report. In the two-version
-form, `Present` transitions are omitted, and a Member with no change is
-omitted. This keeps the map proportional to the change rather than to the
-Type.
+form, `Present` finding transitions are omitted, and a Member whose states are
+all `Unchanged` is omitted. This keeps the map proportional to the change
+rather than to the Type.
 
 Sparsity is safe only with a complete outcome. When the Type's outcome is
-complete, an unlisted Member has nothing to report: it is unchanged in the
-two-version form or has no admitted finding in the one-version form. When a
-Member cannot be decided, it is listed with its typed undecided outcome, such
-as Fast Diff's `Indeterminate`, never omitted. When the Type's outcome is not
-complete, the map carries that outcome and no claim about unlisted Members.
+complete, an unlisted Member has nothing to report: it is `Unchanged` on both
+axes in the two-version form, or has no admitted finding in the one-version
+form. A Member that cannot be decided is listed with its typed undecided
+outcome, such as Fast Diff's `Indeterminate`, never omitted. When the Type's
+outcome is not complete, the map carries that outcome and no claim about
+unlisted Members.
 
 The map is therefore not an [Analysis diff](analysis-diff.md): that format is a
-complete partition of both endpoints, and the map is a projection of one that
-keeps only its non-`Present` relations. A host that needs the partition asks
-for the diff.
+complete partition of both endpoints, and the map is a projection that keeps
+only what changed. A host that needs the partition asks for the diff.
+
+## The Type row
+
+In the two-version form, the Type row carries the Type's own transition:
+
+- **Present on both sides:** Fast Diff's residual API and Body states, for the
+  Type's facts that belong to no single Member, such as its base Type,
+  attributes, or static constructor. Fast Diff's Member states and residual
+  partition the Type's facts, so the Type changed exactly when the residual
+  or a Member changed, and a residual-only change is visible on the Type row.
+- **Present on one side:** `Added` or `Removed`, from Fast Diff's Library-level
+  presence. Fast Diff's Type level does not run for such a Type, so every
+  Member the present side declares is listed as `Added` or `Removed`, with its
+  findings.
+
+In the one-version form, the Type row carries the inspection outcome and the
+Type's own findings, such as header findings, when an admitted analysis has
+them.
 
 ## Member rows
 
 In the two-version form, a Member row carries:
 
-- the Member's own transition, from the Type-scoped API comparison and the
-  Body equality: `Added`, `Removed`, or `Changed`, with which axis changed;
-  and
-- its finding transitions, from the Member's fact comparison.
+- the Member's **presence**: on both sides, or on one side only with its
+  proof, from the correspondence the Annotated Source diff document uses;
+- its **states**: Fast Diff's API and Body state for the Member;
+- its **fact-comparison outcome**: `Complete`, or the typed reason there is
+  none, such as a side that is NotApplicable because it has no body, or a
+  side that Failed; and
+- when that outcome is `Complete`, its non-`Present` finding transitions.
 
-The Member's transition decides whether it is listed. Findings never do. A
-Member whose body changed but whose facts all pair as `Present`, such as a
-changed constant, is listed with an empty finding list and reads as "body
-changed, no classified finding". The row is never empty, because its own
-transition is a change; this keeps Exists, Count, and Rows exact without a
-residual descriptor.
-
-A Member present on one side is `Added` or `Removed`, and each of its findings
-is `Added` or `Removed` with it. A one-sided Member is a change, as Fast Diff's
-contract states.
+A Member is listed when its presence is one-sided or either state is not
+`Unchanged`. Findings never decide listing. A Member whose Body changed while
+all its admitted facts pair as `Present`, such as a changed constant, is
+listed with a `Complete` outcome and no findings, and reads as "body changed,
+no classified finding". A Member whose fact comparison did not complete
+carries that outcome; an empty list never stands for an unavailable or failed
+comparison.
 
 Finding transitions follow the
-[Annotated Source fact comparison](annotated-source-diff-document.md#fact-comparison)
-exactly: its keys, its matching, and its acceptance threshold. The map does not
-define its own pairing. A Member's map row and that Member's annotated source
-diff therefore report the same finding transitions, and every finding in the
-map is observable in that view.
+[fact comparison](annotated-source-diff-document.md#fact-comparison) exactly:
+its keys, matching, and acceptance threshold. The map does not define its own
+pairing.
 
-In the one-version form, a Member row carries the Member's findings from its
-census. A Member is listed when it has at least one admitted finding.
+In the one-version form, a Member row carries the Member's inspection outcome
+and its admitted findings, and a Member is listed when it has at least one.
+
+## Admitted findings
+
+A Member's listing comes from its own facts, so its findings must come from
+its own facts too. The two-version map admits only descriptors whose
+[classification](annotated-source-finding-provenance.md#classification-contract)
+is about the Member's own body:
+
+- **Local instruction**, such as `alloc.*`, `unsafe.*`, and `lifetime.*`; and
+- **Call relationship**, one physical call occurrence in the Member, such as
+  `call.edge`.
+
+It does not admit **Callee instruction**, **Callee method**, or **Member
+header** descriptors, such as `semantics.callee`, `safety.callee`,
+`cost.callee`, and `cost.method`. Their transitions can follow a change in
+another Member, such as a callee that gained a throw, while this Member's own
+IL is unchanged. The map would then either miss them or list Members whose
+states are `Unchanged`. Those changes are relations between Members and belong
+to the Type graph in
+[#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
+
+With this rule, an admitted finding transition is a change in the Member's own
+body, and a Member's row equals the admitted, non-`Present` part of that
+Member's annotated source diff. A finding kind the vocabulary lacks, such as a
+throw, is added by the provenance matrix owner, not by this document.
+
+The one-version map admits the descriptors of the analyses its request names.
+
+## Tallies
+
+A row's **tally** counts its findings by descriptor and, in the two-version
+form, by transition kind. A Type's tally sums its rows' tallies. A tally is a
+projection the map owns; it is not the Count terminal.
 
 ## Scopes and terminals
 
@@ -128,26 +180,27 @@ and no scope nests another scope's Rows.
 
 | Scope | Rows | Count | Exists |
 | --- | --- | --- | --- |
-| Library | one row per Type with a non-empty map, carrying that Type's Count per descriptor and transition kind | Types with a non-empty map | any Type with a non-empty map |
-| Type | the map: Member rows with their findings | listed Members, and findings per descriptor and transition kind | any listed Member |
-| Member | that Member's row | findings per descriptor and transition kind | whether the Member is listed |
+| Library | one row per Type whose map is non-empty, carrying its Type row and tally | the number of those rows | any such row |
+| Type | the map's Member rows | the number of Member rows | the Type row reports a change, or any Member row exists |
+| Member | that Member's row, if listed | 0 or 1 | whether the Member is listed |
+
+A map is non-empty when its Type row reports a change or it lists a Member.
+Count is the number of Rows at its scope, and Exists is whether Rows is
+non-empty, as [Scope symmetry](scope-symmetry.md#one-infrastructure-and-three-terminals)
+requires.
 
 A Library-scope Row never contains Member rows. Opening a Type asks for that
-Type's map. That is the single-level view
-[No rows within rows](scope-symmetry.md#no-rows-within-rows) requires for an
-ephemeral host. A whole-Library map with Member rows is a persistent artifact
-and is offered only as one.
+Type's map, as [No rows within rows](scope-symmetry.md#no-rows-within-rows)
+requires for an ephemeral host. A whole-Library map with Member rows is a
+persistent artifact and is offered only as one. A Member's findings are the
+detail of its row, not a narrower scope.
 
-A Member's findings are the detail of its row, not a narrower scope. Listing
-them inside a Type map is not rows within rows.
-
-Exists and Count are exact against Rows at the same scope. A two-version Type
-map's Exists is whether any Member of the Type changed under the API and Body
-equality that decides listing. Fast Diff's per-Type state answers it without a
-second walk once Fast Diff's gates show it exact against the map's Rows. Until
-then, Fast Diff over-reports on some pairs, for example 31 Types of
-Newtonsoft.Json 13 in the spike, and a host that uses it as a mark states that
-the mark is a candidate, not the map's Exists.
+A two-version Type's Exists is Fast Diff's Library-level state for that Type:
+the residual and the Member states partition the Type's facts, and a one-sided
+Type is a change. The map runs no second walk to answer it. Until Fast Diff's
+code meets its Type-level contract, such as
+[#10223](https://github.com/richlander/dotnet-inspect/issues/10223), the
+Exactness gate below fails for the Types it names.
 
 ## Disclosure ladder
 
@@ -156,22 +209,29 @@ A host spends cost as the user narrows:
 | Step | Answers | Cost evidence |
 | --- | --- | --- |
 | Exists per Type | which Types changed | Fast Diff: 0.01–0.8 ms per Type |
-| Count per Type | how many Members, and which finding kinds | the Type's map, counted |
-| The Type's map | which Members, and what kind of change each | see [Evidence](#evidence) |
+| A Type's map | which Members, and what kind of change each | see [Evidence](#evidence) |
 | A Member's annotated source diff | the change itself, in C# and IL | its own owner |
 
 The map is the coupon and the source is the principal. A host computes a
 Type's map when the user opens the Type and fetches source when the user opens
 a Member.
 
+## Hosts and rendering
+
+The map is a result document, lowered to JSON and Markout by Presentation as
+[Diff system](diff-system.md#markout) describes for diff documents. Each host
+renders from it: the CLI writes the JSON for agents and a Markout table of
+Member rows with their tallies, and Inspect Web presents the rows in Type
+Compare. Neither host computes findings itself.
+
 ## Retention
 
-A Type's map is the requested result at Type scope, and its Member rows are
-read from it. A host may keep it while that Type is open without the evidence
-[Retention](scope-symmetry.md#retention) requires for unrequested results. A
-host does not retain source for Members the user has not opened, and does not
-precompute the maps of Types the user has not opened beyond an approved
-background analysis.
+A host may keep the map of the Type the user opened, while it is open, and
+render that Type's rows from it. Serving a different scope from it, such as a
+Member's own request, is the wider-computation optimization that
+[Retention](scope-symmetry.md#retention) gates on evidence. A host does not
+retain source for Members the user has not opened, and does not compute the
+maps of Types the user has not opened beyond an approved background analysis.
 
 ## Evidence
 
@@ -188,55 +248,70 @@ from the fact comparison this design adopts.
 | 51–200 | 0.18 ms | 14 / 31 ms | 15 / 146 ms |
 | 200+ | 0.76 ms | 26 / 112 ms | 31 / 359 ms |
 
-It also found that classifying findings over IL rows costs 0.01–0.14% of
-producing the rows, and that the shipped Type-scoped API comparison costs in
-proportion to the Library
+Classifying findings over IL rows cost 0.01–0.14% of producing the rows. The
+shipped Type-scoped API comparison costs in proportion to the Library
 ([#10221](https://github.com/richlander/dotnet-inspect/issues/10221)).
+
+The spike's oracle was not Fast Diff's equality, so its disagreements with
+Fast Diff are not, by themselves, Fast Diff defects. Investigated, they are
+19 Types where Fast Diff's Body axis does not yet count a visible method
+present on one side only
+([#10223](https://github.com/richlander/dotnet-inspect/issues/10223)), and 3
+where the IL diff reports a renumbered stand-alone signature
+([#9801](https://github.com/richlander/dotnet-inspect/issues/9801)).
 
 ## Adoption
 
 Each step is its own focused effort:
 
-1. **Type-scoped API cost.** The Type API comparison costs in proportion to the
-   Type ([#10221](https://github.com/richlander/dotnet-inspect/issues/10221)).
+1. **Fast Diff Type level.** Fast Diff's Type level, with its Member and
+   residual states, meets its contract, including
+   [#10223](https://github.com/richlander/dotnet-inspect/issues/10223).
 2. **Fact census without text.** The Annotated Source owner produces a
-   Member's fact census, and the fact comparison, without the text comparison
-   or the C# plane where no descriptor needs it, with NativeAOT cost per
-   Member.
-3. **The two-version map** at Type scope, over Fast Diff's Member states and
-   the fact comparison of each changed Member, with its Count and Exists.
-4. **Inspect Web Type Compare** shows the map's Member rows, and its Type
-   marks come from Exists per Type
+   Member's admitted fact census and fact comparison without the text
+   comparison, or the C# plane where no admitted descriptor needs it, with
+   NativeAOT cost per Member.
+3. **The two-version map** at Type scope, with its Library and Member scopes,
+   terminals, and tallies.
+4. **CLI output** of the map as JSON and Markout.
+5. **Inspect Web Type Compare** presents the map's rows, and its Type marks
+   come from Exists per Type
    ([#10201](https://github.com/richlander/dotnet-inspect/issues/10201)).
-5. **The one-version map** for the admitted Exists analyses in
+6. **The one-version map** for the admitted Exists analyses in
    [#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
 
-A finding kind the vocabulary lacks, such as a throw, is added by the
-[provenance matrix](annotated-source-finding-provenance.md) owner, not by this
-document.
+Step 3 does not depend on
+[#10221](https://github.com/richlander/dotnet-inspect/issues/10221), because
+listing reads Fast Diff's states, but a host that shows a Member's API change
+detail does.
 
 ## Gates
 
-- **Sparsity:** over the Fast Diff fixture pairs, every Member the Type-scoped
-  comparison reports as changed is listed, and no listed Member is unchanged.
-- **Exactness:** each scope's Exists and Count equal its Rows; a Type map's
-  Exists equals Fast Diff's Type state.
-- **Agreement:** a Member's finding transitions in the map equal the
-  non-`Present` transitions of that Member's annotated source diff.
-- **Consistency:** no Member whose Body is unchanged under the Body equality
-  carries a body finding transition.
+- **Listing:** over the Fast Diff fixture pairs and the spike's pairs, the
+  Member rows and the Type row equal Fast Diff's Type-level Member and
+  residual states, and each one-sided Type lists every Member of its present
+  side.
+- **Exactness:** at each scope, Count equals the number of Rows and Exists
+  equals Rows being non-empty; a two-version Type's Exists equals Fast Diff's
+  Library-level state.
+- **Agreement:** for every Member of the fixture Types, listed or not, the
+  admitted non-`Present` transitions of its annotated source diff equal its
+  row's findings, and are empty for an unlisted Member.
+- **Outcomes:** a Member with a NotApplicable or Failed side carries that
+  outcome, not an empty finding list.
 - **Symmetry:** a Member's row is the same in its Type's map and at Member
   scope.
-- **Cost:** NativeAOT per-Type time for the map by member count over a large
-  Library, beside Fast Diff's Exists and the source step.
+- **Cost:** NativeAOT time at Library, Type, and Member scope over a large
+  Library, Exists beside Rows at each, by member count at Type scope.
 
 ## Non-claims
 
-- It does not define any finding, descriptor, key, or equality.
-- It does not decide a host's default at Type scope or how a host renders a
+- It does not define any finding, descriptor, key, equality, or Member
+  correspondence.
+- It does not decide a host's default at Type scope or the visual design of a
   row.
-- It does not cover relations between Types, such as callers; those belong to
-  the Type graph in
+- It does not cover relations between Members or Types, such as callers or a
+  callee's signals; those belong to the Type graph in
   [#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
 - It does not claim correspondence for a renamed or moved Member; that belongs
   to [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
