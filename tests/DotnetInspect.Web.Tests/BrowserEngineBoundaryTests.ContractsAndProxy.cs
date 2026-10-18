@@ -491,6 +491,80 @@ public sealed partial class BrowserEngineBoundaryTests
             });
     }
 
+    // The composed surface attaches extensions declared by non-public Types to public
+    // receivers in narrower buckets. A public Type's member Count and the Library
+    // total that sums it stay the default population, so they agree with the
+    // public-scope surface that exact Library Overview counts, and a partial merge
+    // that adds or removes Types by their Counts keeps the total.
+    [Fact]
+    public async Task SurfaceProjection_MemberCountsExcludeNarrowerAttachedExtensions()
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "Spotlight",
+            "package",
+            "System.Text.Json.dll");
+        await using var workspace = new InspectionWorkspace();
+        var participant = new AssemblyContextParticipant(
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local("library member count")),
+            new RejectingBindingPolicy());
+        AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup([participant]);
+
+        AssemblyContextApiSurfaceResult composed =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
+                BrowserApiSurfacePolicy.Limits);
+        AssemblyContextApiSurfaceResult publicOnly =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.Public,
+                BrowserApiSurfacePolicy.Limits);
+        ApiSurface publicSurface = Assert.IsType<
+            AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(publicOnly.Assemblies.Assemblies)).Value.Surface;
+        int publicMembers =
+            publicSurface.Types.Sum(type => type.Members.Count);
+
+        BrowserSurfaceProjection.Surface projected =
+            BrowserSurfaceProjection.Project(
+                composed,
+                [new BrowserSurfaceProjection.Participant(
+                    participant,
+                    "System.Text.Json",
+                    "stj",
+                    "lib/net10.0/System.Text.Json.dll")]);
+
+        BrowserTypeSurfaceInfo reader = Assert.Single(
+            projected.Types,
+            type => type.Name == "Utf8JsonReader");
+        Assert.Contains(
+            reader.Api,
+            member => member.IsExtension && member.Accessibility == "internal");
+        Assert.True(reader.Members < reader.Api.Length);
+        BrowserTypeSurfaceInfo[] publicTypes =
+        [
+            .. projected.Types.Where(type =>
+                ApiAccessibility.Classify(type.Accessibility).IsDefault),
+        ];
+        Assert.All(
+            publicTypes,
+            type => Assert.Equal(
+                publicSurface.Types.Single(candidate =>
+                    DotnetInspector.Presentation.ApiSurfacePresentation.Type(candidate).DefinitionId
+                        == type.DefinitionId).Members.Count,
+                type.Members));
+        Assert.Equal(publicMembers, publicTypes.Sum(type => type.Members));
+        Assert.Equal(
+            publicMembers,
+            Assert.Single(projected.Assemblies).PublicMembers);
+        Assert.Equal(publicMembers, projected.TotalMembers);
+    }
+
     [Fact]
     public async Task MsdlProxy_RewritesExactSymbolRequestToCurrentSwaApi()
     {
