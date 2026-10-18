@@ -5463,6 +5463,7 @@ internal sealed class BrowserPackage
         {
             Decoder decoder = Encoding.UTF8.GetDecoder();
             var text = new StringBuilder();
+            bool firstCharacter = true;
             while (true)
             {
                 int read = await input.ReadAsync(
@@ -5483,7 +5484,15 @@ internal sealed class BrowserPackage
                         "The bounded UTF-8 decoder did not consume its input.");
                 }
 
-                text.Append(chars.AsSpan(0, charsUsed));
+                ReadOnlySpan<char> decoded = chars.AsSpan(0, charsUsed);
+                if (firstCharacter && !decoded.IsEmpty)
+                {
+                    firstCharacter = false;
+                    if (decoded[0] == '\uFEFF')
+                        decoded = decoded[1..];
+                }
+
+                text.Append(decoded);
                 if (completed)
                     return text.ToString();
             }
