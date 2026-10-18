@@ -74,15 +74,22 @@ A map is about one Type at one version. It holds:
   facts; and
 - its **annotations**: a keyed collection from Member key to that Member's
   admitted findings, plus the Type's own findings, with the outcome that
-  produced each Member's findings.
+  produced each Member's findings; and
+- for each method a Member owns, its **fact stream**: the keys of every fact in
+  the method's fact census, admitted or not, in the order the
+  [fact comparison](annotated-source-diff-document.md#fact-comparison)
+  projects them. The comparison matches facts by their position in the whole
+  stream, so the map keeps the whole stream to reproduce it.
 
 A Member's key is its Fast Diff census key, with its accessors raised into its
 property or event and its generated code attached to it, as
 [Fast Diff](fast-diff.md#type) partitions a Type's facts. Facts that belong to
 no single Member are the Type's **residual**, and they are the Type's own
 entries. A host-facing document spells a key with the Member's anchor, as Fast
-Diff's Type level reports it; two Members whose keys differ but whose spellings
-collide are `Indeterminate`, never merged.
+Diff's Type level reports it: the After side's anchor, or the Before side's
+for a Member present only there. Two Members whose keys differ but whose
+spellings collide are never merged: the document spells each of them with the
+anchor and the Member's row token on its side, and both are `Indeterminate`.
 
 Shape facts are Fast Diff's two axes at Member grain:
 
@@ -136,19 +143,22 @@ by one rule:
    a rename, move, or changed signature, belongs to
    [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
 2. **Compare each joined key.** A key on one side yields `Added` or `Removed`
-   for the Member and for each of its facts. A key on both sides compares its
+   on each axis where the Member owns shape facts, as Fast Diff's Type level
+   does, and for each of its facts. A key on both sides compares its
    shape facts by Fast Diff's equality, giving an API and a Body transition,
-   and its annotations by the
-   [fact comparison](annotated-source-diff-document.md#fact-comparison), per
-   method, with its keys, matching, and acceptance threshold. The Type's own
-   entries compare the same way.
+   and, per method, its two whole fact streams by the
+   [fact comparison](annotated-source-diff-document.md#fact-comparison), with
+   its keys, matching, and acceptance threshold. Only then are the transitions
+   filtered to admitted descriptors, so which analyses a request names never
+   changes how a fact is matched. The Type's own entries compare the same way.
 3. **Keep the non-`Present` transitions.** The map diff's annotations are a
    keyed collection from Member key to that Member's `IPairFinding`s whose kind
    is `Added`, `Removed`, or `Changed`, with each comparison's outcome.
 
 The shape transitions are pair findings like the annotation transitions: an
-API change, a Body change, or a Member added or removed is an element of the
-Member's array, beside its finding transitions.
+API or Body transition, including a one-sided Member's `Added` or `Removed` on
+an axis where it owns facts, is an element of the Member's array, beside its
+finding transitions. A Member's presence alone is not an element.
 
 **A key, or the Type, is listed in the map diff exactly when it has a shape
 transition or its shape comparison is unsettled.** A Member whose own facts
@@ -172,9 +182,10 @@ side, one-sided, with every fact `Added` or `Removed`, as
 [#10224](https://github.com/richlander/dotnet-inspect/issues/10224) proposes
 for Fast Diff's Type level.
 
-A Member that owns no shape facts and no admitted findings, such as a private
-field, has nothing to compare and is never listed. That is Fast Diff's
-contract: non-public metadata is not compared.
+A Member that owns no shape facts, such as a private field, has no axis on
+which to be `Added` or `Removed`, so it has no shape transition and is never
+listed, whether it is on one side or both. That is Fast Diff's contract:
+non-public metadata is not compared.
 
 The map diff is not an [Analysis diff](analysis-diff.md): that format is a
 complete partition of both endpoints, and the map diff keeps only what changed.
@@ -250,16 +261,17 @@ Every listed row is either changed or unresolved:
   outcome is unsettled. It might be changed, so it is not evidence either
   way.
 
-Rows returns both, each marked. Count and Exists summarize those rows, as
-[Scope symmetry](scope-symmetry.md#one-infrastructure-and-three-terminals)
-requires, with an unsettled row carried as QuerySpace's typed outcome for that
-subject rather than read as a change or as no change:
+Rows returns both, each marked. Only changed rows are Rows in
+[Scope symmetry](scope-symmetry.md#one-infrastructure-and-three-terminals)'s
+sense; an unresolved row is how the map carries QuerySpace's typed outcome for
+a subject it could not decide, rather than reading it as a change or as no
+change. Count and Exists summarize them:
 
 - **Count** reports the number of changed rows and, separately, the number of
   unresolved rows.
 - **Exists** is `true` when a changed row exists, undecided when none does but
-  an unresolved row does, and `false` only when the Type outcome is complete
-  and there are no rows.
+  an unresolved row does, and `false` only when the outcome at that scope is
+  complete and there are no rows.
 
 A Library-scope row in the map diff carries the Type's entries and a
 listed-Member Count, read from the shape comparison; it needs no annotations and
@@ -349,9 +361,10 @@ Each step is its own focused effort:
    Body fact per method under Fast Diff's Body equality, with NativeAOT cost
    per Type for each against Fast Diff's lockstep walk.
 3. **Fact census without text.** The Annotated Source owner produces one
-   method's admitted fact census and fact comparison, for each method a Member
+   method's whole fact stream and fact comparison, for each method a Member
    owns including generated methods, without the text comparison or the C#
-   plane where no admitted descriptor needs it. It records, for each kind of
+   plane where no fact in the stream needs it, with NativeAOT cost per
+   method. It records, for each kind of
    generated code, whether the owning method's census already includes that
    code's facts.
 4. **The one-version map** at Type scope, for the admitted analyses in
@@ -380,7 +393,9 @@ implementation and, if adopted, of its QuerySpace operators.
 - **Findings:** for every listed Member of the fixture Types, and for each
   method it owns on both sides, the admitted non-`Present` transitions of that
   method's annotated source diff equal that method's part of the Member's
-  finding transitions. For each kind of generated code that step 3 folds into
+  finding transitions, for every subset of admitted analyses a request can
+  name, including a fixture whose non-admitted facts change which admitted
+  facts the comparison matches. For each kind of generated code that step 3 folds into
   its owning method, a fixture shows the generated method adds no findings of
   its own, so no fact is counted twice.
 - **Listing:** in the map diff, a key or the Type is listed exactly when it
