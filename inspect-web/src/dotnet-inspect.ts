@@ -35,6 +35,7 @@ import {
   MAX_WORKSPACE_PACKAGES,
   memberRequestKey,
   isMemberSection,
+  isEmptyPackageFramework,
   libraryLenses,
   memberSectionDefinitions,
   memberSectionIdsFor,
@@ -42,7 +43,7 @@ import {
   packageCoordinateMatchesLocation,
   packageForView,
   packageIdentityKey,
-  packageLenses,
+  packageLensesFor,
   partitionGraphMembers,
   platformReferencesForDependencyGroup,
   platformPackForGraphAssembly,
@@ -7665,18 +7666,6 @@ function selectScopeLensByIndex(index: number, workspaceScope: WorkspaceScope): 
   }
 }
 
-// The resident runtime pseudo-package has no NuGet package evidence. Uploaded
-// packages have no GitHub-to-source authority correspondence.
-function packageLensesFor(pkg: AppPackage | null) {
-  return packageLenses.filter(([id]) => {
-    if (pkg?.isRuntimePack) return id === "overview";
-    if (id === "hierarchy") return false;
-    if (id === "vulnerabilities")
-      return pkg?.source.kind === "nuget.org";
-    return true;
-  });
-}
-
 function libraryLensesFor(pkg: AppPackage | null) {
   if (state.rootKind === "library")
     return libraryLenses.filter(([id]) => id === "overview");
@@ -9745,7 +9734,8 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   const visible = filteredTypeRows();
   // Keep the package lens on something the active package actually supports, so a restored
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
-  if (state.atPackageRoot && !(state.packageLens === "hierarchy" && pkg.source.kind === "nuget.org")
+  if (state.atPackageRoot && !(state.packageLens === "hierarchy" && pkg.source.kind === "nuget.org"
+    && !isEmptyPackageFramework(pkg))
     && !packageLensesFor(pkg).some(([id]) => id === state.packageLens)) {
     state.packageLens = "overview";
   }
@@ -25821,7 +25811,9 @@ async function loadPackage(
       "exact",
     );
     const deep = options.location;
-    if (deep) {
+    if (isEmptyPackageFramework(packageModel)) {
+      selectDefaultPackageSubject(packageModel);
+    } else if (deep) {
       const libraryFailure = applyLoadedPackageLibraryScope(
         packageModel,
         deep.library);

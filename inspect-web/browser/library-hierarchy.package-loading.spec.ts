@@ -430,6 +430,41 @@ test("Package Overview opens an owner-issued RID Package child", async ({
     .toHaveText("Tool.Pointer.linux-x64");
 });
 
+test("selecting an empty framework retires a retained Library and offers only Overview", async ({ page }) => {
+  await installFacades(page, frameworkSurface, [{
+    ...frameworkSurface,
+    activeFramework: "net9.0",
+    defaultAssemblyId: null,
+    compileLibrary: {
+      status: "EmptyCompileGroup", targetFramework: "net9.0", message: null,
+    },
+    assemblies: [], types: [], accessibility: [], totalMembers: 0,
+  }]);
+  await page.goto(frameworkRoot);
+  await selectLibrary(page, other.id);
+  await chooseSubject(page, "package", "Package");
+  await selectPackageCoordinate(page, packageCoordinateChanges[0]!, "net9.0");
+
+  const expectEmptyOverview = async () => {
+    await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".package-overview-surface")).toBeVisible();
+    await expect(page.locator("[data-inspector-tab][data-package-lens]"))
+      .toHaveCount(1);
+    await expect(page.locator('[data-inspector-tab][data-package-lens="overview"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator(".query-notice-text"))
+      .toContainText("selected compile group contains no Libraries");
+    await expect(page.locator(".query-notice-text"))
+      .not.toContainText("not uniquely available");
+  };
+  await expectEmptyOverview();
+  await page.reload();
+  await expectEmptyOverview();
+  await selectPackageCoordinate(page, packageCoordinateChanges[0]!, "net10.0");
+  await expect(page.locator('[data-inspector-tab][data-package-lens="compare"]'))
+    .toBeVisible();
+});
+
 for (const change of packageCoordinateChanges) {
   test(`package ${change.name} replacement preserves latent exact Library selection`, async ({ page }) => {
     await installPackageLoadingFacades(page);

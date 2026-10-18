@@ -14,6 +14,13 @@ using the product-selected default Library. Package remains available one level
 up with its complete Library inventory. Explicit links and restored workspace
 history keep their selected subjects and inspectors; packages with no compile
 Libraries remain at Package with the reason visible.
+Selecting an explicitly empty compile framework opens Package Overview and
+limits the inspector choices to Overview, including when replacing a Library
+selection. Frameworks remain selectable. The motivating asset is
+`System.Memory@4.5.4`: `lib/netcoreapp2.1/_._` and `ref/netcoreapp2.1/_._`
+explicitly declare an empty compile group. Reproduce by opening that version
+and selecting `netcoreapp2.1`. Frontend tests gate inspector availability;
+the empty-compile browser case gates Package Overview and refresh behavior.
 
 **Open Library** and page-level file drop accept one managed `.dll` or `.exe`
 up to 32 MiB and open it directly as a transient Library subject. Picker, drop,
