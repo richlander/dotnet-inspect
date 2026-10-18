@@ -109,9 +109,9 @@ Every rung answers per **axis**:
   the change there.
 - **Body**: every subject at every accessibility: the IL of every method; the
   **declaration facts** of every subject the API axis does not compare, such
-  as a non-public Member's signature, attributes, and flags; and the
-  **implementation facts** of every subject that the API axis does not
-  present, such as inlining and `InternalCall` flags, `beforefieldinit`, and
+  as a non-public Member's signature, attributes, and flags; and every
+  subject's **implementation facts**, which the API axis does not present,
+  such as inlining and `InternalCall` flags, `beforefieldinit`, and
   compiler-emitted attributes such as `Intrinsic`. An added private field is a
   Body change. These facts are shown by a **declaration view**, part of each
   row's rung-4 diff. The two axes are disjoint: a fact belongs to exactly one.
@@ -211,7 +211,7 @@ assigns today's kinds:
 | Renderable attribute added, removed, or changed | Present (already shown) |
 | Hidden subject | Present: the API axis compares the widened population, with hidden as a facet |
 | Nullable rows and context with no annotated value on either side | Promote |
-| Compiler-emitted attributes (`Intrinsic`, state-machine `typeof`, Type-level `Extension`) | Promote |
+| Compiler-emitted attributes (`Intrinsic`, state-machine `typeof`, Type-level `Extension`) | Both: promoted away from the API axis, and presented on the Body axis by the declaration view |
 | Implementation flags (inlining, `InternalCall`, `Async`) | Both: promoted away from the API axis, which never presents them, and presented on the Body axis by the declaration view |
 | Attribute argument the renderer cannot show (generic `typeof`) | Present |
 | Referenced-assembly identity inside an attribute blob | Promote |
@@ -274,7 +274,8 @@ Exists is distinct from Rows by the structural rule, not by a ratio at
 Library scope: most Types in a pair are unchanged and proving that is the
 dominant cost, so early exit saves little there. The distinction that matters
 is between rungs 1 and 2, which never explain, and rungs 3 and 4, which build
-facts or models only for the Types and Members a user opens. The numeric rule
+facts or models for the Types and Members a user opens, or once per version
+when a host retains maps. The numeric rule
 is the gate for replacing a provision.
 
 ## Adoption
@@ -313,13 +314,14 @@ Each step is its own focused effort:
   least one difference in the complete diff on that axis.
 - **Coverage:** for each fixture Type, its rung-1 state follows from its
   rung-2 states, its presence, and Fast Diff's identity rule as stated above,
-  and each row's rung-2 state equals whether its rung-3 entry and its rung-4
-  diff are non-empty on that axis, including the residual, a one-sided Type,
-  and a Type with two rows of one name.
+  and each decided row's rung-2 state equals whether its rung-3 entry and its
+  rung-4 diff are non-empty on that axis, including the residual, a one-sided
+  Type, and a Type with two rows of one name; an `Indeterminate` row is read
+  under the Exists contract's third rule.
 - **Expansive:** fixtures with a hidden public Member, a private field, a
-  private method, and a changed inlining flag show each one's difference on
-  its axis, with its facets, and the private field and the flag in the
-  declaration view.
+  private method, a changed inlining flag, and a gained `Intrinsic` attribute
+  show each one's difference on its axis, with its facets, and the private
+  field, the flag, and the attribute in the declaration view.
 - **No fallback:** each Exists measurement reports zero complete-model builds
   on the six measured pairs once adoption step 2 completes.
 - **Latency (design evidence):** the latency bar, measured on NativeAOT.
