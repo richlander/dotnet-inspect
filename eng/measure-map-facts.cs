@@ -279,6 +279,33 @@ if (runApi)
                                 ApiMemberIdentity.CreateHandle(type, member);
             return Ms(t);
         }).ToList());
+        // Per-request costs that scale with the Library rather than the Type: one warm
+        // extraction call that admits no Type, and one extension Exists, each times the
+        // number of requests the whole-Library production makes.
+        double warmNone, existsOne;
+        {
+            using var b = Open(beforeBytes);
+            var md = b.GetMetadataReader();
+            var cache = new ApiSurfaceImageCache(b);
+            ApiSurfaceExtractor.ExtractDeclarations(b, ApiSurfaceExtractionScope.Public, _ => false, cache);
+            warmNone = MedianOf(Enumerable.Range(0, 9).Select(_ =>
+            {
+                long t = Stopwatch.GetTimestamp();
+                ApiSurfaceExtractor.ExtractDeclarations(b, ApiSurfaceExtractionScope.Public, _ => false, cache);
+                return Ms(t);
+            }).ToList());
+            var identity = AssemblyReferenceIdentity.FromAssemblyDefinition(md);
+            var first = new FastDiff.Side(b).Units().Values.First(u => !u.Malformed);
+            var name = ((MetadataTypeDefinitionNameReadResult.Read)MetadataTypeDefinitionName.Read(md, first.Owner)).Name;
+            existsOne = MedianOf(Enumerable.Range(0, 9).Select(_ =>
+            {
+                long t = Stopwatch.GetTimestamp();
+                ExactTypeApi.ExtensionExists(b, md, identity, name, first.Owner);
+                return Ms(t);
+            }).ToList());
+        }
+        int requests = apiB.Types.Count + apiA.Types.Count;
+        Console.WriteLine($"attr-q2b-per-request\textractNoTypeWarm={warmNone:F4}\tx{requests}={warmNone * requests:F2}\textensionExistsOne={existsOne:F4}\tx{requests}={existsOne * requests:F2}");
         Console.WriteLine($"attr-q2b\tmemorySafetyIndex(both)={memorySafety:F2}\twholeExtractDeclarations(both)={wholeDecl:F2}\twholeExtract(both)={wholeFull:F2}"
             + $"\ttypesOnly(both)={typesOnly:F2}\tnoTypeAdmitted(both)={none:F2}\tcanonicalMemberIdentities(Keyed, retained, both)={keyed:F2}");
         foreach (var (label, side) in new[] { ("before", apiB), ("after", apiA) })
