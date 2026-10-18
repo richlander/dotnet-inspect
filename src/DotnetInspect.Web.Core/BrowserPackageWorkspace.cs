@@ -1468,10 +1468,6 @@ internal static class BrowserPackageWorkspace
                                 ? source
                                 : throw new InvalidOperationException(
                                     "The dependency call graph requested another configured package source."));
-                var candidateSource =
-                    new AuthorizedPackageDependencyCandidateSource(
-                        authorization,
-                        sourceLease);
                 TimeSpan sourceOperationTimeout =
                     SourceSettlementOperationTimeout(
                         deadline.Remaining);
@@ -1499,9 +1495,8 @@ internal static class BrowserPackageWorkspace
                 var inspectionSource =
                     new PackageDependencyMemberCallGraphInspectionSource(
                         new PackageDependencyTraversalCandidateAdapter(
-                            candidateSource),
-                        new AuthorizedPackageDependencyManifestSource(
-                            candidateSource),
+                            authorization),
+                        new AuthorizedPackageDependencyManifestSource(),
                         house,
                         (requestedOperation, token) =>
                             sourceLease.IssueOperationLease(

@@ -55,10 +55,6 @@ public sealed partial class PackageHouseExecutionTests
                     ]));
         PackageRootBinding rootBinding = CallGraphRootBinding(
             (CallGraphTargetPackage, RouteVersion));
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
         PackageHouseOperation realizationOperation =
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize);
@@ -87,7 +83,7 @@ public sealed partial class PackageHouseExecutionTests
                             maxDeclarationResolutions: 3)),
                 new PackageDependencyMemberCallGraphInspectionSource(
                     new PackageDependencyTraversalCandidateAdapter(
-                        candidateSource),
+                        environment.Authorization),
                     new UnexpectedManifestAcquirer(),
                     environment.CreateHouse(
                         (_, _) => new InMemoryPackageStore()),
@@ -356,10 +352,6 @@ public sealed partial class PackageHouseExecutionTests
                     ]));
         PackageRootBinding rootBinding = CallGraphRootBinding(
             (CallGraphTargetPackage, RouteVersion));
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
         PackageHouseOperation realizationOperation =
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize);
@@ -400,7 +392,7 @@ public sealed partial class PackageHouseExecutionTests
                                     }),
                             new PackageDependencyMemberCallGraphInspectionSource(
                                 new PackageDependencyTraversalCandidateAdapter(
-                                    candidateSource),
+                                    environment.Authorization),
                                 new UnexpectedManifestAcquirer(),
                                 environment.CreateHouse(
                                     (_, _) => new InMemoryPackageStore()),
@@ -1717,13 +1709,9 @@ public sealed partial class PackageHouseExecutionTests
     private static PackageDependencyMemberCallGraphInspectionSource
         CreateCallGraphSource(HouseEnvironment environment)
     {
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
         return new(
             new PackageDependencyTraversalCandidateAdapter(
-                candidateSource),
+                environment.Authorization),
             new UnexpectedManifestAcquirer(),
             environment.CreateHouse(
                 (_, _) => new InMemoryPackageStore()),
