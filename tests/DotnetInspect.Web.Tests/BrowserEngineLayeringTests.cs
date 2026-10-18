@@ -582,6 +582,13 @@ public sealed class BrowserEngineLayeringTests
             path => path.Equals(
                 SourceBanListPath,
                 StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            [
+                "T:ILInspector.MetadataPrimitives.MemberAnchor",
+                "T:ILInspector.MetadataPrimitives.MetadataMethodAddress",
+                "T:ILInspector.Metadata.MetadataTypeNameFailureMechanism",
+            ],
+            SourceBannedSymbols());
     }
 
     static void AssertPinsPlatformHazardsNotBroadInventory(string project)
