@@ -42,6 +42,26 @@ internal sealed class IlBodyExistsComparer
         _normalization = normalization;
     }
 
+    // SPIKE (exp/unified-diff-exists): a comparer over a correspondence built once per image pair.
+    public IlBodyExistsComparer(
+        MetadataReader oldReader,
+        MetadataReader newReader,
+        IlBodyDiffNormalization normalization,
+        CompilerGeneratedOrdinalCorrespondence oldCorrespondence,
+        CompilerGeneratedOrdinalCorrespondence newCorrespondence)
+    {
+        _old = new IlBodyDiff.MetadataOperandResolver(oldReader, normalization, oldCorrespondence);
+        _new = new IlBodyDiff.MetadataOperandResolver(newReader, normalization, newCorrespondence);
+        _normalization = normalization;
+    }
+
+    // SPIKE (exp/unified-diff-exists): attribution counters, read only when Instrument is set.
+    public bool Instrument { get; set; }
+    public long DecodeTicks { get; set; }
+    public long ResolveTicks { get; set; }
+    public long ResolveMisses { get; set; }
+    public long InstructionsCompared { get; set; }
+
     /// <summary>Tokens resolved so far (both sides), for work accounting.</summary>
     public long TokensResolved { get; private set; }
 
@@ -78,6 +98,7 @@ internal sealed class IlBodyExistsComparer
         byte[] oldIl = oldBody.GetILBytes() ?? [];
         byte[] newIl = newBody.GetILBytes() ?? [];
         rawEqual = oldIl.AsSpan().SequenceEqual(newIl);
+        long decodeStart = Instrument ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         ImmutableArray<DecodedInstruction> oldInstructions, newInstructions;
         if (liteDecode)
         {
@@ -110,6 +131,8 @@ internal sealed class IlBodyExistsComparer
             newInstructions = newDecoded.Instructions;
         }
 
+        if (Instrument)
+            DecodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - decodeStart;
         return CompareDecoded(oldInstructions, newInstructions, rawFastPath && rawEqual, memoTokens, out failure);
     }
 
@@ -128,7 +151,14 @@ internal sealed class IlBodyExistsComparer
         var key = (instruction.Operand, instruction.OperandValue);
         if (!memo.TryGetValue(key, out var operand))
         {
-            if (!resolver.TryResolve(instruction, out var resolved, out failure))
+            long resolveStart = Instrument ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+            bool ok = resolver.TryResolve(instruction, out var resolved, out failure);
+            if (Instrument)
+            {
+                ResolveTicks += System.Diagnostics.Stopwatch.GetTimestamp() - resolveStart;
+                ResolveMisses++;
+            }
+            if (!ok)
             {
                 operation = default!;
                 return false;
@@ -160,6 +190,7 @@ internal sealed class IlBodyExistsComparer
             if (tokensOnly && !IlBodyDiff.SpikeIsTokenOperand(oldInstruction.Operand))
                 continue;
 
+            InstructionsCompared++;
             if (!ToOperation(oldInstruction, _old, memoTokens ? _oldMemo : null, out var oldOperation, out failure)
                 || !ToOperation(newInstruction, _new, memoTokens ? _newMemo : null, out var newOperation, out failure))
             {

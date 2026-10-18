@@ -21,6 +21,8 @@
     <InternalsVisibleTo Include="measure-shared-predicate" />
     <InternalsVisibleTo Include="measure-canonical-walker" />
     <InternalsVisibleTo Include="measure-census-classes" />
+    <!-- SPIKE (exp/unified-diff-exists): eng/measure-unified-diff.cs. -->
+    <InternalsVisibleTo Include="measure-unified-diff" />
   </ItemGroup>
 
   <ItemGroup>

@@ -566,6 +566,31 @@ public static class IlAssemblyDiff
         return new MethodMapResult(methods, failures.ToImmutable());
     }
 
+    // SPIKE (exp/unified-diff-exists): the assembly comparison's own method map, keyed by
+    // (identity, occurrence) exactly as Compare pairs bodies, plus the methods whose identity failed.
+    internal static (Dictionary<(string Identity, int Occurrence), MethodDefinitionHandle> Methods, List<MethodDefinitionHandle> Failed)
+        SpikeMethodMap(MetadataReader reader)
+    {
+        // Same loop as MethodMap, keeping the failed handles rather than failure rows.
+        var methods = new Dictionary<(string, int), MethodDefinitionHandle>();
+        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var failed = new List<MethodDefinitionHandle>();
+        foreach (var handle in reader.MethodDefinitions)
+        {
+            var result = MethodKey(reader, handle, reader.GetMethodDefinition(handle));
+            if (result.Failure is not null)
+            {
+                failed.Add(handle);
+                continue;
+            }
+            string identity = result.Identity!;
+            int occurrence = occurrences.TryGetValue(identity, out int count) ? count + 1 : 1;
+            occurrences[identity] = occurrence;
+            methods.Add((identity, occurrence), handle);
+        }
+        return (methods, failed);
+    }
+
     // SPIKE (exp/staged-diff-spike): the method identity the assembly comparison
     // pairs bodies by, for eng/measure-staged-diff.cs. Null when it cannot be resolved.
     internal static string? SpikeMethodIdentity(MetadataReader reader, MethodDefinitionHandle handle)
