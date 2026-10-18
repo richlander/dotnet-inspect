@@ -872,6 +872,105 @@ public abstract class PackageHouseRealizationReceipt
         public override ImmutableArray<PackageHouseLibraryHandoff>
             LibraryHandoffs { get; }
     }
+
+    public sealed class LibraryPopulation : PackageHouseRealizationReceipt
+    {
+        internal LibraryPopulation(
+            PackageHouseAcquisitionReceipt acquisition,
+            PackageLibraryPopulationSelection selection)
+            : base(acquisition)
+        {
+            ArgumentNullException.ThrowIfNull(selection);
+            PackageHouseRealizationCorrespondence
+                .RequireLibraryPopulation(
+                    acquisition,
+                    selection);
+
+            Selection = selection;
+            Completion = selection switch
+            {
+                PackageLibraryPopulationSelection.Compile =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageLibraryPopulationSelection.Runtime =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        RuntimeReceipt.Selection:
+                            PackageAssetSelection.Ambiguous,
+                    } =>
+                    PackageHouseRealizationCompletion.Ambiguous,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        RuntimeReceipt.Selection:
+                            PackageAssetSelection.NoMatch,
+                    } =>
+                    PackageHouseRealizationCompletion.NoMatch,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        RuntimeReceipt.Selection:
+                            PackageAssetSelection.Invalid,
+                    } =>
+                    PackageHouseRealizationCompletion.Rejected,
+                PackageLibraryPopulationSelection.NonSuccess nonSuccess =>
+                    nonSuccess.CompileReceipt.Selection.Status switch
+                    {
+                        PackageCompileAssetSelectionStatus.NoCompileAssets
+                            or PackageCompileAssetSelectionStatus
+                                .NoMatchingTargetFramework =>
+                            PackageHouseRealizationCompletion.NoMatch,
+                        _ => PackageHouseRealizationCompletion.Rejected,
+                    },
+                _ => PackageHouseRealizationCompletion.Rejected,
+            };
+            LibraryHandoffs =
+                acquisition.Decision.Request.LibraryHandoff
+                    == PackageHouseLibraryHandoffMode.SelectedLibraries
+                && Completion == PackageHouseRealizationCompletion.Settled
+                    ? CreateHandoffs(acquisition, selection)
+                    : [];
+        }
+
+        public PackageLibraryPopulationSelection Selection { get; }
+
+        internal override PackageHouseRealizationCompletion Completion
+            { get; }
+
+        public override ImmutableArray<PackageHouseLibraryHandoff>
+            LibraryHandoffs { get; }
+
+        private static ImmutableArray<PackageHouseLibraryHandoff>
+            CreateHandoffs(
+                PackageHouseAcquisitionReceipt acquisition,
+                PackageLibraryPopulationSelection selection) =>
+            selection switch
+            {
+                PackageLibraryPopulationSelection.Compile compile =>
+                [
+                    .. compile.CompileReceipt.Selection.Assets.Select(
+                        asset =>
+                            (PackageHouseLibraryHandoff)
+                                new PackageHouseLibraryHandoff.Compile(
+                                    acquisition,
+                                    compile.CompileReceipt,
+                                    asset,
+                                    compile.CompileReceipt.Selection
+                                        .FindImplementationAsset(asset))),
+                ],
+                PackageLibraryPopulationSelection.Runtime runtime
+                    when runtime.RuntimeReceipt.Selection
+                        is PackageAssetSelection.Selected selected =>
+                [
+                    .. selected.Universe.Assets.Select(
+                        asset =>
+                            (PackageHouseLibraryHandoff)
+                                new PackageHouseLibraryHandoff.Runtime(
+                                    acquisition,
+                                    runtime.RuntimeReceipt,
+                                    asset)),
+                ],
+                _ => [],
+            };
+    }
 }
 
 internal static class PackageHouseRealizationCorrespondence
@@ -886,7 +985,8 @@ internal static class PackageHouseRealizationCorrespondence
             acquisition.Decision.Request;
         bool compileRealization =
             request.AssetSelection
-                == PackageHouseAssetSelectionKind.Compile;
+                is PackageHouseAssetSelectionKind.Compile
+                    or PackageHouseAssetSelectionKind.LibraryPopulation;
         bool compositeContent =
             request.ContentQuery?.LibraryAndInventoryTerminal
                 is not null;
@@ -933,10 +1033,12 @@ internal static class PackageHouseRealizationCorrespondence
         ArgumentNullException.ThrowIfNull(acquisition);
         ArgumentNullException.ThrowIfNull(receipt);
         if (acquisition.Decision.Request.AssetSelection
-            != PackageHouseAssetSelectionKind.Runtime)
+            is not (
+                PackageHouseAssetSelectionKind.Runtime
+                    or PackageHouseAssetSelectionKind.LibraryPopulation))
         {
             throw new ArgumentException(
-                "A runtime selection requires a runtime realization request.",
+                "A runtime selection requires a runtime or Library-population realization request.",
                 nameof(acquisition));
         }
         if (!ReferenceEquals(
@@ -950,6 +1052,39 @@ internal static class PackageHouseRealizationCorrespondence
             throw new ArgumentException(
                 "The runtime selection receipt must describe the acquired generation and exact House selection request.",
                 nameof(receipt));
+        }
+    }
+
+    internal static void RequireLibraryPopulation(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageLibraryPopulationSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentNullException.ThrowIfNull(selection);
+        if (acquisition.Decision.Request.AssetSelection
+            != PackageHouseAssetSelectionKind.LibraryPopulation)
+        {
+            throw new ArgumentException(
+                "A Library population requires a Library-population realization request.",
+                nameof(acquisition));
+        }
+
+        RequireCompile(
+            acquisition,
+            selection.CompileReceipt);
+        PackageAssetSelectionReceipt? runtimeReceipt = selection switch
+        {
+            PackageLibraryPopulationSelection.Runtime runtime =>
+                runtime.RuntimeReceipt,
+            PackageLibraryPopulationSelection.NonSuccess nonSuccess =>
+                nonSuccess.RuntimeReceipt,
+            _ => null,
+        };
+        if (runtimeReceipt is not null)
+        {
+            RequireRuntime(
+                acquisition,
+                runtimeReceipt);
         }
     }
 

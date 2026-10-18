@@ -31,21 +31,33 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseLibraryHandoffMode libraryHandoff =
             PackageHouseLibraryHandoffMode.PackageOnly,
         PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-            PackageHouseLibraryCompanionDemand.None)
+            PackageHouseLibraryCompanionDemand.None,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile)
     {
         ArgumentNullException.ThrowIfNull(createStore);
+        if (!Enum.IsDefined(assetSelection))
+            throw new ArgumentOutOfRangeException(nameof(assetSelection));
+        if (compileTargetContext is null
+            && assetSelection
+                != PackageHouseAssetSelectionKind.Compile)
+        {
+            throw new ArgumentException(
+                "A non-compile asset selection requires a target context.",
+                nameof(assetSelection));
+        }
         if (compileTargetContext is not null
             && operationContext is not null)
         {
             throw new ArgumentException(
-                "PackageHouse compile realization cannot use a legacy operation context.",
+                "PackageHouse asset realization cannot use a legacy operation context.",
                 nameof(operationContext));
         }
         RequireRealizationForRangedAccess(access, compileTargetContext);
         if (implementationNames is not null && compileTargetContext is null)
         {
             throw new ArgumentException(
-                "Named implementation assemblies require a compile realization.",
+                "Named implementation assemblies require an asset realization.",
                 nameof(implementationNames));
         }
         if (operationContext is not null)
@@ -112,7 +124,8 @@ public sealed partial class DesktopPackageSourceComposition
                     assetDemand,
                     implementationNames,
                     libraryHandoff,
-                    libraryCompanionDemand);
+                    libraryCompanionDemand,
+                    assetSelection);
             sourceOperation = null;
             return execution;
         }

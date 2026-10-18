@@ -232,7 +232,9 @@ public sealed partial class DesktopPackageSourceComposition
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-                PackageHouseLibraryCompanionDemand.None)
+                PackageHouseLibraryCompanionDemand.None,
+            PackageHouseAssetSelectionKind assetSelection =
+                PackageHouseAssetSelectionKind.Compile)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
@@ -240,6 +242,7 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
+            assetSelection,
             assetDemand,
             implementationNames,
             fileDemand,
@@ -261,7 +264,7 @@ public sealed partial class DesktopPackageSourceComposition
     }
 
     /// <summary>
-    /// Ranged access must be bounded: a compile realization's selection or a
+    /// Ranged access must be bounded: an asset realization's selection or a
     /// file demand bounds the read, so a caller that supplies neither has
     /// asked for an unbounded ranged read and is refused before any work
     /// starts (docs/design/package-read-demand.md#exact-file-demand).
@@ -278,7 +281,7 @@ public sealed partial class DesktopPackageSourceComposition
             && fileDemand is null)
         {
             throw new ArgumentException(
-                "Ranged payload access requires PackageHouse compile realization or a file demand; supply a compile target context or a file demand.",
+                "Ranged payload access requires PackageHouse asset realization or a file demand; supply a target context or a file demand.",
                 nameof(access));
         }
     }
@@ -303,7 +306,9 @@ public sealed partial class DesktopPackageSourceComposition
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-                PackageHouseLibraryCompanionDemand.None)
+                PackageHouseLibraryCompanionDemand.None,
+            PackageHouseAssetSelectionKind assetSelection =
+                PackageHouseAssetSelectionKind.Compile)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
@@ -311,6 +316,7 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
+            assetSelection,
             assetDemand,
             implementationNames,
             fileDemand: null,
@@ -459,6 +465,8 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseDemand demand,
         PackageHouseOperationProfile profile,
         PackageHouseTargetContext? targetContext = null,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile,
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
@@ -475,7 +483,7 @@ public sealed partial class DesktopPackageSourceComposition
                 _options.OperationTimeout),
             targetContext,
             profile == PackageHouseOperationProfile.Realize
-                ? PackageHouseAssetSelectionKind.Compile
+                ? assetSelection
                 : null,
             libraryHandoff,
             assetDemand: assetDemand,

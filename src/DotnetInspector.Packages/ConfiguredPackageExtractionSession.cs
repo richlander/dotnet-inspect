@@ -6,7 +6,9 @@ internal sealed class ConfiguredPackageExtractionSession(
     TimeSpan requestTimeout,
     string tempDirPrefix,
     Func<DesktopPackageSourceComposition>? createComposition,
-    PackageHouseTargetContext? compileTargetContext = null) : IAsyncDisposable
+    PackageHouseTargetContext? compileTargetContext = null,
+    PackageHouseAssetSelectionKind assetSelection =
+        PackageHouseAssetSelectionKind.Compile) : IAsyncDisposable
 {
     private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore> _stores =
         new(ReferenceEqualityComparer.Instance);
@@ -24,7 +26,8 @@ internal sealed class ConfiguredPackageExtractionSession(
         ConfiguredPackagePayloadResult result = await composition.AcquirePinnedAsync(
             packageId, version, GetStore, sourceOptions, log,
             operationContext: _operation,
-            compileTargetContext: compileTargetContext).ConfigureAwait(false);
+            compileTargetContext: compileTargetContext,
+            assetSelection: assetSelection).ConfigureAwait(false);
 
         return ConvertResult(result, packageId,
             $"Package '{packageId}' version '{version}'",
@@ -42,7 +45,8 @@ internal sealed class ConfiguredPackageExtractionSession(
         ConfiguredPackagePayloadResult result = await composition.AcquireSelectedAsync(
             packageId, versionSelector, GetStore, sourceOptions, log,
             includePrerelease, rangeAddress, operationContext: _operation,
-            compileTargetContext: compileTargetContext).ConfigureAwait(false);
+            compileTargetContext: compileTargetContext,
+            assetSelection: assetSelection).ConfigureAwait(false);
 
         return ConvertResult(result, packageId,
             $"Package '{packageId}' selection '{(string.IsNullOrEmpty(versionSelector) ? "latest" : versionSelector)}'",
