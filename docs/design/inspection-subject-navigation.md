@@ -1171,10 +1171,14 @@ Library/API recommendation selects:
 2. The exact Package when no aggregate is available.
 
 The aggregate contains every admitted Library from one PackageHouse-selected
-compile projection in the exact `PackageLibraries` basis. Its cardinality may
-be one or many; cardinality never changes its identity into a one-Library
-subject. The former primary and declaration-order Library preferences do not
-participate in initial subject selection.
+Library population in the exact `PackageLibraries` basis. Compile selection
+has precedence. Only `NoCompileAssets` or `EmptyCompileGroup` permits the
+runtime selector to issue one implementation population, and that selector
+infers a RID only when exactly one eligible managed RID exists. No result
+merges targets, RIDs, or roles. Its cardinality may be one or many;
+cardinality never changes its identity into a one-Library subject. The former
+primary and declaration-order Library preferences do not participate in
+initial subject selection.
 
 Participant rejection, decode failure, or inspection failure remains attached
 to the aggregate result. Healthy participant evidence may remain usable, but

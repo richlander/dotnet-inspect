@@ -766,7 +766,11 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            packageInfoTargetContext)
+                            packageInfoTargetContext,
+                        assetSelection:
+                            PackageInfoAssetSelection(
+                                options,
+                                packageInfoTargetContext))
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         context.HttpClient,
                         target.PackageName,
@@ -777,7 +781,11 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            packageInfoTargetContext);
+                            packageInfoTargetContext,
+                        assetSelection:
+                            PackageInfoAssetSelection(
+                                options,
+                                packageInfoTargetContext));
             }
             else
             {
