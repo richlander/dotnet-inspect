@@ -401,44 +401,22 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ReadPublicRoots());
     }
 
-    ReferenceAssemblyState ClassifyReferenceAssembly()
-    {
-        try
-        {
-            return LibraryEnablementFacts.ClassifyReferenceAssembly(_reader);
-        }
-        catch (BadImageFormatException)
-        {
-            return ReferenceAssemblyState.Undecidable;
-        }
-    }
+    // The same issued facts Method Query Source publishes to declaring
+    // producers, so the two census paths cannot classify differently.
+    ReferenceAssemblyState ClassifyReferenceAssembly() =>
+        new Planning.ReferenceAssemblyStatusSupport(_reader).Acquire(out _);
 
-    // The limits are the image's own row counts, so only malformed metadata
-    // leaves exposure unknown.
-    UnsafeMemberRootSet ReadPublicRoots()
-    {
-        try
+    UnsafeMemberRootSet ReadPublicRoots() =>
+        new Planning.PublicMethodRootSupport(_reader).Acquire(out _) switch
         {
-            int methods = Math.Max(1, _reader.MethodDefinitions.Count);
-            PublicMethodRootInventory inventory =
-                PublicMethodRootInventoryReader.Read(
-                    _reader,
-                    new PublicMethodRootInventoryLimits(
-                        Math.Max(1, _reader.TypeDefinitions.Count),
-                        methods,
-                        methods));
-            return new UnsafeMemberRootSet(
-                inventory.Roots
+            Planning.PublicMethodRootsResult.Read read => new UnsafeMemberRootSet(
+                read.Inventory.Roots
                     .Select(static root => root.Token)
                     .ToHashSet(),
-                inventory.IsComplete,
-                Failed: false);
-        }
-        catch (BadImageFormatException)
-        {
-            return UnsafeMemberRootSet.Unavailable;
-        }
-    }
+                read.Inventory.IsComplete,
+                Failed: false),
+            _ => UnsafeMemberRootSet.Unavailable,
+        };
 
     static ImmutableArray<UnsafeMemberUse> BuildUnsafeMemberUses(
         IReadOnlyList<LibraryMethodAnalysisResult> results,
