@@ -303,6 +303,35 @@ The census moves only after every row of that table has landed. Until then the
 CLI section (step 3) does not ship, because it would land the census's first
 consumer on the retiring aggregate.
 
+Status: every row of the table has landed, and the Type-scope census runs on
+Assembly Analysis Operation:
+
+- `UnsafeMemberCensusProducer` declares Body, Calls, memory-safety contract,
+  semantic identity, public-root, and reference-assembly support, and
+  `UnsafeMemberCensusAnalysis.ForTypes` requests it over the Type-scope
+  breadth above.
+- Each visit reads its unit's declared-source outcome from the
+  [relation](method-query-source.md#declared-source-relation). Completion
+  joins each authenticated owner to its visited identity, so an owner the
+  source did not visit leaves its body unattributed.
+- The per-body evidence rule, the call contract-source rule, and the fold are
+  the ones the accumulator calls, so the two paths cannot classify
+  differently.
+- The Library-scope census still runs on the accumulator, because the
+  all-definition reverse lowering is **unverified**. It moves when
+  [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) lands that
+  lowering, and the accumulator path is deleted then.
+- Until #9864 lands retained-prefix bounds, a reached Type-scope expansion
+  bound fails the census visibly instead of keeping the visited prefix.
+- No host consumes the census yet. The CLI section adopts both scopes
+  together, so a member gets one row shape at every scope.
+
+The landed gates in `UnsafeMemberFindingsTests` compare the Type scope with
+the accumulator's census for every source type of the census fixtures, fold
+the #9755 shapes and the iterator bodies, report an unclaimed nested
+generated body as a limitation, fail the census at a reached bound, and keep
+breadth and terminal work within the selected type and its expansion.
+
 Focused gates for the move:
 
 - the `UnsafeMemberFindingsTests` and platform-contract cases run against the

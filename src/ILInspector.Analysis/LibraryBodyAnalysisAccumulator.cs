@@ -442,87 +442,106 @@ internal sealed class LibraryBodyAnalysisAccumulator
             if (result.Caller is not { } method)
                 continue;
 
-            var evidence =
-                ImmutableArray.CreateBuilder<
-                    UnsafeMemberUseEvidence>();
-            if (result.Mode == CallerUnsafeMode.Explicit)
-            {
-                evidence.Add(new(
-                    UnsafeMemberUseKind.ExplicitContract,
-                    ILOffset: null,
-                    "The member has an explicit updated-model caller-unsafe contract."));
-            }
-
-            foreach (UnsafetyOccurrence occurrence
-                in result.Unsafety.IsDefault
-                    ? []
-                    : result.Unsafety)
-            {
-                if (!occurrence.RequiresUnsafeContext)
-                    continue;
-
-                evidence.Add(new(
-                    occurrence.Kind switch
-                    {
-                        UnsafetyKind.Deref =>
-                            UnsafeMemberUseKind.PointerDereference,
-                        UnsafetyKind.CallIndirect =>
-                            UnsafeMemberUseKind.IndirectCall,
-                        UnsafetyKind.StackAlloc =>
-                            UnsafeMemberUseKind.StackAllocation,
-                        _ => throw new InvalidOperationException(
-                            $"Unsupported unsafe-member occurrence kind '{occurrence.Kind}'."),
-                    },
-                    occurrence.ILOffset,
-                    occurrence.Detail
-                        ?? occurrence.Kind.ToString()));
-            }
-
-            if (callsByCaller.TryGetValue(
-                    method.MetadataToken,
-                    out ImmutableArray<(
-                            DirectCall Call,
-                            UnsafeContractSource? Source)>
-                        explicitCalls))
-            {
-                HashSet<int> loweredSpanConstructors =
-                [
-                    .. result.ConstantDataSpanConstructors,
-                    .. result.Unsafety.IsDefault
-                        ? []
-                        : result.Unsafety
-                            .Where(static occurrence =>
-                                occurrence.SpanConstructorOffset
-                                    is not null)
-                            .Select(static occurrence =>
-                                occurrence.SpanConstructorOffset!.Value),
-                ];
-                foreach ((DirectCall call, UnsafeContractSource? source)
-                    in explicitCalls)
-                {
-                    if (loweredSpanConstructors.Contains(call.ILOffset))
-                        continue;
-                    evidence.Add(new(
-                        UnsafeMemberUseKind
-                            .ExplicitContractCall,
-                        call.ILOffset,
-                        call.Callee
-                            .ToQualifiedDisplayString(),
-                        source));
-                }
-            }
-
-            if (evidence.Count > 0)
+            ImmutableArray<UnsafeMemberUseEvidence> evidence =
+                CollectUnsafeMemberUseEvidence(
+                    result.Mode,
+                    result.Unsafety,
+                    result.ConstantDataSpanConstructors,
+                    callsByCaller.TryGetValue(
+                        method.MetadataToken,
+                        out ImmutableArray<(
+                                DirectCall Call,
+                                UnsafeContractSource? Source)>
+                            explicitCalls)
+                        ? explicitCalls.Select(static item => (
+                            item.Call.ILOffset,
+                            item.Call.Callee,
+                            item.Source!))
+                        : []);
+            if (!evidence.IsEmpty)
             {
                 uses.Add(new(
                     method,
                     result.Mode
                         == CallerUnsafeMode.Explicit,
-                    evidence.ToImmutable()));
+                    evidence));
             }
         }
 
         return uses.ToImmutable();
+    }
+
+    // One physical body's unsafe-member inventory roles, in the order the
+    // inventory owns: the explicit contract, the unsafe-context operations,
+    // and then the explicit-contract calls that no span lowering explains.
+    internal static ImmutableArray<UnsafeMemberUseEvidence>
+        CollectUnsafeMemberUseEvidence(
+            CallerUnsafeMode mode,
+            ImmutableArray<UnsafetyOccurrence> unsafety,
+            ImmutableHashSet<int> constantDataSpanConstructors,
+            IEnumerable<(
+                    int ILOffset,
+                    MemberRef Callee,
+                    UnsafeContractSource Source)>
+                explicitCalls)
+    {
+        var evidence =
+            ImmutableArray.CreateBuilder<UnsafeMemberUseEvidence>();
+        if (mode == CallerUnsafeMode.Explicit)
+        {
+            evidence.Add(new(
+                UnsafeMemberUseKind.ExplicitContract,
+                ILOffset: null,
+                "The member has an explicit updated-model caller-unsafe contract."));
+        }
+
+        ImmutableArray<UnsafetyOccurrence> occurrences =
+            unsafety.IsDefault ? [] : unsafety;
+        foreach (UnsafetyOccurrence occurrence in occurrences)
+        {
+            if (!occurrence.RequiresUnsafeContext)
+                continue;
+
+            evidence.Add(new(
+                occurrence.Kind switch
+                {
+                    UnsafetyKind.Deref =>
+                        UnsafeMemberUseKind.PointerDereference,
+                    UnsafetyKind.CallIndirect =>
+                        UnsafeMemberUseKind.IndirectCall,
+                    UnsafetyKind.StackAlloc =>
+                        UnsafeMemberUseKind.StackAllocation,
+                    _ => throw new InvalidOperationException(
+                        $"Unsupported unsafe-member occurrence kind '{occurrence.Kind}'."),
+                },
+                occurrence.ILOffset,
+                occurrence.Detail
+                    ?? occurrence.Kind.ToString()));
+        }
+
+        HashSet<int>? loweredSpanConstructors = null;
+        foreach ((int ilOffset, MemberRef callee, UnsafeContractSource source)
+            in explicitCalls)
+        {
+            loweredSpanConstructors ??=
+            [
+                .. constantDataSpanConstructors,
+                .. occurrences
+                    .Where(static occurrence =>
+                        occurrence.SpanConstructorOffset is not null)
+                    .Select(static occurrence =>
+                        occurrence.SpanConstructorOffset!.Value),
+            ];
+            if (loweredSpanConstructors.Contains(ilOffset))
+                continue;
+            evidence.Add(new(
+                UnsafeMemberUseKind.ExplicitContractCall,
+                ilOffset,
+                callee.ToQualifiedDisplayString(),
+                source));
+        }
+
+        return evidence.ToImmutable();
     }
 
     // A primary-image marker is authoritative. An image compiled under the
@@ -542,24 +561,37 @@ internal sealed class LibraryBodyAnalysisAccumulator
     internal static UnsafeContractSource? ExplicitCallContractSource(
         DirectCall call,
         bool primaryImageUsesUpdatedRules)
+        => ExplicitCallContractSource(
+            call.Kind,
+            call.Callee,
+            call.TargetCallerUnsafeMode,
+            call.EvidenceMethod,
+            primaryImageUsesUpdatedRules);
+
+    internal static UnsafeContractSource? ExplicitCallContractSource(
+        CallKind kind,
+        MemberRef callee,
+        CallerUnsafeMode? targetCallerUnsafeMode,
+        MethodIdentity evidenceMethod,
+        bool primaryImageUsesUpdatedRules)
     {
-        if (call.TargetCallerUnsafeMode == CallerUnsafeMode.Explicit)
+        if (targetCallerUnsafeMode == CallerUnsafeMode.Explicit)
             return UnsafeContractSource.SameImage.Instance;
-        if (IsPrivateImplementationDetailsBody(call.EvidenceMethod))
+        if (IsPrivateImplementationDetailsBody(evidenceMethod))
             return null;
-        if (call.Kind is not (
+        if (kind is not (
                 CallKind.Call
                 or CallKind.CallVirtual
                 or CallKind.NewObject)
             || (primaryImageUsesUpdatedRules
-                && call.TargetCallerUnsafeMode is not null))
+                && targetCallerUnsafeMode is not null))
         {
             return null;
         }
 
         PlatformCallerUnsafeContracts platform =
             PlatformCallerUnsafeContracts.Embedded;
-        return platform.Contains(call.Callee)
+        return platform.Contains(callee)
             ? platform.Source
             : null;
     }

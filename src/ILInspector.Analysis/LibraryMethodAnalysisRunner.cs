@@ -2550,7 +2550,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     // a nested SpecialName [Extension] grouping type. Every method of a
     // confirmed grouping type is such a copy. An [ExtensionMarker] method
     // outside that shape is unconfirmed and must not stand as its own member.
-    static ExtensionDeclarationShape ClassifyExtensionDeclaration(
+    internal static ExtensionDeclarationShape ClassifyExtensionDeclaration(
         MetadataReader reader,
         TypeDefinition type,
         MethodDefinition method)
@@ -2590,7 +2590,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
     // A compiler-generated type nested inside another type (closure, state
     // machine, or lifted helper container) holds bodies that belong to a
     // source owner; a top-level generated type has none.
-    bool IsDeclaredInNestedCompilerGeneratedType(
+    internal static bool IsDeclaredInNestedCompilerGeneratedType(
         MetadataReader reader,
         TypeDefinition type)
     {
@@ -2602,8 +2602,10 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             TypeDefinitionHandle enclosing = current.GetDeclaringType();
             if (enclosing.IsNil)
                 return false;
-            if (_infrastructure.HasCompilerGeneratedAttribute(
-                    current.GetCustomAttributes()))
+            if (LibraryBodyPrimaryMetadataResolver
+                    .HasCompilerGeneratedAttribute(
+                        reader,
+                        current.GetCustomAttributes()))
             {
                 return true;
             }

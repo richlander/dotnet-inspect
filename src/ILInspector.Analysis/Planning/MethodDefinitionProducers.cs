@@ -642,6 +642,35 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// The unit's outcome in the declared-source relation, settled before
+    /// traversal. Only a breadth that declares generated-body expansion
+    /// carries the relation.
+    /// </summary>
+    internal MethodDefinitionDeclaredSource DeclaredSource
+    {
+        get
+        {
+            MethodDefinitionDeclaredSources sources =
+                Producer.Execution.DeclaredSources
+                ?? throw new ProducerContractException(
+                    $"Producer '{_owner}' read the declared-source "
+                    + "relation, but its breadth declares no generated-body "
+                    + "expansion.");
+            return sources.Of(_unit.MethodHandle);
+        }
+    }
+
+    /// <summary>The subject's metadata, for a domain-layer producer's own probes.</summary>
+    internal MetadataReader Reader
+    {
+        get
+        {
+            RequireDomain();
+            return _unit.Reader;
+        }
+    }
+
     /// <summary>The module memory-safety rules, through the declared contract support.</summary>
     internal MemorySafetyRulesResult GetMemorySafetyRules()
     {
@@ -1123,6 +1152,9 @@ internal struct MethodDefinitionUnit(
     public MethodDefinitionHandle MethodHandle { get; private set; }
 
     public MethodDefinition MethodDefinition { get; private set; }
+
+    /// <summary>The subject's metadata reader.</summary>
+    public readonly MetadataReader Reader => _reader;
 
     /// <summary>The module lookup; present whenever a planned producer declared it.</summary>
     public readonly LibraryMethodAnalysisRunner Lookup =>
