@@ -103,9 +103,11 @@ Every rung answers per **axis**:
   declarations, such as `EditorBrowsable(Never)` ones, admitted into their
   buckets: `--all` narrowed by an `accessibility` term to those two buckets,
   less `private protected` declarations, which no other assembly can reach.
-  That is the visibility [Fast Diff's API axis](fast-diff.md#axes) admits;
-  `private protected` declarations belong to Body. Hidden is a facet of the subject, not a reason to skip it; `Obsolete` is a
-  facet already. The ordinary population, the `public` bucket without hidden
+  A Type is admitted by its own row's bucket, so a public Member of an
+  internal Type is not on the API axis. That is the visibility
+  [Fast Diff's API axis](fast-diff.md#axes) admits; `private protected`
+  declarations belong to Body. Hidden is a facet of the subject, not a reason
+  to skip it; `Obsolete` is a facet already. The ordinary population, the `public` bucket without hidden
   declarations, becomes a presentation default. This changes that owner's rule
   that API Diff keeps its existing visibility behavior; adoption step 1 makes
   the change there.
@@ -169,9 +171,13 @@ document only states that each step names its axes.
    difference may be low-signal; it is never empty. This applies rules 2 and
    4 of [Diff observability](diff-observability.md#rules) to Exists, without
    rule 4's allowance for a known divergence.
-3. **Undecided is never read either way.** A subject Exists cannot decide is
-   `Indeterminate`, as Fast Diff defines it. Where the complete diff cannot
-   decode a subject, Exists reports `Indeterminate` for it, not `Changed`.
+3. **Undecided is never read either way.** A subject whose facts Exists cannot
+   read before it decides is `Indeterminate`, as Fast Diff defines it; Exists
+   never reports `Unchanged` for it. Exists stops at the first difference, so
+   it may report `Changed` for a subject whose later content the complete diff
+   cannot decode, such as a body that differs and then holds an undefined
+   opcode. The complete diff then shows the difference it found and the
+   decode failure, visibly, never an empty view.
 
 Rung 4 is read for these rules under each axis's policy, such as the Body
 policy's assembly-scope normalization
@@ -266,7 +272,8 @@ facts. Both are owned by the diff owner as the first stages of their axes.
   scope, on six pairs: Aspire.Hosting 13.6.0 to 13.6.1, System.Text.Json
   9.0.0 to 10.0.0, Newtonsoft.Json 13.0.3 to 13.0.4 and 11.0.2 to 13.0.4, and
   System.Private.Xml and System.Private.CoreLib 10 to 11:
-  - API and Body Exists costs no more than the **baseline**: Fast Diff at
+  - API and Body Exists, as the median per pair in the same lease, costs no
+    more than the **baseline**: Fast Diff at
     `FastDiff.cs` `abe96d2de`, measured in the same lease. Its medians on
     perf-2 at
     [`96a07d4ac`](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6253951916)
@@ -286,8 +293,8 @@ is the gate for replacing a provision.
 Each step is its own focused effort:
 
 1. **Axes.** The API axis compares the `public` and `protected` buckets, less
-   `private protected`, with hidden declarations admitted, in Fast Diff, the Public API surface and its
-   complete comparison, [API population scope](api-population-scope.md), and
+   `private protected`, with hidden declarations admitted, in Fast Diff, the
+   Public API surface and its complete comparison, [API population scope](api-population-scope.md), and
    the [Annotated Type Map](annotated-type-map.md). The Body axis includes
    declaration and implementation facts, in Fast Diff's Body census and the
    Annotated Type Map's listing. Each row gains a declaration view, and the
@@ -314,7 +321,9 @@ Each step is its own focused effort:
   subject Exists reports `Unchanged` on an axis has no difference in the
   complete diff on that axis.
 - **Changed is observable:** every subject Exists reports `Changed` has at
-  least one difference in the complete diff on that axis.
+  least one difference in the complete diff on that axis, including a fixture
+  whose body differs and then holds an undefined opcode, where the complete
+  diff shows the difference and the decode failure.
 - **Coverage:** for each fixture Type, its rung-1 state follows from its
   rung-2 states, its presence, and Fast Diff's identity rule as stated above,
   and each decided row's rung-2 state equals whether its rung-3 entry and its
