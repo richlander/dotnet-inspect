@@ -328,6 +328,9 @@ public class SkillCommandTests
         Assert.Contains("depends --project <path> --tfm <restored-tfm>", output);
         Assert.Contains("-S \"Dependency Structure\" --json", output);
         Assert.Contains("explainingTypeEdges", output);
+        Assert.Contains("explain library/sections/<section>", output);
+        Assert.Contains("explain library/sections/dependency-structure", output);
+        Assert.Contains("what its `Empty` means", output);
         Assert.Contains("-S \"Performance:*\"", output);
         Assert.Contains("-S \"Resource Triage\"", output);
         Assert.Contains("--namesake-library", output);
@@ -342,7 +345,8 @@ public class SkillCommandTests
                  {
                      "#7553", "#7805", "#8406", "#10071", "#10072",
                      "#10073", "#10074", "#10075", "#10077", "#10080", "#10081",
-                     "#10082", "#10083", "#10084", "#10085", "#10086",
+                     "#10069", "#10070", "#10082", "#10083", "#10084",
+                     "#10085", "#10086",
                  })
         {
             Assert.Contains(issue, output);

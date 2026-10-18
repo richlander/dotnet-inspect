@@ -156,6 +156,18 @@ Routes reach the agent in two stages, each measured on the same tasks:
    continuations. It replaces the baseline only where it matches or beats the
    bar on the same tasks.
 
+The first comparison
+([Explanation-directed comparison](#explanation-directed-comparison)) kept
+the baseline's named routes. An explanation-led draft that replaced them with
+search, then exact explanation, then the binding, matched the baseline's
+efficacy on three tasks but cost more invocations; it lost a material finding
+where it dropped a named check. The adopted revision keeps every named route
+and adds installed explanation where it costs a call or less: reading a
+Library section's `Empty` and `Boundary` before reporting none, and searching
+for a thread the skill does not name. Named routes move into explanation when
+their owners are explainable (#10069, #10070) and explanation reaches a route
+in no more calls than the skill.
+
 Efficacy is whether each review reaches the task's predetermined material
 findings with correct evidence classes and qualifications. Efficiency is
 invocations, rounds, tool time, and bytes read. Comparisons hold the binary,
@@ -241,7 +253,10 @@ The shipped `project-analysis` skill is the first bounded adopter. It:
    their issues;
 4. states the quick-review bound, placement, and validation rules;
 5. states the lowlight stages and outcomes; and
-6. delegates command semantics to the focused skills.
+6. delegates command semantics to the focused skills; and
+7. points to installed Library section explanation for a section's meaning,
+   empty result, and boundary, and to capability search for threads it does
+   not name.
 
 The skill adds no command, inspection producer, report schema, renderer, or
 quality score. Focused owner issues add missing product evidence
@@ -352,6 +367,47 @@ narrowing ([#10080](https://github.com/richlander/dotnet-inspect/issues/10080)).
 This is one descriptive wave per task, not a regression gate or a population
 estimate.
 
+### Explanation-directed comparison
+
+Two explanation variants repeated the baseline's four tasks, rubric, subjects,
+prompts, and warm cache. Each participant prompt added only `explain` to the
+admitted discovery sources and route-trace labels. Both builds are NativeAOT
+`linux-x64` builds of `159b2f361` with the variant skill embedded: SHA-256
+`2618db0dbf90195b5833719e9737acf57871e1593ce67c0d7126451d41cda738` for the
+explanation-led draft (E) and
+`7003f20f8ade78d8667c22e52107abab1e808cb602c30ea33ac8714b7559c1a3` for the
+adopted revision (H). Each task ran with a fresh Claude Opus 5.5
+general-purpose agent.
+
+| Task | Baseline | E: explanation-led | H: adopted |
+| --- | --- | --- | --- |
+| B1 Learn, quick | 6 / 6; 9 calls; 0.7 s; 34 KB | 6 / 6; 19 calls (7 `explain`); 2.2 s; 173 KB | 6 / 6; 12 calls (1 `explain`); 1.0 s; 39 KB |
+| B2 Dependency risk, quick | 7 / 7; 18 calls; 7.0 s; 48 KB | 5.5 / 7 †; 15 calls (3 `explain`) | 7 / 7; 18 calls (0 `explain`); 2.9 s; 49 KB |
+| B3 Complexity, thorough | 7 / 7; 20 calls; 5.2 s; 3,539 KB | 7 / 7; 32 calls (12 `explain`); 6.2 s; 6,164 KB | 7 / 7; 24 calls (2 `explain`); 8.0 s; 4,971 KB |
+| B4 Deep-dive, thorough | 6 / 6; 37 calls; 3.7 s; 96 KB | 6 / 6; 38 calls (7 `explain`); 2.8 s; 121 KB | 6 / 6; 38 calls (3 `explain`); 2.7 s; 259 KB |
+
+† E2 missed the added `http://` literal because the draft dropped the quick
+review's named literal check. It also missed the advisory, because its
+working directory inherited a `nuget.config` that redefined the `nuget.org`
+source to another feed with no advisory data. The first two adopted-revision
+B2 participants inherited the same configuration. The recorded H2 is a rerun
+from a working directory outside it, and the configuration's effects are
+filed as #10263 and #10264.
+
+Discovery through search and exact explanation costs two calls where the
+skill names a command. The draft therefore doubled Learn's invocations and
+raised Complexity's by 60 percent. Package and Member section explanations
+carry only shape, so participants recorded them as dead ends (#10265). The
+adopted revision's few explanation calls each read a Library section's
+`Empty` or `Boundary` to qualify a result: an empty Integrations section in
+B1, Dependency Structure's fields in B3, and the Array Pool Escapes scope in
+B4. Its other extra calls recovered from friction outside explanation, such
+as README text and an unbuilt project. The participants also surfaced
+`type -D` omitting Called Types and `package` rejecting `--package` without a
+hint (#10266).
+
+This is one descriptive wave per variant, not a regression gate.
+
 ### Exploratory explanation-first run
 
 Before the baseline, an explanation-first draft of the skill, which led with
@@ -421,5 +477,7 @@ CLI gates verify that the skill:
   result validation;
 - orders dependency currency as Pruning, Latest Versions, then `diff`;
 - states the lowlight stages and their three outcomes;
-- delegates command semantics to the focused skills; and
+- delegates command semantics to the focused skills;
+- points to Library section explanation for meaning and empty results, and
+  names the unexplainable `depends` and `diff` gaps (#10069, #10070); and
 - identifies #7553 and #8406 rather than simulating missing evidence.

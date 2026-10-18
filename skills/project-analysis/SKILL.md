@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect-project-analysis
-version: 0.4.0
+version: 0.5.0
 description: Review a project, package, or library as a 30-second elevator pitch or an evidence-bounded deep dive — learn it, weigh dependency risk, map complexity and clustering, or pursue a topic such as performance, unsafe code, or ownership.
 ---
 
@@ -24,6 +24,16 @@ dnx dotnet-inspect -y -- <command>
 This skill names every command a review needs. Use them as written; reach for
 `<command> -D` (sections and fields) or `<command> -Q "<Section>"` (filter keys
 and operators) only to look up an exact name the skill does not give.
+
+The installed product explains what its Library sections mean.
+`explain library/sections/<section>` (for example
+`explain library/sections/dependency-structure`) states a section's `Summary`,
+`Basis`, what `Empty` means, and its `Boundary`. When a thread needs evidence
+this skill does not name, search with one topic word, such as
+`explain clones` or `explain invoke`: each row gives a section, its exact
+`Explain` path, and the command that selects it (`library -S`, `package -S`,
+`member -S`). Search does not cover `depends` or `diff` yet (#10069, #10070),
+and Package and Member sections explain their shape only.
 
 - `Id@v` is an exact package coordinate. For a package, add
   `--namesake-library` to `library` to select its main assembly; the
@@ -88,7 +98,9 @@ it:
   completion receipts;
 - never read `0`, empty output, or exit code 1 as "checked, none found" —
   a failed section and an empty section can look alike (#10073), and a
-  populated `Analysis Diff --changed` currently exits 1 (#10075);
+  populated `Analysis Diff --changed` currently exits 1 (#10075); before
+  reporting a Library section as empty, read what its `Empty` means in
+  `explain library/sections/<section>`;
 - confirm `--tfm` names the project's restored target — Pruning echoes it as
   `Platform Target` — because a wrong target can look like success, and web
   apps need `--platform-family aspnetcore` for Pruning;
@@ -257,9 +269,9 @@ Read these with care until their owners close the gaps:
 - The package-wide view (`library --package Id@v` without
   `--namesake-library`) silently drops `Dependency Structure` from `--json`
   output and drops `Clone Candidates` entirely (#10080); always select one
-  exact library for them. The installed
-  product does not yet explain the structure fields (#10077); read them as
-  described above.
+  exact library for them.
+  `explain library/sections/dependency-structure` states these fields'
+  meaning; individual columns do not yet carry their own (#10077).
 - `Member Metrics` has no ranking operators (#10083); rank its rows locally.
 - Architectural Families can include compiler-generated names such as `c`
   and `d` (#10082); set them aside.
