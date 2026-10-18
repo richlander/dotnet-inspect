@@ -34,10 +34,12 @@ public static class AssemblyContextLibraryMetricsQuery
                     LibraryBodyAnalysisService.ExecuteImage(
                         AssemblyContextAnalysisSource.Name(subject),
                         snapshot.Content,
-                        LibraryBodyAnalysisRequest
-                            .CreateCompleteImplementationProfile(),
+                        CreateAnalysisRequest(),
                         resolver);
                 return LibraryMetricsQuery.Execute(execution);
             });
     }
+
+    internal static LibraryBodyAnalysisRequest CreateAnalysisRequest() =>
+        LibraryBodyAnalysisRequest.CreateLibraryStructuralReport();
 }

@@ -1028,8 +1028,10 @@ canonical `BlockGraph` or `ExceptionFlowTopology`. The physical request
 therefore omits local-signature and canonical-context facts entirely. Async
 disposition retains the generated-type provenance metadata needed to suppress
 runtime-async methods in generated types without requesting complete
-MethodEvidence. Research consumes a focused structural result rather than
-reconstructing or publishing complete implementation profiles.
+MethodEvidence. The direct CLI route and the host-neutral AssemblyContext query
+used by package and platform Browser/Wasm exports issue the same request.
+Research consumes a focused structural result rather than reconstructing or
+publishing complete implementation profiles.
 
 The distinction is measured, not aesthetic. A rejected retained
 complete-profile packet removed traversals but improved the exact NativeAOT
