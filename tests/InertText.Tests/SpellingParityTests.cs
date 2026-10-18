@@ -170,11 +170,12 @@ public sealed class SpellingParityTests
     }
 
     [Fact]
-    public void Composition_KeepsAByteEscapeBesideASurrogateEscapeVisible()
+    public void Composition_KeepsAByteEscapeBesideASurrogateEscapeVisibleUntilRespelled()
     {
         // A UTF-8 value projects to a surrogate-escaped UTF-16 value, so composition treats it as
-        // UTF-16. The escapes stay distinct on screen; decoding reads the adjacent pair as the one
-        // scalar that UTF-16 text denotes, as for any two separately encoded fragments.
+        // UTF-16. Join keeps the escapes distinct; decoding reads the adjacent pair as the one
+        // scalar that UTF-16 text denotes, as for any two separately encoded fragments, so a
+        // stricter re-spelling shows that scalar and recomputes the evidence.
         InertString high = new(TextPolicy.Field, "\uD834");
         InertString illFormed = new InertUtf8String(
                 TextPolicy.Field,
@@ -187,6 +188,16 @@ public sealed class SpellingParityTests
         Assert.Equal(TextConcern.Surrogate, joined.Concerns);
         Assert.True(VisualEncoder.TryDecode(joined.ToString(), out string? decoded));
         Assert.Equal("\uD834\uDC80", decoded);
+
+        InertString prose = InertString.Join(
+            "",
+            TextPolicy.Prose,
+            [new InertString(TextPolicy.Prose, "\n\uD834"), illFormed]);
+        InertString field = prose.EnsurePermitted(TextPolicy.Field);
+
+        Assert.Equal("\\^J\U0001D080", field.ToString());
+        Assert.Equal(VisualForm.Caret, field.Forms);
+        Assert.Equal(TextConcern.Control, field.Concerns);
     }
 
     private static void Compare(
