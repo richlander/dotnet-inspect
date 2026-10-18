@@ -1991,6 +1991,25 @@ kbd {
   outline: 2px solid var(--shell-accent);
   outline-offset: -2px;
 }
+.library-subject-row {
+  height: auto;
+  min-height: 48px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 5px;
+  row-gap: 3px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.library-subject-row .kind-icon { grid-row: 1 / 3; align-self: start; }
+.library-subject-row .type-name {
+  min-width: 0;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+.library-subject-row small { grid-column: 2; }
 .package-overview-resources .doc-chip {
   width: 100%;
 }

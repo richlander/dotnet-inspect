@@ -21,6 +21,41 @@ import {
 
 test.use({ viewport: { width: 900, height: 900 } });
 
+test("Library navigation shows a long assembly name above its counts", async ({ page }) => {
+  const name = "Microsoft.Extensions.AI.OpenAI";
+  await installFacades(page, {
+    ...surface,
+    assemblies: surface.assemblies.map(assembly =>
+      assembly.id === core.id ? { ...assembly, name } : assembly),
+  });
+  await page.goto(root.replace("#pkg", "#library"));
+
+  const row = page.locator(
+    `.library-subject-list [data-library-subject="${core.id}"]`);
+  const label = row.locator(".type-name");
+  const counts = row.locator("small");
+  await expect(label).toHaveText(name);
+  await expect(counts).toContainText("1 type");
+  const geometry = await row.evaluate(element => {
+    const nameElement = element.querySelector<HTMLElement>(".type-name")!;
+    const countElement = element.querySelector<HTMLElement>("small")!;
+    const rowBox = element.getBoundingClientRect();
+    const nameBox = nameElement.getBoundingClientRect();
+    const countsBox = countElement.getBoundingClientRect();
+    return {
+      rowHeight: rowBox.height,
+      nameFits: nameElement.scrollWidth <= nameElement.clientWidth
+        && nameElement.scrollHeight <= nameElement.clientHeight,
+      countsBelowName: countsBox.top >= nameBox.bottom,
+      countsWithinRow: countsBox.bottom <= rowBox.bottom,
+    };
+  });
+  expect(geometry.rowHeight).toBeGreaterThan(48);
+  expect(geometry.nameFits).toBe(true);
+  expect(geometry.countsBelowName).toBe(true);
+  expect(geometry.countsWithinRow).toBe(true);
+});
+
 test("Type selection preserves a long inventory viewport across renders", async ({ page }) => {
   const types = Array.from({ length: 100 }, (_, index) =>
     type(`Example.Type${String(index).padStart(3, "0")}`, core));

@@ -890,7 +890,9 @@ Package layout and navigation unit gates cover the new ordering and selection.
 
 Library navigation owns one single-select inventory containing `All libraries`
 followed by every exact admitted Library. `All libraries` is the default
-package-backed Library subject. Its Overview aggregates namespace and type-kind
+package-backed Library subject. Library names wrap in navigation rows, with
+type and member counts below them, so long assembly names remain visible.
+Its Overview aggregates namespace and type-kind
 composition across the admitted libraries; an exact Library Overview retains
 asset path, assembly identity, namespaces, and kinds. At wide inspector widths,
 Library Overview makes Namespaces the primary region and Type kinds a compact
