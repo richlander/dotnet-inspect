@@ -1,0 +1,1 @@
+{"_embedded":null,"_links":null,"scope":{"profile":"query-preparation/v1","resource":"package-query/query-space/v1","root":"package-query/query/facets/depends-transitive","population":"selected-facets","completeness":"Complete","catalog_facets":19}}

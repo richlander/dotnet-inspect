@@ -888,10 +888,22 @@ with `--tree` for rooted transitive dependencies.
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
 in the packet's selected context, independently of its focused tab, and reuses
 the exact Package Root and target admitted during Workspace restoration.
+If that context has no declaration for the Package ID, the command adds one to
+a derived Workspace, inheriting the context's TFM and RID. A registration-only
+base receives its first Package context with the product-default TFM. The
+input packet and ecosystem declarations stay unchanged. Existing Package
+versions are not replaced, and a missing selection in a Workspace that already
+has contexts remains an error.
 Appending `--share` preserves ordinary stdout and writes a derived Package
 packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add runtime)
+dotnet-inspect package System.Text.Json@10.0.0 \
+  --workspace "$base" --share packet
+```
 
 For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
 append `--share url` to keep the hierarchy on stdout and print its Inspect Web

@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "result_kind": "package-query",
+  "content": {
+    "results": [
+      {
+        "package": {
+          "packageId": "Microsoft.Extensions.Http.Polly",
+          "version": "10.0.13",
+          "owners": [
+            "aspnet",
+            "dotnetframework",
+            "Microsoft"
+          ],
+          "totalDownloads": 611141452,
+          "verified": true,
+          "source": {
+            "producer": {
+              "key": "nfs-http-1.AAAABWh0dHBzAAAAA2RucwAAAA1hcGkubnVnZXQub3JnAAAAAAAAAAM0NDMAAAAOL3YzL2luZGV4Lmpzb24",
+              "portableKey": "nfp-1.e4e508f4ad364c2b8ebc428eda73ca449fc6588db1c02e680a45e57ea32ce2a9",
+              "display": "https://api.nuget.org:443/v3/index.json"
+            },
+            "association": {},
+            "transportKind": 1
+          },
+          "manifest": {
+            "coordinate": {
+              "packageId": "microsoft.extensions.http.polly",
+              "version": "10.0.13"
+            },
+            "manifestVersion": "2013/05",
+            "description": "The HttpClient factory is a pattern for configuring and retrieving named HttpClients in a composable way. This package integrates IHttpClientFactory with the Polly library, to add transient-fault-handling and resiliency through fluent policies such as Retry, Circuit Breaker, Timeout, Bulkhead Isolation, and Fallback.\n    \n\nThis package was built from the source code at https://github.com/dotnet/dotnet/tree/4099f83977f4d29604a9aeb971fb0a7bc1d5f699",
+            "authors": "Microsoft",
+            "repository": "https://github.com/dotnet/dotnet",
+            "repositoryType": "git",
+            "repositoryCommit": "4099f83977f4d29604a9aeb971fb0a7bc1d5f699",
+            "license": "MIT",
+            "licenseUrl": "https://licenses.nuget.org/MIT",
+            "packageTypes": [],
+            "isToolPackage": false,
+            "readmeFile": "PACKAGE.md",
+            "dependencyGroups": [
+              {
+                "targetFramework": ".NETStandard2.0",
+                "dependencies": [
+                  {
+                    "id": "Microsoft.Extensions.Http",
+                    "versionRange": "10.0.13"
+                  },
+                  {
+                    "id": "Polly",
+                    "versionRange": "7.2.4"
+                  },
+                  {
+                    "id": "Polly.Extensions.Http",
+                    "versionRange": "3.0.0"
+                  }
+                ],
+                "isImplicitManifestGroup": false
+              }
+            ],
+            "licenseDeclaration": {
+              "kind": 0,
+              "value": "MIT"
+            },
+            "iconFile": "Icon.png",
+            "iconUrl": null,
+            "identityProvenance": 0,
+            "frameworkReferences": {}
+          },
+          "description": null
+        },
+        "tier": 0,
+        "answers": [
+          {
+            "id": "dependency-target",
+            "valueText": "net10.0",
+            "term": {
+              "key": "dependency-target",
+              "operator": 0,
+              "value": "net10.0"
+            },
+            "value": "net10.0"
+          },
+          {
+            "id": "depends",
+            "valueText": "Polly",
+            "term": {
+              "key": "depends",
+              "operator": 0,
+              "value": "Polly"
+            },
+            "value": "Polly"
+          }
+        ],
+        "evidence": [
+          {
+            "id": "package.query.scope.prefix",
+            "scope": 1,
+            "summary": null,
+            "properties": [
+              {
+                "name": "prefix",
+                "valueText": "Microsoft.Extensions.",
+                "value": "Microsoft.Extensions."
+              }
+            ],
+            "number": null,
+            "term": null
+          },
+          {
+            "id": "dependency-target",
+            "scope": 0,
+            "summary": null,
+            "properties": [
+              {
+                "name": "requested-target",
+                "valueText": "net10.0",
+                "value": "net10.0"
+              },
+              {
+                "name": "selection-status",
+                "valueText": "Selected",
+                "value": "Selected"
+              },
+              {
+                "name": "selected-group",
+                "valueText": ".NETStandard2.0",
+                "value": ".NETStandard2.0"
+              }
+            ],
+            "number": null,
+            "term": {
+              "key": "dependency-target",
+              "operator": 0,
+              "value": "net10.0"
+            }
+          },
+          {
+            "id": "depends",
+            "scope": 0,
+            "summary": {
+              "count": 1,
+              "preview": [
+                ".NETStandard2.0: Polly 7.2.4"
+              ]
+            },
+            "properties": [],
+            "number": null,
+            "term": {
+              "key": "depends",
+              "operator": 0,
+              "value": "Polly"
+            }
+          }
+        ],
+        "ecosystemAdmission": null,
+        "libraryLiteral": null
+      }
+    ],
+    "failures": [],
+    "summary": {
+      "prefix": "Microsoft.Extensions.",
+      "source": {
+        "producer": {
+          "key": "nfs-http-1.AAAABWh0dHBzAAAAA2RucwAAAA1hcGkubnVnZXQub3JnAAAAAAAAAAM0NDMAAAAOL3YzL2luZGV4Lmpzb24",
+          "portableKey": "nfp-1.e4e508f4ad364c2b8ebc428eda73ca449fc6588db1c02e680a45e57ea32ce2a9",
+          "display": "https://api.nuget.org:443/v3/index.json"
+        },
+        "association": {},
+        "transportKind": 1
+      },
+      "candidateLimit": 40,
+      "matchLimit": null,
+      "candidates": 40,
+      "matches": 1,
+      "failures": 0,
+      "completion": 2,
+      "sourceCandidates": null,
+      "evaluatedCandidates": null,
+      "notEvaluatedCandidates": null,
+      "semanticMatches": null,
+      "occurrences": null,
+      "semanticMisses": null,
+      "notApplicable": null,
+      "scope": null
+    },
+    "hasPackages": true,
+    "libraryLiteralAssessments": []
+  },
+  "share": {
+    "kind": "nonProjectable",
+    "path": "package-query/share",
+    "reason": "Package Query plans do not yet have a canonical Workspace Share projection.",
+    "full_url": null,
+    "packet": null
+  },
+  "diagnostics": []
+}
