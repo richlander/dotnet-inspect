@@ -101,8 +101,10 @@ Every rung answers per **axis**:
 - **API**: the Public API of the `public` and `protected` accessibility
   buckets of [API population scope](api-population-scope.md), with hidden
   declarations, such as `EditorBrowsable(Never)` ones, admitted into their
-  buckets: `--all` narrowed by an `accessibility` term to those two buckets.
-  Hidden is a facet of the subject, not a reason to skip it; `Obsolete` is a
+  buckets: `--all` narrowed by an `accessibility` term to those two buckets,
+  less `private protected` declarations, which no other assembly can reach.
+  That is the visibility [Fast Diff's API axis](fast-diff.md#axes) admits;
+  `private protected` declarations belong to Body. Hidden is a facet of the subject, not a reason to skip it; `Obsolete` is a
   facet already. The ordinary population, the `public` bucket without hidden
   declarations, becomes a presentation default. This changes that owner's rule
   that API Diff keeps its existing visibility behavior; adoption step 1 makes
@@ -164,8 +166,9 @@ document only states that each step names its axes.
    level it presents. A missed change is never acceptable.
 2. **Changed is observable.** When Exists reports `Changed`, the complete diff
    shows at least one difference for that subject on that axis. The
-   difference may be low-signal; it is never empty. This is rule 4 of
-   [Diff observability](diff-observability.md#rules) applied to Exists.
+   difference may be low-signal; it is never empty. This applies rules 2 and
+   4 of [Diff observability](diff-observability.md#rules) to Exists, without
+   rule 4's allowance for a known divergence.
 3. **Undecided is never read either way.** A subject Exists cannot decide is
    `Indeterminate`, as Fast Diff defines it. Where the complete diff cannot
    decode a subject, Exists reports `Indeterminate` for it, not `Changed`.
@@ -184,7 +187,7 @@ an implementation choice; their answers are bound by this contract and gated.
 An Exists provision compares facts more cheaply than the complete diff does,
 so a raw difference in some fact kinds may not be a difference the complete
 diff presents. Such a kind is **uncertain**. Each uncertain kind is settled at
-design time, in one of two ways:
+design time on each axis, in one of two ways:
 
 - **Promote:** the Exists provision learns the kind's normalization, and a
   gate shows it now decides as the complete diff does. Promotion is admitted
@@ -282,8 +285,8 @@ is the gate for replacing a provision.
 
 Each step is its own focused effort:
 
-1. **Axes.** The API axis compares the `public` and `protected` buckets with
-   hidden declarations admitted, in Fast Diff, the Public API surface and its
+1. **Axes.** The API axis compares the `public` and `protected` buckets, less
+   `private protected`, with hidden declarations admitted, in Fast Diff, the Public API surface and its
    complete comparison, [API population scope](api-population-scope.md), and
    the [Annotated Type Map](annotated-type-map.md). The Body axis includes
    declaration and implementation facts, in Fast Diff's Body census and the
