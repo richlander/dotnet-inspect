@@ -115,10 +115,18 @@ A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
 is a Body difference, as canonical comparison's endpoint topology reports it
 (`NoApplicableInput`). A body that cannot be decoded or an operand that cannot
-be resolved is `Indeterminate`, never a difference or equality.
+be resolved, before the walk decides a difference, is `Indeterminate`, never a
+difference or equality.
 
 An opcode that ECMA-335 does not define cannot be stepped over safely, so it
-makes the Body axis `Indeterminate` rather than comparing as equal.
+makes the Body axis `Indeterminate` rather than comparing as equal. The walk
+stops at the first difference it decides, so content after that point is never
+read: a body whose walk decides a difference before it reaches an undefined
+opcode is `Changed`, and its view is the complete diff's visible decode
+failure, as [Diff capabilities](diff-capabilities.md#the-exists-contract)
+states. A branch or switch target is decided only once the body's instruction
+map is complete, so a body whose only differences before an undefined opcode
+are targets is `Indeterminate`.
 
 Neither axis's facts are configurable. A caller can ask for the API axis alone;
 every Body state is then `NotCompared` and no IL is read. A method with a body
@@ -258,9 +266,9 @@ Fast Diff follows it; the axis never keeps a private exception.
 - Body exactness: every method pair's Body verdict equals canonical IL
   comparison's endpoint verdict under the Body policy over the same fixture
   pairs: `Exact` is `Unchanged`, a body on one side only or any other verdict
-  is `Changed`, and a decode or resolution failure is `Indeterminate`, with
-  fixture cases for an `abstract` method made `virtual` and a default
-  interface implementation added;
+  is `Changed`, and a decode or resolution failure before the walk decides a difference
+  is `Indeterminate`, with fixture cases for an `abstract` method made
+  `virtual` and a default interface implementation added;
 - dependency versions: a generated image pair whose only difference is the
   version of a non-platform referenced assembly is Body `Unchanged` for every
   Type; and
@@ -280,7 +288,9 @@ a function pointer returning a pointer and a pointer to a function pointer, an
 attribute moved from a backing field to its event, a switch between external
 vararg overloads, duplicate Type names and duplicate generated Type names, a
 caller switching between two compiler-controlled methods or between methods of
-two Type rows of one name, and undefined one-byte and two-byte opcodes. The same
+two Type rows of one name, undefined one-byte and two-byte opcodes, and an
+undefined opcode after a difference the walk decides first, which is `Changed`.
+The same
 class checks that the stored UTF-8 of every System.Private.CoreLib Type, method,
 and field name equals the encoding of its decoded name.
 
@@ -484,7 +494,8 @@ Member Body is an existence check. A Member declared on one side only is
 therefore `Changed` on each axis where it owns facts.
 
 An owner is never `Unchanged` by omission. A fact or body that cannot be
-decided, such as IL with an undefined opcode or a reference to a compiler-
+decided, such as IL whose walk reaches an undefined opcode before it decides a
+difference, or a reference to a compiler-
 controlled method, makes the axis of the Member that owns it `Indeterminate`,
 where the owner is the row the census was describing, raised under rule 1; when
 that row has no single Member owner, the residual's axis is `Indeterminate`.
@@ -538,8 +549,8 @@ underlying-type change, a
 Type, and a nested Type whose
 inherited nullable context changed; an added and a removed public Type, one
 of them with no Members, are reported whole by the Library level and have no
-Type-level rows; an undefined opcode in one method makes that Member Body
-`Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
+Type-level rows; an undefined opcode reached before a difference in one method
+makes that Member Body `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
 name have no Type-level rows; a Member present on both sides carries both
 fingerprints, which differ after a nullable annotation change; an attribute
 added to an internal method changes no state; every Member's API state equals

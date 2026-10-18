@@ -185,6 +185,22 @@ public sealed class FastDiffIdentityTests
         Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.C").Body);
     }
 
+    [Fact]
+    public void UnknownOpcodeAfterADifference_IsChanged()
+    {
+        // The bodies differ at their first instruction; the walk decides there
+        // and never reads the undefined opcode that follows.
+        byte[] before = [0x17, 0x24, 0x2A]; // ldc.i4.1; 0x24 is not an opcode; ret
+        byte[] after = [0x18, 0x24, 0x2A]; // ldc.i4.2; 0x24 is not an opcode; ret
+        FastDiffResult result = Compare(
+            [new("N", "C", null, before)],
+            [new("N", "C", null, after)]);
+
+        FastDiffTypeState state = Single(result, "N.C");
+        Assert.Equal(FastDiffState.Unchanged, state.Api);
+        Assert.Equal(FastDiffState.Changed, state.Body);
+    }
+
     enum AttributeTarget { Field, Event }
 
     const int Int32Primitive = -1;
