@@ -1,10 +1,15 @@
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
+using DotnetInspector.Packages;
 using DotnetInspector.Presentation;
+using DotnetInspector.Queries;
+using DotnetInspector.SourceSelection;
 using InertText;
 
 namespace DotnetInspect.Cli.Tests;
@@ -60,6 +65,26 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task JsonlPublishesBroadenedMemberFindings()
+    {
+        var result = await Run(
+            "find", ".Serialize", "--ecosystem", "runtime",
+            "-n", "2", "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        var rows = new List<JsonElement>();
+        foreach (string line in result.Output.TrimEnd('\n').Split('\n'))
+        {
+            using JsonDocument document = JsonDocument.Parse(line);
+            rows.Add(document.RootElement.Clone());
+        }
+        Assert.Contains(
+            rows,
+            row => row.GetProperty("kind").GetString() == "member");
+        Assert.DoesNotContain("appear only", result.Error);
+    }
+
+    [Fact]
     public async Task ProgressiveProjectionKeepsRequestedColumns()
     {
         var result = await Run(
@@ -99,6 +124,47 @@ public class FindProgressiveTsvTests
             Assert.Equal(2, row.Split('\t').Length);
             Assert.EndsWith("\tmember", row);
         });
+    }
+
+    [Theory]
+    [InlineData("--tsv", 2)]
+    [InlineData("--jsonl", 1)]
+    public async Task EcosystemSelectionPublishesOnlyTheSelectedWindow(
+        string format,
+        int expectedLines)
+    {
+        var result = await Run(
+            "find", "System.*",
+            "--ecosystem", "runtime",
+            "--rows", "2..2",
+            format);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            expectedLines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+    }
+
+    [Theory]
+    [InlineData("-n", "2", 2)]
+    [InlineData("--rows", "2..2", 1)]
+    public async Task EcosystemMemberSelectionUsesBufferedJsonlRows(
+        string selection,
+        string value,
+        int expectedLines)
+    {
+        var result = await Run(
+            "find", ".ToString",
+            "--ecosystem", "runtime",
+            selection, value,
+            "--jsonl");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(
+            expectedLines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+        Assert.DoesNotContain("output format is blocking", result.Error);
+        Assert.DoesNotContain("Cannot select member rows", result.Error);
     }
 
     [Theory]
@@ -165,6 +231,298 @@ public class FindProgressiveTsvTests
         Assert.Single(lines, line =>
             line.StartsWith("coordinate\t", StringComparison.Ordinal));
         Assert.Equal("System.String.Member64", lines[^1].Split('\t')[0]);
+    }
+
+    [Fact]
+    public void JsonlWriterPublishesEachSettledRowWithoutAHeader()
+    {
+        using var output = new StringWriter();
+        using var writer = new FindDiscoveryTsvWriter(
+            output,
+            showHeader: true,
+            projection: null,
+            jsonl: true);
+
+        writer.Write(Row("System.String"));
+        string first = output.ToString();
+        Assert.Single(first.TrimEnd('\n').Split('\n'));
+        using (JsonDocument document = JsonDocument.Parse(first))
+        {
+            Assert.Equal(
+                "System.String",
+                document.RootElement.GetProperty("coordinate").GetString());
+        }
+
+        writer.Write(Row("System.String.Concat"));
+        writer.Flush();
+        string[] lines = output.ToString().TrimEnd('\n').Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.All(lines, line => JsonDocument.Parse(line).Dispose());
+    }
+
+    [Fact]
+    public void EcosystemPrefixDemandsFollowEveryBoundedLineageLayer()
+    {
+        var layers = FindCommand.GetNamedLayers(
+            [EcosystemPackIds.Aspire]);
+
+        var demands = FindCommand.CreateEcosystemRequest(
+            new FindOptions(),
+            ["AddProject"],
+            layers,
+            demandPrefixes: true).Prefixes;
+
+        Assert.Equal(
+            [
+                "Aspire.",
+                "Microsoft.AspNetCore.",
+                "Microsoft.Extensions.",
+                "System.",
+            ],
+            demands.Select(demand => demand.Prefix));
+        var blocking = FindCommand.CreateEcosystemRequest(
+            new FindOptions(), ["AddProject"], layers, demandPrefixes: false);
+        Assert.Empty(blocking.PrefixDemand);
+        Assert.Empty(blocking.Prefixes);
+    }
+
+    [Fact]
+    public void EcosystemRequestKeepsQuestionAndBoundAcrossHostDemandPolicy()
+    {
+        var layers = FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        var options = new FindOptions { Limit = 50, Members = true };
+        var streaming = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: true);
+        var blocking = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: false);
+
+        Assert.Equal(50, streaming.MaximumRows);
+        Assert.Equal(10, streaming.MaximumPrefixPackages);
+        Assert.NotEmpty(streaming.Prefixes);
+        Assert.Empty(blocking.Prefixes);
+        Assert.Equal("Add*",
+            Assert.Single(Assert.IsType<MemberFindQuestion>(
+                streaming.Question).Patterns).Text);
+        Assert.NotEqual(streaming.Identity, blocking.Identity);
+    }
+
+    [Fact]
+    public void EcosystemRequestUsesExplicitPrefixCandidateBound()
+    {
+        var layers = FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        var options = new FindOptions
+        {
+            MaximumEcosystemPrefixPackages = 7,
+        };
+
+        var request = FindCommand.CreateEcosystemRequest(
+            options, [".Add*"], layers, demandPrefixes: true);
+
+        Assert.Equal(7, request.MaximumPrefixPackages);
+    }
+
+    [Fact]
+    public async Task EcosystemPrefixEnumerationUsesSelectedSource()
+    {
+        const string source = "https://private.example/v3/index.json";
+        var handler = new PrefixSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = [source],
+            },
+        };
+        var pages = new List<EcosystemFindPrefixPage>();
+
+        await foreach (EcosystemFindPrefixPage page in
+            FindCommand.EnumeratePrefixAsync(
+                new("Contoso."),
+                1,
+                options,
+                context,
+                TestContext.Current.CancellationToken))
+        {
+            pages.Add(page);
+        }
+
+        EcosystemFindCandidate candidate =
+            Assert.Single(pages.SelectMany(page => page.Candidates));
+        Assert.Equal("Contoso.Private", candidate.PackageId);
+        Assert.All(
+            handler.Requested,
+            uri => Assert.Equal("private.example", uri.Host));
+    }
+
+    [Fact]
+    public async Task EcosystemPrefixEnumerationHonorsCancellation()
+    {
+        var handler = new BlockingSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = ["https://private.example/v3/index.json"],
+            },
+        };
+        using var cancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(
+                TestContext.Current.CancellationToken);
+
+        Task operation = CollectPrefixPagesAsync(
+            options,
+            context,
+            cancellation.Token);
+        await handler.RequestStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => operation);
+    }
+
+    [Fact]
+    public async Task EcosystemPrefixEnumerationKeepsHealthySourceCandidates()
+    {
+        var handler = new MixedPrefixSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources =
+                [
+                    "https://failed.example/v3/index.json",
+                    "https://healthy.example/v3/index.json",
+                ],
+            },
+        };
+        var pages = new List<EcosystemFindPrefixPage>();
+
+        await foreach (EcosystemFindPrefixPage page in
+            FindCommand.EnumeratePrefixAsync(
+                new("Contoso."),
+                1,
+                options,
+                context,
+                TestContext.Current.CancellationToken))
+        {
+            pages.Add(page);
+        }
+
+        EcosystemFindPrefixPage failed = Assert.Single(
+            pages,
+            page => page.Completion
+                == EcosystemFindPrefixPageCompletion.Failed);
+        Assert.Contains("failed.example", failed.FailureSource);
+        EcosystemFindCandidate candidate = Assert.Single(
+            pages.SelectMany(page => page.Candidates));
+        Assert.Equal("Contoso.Healthy", candidate.PackageId);
+    }
+
+    [Fact]
+    public async Task EcosystemPrefixEnumerationYieldsBeforeNextSourcePage()
+    {
+        var handler = new PagedPrefixSourceHandler();
+        using var client = new HttpClient(handler);
+        var context = new CommandContext(verbose: false, client);
+        var options = new FindOptions
+        {
+            SourceOptions = new NuGetSourceOptions
+            {
+                Sources = ["https://paged.example/v3/index.json"],
+            },
+            Limit = 1,
+        };
+        var layers =
+            FindCommand.GetNamedLayers([EcosystemPackIds.Aspire]);
+        EcosystemFindSearchRequest request =
+            FindCommand.CreateEcosystemRequest(
+                options,
+                ["Thing"],
+                layers,
+                demandPrefixes: true);
+        using var session = new EcosystemFindSearchSession<string>(
+            request,
+            (_, _) => Task.FromResult(new EcosystemFindBlock<string>(
+                "bounded", 0)),
+            (prefix, take, token) => FindCommand.EnumeratePrefixAsync(
+                prefix,
+                take,
+                options,
+                context,
+                token),
+            (candidate, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>(candidate.PackageId, 1)));
+
+        EcosystemFindSearchSummary<string> result =
+            await session.ExecuteAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(EcosystemFindCompletion.RowLimitReached,
+            result.Completion);
+        Assert.Equal(
+            "Aspire.First",
+            Assert.Single(result.PrefixBlocks).Content);
+        Assert.Equal(1, handler.SearchRequests);
+    }
+
+    [Fact]
+    public void PrefixTypeRowsExcludePackageLocalAndRelativeResults()
+    {
+        List<TypeFindResult> rows =
+        [
+            new()
+            {
+                FullName = "Contoso.Exact",
+                Pattern = "Contoso.Exact",
+                Match = TypeFindMatchKind.Exact,
+            },
+            new()
+            {
+                FullName = "Contoso.Similar",
+                Pattern = "Contoso.Exact",
+                Match = TypeFindMatchKind.Partial,
+            },
+            new()
+            {
+                Pattern = "Missing",
+                Match = TypeFindMatchKind.NotFound,
+            },
+        ];
+
+        List<TypeFindResult> durable =
+            FindCommand.DurablePrefixTypeRows(rows, []);
+
+        Assert.Equal(
+            ["Contoso.Exact"],
+            durable.Select(row => row.FullName));
+    }
+
+    [Fact]
+    public async Task ZeroRowPrefixFailureIsReportedFromTerminalSummary()
+    {
+        var capture = await ConsoleCapture.RunAsync(() =>
+        {
+            FindCommand.ReportEcosystemFailures(
+            [
+                new(
+                    "Prefix",
+                    "Contoso.Empty",
+                    "Package settlement failed."),
+            ]);
+            return Task.FromResult(0);
+        });
+
+        Assert.Equal(0, capture.ExitCode);
+        Assert.Contains(
+            "Prefix source \"Contoso.Empty\" failed: "
+                + "Package settlement failed.",
+            capture.Error);
     }
 
     [Fact]
@@ -256,4 +614,153 @@ public class FindProgressiveTsvTests
             Field(coordinate), Field("member"), Field("runtime"),
             Field("System.Private.CoreLib"), Field("*"), Field("method"),
             Field(""), Field("direct"), Field(""));
+
+    private static async Task CollectPrefixPagesAsync(
+        FindOptions options,
+        CommandContext context,
+        CancellationToken cancellationToken)
+    {
+        await foreach (EcosystemFindPrefixPage _ in
+            FindCommand.EnumeratePrefixAsync(
+                new("Contoso."),
+                1,
+                options,
+                context,
+                cancellationToken))
+        {
+        }
+    }
+
+    private sealed class PrefixSourceHandler : HttpMessageHandler
+    {
+        public List<Uri> Requested { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            Requested.Add(uri);
+            string content = uri.AbsolutePath switch
+            {
+                "/v3/index.json" =>
+                    """
+                    {"resources":[{"@id":"https://private.example/v3/query","@type":"SearchQueryService"}]}
+                    """,
+                "/v3/query" =>
+                    """
+                    {"data":[{"id":"Contoso.Private","version":"1.0.0"}]}
+                    """,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected request: {uri}"),
+            };
+            return Task.FromResult(new HttpResponseMessage(
+                System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    content,
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            });
+        }
+    }
+
+    private sealed class BlockingSourceHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource RequestStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            RequestStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("Cancellation was ignored.");
+        }
+    }
+
+    private sealed class MixedPrefixSourceHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            if (uri.Host == "failed.example")
+            {
+                return Task.FromResult(new HttpResponseMessage(
+                    System.Net.HttpStatusCode.ServiceUnavailable));
+            }
+
+            string content = uri.AbsolutePath switch
+            {
+                "/v3/index.json" =>
+                    """
+                    {"resources":[{"@id":"https://healthy.example/v3/query","@type":"SearchQueryService"}]}
+                    """,
+                "/v3/query" =>
+                    """
+                    {"data":[{"id":"Contoso.Healthy","version":"1.0.0"}]}
+                    """,
+                _ => throw new InvalidOperationException(
+                    $"Unexpected request: {uri}"),
+            };
+            return Task.FromResult(new HttpResponseMessage(
+                System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    content,
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            });
+        }
+    }
+
+    private sealed class PagedPrefixSourceHandler : HttpMessageHandler
+    {
+        public int SearchRequests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            string content;
+            if (uri.AbsolutePath == "/v3/index.json")
+            {
+                content =
+                    """
+                    {"resources":[{"@id":"https://paged.example/v3/query","@type":"SearchQueryService"}]}
+                    """;
+            }
+            else if (uri.AbsolutePath == "/v3/query")
+            {
+                SearchRequests++;
+                IEnumerable<object> data = Enumerable.Range(0, 20).Select(
+                    index => new
+                    {
+                        id = index == 0
+                            ? "Aspire.First"
+                            : $"Other.Package.{index}",
+                        version = "1.0.0",
+                    });
+                content = JsonSerializer.Serialize(new { data });
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    $"Unexpected request: {uri}");
+            }
+
+            return Task.FromResult(new HttpResponseMessage(
+                System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    content,
+                    System.Text.Encoding.UTF8,
+                    "application/json"),
+            });
+        }
+    }
 }
