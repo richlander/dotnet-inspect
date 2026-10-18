@@ -5,6 +5,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using NuGet.Versioning;
 
@@ -88,9 +89,37 @@ public partial class PackageCommand
         }
 #endif
 
+        string packet = options.WorkspacePacket!;
+        if (options.WorkspaceLibrarySelection is null)
+        {
+            try
+            {
+                WorkspaceSharePacket source = WorkspaceSharePacketCodec.Decode(
+                    WorkspacePacketRestoration.GetPacketInput(packet, "--workspace"));
+                WorkspaceSharePacketProjectionResult derived =
+                    WorkspacePackageScenarioDerivation.Prepare(
+                        source, request!.PackageId, request.Version);
+                if (!derived.Succeeded)
+                {
+                    CommandError.Write(
+                        "The Workspace Package declaration could not be derived.",
+                        [derived.Failure!.Message]);
+                    return 1;
+                }
+                if (!ReferenceEquals(source, derived.Packet))
+                    packet = WorkspaceSharePacketCodec.Encode(derived.Packet!);
+            }
+            catch (Exception error) when (error is WorkspaceSharePacketException
+                or InvalidDataException or ArgumentException)
+            {
+                CommandError.Write("The Workspace packet input is invalid.", [error.Message]);
+                return 1;
+            }
+        }
+
         WorkspacePacketRestorationResult restorationResult =
             await WorkspacePacketRestoration.RestoreAsync(
-                options.WorkspacePacket!,
+                packet,
                 workspaceLoadOptions
                     ?? CreateWorkspaceContextLoadOptions(options),
                 CancellationToken.None).ConfigureAwait(false);

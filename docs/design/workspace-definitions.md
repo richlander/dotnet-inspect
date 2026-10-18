@@ -402,7 +402,7 @@ dotnet-inspect find JsonSerializer --workspace "$base"
 
 The first command uses the existing shipped-declaration authoring entrance;
 the Workspace command's authoring target includes one or more ecosystem
-declarations. The Package invocation is a **proposed add-and-activate route**
+declarations. The Package invocation uses the **add-and-activate route**
 under #10211: this base has no direct System.Text.Json contribution, so the
 resulting Workspace includes that Package and makes it active. Ordinary
 inspection content goes to stdout; the requested derived packet is the final
@@ -414,8 +414,8 @@ or change the active Package. The unchanged base can be reused for either path.
 
 Package addition and Find search follow their source, target and population
 owners' admission rules; ecosystem registration does not promise arbitrary
-acquisition. The current Package packet route selects an existing member and
-does not yet implement #10211. Descendant commands likewise express their
+acquisition. The Package packet route reuses an existing member or adds a
+declaration under #10211. Descendant commands likewise express their
 subject selection through their ordinary command grammar. This does not
 authorize choosing the first Package or using an unrelated focused tab.
 Ambiguous or failed resolution remains visible rather than triggering an
@@ -835,7 +835,7 @@ dotnet-inspect type System.Text.Json.JsonSerializer \
 
 For selection-only commands, that packet preserves the input Workspace
 definition and adds only the projectable owner-issued subject, context, facet,
-query, or Navigation state resolved by the noun command. The proposed Package
+query, or Navigation state resolved by the noun command. The Package
 add-and-activate route instead carries the derived definition described above;
 it preserves the base declarations while adding the admitted contribution.
 Bounded acquisition may establish an exact
@@ -964,10 +964,53 @@ Type-command portion and adds no root `-W` surface or serialized CLI grammar.
 
 #### Package packet-context adoption
 
-This existing adoption selects members already present in the selected
-context. The proposed #10211 add-and-activate route extends it separately;
-the no-match refusal and unchanged-definition rules below describe the current
-selection-only route, not the complete target Package workflow.
+The #10211 add-and-activate route composes declaration editing with the #7765
+selected-context exact-Package operation. Before restoration, it reuses a
+matching direct Package declaration in the selected context or appends a
+missing declaration through immutable Package component editing. Reuse leaves
+the declaration's version policy intact: a different requested exact version
+does not replace an existing version or pin a floating member. The ordinary
+exact-Package operation validates the restored Root and reports mismatches.
+
+Addition inherits the selected context's TFM and RID. A registration-only base
+with no contexts or Package tabs receives its first context using
+`TraversalTargetFrameworkPolicy.ProductDefault`, the same convention used by
+the Browser's external Package activation. Existing contexts without a selected
+context remain an error; focus never substitutes for context selection. A
+Package already declared elsewhere is subject to the existing component
+identity and context-consistency rules, not silently moved between contexts.
+
+The requested version remains exact or floating as authored. Source authority
+comes from the ordinary receiving-host policy and preserved source
+declarations. Complete Restoration resolves and acquires the resulting
+Workspace once; preparation does not acquire content. Invalid packets,
+context conflicts, unavailable content, authorization failures and restoration
+failures remain failures, never triggers for a fallback addition. Existing
+Library packet-context routes remain selection-only.
+
+After a successful inspection, the existing Package scenario projection makes
+the selected contribution active and captures its supported facet. Share
+preserves base registrations, unrelated contexts, membership, dormant state
+and packet format, carrying the newly added declaration when one was needed.
+It adds no second inspection. A non-projectable choice preserves ordinary
+content and fails the requested Share output visibly.
+
+The motivating real asset is `System.Text.Json@10.0.0` from nuget.org. Starting
+with `workspace ecosystem add runtime`, Package adds that contribution without
+expanding the ecosystem's populations. The pinned NuGet archive is already a
+CLI and Browser test asset. `EcosystemBaseAddsRealPackageAndSharesTheDerivedEnvironment`
+gates the CLI outcome and unchanged input; neighboring gates cover formats
+3/4/5, existing-member reuse, selected-context targets, source declarations,
+version conflicts and Share refusal. The recorded CLI packet is readable in
+[`workspace-package-derived.json`](../examples/workspace-package-derived.json).
+`PackageAddAndActivate_ReopensRecordedCliPacket` activates that value through
+the production Browser retained-Workspace owner using the pinned archive.
+Find continues to search the unchanged
+base rather than promoting matches to contributions.
+
+The following exact-Package operation contract describes selection after that
+preparation. Its no-match failure remains available to selection-only callers;
+it does not describe the Package command's admitted declaration addition.
 
 The second noun-command adoption is implemented under
 [#7765](https://github.com/richlander/dotnet-inspect/issues/7765). Its exact CLI
