@@ -176,6 +176,26 @@ public sealed class CapabilityCatalogStructuralSearchTests
     }
 
     [Fact]
+    public void StructuralResourceHasOnePathRegistration()
+    {
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            Search(
+                Admit(
+                    document,
+                    [
+                        .. paths,
+                        new(
+                            UnsafeMembers,
+                            new ResourcePath("library/sections/unsafe")),
+                    ]),
+                "unsafe"));
+        Assert.Contains("more than one path registration", exception.Message);
+    }
+
+    [Fact]
     public void StructuralPathRegistrationRequiresADiscoveryResource()
     {
         (DiscoveryDocument document,

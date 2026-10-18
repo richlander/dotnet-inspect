@@ -325,8 +325,9 @@ own. Those sections remain reachable by exact path.
 A search over both families evaluates the complete union.
 `CandidateResourceCount` counts every admitted capability and structural
 resource, and the same ranking applies to both. A host that adds a structural
-catalog to search and omits it from exact explanation, or the reverse, fails
-catalog construction rather than returning a partial population.
+catalog to search and omits it from exact explanation, or the reverse, breaks
+a host wiring invariant; the host's wiring test fails rather than the host
+shipping a partial population.
 
 ## Canonical search-term projection
 
@@ -612,9 +613,13 @@ Selecting or copying a returned path is the explicit transition to exact
 explanation.
 
 The handoff gate must prove that every returned path resolves to the same
-typed resource identity represented by the search row. A dangling path, a
-path that resolves to another identity, or a result synthesized without an
-explainable resource prevents catalog construction or operation completion.
+typed resource identity represented by the search row. For the capability
+family, a dangling path, a path that resolves to another identity, or a result
+synthesized without an explainable resource prevents catalog construction or
+operation completion. For the structural family, the gate is the host's wiring
+test, because search reads the same inputs the host creates its exact
+structural catalog from (see
+[Structural catalog population](#structural-catalog-population)).
 
 ## Explain facade and Browser adoption
 
