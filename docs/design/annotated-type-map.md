@@ -168,9 +168,9 @@ an axis where it owns facts, is an element of the Member's array, beside its
 finding transitions. A Member's presence alone is not an element.
 
 **A key, or the Type, is listed in the map diff exactly when it has a shape
-transition or its shape comparison is unsettled.** A Member whose own facts
-did not change did not change, so a finding transition alone never lists a
-Member: it is detail of a listed Member. Listing therefore reads only the
+transition or its shape comparison is unsettled.** A Member whose shape
+facts are equal on both sides is unchanged, so a finding transition alone never
+lists a Member: it is detail of a listed Member. Listing therefore reads only the
 shape comparison, the same comparison that answers Exists, and the fact
 comparison runs only for listed Members. A listed Member's annotation outcome
 is carried on its row and never unlists it.
@@ -179,8 +179,8 @@ A Member whose Body changed while all its admitted findings compare as
 `Present`, such as a changed constant, is listed with its Body transition and
 no finding transitions, and reads as "body changed, no classified finding".
 
-A key that cannot be compared, such as a Member that is one of two Type rows
-of one name, carries Fast Diff's `Indeterminate` as its outcome and is never
+A key that cannot be compared, such as a method with an undefined opcode,
+carries Fast Diff's `Indeterminate` as its outcome and is never
 omitted.
 
 The map diff carries, for the Type, its presence: on both sides, or `Added` or
@@ -188,8 +188,8 @@ The map diff carries, for the Type, its presence: on both sides, or `Added` or
 by Fast Diff's presence rule: Body `Added` or `Removed` whether or not the Type
 declares a body, and API `Added` or `Removed` when the Public API surface admits
 the Type. So a one-sided Type is always listed, even when none of its Members
-owns shape facts, such as an added internal enum. A one-sided Type's map diff lists every Member key of its present
-side that owns shape facts, one-sided, with every fact `Added` or `Removed`, as
+owns shape facts, such as an added internal enum. A one-sided Type's map diff
+also lists every Member key of its present side that owns shape facts, one-sided, with every fact `Added` or `Removed`, as
 [#10224](https://github.com/richlander/dotnet-inspect/issues/10224) proposes
 for Fast Diff's Type level.
 
