@@ -154,7 +154,8 @@ public sealed class MethodDefinitionSourceBreadth
         MethodDefinitionGeneratedExpansionLimits?
             generatedExpansionLimits,
         MethodDefinitionGeneratedBodyRoles generatedRoles =
-            MethodDefinitionGeneratedBodyRoles.None)
+            MethodDefinitionGeneratedBodyRoles.None,
+        bool includesUnauthenticatedCandidates = false)
     {
         Kind = kind;
         Methods = methods;
@@ -162,6 +163,8 @@ public sealed class MethodDefinitionSourceBreadth
         Expansion = expansion;
         GeneratedExpansionLimits = generatedExpansionLimits;
         GeneratedRoles = generatedRoles;
+        IncludesUnauthenticatedCandidates =
+            includesUnauthenticatedCandidates;
     }
 
     public static MethodDefinitionSourceBreadth AllDefinitions { get; } =
@@ -189,6 +192,12 @@ public sealed class MethodDefinitionSourceBreadth
     /// without expansion.
     /// </summary>
     public MethodDefinitionGeneratedBodyRoles GeneratedRoles { get; }
+
+    /// <summary>
+    /// Whether generated-body expansion adds its unauthenticated candidates
+    /// to breadth, where they are visited without a declared owner.
+    /// </summary>
+    public bool IncludesUnauthenticatedCandidates { get; }
 
     public bool IsEmpty =>
         Kind switch
@@ -314,12 +323,16 @@ public sealed class MethodDefinitionSourceBreadth
     /// Includes authenticated generated bodies in the requested
     /// <paramref name="roles"/> under finite discovery bounds. The
     /// <see cref="MethodDefinitionGeneratedBodyRoles.Execution"/> role is
-    /// always included.
+    /// always included. Over exact-type breadth, expansion also reaches the
+    /// methods of compiler-generated nested types; when
+    /// <paramref name="includeUnauthenticatedCandidates"/> is set, the reached
+    /// methods no edge authenticates join breadth without an owner.
     /// </summary>
     public MethodDefinitionSourceBreadth IncludeGeneratedExecutionBodies(
         MethodDefinitionGeneratedExpansionLimits? limits = null,
         MethodDefinitionGeneratedBodyRoles roles =
-            MethodDefinitionGeneratedBodyRoles.Execution)
+            MethodDefinitionGeneratedBodyRoles.Execution,
+        bool includeUnauthenticatedCandidates = false)
     {
         if (Kind == MethodDefinitionSourceBreadthKind.AllDefinitions)
         {
@@ -342,7 +355,8 @@ public sealed class MethodDefinitionSourceBreadth
             Expansion
                 | MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
             limits ?? MethodDefinitionGeneratedExpansionLimits.Default,
-            roles | MethodDefinitionGeneratedBodyRoles.Execution);
+            roles | MethodDefinitionGeneratedBodyRoles.Execution,
+            includeUnauthenticatedCandidates);
     }
 }
 
@@ -813,7 +827,9 @@ public static class MethodDefinitionSourceRequestSet
         && first.Expansion == second.Expansion
         && first.GeneratedExpansionLimits
             == second.GeneratedExpansionLimits
-        && first.GeneratedRoles == second.GeneratedRoles;
+        && first.GeneratedRoles == second.GeneratedRoles
+        && first.IncludesUnauthenticatedCandidates
+            == second.IncludesUnauthenticatedCandidates;
 
     sealed class SourceGroupBuilder
     {
@@ -987,13 +1003,30 @@ public sealed record MethodDefinitionGeneratedExpansionOrigin(
     MethodDefinitionGeneratedBodyRoles Role =
         MethodDefinitionGeneratedBodyRoles.Execution);
 
-/// <summary>Exact generated breadth-discovery work.</summary>
+/// <summary>
+/// Exact generated breadth-discovery work and the declared-source outcome of
+/// each generated body it examined.
+/// </summary>
+/// <param name="Origins">
+/// Authenticated bodies in a requested role, each in breadth.
+/// </param>
+/// <param name="AttributedOutsideRoles">
+/// Authenticated state-machine methods outside the requested roles. They are
+/// owned but not in breadth.
+/// </param>
+/// <param name="UnauthenticatedCandidates">
+/// Generated bodies no edge authenticates, in metadata order. They join
+/// breadth, without an owner, only when the request includes them.
+/// </param>
 public sealed record MethodDefinitionGeneratedExpansionCoverage(
     MethodDefinitionHandleCoverage CandidateDefinitionsExamined,
     MethodDefinitionHandleCoverage ProbeBodiesAttempted,
     long ProbeEncodedIlBytes,
     int RelationshipNodes,
-    ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Origins)
+    ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Origins,
+    ImmutableArray<MethodDefinitionGeneratedExpansionOrigin>
+        AttributedOutsideRoles,
+    ImmutableArray<MethodDefinitionHandle> UnauthenticatedCandidates)
 {
     public static MethodDefinitionGeneratedExpansionCoverage Empty { get; } =
         new(
@@ -1001,6 +1034,8 @@ public sealed record MethodDefinitionGeneratedExpansionCoverage(
             MethodDefinitionHandleCoverage.Empty,
             0,
             0,
+            [],
+            [],
             []);
 }
 
