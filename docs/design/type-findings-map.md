@@ -126,6 +126,11 @@ In the two-version form, the Type row carries the Type's own transition:
   Row when either state is not `Unchanged`.
 - **Present on one side:** `Added` or `Removed`, from Fast Diff's Library-level
   presence. The Type row is always a Row.
+- **Not decided:** when Fast Diff cannot decide the Type, such as two Type
+  rows that spell one name, the Type row carries that typed outcome, such as
+  `Indeterminate`, and is an undecided Row. A Type whose outcome is not
+  complete always has an undecided Type row, so it is never read as
+  unchanged.
 
 In the one-version form, the Type row carries the inspection outcome and is a
 Row when an admitted analysis reports a finding about the Type as a whole.
@@ -143,9 +148,13 @@ In the two-version form, a Member row carries:
 - when that outcome is `Complete`, its non-`Present` admitted finding
   transitions.
 
-A Member present on both sides is listed when either state is not
-`Unchanged`. A Member present on one side is always listed. Findings never
-decide listing. A Member whose Body changed while all its admitted facts pair
+A Member is listed exactly when either of its Fast Diff states is not
+`Unchanged`, so the map's Rows and Fast Diff's Type state cannot disagree. A
+Member present on one side is listed on each axis where Fast Diff gives it
+facts: a method with a body is a Body change, and a public Member is an API
+change. A one-sided Member that owns no compared facts, such as an added
+private field, is not listed, because Fast Diff does not compare it. Findings
+never decide listing. A Member whose Body changed while all its admitted facts pair
 as `Present`, such as a changed constant, is listed with a `Complete` outcome
 and no findings, and reads as "body changed, no classified finding". An empty
 list never stands for a comparison that did not complete.
@@ -170,8 +179,10 @@ key. For a method on both sides, its two fact censuses are compared by the
 [fact comparison](annotated-source-diff-document.md#fact-comparison), with its
 keys, matching, and acceptance threshold; for a method on one side, every fact
 is `Added` or `Removed`. The Member's findings are the union, in method
-declaration order. The map does not define its own fact pairing and never
-pairs facts across methods.
+declaration order, with each fact counted once: where a method's fact census
+already includes its generated code's facts, the generated methods are not
+compared again, as adoption step 2 records for each kind. The map does not
+define its own fact pairing and never pairs facts across methods.
 
 ## Admitted findings
 
@@ -230,11 +241,13 @@ counted neither way:
 - **Count** reports the number of decided Rows and, separately, the
   undecided rows, with QuerySpace's typed outcome.
 - **Exists** is `true` when a decided Row exists, undecided when no decided
-  Row exists but an undecided row does, and `false` when there are no rows.
+  Row exists but an undecided row does, and `false` only when the outcome is
+  complete and there are no rows.
 
 In the two-version form, a Library-scope Row carries the Type row and a
-Member-row Count read from Fast Diff's Type level; it needs no fact census. Producing it never runs a fact
-comparison. Opening a Type asks for that Type's map, as
+Member-row Count read from Fast Diff's Type level; it needs no fact census
+and never runs a fact comparison. An undecided Type is one undecided Library
+row. Opening a Type asks for that Type's map, as
 [No rows within rows](scope-symmetry.md#no-rows-within-rows) requires for an
 ephemeral host. A whole-Library map with Member rows and findings is a
 persistent artifact and is offered only as one. A Member's findings are the
@@ -318,7 +331,8 @@ Each step is its own focused effort:
    method's admitted fact census and fact comparison, for each method a Fast
    Diff Member owns including generated methods, without the text comparison
    or the C# plane where no admitted descriptor needs it, with NativeAOT cost
-   per method.
+   per method. It records, for each kind of generated code, whether the
+   owning method's census already includes that code's facts.
 3. **The two-version map** at Type scope, with its Library and Member scopes,
    terminals, and tallies.
 4. **CLI output** of the map as JSON and Markout.
@@ -337,14 +351,16 @@ detail does.
 
 - **Listing:** over the Fast Diff fixture pairs and the spike's pairs, the
   Type row is a Row exactly when Fast Diff's residual or Library-level
-  presence reports a change, a Member row exists exactly for a Member whose
-  Fast Diff state is not `Unchanged` or that is one-sided, and, after
+  presence reports a change, a Member row exists exactly for a Member with a
+  Fast Diff state that is not `Unchanged`, a one-sided private field is not
+  listed, and, after
   [#10224](https://github.com/richlander/dotnet-inspect/issues/10224), a
   one-sided Type lists every Member of its present side.
 - **Exactness:** at each scope, Count equals the number of decided Rows with
   undecided rows reported separately, and Exists is `true` with a decided Row,
   undecided with only undecided rows, and `false` with none; a two-version
-  Type's Exists equals Fast Diff's Library-level state.
+  Type's Exists equals Fast Diff's Library-level state, including
+  `Indeterminate` for Fast Diff's fixture with two Type rows of one name.
 - **Agreement:** for every listed Member of the fixture Types, and for each
   method it owns on both sides, the admitted non-`Present` transitions of
   that method's annotated source diff equal that method's part of the row's
@@ -369,9 +385,10 @@ detail does.
   belongs to the one-version adoption.
 - It does not decide a host's default at Type scope or the visual design of a
   row.
-- It does not cover relations between Members or Types, such as callers, a
-  callee's signals, or a fact that changes because another Type's definition
-  changed; those belong to the Type graph in
+- It does not claim complete coverage of relations between Members or Types,
+  such as callers, a callee's signals, or a fact that changes because another
+  Type's definition changed. A listed Member's findings may include such a
+  fact; an unlisted Member's never appear. Relations belong to the Type graph in
   [#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
 - It does not claim correspondence for a renamed or moved Member; that belongs
   to [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
