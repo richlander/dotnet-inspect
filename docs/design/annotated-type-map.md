@@ -87,18 +87,24 @@ property or event and its generated code attached to it, as
 no single Member are the Type's **residual**, and they are the Type's own
 entries. A host-facing document spells a key with the Member's anchor, as Fast
 Diff's Type level reports it: the After side's anchor, or the Before side's
-for a Member present only there. Two Members whose keys differ but whose
-spellings collide are never merged: the document spells each of them with the
-anchor and the Member's row token on its side, and both are `Indeterminate`.
+for a Member present only there. The spelling is presentation; keys still
+join and compare exactly. When two keys in one document share a spelling, as a
+`Removed` and an `Added` key do when only a return or field Type changed, the
+document spells each with its anchor and its row token on its side, and both
+keep their own outcomes. Rows that spell one census key on one side are
+`Indeterminate`, as Fast Diff's identity rule states.
 
 Shape facts are Fast Diff's two axes at Member grain:
 
 - **API facts:** the Member's projection in the Public API surface of its
   version, the input the complete Public API comparison reads for that Member;
   and
-- **Body facts:** for each method the Member owns, its body's identity under
-  Fast Diff's Body equality: whether it has a body and, if it does, its
-  canonical instructions with symbolic operands.
+- **Body facts:** for each method the Member owns that has a body on that
+  side, its body's identity under Fast Diff's Body equality: its canonical
+  instructions with symbolic operands. A method with no body owns no Body fact
+  on that side, so a one-sided method without a body is no Body change, and a
+  method on both sides with a body on one side only is a Body change, as Fast
+  Diff's Body axis states.
 
 Each shape fact is a function of one version, so two retained maps can be
 compared without reopening either image. The map adds no equality. Two API
@@ -178,7 +184,7 @@ omitted.
 
 The map diff carries, for the Type, its presence: on both sides, or `Added` or
 `Removed`. A one-sided Type's map diff lists every Member key of its present
-side, one-sided, with every fact `Added` or `Removed`, as
+side that owns shape facts, one-sided, with every fact `Added` or `Removed`, as
 [#10224](https://github.com/richlander/dotnet-inspect/issues/10224) proposes
 for Fast Diff's Type level.
 
@@ -197,7 +203,10 @@ Both forms are one implementation: a map producer, and a comparison over two
 maps. The map diff may compare two retained maps, or produce both maps in
 lockstep over an image pair and stop each comparison at its first difference
 when only Exists is asked; the result is the same. It never runs a separate
-walk that decides changes another way.
+walk that decides changes another way. A retained map holds every method's
+fact stream, so producing two maps censuses unchanged Members too; producing
+them in lockstep can census only the listed Members. Adoption steps 3 and 5
+measure both.
 
 Fast Diff's census is a one-version table of shape facts per Type keyed by the
 census key, so the shape comparison is what Fast Diff computes. Until
@@ -405,7 +414,11 @@ implementation and, if adopted, of its QuerySpace operators.
   abstract or interface Member is not listed in either form, a caller whose
   only transition is `alloc.new` after a `class` to `struct` change is not
   listed, a Type with two rows of one name is an unresolved Type row, and a
-  one-sided Type lists every Member of its present side.
+  one-sided Type lists every Member of its present side that owns shape facts
+  and not its private fields. Fixtures also show that a one-sided method with
+  no body, such as an added member of an internal interface or a private
+  `extern` method, is not listed, and that a return-Type change spells two
+  distinct keys, neither `Indeterminate`.
 - **Exactness:** at each scope, Count equals the number of changed rows with
   unresolved rows reported separately, and Exists is `true` with a changed row,
   undecided with only unresolved rows, and `false` with none.
