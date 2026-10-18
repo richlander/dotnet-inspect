@@ -23,7 +23,7 @@ namespace DotnetInspect.Cli.Commands;
 /// <summary>
 /// Inspects type members (docs on by default).
 /// </summary>
-public static class MemberCommand
+public static partial class MemberCommand
 {
     public const string Name = "member";
 
@@ -36,16 +36,17 @@ public static class MemberCommand
     internal static Task<int> ExecuteAsync(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan)
-        => ExecuteCoreAsync(options, plan);
+        => options.WorkspacePacket is not null
+            ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options))
+            : ExecuteWithShareAsync(options, plan);
 
     internal static Task<int> ExecuteResolvedAsync(
         MemberOptions options,
         ApiSourceResult source,
         ApiServices.LoadedApiSurface loaded)
-        => ExecuteCoreAsync(
+        => ExecuteWithShareAsync(
             options,
-            ResolvedMemberInspectionPlan
-                .FromCompatibilityOptions(options),
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
             source,
             loaded);
 
@@ -53,7 +54,9 @@ public static class MemberCommand
         MemberOptions options,
         ResolvedMemberInspectionPlan plan,
         ApiSourceResult? resolvedSource = null,
-        ApiServices.LoadedApiSurface? loadedSurface = null)
+        ApiServices.LoadedApiSurface? loadedSurface = null,
+        Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
+            ShareProjectionPlan>? resolvedMember = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -91,19 +94,6 @@ public static class MemberCommand
             CommandError.WriteLine("Usage: dotnet-inspect member <type> --package <pkg>");
             CommandError.WriteLine("   or: dotnet-inspect member -m Type.Member --package <pkg>");
             NamespacePrefixHints.WriteIfLikelyNamespacePrefix(options.PackagePath ?? options.PlatformAssembly ?? "");
-            return 1;
-        }
-
-        if (MemberShareProjection.ValidateOptions(options) is { } shareOptionError)
-        {
-            CommandError.Write(shareOptionError);
-            return 1;
-        }
-        if (options.ShareFormat is not null
-            && !options.RouterDeferredTypeOrMember
-            && !HasExactMemberSelector(options))
-        {
-            MemberShareProjection.WriteExactSelectorRequired();
             return 1;
         }
 
@@ -443,13 +433,6 @@ public static class MemberCommand
                 };
             }
 
-            if (options.ShareFormat is not null
-                && !HasExactMemberSelector(options))
-            {
-                MemberShareProjection.WriteExactSelectorRequired();
-                return 1;
-            }
-
             // Check each member filter before producing output
             if (options.MemberFilter.Count > 0)
             {
@@ -760,6 +743,31 @@ public static class MemberCommand
                 }
             }
 
+            if (resolvedMember is not null && HasExactMemberSelector(effectiveOptions))
+            {
+                string name = effectiveOptions.MemberFilter.Single();
+                contextualExplanationResolution ??= MemberTargetResolver.Resolve(
+                    apiType,
+                    new MemberTargetSelector(name, name,
+                        effectiveOptions.OverloadIndex, effectiveOptions.MemberDigest,
+                        GenericArity: effectiveOptions.MemberGenericArity),
+                    effectiveOptions.KindFilter);
+                if (contextualExplanationResolution.Diagnostic is { } shareDiagnostic)
+                {
+                    CommandError.Write(shareDiagnostic.Message,
+                        [.. shareDiagnostic.CandidateDetails()]);
+                    return 1;
+                }
+                ApiMember selected = contextualExplanationResolution.Target!.ApiMember.Member;
+                string path = apiType.SourceAssemblyPath ?? sourceAssembly?.Path ?? apiDllPath;
+                MemberInspectionTerminalPlan selectedPlan = MemberInspectionPlanBuilder.Create(
+                    sourceAssembly, path, selectedTfm, apiType.FullName,
+                    apiType.DefinitionName, ApiMemberIdentity.GetMemberAnchor(apiType, selected),
+                    executionPlan, effectiveOptions,
+                    ResolvedPackageSource(source, sourceAssembly, selectedTfm));
+                resolvedMember(source, loaded, apiType, new ShareProjectionPlan(selectedPlan.Basis));
+            }
+
             if (MemberDocumentOutput.IsSelected(
                         apiType,
                         effectiveOptions,
@@ -892,16 +900,6 @@ public static class MemberCommand
                     MemberInspectionPlanBuilder.ApplySemanticDemand(
                         effectiveOptions,
                         terminalPlan);
-                if (terminalPlan is ShareProjectionPlan sharePlan
-                    && effectiveOptions.ShareFormat is { } shareFormat)
-                {
-                    return MemberShareProjection.Write(
-                        source,
-                        loaded,
-                        apiType,
-                        sharePlan,
-                        shareFormat);
-                }
             }
 
             if (effectiveOptions.OverloadIndex is null

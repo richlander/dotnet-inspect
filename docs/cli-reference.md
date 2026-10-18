@@ -2751,12 +2751,20 @@ existing limits and the browser's supported restoration shapes still apply.
 Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
 default explicitly, while `--share packet` emits only the canonical packet.
 
-`member --share[=url|packet]` projects one explicitly selected public member
-overload from an exact NuGet.org package version and target framework. The URL
-opens that member's API Overview in the published browser. Select an overload
-with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
-private-feed, non-public, multi-library, and other rendering or analysis modes
-fail visibly rather than producing a link the browser cannot restore.
+`member <Type> -m <Member> --workspace PACKET` consumes a canonical Base64URL
+packet as its sole location source. It searches the selected context, independent
+of the focused Navigation tab, and retains ordinary Member selectors, sections,
+formats and failure behavior. Package, Library, Platform, project, framework,
+TFM and range source selectors cannot be combined with this input.
+
+`member --share[=url|packet]` preserves ordinary stdout and appends the scalar
+as the final stderr line. Select an exact overload with `Name:N`, `Name~digest`,
+or `--index N`. Without Workspace input, sharing supports public members from
+an exact NuGet.org package version and target framework. With Workspace input,
+it preserves the complete environment and captures the resolved occurrence,
+Library, Type and Member anchor. An unqualified overload group or unsupported
+semantic choice preserves ordinary output but refuses Share with a nonzero
+exit and no partial scalar. Presentation such as `--json` remains independent.
 
 `depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
 projects the package Dependencies view without acquiring the package or
