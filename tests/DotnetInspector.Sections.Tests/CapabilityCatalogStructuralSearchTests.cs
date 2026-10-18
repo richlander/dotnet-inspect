@@ -132,44 +132,105 @@ public sealed class CapabilityCatalogStructuralSearchTests
     }
 
     [Fact]
-    public void StructuralPathMustResolveInTheExactExplanationCatalog()
+    public void EveryCandidatePathResolvesInTheStructuralExplanation()
     {
-        ResourceExplanationCatalog structural = Structural();
-        ResourceExplanationCatalog other = Structural("package");
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+        ResourceExplanationCatalog explanation =
+            ResourceExplanationCatalog.CreateStructural(document, paths);
 
-        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+        CapabilityCatalogSearchDocument search =
             CapabilityCatalogSearch.Search(
-                EmptyCapabilities(),
-                ResourceExplanationCatalog.Combine([other]),
-                [Admit(structural)],
-                new("unsafe")));
-        Assert.Contains("does not resolve", exception.Message);
+                    EmptyCapabilities(),
+                    EmptyExplanation(),
+                    [Admit(document, paths)],
+                    // The catalog route name is a term of every candidate.
+                    new("library", CapabilityCatalogSearchRequest
+                        .MaximumResultLimit))
+                .Content;
+
+        Assert.Equal(4, search.Results.Length);
+        foreach (CapabilityCatalogSearchResult result in search.Results)
+        {
+            Assert.IsType<ResourcePathResolution.Resolved>(
+                explanation.Resolve(result.ResourcePath));
+        }
     }
 
     [Fact]
-    public void ExplainedStructuralCatalogMustBeAdmitted()
+    public void StructuralResourceRequiresAPathRegistration()
     {
-        ResourceExplanationCatalog structural = Structural();
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
 
         ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            CapabilityCatalogSearch.Search(
-                EmptyCapabilities(),
-                ResourceExplanationCatalog.Combine([structural]),
-                [],
-                new("unsafe")));
-        Assert.Contains("not admitted", exception.Message);
+            Search(
+                Admit(
+                    document,
+                    [
+                        .. paths.Where(static path =>
+                            path.Identity != UnsafeMembers),
+                    ]),
+                "unsafe"));
+        Assert.Contains("has no path registration", exception.Message);
+    }
+
+    [Fact]
+    public void StructuralPathRegistrationRequiresADiscoveryResource()
+    {
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            Search(
+                Admit(
+                    document,
+                    [
+                        .. paths,
+                        new(
+                            new DiscoveryResourceIdentity(
+                                DiscoveryResourceKind.Section,
+                                "Phantom"),
+                            new ResourcePath("library/sections/phantom")),
+                    ]),
+                "unsafe"));
+        Assert.Contains("no Discovery resource", exception.Message);
+    }
+
+    [Fact]
+    public void StructuralPathMustBeUnderTheCatalogRoot()
+    {
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            Search(
+                Admit(
+                    document,
+                    [
+                        .. paths.Select(static path =>
+                            path.Identity == UnsafeMembers
+                                ? new StructuralResourcePathRegistration(
+                                    path.Identity,
+                                    new ResourcePath(
+                                        "package/sections/unsafe-members"))
+                                : path),
+                    ]),
+                "unsafe"));
+        Assert.Contains("is not under catalog root", exception.Message);
     }
 
     [Fact]
     public void StructuralCatalogIsAdmittedOnce()
     {
-        ResourceExplanationCatalog structural = Structural();
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
 
         ArgumentException exception = Assert.Throws<ArgumentException>(() =>
             CapabilityCatalogSearch.Search(
                 EmptyCapabilities(),
-                ResourceExplanationCatalog.Combine([structural]),
-                [Admit(structural), Admit(structural)],
+                EmptyExplanation(),
+                [Admit(document, paths), Admit(document, paths)],
                 new("unsafe")));
         Assert.Contains("more than once", exception.Message);
     }
@@ -177,23 +238,24 @@ public sealed class CapabilityCatalogStructuralSearchTests
     [Fact]
     public void StructuralRoutePathMustBeTheCatalogRoot()
     {
-        ResourceExplanationCatalog structural = Structural();
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
 
         ArgumentException exception = Assert.Throws<ArgumentException>(() =>
-            CapabilityCatalogSearch.Search(
-                EmptyCapabilities(),
-                ResourceExplanationCatalog.Combine([structural]),
-                [Admit(structural, root: "package")],
-                new("unsafe")));
+            Admit(document, paths, root: "package"));
         Assert.Contains("is not the root", exception.Message);
     }
 
     [Fact]
     public void StructuralRouteAndBindingShareTheCatalogRoot()
     {
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+
         Assert.Throws<ArgumentException>(() =>
             new CapabilityCatalogSearchStructuralCatalog(
-                Structural(),
+                document,
+                paths,
                 new("test/library-catalog", "library", "library"),
                 new(
                     "test/library-sections",
@@ -205,23 +267,40 @@ public sealed class CapabilityCatalogStructuralSearchTests
 
     private static CapabilityCatalogSearchDocument Search(string text)
     {
-        ResourceExplanationCatalog structural = Structural();
-        return CapabilityCatalogSearch.Search(
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+        return Search(Admit(document, paths), text);
+    }
+
+    private static CapabilityCatalogSearchDocument Search(
+        CapabilityCatalogSearchStructuralCatalog catalog,
+        string text) =>
+        CapabilityCatalogSearch.Search(
                 EmptyCapabilities(),
-                ResourceExplanationCatalog.Combine([structural]),
-                [Admit(structural)],
+                EmptyExplanation(),
+                [catalog],
                 new(text))
             .Content;
-    }
 
     private static InspectionCapabilityCatalog EmptyCapabilities() =>
         InspectionCapabilityCatalog.Create([]);
 
+    // Search resolves only capability paths in its explanation catalog;
+    // with no capabilities, any catalog serves.
+    private static ResourceExplanationCatalog EmptyExplanation()
+    {
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+        return ResourceExplanationCatalog.CreateStructural(document, paths);
+    }
+
     private static CapabilityCatalogSearchStructuralCatalog Admit(
-        ResourceExplanationCatalog catalog,
+        DiscoveryDocument document,
+        IEnumerable<StructuralResourcePathRegistration> paths,
         string root = "library") =>
         new(
-            catalog,
+            document,
+            paths,
             new($"test/{root}-catalog", root, root),
             new(
                 $"test/{root}-sections",
@@ -230,11 +309,13 @@ public sealed class CapabilityCatalogStructuralSearchTests
                 "library -S",
                 root));
 
-    // The fixture catalog under a chosen root; a second root gives a
-    // catalog whose paths do not resolve the library fixture's resources.
-    private static ResourceExplanationCatalog Structural(
-        string root = "library")
+    // The fixture's Discovery projection and its path registrations: the
+    // inputs a host creates its structural explanation catalog from.
+    private static (
+        DiscoveryDocument Document,
+        StructuralResourcePathRegistration[] Paths) Structural()
     {
+        const string root = "library";
         var document = new DiscoveryDocument(
             root,
             [
@@ -267,7 +348,7 @@ public sealed class CapabilityCatalogStructuralSearchTests
                 isCatalog: true,
                 addressedResources: [],
                 rows: [Audit, UnsafeMembers, LibraryMetrics, Undeclared]));
-        return ResourceExplanationCatalog.CreateStructural(
+        return (
             document,
             [
                 new(Audit, new ResourcePath($"{root}/categories/audit")),

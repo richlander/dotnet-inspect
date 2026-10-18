@@ -995,6 +995,54 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
+    // Search reads the structural projections without building their
+    // explanation graphs, so this witnesses the wiring: every admitted path
+    // resolves in the exact catalog to its section or category, and every
+    // explained section or category is admitted.
+    [Fact]
+    public void StructuralSearchCatalogs_MatchTheExactExplanationCatalog()
+    {
+        ResourceExplanationCatalog complete =
+            ResourceExplanationCommand.CreateCompleteCatalog()!;
+        var admitted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (CapabilityCatalogSearchStructuralCatalog catalog
+                 in ResourceExplanationCommand
+                     .CreateStructuralSearchCatalogs()!.Value)
+        {
+            foreach (StructuralResourcePathRegistration registration
+                     in catalog.Paths.Where(static path =>
+                         path.Identity.Kind
+                             is DiscoveryResourceKind.Section
+                             or DiscoveryResourceKind.Category))
+            {
+                var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+                    complete.Resolve(registration.Path.Value));
+                Assert.Equal(
+                    StructuralType(registration.Identity.Kind),
+                    resolved.Key.ResourceType.Value);
+                Assert.True(admitted.Add(registration.Path.Value));
+            }
+        }
+
+        string[] explained =
+        [
+            .. complete.Resources
+                .Where(static resource =>
+                    resource.Key.ResourceType.Value
+                        is "structural-section" or "structural-category")
+                .Select(static resource => resource.Path!.Value),
+        ];
+        Assert.NotEmpty(explained);
+        Assert.Equal(
+            explained.Order(StringComparer.Ordinal),
+            admitted.Order(StringComparer.Ordinal));
+
+        static string StructuralType(DiscoveryResourceKind kind) =>
+            kind == DiscoveryResourceKind.Section
+                ? "structural-section"
+                : "structural-category";
+    }
+
     [Fact]
     public async Task Literal_SearchesCapabilitiesAndReturnsAnExactPath()
     {

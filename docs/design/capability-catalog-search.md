@@ -259,16 +259,18 @@ catalog:
 
 ```text
 CapabilityCatalogSearchStructuralCatalog
-  Explanation         structural ResourceExplanationCatalog
+  Document            structural Discovery projection
+  Paths               structural resource path registrations
   Route               identity, name, and catalog root ResourcePath
   Binding             identity, name, consumer kind, and gesture
 ```
 
 Each entry is admissible only when all three hold:
 
-1. its Explanation is the structural Resource Explanation catalog projected
-   from one registered structural route, the same catalog the host resolves
-   for exact explanation;
+1. its Document and Paths are the Discovery projection and path registrations
+   of one registered structural route, the same inputs the host creates that
+   route's structural Resource Explanation catalog from for exact
+   explanation;
 2. its Route is that registered route, and its ResourcePath is the
    catalog root path that Resource Explanation issues for that catalog; and
 3. its Binding is the host's production gesture that selects a section or
@@ -279,6 +281,16 @@ from its own command grammar, for example `library -S` in the CLI. Search
 does not compose a command line from the gesture and a resource name. The
 result keeps the gesture and the resource name as separate values, and a host
 may lower them together into a copyable command.
+
+Search reads the Document and Paths directly and does not create or combine
+the structural Resource Explanation catalogs. Those catalogs hold every item
+and navigation collection and validate every snapshot against its schema.
+In a NativeAOT CLI, a search that created and combined all six took 75 ms;
+reading the projections takes 41 ms, against 32 ms with no structural
+population. Because the entry and the exact
+catalog share their inputs, a search path is the path exact explanation
+resolves. That equivalence, and that every explained catalog is admitted, are
+host wiring invariants with host tests, not checks repeated on every search.
 
 From each admitted catalog, search takes the Section and Category resources.
 Structural items, item collections, navigation collections, and the catalog
@@ -538,8 +550,8 @@ CapabilityCatalogSearch.Search(
   -> InspectionEnvelope<CapabilityCatalogSearchDocument>
 ```
 
-`explanationCatalog` is then the host's combined exact-explanation catalog,
-which resolves both families' paths. The three-argument form searches an
+`explanationCatalog` resolves the capability family's paths; the structural
+family's paths come from its entries. The three-argument form searches an
 empty structural population.
 
 The operation is synchronous because it consumes a settled in-memory catalog
@@ -707,8 +719,9 @@ Catalog construction failure remains a typed operation failure. Search does
 not skip malformed resources, duplicate identities, missing paths, dangling
 routes, or invalid production bindings and then claim a complete population.
 The same rule covers a structural entry whose Route path is not its catalog
-root, two entries for the same catalog, and a structural resource whose path
-does not resolve in the host's exact-explanation catalog to that resource.
+root, two entries for the same catalog, a Section or Category with no path
+registration or more than one, a registration with no Discovery resource, and
+a path outside its catalog root.
 
 Cancellation is not required for the first synchronous bounded operation. If
 later catalog scale requires cancellation, the operation must distinguish
@@ -726,7 +739,7 @@ publish a partially ranked prefix as complete.
 | A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
 | Search terms use owner-issued fields rather than adapter-authored explanation prose | Implemented: bounded-result regression proving generic Query Space and consumer-binding summaries do not participate |
 | A host searches every composed capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
-| A host searches every structural catalog it explains | Implemented: search construction fails when an explained structural resource is not admitted, and a CLI facade theory finds a result under each of the six roots |
+| A host searches every structural catalog it explains | Implemented: a CLI wiring test proves every Section and Category of the complete `explain` catalog is admitted, and a CLI facade theory finds a result under each of the six roots |
 | Ranking is independent of registration order | Implemented: permutation test over equivalent composed catalogs |
 | Equal scores use provenance, complete-versus-segment, and path tie-breakers | Implemented: focused ordering tests over production and bounded synthetic capability graphs |
 | Search evaluates the complete available population before applying the result bound | Implemented: result-count and truncation test |
@@ -743,7 +756,7 @@ publish a partially ranked prefix as complete.
 | Capability search has an available portable Browser Share | Pending: the first adoption reports `InspectionShare.NonProjectable` explicitly |
 | `metrics`, `unsafe`, `leverage`, and `families` reach the Library sections that own them | Implemented: CLI facade theory that also follows each returned path through exact explanation |
 | A structural section's Summary participates and its Basis, Empty, Boundary, and columns do not | Implemented: host-neutral term-provenance tests |
-| Every structural result path resolves to the same Discovery resource in the exact-explanation catalog | Implemented: search construction resolves every admitted structural path in the combined catalog and rejects a mismatch; host-neutral rejection tests |
+| Every structural result path resolves to the same Discovery resource in the exact-explanation catalog | Implemented: a CLI wiring test resolves every admitted path in the complete `explain` catalog to its Section or Category type, a host-neutral test resolves every candidate in the structural catalog created from the same inputs, and host-neutral rejection tests cover the entry checks |
 | The structural population covers every Section and Category of each admitted catalog and no item, root, or collection | Implemented: host-neutral candidate-count test over a catalog with a column item |
 | Structural search acquires nothing and runs no producer | Implemented: the CLI acquisition seam test runs a structural match |
 

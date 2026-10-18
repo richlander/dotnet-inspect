@@ -297,7 +297,9 @@ public sealed class ResourceExplanationCatalog
         ResourcePath catalogPath = new(document.Catalog);
         ValidateStructuralPaths(document, catalogPath, paths);
         ExplanationResourceKey catalogKey =
-            StructuralCatalogKey(document.Catalog);
+            ResourceExplanationVocabulary.Key(
+                ResourceExplanationVocabulary.CatalogType,
+                Pack(document.Catalog));
         ExplanationResourceKey categoriesKey =
             NavigationKey(document.Catalog, "catalog-categories");
         ExplanationResourceKey sectionsKey =
@@ -308,9 +310,9 @@ public sealed class ResourceExplanationCatalog
         var keys =
             document.Resources.ToDictionary(
                 static resource => resource.Identity,
-                resource => StructuralKey(
-                    document.Catalog,
-                    resource.Identity));
+                resource => ResourceExplanationVocabulary.Key(
+                    StructuralType(resource.Identity.Kind),
+                    StructuralIdentity(document.Catalog, resource.Identity)));
         var itemCollectionKeys =
             new Dictionary<
                 DiscoveryResourceIdentity,
@@ -1970,19 +1972,6 @@ public sealed class ResourceExplanationCatalog
         new(
             InspectionCapabilityResourceKind.ConsumerBinding,
             binding.Descriptor.Identity);
-
-    internal static ExplanationResourceKey StructuralCatalogKey(
-        string catalog) =>
-        ResourceExplanationVocabulary.Key(
-            ResourceExplanationVocabulary.CatalogType,
-            Pack(catalog));
-
-    internal static ExplanationResourceKey StructuralKey(
-        string catalog,
-        DiscoveryResourceIdentity identity) =>
-        ResourceExplanationVocabulary.Key(
-            StructuralType(identity.Kind),
-            StructuralIdentity(catalog, identity));
 
     internal static ExplanationResourceKey CapabilityKey(
         InspectionCapabilityResourceIdentity identity) =>
