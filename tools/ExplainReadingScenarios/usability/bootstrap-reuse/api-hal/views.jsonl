@@ -1,0 +1,7 @@
+{"source": "bootstrap/reuse skill prototype (hal)", "operation": "guide", "file": "view-01.txt", "bytes": 3641, "sha256": "933450b72b39987a3f7dbc5a6416d20c0b6c8dc51dcfd16eef021c26c2c0a7c8"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3307, "sha256": "bb9827a9710b3f84fb446d94fd2690870bf325f951b8caee3e4fb5cf071f122a"}
+{"source": "response-02.out", "operation": "jq: keys", "file": "view-03.txt", "bytes": 14, "sha256": "75064a7bf5bb1f71ed68f579b270af91ca536d23fa443ad3c4e1a1dbbb917171"}
+{"source": "response-02.out", "operation": "jq: .[0], (.[1] | keys)", "file": "view-04.txt", "bytes": 3074, "sha256": "efa57816df4093770d0c9ee11475036b10ec574fe1c999d2e5959953371bd7d0"}
+{"source": "response-02.out", "operation": "jq: map({method,class,extended_type,library,overloads,source,source_version})", "file": "view-05.txt", "bytes": 1444, "sha256": "9df5575ec5cbb2a56836496b0ad3d0aa0fff9802f635031c7c3f944f4b80f420"}
+{"source": "response-03.out", "operation": "jq: map({method,class,extended_type,library,signatures,source,source_version})", "file": "view-06.txt", "bytes": 2373, "sha256": "0736f07967c88fd3294f0ffaf55c44fa63f551ac52149c5c5965cf7625c77111"}
+{"source": "response-02.out", "operation": "jq: [.[] | select(.method == \"GetFromJsonAsync\" or .method == \"PostAsJsonAsync\") | {method,class,extended_type,library,signatures,source,source_version}]", "file": "view-07.txt", "bytes": 4707, "sha256": "0d6a0fc22190c003a9ece5a7e34614a2a5a4880c599968a5f7a47c55f015dced"}
