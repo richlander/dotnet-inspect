@@ -174,14 +174,16 @@ document only states that each step names its axes.
    4 of [Diff observability](diff-observability.md#rules) to Exists, without
    rule 4's allowance for a known divergence.
 3. **Undecided is never read either way.** A subject whose facts Exists cannot
-   read before it decides is `Indeterminate`, as Fast Diff defines it; Exists
-   never reports `Unchanged` for it. Exists stops at the first difference, so
-   it may report `Changed` for a subject whose later content the complete diff
-   cannot decode, such as a body that differs and then holds an undefined
-   opcode. For that subject, the complete diff's visible decode-failure view,
-   the failed inspection the [IL diff](il-diff-canonicalization.md) reports
-   for an endpoint it cannot decode, satisfies rule 2: the view is not empty,
-   and it does not claim the subject is unchanged.
+   read before it decides is `Indeterminate`; Exists never reports `Unchanged`
+   for it. Exists stops at the first difference, so it may report `Changed`
+   for a subject whose later content the complete diff cannot decode, such as
+   a body that differs and then holds an undefined opcode.
+
+   This is the one bounded exception to rule 2: for that subject, the complete
+   diff's visible decode-failure view, the failed inspection the
+   [IL diff](il-diff-canonicalization.md) reports for an endpoint it cannot
+   decode, stands in for a difference. The view is not empty, and it does not
+   claim the subject is unchanged.
 
 Rung 4 is read for these rules under each axis's policy, such as the Body
 policy's assembly-scope normalization
@@ -292,6 +294,19 @@ facts or models for the Types and Members a user opens, or once per version
 when a host retains maps. The numeric rule
 is the gate for replacing a provision.
 
+## Changes to consumed owners
+
+Adopting this design changes these consumed owners' rules, each in the
+adoption step named:
+
+| Owner | Rule today | Change | Step |
+| --- | --- | --- | --- |
+| [API population scope](api-population-scope.md) | API Diff keeps its existing visibility behavior | The API axis compares the `public` and `protected` buckets, less `private protected`, with hidden declarations admitted | 1 |
+| [Fast Diff](fast-diff.md#axes) | Non-public metadata and `beforefieldinit` are not compared; hidden subjects make differences uncertain | Body compares declaration and implementation facts; hidden is an API facet | 1 |
+| [Fast Diff](fast-diff.md#type) | The Type level is not run for a one-sided Type | It runs, with each row `Changed` and one-sided | 1 |
+| [Fast Diff](fast-diff.md#axes) | A body that cannot be decoded is `Indeterminate`, never a difference, and the Body exactness gate expects `Indeterminate` for a decode failure | Narrowed to content read before Exists decides, as rule 3 states | 1 |
+| [Annotated Type Map](annotated-type-map.md) | A private field is never listed | Non-public declarations are Body rows | 1 |
+
 ## Adoption
 
 Each step is its own focused effort:
@@ -322,9 +337,8 @@ Each step is its own focused effort:
 
 ## Gates
 
-- **Unchanged is exact:** over the Fast Diff fixtures and the six measured pairs,
-  every
-  subject Exists reports `Unchanged` on an axis has no difference in the
+- **Unchanged is exact:** over the Fast Diff fixtures and the six measured
+  pairs, every subject Exists reports `Unchanged` on an axis has no difference in the
   complete diff on that axis.
 - **Changed is observable:** every subject Exists reports `Changed` has at
   least one difference in the complete diff on that axis, or, for a fixture
