@@ -354,11 +354,14 @@ static string Classify(FastDiffState mine, BodyVerdict oracle, FastDiffState? fa
     if (mine == FastDiffState.Changed && fast == FastDiffState.Unchanged)
         return oracle.Reason is { } r && (r.StartsWith("method with body", StringComparison.Ordinal) || r.StartsWith("body on one side", StringComparison.Ordinal))
             ? "#10223 one-sided method body not counted by Fast Diff"
-            : "fast-miss(other)";
+            : oracle.Reason?.StartsWith("IL(calli only)", StringComparison.Ordinal) == true
+                ? "#9801 calli stand-alone signature (complete IL diff over-reports; B1 inherits it)"
+                : "fast-miss(other)";
     if (mine == FastDiffState.Unchanged && fast == FastDiffState.Changed)
     {
         string fr = fastReason ?? "";
-        if (fr.Contains("IL", StringComparison.Ordinal) || fr.Contains("body", StringComparison.OrdinalIgnoreCase))
+        string head = Bucket(fr);
+        if (head.StartsWith("IL", StringComparison.Ordinal) || head.Contains("body", StringComparison.OrdinalIgnoreCase))
             return "#10196 Fast Diff raw walker: encoding-level body fact (" + Bucket(fr) + ")";
         return "#10196 Fast Diff Body census: non-IL fact (" + Bucket(fr) + ")";
     }
