@@ -1,4 +1,5 @@
 import { assertNever } from "./data.ts";
+import { containedDocumentFragmentHtml } from "./contained-document.ts";
 import type { PackageDocumentTitle, OpenDocumentViewerState } from "./document-inspection.ts";
 import type { InspectedPackageDocument } from "./package-acquisition.ts";
 
@@ -97,14 +98,7 @@ export function renderDocViewer(options: RenderDocViewerOptions): string {
         `<div class="doc-viewer-status">Loading ${escapeHtml(document.name)}…</div>`;
       break;
     case "ready": {
-      const metaCard = state.meta
-        ? `<div class="doc-frontmatter">
-        <div class="doc-fm-head"><strong>${state.meta.nameHtml}</strong>${state.meta.versionHtml ? `<span class="doc-fm-version">v${state.meta.versionHtml}</span>` : ""}</div>
-        ${state.meta.descriptionHtml ? `<p class="doc-fm-desc">${state.meta.descriptionHtml}</p>` : ""}
-      </div>`
-        : "";
-      body =
-        `${metaCard}<article class="markdown-body">${state.html}</article>`;
+      body = containedDocumentFragmentHtml(state.fragment);
       break;
     }
     case "failed":
