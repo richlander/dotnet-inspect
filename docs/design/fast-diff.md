@@ -115,15 +115,18 @@ A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
 is a Body difference, as canonical comparison's endpoint topology reports it
 (`NoApplicableInput`). A body that cannot be decoded or an operand that cannot
-be resolved, before the walk finds a difference, is `Indeterminate`, never a
+be resolved, before the walk decides a difference, is `Indeterminate`, never a
 difference or equality.
 
 An opcode that ECMA-335 does not define cannot be stepped over safely, so it
 makes the Body axis `Indeterminate` rather than comparing as equal. The walk
-stops at the first difference, so content after it is never read: a body that
-differs and then holds an undefined opcode is `Changed`, and its view is the
-complete diff's visible decode failure, as
-[Diff capabilities](diff-capabilities.md#the-exists-contract) states.
+stops at the first difference it decides, so content after that point is never
+read: a body whose walk decides a difference before it reaches an undefined
+opcode is `Changed`, and its view is the complete diff's visible decode
+failure, as [Diff capabilities](diff-capabilities.md#the-exists-contract)
+states. A branch or switch target is decided only once the body's instruction
+map is complete, so a body whose first difference is a target and that holds
+an undefined opcode is `Indeterminate`.
 
 Neither axis's facts are configurable. A caller can ask for the API axis alone;
 every Body state is then `NotCompared` and no IL is read. A method with a body
@@ -263,10 +266,9 @@ Fast Diff follows it; the axis never keeps a private exception.
 - Body exactness: every method pair's Body verdict equals canonical IL
   comparison's endpoint verdict under the Body policy over the same fixture
   pairs: `Exact` is `Unchanged`, a body on one side only or any other verdict
-  is `Changed`, and a decode or resolution failure before the first difference
+  is `Changed`, and a decode or resolution failure before the walk decides a difference
   is `Indeterminate`, with fixture cases for an `abstract` method made
-  `virtual`, a default interface implementation added, and a body that differs
-  and then holds an undefined opcode, which is `Changed`;
+  `virtual` and a default interface implementation added;
 - dependency versions: a generated image pair whose only difference is the
   version of a non-platform referenced assembly is Body `Unchanged` for every
   Type; and
@@ -286,7 +288,9 @@ a function pointer returning a pointer and a pointer to a function pointer, an
 attribute moved from a backing field to its event, a switch between external
 vararg overloads, duplicate Type names and duplicate generated Type names, a
 caller switching between two compiler-controlled methods or between methods of
-two Type rows of one name, and undefined one-byte and two-byte opcodes. The same
+two Type rows of one name, undefined one-byte and two-byte opcodes, and an
+undefined opcode after a difference the walk decides first, which is `Changed`.
+The same
 class checks that the stored UTF-8 of every System.Private.CoreLib Type, method,
 and field name equals the encoding of its decoded name.
 
