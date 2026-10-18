@@ -10,6 +10,7 @@ import {
   type PackageInspectionDependencies,
   type PackageInspectionState,
   type PackageIntegrationsState,
+  type PackageMetadataState,
   type PackageOpportunitiesState,
   type PackagePerformance,
   type PackageResourceTriage,
@@ -105,10 +106,7 @@ function inspectionState(
     packageLibraryDependencyStructureLoading: false,
     packageLibraryDependencyStructureError: "",
     packageLibraryDependencyStructureKey: "",
-    packageMetadata: null,
-    packageMetadataLoading: false,
-    packageMetadataError: "",
-    packageMetadataKey: "",
+    packageMetadata: { status: "idle" },
     ...overrides,
   };
 }
@@ -403,6 +401,29 @@ function metadataFailureResult(): PackageMetadata {
     inspectionError: "all metadata reads failed",
   };
 }
+
+test("package metadata state distinguishes loading, evidence, and failure at compile time", () => {
+  const result = metadataResult();
+  const loadingWithResult: PackageMetadataState = {
+    status: "loading",
+    request: { key: "current" },
+    // @ts-expect-error A loading request cannot also carry metadata evidence.
+    result,
+  };
+  const readyWithError: PackageMetadataState = {
+    status: "ready",
+    key: "current",
+    result,
+    // @ts-expect-error Ready metadata cannot also carry a complete-failure diagnostic.
+    error: "failure",
+  };
+  // @ts-expect-error A failed metadata request always carries its visible diagnostic.
+  const failedWithoutError: PackageMetadataState = {
+    status: "failed",
+    key: "current",
+  };
+  void [loadingWithResult, readyWithError, failedWithoutError];
+});
 
 function libraryDependencyStructureResult() {
   return {
@@ -997,10 +1018,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "metadata",
       cached: metadata,
       state: inspectionState({
-        packageMetadataKey: "cached",
-        packageMetadata: metadata,
+        packageMetadata: {
+          status: "ready",
+          key: "cached",
+          result: metadata,
+        },
       }),
-      read: (state: PackageInspectionState) => state.packageMetadata,
+      read: (state: PackageInspectionState) =>
+        state.packageMetadata.status === "ready"
+          ? state.packageMetadata.result
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadMetadata(packageItem, "cached", null),
     },
@@ -1123,24 +1150,6 @@ test("scalar-field package lenses preserve lifecycle and ownership across invali
     readError: state => state.packageResourceTriageError,
     setKey: (state, key) => { state.packageResourceTriageKey = key; },
     setError: (state, error) => { state.packageResourceTriageError = error; },
-  });
-  await verifyPackageLensLifecycle({
-    name: "metadata",
-    result: metadataResult(),
-    cachesFailure: false,
-    createCoordinator: (state, query, render = () => {}) =>
-      createPackageInspectionCoordinator(
-        inspectionDependencies(state, {
-          queryPackageMetadata: async () => query(),
-          render,
-        })),
-    load: (coordinator, signature) =>
-      coordinator.loadMetadata(packageItem, signature, null),
-    readResult: state => state.packageMetadata,
-    readLoading: state => state.packageMetadataLoading,
-    readError: state => state.packageMetadataError,
-    setKey: (state, key) => { state.packageMetadataKey = key; },
-    setError: (state, error) => { state.packageMetadataError = error; },
   });
 });
 
@@ -1440,9 +1449,18 @@ test("metadata requests suppress duplicates and preserve unique ownership", asyn
     }));
 
   const firstALoad = coordinator.loadMetadata(packageItem, "A", null);
+  assert.equal(state.packageMetadata.status, "loading");
+  const firstRequest = state.packageMetadata.status === "loading"
+    ? state.packageMetadata.request
+    : null;
+  assert.ok(firstRequest);
   const duplicateALoad = coordinator.loadMetadata(packageItem, "A", null);
   assert.equal(queries, 1);
   await duplicateALoad;
+  assert.deepEqual(state.packageMetadata, {
+    status: "loading",
+    request: firstRequest,
+  });
 
   const bLoad = coordinator.loadMetadata(packageItem, "B", null);
   const newestALoad = coordinator.loadMetadata(packageItem, "A", null);
@@ -1454,13 +1472,19 @@ test("metadata requests suppress duplicates and preserve unique ownership", asyn
   firstA.reject(new Error("stale A failure"));
   await firstALoad;
 
-  assert.strictEqual(state.packageMetadata, newest);
-  assert.equal(state.packageMetadataError, "");
-  assert.equal(state.packageMetadataLoading, false);
+  assert.deepEqual(state.packageMetadata, {
+    status: "ready",
+    key: "A",
+    result: newest,
+  });
 
   b.resolve(metadataResult());
   await bLoad;
-  assert.strictEqual(state.packageMetadata, newest);
+  assert.deepEqual(state.packageMetadata, {
+    status: "ready",
+    key: "A",
+    result: newest,
+  });
 });
 
 test("all-failed metadata results remain visible and retryable", async () => {
@@ -1477,14 +1501,55 @@ test("all-failed metadata results remain visible and retryable", async () => {
 
   await coordinator.loadMetadata(packageItem, "metadata", null);
 
-  assert.equal(state.packageMetadata, null);
-  assert.equal(state.packageMetadataError, "all metadata reads failed");
-  assert.equal(state.packageMetadataLoading, false);
+  assert.deepEqual(state.packageMetadata, {
+    status: "failed",
+    key: "metadata",
+    error: "all metadata reads failed",
+  });
 
   await coordinator.loadMetadata(packageItem, "metadata", null);
 
   assert.equal(queries, 2);
-  assert.equal(state.packageMetadataError, "all metadata reads failed");
+  assert.deepEqual(state.packageMetadata, {
+    status: "failed",
+    key: "metadata",
+    error: "all metadata reads failed",
+  });
+});
+
+test("partial metadata remains ready while empty thrown diagnostics stay visible", async () => {
+  const packageItem = packageModel({
+    id: "System.Text.Json",
+    version: "10.0.0",
+  });
+  const partial: PackageMetadata = {
+    assemblies: [{ assembly: "Example.Package.dll" }],
+    inspectionError: "one image could not be read",
+  };
+  let next: "partial" | "failure" = "partial";
+  const state = inspectionState();
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryPackageMetadata: async () => {
+        if (next === "partial") return partial;
+        throw new Error("");
+      },
+    }));
+
+  await coordinator.loadMetadata(packageItem, "partial", null);
+  assert.deepEqual(state.packageMetadata, {
+    status: "ready",
+    key: "partial",
+    result: partial,
+  });
+
+  next = "failure";
+  await coordinator.loadMetadata(packageItem, "failure", null);
+  assert.deepEqual(state.packageMetadata, {
+    status: "failed",
+    key: "failure",
+    error: "Metadata inspection failed.",
+  });
 });
 
 test("stale package lens rejection cannot overwrite newer state", async () => {
@@ -1551,10 +1616,10 @@ test("invalidation clears package results, failures, keys, and loads without cha
     packagePerformanceLoading: true,
     packagePerformanceError: "performance failure",
     packagePerformanceKey: "performance",
-    packageMetadata: metadataResult(),
-    packageMetadataLoading: true,
-    packageMetadataError: "metadata failure",
-    packageMetadataKey: "metadata",
+    packageMetadata: {
+      status: "loading",
+      request: { key: "metadata" },
+    },
     workspaceDependencyLoads: new Set([key]),
   });
   const coordinator = createPackageInspectionCoordinator(
@@ -2096,7 +2161,11 @@ test("scoped package lenses route platform coordinates and suppress stale result
   await coordinator.loadPerformance(packageItem, "performance", null);
   const metadataLoad =
     coordinator.loadMetadata(packageItem, "metadata-first", null);
-  state.packageMetadataKey = "metadata-second";
+  const replacementRequest = { key: "metadata-second" };
+  state.packageMetadata = {
+    status: "loading",
+    request: replacementRequest,
+  };
   metadata.resolve(metadataResult());
   await metadataLoad;
 
@@ -2111,8 +2180,10 @@ test("scoped package lenses route platform coordinates and suppress stale result
   assert.equal(state.packagePerformance, null);
   assert.equal(state.packagePerformanceError, "analysis unavailable");
   assert.equal(state.packagePerformanceLoading, false);
-  assert.equal(state.packageMetadata, null);
-  assert.equal(state.packageMetadataLoading, true);
+  assert.deepEqual(state.packageMetadata, {
+    status: "loading",
+    request: replacementRequest,
+  });
 });
 
 test("all scoped runtime package lenses route exact platform coordinates", async () => {
@@ -2258,18 +2329,23 @@ test("package lens results clear before a different request completes", async ()
   {
     const query = deferred<PackageMetadata>();
     const state = inspectionState({
-      packageMetadataKey: "old",
-      packageMetadata: metadataResult(),
+      packageMetadata: {
+        status: "ready",
+        key: "old",
+        result: metadataResult(),
+      },
     });
     const coordinator = createPackageInspectionCoordinator(
       inspectionDependencies(state, {
         queryPackageMetadata: async () => query.promise,
       }));
     const load = coordinator.loadMetadata(packageItem, "new", null);
-    assert.equal(state.packageMetadata, null);
-    assert.equal(state.packageMetadataLoading, true);
-    query.resolve(metadataResult());
-    await load;
+      assert.equal(state.packageMetadata.status, "loading");
+      if (state.packageMetadata.status === "loading") {
+        assert.equal(state.packageMetadata.request.key, "new");
+      }
+      query.resolve(metadataResult());
+      await load;
   }
 });
 
@@ -2374,7 +2450,7 @@ test("runtime package lenses wait for an explicit library scope", async () => {
   assert.deepEqual(state.packageIntegrations, { status: "idle" });
   assert.deepEqual(state.packageOpportunities, { status: "idle" });
   assert.equal(state.packagePerformanceKey, "");
-  assert.equal(state.packageMetadataKey, "");
+  assert.deepEqual(state.packageMetadata, { status: "idle" });
 });
 
 function resourceTriageResult(): PackageResourceTriage {

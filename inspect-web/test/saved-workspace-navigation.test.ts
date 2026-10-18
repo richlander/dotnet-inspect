@@ -43,10 +43,12 @@ import {
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import {
   normalizePackageIntegrationsSnapshot,
+  normalizePackageMetadataSnapshot,
   normalizePackageOpportunitiesSnapshot,
   normalizePackageVulnerabilitySnapshot,
   workspaceDependencyKey,
   type PackageIntegrationsState,
+  type PackageMetadataState,
   type PackageOpportunitiesState,
   type PackageVulnerabilityState,
 } from "../src/package-inspection.ts";
@@ -421,6 +423,9 @@ function harness() {
     packageOpportunities: {
       status: "idle",
     } as PackageOpportunitiesState,
+    packageMetadata: {
+      status: "idle",
+    } as PackageMetadataState,
     dependenciesGroupIndex: null as number | null,
     accessibilityFilter: new Set(["public"]),
     memberAnnotatedEmbedded: null, memberAnnotatedModal: null,
@@ -655,6 +660,7 @@ function harness() {
     normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
     normalizePackageIntegrationsSnapshot,
+    normalizePackageMetadataSnapshot,
     normalizePackageOpportunitiesSnapshot,
     normalizePackageVulnerabilitySnapshot,
     normalizeSourceResultSnapshot,
@@ -1080,6 +1086,10 @@ test("capture settles a loading document viewer without claiming ready content",
     status: "loading",
     request: { key: "package-opportunities" },
   };
+  h.state.packageMetadata = {
+    status: "loading",
+    request: { key: "package-metadata" },
+  };
   h.state.typeSource = {
     status: "failed",
     signature: "type",
@@ -1099,6 +1109,7 @@ test("capture settles a loading document viewer without claiming ready content",
     && "memberGroupDocumentLoading" in snapshotState
     && "memberGroupDocumentKey" in snapshotState
     && "packageIntegrations" in snapshotState
+    && "packageMetadata" in snapshotState
     && "packageOpportunities" in snapshotState
     && "packageVulnerabilities" in snapshotState
     && "typeSource" in snapshotState);
@@ -1125,6 +1136,10 @@ test("capture settles a loading document viewer without claiming ready content",
     && typeof snapshotState.packageOpportunities === "object"
     && "status" in snapshotState.packageOpportunities);
   assert.equal(snapshotState.packageOpportunities.status, "idle");
+  assert.ok(snapshotState.packageMetadata !== null
+    && typeof snapshotState.packageMetadata === "object"
+    && "status" in snapshotState.packageMetadata);
+  assert.equal(snapshotState.packageMetadata.status, "idle");
   assert.deepEqual(snapshotState.typeSource, h.state.typeSource);
   assert.equal(h.state.docViewer.status, "loading");
   assert.deepEqual(
@@ -1150,6 +1165,10 @@ test("capture settles a loading document viewer without claiming ready content",
       h.state.packageOpportunities.request.key,
       "package-opportunities");
   }
+  assert.equal(h.state.packageMetadata.status, "loading");
+  if (h.state.packageMetadata.status === "loading") {
+    assert.equal(h.state.packageMetadata.request.key, "package-metadata");
+  }
 
   h.state.packageVulnerabilities = {
     status: "failed",
@@ -1166,6 +1185,11 @@ test("capture settles a loading document viewer without claiming ready content",
     key: "package-opportunities",
     error: "opportunity scan unavailable",
   };
+  h.state.packageMetadata = {
+    status: "failed",
+    key: "package-metadata",
+    error: "metadata read unavailable",
+  };
   const terminalSnapshot: unknown = runInNewContext(
     "captureCanonicalWorkspaceRestoreSnapshot()",
     h.context,
@@ -1175,6 +1199,7 @@ test("capture settles a loading document viewer without claiming ready content",
   const terminalState = terminalSnapshot.state;
   assert.ok(terminalState !== null && typeof terminalState === "object"
     && "packageIntegrations" in terminalState
+    && "packageMetadata" in terminalState
     && "packageOpportunities" in terminalState
     && "packageVulnerabilities" in terminalState);
   const terminalVulnerabilities = terminalState.packageVulnerabilities;
@@ -1208,6 +1233,15 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.equal(terminalOpportunities.key, "package-opportunities");
   assert.ok("error" in terminalOpportunities);
   assert.equal(terminalOpportunities.error, "opportunity scan unavailable");
+  const terminalMetadata = terminalState.packageMetadata;
+  assert.ok(terminalMetadata !== null
+    && typeof terminalMetadata === "object"
+    && "status" in terminalMetadata);
+  assert.equal(terminalMetadata.status, "failed");
+  assert.ok("key" in terminalMetadata);
+  assert.equal(terminalMetadata.key, "package-metadata");
+  assert.ok("error" in terminalMetadata);
+  assert.equal(terminalMetadata.error, "metadata read unavailable");
 
   const opportunityResult = {
     package: "Source",
@@ -1229,6 +1263,15 @@ test("capture settles a loading document viewer without claiming ready content",
     key: "package-opportunities",
     result: opportunityResult,
   };
+  const metadataResult = {
+    assemblies: [{ assembly: "Source.dll" }],
+    inspectionError: "one metadata image could not be read",
+  };
+  h.state.packageMetadata = {
+    status: "ready",
+    key: "package-metadata",
+    result: metadataResult,
+  };
   const readySnapshot: unknown = runInNewContext(
     "captureCanonicalWorkspaceRestoreSnapshot()",
     h.context,
@@ -1237,6 +1280,7 @@ test("capture settles a loading document viewer without claiming ready content",
     && "state" in readySnapshot);
   const readyState = readySnapshot.state;
   assert.ok(readyState !== null && typeof readyState === "object"
+    && "packageMetadata" in readyState
     && "packageOpportunities" in readyState);
   const readyOpportunities = readyState.packageOpportunities;
   assert.ok(readyOpportunities !== null
@@ -1245,6 +1289,13 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.equal(readyOpportunities.status, "ready");
   assert.ok("result" in readyOpportunities);
   assert.deepEqual(readyOpportunities.result, opportunityResult);
+  const readyMetadata = readyState.packageMetadata;
+  assert.ok(readyMetadata !== null
+    && typeof readyMetadata === "object"
+    && "status" in readyMetadata);
+  assert.equal(readyMetadata.status, "ready");
+  assert.ok("result" in readyMetadata);
+  assert.deepEqual(readyMetadata.result, metadataResult);
 });
 
 test("capture settles Spotlight package loading to cache or idle", () => {

@@ -128,6 +128,36 @@ export function normalizePackageOpportunitiesSnapshot(
   return state.status === "loading" ? { status: "idle" } : state;
 }
 
+export type PackageMetadataState =
+  | { readonly status: "idle" }
+  | {
+    readonly status: "loading";
+    readonly request: { readonly key: string };
+  }
+  | {
+    readonly status: "ready";
+    readonly key: string;
+    readonly result: PackageMetadata;
+  }
+  | {
+    readonly status: "failed";
+    readonly key: string;
+    readonly error: string;
+  };
+
+export function packageMetadataStateKey(
+  state: PackageMetadataState,
+): string | null {
+  if (state.status === "idle") return null;
+  return state.status === "loading" ? state.request.key : state.key;
+}
+
+export function normalizePackageMetadataSnapshot(
+  state: PackageMetadataState,
+): PackageMetadataState {
+  return state.status === "loading" ? { status: "idle" } : state;
+}
+
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
   member: AppMemberSurface;
@@ -222,10 +252,7 @@ export interface PackageInspectionState {
   packageLibraryDependencyStructureLoading: boolean;
   packageLibraryDependencyStructureError: string;
   packageLibraryDependencyStructureKey: string;
-  packageMetadata: PackageMetadata | null;
-  packageMetadataLoading: boolean;
-  packageMetadataError: string;
-  packageMetadataKey: string;
+  packageMetadata: PackageMetadataState;
   packageMetadataRoot: MetadataRootSelection;
 }
 
@@ -387,7 +414,6 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
-  let metadataRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -483,10 +509,7 @@ export function createPackageInspectionCoordinator(
       state.packageLibraryDependencyStructureLoading = false;
       state.packageLibraryDependencyStructureError = "";
       state.packageLibraryDependencyStructureKey = "";
-      state.packageMetadata = null;
-      state.packageMetadataLoading = false;
-      state.packageMetadataError = "";
-      state.packageMetadataKey = "";
+      state.packageMetadata = { status: "idle" };
       state.packageMetadataRoot = "cli";
     },
 
@@ -870,21 +893,20 @@ export function createPackageInspectionCoordinator(
 
     async loadMetadata(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageMetadataKey === signature
-        && (state.packageMetadataLoading || state.packageMetadata)) {
+      const current = state.packageMetadata;
+      if ((current.status === "loading"
+          && current.request.key === signature)
+        || (current.status === "ready" && current.key === signature)) {
         dependencies.render();
         return;
       }
-      const requestSequence = ++metadataRequestSequence;
+      const request = { key: signature };
       const generation = packageResultGeneration;
       const ownsRequest = () =>
-        state.packageMetadataKey === signature
-        && metadataRequestSequence === requestSequence
+        state.packageMetadata.status === "loading"
+        && state.packageMetadata.request === request
         && generation === packageResultGeneration;
-      state.packageMetadataKey = signature;
-      state.packageMetadata = null;
-      state.packageMetadataError = "";
-      state.packageMetadataLoading = true;
+      state.packageMetadata = { status: "loading", request };
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -899,23 +921,31 @@ export function createPackageInspectionCoordinator(
           : await dependencies.queryPackageMetadata(
               packageModel,
               scopedLibrary ?? "");
-        if (ownsRequest()) {
-          const completeFailure = (result.assemblies?.length ?? 0) === 0
-            ? result.inspectionError
-            : null;
-          state.packageMetadata = completeFailure ? null : result;
-          state.packageMetadataError = completeFailure || "";
-        }
+        if (!ownsRequest()) return;
+        const completeFailure = (result.assemblies?.length ?? 0) === 0
+          ? result.inspectionError
+          : null;
+        state.packageMetadata = completeFailure
+          ? {
+            status: "failed",
+            key: signature,
+            error: completeFailure.trim()
+              ? completeFailure
+              : "Metadata inspection failed.",
+          }
+          : { status: "ready", key: signature, result };
       } catch (error) {
-        if (ownsRequest()) {
-          state.packageMetadataError = dependencies.describeError(error);
-        }
-      } finally {
-        if (ownsRequest()) {
-          state.packageMetadataLoading = false;
-          dependencies.render();
-        }
+        if (!ownsRequest()) return;
+        const diagnostic = dependencies.describeError(error);
+        state.packageMetadata = {
+          status: "failed",
+          key: signature,
+          error: diagnostic.trim()
+            ? diagnostic
+            : "Metadata inspection failed.",
+        };
       }
+      dependencies.render();
     },
   };
 }
