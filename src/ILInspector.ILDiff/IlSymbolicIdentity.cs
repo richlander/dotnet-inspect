@@ -53,9 +53,16 @@ public static partial class IlBodyDiff
         readonly Dictionary<AssemblyReferenceHandle, (SymbolPart Part, byte[]? Exact)> _scopes = [];
         readonly Dictionary<long, int> _operands = [];
         readonly SymbolKey[] _primitives = new SymbolKey[256];
+        readonly bool _sharedTable;
 
-        public SymbolicIdentity(PEReader pe, MetadataReader md, IlBodyDiffNormalization normalization, SymbolKeyTable table)
+        /// <param name="sharedTable">
+        /// True when <paramref name="table"/> is shared by both compared sides, so an exact
+        /// assembly identity can be written as its id in that table rather than its bytes.
+        /// A one-version table writes the bytes.
+        /// </param>
+        public SymbolicIdentity(PEReader pe, MetadataReader md, IlBodyDiffNormalization normalization, SymbolKeyTable table, bool sharedTable = false)
         {
+            _sharedTable = sharedTable;
             if (normalization != (IlBodyDiffNormalization.NormalizeCurrentAssemblyScope | IlBodyDiffNormalization.NormalizePlatformAssemblyScope))
                 throw new NotSupportedException("SPIKE: only the Body policy's scope normalization is modelled.");
             _md = md;
@@ -459,9 +466,22 @@ public static partial class IlBodyDiff
             {
                 "<current>" => (SymbolPart.CurrentScope, null),
                 "<platform>" => (SymbolPart.PlatformScope, null),
-                _ => (SymbolPart.ExactScope, Encoding.UTF8.GetBytes(identity)),
+                _ => (SymbolPart.ExactScope, ExactIdentity(identity)),
             };
             return _scopes[handle] = scope;
+        }
+
+        byte[] ExactIdentity(string identity)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(identity);
+            if (!_sharedTable)
+                return bytes;
+            // One id per distinct identity in the shared table: equal ids exactly when the
+            // identities are equal, and a few bytes in every key that names the scope.
+            byte[] tagged = new byte[bytes.Length + 1];
+            tagged[0] = (byte)SymbolPart.ExactScope;
+            bytes.CopyTo(tagged, 1);
+            return BitConverter.GetBytes(Table.Intern(tagged));
         }
 
         SymbolKey Specification(TypeSpecificationHandle handle)

@@ -57,8 +57,8 @@ internal sealed class IlSymbolicExistsSession
         _new = newPe.GetMetadataReader();
 
         long t = Stopwatch.GetTimestamp();
-        OldSymbols = new IlBodyDiff.SymbolicIdentity(oldPe, _old, normalization, Table);
-        NewSymbols = new IlBodyDiff.SymbolicIdentity(newPe, _new, normalization, Table);
+        OldSymbols = new IlBodyDiff.SymbolicIdentity(oldPe, _old, normalization, Table, sharedTable: true);
+        NewSymbols = new IlBodyDiff.SymbolicIdentity(newPe, _new, normalization, Table, sharedTable: true);
         (_oldMap, var oldFailed) = MethodMap(_old, OldSymbols);
         (_newMap, var newFailed) = MethodMap(_new, NewSymbols);
         IdentityFailures = oldFailed.Count + newFailed.Count;
