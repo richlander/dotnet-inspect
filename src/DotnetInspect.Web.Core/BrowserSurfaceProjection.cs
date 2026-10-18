@@ -156,7 +156,7 @@ internal static class BrowserSurfaceProjection
                 identity.PublicKeyToken,
                 participant.Asset,
                 publicTypes.Length,
-                publicTypes.Sum(type => type.Members),
+                publicTypes.Sum(DefaultBucketMembers),
                 platformPack));
             types.AddRange(assemblyTypes);
         }
@@ -190,7 +190,7 @@ internal static class BrowserSurfaceProjection
             [.. surfaces.Accessibility.Select(Descriptor)],
             identified
                 .Where(type => IsDefaultBucket(surfaces, type))
-                .Sum(type => type.Members),
+                .Sum(DefaultBucketMembers),
             noticeEntries,
             notice,
             truncation is not null);
@@ -335,7 +335,7 @@ internal static class BrowserSurfaceProjection
                         identityPublicKeyToken,
                         asset,
                         publicTypes.Length,
-                        publicTypes.Sum(type => type.Members),
+                        publicTypes.Sum(DefaultBucketMembers),
                         PlatformPack: null),
                 ]
                 : [],
@@ -343,7 +343,7 @@ internal static class BrowserSurfaceProjection
             [.. inventory.KindFacets.Select(Descriptor)],
             [.. inventory.TraitFacets.Select(Descriptor)],
             [.. accessibility.Select(Descriptor)],
-            publicTypes.Sum(type => type.Members),
+            publicTypes.Sum(DefaultBucketMembers),
             noticeEntries,
             notice,
             truncation is not null);
@@ -453,6 +453,13 @@ internal static class BrowserSurfaceProjection
         textBudget?.Retain(projected);
         return projected;
     }
+
+    // A Library's member Count is its default population: the public bucket. A public Type
+    // also carries attached extensions in narrower buckets, which the Count excludes
+    // (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
+    static int DefaultBucketMembers(BrowserTypeSurfaceInfo type) =>
+        type.Api.Count(member =>
+            ApiAccessibility.Classify(member.Accessibility).IsDefault);
 
     static bool IsDefaultBucket(
         ImmutableArray<ApiAccessibilityBucket> accessibility,

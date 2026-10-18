@@ -24,7 +24,9 @@ public enum ApiSurfaceScope
     /// <summary>
     /// The default consumer surface, plus non-public types from the include-all surface. A type
     /// present in both keeps its default-surface member list, so asking for non-public types never
-    /// silently adds private members to a public type. Public types the extractor deliberately
+    /// silently adds private members to a public type. Extensions declared by a non-public type
+    /// still attach to a public receiver, but only in their narrower accessibility bucket, so the
+    /// receiver's default bucket is unchanged. Public types the extractor deliberately
     /// suppresses remain suppressed rather than re-entering the default public bucket with their
     /// include-all member list.
     /// </summary>
