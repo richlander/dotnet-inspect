@@ -8,7 +8,8 @@ with findings, and for each Member its findings. It owns:
 
 - the map's shape, at one version and across two;
 - its sparsity rule and what an unlisted Member means;
-- what the Type row and each Member row carry, and when a Member is listed;
+- the map's row identity, what the Type row and each Member row carry, and
+  when each is a Row;
 - which findings the map admits;
 - the map's tally projection;
 - the map at Library, Type, and Member scope, and its terminals; and
@@ -26,8 +27,8 @@ It consumes and does not redefine:
 | Owner | Contract consumed |
 | --- | --- |
 | [Finding nomenclature](finding-nomenclature.md) and [Finding coordinates](finding-coordinates.md) | `Finding<T>`, `PairFinding<T>`, `IFinding`, `IPairFinding`, `FindingKey`, and inspection and comparison outcomes |
-| [Fast Diff](fast-diff.md#type) | Per-Member and residual API and Body states, and Library-level Type presence |
-| [Annotated Source diff document](annotated-source-diff-document.md) | A Member's two-version correspondence and side outcomes, and the [fact comparison](annotated-source-diff-document.md#fact-comparison) |
+| [Fast Diff](fast-diff.md#type) | Member identity and ownership, per-Member and residual API and Body states, and Library-level Type presence |
+| [Annotated Source diff document](annotated-source-diff-document.md) | A method's side outcomes and the [fact comparison](annotated-source-diff-document.md#fact-comparison) |
 | [Annotated Source Finding provenance](annotated-source-finding-provenance.md#classification-contract) | The fact descriptors and their classifications |
 | [QuerySpace composition](query-space-composition.md) | Rows, Count, and Exists, and how they are planned |
 | [Diff system](diff-system.md#markout) | Lowering result documents to JSON and Markout |
@@ -94,76 +95,101 @@ The map is therefore not an [Analysis diff](analysis-diff.md): that format is a
 complete partition of both endpoints, and the map is a projection that keeps
 only what changed. A host that needs the partition asks for the diff.
 
-## The Type row
+## Row identity
+
+A row's identity is Fast Diff's: a Member is a Fast Diff Member, keyed by its
+census key, with its accessors raised into its property or event and its
+generated code (lambdas, local functions, iterators, and state machines)
+attached to it, as [Fast Diff](fast-diff.md#type) partitions a Type's facts.
+Facts that belong to no single Member are the Type's **residual**.
+
+The map does not pair Members across census keys. A Member whose signature
+changed is two Members: one `Removed` and one `Added`, each with its own
+findings. Correspondence across keys, such as a rename, move, or changed
+signature, belongs to
+[API qualified anchor](api-qualified-anchor.md#version-pair-correspondence)
+and is not claimed here.
+
+## Rows
+
+A Type map's Rows are its **Type row**, when the Type row reports a change,
+and its **Member rows**.
+
+### Type row
 
 In the two-version form, the Type row carries the Type's own transition:
 
-- **Present on both sides:** Fast Diff's residual API and Body states, for the
-  Type's facts that belong to no single Member, such as its base Type,
-  attributes, or static constructor. Fast Diff's Member states and residual
-  partition the Type's facts, so the Type changed exactly when the residual
-  or a Member changed, and a residual-only change is visible on the Type row.
+- **Present on both sides:** Fast Diff's residual API and Body states, such as
+  a changed base Type, attribute, or static constructor. The Type row is a
+  Row when either state is not `Unchanged`.
 - **Present on one side:** `Added` or `Removed`, from Fast Diff's Library-level
-  presence. Fast Diff's Type level does not run for such a Type, so every
-  Member the present side declares is listed as `Added` or `Removed`, with its
-  findings.
+  presence. The Type row is always a Row.
 
-In the one-version form, the Type row carries the inspection outcome and the
-Type's own findings, such as header findings, when an admitted analysis has
-them.
+In the one-version form, the Type row carries the inspection outcome and is a
+Row when an admitted analysis reports a finding about the Type as a whole.
 
-## Member rows
+### Member rows
 
 In the two-version form, a Member row carries:
 
-- the Member's **presence**: on both sides, or on one side only with its
-  proof, from the correspondence the Annotated Source diff document uses;
-- its **states**: Fast Diff's API and Body state for the Member;
+- its **presence**: on both sides, or on one side only, by census key;
+- its **states**: Fast Diff's API and Body states, when the Member is present
+  on both sides;
 - its **fact-comparison outcome**: `Complete`, or the typed reason there is
   none, such as a side that is NotApplicable because it has no body, or a
   side that Failed; and
-- when that outcome is `Complete`, its non-`Present` finding transitions.
+- when that outcome is `Complete`, its non-`Present` admitted finding
+  transitions.
 
-A Member is listed when its presence is one-sided or either state is not
-`Unchanged`. Findings never decide listing. A Member whose Body changed while
-all its admitted facts pair as `Present`, such as a changed constant, is
-listed with a `Complete` outcome and no findings, and reads as "body changed,
-no classified finding". A Member whose fact comparison did not complete
-carries that outcome; an empty list never stands for an unavailable or failed
-comparison.
+A Member present on both sides is listed when either state is not
+`Unchanged`. A Member present on one side is always listed. Findings never
+decide listing. A Member whose Body changed while all its admitted facts pair
+as `Present`, such as a changed constant, is listed with a `Complete` outcome
+and no findings, and reads as "body changed, no classified finding". An empty
+list never stands for a comparison that did not complete.
 
-Finding transitions follow the
-[fact comparison](annotated-source-diff-document.md#fact-comparison) exactly:
-its keys, matching, and acceptance threshold. The map does not define its own
-pairing.
+A Type present on one side has no Fast Diff Type level. Its Member rows come
+from the census of its present side, each one-sided, with every admitted
+finding `Added` or `Removed`.
 
 In the one-version form, a Member row carries the Member's inspection outcome
 and its admitted findings, and a Member is listed when it has at least one.
 
+### Findings
+
+A Member's finding transitions are built per method the Member owns: each of
+its methods, accessors, and generated methods, paired by Fast Diff's census
+key. For a method on both sides, its two fact censuses are compared by the
+[fact comparison](annotated-source-diff-document.md#fact-comparison), with its
+keys, matching, and acceptance threshold; for a method on one side, every fact
+is `Added` or `Removed`. The Member's findings are the union, in method
+declaration order. The map does not define its own fact pairing and never
+pairs facts across methods.
+
 ## Admitted findings
 
-A Member's listing comes from its own facts, so its findings must come from
-its own facts too. The two-version map admits only descriptors whose
+A Member's listing comes from its own IL, so its findings must too. The
+two-version map admits only descriptors whose
 [classification](annotated-source-finding-provenance.md#classification-contract)
-is about the Member's own body:
-
-- **Local instruction**, such as `alloc.*`, `unsafe.*`, and `lifetime.*`; and
-- **Call relationship**, one physical call occurrence in the Member, such as
-  `call.edge`.
+is **Local instruction**, such as `alloc.*`, `unsafe.*`, and `lifetime.*`.
 
 It does not admit **Callee instruction**, **Callee method**, or **Member
 header** descriptors, such as `semantics.callee`, `safety.callee`,
 `cost.callee`, and `cost.method`. Their transitions can follow a change in
 another Member, such as a callee that gained a throw, while this Member's own
-IL is unchanged. The map would then either miss them or list Members whose
-states are `Unchanged`. Those changes are relations between Members and belong
-to the Type graph in
-[#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
+IL is unchanged. Those changes are relations between Members and belong to the
+Type graph in
+[#10217](https://github.com/richlander/dotnet-inspect/issues/10217). It does
+not admit **Call relationship** descriptors, such as `call.edge`, because the
+fact comparison does not produce them today; they join when the Annotated
+Source owner adds them to it.
 
-With this rule, an admitted finding transition is a change in the Member's own
-body, and a Member's row equals the admitted, non-`Present` part of that
-Member's annotated source diff. A finding kind the vocabulary lacks, such as a
-throw, is added by the provenance matrix owner, not by this document.
+The map assumes that a method's admitted facts depend only on that method's
+own IL under the Body policy, so an unchanged Body has no admitted finding
+transition. The Annotated Source owner keeps that true, and the Agreement gate
+checks it on fixtures, including generated code and facts that read
+referenced metadata. A finding kind the vocabulary lacks, such as a throw, is
+added by the provenance matrix owner, not by this document.
 
 The one-version map admits the descriptors of the analyses its request names.
 
@@ -171,7 +197,8 @@ The one-version map admits the descriptors of the analyses its request names.
 
 A row's **tally** counts its findings by descriptor and, in the two-version
 form, by transition kind. A Type's tally sums its rows' tallies. A tally is a
-projection the map owns; it is not the Count terminal.
+projection of an opened Type's map; it is not the Count terminal and is not
+computed for Types the user has not opened.
 
 ## Scopes and terminals
 
@@ -180,18 +207,23 @@ and no scope nests another scope's Rows.
 
 | Scope | Rows | Count | Exists |
 | --- | --- | --- | --- |
-| Library | one row per Type whose map is non-empty, carrying its Type row and tally | the number of those rows | any such row |
-| Type | the map's Member rows | the number of Member rows | the Type row reports a change, or any Member row exists |
+| Library | one row per Type with a non-empty map, carrying its Type row and its number of Member rows | the number of those rows | any such row |
+| Type | the Type row, when it is a Row, and the Member rows | the number of those rows | any such row |
 | Member | that Member's row, if listed | 0 or 1 | whether the Member is listed |
 
-A map is non-empty when its Type row reports a change or it lists a Member.
-Count is the number of Rows at its scope, and Exists is whether Rows is
-non-empty, as [Scope symmetry](scope-symmetry.md#one-infrastructure-and-three-terminals)
-requires.
+A map is non-empty when it has a Row. Count is the number of Rows at its
+scope, and Exists is whether Rows is non-empty, as
+[Scope symmetry](scope-symmetry.md#one-infrastructure-and-three-terminals)
+requires. A row whose state is undecided, such as `Indeterminate`, is not
+counted either way: Count reports the decided rows and the undecided rows
+separately, with QuerySpace's typed outcome, and Exists is `true` when a
+decided Row exists and undecided otherwise.
 
-A Library-scope Row never contains Member rows. Opening a Type asks for that
-Type's map, as [No rows within rows](scope-symmetry.md#no-rows-within-rows)
-requires for an ephemeral host. A whole-Library map with Member rows is a
+A Library-scope Row carries the Type row and a number read from Fast Diff's
+Type level; it needs no fact census. Producing it never runs a fact
+comparison. Opening a Type asks for that Type's map, as
+[No rows within rows](scope-symmetry.md#no-rows-within-rows) requires for an
+ephemeral host. A whole-Library map with Member rows and findings is a
 persistent artifact and is offered only as one. A Member's findings are the
 detail of its row, not a narrower scope.
 
@@ -267,10 +299,11 @@ Each step is its own focused effort:
 1. **Fast Diff Type level.** Fast Diff's Type level, with its Member and
    residual states, meets its contract, including
    [#10223](https://github.com/richlander/dotnet-inspect/issues/10223).
-2. **Fact census without text.** The Annotated Source owner produces a
-   Member's admitted fact census and fact comparison without the text
-   comparison, or the C# plane where no admitted descriptor needs it, with
-   NativeAOT cost per Member.
+2. **Fact census without text.** The Annotated Source owner produces one
+   method's admitted fact census and fact comparison, for each method a Fast
+   Diff Member owns including generated methods, without the text comparison
+   or the C# plane where no admitted descriptor needs it, with NativeAOT cost
+   per method.
 3. **The two-version map** at Type scope, with its Library and Member scopes,
    terminals, and tallies.
 4. **CLI output** of the map as JSON and Markout.
@@ -288,15 +321,21 @@ detail does.
 ## Gates
 
 - **Listing:** over the Fast Diff fixture pairs and the spike's pairs, the
-  Member rows and the Type row equal Fast Diff's Type-level Member and
-  residual states, and each one-sided Type lists every Member of its present
-  side.
-- **Exactness:** at each scope, Count equals the number of Rows and Exists
-  equals Rows being non-empty; a two-version Type's Exists equals Fast Diff's
-  Library-level state.
-- **Agreement:** for every Member of the fixture Types, listed or not, the
-  admitted non-`Present` transitions of its annotated source diff equal its
-  row's findings, and are empty for an unlisted Member.
+  Type row is a Row exactly when Fast Diff's residual or Library-level
+  presence reports a change, a Member row exists exactly for a Member whose
+  Fast Diff state is not `Unchanged` or that is one-sided, and a one-sided
+  Type lists every Member of its present side.
+- **Exactness:** at each scope, Count equals the number of decided Rows with
+  undecided rows reported separately, and Exists equals decided Rows being
+  non-empty; a two-version Type's Exists equals Fast Diff's Library-level
+  state.
+- **Agreement:** for every Member of the fixture Types, listed or not, and
+  for each method it owns on both sides, the admitted non-`Present`
+  transitions of that method's annotated source diff equal that method's part
+  of the row's findings; they are empty for every method of an unlisted
+  Member.
+- **No fact census at Library scope:** producing Library Rows runs no fact
+  comparison, shown by the work receipt.
 - **Outcomes:** a Member with a NotApplicable or Failed side carries that
   outcome, not an empty finding list.
 - **Symmetry:** a Member's row is the same in its Type's map and at Member
