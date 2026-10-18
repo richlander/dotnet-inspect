@@ -547,11 +547,22 @@ roots, populations and capabilities unchanged. The command exposes no
 knowledge-authoring overrides. Ecosystem remove uses the packet identity and
 does not require that identity to remain in the current shipped catalog.
 
+An ecosystem remains a first-class registration with its identity and grouped
+contents intact. The portable packet embeds its declaration for self-contained
+restoration; it does not flatten ecosystem contents into independent Workspace
+registrations or retain only a reference to the current catalog.
+
 Prefix add registers an independent literal Package ID prefix. It requires no
 ecosystem, may coexist with ecosystem registrations, and does not modify an
 ecosystem that happens to declare the same prefix internally. Removing the
 independent registration leaves that ecosystem's declaration unchanged.
 Prefix validation and declaration equality remain with the prefix owner.
+
+If a prefix exists only inside an ecosystem, `workspace prefix remove` fails
+because there is no independent registration to remove. If the same prefix is
+also registered independently, removal deletes only that independent
+registration; the ecosystem still contributes its prefix. These commands do
+not edit an ecosystem's internal populations.
 
 ```bash
 base=$(dotnet-inspect workspace ecosystem add runtime)
