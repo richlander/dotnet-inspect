@@ -153,10 +153,11 @@ query once under `TextPolicy.Field`; successful byte proof permits projection
 to reuse the cached contained value, while fallback results contain the
 detached artifact ranges normally.
 
-`Utf8RangeReader.ValueTextEquals(OpaqueByteRange, ReadOnlySpan<byte>)` owns the
-closed cross-range comparison. The metadata adapter supplies a scoped view
-over the selected `#Strings` bytes; neither the opaque query range nor the
-artifact bytes become a general raw-byte projection. Listing, fuzzy, prefix,
+`OpaqueByteRange.SequenceEqual(ReadOnlySpan<byte>)` owns the closed cross-range
+comparison. It is a byte operation, not a text query, so it does not require
+text classification. The metadata adapter supplies a scoped view over the
+selected `#Strings` bytes; neither the opaque query range nor the artifact
+bytes become a general raw-byte projection. Listing, fuzzy, prefix,
 case-insensitive, and compatibility paths cannot issue the typed match. This
 optimization is measured against the merged detached-name baseline, not
 against the earlier UTF-16 presentation proxy.
@@ -235,6 +236,25 @@ backing remains mutable. Freezing the population transfers its storage to the
 hidden immutable owner and resolves recorded slots into `OpaqueByteRange`
 snapshots.
 
+`InertText.OpaqueByteRangeBuilder` is the public builder every domain uses:
+
+- its constructor declares the exact population length and reserves one
+  backing;
+- `Append(ReadOnlySpan<byte>)` copies source bytes into that backing and
+  returns an `OpaqueByteRangeSlot`, which records an offset and length but is
+  not a range;
+- `Freeze()` refuses an incomplete population, marks the backing immutable, and
+  returns the complete population as one range; and
+- `OpaqueByteRange.Slice(OpaqueByteRangeSlot)` resolves recorded slots against
+  that frozen range.
+
+The internal range constructor refuses a backing that is not frozen, so no
+range can exist over storage that is still being written. Copies of the builder
+share one write position and frozen state; a copy can neither overwrite
+appended bytes nor append after freezing. Domain assemblies use only this
+public surface; they do not construct backings or ranges through internal
+access.
+
 A domain may use a scoped structural reader to interpret tags, lengths, and
 integer parts within an opaque range. Such a reader returns semantic values,
 checked child ranges, or typed domain views. It does not return a source span
@@ -242,9 +262,13 @@ or invoke caller code with source bytes.
 
 `InertText.Utf8RangeReader` is the scoped UTF-8 query reader for a range that a
 domain has classified as text. It also serves as the input when a contained
-presentation value is required. It has no public constructor or factory from
-`OpaqueByteRange`; a typed domain text view is the ordinary creation surface.
-Binary key and Blob views cannot issue it.
+presentation value is required. It has no public constructor. A typed domain
+text view issues it through
+`InertText.Encoding.Utf8RangeClassification.Read(OpaqueByteRange)`, the single
+public issuer. That conspicuous entry point records the domain's text
+classification at each call site; like the encoders, it is an audit and
+discoverability boundary, not a capability barrier. Binary key and Blob views
+do not call it.
 
 Its initial distinguishing capability is `ValueTextEquals`: evaluate whether
 the stored range equals caller-supplied UTF-8 query bytes without decoding the
@@ -619,6 +643,8 @@ the repository threat model.
 | --- | --- | --- |
 | Immutable ownership snapshot | Equal ranges over different backings compare and hash equally; default and explicit empty agree; slices retain their owner | PR-fast |
 | Bounds | Empty, edge, nested, overflowed, and out-of-range operations return the specified result without reading outside the backing | PR-fast |
+| Freeze before issue | A builder refuses overflow, incomplete freeze, and any write or freeze after freezing, including through an earlier copy; no range can be constructed over a writable backing | PR-fast |
+| Public domain boundary | Compiled member references from `ILInspector.Metadata` into `InertText` resolve only to public members, except the named encoded-length preflight; `Utf8RangeClassification.Read` is the only public `Utf8RangeReader` issuer | PR-fast |
 | No raw projection | Compiled public-surface and field-flow gates reject every forbidden return, callback, store shape, and `InertUtf8String` blessing path | PR-fast |
 | Opaque means untreated | Creating ranges and UTF-8 readers performs no UTF-8 scan, normalization, or `TextPolicy` work | PR-fast |
 | `ValueTextEquals` | Ordinary, non-ASCII, concerning, and ill-formed stored names compare byte-exactly with pre-encoded queries without decoding candidates, applying policy, or creating `InertUtf8String` | PR-fast |
