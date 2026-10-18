@@ -143,7 +143,21 @@ public partial class UnsafeEvidencePresenceTests
     static MethodDefinitionGeneratedExpansionCoverage ExpandIteratorSample(
         string typeName,
         MethodDefinitionGeneratedBodyRoles roles,
-        out MethodDefinitionHandle iterator)
+        out MethodDefinitionHandle iterator,
+        bool includeUnauthenticatedCandidates = false) =>
+        ExpandIteratorSample(
+            typeName,
+            roles,
+            out iterator,
+            out _,
+            includeUnauthenticatedCandidates);
+
+    static MethodDefinitionGeneratedExpansionCoverage ExpandIteratorSample(
+        string typeName,
+        MethodDefinitionGeneratedBodyRoles roles,
+        out MethodDefinitionHandle iterator,
+        out MethodDefinitionHandleCoverage methodsSelected,
+        bool includeUnauthenticatedCandidates = false)
     {
         string path =
             FixtureCatalog.AnalysisIterators.AssemblyPath();
@@ -157,7 +171,10 @@ public partial class UnsafeEvidencePresenceTests
             path,
             MethodDefinitionSourceBreadth
                 .ExactTypes(type)
-                .IncludeGeneratedExecutionBodies(roles: roles),
+                .IncludeGeneratedExecutionBodies(
+                    roles: roles,
+                    includeUnauthenticatedCandidates:
+                        includeUnauthenticatedCandidates),
             CompleteUnsafeEvidenceDescription());
 
         using PdbContext context = PdbContext.OpenMetadataOnly(path);
@@ -174,6 +191,7 @@ public partial class UnsafeEvidencePresenceTests
             origin => Assert.True(
                 execution.SourceReceipt.Coverage.MethodsSelected
                     .Contains(origin.Method)));
+        methodsSelected = execution.SourceReceipt.Coverage.MethodsSelected;
         return expansion;
     }
 

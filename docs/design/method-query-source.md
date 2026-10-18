@@ -319,17 +319,24 @@ completion, never successful exhaustion.
 
 ### Declared-source relation
 
-Status: state-machine roles are implemented over exact breadth.
-`IncludeGeneratedExecutionBodies` takes the requested
-`MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and each
-expansion origin carries its role. The rest of this section is the target
+Status: exact breadth implements roles, nested-type reach, and
+unauthenticated candidates.
+
+- `IncludeGeneratedExecutionBodies` takes the requested
+  `MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and
+  `includeUnauthenticatedCandidates`.
+- `MethodDefinitionGeneratedExpansionCoverage` publishes each outcome:
+  `Origins` in the requested roles, `AttributedOutsideRoles`, and
+  `UnauthenticatedCandidates`.
+- A nested type counts as compiler-generated when it carries
+  `CompilerGeneratedAttribute`.
+- A generated-named lifted body declared directly in breadth that no owner
+  reaches is also an unauthenticated candidate.
+
+The all-definition reverse lowering and retained-prefix bounds are the target
 design for [#9864](https://github.com/richlander/dotnet-inspect/issues/9864)
-and is **unverified**. Today expansion applies only to exact breadth,
-publishes origins only for methods it adds to breadth, and fails the source
-with empty breadth when a bound is reached. Nested-type reach,
-unauthenticated-candidate breadth, attributed methods outside the requested
-roles, the all-definition reverse lowering, and retained-prefix bounds land
-with that issue.
+and are **unverified**. Today expansion applies only to exact breadth and
+fails the source with empty breadth when a bound is reached.
 
 The declared-source relation maps declared members and the physical bodies
 that implement them, in both directions. Exact breadth asks the forward

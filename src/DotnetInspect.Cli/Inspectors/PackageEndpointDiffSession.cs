@@ -15,8 +15,8 @@ namespace DotnetInspect.Cli.Inspectors;
 /// <summary>
 /// CLI host policy for the two endpoints of a pairwise
 /// <c>diff --package ID@A..B</c> view opened as package endpoint scopes
-/// (docs/design/package-endpoint-scope.md, adoption step 2 and step 4 parts
-/// 1 to 5): the House's version and framework selection, as
+/// (docs/design/package-endpoint-scope.md, adoption step 2 and step 4): the
+/// House's version and framework selection, as
 /// <c>package</c> has it, and ranged House access over the
 /// legacy-compatible per-authority store.
 /// </summary>
@@ -68,7 +68,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
     /// House can't express returns <see langword="null"/> with its
     /// <paramref name="error"/>. Offline, an endpoint the House can settle
     /// only by discovery returns <see langword="null"/> with no error, and
-    /// the whole request keeps the legacy path: it answers a <c>*</c>
+    /// the whole request takes the offline discovery route: it answers a <c>*</c>
     /// pattern from cached version listings, and reports why <c>latest</c>
     /// can't be resolved (docs/design/package-endpoint-scope.md#offline).
     /// </summary>
@@ -171,7 +171,7 @@ internal sealed class PackageEndpointDiffSession : IAsyncDisposable
                 logger.Log);
 
             // Both surfaces realize at once. A realization that fails
-            // cancels its sibling, whose work the legacy path would discard.
+            // cancels its sibling, whose work the failure report discards.
             using var sibling = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             Task<PackageEndpointScopeOutcome> fromTask =
                 OpenOrCancelSiblingAsync(selection.FromVersion, selection.From);

@@ -246,7 +246,12 @@ public sealed class MethodDefinitionExecution
                 MethodDefinitionGeneratedExpansionResult expansion =
                     attribution!.ExpandGeneratedExecutionBodies(
                         directMethods,
-                        breadth.GeneratedRoles);
+                        breadth.GeneratedRoles,
+                        breadth.Kind
+                            == MethodDefinitionSourceBreadthKind.ExactTypes
+                                ? breadth.Types
+                                : [],
+                        breadth.IncludesUnauthenticatedCandidates);
                 execution._sourceCoverage.RecordGeneratedExpansion(
                     expansion.Coverage);
                 execution._breadth =

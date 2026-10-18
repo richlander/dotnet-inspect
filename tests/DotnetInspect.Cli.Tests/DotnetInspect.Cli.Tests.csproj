@@ -86,6 +86,8 @@
     <None Include="$(NuGetPackageRoot)crestapps.agentskills.mcp.orchardcore/1.2.0/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
           Link="RealAssets/SectionGrowth/crestapps.agentskills.mcp.orchardcore.1.2.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="RecordedOutput/**/*.txt"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NuGetPackageRoot)system.text.json/9.0.0/system.text.json.9.0.0.nupkg"
           Link="RealAssets/PackageEndpointScope/system.text.json.9.0.0.nupkg"
           CopyToOutputDirectory="PreserveNewest" />
