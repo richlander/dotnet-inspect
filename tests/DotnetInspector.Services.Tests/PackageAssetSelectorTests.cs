@@ -377,6 +377,137 @@ public sealed class PackageAssetSelectorTests
     }
 
     [Fact]
+    public void
+        SelectSingleRuntime_InfersOneRidAndHighestRuntimeSlice()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                "lib/net11.0/Neutral.dll",
+                "runtimes/linux-x64/lib/net8.0/Older.dll",
+                "runtimes/linux-x64/lib/net10.0/Sample.dll",
+                "runtimes/linux-x64/native/Native.dll"),
+            fromCache: true,
+            "test-source");
+
+        PackageAssetSelectionReceipt receipt =
+            PackageAssetSelector.EvaluateSingleRuntime(content);
+
+        Assert.Same(content.GenerationIdentity, receipt.Generation);
+        Assert.Null(receipt.RequestedTargetFramework);
+        Assert.Null(receipt.RequestedRuntimeIdentifier);
+        PackageAssetUniverse universe = Selected(receipt.Selection);
+        Assert.Equal("net10.0", universe.TargetFramework);
+        Assert.Equal("linux-x64", universe.RuntimeIdentifier);
+        PackageAssetEntry asset = Assert.Single(universe.Assets);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net10.0/Sample.dll",
+            asset.EntryPath);
+        Assert.Equal("linux-x64", asset.RuntimeIdentifier);
+    }
+
+    [Fact]
+    public void
+        SelectSingleRuntime_ExplicitTargetUsesOneCompatibleRuntimeSlice()
+    {
+        PackageAssetSelection selection =
+            PackageAssetSelector.SelectSingleRuntime(
+                new InMemoryPackageContent(
+                    TestPackageArchive.Create(
+                        "runtimes/unix/lib/netstandard1.0/Sample.dll",
+                        "runtimes/unix/lib/netstandard1.3/Companion.dll"),
+                    fromCache: true,
+                    "test-source"),
+                "netstandard2.0");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("netstandard1.3", universe.TargetFramework);
+        Assert.Equal("unix", universe.RuntimeIdentifier);
+        Assert.Equal(
+            "runtimes/unix/lib/netstandard1.3/Companion.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void SelectSingleRuntime_RequiresAnExplicitRidForMultipleRids()
+    {
+        PackageAssetSelection selection =
+            PackageAssetSelector.SelectSingleRuntime(
+                new InMemoryPackageContent(
+                    TestPackageArchive.Create(
+                        "runtimes/linux-x64/lib/net10.0/Sample.dll",
+                        "runtimes/win-x64/lib/net10.0/Sample.dll"),
+                    fromCache: true,
+                    "test-source"));
+
+        var ambiguous =
+            Assert.IsType<PackageAssetSelection.Ambiguous>(selection);
+        Assert.Contains(
+            "explicit runtime identifier",
+            ambiguous.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void
+        SelectSingleRuntime_ReportsCaseCollidingAssetsAsAmbiguous(
+            bool reverse)
+    {
+        string[] entries =
+        [
+            "runtimes/linux-x64/lib/net10.0/Sample.dll",
+            "runtimes/linux-x64/lib/NET10.0/sample.dll",
+        ];
+        if (reverse)
+            Array.Reverse(entries);
+
+        Assert.IsType<PackageAssetSelection.Ambiguous>(
+            PackageAssetSelector.SelectSingleRuntime(
+                new InMemoryPackageContent(
+                    TestPackageArchive.Create(entries),
+                    fromCache: true,
+                    "test-source")));
+    }
+
+    [Fact]
+    public void SelectSingleRuntime_ExplicitRidDoesNotMergeOtherRids()
+    {
+        PackageAssetSelection selection =
+            PackageAssetSelector.SelectSingleRuntime(
+                new InMemoryPackageContent(
+                    TestPackageArchive.Create(
+                        "runtimes/linux-x64/lib/net10.0/Linux.dll",
+                        "runtimes/win-x64/lib/net10.0/Windows.dll"),
+                    fromCache: true,
+                    "test-source"),
+                runtimeIdentifier: "win-x64");
+
+        PackageAssetUniverse universe = Selected(selection);
+        Assert.Equal("win-x64", universe.RuntimeIdentifier);
+        Assert.Equal(
+            "runtimes/win-x64/lib/net10.0/Windows.dll",
+            Assert.Single(universe.Assets).EntryPath);
+    }
+
+    [Fact]
+    public void SelectSingleRuntime_IgnoresNativeOnlyRids()
+    {
+        PackageAssetSelection selection =
+            PackageAssetSelector.SelectSingleRuntime(
+                new InMemoryPackageContent(
+                    TestPackageArchive.Create(
+                        "runtimes/linux-x64/native/Native.dll",
+                        "runtimes/win-x64/lib/net10.0/ManagedCandidate.dll"),
+                    fromCache: true,
+                    "test-source"));
+
+        Assert.Equal(
+            "win-x64",
+            Selected(selection).RuntimeIdentifier);
+    }
+
+    [Fact]
     public void Select_IgnoresRuntimeAssetsForAnotherRid()
     {
         PackageAssetSelection selection = Select(

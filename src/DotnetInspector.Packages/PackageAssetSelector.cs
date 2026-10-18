@@ -309,6 +309,163 @@ public static class PackageAssetSelector
             SelectCore(content, targetFramework, runtimeIdentifier));
     }
 
+    /// <summary>
+    /// Selects one runtime-Library universe while keeping all assets inside one
+    /// <c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;</c> directory. An omitted runtime
+    /// identifier is inferred only when exactly one eligible identifier is
+    /// present; an omitted target selects the highest available runtime slice.
+    /// </summary>
+    public static PackageAssetSelection SelectSingleRuntime(
+        IPackageContent content,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null) =>
+        EvaluateSingleRuntime(
+            content,
+            targetFramework,
+            runtimeIdentifier).Selection;
+
+    /// <summary>
+    /// Selects one runtime-Library universe and retains the exact explicit or
+    /// inferred request correspondence without retaining package content.
+    /// </summary>
+    public static PackageAssetSelectionReceipt EvaluateSingleRuntime(
+        IPackageContent content,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        return new PackageAssetSelectionReceipt(
+            content.GenerationIdentity,
+            targetFramework,
+            runtimeIdentifier,
+            SelectSingleRuntimeCore(
+                content,
+                targetFramework,
+                runtimeIdentifier));
+    }
+
+    private static PackageAssetSelection SelectSingleRuntimeCore(
+        IPackageContent content,
+        string? targetFramework,
+        string? runtimeIdentifier)
+    {
+        if (targetFramework is not null
+            && IsBlankOrPadded(targetFramework))
+        {
+            return new PackageAssetSelection.Invalid(
+                "A package asset request requires a target framework without surrounding whitespace.");
+        }
+
+        if (runtimeIdentifier is not null
+            && !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                runtimeIdentifier))
+        {
+            return new PackageAssetSelection.Invalid(
+                "A package asset runtime identifier must use its canonical lowercase spelling.");
+        }
+
+        var candidates = new List<CandidateEntry>();
+        foreach (string entry in content.EnumerateEntries())
+        {
+            if (entry is null
+                || !entry.EndsWith(
+                    AssemblyExtension,
+                    StringComparison.OrdinalIgnoreCase)
+                || ClassifyRuntimeLibrary(entry) is not { } candidate)
+            {
+                continue;
+            }
+
+            if (!IsSafeEntryPath(entry))
+            {
+                return new PackageAssetSelection.Invalid(
+                    "A candidate assembly entry in the package has an unusable path.");
+            }
+
+            candidates.Add(candidate);
+        }
+
+        CandidateEntry[] selectedRuntime;
+        string selectedRuntimeIdentifier;
+        if (runtimeIdentifier is null)
+        {
+            string[] runtimeIdentifiers =
+            [
+                .. candidates
+                    .Select(static candidate =>
+                        candidate.RuntimeIdentifier!)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(static candidate =>
+                        candidate,
+                        StringComparer.Ordinal),
+            ];
+            if (runtimeIdentifiers.Length == 0)
+            {
+                return new PackageAssetSelection.NoMatch(
+                    "The package carries no runtime Library assembly folder.");
+            }
+            if (runtimeIdentifiers.Length > 1)
+            {
+                return new PackageAssetSelection.Ambiguous(
+                    "More than one runtime identifier carries Library assembly assets; an explicit runtime identifier is required.");
+            }
+
+            selectedRuntimeIdentifier = runtimeIdentifiers[0];
+            selectedRuntime =
+            [
+                .. candidates.Where(candidate =>
+                    candidate.RuntimeIdentifier!.Equals(
+                        selectedRuntimeIdentifier,
+                        StringComparison.Ordinal)),
+            ];
+        }
+        else
+        {
+            selectedRuntimeIdentifier = runtimeIdentifier;
+            selectedRuntime =
+            [
+                .. candidates.Where(candidate =>
+                    candidate.RuntimeIdentifier!.Equals(
+                        selectedRuntimeIdentifier,
+                        StringComparison.Ordinal)),
+            ];
+            if (selectedRuntime.Length == 0)
+            {
+                return new PackageAssetSelection.NoMatch(
+                    "The package carries no runtime Library assembly folder for the requested runtime identifier.");
+            }
+        }
+
+        string selectedTargetFramework =
+            targetFramework
+            ?? selectedRuntime
+                .Select(static candidate =>
+                    candidate.TargetFramework)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(static framework =>
+                    TfmResolver.GetTfmPriority(
+                        framework.ToLowerInvariant()))
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.Ordinal)
+                .First();
+        IPackageContent selectedContent =
+            new RuntimeLibraryPackageContent(
+                content,
+                [
+                    .. selectedRuntime.Select(
+                        static candidate =>
+                            candidate.EntryPath),
+                ]);
+        return SelectCore(
+            selectedContent,
+            selectedTargetFramework,
+            selectedRuntimeIdentifier);
+    }
+
     private static PackageAssetSelection SelectCore(
         IPackageContent content,
         string targetFramework,
@@ -640,6 +797,31 @@ public static class PackageAssetSelector
         return null;
     }
 
+    static CandidateEntry? ClassifyRuntimeLibrary(string entryPath)
+    {
+        string[] segments = entryPath.Split('/');
+        if (segments.Length < 5
+            || !segments[0].Equals(
+                "runtimes",
+                StringComparison.OrdinalIgnoreCase)
+            || !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                segments[1])
+            || !segments[2].Equals(
+                "lib",
+                StringComparison.OrdinalIgnoreCase)
+            || !TfmResolver.IsTfmLike(segments[3]))
+        {
+            return null;
+        }
+
+        return new CandidateEntry(
+            entryPath,
+            segments[3].ToLowerInvariant(),
+            string.Join('/', segments[4..]),
+            segments[^1],
+            segments[1]);
+    }
+
     internal static bool IsFrameworkAgnostic(string framework) =>
         framework.Equals(
             FrameworkAgnosticTargetFramework,
@@ -697,4 +879,9 @@ public static class PackageAssetSelector
         string RelativePath,
         string FileName,
         string? RuntimeIdentifier);
+
+    sealed class RuntimeLibraryPackageContent(
+        IPackageContent content,
+        IReadOnlyList<string> entries) :
+        SelectedPackageContent(content, entries);
 }
