@@ -1213,6 +1213,24 @@ from becoming success-shaped comparisons, and
 `ControlFlowSites_EmptySwitchOutputIdentityRoundTrips` gates the shared
 writer/reader grammar.
 
+Snapshot schema v8 adds the headline populations (#10191). Each method row may
+carry `populations`, a subset of `branching` (the imported CFG holds a
+conditional or switch branch), `state-machine` (the method definition carries a
+classic async, iterator, or async-iterator state-machine attribute), and
+`public-api` (the method and every declaring type in its nesting chain are
+public or protected); the key is absent when none applies. The populations are
+decided from metadata and the imported tree before any pass runs, so a raise
+cannot move a method between them. `metrics.headline` aggregates fully raised
+count, population, and basis points for each, and the quality card, console
+summary, and PR quick gate report the same three measures; the pinned subset
+is computed from the `nuget:` rows. The tolerances
+`branchingRaisedDropBasisPoints`, `stateMachineRaisedDropBasisPoints`, and
+`publicApiRaisedDropBasisPoints` default to 10. A pre-v8 baseline carries no
+population evidence, so the headline measures stay ungated against it and the
+card labels them as context instead of comparing against a missing
+denominator. See [`docs/decompiler-quality.md`](../../docs/decompiler-quality.md)
+for why these three populations are the headline.
+
 Policy v1 rolls multiple causes up per method in this order:
 
 1. **Recoverable roadmap:** every cause is mapped to recoverable work.
