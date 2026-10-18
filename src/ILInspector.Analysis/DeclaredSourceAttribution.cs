@@ -83,8 +83,8 @@ internal sealed class DeclaredSourceAttribution
                 reader,
                 PrimaryMetadataResolver.HasGeneratedCodeAttribute,
                 sourceGeneratedTypeClassified);
-        AsyncSourceResolver =
-            new LibraryBodyAsyncSourceResolver(
+        StateMachineSourceResolver =
+            new StateMachineSourceResolver(
                 reader,
                 AssemblyIdentity,
                 PrimaryMetadataResolver,
@@ -95,25 +95,25 @@ internal sealed class DeclaredSourceAttribution
                 typeDefinitionIndexBuilt,
                 stateMachineExecutionMethodsBuilt,
                 targetedStateMachineClaimsBuilt);
-        var liftedSourceOwnerResolver =
-            new LibraryBodyLiftedSourceOwnerResolver(
+        LiftedSourceOwnerResolver =
+            new LiftedSourceOwnerResolver(
                 reader,
                 peReader,
                 PrimaryMetadataResolver,
                 MethodReferenceResolver,
-                AsyncSourceResolver,
+                StateMachineSourceResolver,
                 methodBodyReferenceIndexed,
                 implementationMetricWork,
                 implementationMetricRecorder,
                 generatedExpansionWork,
                 liftedDeclaringTypeChainWalked);
         DeclaredSourceResolver =
-            new LibraryBodyDeclaredSourceResolver(
+            new DeclaredSourceResolver(
                 reader,
                 PrimaryMetadataResolver,
-                liftedSourceOwnerResolver,
-                AsyncSourceResolver,
-                implementationMetricWork);
+                LiftedSourceOwnerResolver,
+                StateMachineSourceResolver);
+        ImplementationMetricWork = implementationMetricWork;
     }
 
     internal string AssemblyName { get; }
@@ -142,18 +142,30 @@ internal sealed class DeclaredSourceAttribution
         GeneratedProvenanceClassifier
     { get; }
 
-    internal LibraryBodyAsyncSourceResolver AsyncSourceResolver { get; }
+    internal StateMachineSourceResolver StateMachineSourceResolver { get; }
 
-    internal LibraryBodyDeclaredSourceResolver DeclaredSourceResolver { get; }
+    internal LiftedSourceOwnerResolver LiftedSourceOwnerResolver { get; }
+
+    internal DeclaredSourceResolver DeclaredSourceResolver { get; }
+
+    internal ImplementationMetricWorkBudget? ImplementationMetricWork { get; }
 
     /// <summary>
-    /// Adds the authenticated generated execution bodies of
-    /// <paramref name="directMethods"/> under the configured expansion work.
+    /// Adds the authenticated generated bodies of
+    /// <paramref name="directMethods"/> in the requested
+    /// <paramref name="roles"/> under the configured expansion work, and
+    /// classifies the methods of compiler-generated types nested under
+    /// <paramref name="reachFromTypes"/>.
     /// </summary>
     internal MethodDefinitionGeneratedExpansionResult
         ExpandGeneratedExecutionBodies(
             System.Collections.Immutable.ImmutableArray<MethodDefinitionHandle>
-                directMethods)
+                directMethods,
+            MethodDefinitionGeneratedBodyRoles roles =
+                MethodDefinitionGeneratedBodyRoles.Execution,
+            System.Collections.Immutable.ImmutableArray<TypeDefinitionHandle>
+                reachFromTypes = default,
+            bool includeUnauthenticatedCandidates = false)
     {
         if (GeneratedExpansionWork is null)
         {
@@ -163,7 +175,10 @@ internal sealed class DeclaredSourceAttribution
 
         return DeclaredSourceResolver.ExpandGeneratedExecutionBodies(
             directMethods,
-            GeneratedExpansionWork);
+            GeneratedExpansionWork,
+            roles,
+            reachFromTypes,
+            includeUnauthenticatedCandidates);
     }
 
     /// <summary>

@@ -1046,6 +1046,10 @@ rules, this document describes subsystem ownership, and
   pattern that a reported change is observable in a complete diff view at that
   view's level, and how diff producers and views reason about subtle
   differences.
+- [Scope symmetry](design/scope-symmetry.md): the cross-cutting pattern that
+  Library, Type, and Member are first-class analysis scopes with
+  scope-proportional work, one infrastructure for Rows, Count, and exact
+  Exists, lean roots and heavy leaves, and retention only of requested results.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.

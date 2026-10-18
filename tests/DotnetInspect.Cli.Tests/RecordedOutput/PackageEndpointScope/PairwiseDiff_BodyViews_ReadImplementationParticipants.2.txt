@@ -1,0 +1,15 @@
+# Summary: System.Text.Json
+
+| Field | Value |
+| ----- | ----- |
+| Versions | 9.0.0 -&gt; 10.0.0 |
+
+> [!NOTE]
+> 2 selected analyses.
+
+## Summary
+
+| Analysis | Outcome | Added | Removed | Changed | Present | Detail |
+| -------- | ------- | ----- | ------- | ------- | ------- | ------ |
+| allocation | Compared | 0 | 0 | 0 | 0 |  |
+| il | Compared | 2 | 3 | 0 | 9 |  |

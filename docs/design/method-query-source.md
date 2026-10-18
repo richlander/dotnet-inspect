@@ -248,10 +248,9 @@ methods merely because an implementation can discover them.
 The initial relations are:
 
 - **Generated execution bodies.** From an authenticated declared source,
-  include its async or iterator state-machine execution method and its
-  authenticated lifted local-function or lambda bodies. The
-  [declared-source relation](#declared-source-relation) states the target
-  that widens this to role-selected state-machine methods. State-machine
+  include its async or iterator state-machine methods in the requested
+  [roles](#declared-source-relation), always including the execution method,
+  and its authenticated lifted local-function or lambda bodies. State-machine
   relationships may be available from targeted metadata. Lifted ownership may
   additionally require bounded instruction probes of the selected owner and
   recursively reached candidate bodies. Relationship owners define
@@ -291,9 +290,14 @@ must receipt that whole-table work and does not satisfy the sparse-breadth
 proportionality gate.
 
 Generated-body discovery runs on `DeclaredSourceAttribution`, which composes
-the declared-source, async state-machine, and lifted-owner resolvers, with the
-metadata resolvers and classifiers they read, from the subject's metadata and
-PE readers alone. The source constructs it only when a request declares
+`DeclaredSourceResolver`, `StateMachineSourceResolver`, and
+`LiftedSourceOwnerResolver`, with the metadata resolvers and classifiers they
+read, from the subject's metadata and PE readers alone. The three resolvers
+reference no Library Body Analysis plan, result, or runner; Library Body
+Analysis applies them to its plans through
+`LibraryBodyDeclaredSourcePublication`, which is deleted with it. The metadata
+resolvers and classifiers still carry `LibraryBody` names and move under
+[#9959](https://github.com/richlander/dotnet-inspect/issues/9959). The source constructs it only when a request declares
 expansion and builds no `LibraryBodyAnalysisBuilder` for it. When a producer
 also declares the module lookup, that lookup's builder is given the same
 attribution, so expansion and lookup share one set of resolver caches. Library
@@ -315,13 +319,24 @@ completion, never successful exhaustion.
 
 ### Declared-source relation
 
-Status: this section is the target design for
-[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and is
-**unverified**. Today expansion applies only to exact breadth, includes only
-the state-machine `MoveNext` and authenticated lifted bodies, and fails the
-source with empty breadth when a bound is reached. Roles, nested-type reach,
-unauthenticated-candidate breadth, the all-definition reverse lowering, and
-retained-prefix bounds land with that issue.
+Status: exact breadth implements roles, nested-type reach, and
+unauthenticated candidates.
+
+- `IncludeGeneratedExecutionBodies` takes the requested
+  `MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and
+  `includeUnauthenticatedCandidates`.
+- `MethodDefinitionGeneratedExpansionCoverage` publishes each outcome:
+  `Origins` in the requested roles, `AttributedOutsideRoles`, and
+  `UnauthenticatedCandidates`.
+- A nested type counts as compiler-generated when it carries
+  `CompilerGeneratedAttribute`.
+- A generated-named lifted body declared directly in breadth that no owner
+  reaches is also an unauthenticated candidate.
+
+The all-definition reverse lowering and retained-prefix bounds are the target
+design for [#9864](https://github.com/richlander/dotnet-inspect/issues/9864)
+and are **unverified**. Today expansion applies only to exact breadth and
+fails the source with empty breadth when a bound is reached.
 
 The declared-source relation maps declared members and the physical bodies
 that implement them, in both directions. Exact breadth asks the forward

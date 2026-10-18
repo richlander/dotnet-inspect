@@ -2814,7 +2814,7 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
     }
 
     [Fact]
-    public async Task HistoryCountWithoutTransitionsIsObservedZero()
+    public async Task HistoryCountForOneEvaluatedVersionIsExactZero()
     {
         ImmutableArray<CellFixture> population =
             CellFixture.CreatePopulation(
@@ -2830,6 +2830,45 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
                 new DiffAcquisition(executor),
                 TestContext.Current.CancellationToken);
 
+        // One evaluated version has no adjacent transitions, so the Changed
+        // Versions cohort is exactly empty
+        // (diff-history.md#subject-specific-history-count).
+        var count = Assert.IsType<
+            SectionCountOutcome<
+                DiffHistoryCountCohort,
+                DiffHistoryChangedVersionCountEvidence>.Completed>(
+                    Assert.IsType<DiffHistorySectionAvailable>(
+                        envelope.Content).Count);
+        SectionCountEntry<DiffHistoryCountCohort> entry =
+            Assert.Single(count.Counts);
+        Assert.True(entry.IsExact);
+        Assert.Equal(0, entry.Value);
+        Assert.Empty(count.Sources);
+        Assert.Empty(envelope.Diagnostics);
+    }
+
+    [Fact]
+    public async Task HistoryCountForOneFailedVersionIsObservedZero()
+    {
+        ImmutableArray<CellFixture> population =
+            CellFixture.CreatePopulation(
+                "Contoso.History",
+                "1.0.0");
+        var executor = new SettlementExecutor(execution =>
+            new PackageHouseSettlement.ResourceFree(
+                new PackageHouseResult.Rejected(
+                    new PackageHouseEvidence(execution.Request),
+                    Reason("Fixture rejection."))));
+
+        InspectionEnvelope<DiffHistoryOutcome> envelope =
+            await DiffOperation.ExecuteAsync(
+                CountRequest(
+                    HistoryRequest(population, HistoryType)),
+                new DiffAcquisition(executor),
+                TestContext.Current.CancellationToken);
+
+        // A failed evaluation establishes nothing: zero is observed, not
+        // exact, even though the population has no transitions.
         var failure = Assert.IsType<
             SectionCountOutcome<
                 DiffHistoryCountCohort,
@@ -2842,6 +2881,10 @@ public sealed partial class PackageVersionCellMetadataInspectionTests
             Assert.Single(failure.Sources).Evidence;
         Assert.Equal(0, evidence.TotalAssessmentCount);
         Assert.Null(evidence.FirstUnestablishedAssessment);
+        Assert.Contains(
+            envelope.Diagnostics,
+            static diagnostic =>
+                diagnostic.Code == "diff-history.count-incomplete");
     }
 
     [Fact]

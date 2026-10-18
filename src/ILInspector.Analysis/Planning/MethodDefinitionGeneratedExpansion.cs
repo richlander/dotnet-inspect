@@ -13,6 +13,9 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     readonly HashSet<int> _generatedRows = [];
     readonly HashSet<int> _probeRows = [];
     readonly HashSet<MethodDefinitionGeneratedExpansionOrigin> _origins = [];
+    readonly HashSet<MethodDefinitionGeneratedExpansionOrigin>
+        _attributedOutsideRoles = [];
+    readonly HashSet<int> _unauthenticatedRows = [];
     long _probeEncodedIlBytes;
     int _relationshipNodes;
 
@@ -47,6 +50,30 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
         {
             throw LimitExceeded(
                 origin.Method,
+                "generated physical-method");
+        }
+    }
+
+    internal void RecordAttributedOutsideRoles(
+        MethodDefinitionGeneratedExpansionOrigin origin) =>
+        _attributedOutsideRoles.Add(origin);
+
+    /// <summary>
+    /// Records a generated body no edge authenticates. One that joins breadth
+    /// counts against the generated physical-method limit.
+    /// </summary>
+    internal void RecordUnauthenticatedCandidate(
+        MethodDefinitionHandle handle,
+        bool joinsBreadth)
+    {
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (!_unauthenticatedRows.Add(row) || !joinsBreadth)
+            return;
+        if (_generatedRows.Add(row)
+            && _generatedRows.Count > _limits.MaximumGeneratedMethods)
+        {
+            throw LimitExceeded(
+                handle,
                 "generated physical-method");
         }
     }
@@ -90,13 +117,22 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
             _probeBodies.Build(),
             _probeEncodedIlBytes,
             _relationshipNodes,
-            [.. _origins
-                .OrderBy(static origin =>
-                    MetadataTokens.GetRowNumber(origin.Method))
-                .ThenBy(static origin => origin.Kind)
-                .ThenBy(static origin =>
-                    MetadataTokens.GetRowNumber(
-                        origin.DeclaredOwner))]);
+            Ordered(_origins),
+            Ordered(_attributedOutsideRoles),
+            [.. _unauthenticatedRows
+                .Order()
+                .Select(static row =>
+                    MetadataTokens.MethodDefinitionHandle(row))]);
+
+    static ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Ordered(
+        IEnumerable<MethodDefinitionGeneratedExpansionOrigin> origins) =>
+        [.. origins
+            .OrderBy(static origin =>
+                MetadataTokens.GetRowNumber(origin.Method))
+            .ThenBy(static origin => origin.Kind)
+            .ThenBy(static origin =>
+                MetadataTokens.GetRowNumber(origin.DeclaredOwner))
+            .ThenBy(static origin => origin.Role)];
 
     static InvalidOperationException LimitExceeded(
         EntityHandle subject,

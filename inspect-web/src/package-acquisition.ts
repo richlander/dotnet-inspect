@@ -198,6 +198,7 @@ export interface AppPackageLibrary {
   members: number | null;
   platformPack: string | null;
   surfaceAvailable: boolean;
+  countsPending: boolean;
   unavailableDetail: string | null;
 }
 
@@ -309,6 +310,8 @@ export function packageLibrariesForModel(
         members: descriptor?.publicMembers ?? null,
         platformPack: descriptor?.platformPack ?? null,
         surfaceAvailable: descriptor !== undefined,
+        countsPending:
+          descriptor === undefined && packageModel.isSummaryOnly === true,
         unavailableDetail: descriptor || packageModel.isSummaryOnly
           ? null
           : "Library surface details are unavailable.",
@@ -326,6 +329,7 @@ export function packageLibrariesForModel(
     members: descriptor.publicMembers,
     platformPack: descriptor.platformPack,
     surfaceAvailable: true,
+    countsPending: false,
     unavailableDetail: null,
   }));
 }
