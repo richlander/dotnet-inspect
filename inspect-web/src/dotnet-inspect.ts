@@ -11455,6 +11455,15 @@ function platformReferenceSectionHtml(
   return `<div data-platform-reference-slot>${content}</div>`;
 }
 
+function libraryReferencePackageIcon(pkg: AppPackage | null | undefined): string | null {
+  if (!pkg || pkg.isRuntimePack) return null;
+  if (pkg.icon)
+    return `data:${pkg.icon.mediaType};base64,${pkg.icon.base64}`;
+  return pkg.source.kind === "nuget.org" || pkg.source.kind === "feed"
+    ? NUGET_DEFAULT_PACKAGE_ICON
+    : null;
+}
+
 function renderLibraryReferences() {
   const current = packageDependenciesSignature();
   const fresh = state.packageDependenciesKey === current;
@@ -11471,6 +11480,11 @@ function renderLibraryReferences() {
       packageIdentityKey(candidatePackage),
       packageLibrariesForModel(candidatePackage),
       candidatePackage.assemblies));
+  const referenceDestinations = resolveLibraryReferenceDestinations(
+    references,
+    candidates);
+  const packagesByKey = new Map(state.packages.map(candidatePackage =>
+    [packageIdentityKey(candidatePackage), candidatePackage]));
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -11478,11 +11492,74 @@ function renderLibraryReferences() {
     loading: state.packageDependenciesLoading && fresh,
     error: fresh ? state.packageDependenciesError : "",
     data: fresh ? state.packageDependencies : null,
-    referenceDestinations: resolveLibraryReferenceDestinations(
-      references,
-      candidates),
+    referenceDestinations,
+    referenceIcons: referenceDestinations.map(destination => {
+      const candidatePackage = destination
+        ? packagesByKey.get(destination.packageKey)
+        : null;
+      return libraryReferencePackageIcon(candidatePackage);
+    }),
     escapeHtml,
   });
+}
+
+async function renderLibraryReferenceIcons() {
+  const container = document.querySelector<HTMLElement>(
+    ".library-references-surface .reference-list-section");
+  const data = state.packageDependencies;
+  const references = data?.assemblyReferences;
+  if (!container || !references || typeof references === "string") return;
+  const candidates = state.packages.flatMap(candidatePackage =>
+    createWorkspaceLibraryReferenceCandidates(
+      packageIdentityKey(candidatePackage),
+      packageLibrariesForModel(candidatePackage),
+      candidatePackage.assemblies));
+  const destinations = resolveLibraryReferenceDestinations(
+    references.references, candidates);
+  const packagesByKey = new Map(state.packages.map(candidatePackage =>
+    [packageIdentityKey(candidatePackage), candidatePackage]));
+  const requests = new Map<string, Promise<BrowserPackageIconInspection>>();
+  const signature = packageDependenciesSignature();
+  const isCurrent = () =>
+    document.querySelector(".library-references-surface .reference-list-section") === container
+    && state.packageDependencies === data
+    && packageDependenciesSignature() === signature;
+  let next = 0;
+  const loadNext = async () => {
+    while (true) {
+      if (!isCurrent()) return;
+      const index = next++;
+      if (index >= destinations.length) return;
+      const destination = destinations[index];
+      const candidatePackage = destination
+        ? packagesByKey.get(destination.packageKey)
+        : null;
+      if (!candidatePackage || candidatePackage.icon
+        || candidatePackage.source.kind !== "nuget.org") continue;
+      const image = container.querySelector<HTMLImageElement>(
+        `[data-library-reference-icon="${index}"]`);
+      if (!image) continue;
+      try {
+        const key = `${candidatePackage.id.toLowerCase()}@${candidatePackage.version}`;
+        let request = requests.get(key);
+        if (!request) {
+          request = inspectPackageIcon(candidatePackage.id, candidatePackage.version);
+          requests.set(key, request);
+        }
+        const result = await request;
+        if (!isCurrent()
+          || result.packageId !== candidatePackage.id
+          || result.packageVersion !== candidatePackage.version
+          || result.status !== "Available"
+          || !result.icon) continue;
+        image.src = `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+      } catch {
+        // Keep the default package icon when the optional icon read fails.
+      }
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(4, destinations.length) }, loadNext));
 }
 
 async function uniqueCompatiblePackage(
@@ -11838,6 +11915,7 @@ function maybeAutoLoadPackageDependencies() {
       observeAsync(
         renderLibraryReferenceGraph(),
         "Rendering the assembly-reference graph");
+      observeAsync(renderLibraryReferenceIcons(), "Loading reference package icons");
     }
     return;
   }

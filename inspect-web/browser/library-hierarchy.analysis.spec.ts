@@ -1240,10 +1240,12 @@ test("production References retains a loading frame and does not show a previous
   await expect(page.locator(".library-references-scroll")).toContainText("Example.Other.Dependency");
 });
 
-test("production References opens a uniquely resolved Workspace Library destination", async ({ page }) => {
+test("production References shows an admitted package icon and opens its exact Library", async ({ page }, testInfo) => {
   const target = library("asset:reference-target", "Reference.Target", 1);
+  const icon = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><rect width="24" height="24" rx="4" fill="#3478bd"/><circle cx="12" cy="12" r="6" fill="white"/></svg>').toString("base64");
   await installFacades(page, {
     ...surface,
+    icon: { mediaType: "image/svg+xml", base64: icon },
     assemblies: [...surface.assemblies, target],
     types: [...surface.types, type("Example.ReferenceTarget", target)],
     accessibility: surface.accessibility.map(bucket =>
@@ -1253,6 +1255,14 @@ test("production References opens a uniquely resolved Workspace Library destinat
   await page.goto(root);
   await selectLibrary(page, core.id);
   await chooseInspector(page, "data-library-lens", "references", "References");
+
+  const referenceIcon = page.locator(
+    '.reference-list-section [data-library-reference-icon="0"]');
+  await expect(referenceIcon).toHaveAttribute(
+    "src", `data:image/svg+xml;base64,${icon}`);
+  await expect(page.locator(
+    ".reference-graph-section .graph-viewport")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("reference-package-icon.png") });
 
   await page.getByRole(
     "button",

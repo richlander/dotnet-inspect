@@ -2861,6 +2861,8 @@ kbd {
 .library-references-scroll > .reference-list-section { padding-top: 24px; }
 .library-references-scroll .reference-list-section > .dep-list { border-top: 0; }
 .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 16px; }
+.library-references-scroll .dep-list li:has(> .dep-icon) { grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr); }
+.library-references-scroll .library-reference-name { min-width: 0; }
 .library-references-scroll .dep-name { overflow: visible; white-space: normal; }
 .library-references-scroll .dep-version { min-width: 0; white-space: normal; text-align: right; }
 .graph-empty { color: var(--muted); font-size: 12px; padding: 24px 12px; text-align: center; }
@@ -3438,6 +3440,8 @@ kbd {
     margin-left: 100px;
   }
   .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr); gap: 4px; padding-inline: 12px; }
+  .library-references-scroll .dep-list li:has(> .dep-icon) { grid-template-columns: 24px minmax(0, 1fr); }
+  .library-references-scroll .dep-list li:has(> .dep-icon) .dep-version { grid-column: 2; }
   .library-references-scroll .dep-version { text-align: left; }
   .library-references-scroll > .document-section { padding-inline: 12px; }
   .library-integrations-controls,
