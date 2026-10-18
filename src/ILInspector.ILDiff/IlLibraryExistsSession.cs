@@ -27,7 +27,8 @@ internal enum IlSessionSpikeOptions
     CheckedDecode = 1 << 2,
     KeyCompare = 1 << 3,
     SharedDecode = 1 << 4,
-    All = MapMemo | ResolverMemo | CheckedDecode | KeyCompare | SharedDecode,
+    BlockGraphTopology = 1 << 5,
+    All = MapMemo | ResolverMemo | CheckedDecode | KeyCompare | SharedDecode | BlockGraphTopology,
 }
 
 internal enum IlExistsState
@@ -123,7 +124,8 @@ internal sealed class IlLibraryExistsSession
         {
             Options = ((spike & IlSessionSpikeOptions.CheckedDecode) != 0 ? IlExistsSpikeOptions.CheckedDecode : 0)
                 | ((spike & IlSessionSpikeOptions.KeyCompare) != 0 ? IlExistsSpikeOptions.KeyCompare : 0)
-                | ((spike & IlSessionSpikeOptions.SharedDecode) != 0 ? IlExistsSpikeOptions.SharedDecode : 0),
+                | ((spike & IlSessionSpikeOptions.SharedDecode) != 0 ? IlExistsSpikeOptions.SharedDecode : 0)
+                | ((spike & IlSessionSpikeOptions.BlockGraphTopology) != 0 ? IlExistsSpikeOptions.BlockGraphTopology : 0),
             MemoizeTypes = (spike & IlSessionSpikeOptions.ResolverMemo) != 0,
         };
         Times.Comparer = Stopwatch.GetElapsedTime(t).TotalMilliseconds;

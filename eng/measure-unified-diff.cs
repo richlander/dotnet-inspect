@@ -118,7 +118,8 @@ var b1Map = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo);
 var b1Res = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo);
 var b1Fam = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo, familyCache: true);
 var b1Key = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo | IlSessionSpikeOptions.KeyCompare, familyCache: true);
-var b1Chk = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~IlSessionSpikeOptions.SharedDecode, familyCache: true);
+var b1Chk = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~(IlSessionSpikeOptions.SharedDecode | IlSessionSpikeOptions.BlockGraphTopology), familyCache: true);
+var b1Shr = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~IlSessionSpikeOptions.BlockGraphTopology, familyCache: true);
 var b1Opt = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All, familyCache: true);
 void PrintB1(string label, (double Total, double Session, double Walk, BodyRun Run) m)
     => Row(label, m.Total,
@@ -133,7 +134,8 @@ PrintB1("B1 +map,resolver memo", b1Res);
 PrintB1("B1 +map,resolver memo,family cache", b1Fam);
 PrintB1("B1 +map,resolver memo,family cache,key compare", b1Key);
 PrintB1("B1 +...,checked decode", b1Chk);
-PrintB1("B1opt (+shared decode for byte-identical bodies)", b1Opt);
+PrintB1("B1 +...,shared decode for byte-identical bodies", b1Shr);
+PrintB1("B1opt (+block-graph-only region topology)", b1Opt);
 
 // Attribution: one instrumented walk (not the timed one).
 {

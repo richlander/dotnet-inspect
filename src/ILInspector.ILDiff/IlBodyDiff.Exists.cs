@@ -52,6 +52,12 @@ internal enum IlExistsSpikeOptions
     /// bytes make every opcode, immediate, slot, and branch offset equal, never the tokens.
     /// </summary>
     SharedDecode = 1 << 2,
+
+    /// <summary>
+    /// With CheckedDecode, build the region topology without normal-transfer validation, which
+    /// never contributes to block-graph completeness (SPIKE in ILInspector.Instructions).
+    /// </summary>
+    BlockGraphTopology = 1 << 3,
 }
 
 internal sealed class IlBodyExistsComparer
@@ -316,7 +322,8 @@ internal sealed class IlBodyExistsComparer
                     try
                     {
                         long topologyStart = Instrument ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
-                        topology = ExceptionFlowTopology.Create(length, instructions, body.ExceptionRegions);
+                        topology = ExceptionFlowTopology.Create(length, instructions, body.ExceptionRegions,
+                            validateTransfers: (Options & IlExistsSpikeOptions.BlockGraphTopology) == 0);
                         if (Instrument)
                         {
                             TopologyTicks += System.Diagnostics.Stopwatch.GetTimestamp() - topologyStart;

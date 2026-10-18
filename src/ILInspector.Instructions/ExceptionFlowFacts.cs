@@ -563,6 +563,16 @@ internal sealed class ExceptionFlowTopology
         int ilLength,
         ImmutableArray<DecodedInstruction> instructions,
         IReadOnlyCollection<ExceptionRegion> regions)
+        => Create(ilLength, instructions, regions, validateTransfers: true);
+
+    // SPIKE (exp/unified-diff-exists): the block graph reads only BlockGraphIncompleteReason,
+    // which a failed normal-transfer validation never sets, so a caller that needs block-graph
+    // completeness alone can skip that validation without changing the answer.
+    internal static ExceptionFlowTopology Create(
+        int ilLength,
+        ImmutableArray<DecodedInstruction> instructions,
+        IReadOnlyCollection<ExceptionRegion> regions,
+        bool validateTransfers)
     {
         var descriptors = ImmutableArray.CreateBuilder<ExceptionFlowClauseDescriptor>();
         int ordinal = 0;
@@ -614,7 +624,8 @@ internal sealed class ExceptionFlowTopology
             ilLength,
             instructions,
             descriptors.ToImmutable(),
-            body: null);
+            body: null,
+            validateTransfers);
     }
 
     internal static ExceptionFlowTopology Create(
@@ -657,7 +668,8 @@ internal sealed class ExceptionFlowTopology
         int ilLength,
         ImmutableArray<DecodedInstruction> instructions,
         ImmutableArray<ExceptionFlowClauseDescriptor> clauses,
-        MethodBodyEvidenceId? body)
+        MethodBodyEvidenceId? body,
+        bool validateTransfers = true)
     {
         HashSet<int> boundaries = AdmittedBoundaries(instructions, ilLength);
         foreach (ExceptionFlowClauseDescriptor clause in clauses)
@@ -868,7 +880,7 @@ internal sealed class ExceptionFlowTopology
             incompleteReason: null,
             blockGraphIncompleteReason: null);
 
-        if (!result.TryValidateAllNormalTransfers(
+        if (validateTransfers && !result.TryValidateAllNormalTransfers(
                 instructions,
                 ilLength,
                 boundaries,
