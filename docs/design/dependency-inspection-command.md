@@ -305,6 +305,12 @@ projects contribute every distinct package node in the selected
 resolved dependency node within the requested traversal boundary; explicit
 roots themselves are omitted. The license inventory then acquires only each
 coordinate's nuspec and never downloads or reads package payload content.
+It owns one monotonic inventory deadline and admits exact-manifest work in
+deterministic batches of eight. Each concurrent coordinate owns an independent
+Package Source operation clipped to the time remaining under that shared
+deadline; no operation admits overlapping source work. Completed rows remain
+ordered by coordinate, while coordinates not completed before the deadline
+retain typed incomplete-acquisition evidence.
 
 Current and latest dependency versions are another explicit projection:
 
@@ -1842,6 +1848,7 @@ targeted Debug-build probe.
 | Evidence-only selection performs no transitive acquisition. | Instrumented package-source test selecting `Dependencies` without `Dependency Hierarchy`. |
 | License completion includes root-set admission and treats an explicit depth boundary as a successful bounded inventory. | Release CLI tests combining one valid and one missing nuspec root, plus a depth-one direct-nuspec graph with a known deeper frontier. |
 | License manifest acquisition failures retain unavailable answer rows and enter `Failures` with the exact package coordinate and typed reason. | Release restored-project test with one available and one missing exact manifest, asserted across JSON, nonzero status, and exact-count rejection. |
+| License inventory admits at most eight independent Package Source operations, clips later batches to one absolute deadline, stops new batches after expiry, and never converts caller cancellation into an outcome. | `InventoryUsesEightIndependentConcurrentOperations`, `InventoryLaterBatchesUseTheSharedDeadline`, `InventoryDoesNotStartAnotherBatchAfterDeadline`, and `InventoryCallerCancellationDoesNotPublishOutcome`. |
 | Pruning is explicit-only and does not enter `@Dependencies`, verbosity, or bare effective discovery. | Release catalog, category, structural/effective discovery, and no-inventory tests. |
 | Candidate-free applicability outcomes other than the restored-resolution policy result perform no inventory or candidate work. | Direct-nuspec source-boundary and unattributed-authorship tests with throwing producers. |
 | Application-authored declarations use the library pruning policy without package-source work and never delegate on missing or partial evidence. | Restored `net10.0` application fixtures with a throwing package-source producer and one instrumented inventory read: `System.Text.Json` 8.0.5 is `PlatformDelegation` with `ApplicationAuthored`; 12.0.0 is `PackageRetained` with `ApplicationAuthored`; a declaration without a restored resolution and an incomplete restored graph each stay `NotEvaluated` with `ApplicationAuthoredExemption`, add no failure, and leave exit status unchanged; summary counts treat compared rows as evaluated and delegated or retained. |

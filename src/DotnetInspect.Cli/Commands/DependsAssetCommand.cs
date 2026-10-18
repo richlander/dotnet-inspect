@@ -1157,7 +1157,6 @@ public partial class DependsCommand
                 evidenceOutcome,
                 composition,
                 operationContext,
-                context,
                 cancellationToken).ConfigureAwait(false);
         DependsLatestVersionProjectionResult latestVersions =
             await AcquireLatestVersionProjectionAsync(
@@ -1303,7 +1302,6 @@ public partial class DependsCommand
             PackageDependencyEvidenceOutcome evidenceOutcome,
             DesktopPackageSourceComposition composition,
             NuGetOperationContext operationContext,
-            CommandContext context,
             CancellationToken cancellationToken)
     {
         if (!plan.Licenses)
@@ -1341,16 +1339,18 @@ public partial class DependsCommand
             coordinates.Add(package.Identity.Coordinate);
         }
 
-        var source = new DesktopPackageLicenseManifestSource(
-            composition,
-            options.SourceOptions,
-            context.Logger.Log);
+        var source = new AuthorizedPackageLicenseManifestSource(
+            composition.CreateDependencySourceAuthorization(
+                options.SourceOptions));
+        var execution = new PackageLicenseInventoryExecution(
+            source,
+            operationContext.OperationTimeout,
+            composition.IssueSettlementOperation);
         PackageLicenseInventoryResult inventory =
             await PackageLicenseInventoryQuery.ExecuteAsync(
                 coordinates,
-                source,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                execution,
+                cancellationToken).ConfigureAwait(false);
         bool sourceComplete =
             evidenceOutcome.RootSet.Completion
                 == PackageDependencyEvidenceRootSetCompletion.Complete
