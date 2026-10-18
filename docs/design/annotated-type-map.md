@@ -86,14 +86,21 @@ collide are `Indeterminate`, never merged.
 
 Shape facts are Fast Diff's two axes at Member grain:
 
-- **API facts:** the Member's Public API facts, as Fast Diff's API axis defines
-  them; and
+- **API facts:** the Member's projection in the Public API surface of its
+  version, the input the complete Public API comparison reads for that Member;
+  and
 - **Body facts:** for each method the Member owns, its body's identity under
   Fast Diff's Body equality: whether it has a body and, if it does, its
   canonical instructions with symbolic operands.
 
-The map adds no equality. Two shape facts are equal exactly when Fast Diff's
-axis would call them equal.
+Each shape fact is a function of one version, so two retained maps can be
+compared without reopening either image. The map adds no equality. Two API
+facts are equal exactly when the complete Public API comparison reports no
+change to the Member, which is Fast Diff's API axis, and two Body facts are
+equal exactly when Fast Diff's Body axis would call them equal. Fast Diff's
+census is a faster route to the same API answer in lockstep: its presented
+facts decide a difference, and it falls back to the Public API surface for
+uncertain ones.
 
 ### Keyed collection and Rows
 
@@ -101,18 +108,22 @@ The annotations are the canonical form. A host that needs one Member's
 findings looks the Member up by key; a host that lists asks for Rows, which are
 a projection of the annotations:
 
-- the **Type row**, when the Type has its own findings, and
-- one **Member row** per key in the annotations, in declaration order.
+- the **Type row**, when the Type is listed, and
+- one **Member row** per listed key, in declaration order.
 
-A key is in the annotations exactly when its findings are non-empty or its
-outcome is not `Complete`. A Member that is absent has, with a `Complete` Type
-outcome, nothing to report. With a partial Type outcome, the map carries that
-outcome and makes no claim about absent Members.
+An outcome is **settled** when it is `Complete` or a side has no applicable
+input, such as a method with no body for a body analysis; a settled outcome
+with no element is an empty answer. An outcome is **unsettled** when it is
+Failed, Unavailable, or `Indeterminate`.
 
-In the one-version map, the annotations are therefore the Members that the
-requested analyses mark. Shape facts are not
-annotations: every Member has them, and they are carried so two maps can be
-compared.
+In the one-version map, a key, or the Type, is listed exactly when it has an
+admitted finding or its analysis outcome is unsettled, so the annotations are
+the Members that the requested analyses mark. Shape facts are not annotations:
+every Member has them, and they are carried so two maps can be compared.
+
+A Member that is not listed has, with a `Complete` Type outcome, nothing to
+report. With a partial Type outcome, the map carries that outcome and makes no
+claim about Members that are not listed.
 
 ## The map diff
 
@@ -137,10 +148,15 @@ by one rule:
 
 The shape transitions are pair findings like the annotation transitions: an
 API change, a Body change, or a Member added or removed is an element of the
-Member's array, beside its finding transitions. So both forms have one listing
-rule: **a key is listed exactly when its array is non-empty or its outcome is
-not `Complete`.** Findings and shape facts list a Member in the same way, and
-neither needs a second source.
+Member's array, beside its finding transitions.
+
+**A key, or the Type, is listed in the map diff exactly when it has a shape
+transition or its shape comparison is unsettled.** A Member whose own facts
+did not change did not change, so a finding transition alone never lists a
+Member: it is detail of a listed Member. Listing therefore reads only the
+shape comparison, the same comparison that answers Exists, and the fact
+comparison runs only for listed Members. A listed Member's annotation outcome
+is carried on its row and never unlists it.
 
 A Member whose Body changed while all its admitted findings compare as
 `Present`, such as a changed constant, is listed with its Body transition and
@@ -199,12 +215,11 @@ Source owner adds them to it.
 Some Local instruction facts also read another Type's metadata. `alloc.new`
 and `alloc.box`, for example, classify a construction or box by the operand
 Type's definition, so a Type that changes from `class` to `struct` changes an
-`alloc.new` finding in a caller whose IL is unchanged. In the map diff, that
-caller's annotations compare as `Changed` while its shape facts are equal. The
-map diff reports the transition, because it is a difference between the two
-maps, and it lists the caller with that finding transition and no shape
-transition. A host that shows only Members whose own facts changed filters on
-the shape transitions. A finding kind the vocabulary lacks, such as a throw, is
+`alloc.new` finding in a caller whose IL is unchanged. That caller's shape
+facts are equal, so the map diff does not list it, and the transition is a
+relation between Types that belongs to the Type graph. For a listed Member, its
+finding transitions are whatever its fact comparison reports, including such
+transitions. A finding kind the vocabulary lacks, such as a throw, is
 added by the provenance matrix owner, not by this document.
 
 ## Tallies
@@ -221,29 +236,33 @@ and no scope nests another scope's Rows.
 
 | Scope | Rows | Count | Exists |
 | --- | --- | --- | --- |
-| Library | one row per Type whose map has a Row, carrying its Type entries and its Member-row Count | the number of those rows | any such row |
-| Type | the Type row, when it is a Row, and the Member rows | the number of those rows | any such row |
-| Member | that Member's row, if listed | 0 or 1 | whether the Member is listed |
+| Library | one row per listed Type, carrying its Type entries and its listed-Member Count | below | below |
+| Type | the Type row, when the Type is listed, and the Member rows | below | below |
+| Member | that Member's row, if listed | below | below |
 
-Count and Exists summarize Rows at their scope, as
+Every listed row is either changed or unresolved:
+
+- a row is **changed** when it has a listing element: an admitted finding in
+  the one-version map, a shape transition in the map diff. A Member with an
+  API transition whose Body comparison is `Indeterminate` is changed; its row
+  still shows the `Indeterminate` outcome.
+- a row is **unresolved** when it has no listing element and its listing
+  outcome is unsettled. It might be changed, so it is not evidence either
+  way.
+
+Rows returns both, each marked. Count and Exists summarize those rows, as
 [Scope symmetry](scope-symmetry.md#one-infrastructure-and-three-terminals)
-requires. Each answers one question per row: is it a Row? A listed row whose
-outcome is not `Complete` might be one, so:
+requires, with an unsettled row carried as QuerySpace's typed outcome for that
+subject rather than read as a change or as no change:
 
-- a row is **changed** when it has at least one element, whatever its outcome,
-  and is then a Row. A Member with an API transition whose Body comparison is
-  `Indeterminate` is changed; its row still shows the `Indeterminate`
-  outcome.
-- a row is **unresolved** when it has no element and its outcome is not
-  `Complete`. It is not a Row, and it is not evidence that there is none.
 - **Count** reports the number of changed rows and, separately, the number of
-  unresolved rows, with QuerySpace's typed outcome.
+  unresolved rows.
 - **Exists** is `true` when a changed row exists, undecided when none does but
-  an unresolved row does, and `false` only when the outcome is complete and
-  there are no rows.
+  an unresolved row does, and `false` only when the Type outcome is complete
+  and there are no rows.
 
 A Library-scope row in the map diff carries the Type's entries and a
-Member-row Count, read from the shape comparison; it needs no annotations and
+listed-Member Count, read from the shape comparison; it needs no annotations and
 runs no fact comparison. Opening a Type asks for that Type's map, as
 [No rows within rows](scope-symmetry.md#no-rows-within-rows) requires for an
 ephemeral host. A whole-Library map with Member rows and findings is a
@@ -309,9 +328,11 @@ complete diffs' own code
 ([evidence](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6252848264)).
 Its verdicts equalled the complete diffs on six pairs, but text identities
 (method keys, operands, and the API surface model) cost several times Fast
-Diff's symbolic census. The map's shape facts therefore use Fast Diff's
-symbolic identities. A Body fact for each method of one version is not yet
-measured; adoption step 2 measures it.
+Diff's symbolic census. A retained map's API facts are the Public API surface
+projection, whose exact-Type cost is measured in
+[#10221](https://github.com/richlander/dotnet-inspect/issues/10221), and its
+Body facts use Fast Diff's symbolic identities; a Body fact for each method of
+one version is not yet measured. Adoption step 2 measures both.
 
 ## Adoption
 
@@ -322,8 +343,11 @@ Each step is its own focused effort:
    and a one-sided Type's partition
    ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)).
 2. **One-version shape facts.** A map producer emits one version's shape facts
-   per Member, including a Body fact per method under Fast Diff's Body
-   equality, with NativeAOT cost per Type against Fast Diff's lockstep walk.
+   per Member: its Public API surface projection, through the exact-Type
+   extraction of
+   [#10221](https://github.com/richlander/dotnet-inspect/issues/10221), and a
+   Body fact per method under Fast Diff's Body equality, with NativeAOT cost
+   per Type for each against Fast Diff's lockstep walk.
 3. **Fact census without text.** The Annotated Source owner produces one
    method's admitted fact census and fact comparison, for each method a Member
    owns including generated methods, without the text comparison or the C#
@@ -359,18 +383,27 @@ implementation and, if adopted, of its QuerySpace operators.
   finding transitions. For each kind of generated code that step 3 folds into
   its owning method, a fixture shows the generated method adds no findings of
   its own, so no fact is counted twice.
-- **Listing:** a key is listed exactly when its array is non-empty or its
-  outcome is not `Complete`, in both forms; a private field is not listed; and
-  a one-sided Type lists every Member of its present side.
+- **Listing:** in the map diff, a key or the Type is listed exactly when it
+  has a shape transition or an unsettled shape comparison; in the one-version
+  map, exactly when it has an admitted finding or an unsettled analysis
+  outcome. Fixtures show that a private field is not listed, an unchanged
+  abstract or interface Member is not listed in either form, a caller whose
+  only transition is `alloc.new` after a `class` to `struct` change is not
+  listed, a Type with two rows of one name is an unresolved Type row, and a
+  one-sided Type lists every Member of its present side.
 - **Exactness:** at each scope, Count equals the number of changed rows with
   unresolved rows reported separately, and Exists is `true` with a changed row,
   undecided with only unresolved rows, and `false` with none.
+- **Retained maps:** for every fixture Member with uncertain API facts, such
+  as an attribute blob or nullable context, comparing two retained maps gives
+  Fast Diff's API state without reopening an image.
 - **Keys:** the JSON keyed collection and the Rows projection hold the same
   Members and elements, and no two Members share a spelled key.
 - **No fact census at Library scope:** producing map diff Library Rows runs no
   fact comparison, shown by the work receipt.
-- **Outcomes:** a Member with a NotApplicable or Failed side carries that
-  outcome, not an empty array.
+- **Outcomes:** a listed Member with a Failed or Unavailable side carries
+  that outcome, not an empty array, and a side with no applicable input is a
+  settled empty answer that does not list the Member.
 - **Symmetry:** a Member's row is the same in its Type's map and at Member
   scope.
 - **Cost:** NativeAOT time at Library, Type, and Member scope over a large
