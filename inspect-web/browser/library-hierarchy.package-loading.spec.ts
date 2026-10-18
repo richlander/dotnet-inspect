@@ -167,7 +167,7 @@ async function expectPackageCoordinateView(
   await expect(page.locator(view.surface).locator("#framework"))
     .toHaveCount(0);
   if (view.id === "dependencies") {
-    await expect(page.locator("[data-package-dependencies-status]")).toHaveText("0 packages");
+    await expect(page.locator("[data-package-dependencies-status]")).toHaveText("0 packages · 0 platforms");
     await expect(page.locator("html")).toHaveAttribute(
       "data-package-dependencies-request",
       JSON.stringify(["System.Text.Json", version, framework]));

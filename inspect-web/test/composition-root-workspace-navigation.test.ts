@@ -315,7 +315,7 @@ test("member filters retain accessible controls and focus across rerenders", () 
     /id: "workspace\.drill-out-escape"[\s\S]*key: "Escape"[\s\S]*!isTextEntry\(\)[\s\S]*if \(navMode\(\) === "member"\) exitMemberScope\(\)/);
   assert.match(
     appSource,
-    /function exitMemberScope\(\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*contentFramePane = "navigation";[\s\S]*render\(\);\s*restoreContentNavigationFocus\(focusGeneration\);\s*return true;/);
+    /function exitMemberScope\(\) \{\s*const focusGeneration = beginSpotlightNavigation\(\);\s*performanceMemberBrowseContext = null;\s*contentFramePane = "navigation";[\s\S]*render\(\);[\s\S]*restoreContentNavigationFocus\(focusGeneration\);\s*return true;/);
   assert.match(appSource, /onShowTypes: exitMemberScope,/);
   assert.match(appSource, /<summary id="member-filter-summary">/);
   assert.match(typePanelSource, /<summary id="type-filter-summary">/);
@@ -950,7 +950,7 @@ test("home demos execute typed results and commit canonical navigation", () => {
     /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);
   assert.match(
     restoreWorkspace,
-    /if \(loadedPlatformTarget\)[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\);\s*if \(!failureHandler\) \{\s*ensureCurrentWorkspacePublished\(\);\s*\}\s*state\.loading = false;\s*render\(\);\s*startPlatformTargetWork\(loadedPlatformTarget\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;/);
+    /if \(loadedPlatformTarget\)[\s\S]*commitWorkspaceShareBasis\(loc\.shareState\);\s*if \(!failureHandler\) \{\s*ensureCurrentWorkspacePublished\(\);\s*\}\s*state\.loading = false;\s*render\(\);\s*if \(!loc\.library\) startPlatformTargetWork\(loadedPlatformTarget\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;/);
   assert.match(
     restoreWorkspace,
     /commitWorkspaceShareBasis\(loc\.shareState\);\s*if \(!failureHandler\) \{\s*ensureCurrentWorkspacePublished\(\);[\s\S]*state\.loading = false;\s*render\(\);\s*await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;[\s\S]*if \(!failureHandler\) \{\s*workspaceLocation\.replace\(location\.href, history\.state\);/);

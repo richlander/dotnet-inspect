@@ -65,6 +65,7 @@ import {
 import {
   browserCreatedCallGraphTabIds,
   createNavigationHistory,
+  hierarchyShareTargetFramework,
   createNavigationSequence,
   createWorkspaceLocationPersistence,
   parseWorkspaceLocation,
@@ -132,7 +133,7 @@ const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
   "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
-  "workspaceCoordinateCount",
+  "workspaceCoordinateCount", "packageHierarchyTargetFramework",
   "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
@@ -583,6 +584,7 @@ function harness() {
     history,
     document,
     defaultAnalysisMode,
+    hierarchyShareTargetFramework,
     workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
       catalog: {

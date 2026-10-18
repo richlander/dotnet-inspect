@@ -15494,18 +15494,24 @@ function bindPackageReferencesTabs() {
       document.querySelector<HTMLButtonElement>(`[data-package-references-tab="${lens}"]`)
         ?.focus({ preventScroll: true });
     });
-    tab.addEventListener("keydown", event => {
-      const target = event.key === "Home" ? tabs[0]
-        : event.key === "End" ? tabs.at(-1)
-          : event.key === "ArrowRight" ? tabs[(index + 1) % tabs.length]
-            : event.key === "ArrowLeft" ? tabs[(index + tabs.length - 1) % tabs.length]
-              : null;
-      if (!target) return;
-      event.preventDefault();
-      event.stopPropagation();
-      for (const candidate of tabs) candidate.tabIndex = candidate === target ? 0 : -1;
-      target.focus();
-    });
+    keybindings.register({
+      id: "package-references-tab.navigate",
+      key: ["Home", "End", "ArrowRight", "ArrowLeft"],
+      allowExtraModifiers: true,
+      priority: WORKBENCH_KEYBINDING_PRIORITY.element,
+      when: workspaceKeyboardContextIsActive,
+      run: event => {
+        const target = event.key === "Home" ? tabs[0]
+          : event.key === "End" ? tabs.at(-1)
+            : event.key === "ArrowRight" ? tabs[(index + 1) % tabs.length]
+              : event.key === "ArrowLeft" ? tabs[(index + tabs.length - 1) % tabs.length]
+                : null;
+        if (!target) return false;
+        for (const candidate of tabs) candidate.tabIndex = candidate === target ? 0 : -1;
+        target.focus();
+        return true;
+      },
+    }, tab);
   }
 }
 
