@@ -709,6 +709,33 @@ public static partial class ApiSurfaceExtractor
     }
 
     /// <summary>
+    /// SPIKE (exp/type-diff-cost): <see cref="ExtractDeclarations(PEReader, ApiSurfaceExtractionScope, Func{TypeDefinitionHandle, bool}, bool)"/>
+    /// over one image's warm <see cref="ApiSurfaceImageCache"/>, so a per-Type
+    /// extraction does not rebuild the whole-image memory-safety index and
+    /// attribute decode state on every call.
+    /// </summary>
+    internal static ApiSurface ExtractDeclarations(
+        PEReader peReader,
+        ApiSurfaceExtractionScope scope,
+        Func<TypeDefinitionHandle, bool> includeType,
+        ApiSurfaceImageCache imageCache,
+        bool includeLocalExtensionProjections = false)
+    {
+        ArgumentNullException.ThrowIfNull(includeType);
+        ArgumentNullException.ThrowIfNull(imageCache);
+        return Extract(
+            peReader,
+            scope,
+            typesOnly: false,
+            includeCompilerGenerated: false,
+            includeLocalExtensionProjections,
+            budget: null,
+            constraintResolution: null,
+            includeType: includeType,
+            imageCache: imageCache);
+    }
+
+    /// <summary>
     /// Extracts an API surface and classifies external named generic constraints
     /// through one frozen type-resolution generation.
     /// </summary>
@@ -1033,7 +1060,8 @@ public static partial class ApiSurfaceExtractor
         TypeParameterConstraintResolution? constraintResolution,
         MetadataOperationContext? operationContext = null,
         Func<ApiType, bool>? stopAfterType = null,
-        Func<TypeDefinitionHandle, bool>? includeType = null)
+        Func<TypeDefinitionHandle, bool>? includeType = null,
+        ApiSurfaceImageCache? imageCache = null)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -1062,15 +1090,21 @@ public static partial class ApiSurfaceExtractor
         }
         var extensionReceiverDefinitions =
             new Dictionary<ApiMember, MetadataTypeDefinitionName>();
+        if (imageCache is not null && !ReferenceEquals(imageCache.Image, peReader))
+            throw new ArgumentException("The image cache belongs to another image.", nameof(imageCache));
         MemorySafetyMetadataIndex? memorySafetyIndex = null;
         MemorySafetyMetadataIndex GetMemorySafetyIndex() =>
-            memorySafetyIndex ??= MemorySafetyMetadataIndex.Create(reader);
+            memorySafetyIndex ??= imageCache is null
+                ? MemorySafetyMetadataIndex.Create(reader)
+                : imageCache.MemorySafety(reader);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
-        var materializationContext = new AttributeDecoder.MaterializationContext(
-            budget is null
-                ? static _ => { }
-                : budget.ObservePendingDecodeWork);
+        var materializationContext = budget is null && imageCache is not null
+            ? imageCache.Materialization
+            : new AttributeDecoder.MaterializationContext(
+                budget is null
+                    ? static _ => { }
+                    : budget.ObservePendingDecodeWork);
         Action<int>? observeDecodeWork = budget is null
             ? null
             : materializationContext.Observe;
@@ -2690,4 +2724,31 @@ public static partial class ApiSurfaceExtractor
             budget is null ? null : budget.RetainCommittedText);
         return surface;
     }
+}
+
+/// <summary>
+/// SPIKE (exp/type-diff-cost): one metadata image's extraction state that does
+/// not depend on the selected Types — the memory-safety index, whose
+/// construction walks the whole TypeDef, MethodDef, NestedClass, Property,
+/// Event, CustomAttribute, and MethodSemantics tables, and the attribute
+/// decoder's materialization context (its lazy TypeDef-by-name index and
+/// decoded-attribute cache).
+/// </summary>
+/// <remarks>
+/// Keyed by the <see cref="PEReader"/>: a PEReader hands out a new
+/// MetadataReader whenever a caller asks with different options, and handles
+/// are row numbers valid across readers of one image.
+/// </remarks>
+internal sealed class ApiSurfaceImageCache(PEReader image)
+{
+    MemorySafetyMetadataIndex? _memorySafety;
+    AttributeDecoder.MaterializationContext? _materialization;
+
+    public PEReader Image { get; } = image ?? throw new ArgumentNullException(nameof(image));
+
+    public MemorySafetyMetadataIndex MemorySafety(MetadataReader reader) =>
+        _memorySafety ??= MemorySafetyMetadataIndex.Create(reader);
+
+    public AttributeDecoder.MaterializationContext Materialization =>
+        _materialization ??= new(static _ => { });
 }
