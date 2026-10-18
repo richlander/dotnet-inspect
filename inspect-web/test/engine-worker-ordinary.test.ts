@@ -28,7 +28,10 @@ import {
 } from "../src/worker-runtime-core.ts";
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
-import { inertStringFixture } from "./inert-string-fixture.ts";
+import {
+  inertStringFixture,
+  packageInertStringFixture,
+} from "./inert-string-fixture.ts";
 import type {
   BrowserEcosystemPackageWorkspaceAdmissionResult,
   BrowserRetainedWorkspaceActivationResult,
@@ -42,6 +45,8 @@ import type {
   BrowserTypeFindResult,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import type {
+  BrowserDocumentLeafContainmentOutcome,
+  BrowserDocumentPresentationLeaf,
   BrowserPackageLoadResult,
   BrowserPackageSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -122,6 +127,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     getPackageDocument: () => unexpected("getPackageDocument"),
     containPackageDocumentHtml: () =>
       unexpected("containPackageDocumentHtml"),
+    containPackageDocumentLeaves: () =>
+      unexpected("containPackageDocumentLeaves"),
     queryLibraries: () => unexpected("queryLibraries"),
     queryLibraryApi: () => unexpected("queryLibraryApi"),
     queryMemberDocumentation: () =>
@@ -1669,6 +1676,49 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
   state.host.dispose();
 });
 
+test("ordinary package transport preserves contained presentation leaves", async () => {
+  const leaves = [
+    { identity: 3, policy: "Prose", text: "line\u202Eone" },
+    { identity: 1, policy: "Field", text: "field\nvalue" },
+  ] satisfies ReadonlyArray<BrowserDocumentPresentationLeaf>;
+  const contained = {
+    outcome: "contained",
+    generation: "document-4",
+    leaves: [
+      {
+        identity: 3,
+        policy: "Prose",
+        text: packageInertStringFixture("line\\u202Eone"),
+      },
+      {
+        identity: 1,
+        policy: "Field",
+        text: packageInertStringFixture("field\\^Jvalue"),
+      },
+    ],
+  } satisfies BrowserDocumentLeafContainmentOutcome;
+  const calls: unknown[][] = [];
+  const state = fixture({
+    package: {
+      containPackageDocumentLeaves: (generation, requested) => {
+        calls.push([generation, requested]);
+        return contained;
+      },
+    },
+  });
+
+  const result = state.client.package.containPackageDocumentLeaves(
+    "document-4",
+    leaves,
+  );
+  await state.environment.flushAsync();
+
+  assert.deepEqual(await result, contained);
+  assert.deepEqual(calls, [["document-4", leaves]]);
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("ordinary source transport preserves member parts and flat graph source", async () => {
   const flat = {
     provider: "pdb",
@@ -2440,6 +2490,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
       "containPackageDocumentHtml",
+      "containPackageDocumentLeaves",
       "getPackageDocument",
       "getPlatformCatalog",
       "getPlatformVersions",
@@ -2588,7 +2639,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 132);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 133);
 
   const state = fixture();
   const groups = [
