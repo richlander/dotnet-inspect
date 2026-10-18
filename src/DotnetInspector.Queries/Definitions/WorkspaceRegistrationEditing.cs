@@ -1,11 +1,12 @@
 using QuerySpace;
+using DotnetInspector.SourceSelection;
 
 namespace DotnetInspector.Queries.Definitions;
 
-/// <summary>Resource-free, immutable editing of portable Ecosystem registrations.</summary>
-public static class WorkspaceEcosystemEditor
+/// <summary>Resource-free composition of Ecosystem and independent prefix registrations.</summary>
+public static class WorkspaceRegistrationEditor
 {
-    public static WorkspaceSharePacketProjectionResult Add(
+    public static WorkspaceSharePacketProjectionResult AddEcosystem(
         WorkspaceSharePacket? packet,
         WorkspaceEcosystemRegistrationDeclaration declaration)
     {
@@ -17,23 +18,7 @@ public static class WorkspaceEcosystemEditor
             new WorkspaceRegistration.Ecosystem(declaration)]);
     }
 
-    /// <summary>Replaces one declaration in place, without changing its identity.</summary>
-    public static WorkspaceSharePacketProjectionResult Update(
-        WorkspaceSharePacket packet,
-        WorkspaceEcosystemRegistrationDeclaration declaration)
-    {
-        ArgumentNullException.ThrowIfNull(packet);
-        ArgumentNullException.ThrowIfNull(declaration);
-        int index = Find(packet, declaration.Id);
-        if (index < 0)
-            return Invalid($"Ecosystem '{declaration.Id}' is absent.");
-
-        WorkspaceRegistration[] registrations = [.. packet.Registrations];
-        registrations[index] = new WorkspaceRegistration.Ecosystem(declaration);
-        return Project(packet, registrations);
-    }
-
-    public static WorkspaceSharePacketProjectionResult Remove(
+    public static WorkspaceSharePacketProjectionResult RemoveEcosystem(
         WorkspaceSharePacket packet,
         WorkspaceEcosystemRegistrationId id)
     {
@@ -46,6 +31,42 @@ public static class WorkspaceEcosystemEditor
         var registrations = new List<WorkspaceRegistration>(packet.Registrations);
         registrations.RemoveAt(index);
         return Project(packet, [.. registrations]);
+    }
+
+    public static WorkspaceSharePacketProjectionResult AddPrefix(
+        WorkspaceSharePacket? packet,
+        PackagePrefixDeclaration prefix)
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        if (packet is not null && Find(packet, prefix) >= 0)
+            return Invalid($"Package prefix '{prefix.Prefix}' already exists.");
+        return Project(packet, [.. packet?.Registrations ?? [],
+            new WorkspaceRegistration.PackagePrefix(prefix)]);
+    }
+
+    public static WorkspaceSharePacketProjectionResult RemovePrefix(
+        WorkspaceSharePacket packet,
+        PackagePrefixDeclaration prefix)
+    {
+        ArgumentNullException.ThrowIfNull(packet);
+        ArgumentNullException.ThrowIfNull(prefix);
+        int index = Find(packet, prefix);
+        if (index < 0)
+            return Invalid($"Package prefix '{prefix.Prefix}' is absent.");
+        var registrations = new List<WorkspaceRegistration>(packet.Registrations);
+        registrations.RemoveAt(index);
+        return Project(packet, [.. registrations]);
+    }
+
+    private static int Find(WorkspaceSharePacket packet, PackagePrefixDeclaration prefix)
+    {
+        for (int index = 0; index < packet.Registrations.Count; index++)
+        {
+            if (packet.Registrations[index] is WorkspaceRegistration.PackagePrefix current
+                && current.Prefix == prefix)
+                return index;
+        }
+        return -1;
     }
 
     private static int Find(
@@ -66,7 +87,7 @@ public static class WorkspaceEcosystemEditor
         WorkspaceRegistration[] registrations)
     {
         if (source is not null && source.FormatVersion < 3)
-            return Invalid("Ecosystem editing requires Workspace packet format 3, 4, or 5.");
+            return Invalid("Registration editing requires Workspace packet format 3, 4, or 5.");
 
         // Scanner bindings are executable owner-issued capabilities, never packet data.
         foreach (WorkspaceRegistration registration in registrations)

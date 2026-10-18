@@ -343,7 +343,8 @@ public static partial class WorkspaceCommandDefinitions
             UtilityCommandDefinitions.CreateWorkspacePacketCommand());
         command.Subcommands.Add(CreateWorkspaceComponentCommand());
         command.Subcommands.Add(CreateWorkspacePackageCommand(opts));
-        command.Subcommands.Add(CreateWorkspaceEcosystemCommand());
+        command.Subcommands.Add(CreateWorkspaceRegistrationCommand(ecosystem: true));
+        command.Subcommands.Add(CreateWorkspaceRegistrationCommand(ecosystem: false));
         return command;
     }
 

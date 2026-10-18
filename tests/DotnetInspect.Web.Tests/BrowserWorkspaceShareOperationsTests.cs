@@ -252,23 +252,31 @@ public sealed class BrowserWorkspaceShareOperationsTests
     }
 
     [Fact]
-    public void AuthoredEcosystems_RoundTripThroughProductionBrowserCodec()
+    public void ComposedRegistrations_RoundTripThroughProductionBrowserCodec()
     {
-        var declaration = new DotnetInspector.Queries.WorkspaceEcosystemRegistrationDeclaration(
-            DotnetInspector.Queries.WorkspaceEcosystemRegistrationId.Create("ecosystem.json"),
-            ["System.Text.Json"], [new DotnetInspector.Packages.PackageCoordinate("System.Text.Json")], []);
-        WorkspaceSharePacketProjectionResult authored = WorkspaceEcosystemEditor.Add(null, declaration);
+        var prefix = new DotnetInspector.SourceSelection.PackagePrefixDeclaration("Microsoft.Extensions.");
+        WorkspaceSharePacketProjectionResult authored = WorkspaceRegistrationEditor.AddPrefix(null, prefix);
         Assert.True(authored.Succeeded, authored.Failure?.Message);
-        string packet = WorkspaceSharePacketCodec.Encode(authored.Packet!);
+        var selected = Assert.IsType<DotnetInspector.Ecosystems.EcosystemWorkspaceRegistrationSelectionResult.Known>(
+            DotnetInspector.Ecosystems.EcosystemPackCatalog.SelectWorkspaceRegistration(
+                DotnetInspector.Ecosystems.EcosystemPackIds.AI));
+        var composed = WorkspaceRegistrationEditor.AddEcosystem(authored.Packet, selected.Declaration);
+        Assert.True(composed.Succeeded, composed.Failure?.Message);
+        string packet = WorkspaceSharePacketCodec.Encode(composed.Packet!);
 
         BrowserWorkspaceShareEncodeResult result = BrowserWorkspaceShareOperations.Canonicalize(packet);
 
         Assert.True(result.Succeeded, result.Failure?.Message);
         Assert.Equal(packet, result.Packet);
         WorkspaceSharePacket restored = WorkspaceSharePacketCodec.Decode(result.Packet!, TestContext.Current.CancellationToken);
-        var ecosystem = Assert.IsType<DotnetInspector.Queries.WorkspaceRegistration.Ecosystem>(Assert.Single(restored.Registrations));
-        Assert.Equal(declaration.Id, ecosystem.Declaration.Id);
-        Assert.Equal("System.Text.Json", Assert.Single(ecosystem.Declaration.CorePackages).PackageId);
+        Assert.Equal(2, restored.Registrations.Count);
+        var registration = Assert.IsType<DotnetInspector.Queries.WorkspaceRegistration.PackagePrefix>(restored.Registrations[0]);
+        Assert.Equal(prefix, registration.Prefix);
+        var ecosystem = Assert.IsType<DotnetInspector.Queries.WorkspaceRegistration.Ecosystem>(restored.Registrations[1]);
+        Assert.Equal(selected.Declaration.NamespaceRoots.ToArray(), ecosystem.Declaration.NamespaceRoots.ToArray());
+        Assert.NotEmpty(ecosystem.Declaration.CorePackages);
+        Assert.Equal(selected.Declaration.CorePackages.Select(package => package.PackageId),
+            ecosystem.Declaration.CorePackages.Select(package => package.PackageId));
     }
 
     [Fact]

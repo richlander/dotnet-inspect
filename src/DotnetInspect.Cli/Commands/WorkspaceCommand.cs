@@ -927,7 +927,7 @@ public static partial class WorkspaceCommand
         return new WorkspaceRegistration.Ecosystem(known.Declaration);
     }
 
-    static EcosystemPackId ParseEcosystemPackId(string value)
+    internal static EcosystemPackId ParseEcosystemPackId(string value)
     {
         string canonical = value.StartsWith(
             "ecosystem.",
@@ -961,7 +961,7 @@ public static partial class WorkspaceCommand
         return normalized.ToLowerInvariant();
     }
 
-    internal static ExactLibrarySourceCoordinate.Package ParseExactPackageLibrary(
+    static ExactLibrarySourceCoordinate.Package ParseExactPackageLibrary(
         string value)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value);
