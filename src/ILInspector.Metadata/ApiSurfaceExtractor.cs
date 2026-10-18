@@ -29,6 +29,14 @@ public enum ApiSurfaceExtractionScope
     /// stays hidden rather than re-entering with an include-all member list.
     /// </summary>
     PublicWithNonPublicTypes,
+
+    /// <summary>
+    /// The diff's API axis (docs/design/diff-capabilities.md#axes): the <c>public</c> and
+    /// <c>protected</c> accessibility buckets less <c>private protected</c>, with hidden
+    /// declarations admitted and marked by <c>IsHidden</c>. A Type is admitted by its own row.
+    /// The <see cref="Public"/> scope is this population's ordinary presentation default.
+    /// </summary>
+    ApiAxis,
 }
 
 /// <summary>Which retention bound stopped a bounded API-surface extraction.</summary>
@@ -1264,6 +1272,12 @@ public static partial class ApiSurfaceExtractor
             if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
+            // The API axis admits a Type by its own row and compares its public
+            // and protected members, hidden ones included and marked.
+            bool apiAxis = scope == ApiSurfaceExtractionScope.ApiAxis;
+            if (apiAxis && !AdmitsApiAxisType(typeDef))
+                continue;
+
             // Whether this type's members follow the include-all rules. Every member decision
             // below reads this local, so the composed scope keeps a public type's public member
             // list while a non-public type carries its complete one.
@@ -1278,7 +1292,8 @@ public static partial class ApiSurfaceExtractor
                 reader,
                 typeDef.GetCustomAttributes(),
                 observeDecodeWork);
-            if (!includeAll && typeIsHidden)
+            bool admitHidden = includeAll || apiAxis;
+            if (!admitHidden && typeIsHidden)
             {
                 continue;
             }
@@ -1646,7 +1661,7 @@ public static partial class ApiSurfaceExtractor
                     methodAccess,
                     methodHandle,
                     interfaceImplementations);
-                if (!AdmitsMethodAccess(effectiveAccess, includeAll))
+                if (!AdmitsMethodAccess(effectiveAccess, includeAll, apiAxis))
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1692,7 +1707,7 @@ public static partial class ApiSurfaceExtractor
                     isExplicitInterfaceImplementation,
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) methods unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenMethod)
+                if (!admitHidden && isHiddenMethod)
                 {
                     RetainFilteredRuntimeJsExportFact(
                         apiType,
@@ -1968,9 +1983,7 @@ public static partial class ApiSurfaceExtractor
                     isSealedProperty |= setterOverride && (setterAttributes & MethodAttributes.Final) != 0;
                 }
 
-                if (!AdmitsMemberAccess(
-                        bestAccess == MethodAttributes.Public,
-                        includeAll))
+                if (!AdmitsMethodAccess(bestAccess, includeAll, apiAxis))
                 {
                     continue;
                 }
@@ -1983,7 +1996,7 @@ public static partial class ApiSurfaceExtractor
                     accessors.Setter,
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) properties unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenProperty)
+                if (!admitHidden && isHiddenProperty)
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
@@ -2000,7 +2013,11 @@ public static partial class ApiSurfaceExtractor
                     accessors,
                     typeNullableContext,
                     explicitImplementationBodies,
-                    includeAll,
+                    // A protected property on the API axis spells its accessors with their
+                    // access, as the include-all spelling does; a public one keeps the
+                    // ordinary spelling, so the ordinary presentation compares as before.
+                    includeAll
+                        || (apiAxis && bestAccess != MethodAttributes.Public),
                     observeText,
                     observeDecodeWork,
                     observeAttributeMaterialize);
@@ -2163,9 +2180,7 @@ public static partial class ApiSurfaceExtractor
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
                 var fieldAccess = field.Attributes & FieldAttributes.FieldAccessMask;
-                if (!AdmitsMemberAccess(
-                        fieldAccess == FieldAttributes.Public,
-                        includeAll))
+                if (!AdmitsFieldAccess(fieldAccess, includeAll, apiAxis))
                 {
                     continue;
                 }
@@ -2253,7 +2268,7 @@ public static partial class ApiSurfaceExtractor
                     field.GetCustomAttributes(),
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenField)
+                if (!admitHidden && isHiddenField)
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(
@@ -2430,9 +2445,7 @@ public static partial class ApiSurfaceExtractor
                 }
 
                 var adder = reader.GetMethodDefinition(accessors.Adder);
-                if (!AdmitsMemberAccess(
-                        eventAccess == MethodAttributes.Public,
-                        includeAll))
+                if (!AdmitsMethodAccess(eventAccess, includeAll, apiAxis))
                 {
                     continue;
                 }
@@ -2445,7 +2458,7 @@ public static partial class ApiSurfaceExtractor
                     accessors.Remover,
                     observeDecodeWork);
                 // Skip EditorBrowsable(Never) events unless --all; obsolete are surfaced with marker.
-                if (!includeAll && isHiddenEvent)
+                if (!admitHidden && isHiddenEvent)
                     continue;
 
                 var isObsolete = AttributeReader.TryGetObsoleteAttribute(

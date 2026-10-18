@@ -2,6 +2,7 @@
 // expected API and Body states are asserted by FastDiffTests.
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -142,4 +143,25 @@ public class NullableOuter
 
 public class Removed
 {
+}
+
+// A hidden public Member is on the API axis, marked hidden.
+public class HiddenMemberChanged
+{
+    public int Value(int x) => x;
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public int Hidden(int before) => before;
+}
+
+// A protected Member is on the API axis.
+public class ProtectedMemberChanged
+{
+    protected int Value(int before) => before;
+}
+
+// A private protected Member is not on the API axis.
+public class PrivateProtectedMemberAdded
+{
+    public int Value(int x) => x;
 }

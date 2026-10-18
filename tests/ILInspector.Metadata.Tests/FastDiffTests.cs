@@ -35,6 +35,9 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.InternalBodyOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.Added", FastDiffState.Changed, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.Removed", FastDiffState.Changed, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.HiddenMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.ProtectedMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.PrivateProtectedMemberAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
     public void TypeStates_SeparateApiAndBodyChanges(
         string fullName,
         FastDiffState api,
@@ -77,8 +80,8 @@ public sealed class FastDiffTests
     public void ApiUnchanged_IsSoundAgainstTheCompletePublicApiComparison(string pairName)
     {
         FixturePair pair = PairOf(pairName);
-        ApiSurface before = Surface(pair.OldAssemblyPath());
-        ApiSurface after = Surface(pair.NewAssemblyPath());
+        ApiSurface before = Surface(pair.OldAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
+        ApiSurface after = Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
         ApiFindingComparison comparison =
             MetadataFindings.CompareApi(
                 before, after, Subject, new ApiDiffOptions(ApiDiffScope.All));
@@ -173,11 +176,76 @@ public sealed class FastDiffTests
         _ => FixtureCatalog.LibraryApiDiffPair,
     };
 
-    static ApiSurface Surface(string path)
+    static ApiSurface Surface(string path, ApiSurfaceExtractionScope scope)
     {
         using var stream = File.OpenRead(path);
         using var reader = new PEReader(stream);
-        return ApiSurfaceExtractor.Extract(reader, ApiSurfaceExtractionScope.Public);
+        return ApiSurfaceExtractor.Extract(reader, scope);
+    }
+
+    static ApiFindingComparison CompareFastDiffPair(ApiSurfaceExtractionScope scope)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        return MetadataFindings.CompareApi(
+            Surface(pair.OldAssemblyPath(), scope),
+            Surface(pair.NewAssemblyPath(), scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.HiddenMemberChanged")]
+    [InlineData("FastDiffFixture.ProtectedMemberChanged")]
+    public void ApiAxis_ComparesHiddenAndProtectedMembers(string typeName)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        Assert.Contains(typeName, ChangedTypes(comparison));
+        Assert.Equal(
+            FastDiffState.Changed,
+            Assert.Single(Compare(FixtureCatalog.MetadataFastDiffPair).Types, type => type.FullName == typeName).Api);
+    }
+
+    [Fact]
+    public void ApiAxis_MarksAHiddenMemberHidden()
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FastDiffFixture.HiddenMemberChanged");
+        Assert.NotEmpty(type.Changes);
+        Assert.All(type.Changes, change =>
+        {
+            ApiMember member = (change.Subject?.NewMember ?? change.Subject?.OldMember)!.Member;
+            Assert.Equal("Hidden", member.Name);
+            Assert.True(member.IsHidden);
+        });
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.HiddenMemberChanged")]
+    [InlineData("FastDiffFixture.ProtectedMemberChanged")]
+    public void OrdinaryPresentation_OmitsHiddenAndProtectedMembers(string typeName)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+
+        Assert.DoesNotContain(typeName, ChangedTypes(comparison));
+    }
+
+    [Fact]
+    public void ApiAxis_ExcludesPrivateProtectedMembers()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        ApiSurface after = Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
+        ApiType type = Assert.Single(
+            after.Types,
+            type => type.FullName == "FastDiffFixture.PrivateProtectedMemberAdded");
+
+        Assert.DoesNotContain(type.Members, member => member.Name == "Added");
+        Assert.DoesNotContain(
+            "FastDiffFixture.PrivateProtectedMemberAdded",
+            ChangedTypes(CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis)));
     }
 
     [Fact]

@@ -233,7 +233,7 @@ the implementation analysis complete.
 | Which accessibility should a Type's Member inventory show? | The `public` bucket without hidden declarations; an `accessibility` term selects other buckets, still without hidden declarations | Every bucket plus hidden declarations; an added `accessibility` term narrows the buckets and hidden declarations stay admitted |
 | Which members belong to a Type's declaration population? | Declarations physically owned by that Type; inherited and extension members require separately requested contextual populations | Widen only the visibility of the declaration population; do not request contextual populations |
 | How should a Type's Member inventory spell its rows? | C# spelling: same-owner records compose into declarations wherever a consumer sees a single unit | Unchanged; metadata spelling is a separate, explicit choice |
-| Which declarations should an API comparison match? | The comparison's ordinary API population | Widen the API population where that comparison admits the option |
+| Which declarations should an API comparison match? | A diff's API axis compares the `public` and `protected` buckets, less `private protected`, with hidden declarations admitted; the ordinary API population is its presentation default | Widen the API population where that comparison admits the option |
 | Which named root should a body operation resolve? | Roots in the ordinary public-facing API | Include a non-public, hidden, or obsolete root; the resulting implementation analysis is unchanged |
 | Which method bodies should a whole-library metric summarize? | Every admitted implementation body in the selected library population | Not a completeness switch; the report declares its own implementation population |
 | Which bodies should a type/member metric or call analysis inspect? | Every admitted body under the selected typed root | Not a substitute for selecting the root or changing its API visibility |
@@ -315,10 +315,35 @@ population receipts, evidence, and presentation contracts that this distinction
 connects. This document only prevents an API visibility gesture from being
 reused as an implementation completeness claim.
 
+### The diff's API axis population
+
+A diff's API axis, as
+[Diff capabilities](diff-capabilities.md#axes) defines it, compares one
+widened population rather than the ordinary one: `--all` narrowed by an
+`accessibility` term to the `public` and `protected` buckets, less
+`private protected` declarations, which no other assembly can reach. Hidden
+declarations stay admitted into their buckets and keep their hidden status as
+a facet. A Type is admitted by its own row's bucket, so a public nested Type
+of a non-public Type is admitted and a public Member of an internal Type is
+not. Metadata issues this population as the API axis surface
+(`ApiSurfaceExtractionScope.ApiAxis`); Fast Diff's API census admits the same
+declarations.
+
+The ordinary population, the `public` bucket without hidden declarations, is
+the presentation default for diff output: a host shows it unless the user
+selects more, and it filters by the facets each compared declaration carries
+rather than by narrowing the comparison.
+
 ## Adoption
 
-API commands and API Diff retain their existing visibility behavior and should
-link this rule when they document `--all`. Library Metrics and other
+API commands retain their existing visibility behavior and should link this
+rule when they document `--all`. API Diff compares the diff's API axis
+population above and presents the ordinary population by default. The
+comparison and Fast Diff's census adopt that population first; until the CLI
+and Inspect Web Library API Diff compare the API axis surface and filter it
+for presentation
+([#10227](https://github.com/richlander/dotnet-inspect/issues/10227)), they
+compare the ordinary population directly. Library Metrics and other
 implementation analyses should state their implementation population directly
 and should not add `--all` solely to expose non-public or generated bodies.
 When an implementation report offers a follow-up API route, that route may
