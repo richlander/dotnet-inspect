@@ -1054,6 +1054,10 @@ rules, this document describes subsystem ownership, and
   keyed collection of its Members' findings at one version, and the map diff
   of two such maps by the same implementation, with Rows as a projection, at
   Library, Type, and Member scope.
+- [Diff capabilities](design/diff-capabilities.md): the diff question ladder
+  from one bit per Type to one Member's complete diff, the API and Body axes,
+  the Exists contract, expansive comparison with presentation filtering, and
+  the provisions and latency bar of one diff owner.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
