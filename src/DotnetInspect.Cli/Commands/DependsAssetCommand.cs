@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using QuerySpace.Rows;
 using DotnetInspector.Sections;
@@ -2195,15 +2196,24 @@ public partial class DependsCommand
                 hierarchyRows,
                 output);
 
-        if (options.Tree || options.MermaidOutput)
+        if (options.Tree)
+        {
+            DependencyHierarchyPresentation.WriteTree(
+                projection.Hierarchy,
+                [
+                    .. hierarchyRows.Select(
+                        static row => row.OccurrenceIdentity),
+                ],
+                output);
+            return true;
+        }
+
+        if (options.MermaidOutput)
         {
             DependencyHierarchyOutputAdapter.Write(
                 projection.Hierarchy,
                 hierarchyRows,
-                options.MermaidOutput
-                    ? OutputFormat.Mermaid
-                    : OutputFormat.PlainText,
-                tree: options.Tree,
+                OutputFormat.Mermaid,
                 embeddedMermaid: false,
                 options.NoHeader,
                 options.CompactJson,
