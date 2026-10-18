@@ -57,7 +57,9 @@ A map is about one Type subject. It contains:
 
 - a **Type row**: the Type's outcome and, in the two-version form, its own
   transition;
-- **Member rows**, one per listed Member, in the Type's declaration order; and
+- **Member rows**, one per listed Member, in the After side's declaration
+  order, followed by Members present only on the Before side in its
+  declaration order; and
 - per Member row, its **findings**, in the order of their census or
   comparison, with the outcome that produced them.
 
@@ -148,9 +150,14 @@ as `Present`, such as a changed constant, is listed with a `Complete` outcome
 and no findings, and reads as "body changed, no classified finding". An empty
 list never stands for a comparison that did not complete.
 
-A Type present on one side has no Fast Diff Type level. Its Member rows come
-from the census of its present side, each one-sided, with every admitted
-finding `Added` or `Removed`.
+A Type present on one side has no Fast Diff Type level today, so its map has
+the Type row only. Once Fast Diff's Type level partitions a one-sided Type
+([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)), its
+map also lists each Member of the present side, one-sided, with every
+admitted finding `Added` or `Removed`.
+
+The map requests both Fast Diff axes. An API-only request, whose Body states
+are `NotCompared`, is not a map request.
 
 In the one-version form, a Member row carries the Member's inspection outcome
 and its admitted findings, and a Member is listed when it has at least one.
@@ -184,11 +191,14 @@ not admit **Call relationship** descriptors, such as `call.edge`, because the
 fact comparison does not produce them today; they join when the Annotated
 Source owner adds them to it.
 
-The map assumes that a method's admitted facts depend only on that method's
-own IL under the Body policy, so an unchanged Body has no admitted finding
-transition. The Annotated Source owner keeps that true, and the Agreement gate
-checks it on fixtures, including generated code and facts that read
-referenced metadata. A finding kind the vocabulary lacks, such as a throw, is
+Some Local instruction facts also read another Type's metadata. `alloc.new`
+and `alloc.box`, for example, classify a construction or box by the
+operand Type's definition, so a Type that changes from `class` to `struct`
+changes an `alloc.new` fact in a caller whose IL is unchanged. That caller is
+not listed, and the map does not report the transition: like a callee
+descriptor, it is a relation between Types and belongs to the Type graph. For
+a listed Member, its findings are whatever its fact comparison reports,
+including such transitions. A finding kind the vocabulary lacks, such as a throw, is
 added by the provenance matrix owner, not by this document.
 
 The one-version map admits the descriptors of the analyses its request names.
@@ -207,20 +217,23 @@ and no scope nests another scope's Rows.
 
 | Scope | Rows | Count | Exists |
 | --- | --- | --- | --- |
-| Library | one row per Type with a non-empty map, carrying its Type row and its number of Member rows | the number of those rows | any such row |
+| Library | one row per Type with a non-empty map, carrying its Type row and its Member-row Count | the number of those rows | any such row |
 | Type | the Type row, when it is a Row, and the Member rows | the number of those rows | any such row |
 | Member | that Member's row, if listed | 0 or 1 | whether the Member is listed |
 
-A map is non-empty when it has a Row. Count is the number of Rows at its
-scope, and Exists is whether Rows is non-empty, as
+A map is non-empty when it has a Row. Count and Exists summarize Rows at
+their scope, as
 [Scope symmetry](scope-symmetry.md#one-infrastructure-and-three-terminals)
-requires. A row whose state is undecided, such as `Indeterminate`, is not
-counted either way: Count reports the decided rows and the undecided rows
-separately, with QuerySpace's typed outcome, and Exists is `true` when a
-decided Row exists and undecided otherwise.
+requires, and a row whose state is undecided, such as `Indeterminate`, is
+counted neither way:
 
-A Library-scope Row carries the Type row and a number read from Fast Diff's
-Type level; it needs no fact census. Producing it never runs a fact
+- **Count** reports the number of decided Rows and, separately, the
+  undecided rows, with QuerySpace's typed outcome.
+- **Exists** is `true` when a decided Row exists, undecided when no decided
+  Row exists but an undecided row does, and `false` when there are no rows.
+
+In the two-version form, a Library-scope Row carries the Type row and a
+Member-row Count read from Fast Diff's Type level; it needs no fact census. Producing it never runs a fact
 comparison. Opening a Type asks for that Type's map, as
 [No rows within rows](scope-symmetry.md#no-rows-within-rows) requires for an
 ephemeral host. A whole-Library map with Member rows and findings is a
@@ -298,7 +311,9 @@ Each step is its own focused effort:
 
 1. **Fast Diff Type level.** Fast Diff's Type level, with its Member and
    residual states, meets its contract, including
-   [#10223](https://github.com/richlander/dotnet-inspect/issues/10223).
+   [#10223](https://github.com/richlander/dotnet-inspect/issues/10223), and
+   partitions a one-sided Type
+   ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)).
 2. **Fact census without text.** The Annotated Source owner produces one
    method's admitted fact census and fact comparison, for each method a Fast
    Diff Member owns including generated methods, without the text comparison
@@ -323,19 +338,22 @@ detail does.
 - **Listing:** over the Fast Diff fixture pairs and the spike's pairs, the
   Type row is a Row exactly when Fast Diff's residual or Library-level
   presence reports a change, a Member row exists exactly for a Member whose
-  Fast Diff state is not `Unchanged` or that is one-sided, and a one-sided
-  Type lists every Member of its present side.
+  Fast Diff state is not `Unchanged` or that is one-sided, and, after
+  [#10224](https://github.com/richlander/dotnet-inspect/issues/10224), a
+  one-sided Type lists every Member of its present side.
 - **Exactness:** at each scope, Count equals the number of decided Rows with
-  undecided rows reported separately, and Exists equals decided Rows being
-  non-empty; a two-version Type's Exists equals Fast Diff's Library-level
-  state.
-- **Agreement:** for every Member of the fixture Types, listed or not, and
-  for each method it owns on both sides, the admitted non-`Present`
-  transitions of that method's annotated source diff equal that method's part
-  of the row's findings; they are empty for every method of an unlisted
-  Member.
-- **No fact census at Library scope:** producing Library Rows runs no fact
-  comparison, shown by the work receipt.
+  undecided rows reported separately, and Exists is `true` with a decided Row,
+  undecided with only undecided rows, and `false` with none; a two-version
+  Type's Exists equals Fast Diff's Library-level state.
+- **Agreement:** for every listed Member of the fixture Types, and for each
+  method it owns on both sides, the admitted non-`Present` transitions of
+  that method's annotated source diff equal that method's part of the row's
+  findings.
+- **Own IL:** on fixtures, an unlisted Member's admitted transitions are only
+  those that read another Type's metadata, such as `alloc.new` after a
+  `class` to `struct` change.
+- **No fact census at Library scope:** producing two-version Library Rows
+  runs no fact comparison, shown by the work receipt.
 - **Outcomes:** a Member with a NotApplicable or Failed side carries that
   outcome, not an empty finding list.
 - **Symmetry:** a Member's row is the same in its Type's map and at Member
@@ -347,10 +365,13 @@ detail does.
 
 - It does not define any finding, descriptor, key, equality, or Member
   correspondence.
+- It does not define the one-version form's Library-scope producer; that
+  belongs to the one-version adoption.
 - It does not decide a host's default at Type scope or the visual design of a
   row.
-- It does not cover relations between Members or Types, such as callers or a
-  callee's signals; those belong to the Type graph in
+- It does not cover relations between Members or Types, such as callers, a
+  callee's signals, or a fact that changes because another Type's definition
+  changed; those belong to the Type graph in
   [#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
 - It does not claim correspondence for a renamed or moved Member; that belongs
   to [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
