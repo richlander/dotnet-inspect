@@ -288,6 +288,8 @@ var fastApiByName = fast.Types.GroupBy(t => t.FullName).ToDictionary(g => g.Key,
 void BodyAgreement(string label, BodyRun run)
 {
     var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+    var classes = new SortedDictionary<string, int>(StringComparer.Ordinal);
+    var calliTypes = new List<string>();
     var lines = new List<string>();
     foreach (var (id, v) in run.States)
     {
@@ -296,14 +298,50 @@ void BodyAgreement(string label, BodyRun run)
         string key = $"b1={S(v.State)} oracle={S(o.State)} fast={f}";
         counts[key] = counts.TryGetValue(key, out int c) ? c + 1 : 1;
         if (v.State != o.State || f != S(v.State))
-            lines.Add($"  {label}-diff\t{id}\t{key}\tb1: {v.Reason}\toracle: {o.Reason}");
+        {
+            string? fastReason = fs is null ? null : FastDiff.Explain(pb, pa, fs.FullName).Body;
+            string cls = Classify(v.State, o, fs?.Body, fastReason);
+            classes[cls] = classes.TryGetValue(cls, out int k) ? k + 1 : 1;
+            lines.Add($"  {label}-diff\t{cls}\t{id}\t{key}\tb1: {v.Reason}\toracle: {o.Reason}\tfast: {fastReason?.Replace('\n', ' ')}");
+        }
+        if (o.Reason?.StartsWith("IL(calli only)", StringComparison.Ordinal) == true)
+            calliTypes.Add(id + " b1=" + S(v.State) + " fast=" + f);
     }
+    foreach (var (k, c) in classes) Console.WriteLine($"class-{label}\t{k}\t{c}");
+    foreach (var c in calliTypes) Console.WriteLine($"calli-{label}\t{c}");
     foreach (var (k, c) in counts) Console.WriteLine($"agree-{label}\t{k}\t{c}");
     int vsOracle = run.States.Count(kv => kv.Value.State != bodyOracle.States[kv.Key].State);
     int vsFast = run.States.Count(kv => fastById.TryGetValue(kv.Key, out var fs) && fs.Body != kv.Value.State);
     Console.WriteLine($"gate-{label}\tunits={run.States.Count}\tdisagreeOracle={vsOracle}\tdisagreeFast={vsFast}");
     foreach (var l in lines.Take(detail ? int.MaxValue : 40)) Console.WriteLine(l);
 }
+static string Classify(FastDiffState mine, BodyVerdict oracle, FastDiffState? fast, string? fastReason)
+{
+    if (mine != oracle.State)
+        return "B1-vs-oracle";
+    if (fast is null)
+        return "partition";
+    if (mine == FastDiffState.Changed && fast == FastDiffState.Unchanged)
+        return oracle.Reason is { } r && (r.StartsWith("method with body", StringComparison.Ordinal) || r.StartsWith("body on one side", StringComparison.Ordinal))
+            ? "#10223 one-sided method body not counted by Fast Diff"
+            : "fast-miss(other)";
+    if (mine == FastDiffState.Unchanged && fast == FastDiffState.Changed)
+    {
+        string fr = fastReason ?? "";
+        if (fr.Contains("IL", StringComparison.Ordinal) || fr.Contains("body", StringComparison.OrdinalIgnoreCase))
+            return "#10196 Fast Diff raw walker: encoding-level body fact (" + Bucket(fr) + ")";
+        return "#10196 Fast Diff Body census: non-IL fact (" + Bucket(fr) + ")";
+    }
+    return "other";
+}
+static string Bucket(string reason)
+{
+    // Fast Diff explains a census fact as "- Kind (...)" / "+ Kind (...)", and IL by method.
+    string r = reason.Replace('\n', ' ').TrimStart('-', '+', ' ');
+    int cut = r.IndexOfAny([' ', ':', '(']);
+    return cut > 0 ? r[..cut] : r;
+}
+
 BodyAgreement("body-B1", b1.Run);
 BodyAgreement("body-B1lite", b1Lite.Run);
 {
