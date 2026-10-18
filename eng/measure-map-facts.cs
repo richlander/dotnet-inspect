@@ -133,6 +133,11 @@ if (runBody)
         hashMs.Add(th); exactMs.Add(te); translateMs.Add(e.TranslateMs);
         hash = h; exact = e;
     }
+    if (correctness)
+    {
+        hash = BodyCompare.Run(sideB, sideA, confirm: false, record: true);
+        exact = BodyCompare.Run(sideB, sideA, confirm: true, record: true);
+    }
     Console.WriteLine($"ms\tQ2a-join+compare\thash={MedianOf(hashMs):F2}\texact={MedianOf(exactMs):F2}\tof exact: symbolJoin={MedianOf(translateMs):F2}"
         + $"\ttypes={exact.States.Count}\tmethodPairs={exact.MethodPairs}\tbodyPairs={exact.BodyPairs}\tconfirmed={exact.Confirmed}");
 
@@ -581,14 +586,15 @@ sealed class BodyCompare
     public Dictionary<string, (MethodDefinitionHandle Old, MethodDefinitionHandle New, IlExistsOutcome Outcome)> PairOutcomes { get; } = new(StringComparer.Ordinal);
     public int MethodPairs, BodyPairs, Confirmed;
     public double TranslateMs;
+    bool _record;
 
     /// <summary>
     /// The map diff's shape comparison on the Body axis, per Type, run to completion (no early
     /// exit) so every paired body's outcome is recorded.
     /// </summary>
-    public static BodyCompare Run(BodySide before, BodySide after, bool confirm)
+    public static BodyCompare Run(BodySide before, BodySide after, bool confirm, bool record = false)
     {
-        var run = new BodyCompare();
+        var run = new BodyCompare { _record = record };
         long t = Stopwatch.GetTimestamp();
         int[] translate = confirm ? IlBodyFactProducer.Translate(before.Producer.Table, after.Producer.Table) : [];
         run.TranslateMs = Stopwatch.GetElapsedTime(t).TotalMilliseconds;
@@ -651,7 +657,9 @@ sealed class BodyCompare
                 run.Confirmed++;
                 outcome = IlBodyFactProducer.StreamsEqual(a.Fact.Stream!, b.Fact.Stream!, translate) ? IlExistsOutcome.Exact : IlExistsOutcome.Changed;
             }
-            run.PairOutcomes[key.ToString()] = (a.Handle, b.Handle, outcome);
+            // Diagnostic only: rendering a key is not part of the timed comparison.
+            if (run._record)
+                run.PairOutcomes[key.ToString()] = (a.Handle, b.Handle, outcome);
             if (outcome == IlExistsOutcome.Changed) Set(FastDiffState.Changed, "IL: " + key);
             else if (outcome == IlExistsOutcome.Unavailable) Set(FastDiffState.Indeterminate, "IL unavailable: " + (a.Fact.Failure ?? b.Fact.Failure));
         }
