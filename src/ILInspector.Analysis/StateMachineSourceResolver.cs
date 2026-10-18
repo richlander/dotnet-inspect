@@ -871,10 +871,11 @@ internal sealed class StateMachineSourceResolver
     {
         TypeDefinition type = _reader.GetTypeDefinition(stateMachineType);
         var implementationBodies = new HashSet<MethodDefinitionHandle>();
+        // The successful MoveNext resolution that authenticated this type
+        // already walked and charged every MethodImpl row on it.
         foreach (MethodImplementationHandle handle
             in type.GetMethodImplementations())
         {
-            work.RecordRelationshipNode(handle);
             EntityHandle body =
                 _reader.GetMethodImplementation(handle).MethodBody;
             if (body.Kind == HandleKind.MethodDefinition)

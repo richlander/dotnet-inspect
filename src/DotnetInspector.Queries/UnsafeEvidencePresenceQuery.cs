@@ -344,7 +344,8 @@ public static class UnsafeEvidencePresenceQuery
                 MethodDefinitionSourceBreadth
                     .ExactTypes(types)
                     .IncludeGeneratedExecutionBodies(
-                        roles: MethodDefinitionGeneratedBodyRoles.All)));
+                        roles: MethodDefinitionGeneratedBodyRoles.All,
+                        includeUnauthenticatedCandidates: true)));
     }
 
     static MethodDefinitionSourceRequest<int> CreateMethodSource(

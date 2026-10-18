@@ -262,7 +262,6 @@ public partial class DiffCommand
         // (docs/design/package-transfer-receipt.md#delivery).
         if (options.EvidenceEnvelopePath is not null
             && (!hasPackage
-                || !AdmitsPackageEndpointScope(implementationTransport)
                 || analysisPlan is null
                     && !UsesSharedLibraryApiDiff(1, 1, options)))
         {
@@ -334,21 +333,21 @@ public partial class DiffCommand
 
             if (hasPackage)
             {
-                var result =
-                    AdmitsPackageEndpointScope(implementationTransport)
-                        ? await TryExecuteScopedPackageDiffAsync(
-                            options,
-                            analysisPlan is not null,
-                            annotatedSourceTransport
-                                || RequestsWorkspaceImplementationTarget(options)
-                                || ReadsMethodBodies(catalog, options, analysisPlan),
-                            logger,
-                            context.HttpClient,
-                            cancellationToken)
-                        : (null, null);
+                var result = await TryExecuteScopedPackageDiffAsync(
+                    options,
+                    analysisPlan is not null,
+                    annotatedSourceTransport
+                        || RequestsWorkspaceImplementationTarget(options)
+                        || ReadsMethodBodies(catalog, options, analysisPlan),
+                    logger,
+                    context.HttpClient,
+                    cancellationToken);
                 if (result.inputs is null && result.error is null)
                 {
-                    result = await ExecutePackageDiffAsync(
+                    // Only an offline request with an endpoint only discovery
+                    // can settle reaches the AssemblySet route
+                    // (docs/design/package-endpoint-scope.md#offline).
+                    result = await ExecuteOfflineDiscoveryPackageDiffAsync(
                         options,
                         logger,
                         context.HttpClient);
@@ -927,7 +926,7 @@ public partial class DiffCommand
     /// <summary>
     /// Publishes the Debug evidence envelope, when one was requested, for an
     /// inspection whose endpoints opened through the package endpoint scope.
-    /// The legacy endpoint route issues no acquisition receipts.
+    /// The offline discovery route issues no acquisition receipts.
     /// </summary>
     static int PublishAcquisitionEvidence<TContent>(
         DiffInputs inputs,
@@ -942,8 +941,8 @@ public partial class DiffCommand
         if (inputs.Owner is not PackageEndpointDiffSession session)
         {
             CommandError.Write(
-                "--evidence-envelope requires the package endpoint scope route; this request "
-                    + "took the legacy endpoint route, which issues no acquisition receipts.");
+                "--evidence-envelope requires the package endpoint scope route; this offline "
+                    + "request took the discovery route, which issues no acquisition receipts.");
             return 1;
         }
         return EvidenceEnvelopeOutput.TryPublishAcquisitionEvidence(
@@ -978,8 +977,16 @@ public partial class DiffCommand
             && (options.IncludeSections is null
                 || options.IncludeSections.SetEquals([DiffSections.Changes.Name]));
 
+    /// <summary>
+    /// The <c>AssemblySet</c> route for an offline pairwise package request
+    /// with an endpoint only discovery can settle, a <c>*</c> pattern or
+    /// <c>latest</c>: it answers a pattern from cached version listings and
+    /// reports why <c>latest</c> can't be resolved, until the House settles
+    /// a <c>Wildcard</c> selection offline
+    /// (docs/design/package-endpoint-scope.md#offline).
+    /// </summary>
     private static async Task<(DiffInputs? inputs, string? error)>
-        ExecutePackageDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
+        ExecuteOfflineDiscoveryPackageDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
         if (packageName == null || fromVersion == null || toVersion == null)
@@ -1035,25 +1042,6 @@ public partial class DiffCommand
     }
 
     /// <summary>
-    /// Lets a test run the legacy endpoint path as the identity oracle for
-    /// the package endpoint scope route, within one async flow.
-    /// </summary>
-    internal static readonly AsyncLocal<bool> LegacyPackageEndpointsForTesting = new();
-
-    /// <summary>
-    /// Whether the request's package endpoints open as package endpoint
-    /// scopes (docs/design/package-endpoint-scope.md, step 4 parts 2 to 5):
-    /// the API views over the merged participant surface, and the body
-    /// views (Analysis, Implementation, Complexity, Structural, PDB source,
-    /// the workspace implementation comparison, Annotated Source Diff, and
-    /// analysis sets that read method bodies) over the implementation
-    /// participants, string literals among them.
-    /// </summary>
-    static bool AdmitsPackageEndpointScope(bool implementationTransport)
-        => !LegacyPackageEndpointsForTesting.Value
-            && !implementationTransport;
-
-    /// <summary>
     /// Whether an admitted request reads method bodies, so its package
     /// endpoints open with the <c>SurfaceAndImplementation</c> demand.
     /// </summary>
@@ -1068,8 +1056,8 @@ public partial class DiffCommand
     /// <summary>
     /// Opens both endpoints as package endpoint scopes, or reports why one
     /// did not open. Only an offline request with an endpoint only discovery
-    /// can settle returns neither inputs nor error, so it takes the legacy
-    /// path (docs/design/package-endpoint-scope.md#offline).
+    /// can settle returns neither inputs nor error, so it takes the offline
+    /// discovery route (docs/design/package-endpoint-scope.md#offline).
     /// </summary>
     private static async Task<(DiffInputs? inputs, string? error)>
         TryExecuteScopedPackageDiffAsync(

@@ -693,12 +693,33 @@ public partial class UnsafeEvidencePresenceTests
             origin => origin.Kind
                 == MethodDefinitionGeneratedExpansionOriginKind
                     .LiftedExecutionBody);
-        // Only the lambda's closure Type and lifted body are charged; the
-        // declared First, Second, and Third hierarchy is never visited.
-        Assert.Equal(
-            3,
-            execution.SourceReceipt.Coverage.GeneratedExpansion
-                .RelationshipNodes);
+        // The lifted lookup charges the lambda's closure Type and lifted
+        // body. Nested-type reach charges each direct nested Type once, the
+        // closure and the declared First, and stops at First, so the
+        // declared Second and Third are never visited.
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.SourceReceipt.Coverage.GeneratedExpansion;
+        Assert.Equal(5, expansion.RelationshipNodes);
+        // The closure constructor has no owner edge, and First's methods are
+        // never classified.
+        MethodDefinitionHandle closureConstructor =
+            Assert.Single(expansion.UnauthenticatedCandidates);
+        using (FileStream stream = File.OpenRead(path))
+        using (var peReader = new PEReader(stream))
+        {
+            MetadataReader reader = peReader.GetMetadataReader();
+            MethodDefinition constructor =
+                reader.GetMethodDefinition(closureConstructor);
+            Assert.Equal(".ctor", reader.GetString(constructor.Name));
+            Assert.StartsWith(
+                "<>c__DisplayClass",
+                reader.GetString(
+                    reader.GetTypeDefinition(
+                        constructor.GetDeclaringType()).Name));
+        }
+        Assert.False(
+            execution.SourceReceipt.Coverage.MethodsSelected
+                .Contains(closureConstructor));
     }
 
     [Fact]

@@ -1133,7 +1133,7 @@ async function installFacades(
       }
       export function inspectPackageQueryFacets() {
         return JSON.stringify({
-          selection: { kind: "query-facets", completeness: "Complete" },
+          scope: { profile: "query-preparation/v1", completeness: "Complete" },
           facet_order: [],
           facets: {},
           bindings: {},
@@ -1410,6 +1410,7 @@ async function installFacades(
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
+          platformReferences: [], defaultPlatformReference: null, platformReferenceError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
             : { references: scenario === "empty" ? [] : scenario === "workspace-library"
             ? [{

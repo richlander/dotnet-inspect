@@ -255,13 +255,20 @@ internal sealed class DeclaredSourceResolver(
             ImmutableArray<MethodDefinitionHandle> directMethods,
             MethodDefinitionGeneratedExpansionWork work,
             MethodDefinitionGeneratedBodyRoles roles =
-                MethodDefinitionGeneratedBodyRoles.Execution)
+                MethodDefinitionGeneratedBodyRoles.Execution,
+            ImmutableArray<TypeDefinitionHandle> reachFromTypes = default,
+            bool includeUnauthenticatedCandidates = false)
     {
         ArgumentNullException.ThrowIfNull(work);
         MethodDefinitionGeneratedBodyRoles helperRoles =
             roles
             & (MethodDefinitionGeneratedBodyRoles.UserHelper
                 | MethodDefinitionGeneratedBodyRoles.Scaffolding);
+        // Nested-type reach classifies every method of a reached
+        // state-machine type, so it attributes helpers outside the requested
+        // roles too.
+        bool reachesNestedTypes = !reachFromTypes.IsDefaultOrEmpty;
+        var attributed = new HashSet<int>();
 
         var selected = directMethods
             .Select(static handle =>
@@ -300,7 +307,8 @@ internal sealed class DeclaredSourceResolver(
                     stateMachineOwner,
                     MethodDefinitionGeneratedExpansionOriginKind
                         .StateMachineExecutionBody);
-                if (helperRoles != MethodDefinitionGeneratedBodyRoles.None)
+                if (helperRoles != MethodDefinitionGeneratedBodyRoles.None
+                    || reachesNestedTypes)
                 {
                     foreach ((MethodDefinitionHandle helper,
                         MethodDefinitionGeneratedBodyRoles role)
@@ -310,7 +318,17 @@ internal sealed class DeclaredSourceResolver(
                             work))
                     {
                         if ((role & helperRoles) == 0)
+                        {
+                            attributed.Add(MetadataTokens.GetToken(helper));
+                            work.RecordAttributedOutsideRoles(
+                                new(
+                                    helper,
+                                    stateMachineOwner,
+                                    MethodDefinitionGeneratedExpansionOriginKind
+                                        .StateMachineExecutionBody,
+                                    role));
                             continue;
+                        }
                         AddGenerated(
                             helper,
                             stateMachineOwner,
@@ -377,6 +395,23 @@ internal sealed class DeclaredSourceResolver(
             }
         }
 
+        // A generated-named lifted body declared directly in breadth that no
+        // owner reaches is unauthenticated, not silently ownerless.
+        foreach (MethodDefinitionHandle direct in directMethods)
+        {
+            if (!attributed.Contains(MetadataTokens.GetToken(direct))
+                && CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                    _reader.GetString(
+                        _reader.GetMethodDefinition(direct).Name)))
+            {
+                work.RecordUnauthenticatedCandidate(
+                    direct,
+                    joinsBreadth: false);
+            }
+        }
+        if (reachesNestedTypes)
+            ReachNestedGeneratedTypes();
+
         ImmutableArray<MethodDefinitionHandle> methods =
         [
             .. expanded
@@ -401,11 +436,58 @@ internal sealed class DeclaredSourceResolver(
                     role);
             work.RecordGeneratedMethod(origin);
             int token = MetadataTokens.GetToken(method);
+            attributed.Add(token);
             if (!selected.Add(token))
                 return;
             declaredOwnerByToken.Add(token, owner);
             expanded.Add(method);
             pending.Enqueue(method);
+        }
+
+        // Every method of a compiler-generated type reached from a selected
+        // type through compiler-generated nested types is attributed above or
+        // unauthenticated here. The chain stops at the first user nested
+        // type, whose members own their own generated bodies.
+        void ReachNestedGeneratedTypes()
+        {
+            var visited = new HashSet<TypeDefinitionHandle>(reachFromTypes);
+            var parents = new Stack<TypeDefinitionHandle>(reachFromTypes);
+            while (parents.Count > 0)
+            {
+                foreach (TypeDefinitionHandle nested
+                    in _reader.GetTypeDefinition(parents.Pop())
+                        .GetNestedTypes())
+                {
+                    work.RecordRelationshipNode(nested);
+                    TypeDefinition nestedType =
+                        _reader.GetTypeDefinition(nested);
+                    if (!visited.Add(nested)
+                        || !_primaryMetadataResolver
+                            .HasCompilerGeneratedAttribute(
+                                nestedType.GetCustomAttributes()))
+                    {
+                        continue;
+                    }
+
+                    parents.Push(nested);
+                    foreach (MethodDefinitionHandle method
+                        in nestedType.GetMethods())
+                    {
+                        work.RecordCandidateDefinition(method);
+                        int token = MetadataTokens.GetToken(method);
+                        if (attributed.Contains(token))
+                            continue;
+                        bool joinsBreadth =
+                            includeUnauthenticatedCandidates
+                            && selected.Add(token);
+                        work.RecordUnauthenticatedCandidate(
+                            method,
+                            joinsBreadth);
+                        if (joinsBreadth)
+                            expanded.Add(method);
+                    }
+                }
+            }
         }
     }
 
