@@ -115,10 +115,15 @@ A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
 is a Body difference, as canonical comparison's endpoint topology reports it
 (`NoApplicableInput`). A body that cannot be decoded or an operand that cannot
-be resolved is `Indeterminate`, never a difference or equality.
+be resolved, before the walk finds a difference, is `Indeterminate`, never a
+difference or equality.
 
 An opcode that ECMA-335 does not define cannot be stepped over safely, so it
-makes the Body axis `Indeterminate` rather than comparing as equal.
+makes the Body axis `Indeterminate` rather than comparing as equal. The walk
+stops at the first difference, so content after it is never read: a body that
+differs and then holds an undefined opcode is `Changed`, and its view is the
+complete diff's visible decode failure, as
+[Diff capabilities](diff-capabilities.md#the-exists-contract) states.
 
 Neither axis's facts are configurable. A caller can ask for the API axis alone;
 every Body state is then `NotCompared` and no IL is read. A method with a body
@@ -258,9 +263,10 @@ Fast Diff follows it; the axis never keeps a private exception.
 - Body exactness: every method pair's Body verdict equals canonical IL
   comparison's endpoint verdict under the Body policy over the same fixture
   pairs: `Exact` is `Unchanged`, a body on one side only or any other verdict
-  is `Changed`, and a decode or resolution failure is `Indeterminate`, with
-  fixture cases for an `abstract` method made `virtual` and a default
-  interface implementation added;
+  is `Changed`, and a decode or resolution failure before the first difference
+  is `Indeterminate`, with fixture cases for an `abstract` method made
+  `virtual`, a default interface implementation added, and a body that differs
+  and then holds an undefined opcode, which is `Changed`;
 - dependency versions: a generated image pair whose only difference is the
   version of a non-platform referenced assembly is Body `Unchanged` for every
   Type; and
