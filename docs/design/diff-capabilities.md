@@ -61,7 +61,7 @@ judged on latency, and the rich rungs on completeness.
 | --- | --- | --- | --- | --- |
 | 1 | Does this Type have any diff? | Library | one state per Type per axis | Fast Diff, Library level |
 | 2 | Which Members of this Type have any diff? | Type | one state per row per axis | Fast Diff, Type level |
-| 3 | Which differences does this Type have, per Member? | Type | multi-byte per Member | Annotated Type Map |
+| 3 | Which differences does this Type have, per Member? | Type | multiple states per row per axis | Annotated Type Map |
 | 4 | What is the complete diff of this Member? | Member | multi-byte | Annotated Source diff document |
 
 Rungs 1 and 2 are **Exists** questions: one state per subject and axis,
