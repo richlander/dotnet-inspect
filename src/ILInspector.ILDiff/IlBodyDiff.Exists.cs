@@ -24,8 +24,42 @@ internal enum IlExistsOutcome
     Unavailable,
 }
 
+// SPIKE (exp/unified-diff-exists): optimizations to the Exists comparison, each
+// measured on and off in eng/measure-unified-diff.cs.
+[Flags]
+internal enum IlExistsSpikeOptions
+{
+    None = 0,
+
+    /// <summary>
+    /// Instructions-only decode for a body with no exception regions, plus the exact
+    /// completeness rule the block graph applies to such a body (every branch target an
+    /// admitted instruction start inside the body); MethodInstructions.Decode otherwise.
+    /// </summary>
+    CheckedDecode = 1 << 0,
+
+    /// <summary>
+    /// Compare each instruction pair without building CanonicalIlOperation records:
+    /// cached opcode family, immediate and slot values as numbers, tokens through the
+    /// memoised identities, branch targets by binary search. Same rule as CanonicalEquals.
+    /// </summary>
+    KeyCompare = 1 << 1,
+}
+
 internal sealed class IlBodyExistsComparer
 {
+    public IlExistsSpikeOptions Options { get; set; }
+
+    /// <summary>SPIKE: memoise Type spellings in both operand resolvers.</summary>
+    public bool MemoizeTypes
+    {
+        set
+        {
+            _old.SpikeMemoizeTypes = value;
+            _new.SpikeMemoizeTypes = value;
+        }
+    }
+    public long CheckedFallbacks { get; private set; }
     readonly IlBodyDiff.MetadataOperandResolver _old;
     readonly IlBodyDiff.MetadataOperandResolver _new;
     readonly IlBodyDiffNormalization _normalization;
@@ -61,6 +95,8 @@ internal sealed class IlBodyExistsComparer
     public long ResolveTicks { get; set; }
     public long ResolveMisses { get; set; }
     public long InstructionsCompared { get; set; }
+    public long TopologyTicks { get; set; }
+    public long RegionBodies { get; set; }
 
     /// <summary>Tokens resolved so far (both sides), for work accounting.</summary>
     public long TokensResolved { get; private set; }
@@ -100,7 +136,15 @@ internal sealed class IlBodyExistsComparer
         rawEqual = oldIl.AsSpan().SequenceEqual(newIl);
         long decodeStart = Instrument ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         ImmutableArray<DecodedInstruction> oldInstructions, newInstructions;
-        if (liteDecode)
+        if (!liteDecode && (Options & IlExistsSpikeOptions.CheckedDecode) != 0)
+        {
+            if (!TryCheckedDecode(oldIl, oldBody, "old", out oldInstructions, out failure)
+                || !TryCheckedDecode(newIl, newBody, "new", out newInstructions, out failure))
+            {
+                return IlExistsOutcome.Unavailable;
+            }
+        }
+        else if (liteDecode)
         {
             try
             {
@@ -133,7 +177,293 @@ internal sealed class IlBodyExistsComparer
 
         if (Instrument)
             DecodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - decodeStart;
+        if ((Options & IlExistsSpikeOptions.KeyCompare) != 0 && memoTokens && !rawFastPath)
+            return CompareKeys(oldInstructions, newInstructions, out failure);
         return CompareDecoded(oldInstructions, newInstructions, rawFastPath && rawEqual, memoTokens, out failure);
+    }
+
+    bool[] _admitted = new bool[256];
+
+    /// <summary>
+    /// Decode one side. A body with exception regions takes MethodInstructions.Decode. A body
+    /// without them is complete under BlockGraph exactly when decode succeeds and every branch
+    /// target lies in [0, length) on an admitted instruction start (not after a prefix): an
+    /// in-range unadmitted target throws in BuildBlocks, an out-of-range target becomes an
+    /// external edge, and an empty region list gives the topology no block-graph reason.
+    /// An instruction with targets that does not end its block falls back to the full decode.
+    /// </summary>
+    bool TryCheckedDecode(byte[] il, MethodBodyBlock body, string side, out ImmutableArray<DecodedInstruction> instructions, out string? failure)
+    {
+        failure = null;
+        // A body with regions also takes this path: its block graph is complete exactly when
+        // the region topology gives no block-graph reason and every target is an admitted
+        // in-range start. Leave redirection and endfinally edges only add targets that are
+        // handler starts or the leave's own in-range target, both leaders. A body with an
+        // out-of-range target falls back to the full decode.
+        {
+            try
+            {
+                instructions = InstructionDecoder.Decode(il);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidProgramException)
+            {
+                instructions = default;
+                failure = ex.Message;
+                return false;
+            }
+            int length = il.Length;
+            if (_admitted.Length < length + 1)
+                _admitted = new bool[Math.Max(length + 1, _admitted.Length * 2)];
+            else
+                Array.Clear(_admitted, 0, length + 1);
+            bool fallback = false;
+            for (int i = 0; i < instructions.Length; i++)
+            {
+                if (i == 0 || !instructions[i - 1].OpCode.IsPrefix())
+                    _admitted[instructions[i].Offset] = true;
+                if (!instructions[i].BranchTargets.IsDefaultOrEmpty && !instructions[i].Branches)
+                    fallback = true;
+            }
+            bool regions = body.ExceptionRegions.Length > 0;
+            if (!fallback)
+            {
+                foreach (var instruction in instructions)
+                {
+                    foreach (int target in instruction.BranchTargets)
+                    {
+                        if (target < 0 || target >= length)
+                        {
+                            if (regions)
+                            {
+                                fallback = true;
+                                break;
+                            }
+                            failure = "External control-flow targets are not modeled.";
+                            return false;
+                        }
+                        if (!_admitted[target])
+                        {
+                            failure = $"Branch target IL_{target:X4} does not align with an instruction.";
+                            return false;
+                        }
+                    }
+                    if (fallback)
+                        break;
+                }
+            }
+            if (!fallback)
+            {
+                if (regions)
+                {
+                    ExceptionFlowTopology topology;
+                    try
+                    {
+                        long topologyStart = Instrument ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+                        topology = ExceptionFlowTopology.Create(length, instructions, body.ExceptionRegions);
+                        if (Instrument)
+                        {
+                            TopologyTicks += System.Diagnostics.Stopwatch.GetTimestamp() - topologyStart;
+                            RegionBodies++;
+                        }
+                    }
+                    catch (Exception ex) when (ex is BadImageFormatException or InvalidProgramException)
+                    {
+                        failure = ex.Message;
+                        return false;
+                    }
+                    if (topology.BlockGraphIncompleteReason is { } reason)
+                    {
+                        failure = reason;
+                        return false;
+                    }
+                }
+                return true;
+            }
+            CheckedFallbacks++;
+        }
+        var decoded = MethodInstructions.Decode(il, il.Length, body.ExceptionRegions);
+        instructions = decoded.Instructions;
+        if (!decoded.IsComplete)
+        {
+            failure = decoded.Blocks.IncompleteReason ?? side + " body decode failed";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Gate helper: whether the checked decode's completeness equals MethodInstructions.Decode's.</summary>
+    public bool CheckedCompletenessAgrees(MethodBodyBlock body)
+    {
+        byte[] il = body.GetILBytes() ?? [];
+        bool mine = TryCheckedDecode(il, body, "gate", out _, out _);
+        return mine == MethodInstructions.Decode(il, il.Length, body.ExceptionRegions).IsComplete;
+    }
+
+    bool TryToken(
+        DecodedInstruction instruction,
+        IlBodyDiff.MetadataOperandResolver resolver,
+        Dictionary<(OperandKind, long), IlOperandIdentity> memo,
+        out IlOperandIdentity operand,
+        out string? failure)
+    {
+        failure = null;
+        var key = (instruction.Operand, instruction.OperandValue);
+        if (memo.TryGetValue(key, out operand!))
+            return true;
+        long resolveStart = Instrument ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+        bool ok = resolver.TryResolve(instruction, out var resolved, out failure);
+        if (Instrument)
+        {
+            ResolveTicks += System.Diagnostics.Stopwatch.GetTimestamp() - resolveStart;
+            ResolveMisses++;
+        }
+        if (!ok)
+            return false;
+        operand = resolved!;
+        memo[key] = operand;
+        return true;
+    }
+
+    /// <summary>
+    /// CanonicalEquals without materialising operations. Equal families imply one operand
+    /// shape (the folds are ldc.i4 forms, all immediate; short and long branches, all
+    /// targets; and under NormalizeVariableLayout the variable macros, all operand-free),
+    /// so operands compare as numbers or memoised token identities.
+    /// </summary>
+    IlExistsOutcome CompareKeys(
+        ImmutableArray<DecodedInstruction> oldInstructions,
+        ImmutableArray<DecodedInstruction> newInstructions,
+        out string? failure)
+    {
+        failure = null;
+        if (oldInstructions.Length != newInstructions.Length)
+            return IlExistsOutcome.Changed;
+        bool variableLayout = (_normalization & IlBodyDiffNormalization.NormalizeVariableLayout) != 0;
+        for (int i = 0; i < oldInstructions.Length; i++)
+        {
+            var o = oldInstructions[i];
+            var n = newInstructions[i];
+            InstructionsCompared++;
+            if (IlBodyDiff.SpikeIsTokenOperand(o.Operand))
+            {
+                if (!TryToken(o, _old, _oldMemo, out var ot, out failure))
+                    return IlExistsOutcome.Unavailable;
+                if (!IlBodyDiff.SpikeIsTokenOperand(n.Operand))
+                    return IlBodyDiff.SpikeOpcodeFamily(o, _normalization) == IlBodyDiff.SpikeOpcodeFamily(n, _normalization)
+                        ? throw new InvalidOperationException("Equal families with different operand shapes.")
+                        : IlExistsOutcome.Changed;
+                if (!TryToken(n, _new, _newMemo, out var nt, out failure))
+                    return IlExistsOutcome.Unavailable;
+                TokensResolved += 2;
+                if (!ReferenceEquals(IlBodyDiff.SpikeOpcodeFamily(o, _normalization), IlBodyDiff.SpikeOpcodeFamily(n, _normalization))
+                    && IlBodyDiff.SpikeOpcodeFamily(o, _normalization) != IlBodyDiff.SpikeOpcodeFamily(n, _normalization))
+                    return IlExistsOutcome.Changed;
+                if (ot != nt)
+                    return IlExistsOutcome.Changed;
+                continue;
+            }
+            if (IlBodyDiff.SpikeIsTokenOperand(n.Operand))
+            {
+                // Resolve the new token as canonicalisation would before deciding.
+                if (!TryToken(n, _new, _newMemo, out _, out failure))
+                    return IlExistsOutcome.Unavailable;
+                return IlExistsOutcome.Changed;
+            }
+            string fo = IlBodyDiff.SpikeOpcodeFamily(o, _normalization);
+            string fn = IlBodyDiff.SpikeOpcodeFamily(n, _normalization);
+            if (!ReferenceEquals(fo, fn) && fo != fn)
+                return IlExistsOutcome.Changed;
+            switch (o.Operand)
+            {
+                case OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget:
+                    if (!BranchTargetsAtSameIndex(oldInstructions, o, newInstructions, n))
+                        return IlExistsOutcome.Changed;
+                    break;
+                case OperandKind.InlineSwitch:
+                    if (o.BranchTargets.Length != n.BranchTargets.Length
+                        || !BranchTargetsAtSameIndex(oldInstructions, o, newInstructions, n))
+                        return IlExistsOutcome.Changed;
+                    break;
+                default:
+                    if (Immediate(o, variableLayout, out long ov) != Immediate(n, variableLayout, out long nv) || ov != nv)
+                        return IlExistsOutcome.Changed;
+                    break;
+            }
+        }
+        return IlExistsOutcome.Exact;
+    }
+
+    /// <summary>The operand identity tag and value IlBodyDiff spells as text: 0 none, 1 immediate, 2 slot.</summary>
+    static int Immediate(DecodedInstruction instruction, bool variableLayout, out long value)
+    {
+        switch (instruction.OpCode)
+        {
+            case ILOpCode.Ldc_i4_m1: value = -1; return 1;
+            case ILOpCode.Ldc_i4_0: value = 0; return 1;
+            case ILOpCode.Ldc_i4_1: value = 1; return 1;
+            case ILOpCode.Ldc_i4_2: value = 2; return 1;
+            case ILOpCode.Ldc_i4_3: value = 3; return 1;
+            case ILOpCode.Ldc_i4_4: value = 4; return 1;
+            case ILOpCode.Ldc_i4_5: value = 5; return 1;
+            case ILOpCode.Ldc_i4_6: value = 6; return 1;
+            case ILOpCode.Ldc_i4_7: value = 7; return 1;
+            case ILOpCode.Ldc_i4_8: value = 8; return 1;
+        }
+        switch (instruction.Operand)
+        {
+            case OperandKind.ShortInlineI or OperandKind.InlineI or OperandKind.InlineI8
+                or OperandKind.ShortInlineR or OperandKind.InlineR:
+                value = instruction.OperandValue;
+                return 1;
+            case OperandKind.ShortInlineVar or OperandKind.InlineVar when !variableLayout:
+                value = instruction.OperandValue;
+                return 2;
+            default:
+                value = 0;
+                return 0;
+        }
+    }
+
+    /// <summary>
+    /// BranchTargetsMatch under the identity alignment, with the target index found by binary
+    /// search (offsets strictly increase) rather than a linear scan.
+    /// </summary>
+    static bool BranchTargetsAtSameIndex(
+        ImmutableArray<DecodedInstruction> oldInstructions,
+        DecodedInstruction o,
+        ImmutableArray<DecodedInstruction> newInstructions,
+        DecodedInstruction n)
+    {
+        if (o.BranchTargets.Length != n.BranchTargets.Length)
+            return false;
+        for (int t = 0; t < o.BranchTargets.Length; t++)
+        {
+            int oi = IndexAt(oldInstructions, o.BranchTargets[t]);
+            int ni = IndexAt(newInstructions, n.BranchTargets[t]);
+            if (oi < 0 || ni < 0)
+            {
+                if (o.BranchTargets[t] != n.BranchTargets[t])
+                    return false;
+                // BranchTargetsMatch returns on the first unresolved target.
+                return true;
+            }
+            if (oi != ni)
+                return false;
+        }
+        return true;
+    }
+
+    static int IndexAt(ImmutableArray<DecodedInstruction> instructions, int offset)
+    {
+        int lo = 0, hi = instructions.Length - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            int at = instructions[mid].Offset;
+            if (at == offset) return mid;
+            if (at < offset) lo = mid + 1; else hi = mid - 1;
+        }
+        return -1;
     }
 
     readonly Dictionary<(OperandKind, long), IlOperandIdentity> _oldMemo = [];

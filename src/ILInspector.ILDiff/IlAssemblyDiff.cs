@@ -569,15 +569,18 @@ public static class IlAssemblyDiff
     // SPIKE (exp/unified-diff-exists): the assembly comparison's own method map, keyed by
     // (identity, occurrence) exactly as Compare pairs bodies, plus the methods whose identity failed.
     internal static (Dictionary<(string Identity, int Occurrence), MethodDefinitionHandle> Methods, List<MethodDefinitionHandle> Failed)
-        SpikeMethodMap(MetadataReader reader)
+        SpikeMethodMap(MetadataReader reader, bool memoizeTypeNames = false)
     {
+        // SPIKE: memoizeTypeNames caches each Type definition and reference name for the
+        // pass. The names are pure functions of (reader, handle), so the map is unchanged.
+        var names = memoizeTypeNames ? new SpikeTypeNameCache() : null;
         // Same loop as MethodMap, keeping the failed handles rather than failure rows.
         var methods = new Dictionary<(string, int), MethodDefinitionHandle>();
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         var failed = new List<MethodDefinitionHandle>();
         foreach (var handle in reader.MethodDefinitions)
         {
-            var result = MethodKey(reader, handle, reader.GetMethodDefinition(handle));
+            var result = MethodKey(reader, handle, reader.GetMethodDefinition(handle), names);
             if (result.Failure is not null)
             {
                 failed.Add(handle);
@@ -600,11 +603,21 @@ public static class IlAssemblyDiff
         MetadataReader reader,
         MethodDefinitionHandle handle,
         MethodDefinition method)
+        => MethodKey(reader, handle, method, names: null);
+
+    static MethodIdentityResult MethodKey(
+        MetadataReader reader,
+        MethodDefinitionHandle handle,
+        MethodDefinition method,
+        SpikeTypeNameCache? names)
     {
-        var type = MetadataIdentityName.TypeDefinition(
-            reader,
-            method.GetDeclaringType(),
-            includeAssembly: false);
+        // SPIKE: with a cache, the declaring Type's identity (includeAssembly: false) is computed once per Type.
+        MetadataTypeNameResult type;
+        var declaring = method.GetDeclaringType();
+        if (names is null)
+            type = MetadataIdentityName.TypeDefinition(reader, declaring, includeAssembly: false);
+        else if (!names.Declaring.TryGetValue(declaring, out type!))
+            names.Declaring[declaring] = type = MetadataIdentityName.TypeDefinition(reader, declaring, includeAssembly: false);
         if (type is MetadataTypeNameResult.Rejected rejectedType)
             return new MethodIdentityResult(null, rejectedType.Failure);
         if (type is not MetadataTypeNameResult.Resolved resolvedType)
@@ -619,7 +632,7 @@ public static class IlAssemblyDiff
 
         string name = reader.GetString(method.Name);
         var context = new SignatureIdentityContext();
-        var provider = new SignatureIdentityProvider(context);
+        var provider = new SignatureIdentityProvider(context, names?.Signature);
         if (!GuardedProviderDecode.TryMethod(
             reader,
             method,
@@ -690,6 +703,13 @@ public static class IlAssemblyDiff
         => $"token 0x{MetadataTokens.GetToken(handle):X8}";
 }
 
+// SPIKE (exp/unified-diff-exists): per-pass Type name caches for SpikeMethodMap.
+sealed class SpikeTypeNameCache
+{
+    public Dictionary<TypeDefinitionHandle, MetadataTypeNameResult> Declaring { get; } = [];
+    public Dictionary<EntityHandle, MetadataTypeNameResult> Signature { get; } = [];
+}
+
 sealed class SignatureIdentityContext
 {
     public MetadataTypeNameFailure? Failure { get; private set; }
@@ -728,11 +748,28 @@ static class RejectedArrayShapeIdentity
 sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, SignatureIdentityContext>
 {
     readonly SignatureIdentityContext _context;
+    readonly Dictionary<EntityHandle, MetadataTypeNameResult>? _names;
 
     public SignatureIdentityProvider(SignatureIdentityContext context)
+        : this(context, names: null)
+    {
+    }
+
+    // SPIKE (exp/unified-diff-exists): an optional per-pass name cache.
+    public SignatureIdentityProvider(SignatureIdentityContext context, Dictionary<EntityHandle, MetadataTypeNameResult>? names)
     {
         ArgumentNullException.ThrowIfNull(context);
         _context = context;
+        _names = names;
+    }
+
+    MetadataTypeNameResult Cached(EntityHandle handle, Func<MetadataTypeNameResult> compute)
+    {
+        if (_names is null)
+            return compute();
+        if (!_names.TryGetValue(handle, out var result))
+            _names[handle] = result = compute();
+        return result;
     }
 
     public string GetPrimitiveType(PrimitiveTypeCode typeCode)
@@ -764,7 +801,7 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, Signatur
         TypeDefinitionHandle handle,
         byte rawTypeKind)
         => Resolve(
-            MetadataIdentityName.TypeDefinition(reader, handle, includeAssembly: true),
+            Cached(handle, () => MetadataIdentityName.TypeDefinition(reader, handle, includeAssembly: true)),
             handle,
             _context);
 
@@ -773,7 +810,7 @@ sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, Signatur
         TypeReferenceHandle handle,
         byte rawTypeKind)
         => Resolve(
-            MetadataIdentityName.TypeReference(reader, handle),
+            Cached(handle, () => MetadataIdentityName.TypeReference(reader, handle)),
             handle,
             _context);
 

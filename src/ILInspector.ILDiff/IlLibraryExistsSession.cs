@@ -18,6 +18,17 @@ namespace ILInspector.ILDiff;
 // Per Type, CompareType walks the paired methods and stops at the first
 // non-Exact body, following Fast Diff's Body contract for one-sided Types,
 // methods, and bodies. Nothing in the product calls it.
+[Flags]
+internal enum IlSessionSpikeOptions
+{
+    None = 0,
+    MapMemo = 1 << 0,
+    ResolverMemo = 1 << 1,
+    CheckedDecode = 1 << 2,
+    KeyCompare = 1 << 3,
+    All = MapMemo | ResolverMemo | CheckedDecode | KeyCompare,
+}
+
 internal enum IlExistsState
 {
     Unchanged,
@@ -68,7 +79,8 @@ internal sealed class IlLibraryExistsSession
         PEReader oldPe,
         PEReader newPe,
         IlBodyDiffNormalization normalization,
-        bool liteDecode)
+        bool liteDecode,
+        IlSessionSpikeOptions spike = IlSessionSpikeOptions.None)
     {
         _oldPe = oldPe;
         _newPe = newPe;
@@ -78,8 +90,9 @@ internal sealed class IlLibraryExistsSession
         LiteDecode = liteDecode;
 
         long t = Stopwatch.GetTimestamp();
-        (_oldMap, var oldFailed) = IlAssemblyDiff.SpikeMethodMap(_old);
-        (_newMap, var newFailed) = IlAssemblyDiff.SpikeMethodMap(_new);
+        bool mapMemo = (spike & IlSessionSpikeOptions.MapMemo) != 0;
+        (_oldMap, var oldFailed) = IlAssemblyDiff.SpikeMethodMap(_old, mapMemo);
+        (_newMap, var newFailed) = IlAssemblyDiff.SpikeMethodMap(_new, mapMemo);
         IdentityFailures = oldFailed.Count + newFailed.Count;
         Times.MethodMap = Stopwatch.GetElapsedTime(t).TotalMilliseconds;
 
@@ -105,7 +118,12 @@ internal sealed class IlLibraryExistsSession
         Times.Ordinals = Stopwatch.GetElapsedTime(t).TotalMilliseconds;
 
         t = Stopwatch.GetTimestamp();
-        Comparer = new IlBodyExistsComparer(_old, _new, normalization, oldCorrespondence, newCorrespondence);
+        Comparer = new IlBodyExistsComparer(_old, _new, normalization, oldCorrespondence, newCorrespondence)
+        {
+            Options = ((spike & IlSessionSpikeOptions.CheckedDecode) != 0 ? IlExistsSpikeOptions.CheckedDecode : 0)
+                | ((spike & IlSessionSpikeOptions.KeyCompare) != 0 ? IlExistsSpikeOptions.KeyCompare : 0),
+            MemoizeTypes = (spike & IlSessionSpikeOptions.ResolverMemo) != 0,
+        };
         Times.Comparer = Stopwatch.GetElapsedTime(t).TotalMilliseconds;
     }
 

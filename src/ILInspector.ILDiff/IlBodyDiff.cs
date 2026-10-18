@@ -517,10 +517,24 @@ public static partial class IlBodyDiff
             return "ldc.i4";
         }
 
-        return opcode.IsShortBranch()
+        if (SpikeFamilyCache)
+        {
+            // SPIKE (exp/unified-diff-exists): the spelling below is a pure function of the
+            // opcode, so cache it rather than format an enum name per instruction.
+            var cache = s_spikeFamilies ??= new System.Collections.Concurrent.ConcurrentDictionary<ILOpCode, string>();
+            return cache.GetOrAdd(opcode, static op => SpellFamily(op));
+        }
+        return SpellFamily(opcode);
+    }
+
+    static string SpellFamily(ILOpCode opcode)
+        => opcode.IsShortBranch()
             ? opcode.ToString()[..^"_s".Length].Replace('_', '.').ToLowerInvariant()
             : opcode.ToString().Replace('_', '.').ToLowerInvariant();
-    }
+
+    // SPIKE (exp/unified-diff-exists): off by default so before/after is measurable in one process.
+    internal static bool SpikeFamilyCache { get; set; }
+    static System.Collections.Concurrent.ConcurrentDictionary<ILOpCode, string>? s_spikeFamilies;
 
     static bool TryOperandIdentity(
         DecodedInstruction instruction,

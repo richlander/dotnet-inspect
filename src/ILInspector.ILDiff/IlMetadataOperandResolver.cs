@@ -15,6 +15,20 @@ public static partial class IlBodyDiff
         IlBodyDiffNormalization normalization,
         CompilerGeneratedOrdinalCorrespondence correspondence)
     {
+        // SPIKE (exp/unified-diff-exists): memoise Type spellings per handle. Each is a pure
+        // function of (reader, normalization, correspondence, handle), so operands are unchanged.
+        internal bool SpikeMemoizeTypes { get; set; }
+        readonly Dictionary<(EntityHandle, bool), string> _spikeTypeNames = [];
+
+        string Memo(EntityHandle handle, bool flag, Func<string> compute)
+        {
+            if (!SpikeMemoizeTypes)
+                return compute();
+            if (!_spikeTypeNames.TryGetValue((handle, flag), out var name))
+                _spikeTypeNames[(handle, flag)] = name = compute();
+            return name;
+        }
+
         public bool TryResolve(DecodedInstruction instruction, out IlOperandIdentity? operand, out string? failure)
         {
             try
@@ -198,6 +212,9 @@ public static partial class IlBodyDiff
             };
 
         string FormatTypeSpecification(TypeSpecificationHandle handle)
+            => Memo(handle, false, () => FormatTypeSpecificationCore(handle));
+
+        string FormatTypeSpecificationCore(TypeSpecificationHandle handle)
         {
             var specification = reader.GetTypeSpecification(handle);
             var provider = new SignatureIdentityProvider(this);
@@ -260,6 +277,9 @@ public static partial class IlBodyDiff
             => FormatTypeDefinition(handle, normalizeName: false);
 
         string FormatTypeDefinition(TypeDefinitionHandle handle, bool normalizeName)
+            => Memo(handle, normalizeName, () => FormatTypeDefinitionCore(handle, normalizeName));
+
+        string FormatTypeDefinitionCore(TypeDefinitionHandle handle, bool normalizeName)
         {
             var traversal = MetadataRelationshipTraversal
                 .WalkTypeDefinitionDeclaringChain(reader, handle);
@@ -297,6 +317,11 @@ public static partial class IlBodyDiff
             => FormatTypeReference(handle, qualifyCurrentAssembly: false);
 
         string FormatTypeReference(
+            TypeReferenceHandle handle,
+            bool qualifyCurrentAssembly)
+            => Memo(handle, qualifyCurrentAssembly, () => FormatTypeReferenceCore(handle, qualifyCurrentAssembly));
+
+        string FormatTypeReferenceCore(
             TypeReferenceHandle handle,
             bool qualifyCurrentAssembly)
         {

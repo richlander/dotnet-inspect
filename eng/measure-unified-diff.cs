@@ -85,15 +85,17 @@ Row("fast(ApiAndBody)", fastBoth, $"types={fast.Types.Length}\tbodies={fast.Rece
 Row("fast(Api)", fastApiMs);
 
 // ============================================================ B1: Body via the complete IL diff
-(double Total, double Session, double Walk, BodyRun Run) MeasureB1(int n, IlBodyDiffNormalization normalization, bool lite)
+(double Total, double Session, double Walk, BodyRun Run) MeasureB1(int n, IlBodyDiffNormalization normalization, bool lite,
+    IlSessionSpikeOptions spike = IlSessionSpikeOptions.None, bool familyCache = false)
 {
+    IlBodyDiff.SpikeFamilyCache = familyCache;
     var totals = new List<double>(); var sessions = new List<double>(); var walks = new List<double>();
     BodyRun last = default!;
     for (int i = 0; i <= n; i++)
     {
         using var b = Open(beforeBytes); using var a = Open(afterBytes);
         long t = Stopwatch.GetTimestamp();
-        var session = new IlLibraryExistsSession(b, a, normalization, lite);
+        var session = new IlLibraryExistsSession(b, a, normalization, lite, spike);
         double s = Ms(t);
         long w = Stopwatch.GetTimestamp();
         var run = BodyRun.Walk(session);
@@ -104,12 +106,19 @@ Row("fast(Api)", fastApiMs);
         run.SessionTimes = session.Times;
         last = run;
     }
+    IlBodyDiff.SpikeFamilyCache = false;
     return (MedianOf(totals), MedianOf(sessions), MedianOf(walks), last);
 }
 
 var b1 = MeasureB1(iterations, Policy, lite: false);
 var b1Lite = MeasureB1(iterations, Policy, lite: true);
 var b1Ord = MeasureB1(few, Policy | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals, lite: false);
+// Optimizations inside the complete diffs, added one at a time (cumulative).
+var b1Map = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo);
+var b1Res = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo);
+var b1Fam = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo, familyCache: true);
+var b1Key = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo | IlSessionSpikeOptions.KeyCompare, familyCache: true);
+var b1Opt = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All, familyCache: true);
 void PrintB1(string label, (double Total, double Session, double Walk, BodyRun Run) m)
     => Row(label, m.Total,
         $"session={m.Session:F2}\tmethodMap={m.Run.SessionTimes.MethodMap:F2}\tpartition={m.Run.SessionTimes.Partition:F2}"
@@ -118,6 +127,11 @@ void PrintB1(string label, (double Total, double Session, double Walk, BodyRun R
 PrintB1("B1(full decode)", b1);
 PrintB1("B1(instructions-only decode)", b1Lite);
 PrintB1("B1+ordinals(full decode)", b1Ord);
+PrintB1("B1 +map memo", b1Map);
+PrintB1("B1 +map,resolver memo", b1Res);
+PrintB1("B1 +map,resolver memo,family cache", b1Fam);
+PrintB1("B1 +map,resolver memo,family cache,key compare", b1Key);
+PrintB1("B1opt (+checked decode)", b1Opt);
 
 // Attribution: one instrumented walk (not the timed one).
 {
@@ -131,6 +145,18 @@ PrintB1("B1+ordinals(full decode)", b1Ord);
     double resolve = session.Comparer.ResolveTicks * 1000.0 / Stopwatch.Frequency;
     Console.WriteLine($"attr-body\tinstrumentedWalk={walk:F2}\tdecode(full)={decode:F2}\tresolve={resolve:F2}\tresolveMisses={session.Comparer.ResolveMisses}"
         + $"\tcanonicalise+compare={walk - decode - resolve:F2}\tinstructions={session.Comparer.InstructionsCompared}");
+    IlBodyDiff.SpikeFamilyCache = true;
+    var opt = new IlLibraryExistsSession(b, a, Policy, liteDecode: false, IlSessionSpikeOptions.All);
+    opt.Comparer.Instrument = true;
+    w = Stopwatch.GetTimestamp();
+    BodyRun.Walk(opt);
+    walk = Ms(w);
+    decode = opt.Comparer.DecodeTicks * 1000.0 / Stopwatch.Frequency;
+    resolve = opt.Comparer.ResolveTicks * 1000.0 / Stopwatch.Frequency;
+    Console.WriteLine($"attr-body-opt\tinstrumentedWalk={walk:F2}\tdecode(checked)={decode:F2}\tresolve={resolve:F2}\tresolveMisses={opt.Comparer.ResolveMisses}"
+        + $"\tcompare={walk - decode - resolve:F2}\tcheckedFallbacks={opt.Comparer.CheckedFallbacks}"
+        + $"\tof decode: regionTopology={opt.Comparer.TopologyTicks * 1000.0 / Stopwatch.Frequency:F2} over {opt.Comparer.RegionBodies} bodies");
+    IlBodyDiff.SpikeFamilyCache = false;
     var lite = new IlLibraryExistsSession(b, a, Policy, liteDecode: true);
     lite.Comparer.Instrument = true;
     w = Stopwatch.GetTimestamp();
@@ -220,7 +246,7 @@ Row("CompareApi(whole Library, surfaces given)", compareApiMs);
 
 // ============================================================ A2: census as the API comparison's first stage
 CensusApiRun a2 = default!;
-var a2Times = new List<(double Total, double Units, double Census, double Model)>();
+var a2Times = new List<(double Total, double Units, double Census, double Model, double Classify)>();
 for (int i = 0; i <= iterations; i++)
 {
     using var b = Open(beforeBytes); using var a = Open(afterBytes);
@@ -228,10 +254,10 @@ for (int i = 0; i <= iterations; i++)
     var run = CensusApiRun.Run(b, a, options);
     double total = Ms(t);
     if (i == 0) continue;
-    a2Times.Add((total, run.UnitsMs, run.CensusMs, run.ModelMs)); a2 = run;
+    a2Times.Add((total, run.UnitsMs, run.CensusMs, run.ModelMs, run.ClassifyMs)); a2 = run;
 }
 Row("A2", MedianOf(a2Times.Select(x => x.Total)),
-    $"units={MedianOf(a2Times.Select(x => x.Units)):F2}\tcensus+classify={MedianOf(a2Times.Select(x => x.Census)):F2}\tmodel={MedianOf(a2Times.Select(x => x.Model)):F2}"
+    $"units={MedianOf(a2Times.Select(x => x.Units)):F2}\tcensus+classify={MedianOf(a2Times.Select(x => x.Census)):F2}\tof which classify={MedianOf(a2Times.Select(x => x.Classify)):F2}\tmodel={MedianOf(a2Times.Select(x => x.Model)):F2}"
     + $"\tmodelTypes={a2.ModelTypes}\tsurfaceTypesBuilt={a2.Extracted}\tpresentedDecided={a2.Presented}");
 
 // ============================================================ Today's complete diffs
@@ -344,6 +370,44 @@ static string Bucket(string reason)
 
 BodyAgreement("body-B1", b1.Run);
 BodyAgreement("body-B1lite", b1Lite.Run);
+BodyAgreement("body-B1opt", b1Opt.Run);
+{
+    // Optimized comparer per method pair, checked completeness on every body, and map memo equality.
+    IlBodyDiff.SpikeFamilyCache = true;
+    var opt = new IlLibraryExistsSession(pb, pa, Policy, liteDecode: false, IlSessionSpikeOptions.All);
+    int pairs = 0, disagree = 0, completeness = 0, bodies = 0;
+    foreach (var unit in opt.Units)
+        foreach (var key in unit.OldMethods)
+        {
+            var om = opt.OldReader.GetMethodDefinition(opt.OldHandle(key));
+            if (om.RelativeVirtualAddress != 0)
+            {
+                bodies++;
+                if (!opt.Comparer.CheckedCompletenessAgrees(opt.OldPe.GetMethodBody(om.RelativeVirtualAddress))) completeness++;
+            }
+            if (!opt.TryNewHandle(key, out var nh)) continue;
+            var nm = opt.NewReader.GetMethodDefinition(nh);
+            if (nm.RelativeVirtualAddress != 0)
+            {
+                bodies++;
+                if (!opt.Comparer.CheckedCompletenessAgrees(opt.NewPe.GetMethodBody(nm.RelativeVirtualAddress))) completeness++;
+            }
+            if (om.RelativeVirtualAddress == 0 || nm.RelativeVirtualAddress == 0) continue;
+            var ob = opt.OldPe.GetMethodBody(om.RelativeVirtualAddress);
+            var nb = opt.NewPe.GetMethodBody(nm.RelativeVirtualAddress);
+            var exists = opt.Comparer.Compare(ob, nb, rawFastPath: false, memoTokens: true, liteDecode: false, out _, out _);
+            var diff = IlBodyDiff.Compare(opt.OldReader, ob, opt.NewReader, nb, Policy);
+            var expected = !diff.IsAvailable ? IlExistsOutcome.Unavailable : diff.IsExact ? IlExistsOutcome.Exact : IlExistsOutcome.Changed;
+            pairs++;
+            if (exists != expected) disagree++;
+        }
+    IlBodyDiff.SpikeFamilyCache = false;
+    var plain = new IlLibraryExistsSession(pb, pa, Policy, liteDecode: false);
+    bool mapsEqual = plain.Units.Count == opt.Units.Count
+        && plain.Units.Zip(opt.Units).All(p => p.First.Identity == p.Second.Identity
+            && p.First.OldMethods.SequenceEqual(p.Second.OldMethods) && p.First.NewMethods.SequenceEqual(p.Second.NewMethods));
+    Console.WriteLine($"gate-opt\tpairs={pairs}\toptVsCompare-disagree={disagree}\tbodies={bodies}\tcheckedCompleteness-disagree={completeness}\tmapMemoEqual={mapsEqual}");
+}
 {
     int changed = b1Ord.Run.States.Count(kv => kv.Value.State != b1.Run.States[kv.Key].State);
     Console.WriteLine($"ordinals\tunitsWhoseVerdictMoves={changed}");
@@ -565,7 +629,7 @@ sealed class ApiRun
 sealed class CensusApiRun
 {
     public Dictionary<string, ApiVerdict> States { get; } = new(StringComparer.Ordinal);
-    public double UnitsMs, CensusMs, ModelMs;
+    public double UnitsMs, CensusMs, ModelMs, ClassifyMs;
     public int ModelTypes, Extracted, Presented;
 
     static double Ms(long start) => Stopwatch.GetElapsedTime(start).TotalMilliseconds;
@@ -607,7 +671,9 @@ sealed class CensusApiRun
                 var ca = a.ApiCensus(ua);
                 var cb = b.ApiCensus(ub);
                 if (ca.SequenceEqual(cb)) continue;
+                long tc = Stopwatch.GetTimestamp();
                 var (presented, _) = Census.Classify(ca, cb, Census.Admission.Of(a, ua), Census.Admission.Of(b, ub));
+                run.ClassifyMs += Ms(tc);
                 if (presented.Count > 0)
                 {
                     v.State = FastDiffState.Changed; v.Reason = "presented: " + string.Join(",", presented); run.Presented++;
