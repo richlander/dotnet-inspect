@@ -125,8 +125,8 @@ read: a body whose walk decides a difference before it reaches an undefined
 opcode is `Changed`, and its view is the complete diff's visible decode
 failure, as [Diff capabilities](diff-capabilities.md#the-exists-contract)
 states. A branch or switch target is decided only once the body's instruction
-map is complete, so a body whose first difference is a target and that holds
-an undefined opcode is `Indeterminate`.
+map is complete, so a body whose only differences before an undefined opcode
+are targets is `Indeterminate`.
 
 Neither axis's facts are configurable. A caller can ask for the API axis alone;
 every Body state is then `NotCompared` and no IL is read. A method with a body
@@ -494,7 +494,8 @@ Member Body is an existence check. A Member declared on one side only is
 therefore `Changed` on each axis where it owns facts.
 
 An owner is never `Unchanged` by omission. A fact or body that cannot be
-decided, such as IL with an undefined opcode or a reference to a compiler-
+decided, such as IL whose walk reaches an undefined opcode before it decides a
+difference, or a reference to a compiler-
 controlled method, makes the axis of the Member that owns it `Indeterminate`,
 where the owner is the row the census was describing, raised under rule 1; when
 that row has no single Member owner, the residual's axis is `Indeterminate`.
@@ -548,8 +549,8 @@ underlying-type change, a
 Type, and a nested Type whose
 inherited nullable context changed; an added and a removed public Type, one
 of them with no Members, are reported whole by the Library level and have no
-Type-level rows; an undefined opcode in one method makes that Member Body
-`Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
+Type-level rows; an undefined opcode reached before a difference in one method
+makes that Member Body `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
 name have no Type-level rows; a Member present on both sides carries both
 fingerprints, which differ after a nullable annotation change; an attribute
 added to an internal method changes no state; every Member's API state equals
