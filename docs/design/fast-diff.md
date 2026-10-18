@@ -67,8 +67,8 @@ The **API** axis compares the Public API facts of a Type and its members:
 That is the API axis population of
 [Diff capabilities](diff-capabilities.md#axes): `private protected` Members
 belong to Body, and hidden Types and Members, such as ones marked
-`EditorBrowsable(Never)`, are compared like any other, with hidden as a facet
-of the subject. A Type is public by its own row (public, nested public,
+`EditorBrowsable(Never)`, are compared like any other; their status is the
+API status analysis's, not Fast Diff's. A Type is public by its own row (public, nested public,
 protected, or protected internal), matching the API axis surface
 (`ApiSurfaceExtractionScope.ApiAxis`), which admits a public nested Type of a
 non-public Type. Non-public Types have no API facts.

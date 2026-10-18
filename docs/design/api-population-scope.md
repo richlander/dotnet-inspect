@@ -322,8 +322,9 @@ A diff's API axis, as
 widened population rather than the ordinary one: `--all` narrowed by an
 `accessibility` term to the `public` and `protected` buckets, less
 `private protected` declarations, which no other assembly can reach. Hidden
-declarations stay admitted into their buckets and keep their hidden status as
-a facet. A Type is admitted by its own row's bucket, so a public nested Type
+declarations stay admitted into their buckets. `EditorBrowsable` and
+`Obsolete` status do not decide what the diff compares; a separate API status
+analysis reports them and their transitions, as Diff capabilities states. A Type is admitted by its own row's bucket, so a public nested Type
 of a non-public Type is admitted and a public Member of an internal Type is
 not. Metadata issues this population as the API axis surface
 (`ApiSurfaceExtractionScope.ApiAxis`); Fast Diff's API census admits the same
@@ -331,8 +332,8 @@ declarations.
 
 The ordinary population, the `public` bucket without hidden declarations, is
 the presentation default for diff output: a host shows it unless the user
-selects more, and it filters by the facets each compared declaration carries
-rather than by narrowing the comparison.
+selects more, and it filters by each compared declaration's accessibility and
+its API status findings rather than by narrowing the comparison.
 
 ## Adoption
 
