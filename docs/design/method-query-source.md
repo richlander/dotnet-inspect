@@ -52,7 +52,10 @@ generated execution-body expansion. The source uses targeted nested metadata
 for state-machine bodies and the existing lifted ownership authority for
 bounded body-dependent discovery; its receipt separates candidate definitions,
 probe bodies and bytes, relationship nodes, and
-authenticated origins from terminal work. Metadata-predicate breadth, body
+authenticated origins from terminal work. Declaring producers read the
+subject's public MethodDef roots and reference-assembly status at completion
+through [image exposure support](#image-exposure-support), receipted apart from
+breadth. Metadata-predicate breadth, body
 packets, and collapsed sparse request groups remain **unverified**.
 
 ## Demo and pathological case
@@ -792,6 +795,55 @@ every lane that reads it shares that decode. The source receipt carries
 The physical group receipt charges each decode once. Each request receipt
 records the identities that request read, with the work they required, so a
 request that shares another lane's decode still shows what its answer cost.
+
+### Image exposure support
+
+`PublicMethodRoots` and `ReferenceAssemblyStatus` are declared,
+execution-scoped support for producers whose answer depends on facts about the
+whole image rather than about one MethodDef, tracked by
+[#9865](https://github.com/richlander/dotnet-inspect/issues/9865). The unsafe
+member census needs both. Exposure comes from the
+[public MethodDef root inventory](public-method-root-inventory.md), and a
+reference assembly makes the census incomplete under the
+[reference-assembly rule](library-enablements.md#reference-assemblies).
+
+A producer reads them only at completion, through its completion view. They
+acquire no body, do not imply `ModuleLookup`, and do not widen breadth. A
+producer that did not declare one cannot obtain it. Semantics stay with their
+owners. This support only issues and receipts them, and the Library Body
+Analysis census reads the same two supports, so the paths cannot classify
+differently while both exist:
+
+- **Public MethodDef roots** come from `PublicMethodRootInventoryReader.Read`,
+  with the image's own TypeDef and MethodDef row counts as limits. The result is the inventory, complete or
+  bounded with its retained prefix and boundary, or a typed failure when the
+  metadata is malformed. Under image-sized limits a well-formed image is always
+  complete; the bounded shape is preserved, not produced.
+- **Reference-assembly status** comes from
+  `LibraryEnablementFacts.ClassifyReferenceAssembly` as `Implementation`,
+  `Reference`, or `Undecidable`. A malformed assembly row is `Undecidable`,
+  exactly as the census classifies it today.
+
+Each fact is computed at most once per execution group, at the first read by a
+declaring producer, and every lane that reads it shares that result. Both
+results are detached: they hold tokens, the module version ID, and counts, never
+a reader. An image without metadata publishes a roots failure and an
+`Undecidable` status without reading anything.
+
+The source receipt carries `PublicMethodRootCoverage` and
+`ReferenceAssemblyStatusCoverage`, separate from MethodDef breadth:
+
+- roots: whether this receipt's lane computed the inventory, its
+  `PublicMethodRootInventoryReceipt` (the TypeDefs and MethodDefs visited and
+  the roots retained), whether it failed, and the number of reads; and
+- status: whether this receipt's lane computed it, the assembly CustomAttribute
+  rows it read, and the number of reads.
+
+The physical group receipt records each computation once and every read. A
+request receipt records a computation only for the lane whose read created it,
+and only that lane's reads. Coverage is empty when no producer declares the
+support or no declaring producer reads it. A failed root inventory has no
+receipt, because the reader publishes none for a malformed image.
 
 ## Planning
 

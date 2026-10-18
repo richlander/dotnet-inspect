@@ -34,6 +34,14 @@ public sealed class MethodDefinitionExecution
     SameModuleCallTargetSupport? _callTargets;
     MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
+    PublicMethodRootSupport? _publicRoots;
+    ReferenceAssemblyStatusSupport? _referenceStatus;
+
+    /// <summary>
+    /// The physical group's receipt when this execution is one lane of a
+    /// shared traversal; otherwise this execution's own receipt.
+    /// </summary>
+    MethodDefinitionSourceCoverageBuilder _physicalCoverage;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -58,6 +66,7 @@ public sealed class MethodDefinitionExecution
                 tracksSourceCoverage
                     ? terminalWorkLimits
                     : null);
+        _physicalCoverage = _sourceCoverage;
         _states = new ProducerState[description.Producers.Length];
     }
 
@@ -142,6 +151,18 @@ public sealed class MethodDefinitionExecution
                 terminalWorkLimits,
                 tracksSourceCoverage,
                 instructionPlan);
+        MetadataReader? exposureReader =
+            peReader.HasMetadata ? peReader.GetMetadataReader() : null;
+        if (execution._states.Any(
+                static state => state.HasPublicMethodRootsLayer))
+        {
+            execution._publicRoots = new(exposureReader);
+        }
+        if (execution._states.Any(
+                static state => state.HasReferenceAssemblyStatusLayer))
+        {
+            execution._referenceStatus = new(exposureReader);
+        }
         if (!peReader.HasMetadata)
         {
             execution.CompleteWithoutUnits();
@@ -461,11 +482,40 @@ public sealed class MethodDefinitionExecution
 
         ImmutableArray<MethodDefinitionExecution> lanes =
             executions.MoveToImmutable();
+        var physicalCoverage =
+            new MethodDefinitionSourceCoverageBuilder(enabled: true);
+        MetadataReader? exposureReader =
+            peReader.HasMetadata ? peReader.GetMetadataReader() : null;
+        PublicMethodRootSupport? publicRoots =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasPublicMethodRootsLayer))
+                ? new(exposureReader)
+                : null;
+        ReferenceAssemblyStatusSupport? referenceStatus =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasReferenceAssemblyStatusLayer))
+                ? new(exposureReader)
+                : null;
+        foreach (MethodDefinitionExecution lane in lanes)
+        {
+            lane._physicalCoverage = physicalCoverage;
+            if (lane._states.Any(
+                    static state => state.HasPublicMethodRootsLayer))
+            {
+                lane._publicRoots = publicRoots;
+            }
+            if (lane._states.Any(
+                    static state => state.HasReferenceAssemblyStatusLayer))
+            {
+                lane._referenceStatus = referenceStatus;
+            }
+        }
+
         if (!peReader.HasMetadata)
         {
             foreach (MethodDefinitionExecution lane in lanes)
                 lane.CompleteWithoutUnits();
-            return new(lanes, EmptySourceCoverage());
+            return new(lanes, physicalCoverage.Build());
         }
 
         MetadataReader reader = peReader.GetMetadataReader();
@@ -560,8 +610,6 @@ public sealed class MethodDefinitionExecution
                 }
             }
 
-            var physicalCoverage =
-                new MethodDefinitionSourceCoverageBuilder(enabled: true);
             var unit = new MethodDefinitionUnit(
                 reader,
                 peReader,
@@ -821,14 +869,6 @@ public sealed class MethodDefinitionExecution
             visit = default;
         }
     }
-
-    static MethodDefinitionSourceCoverage EmptySourceCoverage() =>
-        new(
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty);
 
     static bool AnyLaneActive(ProducerState[][] lanes)
     {
@@ -1771,6 +1811,58 @@ public sealed class MethodDefinitionExecution
         state.IsActive = false;
     }
 
+    /// <summary>
+    /// The subject's public MethodDef roots, recording the computation for the
+    /// physical source once and for the lane whose read created it.
+    /// </summary>
+    internal PublicMethodRootsResult ReadPublicMethodRoots()
+    {
+        PublicMethodRootSupport support =
+            _publicRoots ?? throw new InvalidOperationException(
+                "Public MethodDef root support was not declared by any "
+                + "planned producer.");
+        PublicMethodRootsResult result =
+            support.Acquire(out bool constructed);
+        RecordExposure(coverage =>
+        {
+            if (constructed)
+                coverage.RecordPublicMethodRootsConstruction(result);
+            coverage.RecordPublicMethodRootsRead();
+        });
+        return result;
+    }
+
+    /// <summary>
+    /// The subject's reference-assembly status, recording the classification
+    /// for the physical source once and for the lane whose read created it.
+    /// </summary>
+    internal ReferenceAssemblyState ReadReferenceAssemblyStatus()
+    {
+        ReferenceAssemblyStatusSupport support =
+            _referenceStatus ?? throw new InvalidOperationException(
+                "Reference-assembly status support was not declared by any "
+                + "planned producer.");
+        ReferenceAssemblyState state =
+            support.Acquire(out bool constructed);
+        RecordExposure(coverage =>
+        {
+            if (constructed)
+            {
+                coverage.RecordReferenceAssemblyStatusConstruction(
+                    support.AttributeRowsRead);
+            }
+            coverage.RecordReferenceAssemblyStatusRead();
+        });
+        return state;
+    }
+
+    void RecordExposure(Action<MethodDefinitionSourceCoverageBuilder> record)
+    {
+        record(_sourceCoverage);
+        if (!ReferenceEquals(_physicalCoverage, _sourceCoverage))
+            record(_physicalCoverage);
+    }
+
     void CompleteWithoutUnits()
     {
         foreach (int completion in _description.CompletionIndices)
@@ -1831,6 +1923,20 @@ public sealed class MethodDefinitionExecution
                 layers.Add(new ProducerLayerParticipation(
                     nameof(MethodDefinitionLayers.SemanticIdentity),
                     state.SemanticIdentityUses));
+            }
+
+            if (state.HasPublicMethodRootsLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.PublicMethodRoots),
+                    state.PublicMethodRootReads));
+            }
+
+            if (state.HasReferenceAssemblyStatusLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.ReferenceAssemblyStatus),
+                    state.ReferenceAssemblyStatusReads));
             }
 
             if (state.HasCallsLayer)
@@ -2033,6 +2139,18 @@ public sealed class MethodDefinitionExecution
 
         public bool HasCallsLayer { get; } =
             (layers & MethodDefinitionLayers.Calls) != 0;
+
+        public bool HasPublicMethodRootsLayer { get; } =
+            (layers & MethodDefinitionLayers.PublicMethodRoots) != 0;
+
+        public bool HasReferenceAssemblyStatusLayer { get; } =
+            (layers & MethodDefinitionLayers.ReferenceAssemblyStatus) != 0;
+
+        /// <summary>Completion reads of public MethodDef root support.</summary>
+        public int PublicMethodRootReads;
+
+        /// <summary>Completion reads of reference-assembly status support.</summary>
+        public int ReferenceAssemblyStatusReads;
 
         public bool IsActive { get; set; } = true;
 

@@ -99,6 +99,21 @@ public enum MethodDefinitionLayers
     /// <see cref="CallTargets"/>.
     /// </summary>
     Calls = 8192,
+
+    /// <summary>
+    /// Image exposure support: the subject's public MethodDef root inventory,
+    /// read at completion, computed at most once per execution group, and
+    /// receipted. It acquires no body and does not imply
+    /// <see cref="ModuleLookup"/>.
+    /// </summary>
+    PublicMethodRoots = 16384,
+
+    /// <summary>
+    /// Image exposure support: the subject's reference-assembly status, read at
+    /// completion, classified at most once per execution group, and receipted.
+    /// It acquires no body and does not imply <see cref="ModuleLookup"/>.
+    /// </summary>
+    ReferenceAssemblyStatus = 32768,
 }
 
 /// <summary>
@@ -995,6 +1010,34 @@ public readonly ref struct MethodDefinitionCompletionView
             ProducerDependencyKind.CompletionNeedsResult,
             ProducerDependencyKind.VisitNeedsResult);
         return _producer.Execution.ResultOf(dependency);
+    }
+
+    /// <summary>The subject's public MethodDef roots, through the declared support.</summary>
+    internal PublicMethodRootsResult GetPublicMethodRoots()
+    {
+        if (!_producer.HasPublicMethodRootsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_producer.Producer.Identity}' did not declare "
+                + "public MethodDef root support.");
+        }
+
+        _producer.PublicMethodRootReads++;
+        return _producer.Execution.ReadPublicMethodRoots();
+    }
+
+    /// <summary>The subject's reference-assembly status, through the declared support.</summary>
+    internal ReferenceAssemblyState GetReferenceAssemblyStatus()
+    {
+        if (!_producer.HasReferenceAssemblyStatusLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_producer.Producer.Identity}' did not declare "
+                + "reference-assembly status support.");
+        }
+
+        _producer.ReferenceAssemblyStatusReads++;
+        return _producer.Execution.ReadReferenceAssemblyStatus();
     }
 }
 
