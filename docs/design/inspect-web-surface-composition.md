@@ -1178,6 +1178,23 @@ Library/coordinate while the scan is pending must not let the retired request
 replace newer detected evidence. Focused coordinator tests preserve the same
 replacement and invalidation boundary deterministically.
 
+Suggested Opportunities evidence has its own closed Browser-owned state:
+`idle`, `loading` for one exact Library/coordinate request, `ready` with its
+owner-issued result, or `failed` with its visible diagnostic. Only the current
+`loading` request may publish `ready` or `failed`; replacement and package
+invalidation retire the prior request without publication. Workspace snapshots
+retain `ready` and `failed` evidence but normalize interrupted `loading` to
+`idle`. Detected Integrations remains an independently settling neighboring
+source. This transfer remains feature-specific and does not define a generic
+asynchronous-state framework or migrate another Analysis mode.
+
+`Npgsql` on nuget.org supplies the motivating production flow: its `Npgsql`
+Library produces Aspire and Health Checks opportunities for
+`NpgsqlConnection`. Replacing that Library/coordinate while the scan is pending
+must not let the retired request replace newer suggestions or publish a stale
+failure. Focused coordinator tests preserve both settlement outcomes and the
+same invalidation boundary deterministically.
+
 Tabs use manual activation: Left/Right and Home/End move focus, Enter/Space
 select, and rerenders preserve focused-tab identity. The selected tab labels the
 shared results panel. Full labels remain available at narrow widths through

@@ -1514,6 +1514,65 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
+    private static (string PackagePath, string TempDir)
+        CreateLocalRootLibPackage(
+            bool includeRealTfm = false,
+            bool uppercaseExtensions = false)
+    {
+        string packageId =
+            typeof(CommandExecutionTests).Assembly.GetName().Name!;
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string libDir = Path.Combine(packageRoot, "lib");
+        Directory.CreateDirectory(libDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(
+                libDir,
+                uppercaseExtensions
+                    ? "Unexpected.FileName.DLL"
+                    : "Unexpected.FileName.dll"));
+        var (systemRuntime, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        if (resolveError is not null || systemRuntime is null)
+            throw new InvalidOperationException(
+                resolveError ?? "System.Runtime was not resolved.");
+
+        File.Copy(
+            systemRuntime,
+            Path.Combine(
+                libDir,
+                uppercaseExtensions ? "Neighbor.DLL" : "Neighbor.dll"));
+        string nestedDir = Path.Combine(libDir, "nested");
+        Directory.CreateDirectory(nestedDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(nestedDir, "Nested.dll"));
+        string analyzerDir = Path.Combine(packageRoot, "analyzers");
+        Directory.CreateDirectory(analyzerDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(analyzerDir, "Analyzer.dll"));
+        if (includeRealTfm)
+        {
+            string frameworkDir = Path.Combine(
+                libDir,
+                "net10.0");
+            Directory.CreateDirectory(frameworkDir);
+            File.Copy(
+                systemRuntime,
+                Path.Combine(frameworkDir, "Preferred.dll"));
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
     private static (string PackagePath, string TempDir) CreateLocalDependencyPackage()
     {
         var package = CreateLocalReadmePackage(

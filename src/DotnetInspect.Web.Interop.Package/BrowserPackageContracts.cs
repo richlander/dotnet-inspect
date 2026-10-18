@@ -340,6 +340,65 @@ public sealed record BrowserPackageDocumentHtml(
     [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
     InertString Html);
 
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserDocumentTextPolicy>))]
+public enum BrowserDocumentTextPolicy
+{
+    Field,
+    Prose,
+}
+
+public sealed record BrowserDocumentPresentationLeaf(
+    int Identity,
+    BrowserDocumentTextPolicy Policy,
+    string Text);
+
+public sealed record BrowserContainedDocumentPresentationLeaf(
+    int Identity,
+    BrowserDocumentTextPolicy Policy,
+    [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
+    InertString Text);
+
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserDocumentLeafContainmentFailureKind>))]
+public enum BrowserDocumentLeafContainmentFailureKind
+{
+    InvalidGeneration,
+    InvalidLeafIdentity,
+    DuplicateLeafIdentity,
+    MissingLeafText,
+    UnsupportedTextPolicy,
+    TooManyLeaves,
+    InputTextTooLarge,
+    OutputTextTooLarge,
+    ResultCollectionTooLarge,
+    SerializedResultTooLarge,
+}
+
+public sealed record BrowserDocumentLeafContainmentFailure(
+    BrowserDocumentLeafContainmentFailureKind Kind,
+    int? Identity,
+    long? Actual,
+    long? Limit);
+
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(
+    typeof(BrowserDocumentLeafContainmentContained),
+    "contained")]
+[JsonDerivedType(
+    typeof(BrowserDocumentLeafContainmentRejected),
+    "rejected")]
+public abstract record BrowserDocumentLeafContainmentOutcome;
+
+public sealed record BrowserDocumentLeafContainmentContained(
+    string Generation,
+    BrowserContainedDocumentPresentationLeaf[] Leaves)
+    : BrowserDocumentLeafContainmentOutcome;
+
+public sealed record BrowserDocumentLeafContainmentRejected(
+    string? Generation,
+    BrowserDocumentLeafContainmentFailure Failure)
+    : BrowserDocumentLeafContainmentOutcome;
+
 public sealed record BrowserExceptionSurface(
     string Type,
     string Description);
@@ -1456,6 +1515,8 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserPackageDocumentHtml))]
+[JsonSerializable(typeof(BrowserDocumentPresentationLeaf[]))]
+[JsonSerializable(typeof(BrowserDocumentLeafContainmentOutcome))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]

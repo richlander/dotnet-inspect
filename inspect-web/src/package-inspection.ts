@@ -98,6 +98,36 @@ export function normalizePackageIntegrationsSnapshot(
   return state.status === "loading" ? { status: "idle" } : state;
 }
 
+export type PackageOpportunitiesState =
+  | { readonly status: "idle" }
+  | {
+    readonly status: "loading";
+    readonly request: { readonly key: string };
+  }
+  | {
+    readonly status: "ready";
+    readonly key: string;
+    readonly result: BrowserPackageOpportunities;
+  }
+  | {
+    readonly status: "failed";
+    readonly key: string;
+    readonly error: string;
+  };
+
+export function packageOpportunitiesStateKey(
+  state: PackageOpportunitiesState,
+): string | null {
+  if (state.status === "idle") return null;
+  return state.status === "loading" ? state.request.key : state.key;
+}
+
+export function normalizePackageOpportunitiesSnapshot(
+  state: PackageOpportunitiesState,
+): PackageOpportunitiesState {
+  return state.status === "loading" ? { status: "idle" } : state;
+}
+
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
   member: AppMemberSurface;
@@ -172,10 +202,7 @@ export interface PackageInspectionState {
   workspaceDependencyErrors: Record<string, string>;
   workspaceDependencyLoads: Set<string>;
   packageIntegrations: PackageIntegrationsState;
-  packageOpportunities: BrowserPackageOpportunities | null;
-  packageOpportunitiesLoading: boolean;
-  packageOpportunitiesError: string;
-  packageOpportunitiesKey: string;
+  packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packagePerformanceLoading: boolean;
   packagePerformanceError: string;
@@ -438,10 +465,7 @@ export function createPackageInspectionCoordinator(
       state.packageDependenciesKey = "";
       state.packageVulnerabilities = { status: "idle" };
       state.packageIntegrations = { status: "idle" };
-      state.packageOpportunities = null;
-      state.packageOpportunitiesLoading = false;
-      state.packageOpportunitiesError = "";
-      state.packageOpportunitiesKey = "";
+      state.packageOpportunities = { status: "idle" };
       state.packagePerformance = null;
       state.packagePerformanceLoading = false;
       state.packagePerformanceError = "";
@@ -608,19 +632,17 @@ export function createPackageInspectionCoordinator(
 
     async loadOpportunities(packageModel, signature, scopedLibrary) {
       if (packageModel.isRuntimePack && !scopedLibrary) return;
-      if (state.packageOpportunitiesKey === signature
-        && (state.packageOpportunities || state.packageOpportunitiesError)) {
+      const current = state.packageOpportunities;
+      if ((current.status === "ready" || current.status === "failed")
+        && current.key === signature) {
         dependencies.render();
         return;
       }
-      const generation = packageResultGeneration;
+      const request = { key: signature };
       const ownsRequest = () =>
-        state.packageOpportunitiesKey === signature
-        && generation === packageResultGeneration;
-      state.packageOpportunitiesKey = signature;
-      state.packageOpportunities = null;
-      state.packageOpportunitiesError = "";
-      state.packageOpportunitiesLoading = true;
+        state.packageOpportunities.status === "loading"
+        && state.packageOpportunities.request === request;
+      state.packageOpportunities = { status: "loading", request };
       dependencies.render();
       try {
         const coordinates = packageModel.isRuntimePack
@@ -635,21 +657,24 @@ export function createPackageInspectionCoordinator(
           : await dependencies.queryPackageOpportunities(
               packageModel,
               scopedLibrary ?? "");
-        if (ownsRequest()) {
-          state.packageOpportunities = result;
-        }
+        if (!ownsRequest()) return;
+        state.packageOpportunities = {
+          status: "ready",
+          key: signature,
+          result,
+        };
       } catch (error) {
-        if (ownsRequest()) {
-          state.packageOpportunitiesError = dependencies.describeError(error);
-        }
-      } finally {
-        if (ownsRequest()) {
-          state.packageOpportunitiesLoading = false;
-        }
-        if (generation === packageResultGeneration) {
-          dependencies.render();
-        }
+        if (!ownsRequest()) return;
+        const diagnostic = dependencies.describeError(error);
+        state.packageOpportunities = {
+          status: "failed",
+          key: signature,
+          error: diagnostic.trim()
+            ? diagnostic
+            : "Opportunity inspection failed.",
+        };
       }
+      dependencies.render();
     },
 
     async loadPerformance(packageModel, signature, scopedLibrary) {

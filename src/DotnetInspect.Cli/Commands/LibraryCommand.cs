@@ -5158,7 +5158,7 @@ public partial class LibraryCommand
         string? resolvedPackageVersion = resolution.Version;
 
         // Find DLLs in the extracted package
-        string[] allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+        string[] allDlls = GetPackageDllFiles(extractPath);
         if (allDlls.Length == 0)
         {
             var payload = await TryResolveToolPayloadPackageAsync(
@@ -5184,13 +5184,79 @@ public partial class LibraryCommand
                 nupkgPath = resolution.NupkgPath;
                 resolvedPackageName = resolution.PackageName;
                 resolvedPackageVersion = resolution.Version;
-                allDlls = Directory.GetFiles(extractPath, "*.dll", SearchOption.AllDirectories);
+                allDlls = GetPackageDllFiles(extractPath);
             }
         }
 
         if (!string.IsNullOrEmpty(assemblyName))
         {
-            var (matchedAssembly, matchedTfm) = TfmSelector.FindAssemblyInPackage(extractPath, assemblyName, tfm);
+            PackageCompileAssetSelection? selection = null;
+            if (allDlls.Any(path =>
+                    IsDirectRootLibrary(extractPath, path)))
+            {
+                var content = new FileSystemPackageContent(
+                    extractPath,
+                    nupkgPath,
+                    resolution.FromCache,
+                    resolution.ProducerKey
+                        ?? resolvedPackageName
+                        ?? packageTarget.PackageName);
+                selection = PackageCompileAssetSelector.Evaluate(
+                    content,
+                    resolvedPackageName ?? packageTarget.PackageName,
+                    string.IsNullOrWhiteSpace(tfm)
+                        ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                        : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+                    tfm).Selection;
+            }
+            string? matchedAssembly;
+            string? matchedTfm;
+            if (selection is not null)
+            {
+                IReadOnlyList<PackageCompileAsset> selected =
+                    new PackageLibrarySelector(assemblyName).Select(selection);
+                PackageCompileAsset? selectedAsset =
+                    selected.Count == 1 ? selected[0] : null;
+                if (selectedAsset is not null
+                    && (assemblyName.Contains('/')
+                        || assemblyName.Contains('\\')))
+                {
+                    PackageCompileAsset? implementation =
+                        selection.FindImplementationAsset(selectedAsset);
+                    string requestedPath = assemblyName.Replace('\\', '/');
+                    if (!requestedPath.EndsWith(
+                            ".dll",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        requestedPath += ".dll";
+                    }
+                    if (implementation is not null
+                        && implementation.Path.Equals(
+                            requestedPath,
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        selectedAsset = implementation;
+                    }
+                }
+
+                matchedAssembly = selectedAsset is null
+                    ? null
+                    : allDlls.SingleOrDefault(path =>
+                        Path.GetRelativePath(extractPath, path)
+                            .Replace('\\', '/')
+                            .Equals(
+                                selectedAsset.Path,
+                                StringComparison.OrdinalIgnoreCase));
+                matchedTfm = selection.TargetFramework;
+            }
+            else
+            {
+                (matchedAssembly, matchedTfm) =
+                    TfmSelector.FindAssemblyInPackage(
+                        extractPath,
+                        assemblyName,
+                        tfm);
+            }
             if (matchedAssembly == null)
             {
                 CommandError.Write($"Library '{assemblyName}' not found in package.");
@@ -5246,6 +5312,30 @@ public partial class LibraryCommand
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
+    private static bool IsDirectRootLibrary(
+        string extractPath,
+        string path)
+    {
+        string relativePath = Path.GetRelativePath(extractPath, path)
+            .Replace('\\', '/');
+        return relativePath.StartsWith(
+                "lib/",
+                StringComparison.OrdinalIgnoreCase)
+            && relativePath.AsSpan("lib/".Length).IndexOf('/') < 0;
+    }
+
+    private static string[] GetPackageDllFiles(string extractPath) =>
+        [
+            .. Directory.EnumerateFiles(
+                    extractPath,
+                    "*",
+                    SearchOption.AllDirectories)
+                .Where(path =>
+                    PackageEntryPath.GetExtension(path).Equals(
+                        ".dll",
+                        StringComparison.OrdinalIgnoreCase)),
+        ];
+
     internal sealed record ToolPayloadResolution(
         PackageExtractionResult? Result,
         string? Error);
@@ -5280,7 +5370,7 @@ public partial class LibraryCommand
             return new(null, $"Tool package '{package.PackageName}' has no inspectable DLLs and payload package '{payloadId}@{version}' could not be resolved: {payloadOutcome.ErrorMessage}");
 
         var payload = payloadOutcome.Result!;
-        var dlls = Directory.GetFiles(payload.ExtractPath, "*.dll", SearchOption.AllDirectories)
+        var dlls = GetPackageDllFiles(payload.ExtractPath)
             .Where(d => !d.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (dlls.Count == 0)

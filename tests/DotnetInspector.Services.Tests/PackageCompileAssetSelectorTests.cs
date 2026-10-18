@@ -23,6 +23,35 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal("net10.0", counterpart.TargetFramework);
     }
 
+    [Theory]
+    [InlineData("lib/Example.dll", "lib/net11.0/Example.dll", "any")]
+    [InlineData("lib/net10.0/Example.dll", "lib/Example.dll", "net10.0")]
+    public void FindComparisonAsset_PairsRootAndFrameworkSlices(
+        string beforePath,
+        string afterPath,
+        string expectedBeforeFramework)
+    {
+        var before = PackageCompileAssetSelector.Evaluate(
+            InMemory(beforePath),
+            "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            "net11.0").Selection;
+        var after = PackageCompileAssetSelector.Evaluate(
+            InMemory(afterPath),
+            "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            "net11.0").Selection;
+
+        PackageCompileAsset? counterpart =
+            before.FindComparisonAsset(Assert.Single(after.Assets));
+
+        Assert.Same(Assert.Single(before.Assets), counterpart);
+        Assert.Equal(beforePath, counterpart!.Path);
+        Assert.Equal(
+            expectedBeforeFramework,
+            counterpart.TargetFramework);
+    }
+
     [Fact]
     public void FindComparisonAsset_DoesNotMatchOnlyTheFileName()
     {

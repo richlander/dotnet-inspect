@@ -36,6 +36,10 @@ export type BrowserDependencyCoordinateMatchOutcome = "NoMatch" | "Unique" | "Am
 
 export type BrowserDependencyCoordinateProvenance = "NuGetPackage" | "PlatformRuntime" | number;
 
+export type BrowserDocumentLeafContainmentFailureKind = "InvalidGeneration" | "InvalidLeafIdentity" | "DuplicateLeafIdentity" | "MissingLeafText" | "UnsupportedTextPolicy" | "TooManyLeaves" | "InputTextTooLarge" | "OutputTextTooLarge" | "ResultCollectionTooLarge" | "SerializedResultTooLarge" | number;
+
+export type BrowserDocumentTextPolicy = "Field" | "Prose" | number;
+
 export type BrowserExactLibraryApiAssetKind = number;
 
 export type BrowserExactLibraryApiInspectionFailureKind = number;
@@ -238,6 +242,12 @@ export interface BrowserCompileLibraryAvailability {
   readonly message: string | null;
 }
 
+export interface BrowserContainedDocumentPresentationLeaf {
+  readonly identity: number;
+  readonly policy: BrowserDocumentTextPolicy;
+  readonly text: InertString;
+}
+
 export interface BrowserDependencyCoordinateCandidate {
   readonly key: string;
   readonly provenance: BrowserDependencyCoordinateProvenance;
@@ -249,6 +259,19 @@ export interface BrowserDependencyCoordinateCandidate {
 export interface BrowserDependencyCoordinateMatch {
   readonly outcome: BrowserDependencyCoordinateMatchOutcome;
   readonly candidateKey: string | null;
+}
+
+export interface BrowserDocumentLeafContainmentFailure {
+  readonly kind: BrowserDocumentLeafContainmentFailureKind;
+  readonly identity: number | null;
+  readonly actual: number | null;
+  readonly limit: number | null;
+}
+
+export interface BrowserDocumentPresentationLeaf {
+  readonly identity: number;
+  readonly policy: BrowserDocumentTextPolicy;
+  readonly text: string;
 }
 
 export interface BrowserEcosystemPackageCandidate {
@@ -1436,6 +1459,20 @@ export interface Unavailable {
 
 export type AuthoredDocumentationOutcome = Available | Absent | Unavailable | Ambiguous | Rejected | Failed | Incomplete;
 
+export interface BrowserDocumentLeafContainmentContained {
+  readonly outcome: "contained";
+  readonly generation: string;
+  readonly leaves: ReadonlyArray<BrowserContainedDocumentPresentationLeaf>;
+}
+
+export interface BrowserDocumentLeafContainmentRejected {
+  readonly outcome: "rejected";
+  readonly generation: string | null;
+  readonly failure: BrowserDocumentLeafContainmentFailure;
+}
+
+export type BrowserDocumentLeafContainmentOutcome = BrowserDocumentLeafContainmentContained | BrowserDocumentLeafContainmentRejected;
+
 export interface ContentAccessFailed {
   readonly kind: "contentAccessFailed";
   readonly subject?: CompiledDocumentationSubject;
@@ -1547,6 +1584,7 @@ type $ManagedExports = {
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "ClosePlatformForwarderView.91425100": (view: string) => boolean;
             readonly "ContainPackageDocumentHtml.304094707": (html: string) => string;
+            readonly "ContainPackageDocumentLeaves.271973316": (generation: string, leavesJson: string) => string;
             readonly "ExplainPackageQuery.1596740838": (path: string, facetKeys: string[] | null) => string;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
             readonly "GetPlatformCatalog.451505237": (targetFramework: string, platformVersion: string) => Promise<string>;
@@ -1734,6 +1772,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ContainPackageDocumentHtml.304094707");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ContainPackageDocumentHtml.304094707\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Package");
+    value = $ownDataProperty(value, "PackageExports");
+    value = $ownDataProperty(value, "ContainPackageDocumentLeaves.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ContainPackageDocumentLeaves.271973316\u0027 is not callable.");
     }
   }
   {
@@ -2219,6 +2269,12 @@ export function containPackageDocumentHtml(html: string): BrowserPackageDocument
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ContainPackageDocumentHtml.304094707"](html);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageDocumentHtml;
+}
+
+export function containPackageDocumentLeaves(generation: string, leavesJson: ReadonlyArray<BrowserDocumentPresentationLeaf>): BrowserDocumentLeafContainmentOutcome {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ContainPackageDocumentLeaves.271973316"](generation, $serializeJsonInput(leavesJson, "DotnetInspect.Web.Interop.Package.PackageExports.ContainPackageDocumentLeaves.271973316", "leavesJson"));
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserDocumentLeafContainmentOutcome;
 }
 
 export function explainPackageQuery(path: string, facetKeys: string[] | null): BrowserPackageQueryExplanationResult {
