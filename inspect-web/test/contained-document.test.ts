@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  browserDocumentFragmentPresentationLeaves,
   browserDocumentPresentationLeaves,
+  completeContainedDocumentFragment,
   completeDocumentLeafContainment,
+  containedDocumentFragmentHtml,
+  prepareContainedDocumentFragment,
   prepareDocumentLeafContainment,
+  type DocumentPresentationTarget,
 } from "../src/contained-document.ts";
 import type {
   BrowserDocumentLeafContainmentFailureKind,
@@ -70,6 +75,67 @@ function rejectionReason(
     throw new Error("Expected leaf completion to reject.");
   }
   return completion.reason;
+}
+
+class FakeText {
+  data: string;
+
+  constructor(data: string) {
+    this.data = data;
+  }
+}
+
+class FakeElement {
+  private readonly attributes = new Map<string, string>();
+
+  constructor(attributes: Readonly<Record<string, string>>) {
+    for (const [name, value] of Object.entries(attributes))
+      this.attributes.set(name, value);
+  }
+
+  getAttribute(name: string) {
+    return this.attributes.get(name) ?? null;
+  }
+
+  setAttribute(name: string, value: string) {
+    this.attributes.set(name, value);
+  }
+}
+
+function fragmentFixture() {
+  const text = new FakeText("line\u202Eone");
+  const title = new FakeElement({
+    title: "field\nvalue",
+    href: "https://example.test/exact-target",
+  });
+  const members = new Set<object>([text, title]);
+  const template = {
+    content: {
+      contains: (value: object) => members.has(value),
+    },
+    get innerHTML() {
+      return `<p title="${title.getAttribute("title")}">${text.data}</p>`;
+    },
+  };
+  // These fixtures implement only the DOM operations used by the owner.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const typedTemplate = template as unknown as HTMLTemplateElement;
+  const targets: DocumentPresentationTarget[] = [
+    {
+      kind: "text",
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      node: text as unknown as Text,
+      policy: "Prose",
+    },
+    {
+      kind: "attribute",
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+      element: title as unknown as Element,
+      name: "title",
+      policy: "Field",
+    },
+  ];
+  return { template: typedTemplate, targets, text, title };
 }
 
 test("leaf completion restores request order after exact correspondence", () => {
@@ -280,5 +346,121 @@ test("completion rejects a policy mismatch", () => {
       identity: 1,
       failure: null,
     },
+  );
+});
+
+test("fragment completion applies exact leaves only after correspondence", () => {
+  const fixture = fragmentFixture();
+  const fragmentPrepared = prepareContainedDocumentFragment(
+    "document-5",
+    fixture.template,
+    fixture.targets,
+  );
+
+  assert.deepEqual(
+    browserDocumentFragmentPresentationLeaves(fragmentPrepared),
+    [
+      { identity: 0, policy: "Prose", text: "line\u202Eone" },
+      { identity: 1, policy: "Field", text: "field\nvalue" },
+    ],
+  );
+  assert.equal(fixture.text.data, "line\u202Eone");
+  assert.equal(fixture.title.getAttribute("title"), "field\nvalue");
+
+  const completion = completeContainedDocumentFragment(
+    fragmentPrepared,
+    "document-5",
+    {
+      outcome: "contained",
+      generation: "document-5",
+      leaves: [
+        { identity: 1, policy: "Field", text: inertString("field\\^Jvalue") },
+        { identity: 0, policy: "Prose", text: inertString("line\\u202Eone") },
+      ],
+    },
+  );
+
+  assert.equal(completion.kind, "completed");
+  if (completion.kind !== "completed") return;
+  assert.equal(fixture.text.data, "line\\u202Eone");
+  assert.equal(fixture.title.getAttribute("title"), "field\\^Jvalue");
+  assert.equal(
+    fixture.title.getAttribute("href"),
+    "https://example.test/exact-target",
+  );
+  assert.equal(
+    containedDocumentFragmentHtml(completion.fragment),
+    '<p title="field\\^Jvalue">line\\u202Eone</p>',
+  );
+});
+
+test("fragment rejection does not mutate prepared structure", () => {
+  const fixture = fragmentFixture();
+  const fragmentPrepared = prepareContainedDocumentFragment(
+    "document-5",
+    fixture.template,
+    fixture.targets,
+  );
+  const completion = completeContainedDocumentFragment(
+    fragmentPrepared,
+    null,
+    {
+      outcome: "contained",
+      generation: "document-5",
+      leaves: [
+        { identity: 0, policy: "Prose", text: inertString("changed") },
+        { identity: 1, policy: "Field", text: inertString("changed") },
+      ],
+    },
+  );
+
+  assert.deepEqual(completion, {
+    kind: "rejected",
+    reason: "stale-generation",
+    identity: null,
+    failure: null,
+  });
+  assert.equal(fixture.text.data, "line\u202Eone");
+  assert.equal(fixture.title.getAttribute("title"), "field\nvalue");
+});
+
+test("fragment preparation rejects outside, missing, or duplicate targets", () => {
+  const fixture = fragmentFixture();
+  const outside = new FakeText("outside");
+  assert.throws(
+    () => prepareContainedDocumentFragment(
+      "document-5",
+      fixture.template,
+      [{
+        kind: "text",
+        // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+        node: outside as unknown as Text,
+        policy: "Prose",
+      }],
+    ),
+    /outside its structure/,
+  );
+  assert.throws(
+    () => prepareContainedDocumentFragment(
+      "document-5",
+      fixture.template,
+      [fixture.targets[0]!, fixture.targets[0]!],
+    ),
+    /duplicates a text target/,
+  );
+  assert.throws(
+    () => prepareContainedDocumentFragment(
+      "document-5",
+      fixture.template,
+      [{
+        kind: "attribute",
+        element: fixture.targets[1]!.kind === "attribute"
+          ? fixture.targets[1]!.element
+          : assert.fail("Expected an attribute target"),
+        name: "missing",
+        policy: "Field",
+      }],
+    ),
+    /missing attribute/,
   );
 });
