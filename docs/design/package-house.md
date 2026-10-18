@@ -135,6 +135,8 @@ The owner defines:
 - the distinction between settlement, acquisition, and realization;
 - composition of owner-issued package source, version, pruning, payload,
   asset-selection, and dependency capabilities;
+- composition of one Navigation-issued Library-population demand with compile
+  precedence and typed one-RID runtime fallback;
 - package-local compile-selection policy and preservation of the complete
   owner-issued inventory beside its selected projection;
 - the House result envelope and terminal outcome;

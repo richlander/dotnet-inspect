@@ -1237,6 +1237,13 @@ public partial class PackageCommand
                 "all",
                 StringComparison.OrdinalIgnoreCase) == true)
         {
+            if (options.PackageLibrary is not null)
+            {
+                CommandError.Write(
+                    "--tfm all cannot select one exact or namesake Library; choose one target framework.");
+                return null;
+            }
+
             TfmSelector.PackageLibraryResolution allFrameworks =
                 TfmSelector.SelectPackageLibraries(
                     extractPath,
@@ -1254,85 +1261,158 @@ public partial class PackageCommand
             return null;
         }
 
-        PackageCompileAssetSelection selection =
-            ResolvePackageCompileSelection(
+        PackageLibraryPopulationSelection population =
+            ResolvePackageLibraryPopulationSelection(
                 extractPath,
                 packageName,
                 extraction,
                 options.Tfm);
-        if (selection.Status
-            == PackageCompileAssetSelectionStatus.NoCompileAssets)
+        if (population is
+            PackageLibraryPopulationSelection.Compile compile)
         {
-            TfmSelector.PackageLibraryResolution unsupportedLayout =
-                TfmSelector.SelectPackageLibraries(
-                    extractPath,
-                    options.Tfm);
-            if (unsupportedLayout.IsSelected)
-                return unsupportedLayout;
-
-            ReportPackageLibraryResolutionFailure(
-                extractPath,
-                packageName,
-                version,
-                options,
-                options.PackageLibrary ?? "",
-                unsupportedLayout);
-            return null;
-        }
-
-        IReadOnlyList<string> candidatePaths =
-            ResolvePackageCompileAssetPaths(
-                extractPath,
-                selection.CandidateAssets);
-
-        if (selection.Status
-            == PackageCompileAssetSelectionStatus.Selected)
-        {
+            PackageCompileAssetSelection selection =
+                compile.CompileReceipt.Selection;
             IReadOnlyList<string> selectedPaths =
                 ResolvePackageCompileAssetPaths(
                     extractPath,
                     selection.Assets);
+            IReadOnlyList<string> candidatePaths =
+                ResolvePackageCompileAssetPaths(
+                    extractPath,
+                    selection.CandidateAssets);
             return new TfmSelector.PackageLibraryResolution(
                 selectedPaths,
                 selection.TargetFramework,
                 TfmSelector.PackageLibraryResolutionStatus.Selected,
                 candidatePaths);
         }
-
-        switch (selection.Status)
+        if (population is
+            PackageLibraryPopulationSelection.Runtime runtime
+            && runtime.RuntimeReceipt.Selection
+                is PackageAssetSelection.Selected selected)
         {
-            case PackageCompileAssetSelectionStatus.EmptyCompileGroup:
-                CommandError.Write(
-                    $"The selected compile group for TFM "
-                        + $"'{selection.TargetFramework}' in package "
-                        + $"'{packageName}' has no Libraries.");
-                break;
-            case PackageCompileAssetSelectionStatus
-                .NoMatchingTargetFramework:
-                CommandError.Write(
-                    $"No libraries found for TFM '{options.Tfm}' in "
-                        + $"package '{packageName}'.");
-                WritePackageLibraryCandidates(
-                    extractPath,
-                    packageName,
-                    version,
-                    options.Tfm,
-                    candidatePaths.ToList());
-                break;
-            case PackageCompileAssetSelectionStatus
-                .InvalidImplementationAssets:
-                CommandError.Write(
-                    selection.Message
-                    ?? $"Package '{packageName}' has invalid implementation "
-                        + "assets for the selected compile Libraries.");
-                break;
-            default:
-                throw new InvalidOperationException(
-                    $"Unexpected compile-Library selection status "
-                        + $"'{selection.Status}'.");
+            IReadOnlyList<string> selectedPaths =
+            [
+                .. selected.Universe.Assets.Select(
+                    asset => ResolveContainedEntry(
+                        extractPath,
+                        asset.EntryPath)),
+            ];
+            return new TfmSelector.PackageLibraryResolution(
+                selectedPaths,
+                selected.Universe.TargetFramework,
+                TfmSelector.PackageLibraryResolutionStatus.Selected,
+                selectedPaths);
+        }
+        if (population is
+            PackageLibraryPopulationSelection.NonSuccess nonSuccess)
+        {
+            ReportPackageLibraryPopulationFailure(
+                extractPath,
+                packageName,
+                version,
+                options,
+                nonSuccess);
+            return null;
         }
 
-        return null;
+        throw new InvalidOperationException(
+            "Unexpected Package Library population selection.");
+    }
+
+    private static PackageLibraryPopulationSelection
+        ResolvePackageLibraryPopulationSelection(
+            string extractPath,
+            string packageName,
+            PackageExtractionResult extraction,
+            string? targetFramework)
+    {
+        if (extraction.HouseSettlement?.Result.Evidence.Realization
+            is PackageHouseRealizationReceipt.LibraryPopulation realization)
+        {
+            return realization.Selection;
+        }
+
+        IPackageContent content = new FileSystemPackageContent(
+            extractPath,
+            extraction.NupkgPath,
+            extraction.FromCache,
+            extraction.ProducerKey ?? packageName);
+        return PackageLibraryPopulationSelector.Evaluate(
+            content,
+            packageName,
+            string.IsNullOrWhiteSpace(targetFramework)
+                ? PackageCompileAssetSelectionPolicy.HighestAvailable
+                : PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            targetFramework);
+    }
+
+    private static void ReportPackageLibraryPopulationFailure(
+        string extractPath,
+        string packageName,
+        string version,
+        InspectionOptions options,
+        PackageLibraryPopulationSelection.NonSuccess selection)
+    {
+        if (selection.RuntimeReceipt?.Selection
+            is PackageAssetSelection.Ambiguous ambiguous)
+        {
+            CommandError.Write(ambiguous.Message);
+            return;
+        }
+        if (selection.RuntimeReceipt?.Selection
+            is PackageAssetSelection.Invalid invalid)
+        {
+            CommandError.Write(invalid.Message);
+            return;
+        }
+
+        PackageCompileAssetSelection compile =
+            selection.CompileReceipt.Selection;
+        if (compile.Status
+            == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework)
+        {
+            CommandError.Write(
+                $"No libraries found for TFM '{options.Tfm}' in "
+                    + $"package '{packageName}'.");
+            WritePackageLibraryCandidates(
+                extractPath,
+                packageName,
+                version,
+                options.Tfm,
+                ResolvePackageCompileAssetPaths(
+                    extractPath,
+                    compile.CandidateAssets).ToList());
+            return;
+        }
+        if (compile.Status
+            == PackageCompileAssetSelectionStatus
+                .InvalidImplementationAssets)
+        {
+            CommandError.Write(
+                compile.Message
+                ?? $"Package '{packageName}' has invalid implementation "
+                    + "assets for the selected compile Libraries.");
+            return;
+        }
+        if (compile.Status
+                == PackageCompileAssetSelectionStatus.EmptyCompileGroup
+            && selection.RuntimeReceipt?.Selection
+                is PackageAssetSelection.NoMatch)
+        {
+            CommandError.Write(
+                $"The selected compile group for TFM "
+                    + $"'{compile.TargetFramework}' in package "
+                    + $"'{packageName}' has no Libraries.");
+            return;
+        }
+
+        CommandError.Write(
+            selection.RuntimeReceipt?.Selection
+                is PackageAssetSelection.NoMatch noMatch
+                    ? noMatch.Message
+                    : $"No managed libraries found in package "
+                        + $"'{packageName}'.");
     }
 
     private static PackageCompileAssetSelection

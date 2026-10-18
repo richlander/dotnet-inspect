@@ -355,6 +355,8 @@ interface HomeDemoFixture {
 
 interface DiagnosticsFixture {
   packageDocumentTitles?: "ready" | "deferred";
+  packageDocumentContainment?: "ready" | "deferred" | "rejected";
+  packageDocumentText?: string;
   libraryApiDiffPilot?: "ready" | "empty";
   runtimeFailure?: boolean;
   buildIdentity?: "ready" | "pending" | "failed";
@@ -723,6 +725,68 @@ async function installFacades(
       ${surfaceLookup}
       export const jsonSchemaVocabularyDescriptors =
          ${durableRowDescriptorsSource};
+      function packageDocumentContainedText(policy, text) {
+        let contained = "";
+        for (const scalar of text) {
+          const value = scalar.codePointAt(0);
+          if (value === undefined) continue;
+          if (scalar === "\\\\") {
+            contained += "\\\\\\\\";
+            continue;
+          }
+          const categoryRefused = /[\\p{Cf}\\p{Cs}]/u.test(scalar)
+            || value === 0x2028 || value === 0x2029
+            || (/[\\p{Cc}]/u.test(scalar)
+              && (policy === "Field"
+                || (value !== 0x09 && value !== 0x0A && value !== 0x0D)));
+          if (!categoryRefused) {
+            contained += scalar;
+            continue;
+          }
+          if (value <= 0x1F) {
+            contained += "\\\\^" + String.fromCodePoint(value + 0x40);
+          } else if (value === 0x7F) {
+            contained += "\\\\^?";
+          } else if (value <= 0xFFFF) {
+            contained += "\\\\u" + value.toString(16).toUpperCase().padStart(4, "0");
+          } else {
+            contained += "\\\\U" + value.toString(16).toUpperCase().padStart(8, "0");
+          }
+        }
+        return contained;
+      }
+      export async function containPackageDocumentLeaves(generation, leaves) {
+        document.documentElement.dataset.packageDocumentContainment =
+          JSON.stringify({ generation, leaves });
+        if (diagnosticsOptions.packageDocumentContainment === "deferred"
+          && /^package-document-\\d+$/.test(generation)) {
+          await new Promise(resolve =>
+            document.addEventListener("package-document-containment", resolve));
+        }
+        document.documentElement.dataset.packageDocumentContainmentCompletion =
+          generation;
+        if (diagnosticsOptions.packageDocumentContainment === "rejected") {
+          return {
+            outcome: "rejected",
+            generation,
+            failure: {
+              kind: "OutputTextTooLarge",
+              identity: null,
+              actual: 2,
+              limit: 1,
+            },
+          };
+        }
+        return {
+          outcome: "contained",
+          generation,
+          leaves: leaves.map(leaf => ({
+            identity: leaf.identity,
+            policy: leaf.policy,
+            text: packageDocumentContainedText(leaf.policy, leaf.text),
+          })),
+        };
+      }
       ${diagnostics.packageDocumentTitles ? `
       const documentTitleReads = new Set();
       export async function getPackageDocument(packageId, version, path) {
@@ -738,7 +802,14 @@ async function installFacades(
           "untitled.md": "## Secondary heading\nNo H1",
         })};
         document.documentElement.dataset.packageDocumentTitleCompletion = JSON.stringify([version, path]);
-        return { kind: "Markdown", name: path, path, text: version === "0.9.0" ? "# Older package" : texts[path] ?? "# Document" };
+        return {
+          kind: "Markdown",
+          name: path,
+          path,
+          text: version === "0.9.0"
+            ? "# Older package"
+            : diagnosticsOptions.packageDocumentText ?? texts[path] ?? "# Document"
+        };
       }` : ""}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
