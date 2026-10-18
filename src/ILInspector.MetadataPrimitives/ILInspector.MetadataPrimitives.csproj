@@ -18,6 +18,15 @@
     <InternalsVisibleTo Include="ILInspector.ILDiff" />
     <InternalsVisibleTo Include="ILInspector.Metadata" />
     <InternalsVisibleTo Include="ILInspector.Metadata.Tests" />
+    <!-- SPIKE (exp/unified-diff-exists, #9918): SymbolKey moved here as a shared
+         primitive so the complete IL diff can key methods and operands by it. -->
+    <InternalsVisibleTo Include="DotnetInspect.Cli.Tests" />
+    <InternalsVisibleTo Include="measure-staged-diff" />
+    <InternalsVisibleTo Include="measure-shared-predicate" />
+    <InternalsVisibleTo Include="measure-canonical-walker" />
+    <InternalsVisibleTo Include="measure-census-classes" />
+    <InternalsVisibleTo Include="measure-unified-diff" />
+    <InternalsVisibleTo Include="measure-map-facts" />
   </ItemGroup>
 
   <!-- SRM-only by design: no project references. System.Reflection.Metadata is part of the BCL. -->

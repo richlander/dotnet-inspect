@@ -23,6 +23,7 @@
     <InternalsVisibleTo Include="measure-census-classes" />
     <!-- SPIKE (exp/unified-diff-exists): eng/measure-unified-diff.cs. -->
     <InternalsVisibleTo Include="measure-unified-diff" />
+    <InternalsVisibleTo Include="measure-map-facts" />
   </ItemGroup>
 
   <ItemGroup>

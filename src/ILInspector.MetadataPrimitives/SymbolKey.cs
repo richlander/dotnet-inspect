@@ -5,6 +5,10 @@ using System.Text;
 
 namespace ILInspector.Metadata;
 
+// SPIKE (exp/unified-diff-exists, #9918): moved from ILInspector.Metadata into the
+// shared MetadataPrimitives assembly, unchanged, so the complete IL diff can key
+// methods and operands with it as Fast Diff does.
+
 /// <summary>
 /// One compared Fast Diff key or fact: a byte string that only
 /// <see cref="Builder"/> can make.
