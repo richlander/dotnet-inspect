@@ -27,6 +27,8 @@
     <InternalsVisibleTo Include="measure-census-classes" />
     <InternalsVisibleTo Include="measure-unified-diff" />
     <InternalsVisibleTo Include="measure-map-facts" />
+    <!-- SPIKE (exp/unified-diff-exists): eng/census-uncertain-kinds.cs. -->
+    <InternalsVisibleTo Include="census-uncertain-kinds" />
   </ItemGroup>
 
   <!-- SRM-only by design: no project references. System.Reflection.Metadata is part of the BCL. -->
