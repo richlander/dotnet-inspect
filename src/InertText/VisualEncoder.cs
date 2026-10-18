@@ -84,24 +84,9 @@ public static class VisualEncoder
                 continue;
             }
 
-            int spellingLength;
-            VisualForm form;
-            if (isUnpairedSurrogate)
-            {
-                spellingLength = 6;
-                form = VisualForm.BmpHex;
-            }
-            else
-            {
-                (spellingLength, form) = scalar.Value switch
-                {
-                    '\\' => (2, VisualForm.Backslash),
-                    <= 0x1F => (3, VisualForm.Caret),
-                    0x7F => (3, VisualForm.CaretDelete),
-                    <= 0xFFFF => (6, VisualForm.BmpHex),
-                    _ => (10, VisualForm.AstralHex),
-                };
-            }
+            (int spellingLength, VisualForm form) =
+                ScalarSpelling.For(
+                    isUnpairedSurrogate ? value[i] : scalar.Value);
 
             length = checked(length + spellingLength);
             formsUsed |= form;

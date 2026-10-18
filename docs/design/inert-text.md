@@ -164,7 +164,9 @@ the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
 `TextConcern` retains why visual containment occurred: control, format/bidi,
-unpaired surrogate, line separator, or paragraph separator. The flags are
+unpaired surrogate, line separator, or paragraph separator. An ill-formed UTF-8
+byte reports the surrogate concern because it is spelled as its surrogate escape
+(see [Inert UTF-8](inert-bytes.md#inert-utf-8)). The flags are
 captured while the untreated scalar is available and travel with the
 `InertString` through composition, policy tightening, bounding, and persistence
 restoration. An audit can therefore aggregate categories without importing the
