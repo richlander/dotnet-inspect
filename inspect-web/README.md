@@ -2182,6 +2182,21 @@ compilation until its behavior is explicit.
 
 ## Test
 
+Browser facade fixtures must satisfy the same startup payload decoders as the
+production facades. The fixture at commit
+`94b098614dfdc6afe24e9a6d7cb0463f7f342d13` in
+`browser/library-hierarchy.support.ts` returned an obsolete Package Query facet
+`selection` object; the current contract requires a `scope` with profile
+`query-preparation/v1`. That mismatch closed the Worker epoch before Package
+navigation. The existing `implicit EmptyCompileGroup package entry retains the
+Package subject` Firefox case exercises successful startup before navigation;
+production payload validation remains the gate for malformed responses.
+Extracted composition-root harnesses bind the real helpers and state consumed
+by their selected functions. Bundler probes use canonical temporary paths so
+Vite and the expected source inventory refer to the same files on macOS.
+Package References tabs use the shared keybinding registry at element priority;
+higher-priority modal handlers retain ownership of navigation keys.
+
 ```bash
 cd inspect-web
 npm ci

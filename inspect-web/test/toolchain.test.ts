@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   readFileSync,
   rmSync,
   statSync,
@@ -1396,7 +1397,7 @@ test("every source file is covered by a lint target", () => {
 // come from the real Vite build; neither parses source or guesses which extensions matter.
 // This fixture keeps the pathological small-asset case executable.
 test("the bundler input audit includes inlined asset sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1418,7 +1419,7 @@ test("the bundler input audit includes inlined asset sources", async () => {
 });
 
 test("the bundler input audit includes query-bearing module sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1440,7 +1441,7 @@ test("the bundler input audit includes query-bearing module sources", async () =
 });
 
 test("the bundler input audit includes worker module sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1462,7 +1463,7 @@ test("the bundler input audit includes worker module sources", async () => {
 });
 
 test("the bundler input audit includes CSS imports and explicitly inlined assets", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
@@ -1488,7 +1489,7 @@ test("the bundler input audit includes CSS imports and explicitly inlined assets
 });
 
 test("the bundler input audit includes worker asset sources", async () => {
-  const root = mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-"));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "inspect-web-vite-audit-")));
   try {
     writeFileSync(
       join(root, "index.html"),
