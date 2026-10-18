@@ -24,6 +24,23 @@
 //       (the analyses reject a partial method-evidence scope).
 //   g5  Source: CSharpBodyDiff.CompareMembers (decompile both sides and line
 //       diff) for each changed method pair.
+//   g2exact Type API over the exact-Type request path (#9466): per side, the
+//       exact TypeDef binding by structured name
+//       (MetadataExactTypeDefinitionInspection.Resolve) and the same-image
+//       extension Exists (MetadataRelationInspection.ExecuteExtensionPresence);
+//       then only that TypeDef's declarations
+//       (ApiSurfaceExtractor.ExtractDeclarations, one-handle predicate) compared
+//       by ApiComparisonQuery.Execute, the comparison g2 runs. When either side
+//       reports a same-image extension for the Type, the receiver needs its
+//       projected extension members and extension/instance pairing, so that
+//       side also extracts the Types that declare an extension for it (from the
+//       same-image extension relation population) with local extension
+//       projection (mode "ext"). g2exact keeps one ApiSurfaceImageCache per
+//       image warm for the run (the memory-safety index and attribute decode
+//       state); g2exactCold builds fresh caches per request.
+//       g2exactAgrees: this Type's API change bit equals g2's;
+//       g2exactFindings: this Type's findings (classifier changes, Type and
+//       Member pairs with kind, identity, and detail) equal g2's filtered to it.
 //
 // The Type population is Fast Diff's: every declared Type (top-level or
 // nested), with compiler-generated nested Types attached to their nearest
@@ -32,10 +49,17 @@
 // Usage: measure-type-diff-cost <before.dll> <after.dll> <out.tsv>
 //          [iterations=5] [g4bScope=all|changed|none] [g5Scope=all|changed|none]
 //          [g5MaxTypes=0(unbounded)] [g4bMaxTypes=0(unbounded)]
-// Requires the spike's InternalsVisibleTo on ILInspector.Metadata.
+//          [g2Sample=1(every Type)]
+// g2Sample=N runs g2 (and so g2exactAgrees) on every Nth paired Type only;
+// g2core and g2exact run on every Type. TYPECOST_PROFILE=Name1,Name2 prints a
+// g2core/g2exact component split for those Types; TYPECOST_PROFILE_ONLY=1
+// measures only those Types.
+// Requires the spike's InternalsVisibleTo on ILInspector.Metadata and its
+// spike-only ApiSurfaceImageCache extraction overload.
 
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -49,10 +73,10 @@ using ILInspector.Metadata;
 using ILInspector.Research;
 using Inspector.Findings;
 
-if (args.Length is < 3 or > 8)
+if (args.Length is < 3 or > 9)
 {
     Console.Error.WriteLine(
-        "Usage: measure-type-diff-cost <before.dll> <after.dll> <out.tsv> [iterations] [g4bScope] [g5Scope] [g5MaxTypes] [g4bMaxTypes]");
+        "Usage: measure-type-diff-cost <before.dll> <after.dll> <out.tsv> [iterations] [g4bScope] [g5Scope] [g5MaxTypes] [g4bMaxTypes] [g2Sample]");
     return 2;
 }
 
@@ -64,6 +88,11 @@ string g4bScope = args.Length > 4 ? args[4] : "all";
 string g5Scope = args.Length > 5 ? args[5] : "all";
 int g5MaxTypes = args.Length > 6 ? int.Parse(args[6]) : 0;
 int g4bMaxTypes = args.Length > 7 ? int.Parse(args[7]) : 0;
+int g2Sample = args.Length > 8 ? Math.Max(1, int.Parse(args[8])) : 1;
+HashSet<string> profileTypes = new(
+    (Environment.GetEnvironmentVariable("TYPECOST_PROFILE") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries),
+    StringComparer.Ordinal);
+bool profileOnly = Environment.GetEnvironmentVariable("TYPECOST_PROFILE_ONLY") == "1";
 
 const IlBodyDiffNormalization Normalization =
     IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
@@ -208,12 +237,41 @@ Console.WriteLine(
     $"whole-signals\tfirst={wholeSignalsFirst:F2}\tmedian={wholeSignalsMedian:F2}"
     + $"\tresult={wholeSignals?.GetType().Name}\tnote={wholeSignalsNote}");
 
+// ------------------------------------------- fixed (whole-Library) costs
+// Each line is one side's cost of a step that does not depend on the selected
+// Type: what a one-Type g2core or g2exact pays regardless of the Type's size.
+AssemblyReferenceIdentity beforeIdentity = AssemblyReferenceIdentity.FromAssemblyDefinition(beforeMd);
+AssemblyReferenceIdentity afterIdentity = AssemblyReferenceIdentity.FromAssemblyDefinition(afterMd);
+var beforeCache = new ApiSurfaceImageCache(beforePe);
+var afterCache = new ApiSurfaceImageCache(afterPe);
+var exactBounds = new ApiSurfaceExtractionBounds(1_000_000, 10_000_000, 1_000_000, 1_000_000, int.MaxValue);
+foreach (var (label, pe, md) in new[] { ("before", beforePe, beforeMd), ("after", afterPe, afterMd) })
+{
+    int fixedIters = Math.Max(3, iterations);
+    var none = Time(fixedIters, () => ApiSurfaceExtractor.ExtractDeclarations(pe, ApiSurfaceExtractionScope.Public, _ => false));
+    var safety = Time(fixedIters, () => MemorySafetyMetadataIndex.Create(md));
+    var register = Time(fixedIters, () => RegisterScan(md));
+    var byName = Time(fixedIters, () => TypeNameIndex(md));
+    var extNames = Time(fixedIters, () => ApiTypeSelection.ExtensionDeclaringTypeNames(md));
+    var bind = Time(fixedIters, () => new ApiTypeSelection(_ => false).Bind(md));
+    var rows = Time(fixedIters, () => MetadataOperationContext.CountMetadataRows(md));
+    Console.WriteLine(
+        $"fixed-{label}\textractNoType={none.Median:F3}\tmemorySafetyIndex={safety.Median:F3}"
+        + $"\tregisterScan={register.Median:F3}\ttypeDefByNameIndex={byName.Median:F3}"
+        + $"\textensionDeclaringTypeNames={extNames.Median:F3}\tselectionBind={bind.Median:F3}"
+        + $"\tcountRows={rows.Median:F4}\ttypeDefs={md.TypeDefinitions.Count}\tmethodDefs={md.MethodDefinitions.Count}"
+        + $"\tcustomAttributes={md.CustomAttributes.Count}"
+        + $"\tmemorySafetyWork={MemorySafetyMetadataIndex.CreateReceipted(md).ConstructionWork}");
+}
+
 // ------------------------------------------------------------- per Type
 using var output = new StreamWriter(outPath);
 output.WriteLine(string.Join('\t',
     "type", "apiMembers", "bodies", "memberCount", "fastApi", "fastBody", "apiChanged", "bodyChanged",
     "methodPairs", "changedMethods", "oneSidedMethods", "ilRows", "selectedTypes", "fullProjection",
-    "g1First", "g1", "g2First", "g2", "g2coreFirst", "g2core", "coreChanged", "g3First", "g3", "g4aFirst", "g4a", "g4bFirst", "g4b", "g4bNote",
+    "g1First", "g1", "g2First", "g2", "g2coreFirst", "g2core", "coreChanged",
+    "g2coreExtract", "g2coreCompare", "g2exactFirst", "g2exact", "g2exactCold", "g2exactMode", "g2exactResolve", "g2exactExists",
+    "g2exactExtract", "g2exactCompare", "g2exactChanged", "g2exactAgrees", "g2exactFindings", "g3First", "g3", "g4aFirst", "g4a", "g4bFirst", "g4b", "g4bNote",
     "g5First", "g5", "g5Methods", "g5Rows", "findings"));
 
 var fastByName = new Dictionary<string, FastDiffTypeState>(StringComparer.Ordinal);
@@ -232,6 +290,8 @@ foreach (var (key, unitA) in unitsA)
 {
     if (!unitsB.TryGetValue(key, out var unitB) || unitA.Malformed || unitB.Malformed)
         continue;
+    if (profileOnly && !profileTypes.Contains(unitB.FullName))
+        continue;
     index++;
     string name = unitB.FullName;
     fastByName.TryGetValue(name, out FastDiffTypeState? fastState);
@@ -240,18 +300,22 @@ foreach (var (key, unitA) in unitsA)
     var work = new FastDiff.Work();
     var g1 = Time(iterations, () => FastDiff.CompareUnit(sideA, unitA, sideB, unitB, FastDiffAxes.ApiAndBody, work));
 
-    // g2: Type API full.
-    AssemblyContextApiComparisonResult api = null!;
+    // g2: Type API full (every g2Sample-th Type).
+    bool runG2 = (index - 1) % g2Sample == 0;
+    AssemblyContextApiComparisonResult? api = null;
     var selection = new ApiTypeSelection(candidate => candidate == name);
-    var g2 = Time(iterations, () => api = AssemblyContextApiComparisonQuery.Execute(
-        beforeGroup, beforeParticipant, afterGroup, afterParticipant, ApiSurfaceScope.Public, limits, selection));
-    int selectedTypes = api.After.Surface?.Types.Count ?? -1;
+    (double First, double Median) g2 = (double.NaN, double.NaN);
+    if (runG2)
+    {
+        g2 = Time(iterations, () => api = AssemblyContextApiComparisonQuery.Execute(
+            beforeGroup, beforeParticipant, afterGroup, afterParticipant, ApiSurfaceScope.Public, limits, selection));
+    }
+    int selectedTypes = api?.After.Surface?.Types.Count ?? -1;
     // The selection keeps either side's extension-declaring Types, and keeps
     // the whole projection when the selected Type is one of them.
     bool fullProjection = selectedTypes >= wholeAfterTypes;
-    int apiMembers = api.After.Surface?.Types.Where(type => type.FullName == name).Sum(type => type.Members.Count) ?? 0;
     // The change bit is this Type's own, not the kept extension Types'.
-    bool apiChanged = api.Comparison is null || TypeApiChanged(api.Comparison, name);
+    bool? g2Changed = api is null ? null : api.Comparison is null || TypeApiChanged(api.Comparison, name);
 
     // g2core: the same comparison without the query host: declarations of
     // only this Type on each warm reader, then the Metadata-owned comparison
@@ -263,6 +327,71 @@ foreach (var (key, unitA) in unitsA)
         ApiSurfaceExtractor.ExtractDeclarations(afterPe, ApiSurfaceExtractionScope.Public, handle => handle == ownerB),
         new FindingSubject("api", "API"), new ApiDiffOptions(ApiDiffScope.Signature)));
     bool coreChanged = TypeApiChanged(core, name);
+    // g2core split: both extractions, then the comparison alone.
+    ApiSurface coreA = null!, coreB = null!;
+    var g2coreExtract = Time(iterations, () =>
+    {
+        coreA = ApiSurfaceExtractor.ExtractDeclarations(beforePe, ApiSurfaceExtractionScope.Public, handle => handle == ownerA);
+        coreB = ApiSurfaceExtractor.ExtractDeclarations(afterPe, ApiSurfaceExtractionScope.Public, handle => handle == ownerB);
+    });
+    var g2coreCompare = Time(iterations, () => MetadataFindings.CompareApi(
+        coreA, coreB, new FindingSubject("api", "API"), new ApiDiffOptions(ApiDiffScope.Signature)));
+
+    // g2exact: the exact-Type request path. The structured name stands in for
+    // the parsed request and is read once, untimed.
+    MetadataTypeDefinitionName exactName =
+        ((MetadataTypeDefinitionNameReadResult.Read)MetadataTypeDefinitionName.Read(afterMd, ownerB)).Name;
+    ExactTypeApi exact = null!;
+    // Warm: one extraction cache per image for the whole run, as a session
+    // that keeps the images open keeps them.
+    var g2exact = Time(iterations, () => exact = ExactTypeApi.Run(
+        beforePe, beforeMd, beforeIdentity, beforeCache, afterPe, afterMd, afterIdentity, afterCache, exactName, exactBounds));
+    // Cold: a fresh extraction cache per request, as one cold request pays.
+    var g2exactCold = Time(iterations, () => ExactTypeApi.Run(
+        beforePe, beforeMd, beforeIdentity, new ApiSurfaceImageCache(beforePe),
+        afterPe, afterMd, afterIdentity, new ApiSurfaceImageCache(afterPe), exactName, exactBounds));
+    // g2exact split (warm): resolve both, Exists both, extract both, compare.
+    TypeDefinitionHandle exactA = default, exactB = default;
+    var g2exactResolve = Time(iterations, () =>
+    {
+        exactA = ExactTypeApi.Resolve(beforeMd, exactName, exactBounds);
+        exactB = ExactTypeApi.Resolve(afterMd, exactName, exactBounds);
+    });
+    var g2exactExists = Time(iterations, () =>
+    {
+        ExactTypeApi.ExtensionExists(beforePe, beforeMd, beforeIdentity, exactName, exactA);
+        ExactTypeApi.ExtensionExists(afterPe, afterMd, afterIdentity, exactName, exactB);
+    });
+    ApiSurface exactSurfaceA = null!, exactSurfaceB = null!;
+    var g2exactExtract = Time(iterations, () =>
+    {
+        exactSurfaceA = ExactTypeApi.Extract(beforePe, beforeMd, beforeIdentity, beforeCache, exactName, exactA, exact.ExtensionMode);
+        exactSurfaceB = ExactTypeApi.Extract(afterPe, afterMd, afterIdentity, afterCache, exactName, exactB, exact.ExtensionMode);
+    });
+    var g2exactCompare = Time(iterations, () => ApiComparisonQuery.Execute(exactSurfaceA, exactSurfaceB));
+    bool exactChanged = TypeApiChanged(exact.Comparison, name);
+    string g2exactAgrees = g2Changed is null ? "" : (g2Changed == exactChanged).ToString();
+    string g2exactFindings = api?.Comparison is null
+        ? ""
+        : FindingsOf(api.Comparison, name).SequenceEqual(FindingsOf(exact.Comparison, name)).ToString();
+    if (g2exactFindings == "False" || g2exactAgrees == "False")
+    {
+        Console.Error.WriteLine($"g2exact disagrees {name}: mode={exact.Mode} g2Changed={g2Changed} exactChanged={exactChanged}");
+        foreach (string line in FindingsOf(api!.Comparison!, name).Except(FindingsOf(exact.Comparison, name)))
+            Console.Error.WriteLine("  g2 only:    " + line);
+        foreach (string line in FindingsOf(exact.Comparison, name).Except(FindingsOf(api.Comparison!, name)))
+            Console.Error.WriteLine("  exact only: " + line);
+    }
+    int apiMembers = exact.After.Types.Where(type => type.FullName == name).Sum(type => type.Members.Count);
+    bool apiChanged = g2Changed ?? exactChanged;
+    if (profileTypes.Contains(name))
+    {
+        Console.WriteLine(
+            $"profile\t{name}\tapiMembers={apiMembers}\tg2={F(g2.Median)}\tg2core={g2core.Median:F3}"
+            + $"\tg2coreExtract={g2coreExtract.Median:F3}\tg2coreCompare={g2coreCompare.Median:F3}"
+            + $"\tg2exact={g2exact.Median:F3}\tg2exactCold={g2exactCold.Median:F3}\tresolve={g2exactResolve.Median:F3}\texists={g2exactExists.Median:F3}"
+            + $"\textract={g2exactExtract.Median:F3}\tcompare={g2exactCompare.Median:F3}\tmode={exact.Mode}");
+    }
 
     // g3: Type body full.
     TypeBodyDiff body = null!;
@@ -328,7 +457,10 @@ foreach (var (key, unitA) in unitsA)
         fastState?.Api.ToString() ?? "?", fastState?.Body.ToString() ?? "?",
         apiChanged, body.Changed, body.Pairs, body.ChangedPairs.Count, body.OneSided, body.Rows,
         selectedTypes, fullProjection,
-        F(g1.First), F(g1.Median), F(g2.First), F(g2.Median), F(g2core.First), F(g2core.Median), coreChanged, F(g3.First), F(g3.Median),
+        F(g1.First), F(g1.Median), F(g2.First), F(g2.Median), F(g2core.First), F(g2core.Median), coreChanged,
+        F(g2coreExtract.Median), F(g2coreCompare.Median), F(g2exact.First), F(g2exact.Median), F(g2exactCold.Median), exact.Mode,
+        F(g2exactResolve.Median), F(g2exactExists.Median), F(g2exactExtract.Median), F(g2exactCompare.Median),
+        exactChanged, g2exactAgrees, g2exactFindings, F(g3.First), F(g3.Median),
         F(g4a.First), F(g4a.Median), F(g4b.First), F(g4b.Median), g4bNote,
         F(g5.First), F(g5.Median), runG5 ? body.ChangedPairs.Count : 0, g5Rows, findings.Summary));
     if (index % 200 == 0)
@@ -352,6 +484,71 @@ static bool TypeApiChanged(ApiFindingComparison comparison, string name)
         return true;
     return comparison.Types.Value is not FindingComparison<ApiTypeHandle>.Complete
         || comparison.Members.Value is not FindingComparison<ApiMemberHandle>.Complete;
+}
+
+// The ApiSurfaceExtractor registration pre-pass (ApiSurfaceExtractor.cs, the
+// MethodDefinitions walk for __Register_): one whole MethodDef table walk.
+static int RegisterScan(MetadataReader md)
+{
+    int count = 0;
+    foreach (MethodDefinitionHandle handle in md.MethodDefinitions)
+    {
+        MethodDefinition method = md.GetMethodDefinition(handle);
+        if ((method.Attributes & (MethodAttributes.MemberAccessMask | MethodAttributes.Static))
+                != (MethodAttributes.Private | MethodAttributes.Static)
+            || !md.StringComparer.Equals(method.Name, "__Register_"))
+        {
+            continue;
+        }
+        count++;
+    }
+    return count;
+}
+
+// Approximates the attribute decoder's lazy TypeDef-by-full-name index
+// (CustomAttributeValueDecoder.BuildTypeDefinitionIndex), built the first time
+// an extraction decodes an enum-typed attribute argument.
+static int TypeNameIndex(MetadataReader md)
+{
+    var names = new Dictionary<string, TypeDefinitionHandle>(md.TypeDefinitions.Count, StringComparer.Ordinal);
+    foreach (TypeDefinitionHandle handle in md.TypeDefinitions)
+    {
+        if (md.ResolveFullTypeName(handle) is RelationshipTraversalResult<string>.Completed { Value: var name })
+            names.TryAdd(name, handle);
+    }
+    return names.Count;
+}
+
+// This Type's findings: the classifier's Type changes, then every Type and
+// Member pair (kind, identity, detail) whose payload belongs to the Type.
+static List<string> FindingsOf(ApiFindingComparison comparison, string name)
+{
+    var lines = new List<string>();
+    foreach (TypeDiff diff in comparison.ApiDiff.TypeDiffs.Where(diff => diff.TypeFullName == name))
+    {
+        foreach (ApiChange change in diff.Changes)
+            lines.Add($"D|{change.Kind}|{change.Classification}|{change.Message}");
+    }
+    if (comparison.Types.Value is FindingComparison<ApiTypeHandle>.Complete types)
+    {
+        foreach (PairFinding<ApiTypeHandle> pair in types.Pairs.Where(pair => Payload(pair).TypeFullName == name))
+            lines.Add($"T|{pair.Kind}|{pair.Detail}");
+    }
+    else
+    {
+        lines.Add("T|incomplete");
+    }
+    if (comparison.Members.Value is FindingComparison<ApiMemberHandle>.Complete members)
+    {
+        foreach (PairFinding<ApiMemberHandle> pair in members.Pairs.Where(pair => Payload(pair).TypeFullName == name))
+            lines.Add($"M|{pair.Kind}|{Payload(pair).CanonicalSignature}|{pair.Detail}");
+    }
+    else
+    {
+        lines.Add("M|incomplete");
+    }
+    lines.Sort(StringComparer.Ordinal);
+    return lines;
 }
 
 static T Payload<T>(PairFinding<T> pair) where T : notnull
@@ -505,4 +702,135 @@ sealed class TypeFindings
     public string Summary =>
         $"throw+{ThrowAdded}/-{ThrowRemoved} branch+{BranchAdded}/-{BranchRemoved} "
         + $"alloc+{AllocationAdded}/-{AllocationRemoved} call+{CallAdded}/-{CallRemoved} unavail={Unavailable}";
+}
+
+// g2exact: the exact-Type request path (#9466) feeding the Metadata-owned API
+// comparison g2 runs.
+sealed class ExactTypeApi
+{
+    public required ApiFindingComparison Comparison { get; init; }
+    public required ApiSurface After { get; init; }
+    public required bool ExtensionMode { get; init; }
+    public string Mode => ExtensionMode ? "ext" : "decl";
+
+    public static ExactTypeApi Run(
+        PEReader beforePe, MetadataReader beforeMd, AssemblyReferenceIdentity beforeIdentity, ApiSurfaceImageCache beforeCache,
+        PEReader afterPe, MetadataReader afterMd, AssemblyReferenceIdentity afterIdentity, ApiSurfaceImageCache afterCache,
+        MetadataTypeDefinitionName type, ApiSurfaceExtractionBounds bounds)
+    {
+        TypeDefinitionHandle before = Resolve(beforeMd, type, bounds);
+        TypeDefinitionHandle after = Resolve(afterMd, type, bounds);
+        // A same-image extension for this receiver on either side means the
+        // receiver carries projected extension members, and its instance
+        // members can pair with extensions; an unanswered Exists is treated
+        // the same way.
+        bool extensionMode =
+            ExtensionExists(beforePe, beforeMd, beforeIdentity, type, before) != false
+            || ExtensionExists(afterPe, afterMd, afterIdentity, type, after) != false;
+        ApiSurface beforeSurface = Extract(beforePe, beforeMd, beforeIdentity, beforeCache, type, before, extensionMode);
+        ApiSurface afterSurface = Extract(afterPe, afterMd, afterIdentity, afterCache, type, after, extensionMode);
+        return new()
+        {
+            Comparison = ApiComparisonQuery.Execute(beforeSurface, afterSurface),
+            After = afterSurface,
+            ExtensionMode = extensionMode,
+        };
+    }
+
+    public static TypeDefinitionHandle Resolve(
+        MetadataReader md, MetadataTypeDefinitionName type, ApiSurfaceExtractionBounds bounds)
+        => MetadataExactTypeDefinitionInspection.Resolve(md, type, bounds, CancellationToken.None)
+            is MetadataExactTypeDefinitionResolution.Resolved resolved
+                ? resolved.Handle
+                : default;
+
+    static MetadataExtensionReceiverSelection Receiver(
+        MetadataReader md, AssemblyReferenceIdentity identity, MetadataTypeDefinitionName type, TypeDefinitionHandle handle)
+        => new(identity, type, handle.IsNil ? null : MetadataTypeDefinitionAddress.FromHandle(md, handle));
+
+    public static bool? ExtensionExists(
+        PEReader pe, MetadataReader md, AssemblyReferenceIdentity identity,
+        MetadataTypeDefinitionName type, TypeDefinitionHandle handle)
+        => MetadataRelationInspection.ExecuteExtensionPresence(
+                pe,
+                md,
+                new MetadataExtensionRelationPresenceRequest(
+                    Receiver(md, identity, type, handle),
+                    new MetadataOperationPolicy(int.MaxValue),
+                    includeNonPublic: false,
+                    sourceAssembly: identity),
+                CancellationToken.None)
+            is MetadataExtensionRelationPresenceOutcome.Available available
+                ? available.Exists
+                : null;
+
+    // The TypeDefs that declare an extension for this receiver in this image,
+    // from the same-image extension relation population; null when it cannot
+    // be read completely.
+    public static HashSet<TypeDefinitionHandle>? ExtensionDeclaringTypes(
+        PEReader pe, MetadataReader md, AssemblyReferenceIdentity identity,
+        MetadataTypeDefinitionName type, TypeDefinitionHandle handle)
+    {
+        MetadataExtensionRelationPopulationOutcome outcome = MetadataRelationInspection.ExecuteExtensionPopulation(
+            pe,
+            md,
+            new MetadataExtensionRelationPopulationRequest(
+                Receiver(md, identity, type, handle),
+                new MetadataOperationPolicy(int.MaxValue),
+                rows: new MetadataExtensionRelationPopulationRowsRequest(0, int.MaxValue)),
+            CancellationToken.None);
+        if (outcome is not MetadataExtensionRelationPopulationOutcome.Available
+            {
+                Result.Rows: MetadataExtensionRelationPopulationRowsOutcome.Read { NextOrdinal: null } read,
+            })
+        {
+            return null;
+        }
+        var declaring = new HashSet<TypeDefinitionHandle>();
+        foreach (MetadataExtensionRelationPopulationRow row in read.Items)
+        {
+            foreach (MetadataExtensionRelationEvidence occurrence in row.Occurrences)
+            {
+                if (!occurrence.DeclaringType.TryResolve(md, out TypeDefinitionHandle declaringType))
+                    return null;
+                declaring.Add(declaringType);
+            }
+        }
+        return declaring;
+    }
+
+    public static ApiSurface Extract(
+        PEReader pe, MetadataReader md, AssemblyReferenceIdentity identity, ApiSurfaceImageCache cache,
+        MetadataTypeDefinitionName type, TypeDefinitionHandle handle, bool extensionMode)
+    {
+        if (!extensionMode)
+        {
+            return ApiSurfaceExtractor.ExtractDeclarations(
+                pe, ApiSurfaceExtractionScope.Public, candidate => candidate == handle, cache);
+        }
+        // The receiver plus only the Types that declare an extension for it on
+        // this side (and their nested Types), with local extension projection:
+        // the receiver's projected extension members and extension/instance
+        // pairing for it are exactly g2's. A population that cannot be read
+        // falls back to g2's complete projection.
+        HashSet<TypeDefinitionHandle>? declaring = ExtensionDeclaringTypes(pe, md, identity, type, handle);
+        if (declaring is null)
+            return ApiSurfaceExtractor.Extract(pe, ApiSurfaceExtractionScope.Public);
+        return ApiSurfaceExtractor.ExtractDeclarations(
+            pe,
+            ApiSurfaceExtractionScope.Public,
+            candidate =>
+            {
+                if (candidate == handle)
+                    return true;
+                for (TypeDefinitionHandle current = candidate; !current.IsNil; current = md.GetTypeDefinition(current).GetDeclaringType())
+                {
+                    if (declaring.Contains(current))
+                        return true;
+                }
+                return false;
+            },
+            cache,
+            includeLocalExtensionProjections: true);
+    }
 }
