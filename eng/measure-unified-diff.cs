@@ -118,6 +118,7 @@ var b1Map = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo);
 var b1Res = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo);
 var b1Fam = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo, familyCache: true);
 var b1Key = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.MapMemo | IlSessionSpikeOptions.ResolverMemo | IlSessionSpikeOptions.KeyCompare, familyCache: true);
+var b1Chk = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All & ~IlSessionSpikeOptions.SharedDecode, familyCache: true);
 var b1Opt = MeasureB1(iterations, Policy, false, IlSessionSpikeOptions.All, familyCache: true);
 void PrintB1(string label, (double Total, double Session, double Walk, BodyRun Run) m)
     => Row(label, m.Total,
@@ -131,7 +132,8 @@ PrintB1("B1 +map memo", b1Map);
 PrintB1("B1 +map,resolver memo", b1Res);
 PrintB1("B1 +map,resolver memo,family cache", b1Fam);
 PrintB1("B1 +map,resolver memo,family cache,key compare", b1Key);
-PrintB1("B1opt (+checked decode)", b1Opt);
+PrintB1("B1 +...,checked decode", b1Chk);
+PrintB1("B1opt (+shared decode for byte-identical bodies)", b1Opt);
 
 // Attribution: one instrumented walk (not the timed one).
 {
@@ -155,7 +157,7 @@ PrintB1("B1opt (+checked decode)", b1Opt);
     resolve = opt.Comparer.ResolveTicks * 1000.0 / Stopwatch.Frequency;
     Console.WriteLine($"attr-body-opt\tinstrumentedWalk={walk:F2}\tdecode(checked)={decode:F2}\tresolve={resolve:F2}\tresolveMisses={opt.Comparer.ResolveMisses}"
         + $"\tcompare={walk - decode - resolve:F2}\tcheckedFallbacks={opt.Comparer.CheckedFallbacks}"
-        + $"\tof decode: regionTopology={opt.Comparer.TopologyTicks * 1000.0 / Stopwatch.Frequency:F2} over {opt.Comparer.RegionBodies} bodies");
+        + $"\tof decode: regionTopology={opt.Comparer.TopologyTicks * 1000.0 / Stopwatch.Frequency:F2} over {opt.Comparer.RegionBodies} bodies\tsharedDecodes={opt.Comparer.SharedDecodes}");
     IlBodyDiff.SpikeFamilyCache = false;
     var lite = new IlLibraryExistsSession(b, a, Policy, liteDecode: true);
     lite.Comparer.Instrument = true;

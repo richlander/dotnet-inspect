@@ -26,7 +26,8 @@ internal enum IlSessionSpikeOptions
     ResolverMemo = 1 << 1,
     CheckedDecode = 1 << 2,
     KeyCompare = 1 << 3,
-    All = MapMemo | ResolverMemo | CheckedDecode | KeyCompare,
+    SharedDecode = 1 << 4,
+    All = MapMemo | ResolverMemo | CheckedDecode | KeyCompare | SharedDecode,
 }
 
 internal enum IlExistsState
@@ -121,7 +122,8 @@ internal sealed class IlLibraryExistsSession
         Comparer = new IlBodyExistsComparer(_old, _new, normalization, oldCorrespondence, newCorrespondence)
         {
             Options = ((spike & IlSessionSpikeOptions.CheckedDecode) != 0 ? IlExistsSpikeOptions.CheckedDecode : 0)
-                | ((spike & IlSessionSpikeOptions.KeyCompare) != 0 ? IlExistsSpikeOptions.KeyCompare : 0),
+                | ((spike & IlSessionSpikeOptions.KeyCompare) != 0 ? IlExistsSpikeOptions.KeyCompare : 0)
+                | ((spike & IlSessionSpikeOptions.SharedDecode) != 0 ? IlExistsSpikeOptions.SharedDecode : 0),
             MemoizeTypes = (spike & IlSessionSpikeOptions.ResolverMemo) != 0,
         };
         Times.Comparer = Stopwatch.GetElapsedTime(t).TotalMilliseconds;

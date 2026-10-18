@@ -631,6 +631,10 @@ public static class IlAssemblyDiff
         }
 
         string name = reader.GetString(method.Name);
+        // SPIKE: the signature spelling is a pure function of the blob, and the blob heap
+        // shares identical signatures, so a pass caches successful spellings per blob.
+        if (names is not null && names.Signatures.TryGetValue(method.Signature, out var cached))
+            return new MethodIdentityResult($"{resolvedType.Value}::{name}{cached.Arity}#{cached.Text}", null);
         var context = new SignatureIdentityContext();
         var provider = new SignatureIdentityProvider(context, names?.Signature);
         if (!GuardedProviderDecode.TryMethod(
@@ -653,6 +657,8 @@ public static class IlAssemblyDiff
         string instance = signature.Header.IsInstance ? "instance" : "static";
         string genericArity = signature.GenericParameterCount > 0 ? $"<{signature.GenericParameterCount}>" : "";
         string signatureText = $"{instance} {signature.ReturnType}({string.Join(", ", signature.ParameterTypes)})";
+        if (names is not null)
+            names.Signatures[method.Signature] = (genericArity, signatureText);
         return new MethodIdentityResult(
             $"{resolvedType.Value}::{name}{genericArity}#{signatureText}",
             null);
@@ -708,6 +714,7 @@ sealed class SpikeTypeNameCache
 {
     public Dictionary<TypeDefinitionHandle, MetadataTypeNameResult> Declaring { get; } = [];
     public Dictionary<EntityHandle, MetadataTypeNameResult> Signature { get; } = [];
+    public Dictionary<BlobHandle, (string Arity, string Text)> Signatures { get; } = [];
 }
 
 sealed class SignatureIdentityContext

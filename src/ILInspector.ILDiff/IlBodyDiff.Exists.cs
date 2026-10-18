@@ -44,6 +44,14 @@ internal enum IlExistsSpikeOptions
     /// memoised identities, branch targets by binary search. Same rule as CanonicalEquals.
     /// </summary>
     KeyCompare = 1 << 1,
+
+    /// <summary>
+    /// When both bodies have byte-identical IL and identical exception-region extents, decode
+    /// and check completeness once (both are functions of those bytes and extents alone) and
+    /// compare only token operands, still by their symbolic identities on each side: equal
+    /// bytes make every opcode, immediate, slot, and branch offset equal, never the tokens.
+    /// </summary>
+    SharedDecode = 1 << 2,
 }
 
 internal sealed class IlBodyExistsComparer
@@ -136,6 +144,18 @@ internal sealed class IlBodyExistsComparer
         rawEqual = oldIl.AsSpan().SequenceEqual(newIl);
         long decodeStart = Instrument ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
         ImmutableArray<DecodedInstruction> oldInstructions, newInstructions;
+        if (!liteDecode && (Options & IlExistsSpikeOptions.SharedDecode) != 0 && (Options & IlExistsSpikeOptions.CheckedDecode) != 0
+            && rawEqual && RegionExtentsEqual(oldBody, newBody))
+        {
+            if (!TryCheckedDecode(oldIl, oldBody, "old", out oldInstructions, out failure))
+                return IlExistsOutcome.Unavailable;
+            if (Instrument)
+            {
+                DecodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - decodeStart;
+                SharedDecodes++;
+            }
+            return CompareTokensOnly(oldInstructions, out failure);
+        }
         if (!liteDecode && (Options & IlExistsSpikeOptions.CheckedDecode) != 0)
         {
             if (!TryCheckedDecode(oldIl, oldBody, "old", out oldInstructions, out failure)
@@ -180,6 +200,43 @@ internal sealed class IlBodyExistsComparer
         if ((Options & IlExistsSpikeOptions.KeyCompare) != 0 && memoTokens && !rawFastPath)
             return CompareKeys(oldInstructions, newInstructions, out failure);
         return CompareDecoded(oldInstructions, newInstructions, rawFastPath && rawEqual, memoTokens, out failure);
+    }
+
+    public long SharedDecodes { get; private set; }
+
+    static bool RegionExtentsEqual(MethodBodyBlock x, MethodBodyBlock y)
+    {
+        var a = x.ExceptionRegions;
+        var b = y.ExceptionRegions;
+        if (a.Length != b.Length)
+            return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i].Kind != b[i].Kind || a[i].TryOffset != b[i].TryOffset || a[i].TryLength != b[i].TryLength
+                || a[i].HandlerOffset != b[i].HandlerOffset || a[i].HandlerLength != b[i].HandlerLength
+                || a[i].FilterOffset != b[i].FilterOffset)
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>One decoded stream of byte-identical bodies: only token identities can differ.</summary>
+    IlExistsOutcome CompareTokensOnly(ImmutableArray<DecodedInstruction> instructions, out string? failure)
+    {
+        failure = null;
+        foreach (var instruction in instructions)
+        {
+            if (!IlBodyDiff.SpikeIsTokenOperand(instruction.Operand))
+                continue;
+            InstructionsCompared++;
+            if (!TryToken(instruction, _old, _oldMemo, out var ot, out failure)
+                || !TryToken(instruction, _new, _newMemo, out var nt, out failure))
+                return IlExistsOutcome.Unavailable;
+            TokensResolved += 2;
+            if (ot != nt)
+                return IlExistsOutcome.Changed;
+        }
+        return IlExistsOutcome.Exact;
     }
 
     bool[] _admitted = new bool[256];
