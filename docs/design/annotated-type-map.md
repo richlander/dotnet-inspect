@@ -91,8 +91,9 @@ for a Member present only there. The spelling is presentation; keys still
 join and compare exactly. When two keys in one document share a spelling, as a
 `Removed` and an `Added` key do when only a return or field Type changed, the
 document spells each with its anchor and its row token on its side, and both
-keep their own outcomes. Rows that spell one census key on one side are
-`Indeterminate`, as Fast Diff's identity rule states.
+keep their own outcomes. The rows that Fast Diff's identity rule makes
+`Indeterminate`, such as two Type rows of one name, are `Indeterminate` here
+too.
 
 Shape facts are Fast Diff's two axes at Member grain:
 
@@ -183,7 +184,11 @@ of one name, carries Fast Diff's `Indeterminate` as its outcome and is never
 omitted.
 
 The map diff carries, for the Type, its presence: on both sides, or `Added` or
-`Removed`. A one-sided Type's map diff lists every Member key of its present
+`Removed`. A one-sided Type's presence is a shape transition of its Type row,
+by Fast Diff's presence rule: Body `Added` or `Removed` whether or not the Type
+declares a body, and API `Added` or `Removed` when the Public API surface admits
+the Type. So a one-sided Type is always listed, even when none of its Members
+owns shape facts, such as an added internal enum. A one-sided Type's map diff lists every Member key of its present
 side that owns shape facts, one-sided, with every fact `Added` or `Removed`, as
 [#10224](https://github.com/richlander/dotnet-inspect/issues/10224) proposes
 for Fast Diff's Type level.
@@ -407,6 +412,9 @@ implementation and, if adopted, of its QuerySpace operators.
   facts the comparison matches. For each kind of generated code that step 3 folds into
   its owning method, a fixture shows the generated method adds no findings of
   its own, so no fact is counted twice.
+- **One-sided facts:** fixtures show that every fact of a one-sided key, and of
+  a one-sided method inside a Member on both sides, such as an added setter,
+  is `Added` or `Removed`.
 - **Listing:** in the map diff, a key or the Type is listed exactly when it
   has a shape transition or an unsettled shape comparison; in the one-version
   map, exactly when it has an admitted finding or an unsettled analysis
@@ -414,14 +422,17 @@ implementation and, if adopted, of its QuerySpace operators.
   abstract or interface Member is not listed in either form, a caller whose
   only transition is `alloc.new` after a `class` to `struct` change is not
   listed, a Type with two rows of one name is an unresolved Type row, and a
-  one-sided Type lists every Member of its present side that owns shape facts
+  one-sided Type is listed by its Type row, including an added internal enum
+  and an internal interface with only abstract members, and lists every
+  Member of its present side that owns shape facts
   and not its private fields. Fixtures also show that a one-sided method with
   no body, such as an added member of an internal interface or a private
   `extern` method, is not listed, and that a return-Type change spells two
   distinct keys, neither `Indeterminate`.
 - **Exactness:** at each scope, Count equals the number of changed rows with
   unresolved rows reported separately, and Exists is `true` with a changed row,
-  undecided with only unresolved rows, and `false` with none.
+  undecided with only unresolved rows, and `false` with none and a complete
+  outcome at that scope.
 - **Retained maps:** for every fixture Member with uncertain API facts, such
   as an attribute blob or nullable context, comparing two retained maps gives
   Fast Diff's API state without reopening an image.
