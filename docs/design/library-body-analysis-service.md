@@ -751,8 +751,18 @@ constructed, then releases reader-bound state before returning.
 During migration,
 `LibraryBodyAnalysisFeatures.ImplementationProfiles` normalizes to the named
 `CompleteProfileV1` metric request. The plan records that compatibility origin,
-and the focused metric result remains the sole Analysis result source for each
-profile value.
+so both routes share the named metric and fact plan while retirement
+progresses.
+
+The explicit `CreateCompleteImplementationProfile` route now executes that
+composition through focused metric producers. The legacy
+`ImplementationProfiles` feature temporarily retains its original execution
+path as the parity oracle; it does not force explicit complete-profile requests
+back onto `MethodEvidence` or legacy profile collection.
+When complete-profile structural metrics already traverse decoded
+instructions, direct-invocation counting joins that traversal instead of
+running a separate discovery pass. Count-only requests retain the shallow
+discovery producer and do not acquire canonical context.
 
 `LibraryImplementationProfileAnalysisResult` becomes an adapter over
 `LibraryImplementationMetricAnalysisResult`. It preserves:

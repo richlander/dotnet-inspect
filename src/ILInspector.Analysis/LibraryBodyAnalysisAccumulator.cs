@@ -16,6 +16,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
     readonly bool _includeAllocationSignals;
+    readonly bool _includeUnsafeMetric;
     readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
@@ -31,6 +32,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
         _includeAllocationSignals =
             plan.ImplementationMetrics
                 ?.IncludesAllocationCountMetric == true;
+        _includeUnsafeMetric =
+            plan.ImplementationMetrics
+                ?.IncludesUnsafePresenceMetric == true;
         _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
@@ -134,7 +138,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     r.Calls,
                     methodMap,
                     methodsByToken);
-            if (_includeMethodEvidence
+            if ((_includeMethodEvidence || _includeUnsafeMetric)
                 && (!r.UnsafeEvidence.IsDefaultOrEmpty
                     || !normalizedCalls.IsDefaultOrEmpty))
             {
