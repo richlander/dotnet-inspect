@@ -322,8 +322,8 @@ completion, never successful exhaustion.
 
 ### Declared-source relation
 
-Status: exact breadth implements roles, nested-type reach, and
-unauthenticated candidates.
+Status: exact breadth implements roles, nested-type reach, unauthenticated
+candidates, and retained-prefix bounds.
 
 - `IncludeGeneratedExecutionBodies` takes the requested
   `MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and
@@ -345,10 +345,12 @@ unauthenticated candidates.
   declares no expansion carries no relation, and reading it throws
   `ProducerContractException`.
 
-The all-definition reverse lowering and retained-prefix bounds are the target
-design for [#9864](https://github.com/richlander/dotnet-inspect/issues/9864)
-and are **unverified**. Today expansion applies only to exact breadth and
-fails the source with empty breadth when a bound is reached.
+The all-definition reverse lowering is the target design for
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and is
+**unverified**. Today expansion applies only to exact breadth. A reached
+bound keeps the retained prefix, as
+[Completion, failure, bounds, and cancellation](#completion-failure-bounds-and-cancellation)
+describes.
 
 The declared-source relation maps declared members and the physical bodies
 that implement them, in both directions. Exact breadth asks the forward
@@ -957,6 +959,33 @@ source-support work. A critical safety bound aborts under Producer Planning's
 critical-failure contract. A consumer-selected completeness bound publishes
 source incomplete.
 
+A reached generated-expansion bound keeps the retained prefix instead of
+failing the source with empty breadth:
+
+- Breadth is the direct methods plus every body the relation recorded
+  within the limits. The work totals, `ProbeEncodedIlBytes` and
+  `RelationshipNodes`, include the attempt that reached the bound, because
+  that work was done. The handle sets `CandidateDefinitionsExamined` and
+  `ProbeBodiesAttempted` record only the handles admitted within the limit,
+  because the bound check runs before that work. An outcome is recorded only
+  after its bound check, so every origin's body is in breadth.
+- The expansion coverage names the bound in `ReachedLimit` and
+  `ReachedAtToken`. Completion is source incomplete, and the source failure
+  carries the bound's message.
+- Producers still visit the prefix and complete. Their outcome is
+  `SourceBounded`, which is not `HasValue`, so only a consumer that decides
+  what the prefix proves reads the value. A producer that stopped early is
+  also `SourceBounded`, because it answered only over the prefix.
+- During expansion a bound is not a recoverable method failure, so no
+  resolver handler turns it into a rejected or unauthenticated outcome. A
+  bound that is raised and caught anyway still bounds the relation.
+- A unit the relation had not settled when the bound was reached stays
+  `Direct`. `IsBounded` on the coverage says the relation is incomplete.
+- Once expansion settles, a module lookup that shares its attribution can
+  still charge its work, and a resolver cache that stored the bound during
+  expansion can replay it. A new bound reached then, and a replayed one, are
+  each that unit's recoverable failure.
+
 Terminal body admission retains normalized ordered ranges during forward
 traversal rather than one identity per MethodDef. A multipass request may
 revisit an earlier MethodDef, so admission materializes unordered membership
@@ -1187,6 +1216,20 @@ Generated expansion is gated in Release:
 - `MethodQuerySource_GeneratedExpansionBoundsStateMachineMethodImplementationTraversal`
 - `MethodQuerySource_GeneratedExpansionReusesTargetedStateMachineLookup`
 - `MethodQuerySource_GeneratedExpansionBoundPublishesSourceIncomplete`
+- `MethodQuerySource_GeneratedExpansionIlByteBoundRetainsAttemptedWork`
+
+Retained-prefix bounds are gated in Release:
+
+- the two bound tests above assert the selected type's methods in breadth,
+  the typed bound, the `SourceBounded` outcome, and that presence still
+  reports incomplete;
+- `DeclaredSourceRelationBoundIsAPrefixOfTheSettledRelation` sweeps each
+  bound dimension and requires every kept outcome to be one the settled
+  relation publishes, with every origin's body in breadth;
+- `TypeScopeExpansionBoundKeepsTheRetainedPrefix` sweeps one bound across all
+  dimensions and requires an available census whose evidence is a subset of
+  the unbounded census, with the attribution-bound limitation; and
+- `ExpansionBoundIsNotRecoverableAndAlwaysBoundsTheRelation`.
 
 The instruction-demand planner and first production Method-source adoption are
 gated in Release:

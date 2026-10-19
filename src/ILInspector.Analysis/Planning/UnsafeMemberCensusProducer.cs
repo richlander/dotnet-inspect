@@ -212,7 +212,8 @@ public sealed class UnsafeMemberCensusProducer
             bodies,
             hasFullMethodEvidenceScope: true,
             completion.GetReferenceAssemblyStatus(),
-            RootSet(completion.GetPublicMethodRoots()));
+            RootSet(completion.GetPublicMethodRoots()),
+            attributionBounded: completion.IsSourceBounded);
     }
 
     static MethodIdentity Compose(
@@ -445,8 +446,14 @@ public static class UnsafeMemberCensusAnalysis
             execution.ResultOf(UnsafeMemberCensusProducer.Instance);
         MethodDefinitionSourceReceipt source = execution.SourceReceipt;
         WorkReceipt receipt = execution.WorkReceipt;
-        if (result is { HasValue: true, Value: { } census })
+        // A bounded expansion's census keeps the retained prefix's findings;
+        // its attribution-bound limitation makes it incomplete.
+        if ((result.HasValue
+                || result.Outcome == ProducerOutcome.SourceBounded)
+            && result.Value is { } census)
+        {
             return new UnsafeMemberCensusResult.Available(census, source, receipt);
+        }
 
         string unit = result.Failure?.Unit ?? result.Critical?.Unit ?? "(unknown)";
         string reason = result.Failure?.Message

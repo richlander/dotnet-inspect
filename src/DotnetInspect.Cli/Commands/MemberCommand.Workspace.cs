@@ -19,9 +19,11 @@ public static partial class MemberCommand
     internal static Task<int> ExecuteAsync(
         MemberOptions options,
         WorkspaceContextLoadOptions capabilities) =>
-        ExecuteWorkspaceAsync(options,
-            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
-            capabilities);
+        PackageReferenceAdmission.IsCandidate(options.PackagePath)
+            ? ExecutePackageReferenceAsync(options,
+                ResolvedMemberInspectionPlan.FromCompatibilityOptions(options), capabilities)
+            : ExecuteWorkspaceAsync(options,
+                ResolvedMemberInspectionPlan.FromCompatibilityOptions(options), capabilities);
 
     static async Task<int> ExecuteWithShareAsync(
         MemberOptions options,

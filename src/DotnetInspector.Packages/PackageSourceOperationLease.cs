@@ -274,7 +274,23 @@ public sealed class PackageSourceOperationLease : IDisposable
         PackageAcquisitionCandidate candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
-        return ManifestCoreAsync(StartWork(), candidate);
+        return ManifestCoreAsync(
+            StartWork(),
+            candidate,
+            requiredAuthority: null);
+    }
+
+    internal Task<ConfiguredPackageManifestResult>
+        AcquireCandidateManifestFromAuthorityAsync(
+            PackageAcquisitionCandidate candidate,
+            ConfiguredPackageAuthority requiredAuthority)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(requiredAuthority);
+        return ManifestCoreAsync(
+            StartWork(),
+            candidate,
+            requiredAuthority);
     }
 
     /// <param name="rangedRead">
@@ -296,7 +312,41 @@ public sealed class PackageSourceOperationLease : IDisposable
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(createStore);
         return PayloadCoreAsync(
-            StartWork(), candidate, createStore, log, limits, transferPolicy, rangedRead);
+            StartWork(),
+            candidate,
+            createStore,
+            log,
+            limits,
+            transferPolicy,
+            rangedRead,
+            requiredAuthority: null);
+    }
+
+    internal Task<ConfiguredPackagePayloadResult>
+        AcquireCandidatePayloadFromAuthorityAsync(
+            PackageAcquisitionCandidate candidate,
+            ConfiguredPackageAuthority requiredAuthority,
+            Func<
+                ConfiguredPackageAuthority,
+                PackageProducerIdentity,
+                IPackageStore> createStore,
+            Action<string>? log = null,
+            PackagePayloadLimits? limits = null,
+            IPackagePayloadTransferPolicy? transferPolicy = null,
+            PackageRangedRead? rangedRead = null)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(requiredAuthority);
+        ArgumentNullException.ThrowIfNull(createStore);
+        return PayloadCoreAsync(
+            StartWork(),
+            candidate,
+            createStore,
+            log,
+            limits,
+            transferPolicy,
+            rangedRead,
+            requiredAuthority);
     }
 
     public void Dispose()
@@ -483,11 +533,19 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async Task<ConfiguredPackageManifestResult> ManifestCoreAsync(
-        ActiveWorkRegistration work, PackageAcquisitionCandidate candidate)
+        ActiveWorkRegistration work,
+        PackageAcquisitionCandidate candidate,
+        ConfiguredPackageAuthority? requiredAuthority)
     {
         using (work)
-            return await work.Generation.AcquireCandidateManifestAsync(
-                candidate, operationContext: work.Context).ConfigureAwait(false);
+            return requiredAuthority is null
+                ? await work.Generation.AcquireCandidateManifestAsync(
+                    candidate,
+                    operationContext: work.Context).ConfigureAwait(false)
+                : await work.Generation.AcquireCandidateManifestAsync(
+                    candidate,
+                    work.Context,
+                    requiredAuthority).ConfigureAwait(false);
     }
 
     private static async Task<ConfiguredPackagePayloadResult> PayloadCoreAsync(
@@ -495,11 +553,27 @@ public sealed class PackageSourceOperationLease : IDisposable
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log, PackagePayloadLimits? limits,
         IPackagePayloadTransferPolicy? transferPolicy,
-        PackageRangedRead? rangedRead)
+        PackageRangedRead? rangedRead,
+        ConfiguredPackageAuthority? requiredAuthority)
     {
         using (work)
-            return await work.Generation.AcquireCandidatePayloadAsync(
-                candidate, createStore, work.Context, log, limits,
-                transferPolicy, rangedRead).ConfigureAwait(false);
+            return requiredAuthority is null
+                ? await work.Generation.AcquireCandidatePayloadAsync(
+                    candidate,
+                    createStore,
+                    work.Context,
+                    log,
+                    limits,
+                    transferPolicy,
+                    rangedRead).ConfigureAwait(false)
+                : await work.Generation.AcquireCandidatePayloadAsync(
+                    candidate,
+                    createStore,
+                    work.Context,
+                    requiredAuthority,
+                    log,
+                    limits,
+                    transferPolicy,
+                    rangedRead).ConfigureAwait(false);
     }
 }

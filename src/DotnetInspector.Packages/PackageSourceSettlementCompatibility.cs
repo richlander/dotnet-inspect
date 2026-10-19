@@ -141,20 +141,6 @@ public sealed partial class PackageSourceSettlementLease
             (generation, context) => generation.DiscoverVersionsAsync(
                 packageId, authorization, contract, operationContext: context));
 
-    public Task<ConfiguredPackageManifestResult>
-        AcquireCandidateManifestAsync(
-        PackageAcquisitionCandidate candidate,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        PackageSourceSettlementCompatibility.RunAsync(
-            this,
-            cancellationToken,
-            operationContext,
-            (generation, context) =>
-                generation.AcquireCandidateManifestAsync(
-                    candidate,
-                    context));
-
     internal Task<ConfiguredPackagePayloadResult> AcquireCandidatePayloadAsync(
         PackageAcquisitionCandidate candidate,
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
