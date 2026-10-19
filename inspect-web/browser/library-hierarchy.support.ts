@@ -403,7 +403,7 @@ async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "workspace-library" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "workspace-library" | "external-supplier" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -1489,6 +1489,11 @@ async function installFacades(
                 name: "Reference.Target", version: "1.0.0.0",
                 culture: "neutral", publicKeyToken: null
               }]
+            : scenario === "external-supplier"
+            ? [{
+                name: "Reference.Target", version: "1.0.0.0",
+                culture: "neutral", publicKeyToken: null
+              }]
             : scenario === "long"
             ? Array.from({ length: 80 }, (_, index) => ({
                 name: selected.name + "." + "LongNamespace.".repeat(20) + "Reference" + index,
@@ -1498,6 +1503,17 @@ async function installFacades(
             : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
         };
+      }
+      export async function queryReferencePackageSuppliers(id, version, framework, asset) {
+        document.documentElement.dataset.referenceSupplierRequest =
+          JSON.stringify([id, version, framework, asset]);
+        const scenario = ${JSON.stringify(references)};
+        if (scenario !== "external-supplier") return [];
+        await new Promise(resolve => document.addEventListener(
+          "fixture-reference-suppliers-ready", resolve, { once: true }));
+        return [{ name: "Reference.Target", version: "1.0.0.0",
+          culture: "neutral", publicKeyToken: null,
+          packageId: "Reference.Target", packageVersion: "2.0.0" }];
       }
       export async function queryPackageVulnerabilities(id, version) {
         document.documentElement.dataset.packageVulnerabilitiesRequest =

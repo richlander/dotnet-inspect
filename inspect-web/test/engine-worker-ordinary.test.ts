@@ -135,6 +135,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryReferencePackageSuppliers: () =>
+      unexpected("queryReferencePackageSuppliers"),
     queryPackageHierarchy: () =>
       unexpected("queryPackageHierarchy"),
     queryPackageIcon: () => unexpected("queryPackageIcon"),

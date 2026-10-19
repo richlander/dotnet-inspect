@@ -67,6 +67,7 @@ type PackageOperationName =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackageDependencies"
+  | "queryReferencePackageSuppliers"
   | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
   | "queryPackageVersions"
@@ -1249,6 +1250,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
+    ),
+    queryReferencePackageSuppliers: valueOperation(
+      "ordinary-package-query-reference-suppliers",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryReferencePackageSuppliers"]>
+      ) => facades.package.queryReferencePackageSuppliers(...args),
     ),
     queryPackageHierarchy: valueOperation(
       "ordinary-package-query-hierarchy",
@@ -2528,6 +2537,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryReferencePackageSuppliers: bind(
+        engineWorkerOrdinaryOperations.package.queryReferencePackageSuppliers,
       ),
       queryPackageHierarchy: bind(
         engineWorkerOrdinaryOperations.package.queryPackageHierarchy,

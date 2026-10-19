@@ -52,6 +52,7 @@ type PackageOperations =
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "queryPackageDependencies"
+  | "queryReferencePackageSuppliers"
   | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
   | "queryPackageVersions"

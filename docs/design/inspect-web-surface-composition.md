@@ -1121,6 +1121,26 @@ switches to that package and opens the Library Overview. An absent or ambiguous
 match remains static, and References never guesses a package from an assembly
 display name.
 
+For package-backed References, an optional asynchronous supplier pass consumes
+the selected package Library's direct Metadata AssemblyRefs and the closed,
+reachable Package route evidence owned by
+[Package-origin AssemblyRef supply routing](package-origin-assemblyref-supply-routing.md).
+Only a terminal Package selection yields an exact package ID and version for
+the existing range-only icon request. A Platform supplier, incomplete or
+ambiguous association, and any unavailable or failed result leave the reference
+plain. This pass does not delay the direct reference rows or diagram, change
+their navigation, or admit a supplier to the Workspace. A result may update the
+same reference row and diagram node only while the package, selected Library,
+and direct reference result remain current. The graph icon sits in space added
+to the node's left edge so it cannot shorten the Library or AssemblyRef text.
+
+`Microsoft.Extensions.AI.OpenAI@10.11.0/net10.0` is the motivating NuGet
+asset: its root package declares `Microsoft.Extensions.AI.Abstractions@10.11.0`
+and `OpenAI@2.14.0` dependencies, while the shared References URL admits only
+the root package. The browser gate uses that exact coordinate and pins a
+deterministic reference-list control; the package association owner supplies
+the Metadata binding evidence for the reverse lookup.
+
 For a uniquely matched Workspace Library, References may show the owning
 ordinary package's icon beside the AssemblyRef row. It uses the admitted
 Library-to-package provenance established by that exact identity match, then
