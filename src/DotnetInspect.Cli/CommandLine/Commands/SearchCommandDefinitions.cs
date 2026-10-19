@@ -60,6 +60,11 @@ public static class SearchCommandDefinitions
             Description = "Search in package(s) (name or name@version). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description = "Search the declarations in a registration-only Ecosystem Workspace packet",
+            Arity = ArgumentArity.ExactlyOne,
+        };
         var assemblyOption = new Option<string[]>("--library")
         {
             Description = "Search in library file(s). Can repeat.",
@@ -122,6 +127,7 @@ public static class SearchCommandDefinitions
         };
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
+        findCommand.Options.Add(workspaceOption);
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(platformLibraryOption);
@@ -155,7 +161,7 @@ public static class SearchCommandDefinitions
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
             typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
-            takeOption);
+            takeOption, workspaceOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {
