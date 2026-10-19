@@ -104,15 +104,17 @@ internal sealed class MethodAnalysisLookup
         MethodReferenceResolver =
             new(
                 reader,
-                (method, work) =>
+                (method, operandToken) =>
                 {
                     Interlocked.Increment(
                         ref _methodReferencesResolved);
-                    Interlocked.Add(
-                        ref _methodReferenceSignatureWork,
-                        work);
-                    methodReferenceResolved?.Invoke(method, work);
-                });
+                    methodReferenceResolved?.Invoke(
+                        method,
+                        operandToken);
+                },
+                work => Interlocked.Add(
+                    ref _methodReferenceSignatureWork,
+                    work));
         GenericConstraintClassifier =
             new(reader);
         StableReceiverGetterClassifier =

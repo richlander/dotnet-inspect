@@ -231,9 +231,8 @@ It does not admit **Callee instruction**, **Callee method**, or **Member
 header** descriptors, such as `semantics.callee`, `safety.callee`,
 `cost.callee`, and `cost.method`. Their transitions can follow a change in
 another Member, such as a callee that gained a throw, while this Member's own
-IL is unchanged. Those changes are relations between Members and belong to the
-Type graph in
-[#10217](https://github.com/richlander/dotnet-inspect/issues/10217). It does
+IL is unchanged. Those changes are relations between Members and belong to
+[Annotated Type Relations](annotated-type-relations.md). It does
 not admit **Call relationship** descriptors, such as `call.edge`, because the
 fact comparison does not produce them today; they join when the Annotated
 Source owner adds them to it.
@@ -243,7 +242,7 @@ and `alloc.box`, for example, classify a construction or box by the operand
 Type's definition, so a Type that changes from `class` to `struct` changes an
 `alloc.new` finding in a caller whose IL is unchanged. That caller's shape
 facts are equal, so the map diff does not list it, and the transition is a
-relation between Types that belongs to the Type graph. For a listed Member, its
+relation between Types that belongs to Annotated Type Relations. For a listed Member, its
 finding transitions are whatever its fact comparison reports, including such
 transitions. A finding kind the vocabulary lacks, such as a throw, is
 added by the provenance matrix owner, not by this document.
@@ -464,8 +463,8 @@ implementation and, if adopted, of its QuerySpace operators.
 - It does not decide a host's default at Type scope or the visual design of a
   row.
 - It does not claim complete coverage of relations between Members or Types,
-  such as callers or a callee's signals. Those belong to the Type graph in
-  [#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
+  such as callers or a callee's signals. Those belong to
+  [Annotated Type Relations](annotated-type-relations.md).
 - It does not claim correspondence for a renamed or moved Member; that belongs
   to [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
 - It does not approve any background analysis or acquisition.

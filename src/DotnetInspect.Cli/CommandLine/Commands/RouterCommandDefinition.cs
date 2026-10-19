@@ -1051,7 +1051,8 @@ public static class RouterCommandDefinition
             string target = tokens[0];
             string[] tail = tokens[1..];
             if (ContainsOption(tokens, "--all-libraries")
-                || ContainsOption(tokens, "--namesake-library"))
+                || ContainsOption(tokens, "--namesake-library")
+                || ContainsOption(tokens, "--first-library"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
@@ -1274,6 +1275,7 @@ public static class RouterCommandDefinition
 
             if (ContainsOption(tokens, "--library")
                 || ContainsOption(tokens, "--namesake-library")
+                || ContainsOption(tokens, "--first-library")
                 || ContainsOption(tokens, "--all-libraries"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
