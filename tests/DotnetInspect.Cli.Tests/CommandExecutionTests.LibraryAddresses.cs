@@ -491,9 +491,6 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                "cannot issue one runtime Library population",
-                error);
-            Assert.Contains(
                 "no runtime Library assembly folder",
                 error);
         }

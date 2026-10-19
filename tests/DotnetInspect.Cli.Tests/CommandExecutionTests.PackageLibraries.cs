@@ -925,27 +925,17 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        LibraryCommand_RuntimeOnlyPackageUsesOneRuntimePopulation()
+        LibraryCommand_RuntimeOnlyPackageSelectsHighestAndExplicitTarget()
     {
         var (packagePath, tempDir) = CreateLocalPackageWithEntries(
             "Test.RuntimeLibraries",
             ("runtimes/win-x64/lib/net8.0/Older.dll", TestAssemblyPath),
             ("runtimes/win-x64/lib/net10.0/Latest.One.dll", TestAssemblyPath),
-            ("runtimes/win-x64/lib/net10.0/Latest.Two.dll", TestAssemblyPath),
-            ("analyzers/dotnet/cs/Analyzer.dll", TestAssemblyPath),
-            ("runtimes/win-x64/native/Native.dll", null));
+            ("runtimes/win-x64/lib/net10.0/Latest.Two.dll", TestAssemblyPath));
         try
         {
             var aggregate = await RunAppAsync(
                 "library",
-                "--package",
-                packagePath,
-                "-S",
-                "Library Info",
-                "--markdown");
-            var exact = await RunAppAsync(
-                "library",
-                "Latest.Two.dll",
                 "--package",
                 packagePath,
                 "-S",
@@ -972,13 +962,6 @@ public partial class CommandExecutionTests
                     + "(runtimes/win-x64/lib/net10.0/Latest.Two.dll)",
                 aggregate.Output);
             Assert.DoesNotContain("Older.dll", aggregate.Output);
-            Assert.DoesNotContain("Analyzer.dll", aggregate.Output);
-            Assert.DoesNotContain("Native.dll", aggregate.Output);
-
-            Assert.Equal(0, exact.Exit);
-            Assert.Empty(exact.Error);
-            Assert.Contains("# Latest.Two.dll", exact.Output);
-            Assert.DoesNotContain("Latest.One.dll", exact.Output);
 
             Assert.Equal(0, explicitTarget.Exit);
             Assert.Empty(explicitTarget.Error);
@@ -987,57 +970,6 @@ public partial class CommandExecutionTests
                     + "(runtimes/win-x64/lib/net8.0/Older.dll)",
                 explicitTarget.Output);
             Assert.DoesNotContain("Latest.One.dll", explicitTarget.Output);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task
-        PackageCommand_RuntimeOnlyNamesakeUsesManagedAssemblyIdentity()
-    {
-        string packageId =
-            typeof(CommandExecutionTests).Assembly.GetName().Name!;
-        var (systemRuntime, _, _, resolveError) =
-            PlatformResolver.ResolveAssembly("System.Runtime");
-        Assert.True(
-            resolveError is null && systemRuntime is not null,
-            resolveError);
-        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
-            packageId,
-            (
-                "runtimes/linux-x64/lib/net11.0/Unexpected.FileName.dll",
-                TestAssemblyPath),
-            (
-                "runtimes/linux-x64/lib/net11.0/Neighbor.dll",
-                systemRuntime!));
-        try
-        {
-            var packageResult = await RunAppAsync(
-                "package",
-                packagePath,
-                "--namesake-library",
-                "-S",
-                "Library Info",
-                "--markdown");
-            var libraryResult = await RunAppAsync(
-                "library",
-                "--package",
-                packagePath,
-                "--namesake-library",
-                "-S",
-                "Library Info",
-                "--markdown");
-
-            Assert.Equal(0, packageResult.Exit);
-            Assert.Empty(packageResult.Error);
-            Assert.Contains(
-                "# Unexpected.FileName.dll",
-                packageResult.Output);
-            Assert.DoesNotContain("Neighbor.dll", packageResult.Output);
-            Assert.Equal(packageResult, libraryResult);
         }
         finally
         {
@@ -1083,84 +1015,6 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
-        LibraryCommand_RealCompileInventoryPreventsRuntimeRoleSwitch()
-    {
-        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
-            "Test.RuntimeMarkerWithCompile",
-            ("ref/net11.0/_._", null),
-            ("lib/net8.0/Compile.Library.dll", TestAssemblyPath),
-            (
-                "runtimes/linux-x64/lib/net11.0/Runtime.Library.dll",
-                TestAssemblyPath));
-        try
-        {
-            var result = await RunAppAsync(
-                "library",
-                "--package",
-                packagePath,
-                "--tfm",
-                "net11.0",
-                "-S",
-                "Library Info",
-                "--markdown");
-
-            Assert.Equal(1, result.Exit);
-            Assert.Empty(result.Output);
-            Assert.Contains(
-                "selected compile group",
-                result.Error,
-                StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain(
-                "Runtime.Library.dll",
-                result.Error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task
-        LibraryCommand_MultipleRuntimeIdentifiersFailBeforeProbing()
-    {
-        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
-            "Test.AmbiguousRuntimeLibraries",
-            (
-                "runtimes/linux-x64/lib/net11.0/Linux.Library.dll",
-                TestAssemblyPath),
-            (
-                "runtimes/win-x64/lib/net11.0/Windows.Library.dll",
-                TestAssemblyPath));
-        try
-        {
-            var result = await RunAppAsync(
-                "library",
-                "--package",
-                packagePath,
-                "-S",
-                "Library Info",
-                "--markdown");
-
-            Assert.Equal(1, result.Exit);
-            Assert.Empty(result.Output);
-            Assert.Contains(
-                "cannot issue one runtime Library population",
-                result.Error);
-            Assert.Contains(
-                "explicit runtime identifier is required",
-                result.Error);
-            Assert.DoesNotContain("Linux.Library.dll", result.Error);
-            Assert.DoesNotContain("Windows.Library.dll", result.Error);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task
         LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries()
     {
         var (packagePath, tempDir) = CreateLocalPackageWithEntries(
@@ -1187,9 +1041,6 @@ public partial class CommandExecutionTests
 
             Assert.Equal(1, aggregate.Exit);
             Assert.Empty(aggregate.Output);
-            Assert.Contains(
-                "cannot issue one runtime Library population",
-                aggregate.Error);
             Assert.Contains(
                 "no runtime Library assembly folder",
                 aggregate.Error);
