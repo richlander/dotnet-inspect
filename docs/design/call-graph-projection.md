@@ -56,6 +56,21 @@ annotations — lives; Markout then chooses a lowering per sink. The browser
 prototype generates its own Mermaid from the same projection. The two renderings
 need not agree, and neither layer below the host knows a format exists.
 
+### Assembly-context handoff
+
+`AssemblyContextMemberCallGraphQuery` owns the progressive
+`MemberCallGraphSession` and `CallGraphProjection` execution for one selected
+member in a binding-consistent assembly context. It returns an
+`AssemblyContextMemberCallGraphDocument` containing the Analysis-owned caller
+and callee roots plus Queries-owned node, edge, diagnostic, and traversal-limit
+projection facts. Consumers do not construct either producer.
+
+The document does not own rendering, acquisition expansion, package or Platform
+attribution, navigation policy, or transport records. Inspect Web retains those
+Browser responsibilities and may spell the typed roots and members differently
+from the CLI. This handoff removes Web Core's direct `ILInspector.CallGraph`
+dependency without moving host rendering into Queries.
+
 ## What the projection owns
 
 `CallGraphProjection.Create(callerRoot, calleeRoot)` produces one node/edge graph

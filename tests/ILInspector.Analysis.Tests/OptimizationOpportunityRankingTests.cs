@@ -138,6 +138,30 @@ public sealed class OptimizationOpportunityRankingTests
                     new HashSet<TypeRef> { generatedType }));
     }
 
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void IncludePerformanceOpportunity_SuppressesOnlyAmortizedAsyncStateMachines(
+        bool amortized,
+        bool expected)
+    {
+        OptimizationOpportunity opportunity = Opportunity(
+            "StreamAsync",
+            "async-state-machine",
+            amortized ? "low" : "medium",
+            rootReach: 1) with
+        {
+            Amortized = amortized,
+        };
+
+        Assert.Equal(
+            expected,
+            OptimizationOpportunityRanking
+                .IncludePerformanceOpportunity(
+                    opportunity,
+                    new HashSet<TypeRef>()));
+    }
+
     static OptimizationOpportunity Opportunity(
         string name,
         string shape,

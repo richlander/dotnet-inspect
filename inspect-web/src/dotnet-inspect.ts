@@ -9451,12 +9451,42 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
     || (target?.kind === "id" && target.surface === "settings");
 }
 
-function render(options: { synchronizeUrl?: boolean } = {}) {
+interface RenderOptions {
+  recordNavigation?: boolean;
+  synchronizeUrl?: boolean;
+}
+
+let performanceMemberNavigationPublication: {
+  id: number;
+  view: string;
+} | null = null;
+let performanceMemberNavigationSequence = 0;
+
+function completePerformanceMemberNavigationPublication(
+  publication: number,
+) {
+  if (performanceMemberNavigationPublication?.id !== publication) return false;
+  performanceMemberNavigationPublication = null;
+  return true;
+}
+
+function render(options: RenderOptions = {}) {
+  if (performanceMemberNavigationPublication !== null
+    && performanceMemberNavigationPublication.view !== viewSignature()) {
+    performanceMemberNavigationPublication = null;
+  }
+  const effectiveOptions = performanceMemberNavigationPublication === null
+    ? options
+    : {
+        ...options,
+        recordNavigation: false,
+        synchronizeUrl: false,
+      };
   const navigationScroll = captureContentNavigationScroll(document);
   dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
-    renderCore(options);
+    renderCore(effectiveOptions);
   } finally {
     productNavigationBinding.afterRender();
     restoreContentNavigationScroll(document, navigationScroll);
@@ -9472,7 +9502,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
 }
 
-function renderCore(options: { synchronizeUrl?: boolean }) {
+function renderCore(options: RenderOptions) {
   sourceInspection.cancelHiddenRequest();
   reconcileEcosystemPackageDiscovery();
   reconcileTypeAccessibilityVocabulary();
@@ -9677,7 +9707,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     else if (workbenchSearchHadFocus) focusWorkbenchSearch(document);
     else if (levelOneHeadingHadFocus) focusLevelOneHeading();
     restorePackageRouteReturnFocus();
-    recordNav();
+    if (options.recordNavigation !== false) recordNav();
     if (options.synchronizeUrl !== false) syncUrl();
     return;
   }
@@ -9712,7 +9742,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
         app.removeAttribute("tabindex");
       }
       restorePackageRouteReturnFocus();
-      recordNav();
+      if (options.recordNavigation !== false) recordNav();
       if (!isProductHomeDemosPath(location.pathname) && options.synchronizeUrl !== false) syncUrl();
       return;
     }
@@ -10035,7 +10065,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   restorePackageRouteReturnFocus();
   graphExplorer.afterRender(graphExplorerTarget());
   if (loadingPackageContent) return;
-  recordNav();
+  if (options.recordNavigation !== false) recordNav();
   const productDemosRouteVisible =
     scope() === "workspace"
     && isProductHomeDemosPath(location.pathname);
@@ -12716,6 +12746,7 @@ function drillToPerfMember(
     return;
   }
   const targetType = retainPerformanceNavigationType(pkg, ranked);
+  const publication = ++performanceMemberNavigationSequence;
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -12731,6 +12762,10 @@ function drillToPerfMember(
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
+  performanceMemberNavigationPublication = {
+    id: publication,
+    view: viewSignature(),
+  };
   render();
   const expectedView = viewSignature();
   const expectedPopulationKey = typeMemberPopulationKey(targetType);
@@ -12740,7 +12775,9 @@ function drillToPerfMember(
       stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent, resourceMethodToken),
+      expectedPopulationIntent,
+      publication,
+      resourceMethodToken),
     "Loading the ranked Member");
 }
 
@@ -12749,6 +12786,7 @@ async function selectPerformanceMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  publication: number,
   resourceMethodToken?: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation(true);
@@ -12776,7 +12814,6 @@ async function selectPerformanceMember(
       typeId: type.id,
       populationReceipt,
     };
-    render();
     const ranked = state.packagePerformanceKey === packageScopeSignature()
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
           && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
@@ -12788,6 +12825,7 @@ async function selectPerformanceMember(
       if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
     }
     state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
+    completePerformanceMemberNavigationPublication(publication);
     render();
     await loadSelectedMemberAnalysisSurface();
     return;
@@ -22642,6 +22680,8 @@ function setTypeMemberPopulationIntent(
   spelling: "csharp" | "metadata",
   source: TypeMemberPopulationSource = "ordinary",
 ) {
+  if (source === "ordinary")
+    performanceMemberNavigationPublication = null;
   typeMemberPopulationIntentGeneration++;
   typeMemberPopulationSource = source;
   state.memberAccessibilityFilter = accessibility;
