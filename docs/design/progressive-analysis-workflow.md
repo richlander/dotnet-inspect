@@ -161,20 +161,16 @@ The first comparison
 the baseline's named routes. An explanation-led draft that replaced them with
 search, then exact explanation, then the binding, matched the baseline's
 efficacy on three tasks but cost more invocations, and it lost a material
-finding where it dropped a named check. The adopted revision keeps every named
-route and adds two pointers: read a Library section's `Empty` and `Boundary`
-before reporting none, and search for a thread the skill does not name. Its
-efficacy matched on every task. Its efficiency was mixed: equal on dependency
-risk, and one to four more invocations with more bytes read on the other
-three. Each task ran once per skill revision, so no same-skill repeat yet
-separates those deltas from participant variance.
-
-The comparison therefore distinguishes two kinds of change. Moving a named
-route into explanation must match or beat the baseline's efficacy and
-efficiency. An additive pointer that keeps every named route is adopted on
-equal efficacy, and its efficiency deltas are recorded beside it. Named routes
-move once their owners are explainable (#10069, #10070) and a variant reaches
-them in no more calls than the skill.
+finding where it dropped a named check. A hybrid that kept every named route
+and added two pointers, reading a Library section's `Empty` and `Boundary`
+before reporting none and searching for a thread the skill does not name,
+matched efficacy on every task. It did not improve efficiency: it was equal
+on dependency risk and cost one to four more invocations, with more bytes
+read, on the other three. Neither variant met the bar, so the skill keeps its
+named routes and adds no explanation pointer. It takes only the comparison's
+factual correction: the product does explain the Dependency Structure fields.
+Each task ran once per skill revision, so a later variant needs a task whose
+result depends on explanation, and repeated runs, to show an improvement.
 
 Efficacy is whether each review reaches the task's predetermined material
 findings with correct evidence classes and qualifications. Efficiency is
@@ -262,11 +258,8 @@ The shipped `project-analysis` skill is the first bounded adopter. It:
 3. names every command each scenario needs, with known product traps and
    their issues;
 4. states the quick-review bound, placement, and validation rules;
-5. states the lowlight stages and outcomes;
-6. delegates command semantics to the focused skills; and
-7. points to installed Library section explanation for a section's meaning,
-   empty result, and boundary, and to capability search for threads it does
-   not name.
+5. states the lowlight stages and outcomes; and
+6. delegates command semantics to the focused skills.
 
 The skill adds no command, inspection producer, report schema, renderer, or
 quality score. Focused owner issues add missing product evidence
@@ -386,11 +379,11 @@ admitted discovery sources and route-trace labels. Both builds are NativeAOT
 `2618db0dbf90195b5833719e9737acf57871e1593ce67c0d7126451d41cda738` for the
 explanation-led draft (E) and
 `7003f20f8ade78d8667c22e52107abab1e808cb602c30ea33ac8714b7559c1a3` for the
-adopted revision (H). Each task ran with a fresh Claude Opus 5.5
+hybrid (H). Each task ran with a fresh Claude Opus 5.5
 general-purpose agent. The baseline ran on `2e8e54c`, so the deltas also
 include product changes between the two builds.
 
-| Task | Baseline | E: explanation-led | H: adopted |
+| Task | Baseline | E: explanation-led | H: hybrid |
 | --- | --- | --- | --- |
 | B1 Learn, quick | 6 / 6; 9 calls; 0.7 s; 34 KB | 6 / 6; 19 calls (7 `explain`); 2.2 s; 173 KB | 6 / 6; 12 calls (1 `explain`); 1.0 s; 39 KB |
 | B2 Dependency risk, quick | 7 / 7; 18 calls; 7.0 s; 48 KB | 5.5 / 7 †; 15 calls (3 `explain`) | 7 / 7; 18 calls (0 `explain`); 2.9 s; 49 KB |
@@ -403,7 +396,7 @@ table omits rounds.
 † E2 missed the added `http://` literal because the draft dropped the quick
 review's named literal check. It also missed the advisory, because its
 working directory inherited a `nuget.config` that redefined the `nuget.org`
-source to another feed with no advisory data. The first two adopted-revision
+source to another feed with no advisory data. The first two hybrid
 B2 participants inherited the same configuration. The recorded H2 is a rerun
 from a working directory outside it, with an added instruction not to change
 directory; the configuration's effects are
@@ -414,14 +407,14 @@ skill names a command. The draft therefore doubled Learn's invocations and
 raised Complexity's by 60 percent. Package and Member section explanations
 carry only shape, so participants recorded them as dead ends (#10265).
 
-The adopted revision's six explanation calls were three exact reads and three
+The hybrid's six explanation calls were three exact reads and three
 searches. Each task's call delta is net: participants also chose different
 probes from the baseline's, so the explanation calls and their follow-ups
 account for part of each delta, not all of it.
 
 - **B1 (+3):** one read, Integrations' `Empty`, qualified an empty section.
   The participant also made two Unsafe Members probes. The baseline and
-  adopted B1 participants recovered README text the same way.
+  hybrid B1 participants recovered README text the same way.
 - **B2 (0):** no explanation calls. Equal only as a net count: the
   participant spent five calls on failed string-literal diffs and a help read,
   and three re-running the literal checks, where the baseline spent calls on a
@@ -430,7 +423,7 @@ account for part of each delta, not all of it.
   `explain clones`, which led to three Member Clone Candidates probes on a
   route the skill does not name. Among other differences, the participant
   also repeated a Library Metrics read and dated one more version, and
-  skipped several of the baseline's probes, mostly `type` probes.
+  skipped six of the baseline's probes, three of them `type` probes.
 - **B4 (+1):** a search and read for Array Pool Escapes' scope, and an
   `explain callers` search that dead-ended. Among other differences,
   `library coordinate` and `library address` rejected the skill's
@@ -439,11 +432,12 @@ account for part of each delta, not all of it.
 
 The E3 and H3 participants were given work directories under the same
 inherited configuration; the logs do not record whether they ran from them.
-Their scores are unaffected, but tool time may include feed probes: H3's 9.0.1 read took 1.46 s against 0.21 s in the baseline. The
-participants also surfaced `type -D` omitting Called Types and `package`
+Their scores are unaffected, but tool time may include feed probes: H3's
+9.0.1 read took 1.46 s against 0.21 s in the baseline. The participants also surfaced `type -D` omitting Called Types and `package`
 rejecting `--package` without a hint (#10266).
 
-This is one descriptive wave per variant, not a regression gate.
+This is one descriptive wave per variant, not a regression gate. Neither
+variant is adopted.
 
 ### Exploratory explanation-first run
 
@@ -514,7 +508,5 @@ CLI gates verify that the skill:
   result validation;
 - orders dependency currency as Pruning, Latest Versions, then `diff`;
 - states the lowlight stages and their three outcomes;
-- delegates command semantics to the focused skills;
-- points to Library section explanation for meaning and empty results, and
-  names the unexplainable `depends` and `diff` gaps (#10069, #10070); and
+- delegates command semantics to the focused skills; and
 - identifies #7553 and #8406 rather than simulating missing evidence.

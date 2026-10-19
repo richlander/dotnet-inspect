@@ -1,6 +1,6 @@
 ---
 name: dotnet-inspect-project-analysis
-version: 0.5.0
+version: 0.4.1
 description: Review a project, package, or library as a 30-second elevator pitch or an evidence-bounded deep dive — learn it, weigh dependency risk, map complexity and clustering, or pursue a topic such as performance, unsafe code, or ownership.
 ---
 
@@ -24,16 +24,6 @@ dnx dotnet-inspect -y -- <command>
 This skill names every command a review needs. Use them as written; reach for
 `<command> -D` (sections and fields) or `<command> -Q "<Section>"` (filter keys
 and operators) only to look up an exact name the skill does not give.
-
-The installed product explains what its Library sections mean.
-`explain library/sections/<section>` (for example
-`explain library/sections/dependency-structure`) states a section's `Summary`,
-`Basis`, what `Empty` means, and its `Boundary`. When a thread needs evidence
-this skill does not name, search with one topic word, such as
-`explain clones` or `explain invoke`: each row gives a resource, its exact
-`Explain` path, and the command that selects it, such as `library -S`,
-`member -S`, or `package query`. Search does not cover `depends` or `diff` yet (#10069, #10070),
-and Package and Member sections explain their shape only.
 
 - `Id@v` is an exact package coordinate. For a package, add
   `--namesake-library` to `library` to select its main assembly; the
@@ -98,9 +88,7 @@ it:
   completion receipts;
 - never read `0`, empty output, or exit code 1 as "checked, none found" —
   a failed section and an empty section can look alike (#10073), and a
-  populated `Analysis Diff --changed` currently exits 1 (#10075); before
-  reporting a Library section as empty, read what its `Empty` means in
-  `explain library/sections/<section>`;
+  populated `Analysis Diff --changed` currently exits 1 (#10075);
 - confirm `--tfm` names the project's restored target — Pruning echoes it as
   `Platform Target` — because a wrong target can look like success, and web
   apps need `--platform-family aspnetcore` for Pruning;
@@ -307,8 +295,7 @@ dnx dotnet-inspect -y -- member <Type> --package Id@v <Method>:1 --all \
 - **Unsafe and interop:** `Unsafe Members` and `P/Invoke Methods`, judged
   against the subject's domain: a codec or interop layer needs what a business
   library does not. Load `skill correctness`.
-- **Ownership:** `Resource Triage` (listed as `Array Pool Escapes`, explained at
-  `explain library/sections/array-pool-escapes`) emits
+- **Ownership:** `Resource Triage` (listed as `Array Pool Escapes`) emits
   candidates but has no positive completion receipt (#7553), and it currently
   fails with `InterfaceApplicationIncomplete` on some pool-heavy libraries
   (#10084). Always report pooled-resource coverage as unverified, and treat
