@@ -2130,7 +2130,7 @@ public class PackageQueryCliTests
         {
             ["library", "Newtonsoft.Json.dll", "--package", rootToken, "-S", "Library Info", "--json"],
             ["type", "Newtonsoft.Json.JsonConvert", "--package", rootToken, "--json"],
-            ["member", "Newtonsoft.Json.JsonConvert", "SerializeObject", "--package", rootToken, "-S", "Signature", "--count"],
+            ["member", "Newtonsoft.Json.JsonConvert", "SerializeObject:1", "--package", rootToken, "-S", "Signature", "--count"],
         })
         {
             var inspected = await Run(sourceQuery);
