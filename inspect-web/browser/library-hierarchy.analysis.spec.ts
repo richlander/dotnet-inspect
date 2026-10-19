@@ -454,6 +454,42 @@ test("newer subject navigation supersedes deferred Analysis row publication", as
   await expect(subjectTab(page, "member")).toHaveCount(0);
 });
 
+test("newer Member spelling supersedes deferred Analysis row publication", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  await page.locator(".library-performance-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+
+  await page.locator("#member-filter-summary").click();
+  const spelling = page.locator("[data-member-spelling]");
+  await spelling.selectOption("metadata");
+
+  await expect(spelling).toHaveValue("metadata");
+  expect(new URL(page.url()).searchParams.get("analysis")).toBeNull();
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member")).toHaveCount(0);
+});
+
 test("production Analysis opens a private ranked member through all accessibility", async ({
   page,
 }) => {

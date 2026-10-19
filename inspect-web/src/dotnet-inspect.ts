@@ -22687,6 +22687,8 @@ function setTypeMemberPopulationIntent(
   spelling: "csharp" | "metadata",
   source: TypeMemberPopulationSource = "ordinary",
 ) {
+  if (source === "ordinary")
+    performanceMemberNavigationPublication = null;
   typeMemberPopulationIntentGeneration++;
   typeMemberPopulationSource = source;
   state.memberAccessibilityFilter = accessibility;
