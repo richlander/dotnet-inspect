@@ -30,9 +30,9 @@ The installed product explains what its Library sections mean.
 `explain library/sections/dependency-structure`) states a section's `Summary`,
 `Basis`, what `Empty` means, and its `Boundary`. When a thread needs evidence
 this skill does not name, search with one topic word, such as
-`explain clones` or `explain invoke`: each row gives a section, its exact
-`Explain` path, and the command that selects it (`library -S`, `package -S`,
-`member -S`). Search does not cover `depends` or `diff` yet (#10069, #10070),
+`explain clones` or `explain invoke`: each row gives a resource, its exact
+`Explain` path, and the command that selects it, such as `library -S`,
+`member -S`, or `package query`. Search does not cover `depends` or `diff` yet (#10069, #10070),
 and Package and Member sections explain their shape only.
 
 - `Id@v` is an exact package coordinate. For a package, add
@@ -307,7 +307,8 @@ dnx dotnet-inspect -y -- member <Type> --package Id@v <Method>:1 --all \
 - **Unsafe and interop:** `Unsafe Members` and `P/Invoke Methods`, judged
   against the subject's domain: a codec or interop layer needs what a business
   library does not. Load `skill correctness`.
-- **Ownership:** `Resource Triage` (listed as `Array Pool Escapes`) emits
+- **Ownership:** `Resource Triage` (listed as `Array Pool Escapes`, explained at
+  `explain library/sections/array-pool-escapes`) emits
   candidates but has no positive completion receipt (#7553), and it currently
   fails with `InterfaceApplicationIncomplete` on some pool-heavy libraries
   (#10084). Always report pooled-resource coverage as unverified, and treat

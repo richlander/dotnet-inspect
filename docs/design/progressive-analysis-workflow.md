@@ -160,13 +160,21 @@ The first comparison
 ([Explanation-directed comparison](#explanation-directed-comparison)) kept
 the baseline's named routes. An explanation-led draft that replaced them with
 search, then exact explanation, then the binding, matched the baseline's
-efficacy on three tasks but cost more invocations; it lost a material finding
-where it dropped a named check. The adopted revision keeps every named route
-and adds installed explanation where it costs a call or less: reading a
-Library section's `Empty` and `Boundary` before reporting none, and searching
-for a thread the skill does not name. Named routes move into explanation when
-their owners are explainable (#10069, #10070) and explanation reaches a route
-in no more calls than the skill.
+efficacy on three tasks but cost more invocations, and it lost a material
+finding where it dropped a named check. The adopted revision keeps every named
+route and adds two pointers: read a Library section's `Empty` and `Boundary`
+before reporting none, and search for a thread the skill does not name. Its
+efficacy matched on every task. Its efficiency was mixed: equal on dependency
+risk, and one to four more invocations with more bytes read on the other
+three. One run per task cannot separate that from participant variance; the
+first B3 baseline participant made 30 calls where the recorded one made 20.
+
+The comparison therefore distinguishes two kinds of change. Moving a named
+route into explanation must match or beat the baseline's efficacy and
+efficiency. An additive pointer that keeps every named route is adopted on
+equal efficacy, and its efficiency deltas are recorded beside it. Named routes
+move once their owners are explainable (#10069, #10070) and a variant reaches
+them in no more calls than the skill.
 
 Efficacy is whether each review reaches the task's predetermined material
 findings with correct evidence classes and qualifications. Efficiency is
@@ -377,7 +385,8 @@ admitted discovery sources and route-trace labels. Both builds are NativeAOT
 explanation-led draft (E) and
 `7003f20f8ade78d8667c22e52107abab1e808cb602c30ea33ac8714b7559c1a3` for the
 adopted revision (H). Each task ran with a fresh Claude Opus 5.5
-general-purpose agent.
+general-purpose agent. The baseline ran on `2e8e54c`, so the deltas also
+include product changes between the two builds.
 
 | Task | Baseline | E: explanation-led | H: adopted |
 | --- | --- | --- | --- |
@@ -397,14 +406,28 @@ filed as #10263 and #10264.
 Discovery through search and exact explanation costs two calls where the
 skill names a command. The draft therefore doubled Learn's invocations and
 raised Complexity's by 60 percent. Package and Member section explanations
-carry only shape, so participants recorded them as dead ends (#10265). The
-adopted revision's few explanation calls each read a Library section's
-`Empty` or `Boundary` to qualify a result: an empty Integrations section in
-B1, Dependency Structure's fields in B3, and the Array Pool Escapes scope in
-B4. Its other extra calls recovered from friction outside explanation, such
-as README text and an unbuilt project. The participants also surfaced
-`type -D` omitting Called Types and `package` rejecting `--package` without a
-hint (#10266).
+carry only shape, so participants recorded them as dead ends (#10265).
+
+The adopted revision's six explanation calls were three exact reads and three
+searches:
+
+- **B1:** one read, Integrations' `Empty`, qualified an empty section; the
+  participant's other extra calls were two Unsafe Members probes. The
+  baseline and adopted B1 participants recovered README text the same way.
+- **B2:** no explanation calls, and no extra calls.
+- **B3:** one read of Dependency Structure's fields, and one search,
+  `explain clones`, which led to three Member Clone Candidates probes on a
+  route the skill does not name. The other extra calls were a repeated
+  Library Metrics read and one more dating version.
+- **B4:** a search and read for Array Pool Escapes' scope, and an
+  `explain callers` search that dead-ended. Three more calls failed on the
+  correctness skill's `library coordinate` guidance.
+
+The E3 and H3 participants were given work directories under the same
+inherited configuration; the logs do not record whether they ran from them.
+Their scores are unaffected, but tool time may include feed probes: H3's 9.0.1 read took 1.46 s against 0.21 s in the baseline. The
+participants also surfaced `type -D` omitting Called Types and `package`
+rejecting `--package` without a hint (#10266).
 
 This is one descriptive wave per variant, not a regression gate.
 
