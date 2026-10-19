@@ -307,9 +307,9 @@ candidates, as
 Presence and the census therefore agree on those bodies. Its all-definition probe is
 unaffected.
 
-The census moves only after every row of that table has landed. Until then the
-CLI section (step 3) does not ship, because it would land the census's first
-consumer on the retiring aggregate.
+Each scope of the census moves once the rows it needs have landed. The CLI
+section (step 3) ships only after every row has landed, because shipping it
+earlier would land the census's first consumer on the retiring aggregate.
 
 Status: every row except the first has landed. Of the first row, the
 exact-type relation with roles, nested-type reach, and unauthenticated
@@ -329,8 +329,9 @@ Operation:
   joins each authenticated owner to its visited identity, so an owner the
   source did not visit leaves its body unattributed.
 - The per-body evidence rule and the call contract-source rule in
-  `UnsafeMemberUseRules`, and the fold, are the ones the accumulator calls, so
-  the two paths cannot classify differently.
+  `UnsafeMemberUseRules`, and the fold, are the ones the accumulator calls.
+  The producer derives their inputs from the capabilities, and the agreement
+  gates below hold the two paths to the same findings.
 - The Library-scope census still runs on the accumulator, because the
   all-definition reverse lowering is **unverified**. It moves when
   [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) lands that
