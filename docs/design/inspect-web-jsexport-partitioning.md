@@ -505,6 +505,11 @@ facade inventory.
 Both package and platform traversal return the same browser call-graph
 contract. Graph-target member projection remains in the metadata facade because
 it projects one API member after navigation rather than expanding topology.
+Web Core consumes `AssemblyContextMemberCallGraphDocument` from Queries rather
+than constructing Analysis sessions or CallGraph projections. It retains
+package and Platform scope expansion, Browser Mermaid and tree rendering,
+target attribution, navigation policy, diagnostics lowering, and wire
+projection.
 
 ### Catalog facade: 31 exports
 
