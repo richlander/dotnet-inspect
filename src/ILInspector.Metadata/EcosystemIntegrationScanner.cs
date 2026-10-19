@@ -14,20 +14,24 @@ public sealed record EcosystemIntegrationApiEvidence
         MemberAnchor member,
         MetadataTypeDefinitionName declaringType,
         MetadataNamedTypeReference? receiverType,
-        MetadataNamedTypeReference? returnType)
+        MetadataNamedTypeReference? returnType,
+        string displaySignature)
     {
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displaySignature);
         Member = member;
         DeclaringType = declaringType;
         ReceiverType = receiverType;
         ReturnType = returnType;
+        DisplaySignature = displaySignature;
     }
 
     public MemberAnchor Member { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
     public MetadataNamedTypeReference? ReceiverType { get; }
     public MetadataNamedTypeReference? ReturnType { get; }
+    public string DisplaySignature { get; }
 }
 
 public record EcosystemIntegrationSignalInfo(
@@ -66,6 +70,8 @@ public record EcosystemIntegrationSignalInfo(
         { get; init; } = [];
     internal bool ApiEvidenceUnavailable { get; init; }
     internal MetadataTypeDefinitionName? TypeDefinition { get; init; }
+    internal TypeDeclarationDiscoveryAttributes? TypeDiscoveryAttributes
+        { get; init; }
 
     public EcosystemIntegrationApiEvidence? GetApiEvidence() =>
         ApiEvidence.IsEmpty ? null : ApiEvidence[0];
@@ -77,6 +83,10 @@ public record EcosystemIntegrationSignalInfo(
 
     public MetadataTypeDefinitionName? GetTypeDefinition() =>
         TypeDefinition;
+
+    public TypeDeclarationDiscoveryAttributes?
+        GetTypeDiscoveryAttributes() =>
+        TypeDiscoveryAttributes;
 
     public IntegrationConceptDescriptor? GetConcept() => _concept;
 

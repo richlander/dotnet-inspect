@@ -122,6 +122,17 @@ public static class EcosystemFindIndexJson
             SymbolOrdinal = symbol.SymbolOrdinal,
             Kind = symbol.Kind,
             Type = symbol.Type is null ? null : ToType(symbol.Type),
+            TypeDiscoveryAttributes =
+                symbol.TypeDiscoveryAttributes is null
+                    ? null
+                    : new()
+                    {
+                        IsEditorBrowsableNever =
+                            symbol.TypeDiscoveryAttributes
+                                .IsEditorBrowsableNever,
+                        IsObsolete =
+                            symbol.TypeDiscoveryAttributes.IsObsolete,
+                    },
             Member = symbol.Member is null ? null : ToEvidence(symbol.Member),
             Display = symbol.Display.ToString(),
             Concepts =
@@ -203,6 +214,7 @@ public static class EcosystemFindIndexJson
             ReturnType = evidence.ReturnType is null
                 ? null
                 : ToNamedType(evidence.ReturnType),
+            DisplaySignature = evidence.DisplaySignature,
         };
 
     private static EcosystemFindIndexNamedTypeDocument ToNamedType(
@@ -316,6 +328,12 @@ public static class EcosystemFindIndexJson
             symbol.SymbolOrdinal,
             symbol.Kind,
             symbol.Type is null ? null : FromType(symbol.Type),
+            symbol.TypeDiscoveryAttributes is null
+                ? null
+                : new(
+                    symbol.TypeDiscoveryAttributes
+                        .IsEditorBrowsableNever,
+                    symbol.TypeDiscoveryAttributes.IsObsolete),
             symbol.Member is null ? null : FromEvidence(symbol.Member),
             InertString.FromEncoded(TextPolicy.Field, symbol.Display),
             [
@@ -399,7 +417,8 @@ public static class EcosystemFindIndexJson
                 evidence.Member.MemberName),
             FromType(evidence.DeclaringType),
             evidence.ReceiverType is null ? null : FromNamedType(evidence.ReceiverType),
-            evidence.ReturnType is null ? null : FromNamedType(evidence.ReturnType));
+            evidence.ReturnType is null ? null : FromNamedType(evidence.ReturnType),
+            evidence.DisplaySignature);
     }
 
     private static MetadataNamedTypeReference FromNamedType(
@@ -465,6 +484,9 @@ internal sealed record EcosystemFindIndexSymbolDocument
     public required int SymbolOrdinal { get; init; }
     public required EcosystemFindIndexSymbolKind Kind { get; init; }
     public EcosystemFindIndexTypeDocument? Type { get; init; }
+    public EcosystemFindIndexTypeDiscoveryDocument?
+        TypeDiscoveryAttributes
+    { get; init; }
     public EcosystemFindIndexEvidenceDocument? Member { get; init; }
     public required string Display { get; init; }
     public required EcosystemFindIndexConceptDocument[] Concepts { get; init; }
@@ -514,6 +536,12 @@ internal sealed record EcosystemFindIndexTypeDocument
     public required string[] Segments { get; init; }
 }
 
+internal sealed record EcosystemFindIndexTypeDiscoveryDocument
+{
+    public required bool IsEditorBrowsableNever { get; init; }
+    public required bool IsObsolete { get; init; }
+}
+
 internal sealed record EcosystemFindIndexMemberDocument
 {
     public required string StableSelector { get; init; }
@@ -529,6 +557,7 @@ internal sealed record EcosystemFindIndexEvidenceDocument
     public required EcosystemFindIndexTypeDocument DeclaringType { get; init; }
     public EcosystemFindIndexNamedTypeDocument? ReceiverType { get; init; }
     public EcosystemFindIndexNamedTypeDocument? ReturnType { get; init; }
+    public required string DisplaySignature { get; init; }
 }
 
 internal sealed record EcosystemFindIndexNamedTypeDocument

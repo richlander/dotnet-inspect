@@ -28,7 +28,8 @@ internal static class EcosystemIntegrationProjection
                         type.MetadataName,
                         "TypeDef",
                         classification.Kind,
-                        type.Definition);
+                        type.Definition,
+                        type.DiscoveryAttributes);
                     break;
                 case EcosystemIntegrationMethodObservation method:
                     AddApi(
@@ -101,7 +102,8 @@ internal static class EcosystemIntegrationProjection
         string typeName,
         string source,
         string kind,
-        MetadataTypeDefinitionName? definitionName)
+        MetadataTypeDefinitionName? definitionName,
+        TypeDeclarationDiscoveryAttributes discoveryAttributes)
     {
         if (bucket.Types.TryGetValue(typeName, out var existing))
         {
@@ -109,6 +111,17 @@ internal static class EcosystemIntegrationProjection
                 bucket.Types[typeName] = $"{existing}/{source}";
             if (definitionName is not null)
                 bucket.TypeDefinitions.TryAdd(typeName, definitionName);
+            if (bucket.TypeDiscoveryAttributes.TryGetValue(
+                    typeName,
+                    out TypeDeclarationDiscoveryAttributes? existingAttributes)
+                && existingAttributes != discoveryAttributes)
+            {
+                throw new InvalidOperationException(
+                    "One Integration Type has inconsistent discovery attributes.");
+            }
+            bucket.TypeDiscoveryAttributes.TryAdd(
+                typeName,
+                discoveryAttributes);
             return;
         }
 
@@ -116,6 +129,9 @@ internal static class EcosystemIntegrationProjection
         bucket.Kinds[typeName] = kind;
         if (definitionName is not null)
             bucket.TypeDefinitions.Add(typeName, definitionName);
+        bucket.TypeDiscoveryAttributes.Add(
+            typeName,
+            discoveryAttributes);
     }
 
     static void AddApi(
@@ -167,6 +183,8 @@ internal static class EcosystemIntegrationProjection
             {
                 TypeDefinition =
                     bucket.TypeDefinitions.GetValueOrDefault(type),
+                TypeDiscoveryAttributes =
+                    bucket.TypeDiscoveryAttributes.GetValueOrDefault(type),
             });
     }
 
@@ -270,6 +288,8 @@ internal static class EcosystemIntegrationProjection
         public Dictionary<string, string> Kinds { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, MetadataTypeDefinitionName>
             TypeDefinitions { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, TypeDeclarationDiscoveryAttributes>
+            TypeDiscoveryAttributes { get; } = new(StringComparer.Ordinal);
     }
 
     private sealed class IntegrationBuckets

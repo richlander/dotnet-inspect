@@ -63,6 +63,53 @@ public partial class EcosystemFindIndexTests
     }
 
     [Fact]
+    public void IndexedTypeProjection_PreservesDiscoveryVisibilityEvidence()
+    {
+        EcosystemFindIndexArtifact artifact = Artifact(
+            EcosystemPackIds.Aspire,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    ScanFixture(hideType: true)),
+            ]);
+        EcosystemFindIndexSymbol type = Assert.Single(
+            artifact.Symbols,
+            symbol => symbol.Kind is EcosystemFindIndexSymbolKind.Type);
+        Assert.True(type.TypeDiscoveryAttributes!.IsEditorBrowsableNever);
+        Assert.True(type.TypeDiscoveryAttributes.IsObsolete);
+
+        var publicResult =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [artifact],
+                        [Demand(artifact, prefixOrdinal: 0)],
+                        TypeFindQuestion.Create(
+                            ["IServiceCollection"],
+                            FindVisibility.Public)),
+                    TestContext.Current.CancellationToken));
+        var allResult =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Type>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [artifact],
+                        [Demand(artifact, prefixOrdinal: 0)],
+                        TypeFindQuestion.Create(
+                            ["IServiceCollection"],
+                            FindVisibility.All)),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(publicResult.Matches);
+        Assert.Equal(
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            Assert.Single(allResult.Matches).FullName);
+    }
+
+    [Fact]
     public void IndexedMemberProjection_PreservesMultiplicityAndDeclaringTypeFilter()
     {
         EcosystemFindIndexArtifact artifact = Artifact(
@@ -127,11 +174,12 @@ public partial class EcosystemFindIndexTests
                     symbol.Member!.DeclaringType.ToMetadataFullName(),
                     match.DeclaringType);
                 Assert.Equal(
+                    symbol.Member.DisplaySignature,
+                    match.Signature);
+                Assert.NotEqual(
                     symbol.Member.Member.CanonicalSignature,
                     match.Signature);
-                Assert.Equal(
-                    symbol.Member.ReturnType?.Type.ToMetadataFullName(),
-                    match.ReturnType);
+                Assert.Null(match.ReturnType);
             });
         Assert.All(
             result.PublishedSymbols,

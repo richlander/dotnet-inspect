@@ -32,14 +32,17 @@ public sealed class EcosystemIntegrationTypeObservation : EcosystemIntegrationOb
 {
     internal EcosystemIntegrationTypeObservation(
         string metadataName,
-        MetadataTypeDefinitionName? definition)
+        MetadataTypeDefinitionName? definition,
+        TypeDeclarationDiscoveryAttributes discoveryAttributes)
     {
         MetadataName = metadataName;
         Definition = definition;
+        DiscoveryAttributes = discoveryAttributes;
     }
 
     public string MetadataName { get; }
     public MetadataTypeDefinitionName? Definition { get; }
+    public TypeDeclarationDiscoveryAttributes DiscoveryAttributes { get; }
 }
 
 public sealed class EcosystemIntegrationMethodObservation : EcosystemIntegrationObservation

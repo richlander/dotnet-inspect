@@ -290,7 +290,7 @@ public static class EcosystemFindIndexedIntegration
                                 AssemblyTypeDeclarationKind.Definition,
                                 DefinitionKind: null,
                                 IsDefinitionPublic: true,
-                                DiscoveryAttributes: null)),
+                                symbol.TypeDiscoveryAttributes)),
                 ];
                 int? remaining = maximum is int finite
                     ? finite - matches.Count
@@ -403,10 +403,9 @@ public static class EcosystemFindIndexedIntegration
                                     symbol.Member.DeclaringType.Namespace)
                                     ? null
                                     : symbol.Member.DeclaringType.Namespace,
-                                Kind: "method",
-                                symbol.Member.Member.CanonicalSignature,
-                                symbol.Member.ReturnType?.Type
-                                    .ToMetadataFullName())),
+                                Kind: "extension-method",
+                                symbol.Member.DisplaySignature,
+                                ReturnType: null)),
                 ];
                 if (question.AcceptedRows is { } acceptedRows)
                 {
