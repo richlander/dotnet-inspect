@@ -683,10 +683,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
+        using var operation = composition.IssueSettlementOperation(
+            TestContext.Current.CancellationToken);
         ConfiguredPackageManifestResult result =
-            await composition.AcquireCandidateManifestAsync(
-                authorization.Candidate!,
-                TestContext.Current.CancellationToken);
+            await operation.AcquireCandidateManifestAsync(
+                authorization.Candidate!);
 
         Assert.NotNull(result.Manifest);
         Assert.Equal(
