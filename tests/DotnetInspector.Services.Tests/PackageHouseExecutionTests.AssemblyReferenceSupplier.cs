@@ -1190,10 +1190,9 @@ public sealed partial class PackageHouseExecutionTests
             HouseEnvironment environment,
             PackageRootBinding rootBinding)
     {
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
         PackageDependencyTraversalOutcome traversal =
             await PackageDependencyTraversalQuery.ExecuteAsync(
                 new PackageDependencyTraversalRequest(
@@ -1205,14 +1204,13 @@ public sealed partial class PackageHouseExecutionTests
                     ],
                     TraversalTargetFrameworkPolicy.ProductDefault,
                     new PackageDependencyTraversalCandidateAdapter(
-                        candidateSource),
-                    new AuthorizedPackageDependencyManifestSource(
-                        candidateSource),
+                        environment.Authorization),
+                    new AuthorizedPackageDependencyManifestSource(),
                     new PackageDependencyTraversalWorkBudget(
                         maxManifestProjections: 8,
                         maxDeclarationResolutions: 8),
                     maxDepth: 2),
-                TestContext.Current.CancellationToken);
+                operation);
         Assert.Equal(
             PackageDependencyTraversalRootCompletion.Complete,
             traversal.Roots[0].Completion);

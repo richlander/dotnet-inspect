@@ -90,6 +90,62 @@ public class FindOptionsParserTests
     }
 
     [Fact]
+    public async Task EcosystemTake_AcceptsExplicitCandidateBound()
+    {
+        var result = await Run(
+            "find", ".Add*", "--ecosystem", "aspire",
+            "--take", "7", "-D");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.DoesNotContain("Find --take", result.Error);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("21")]
+    public async Task EcosystemTake_RejectsOutOfRangeBound(string value)
+    {
+        var result = await Run(
+            "find", ".Add*", "--ecosystem", "aspire",
+            "--take", value, "-D");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "Find --take must be between 1 and 20",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EcosystemTake_RequiresEcosystemSource()
+    {
+        var result = await Run(
+            "find", ".Add*", "--platform", "--take", "5", "-D");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires --ecosystem with TSV or JSONL output",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("--markdown")]
+    [InlineData("--count")]
+    public async Task EcosystemTake_RejectsNonStreamingOutput(string output)
+    {
+        var result = await Run(
+            "find", ".Add*", "--ecosystem", "aspire",
+            "--take", "5", output, "-D");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            "requires --ecosystem with TSV or JSONL output",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Ecosystem_RejectsCompositionWithPackage()
     {
         var result = await Run(
@@ -107,19 +163,19 @@ public class FindOptionsParserTests
     }
 
     [Fact]
-    public void Ecosystem_EmptyNamedPopulationFailsBeforeAcquisition()
+    public void Ecosystem_PrefixOnlyPopulationIsAccepted()
     {
         var id = EcosystemPackIds.MicrosoftExtensions;
-        var known = Assert.IsType<
-            EcosystemWorkspaceRegistrationSelectionResult.Known>(
-                EcosystemPackCatalog.SelectWorkspaceRegistration(id));
-        InvalidOperationException error = Assert.Throws<
-            InvalidOperationException>(() =>
-                FindCommand.EnsureNamedPopulations(
-                    [id], [(id, known.Declaration, false)]));
-        Assert.Contains("ecosystem.microsoft-extensions", error.Message);
+
+        var layers = FindCommand.GetNamedLayers([id]);
+
         Assert.Contains(
-            "--package-prefix Microsoft.Extensions.", error.Message);
+            layers,
+            layer => layer.Id == id
+                && layer.Declaration.Populations.Any(population =>
+                    population is
+                        WorkspaceEcosystemPopulationDeclaration
+                            .PackagePrefix));
     }
 
     [Fact]

@@ -170,14 +170,15 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageDocument_ReadmePackageAndSkillUseExactFileAcquisition()
+    public async Task PackageDocument_ExactFileAcquisitionSkipsOnlyLeadingUtf8Bom()
     {
         string packageId = $"gallery.documents.{Guid.NewGuid():N}";
         const string version = "1.2.3";
         string readmeText =
             "\uFEFF"
             + new string('r', 64 * 1024)
-            + " Browser/Wasm \U0001F310";
+            + " Browser/Wasm \U0001F310"
+            + "\uFEFF retained content";
         const string packageText =
             "# Package guidance\n\nComplete acquisition.";
         const string skillText =
@@ -212,6 +213,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
         BrowserPackageDocumentPayload readme =
             await Read("README.md", store);
+        BrowserPackageDocumentPayload nuspec =
+            await Read($"{packageId}.nuspec", store);
         BrowserPackageDocumentPayload skill =
             await Read("skills/demo/SKILL.md", store);
         int requestsAfterSkill = handler.Requested.Count;
@@ -230,8 +233,15 @@ public sealed partial class BrowserEngineBoundaryTests
                 "readme",
                 "README.md",
                 "README.md",
-                readmeText),
+                readmeText[1..]),
             readme);
+        Assert.Equal(
+            new BrowserPackageDocumentPayload(
+                "metadata",
+                $"{packageId}.nuspec",
+                $"{packageId}.nuspec",
+                Nuspec(packageId, version)),
+            nuspec);
         Assert.Equal(
             new BrowserPackageDocumentPayload(
                 "skill",

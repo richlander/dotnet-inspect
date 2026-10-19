@@ -248,13 +248,14 @@ public sealed class PackageDependencyMemberCallGraphInspectionSource
             _issueOperation(operation, cancellationToken)
             ?? throw new InvalidOperationException(
                 "The dependency call-graph source capability returned no Package Source operation.");
-        if (sourceOperation.RequestTimeout != operation.RequestTimeout
+        if (sourceOperation.CancellationToken != cancellationToken
+            || sourceOperation.RequestTimeout != operation.RequestTimeout
             || sourceOperation.OperationTimeout
                 != operation.OperationTimeout)
         {
             sourceOperation.Dispose();
             throw new InvalidOperationException(
-                "The dependency call-graph source capability issued deadlines that differ from the PackageHouse operation.");
+                "The dependency call-graph source capability issued another caller cancellation or deadlines that differ from the PackageHouse operation.");
         }
 
         return sourceOperation;
@@ -466,10 +467,10 @@ public static class PackageDependencyMemberCallGraphInspection
                 });
         }
 
-        using var traversalOperation = new NuGetOperationContext(
-            request.RealizationOperation.RequestTimeout,
-            request.RealizationOperation.OperationTimeout,
-            cancellationToken);
+        using PackageSourceOperationLease traversalOperation =
+            source.IssueOperation(
+                request.RealizationOperation,
+                cancellationToken);
         PackageDependencyTraversalOutcome traversal =
             await PackageDependencyTraversalQuery.ExecuteAsync(
                     new PackageDependencyTraversalRequest(
@@ -486,7 +487,6 @@ public static class PackageDependencyMemberCallGraphInspection
                         source.ManifestAcquirer,
                         request.TraversalWorkBudget,
                         request.MaximumDependencyDepth),
-                    cancellationToken,
                     traversalOperation)
                 .ConfigureAwait(false);
         if (continuation is not null)

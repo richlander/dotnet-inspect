@@ -14,10 +14,9 @@ Spotlight interaction, production `library-literal` witness, and shipped router
 workflow are implemented. Portable Browser Share and reusable-reference facade
 dispatch remain follow-up work.
 
-The [structural catalog population](#structural-catalog-population) is the
-design for
-[#10068](https://github.com/richlander/dotnet-inspect/issues/10068) and is
-not yet implemented.
+The [structural catalog population](#structural-catalog-population) for
+[#10068](https://github.com/richlander/dotnet-inspect/issues/10068) is
+implemented for the CLI, which admits its six explained structural catalogs.
 
 ## Owner and exact claim
 
@@ -25,8 +24,8 @@ not yet implemented.
 
 > Given one non-empty bounded search text and one settled search population,
 > the composed available-capability graph together with the structural
-> catalogs the host explains and binds to a production section-selection
-> gesture, project a bounded set of canonical search terms from each available
+> catalogs the host explains under one root and binds to a production
+> section-selection gesture, project a bounded set of canonical search terms from each available
 > resource, rank matching resources with the repository's existing
 > string-similarity model, and return one deterministic bounded Document that
 > preserves each result's exact resource path, owning route, and available
@@ -260,16 +259,18 @@ catalog:
 
 ```text
 CapabilityCatalogSearchStructuralCatalog
-  Explanation         structural ResourceExplanationCatalog
+  Document            structural Discovery projection
+  Paths               structural resource path registrations
   Route               identity, name, and catalog root ResourcePath
   Binding             identity, name, consumer kind, and gesture
 ```
 
 Each entry is admissible only when all three hold:
 
-1. its Explanation is the structural Resource Explanation catalog projected
-   from one registered structural route, the same catalog the host resolves
-   for exact explanation;
+1. its Document and Paths are the Discovery projection and path registrations
+   of one registered structural route, the same inputs the host creates that
+   route's structural Resource Explanation catalog from for exact
+   explanation;
 2. its Route is that registered route, and its ResourcePath is the
    catalog root path that Resource Explanation issues for that catalog; and
 3. its Binding is the host's production gesture that selects a section or
@@ -280,6 +281,16 @@ from its own command grammar, for example `library -S` in the CLI. Search
 does not compose a command line from the gesture and a resource name. The
 result keeps the gesture and the resource name as separate values, and a host
 may lower them together into a copyable command.
+
+Search reads the Document and Paths directly and does not create or combine
+the structural Resource Explanation catalogs. Those catalogs hold every item
+and navigation collection and validate every snapshot against its schema.
+In a NativeAOT CLI, a search that created and combined all six took 75 ms;
+reading the projections takes 41 ms, against 32 ms with no structural
+population. Because the entry and the exact
+catalog share their inputs, a search path is the path exact explanation
+resolves. That equivalence, and that every explained catalog is admitted, are
+host wiring invariants with host tests, not checks repeated on every search.
 
 From each admitted catalog, search takes the Section and Category resources.
 Structural items, item collections, navigation collections, and the catalog
@@ -314,8 +325,9 @@ own. Those sections remain reachable by exact path.
 A search over both families evaluates the complete union.
 `CandidateResourceCount` counts every admitted capability and structural
 resource, and the same ranking applies to both. A host that adds a structural
-catalog to search and omits it from exact explanation, or the reverse, fails
-catalog construction rather than returning a partial population.
+catalog to search and omits it from exact explanation, or the reverse, breaks
+a host wiring invariant; the host's wiring test fails rather than the host
+shipping a partial population.
 
 ## Canonical search-term projection
 
@@ -484,13 +496,16 @@ represented by a fabricated capability identity.
 `library-literal` for the production witness. It is empty for a structural
 result.
 
-This changes the serialized result shape. `resource_identity` becomes absent
-for a structural result, and `structural_identity` is present only for one.
-Plain Content JSON, `--envelope`, and the Browser wire projection carry the
-same one-of shape. A host that admits no structural catalog, as the Browser
-does today, emits only capability-family results, whose existing serialized
-fields are unchanged. Each route and
-production-binding reference retains its typed composed identity. The CLI may
+This changes the serialized result shape. Plain Content JSON and `--envelope`
+serialize `resource_identity` as `null` for a structural result and
+`structural_identity` as `null` for a capability-family result. A host that
+admits no structural catalog, as the Browser does today, emits only
+capability-family results, whose existing serialized fields are unchanged.
+The Browser wire projection carries no structural identity until the Browser
+admits structural catalogs; until then it rejects a structural result
+visibly rather than projecting it without its identity. Each
+capability-family route and production-binding reference retains its typed
+composed identity. The CLI may
 render a copyable discovery or execution gesture from a CLI binding; the
 Browser may render a navigation action from a Browser binding. Those
 projections do not become search-owned free-form command text.
@@ -536,8 +551,8 @@ CapabilityCatalogSearch.Search(
   -> InspectionEnvelope<CapabilityCatalogSearchDocument>
 ```
 
-`explanationCatalog` is then the host's combined exact-explanation catalog,
-which resolves both families' paths. The three-argument form searches an
+`explanationCatalog` resolves the capability family's paths; the structural
+family's paths come from its entries. The three-argument form searches an
 empty structural population.
 
 The operation is synchronous because it consumes a settled in-memory catalog
@@ -598,9 +613,13 @@ Selecting or copying a returned path is the explicit transition to exact
 explanation.
 
 The handoff gate must prove that every returned path resolves to the same
-typed resource identity represented by the search row. A dangling path, a
-path that resolves to another identity, or a result synthesized without an
-explainable resource prevents catalog construction or operation completion.
+typed resource identity represented by the search row. For the capability
+family, a dangling path, a path that resolves to another identity, or a result
+synthesized without an explainable resource prevents catalog construction or
+operation completion. For the structural family, the gate is the host's wiring
+test, because search reads the same inputs the host creates its exact
+structural catalog from (see
+[Structural catalog population](#structural-catalog-population)).
 
 ## Explain facade and Browser adoption
 
@@ -705,8 +724,9 @@ Catalog construction failure remains a typed operation failure. Search does
 not skip malformed resources, duplicate identities, missing paths, dangling
 routes, or invalid production bindings and then claim a complete population.
 The same rule covers a structural entry whose Route path is not its catalog
-root, two entries for the same catalog, and a structural resource whose path
-does not resolve in the host's exact-explanation catalog to that resource.
+root, two entries for the same catalog, a Section or Category with no path
+registration or more than one, a registration with no Discovery resource, and
+a path outside its catalog root.
 
 Cancellation is not required for the first synchronous bounded operation. If
 later catalog scale requires cancellation, the operation must distinguish
@@ -724,7 +744,7 @@ publish a partially ranked prefix as complete.
 | A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
 | Search terms use owner-issued fields rather than adapter-authored explanation prose | Implemented: bounded-result regression proving generic Query Space and consumer-binding summaries do not participate |
 | A host searches every composed capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
-| A host searches every structural catalog it explains | Pending (#10068): CLI regression asserting that the admitted structural catalogs equal the six roots of the combined `explain` catalog |
+| A host searches every structural catalog it explains | Implemented: a CLI wiring test proves every Section and Category of the complete `explain` catalog is admitted, and a CLI facade theory finds a result under each of the six roots |
 | Ranking is independent of registration order | Implemented: permutation test over equivalent composed catalogs |
 | Equal scores use provenance, complete-versus-segment, and path tie-breakers | Implemented: focused ordering tests over production and bounded synthetic capability graphs |
 | Search evaluates the complete available population before applying the result bound | Implemented: result-count and truncation test |
@@ -739,11 +759,11 @@ publish a partially ranked prefix as complete.
 | Equal requests over the same catalog generation produce equal Content, Share, and diagnostics | Guaranteed by the single host-neutral operation; a cross-host shared-generation harness remains pending |
 | The real agent path reaches the production literal query | Implemented: CLI end-to-end test using `literal`, exact explanation, and `Microsoft.Azure.SignalR@1.33.1` at `net8.0` |
 | Capability search has an available portable Browser Share | Pending: the first adoption reports `InspectionShare.NonProjectable` explicitly |
-| `metrics`, `unsafe`, `leverage`, and `families` reach the Library sections that own them | Pending (#10068): CLI facade test over the combined structural population |
-| A structural section's Summary participates and its Basis, Empty, Boundary, and columns do not | Pending (#10068): host-neutral term-provenance test |
-| Every structural result path resolves to the same Discovery resource in the exact-explanation catalog | Pending (#10068): search-to-Resource-Explanation handoff test over every admitted structural catalog |
-| The structural population covers every Section and Category of each admitted catalog and no item, root, or collection | Pending (#10068): count test against the structural catalog's Discovery Document |
-| Structural search acquires nothing and runs no producer | Pending (#10068): the existing CLI acquisition seam test extended to a structural match |
+| `metrics`, `unsafe`, `leverage`, and `families` reach the Library sections that own them | Implemented: CLI facade theory that also follows each returned path through exact explanation |
+| A structural section's Summary participates and its Basis, Empty, Boundary, and columns do not | Implemented: host-neutral term-provenance tests |
+| Every structural result path resolves to the same Discovery resource in the exact-explanation catalog | Implemented: a CLI wiring test resolves every admitted path in the complete `explain` catalog to its Section or Category type, a host-neutral test resolves every candidate in the structural catalog created from the same inputs, and host-neutral rejection tests cover the entry checks |
+| The structural population covers every Section and Category of each admitted catalog and no item, root, or collection | Implemented: host-neutral candidate-count test over a catalog with a column item |
+| Structural search acquires nothing and runs no producer | Implemented: the CLI acquisition seam test runs a structural match |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -773,8 +793,8 @@ implementation; this adoption adds no new matching algorithm.
 6. Admit the CLI's explained structural catalogs, Library first, as the
    structural catalog population with their section-selection bindings
    ([#10068](https://github.com/richlander/dotnet-inspect/issues/10068)).
-   **Designed.** The Browser admits structural catalogs when its structural
-   explanation consumer lands.
+   **Complete for the CLI.** The Browser admits structural catalogs when its
+   structural explanation consumer lands.
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.

@@ -33,7 +33,7 @@ public static class Utf8VisualEncoder
                     out int width);
             if (status != OperationStatus.Done)
             {
-                width = 1;
+                // Each ill-formed byte is spelled on its own, as its surrogate escape.
                 encodedLength = checked(encodedLength + 6);
                 forms |= VisualForm.BmpHex;
                 concerns |= TextConcern.Surrogate;
@@ -48,9 +48,10 @@ public static class Utf8VisualEncoder
             }
             else
             {
-                encodedLength = checked(
-                    encodedLength + SpellingLength(scalar));
-                forms |= FormFor(scalar);
+                (int length, VisualForm form) =
+                    ScalarSpelling.For(scalar.Value);
+                encodedLength = checked(encodedLength + length);
+                forms |= form;
                 if (scalar.Value != '\\')
                 {
                     concerns |= ScalarPolicies.ConcernFor(
@@ -84,7 +85,7 @@ public static class Utf8VisualEncoder
             {
                 WriteBmpHex(
                     encoded.AsSpan(written, 6),
-                    0xDC00 + source[offset]);
+                    ScalarSpelling.SurrogateEscape(source[offset]));
                 written += 6;
                 offset++;
                 continue;
@@ -110,26 +111,6 @@ public static class Utf8VisualEncoder
             forms,
             concerns);
     }
-
-    private static int SpellingLength(Rune scalar) =>
-        scalar.Value switch
-        {
-            '\\' => 2,
-            <= 0x1F => 3,
-            0x7F => 3,
-            <= 0xFFFF => 6,
-            _ => 10,
-        };
-
-    private static VisualForm FormFor(Rune scalar) =>
-        scalar.Value switch
-        {
-            '\\' => VisualForm.Backslash,
-            <= 0x1F => VisualForm.Caret,
-            0x7F => VisualForm.CaretDelete,
-            <= 0xFFFF => VisualForm.BmpHex,
-            _ => VisualForm.AstralHex,
-        };
 
     private static int WriteSpelling(
         Span<byte> destination,

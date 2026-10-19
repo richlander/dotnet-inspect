@@ -733,7 +733,9 @@ through the QuerySpace route in
 - Inspect Web's TypeScript
   [member-group loader](../inspect-web/src/dotnet-inspect.ts) invokes the
   generated `queryMemberGroupDocument` facade for package, Platform, and
-  uploaded-Library Browser experiences; and
+  uploaded-Library Browser experiences. The managed exports execute
+  `MemberDocumentResolutionOperation` and project its final exact or overview
+  document into the unchanged Browser transport; and
 - the superseded default host-local overload-family construction is retired.
   Advanced explicit sections and exact-Member drill-down remain only where
   they answer distinct current questions.
@@ -745,9 +747,10 @@ uses that row's owner-issued identity to select `MemberDocument` rather than
 exposing a one-row `MemberOverviewDocument`. The neighboring 15-row `Serialize`
 family proves that the same operation returns the complete
 `MemberOverviewDocument`; a missing group remains typed rejection. CLI default
-Tree and explicit Tree consume this final resolution. The explicit returned-row
-documentation table and Browser family views continue to consume the
-transitional operation until their focused adoption slices.
+Tree, explicit Tree, and Browser family views consume this final resolution.
+The explicit returned-row documentation table continues to consume the
+transitional operation until attachment composition has its focused adoption
+slice.
 
 `MemberContextualExplanationOperation.ExplainResolvedMember` consumes only the
 completed overview or exact success variants from that resolver. It projects

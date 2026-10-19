@@ -569,6 +569,8 @@ const changeKinds = [
   "TypeAttributeRemoved",
   "MemberAttributeAdded",
   "MemberAttributeRemoved",
+  "TypeAccessibilityChanged",
+  "MemberAccessibilityChanged",
 ] as const;
 
 function validateChanges(value: unknown, description: string): void {

@@ -1324,30 +1324,6 @@ public sealed partial class PackageHouse
                         failures);
                 }
 
-                if (request.AssetSelection
-                        == PackageHouseAssetSelectionKind.Runtime
-                    && request.TargetContext?.RequestedFramework is null)
-                {
-                    failures.Add(
-                        new PackageHouseFailure.Stage(
-                            PackageHouseFailureStage.Selection,
-                            Reason(
-                                "Runtime package realization requires an exact target framework.")));
-                    PackageHouseEvidence rejectedEvidence = new(
-                        request,
-                        decision,
-                        acquisition,
-                        failures: failures);
-                    return new PackageHouseSettlement.Acquired(
-                        new PackageHouseResult.Rejected(
-                            rejectedEvidence,
-                            Reason(
-                                "Runtime package realization requires an exact target framework.")),
-                        payload,
-                        payloadResult,
-                        selectionUsesOriginalSources);
-                }
-
                 PackageHouseRealizationReceipt realization =
                     CreateRealization(
                         request,
@@ -2165,6 +2141,11 @@ public sealed partial class PackageHouse
                     request,
                     directory,
                     names),
+            PackageHouseAssetSelectionKind.LibraryPopulation =>
+                SelectRangedLibraryPopulationEntries(
+                    request,
+                    packageId,
+                    directory),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
                 request.AssetSelection,
@@ -2282,13 +2263,22 @@ public sealed partial class PackageHouse
         PackageHouseRequest request,
         string packageId,
         IPackageContent directory,
-        PackageImplementationNames? names)
-    {
-        PackageCompileAssetSelection compile =
+        PackageImplementationNames? names) =>
+        SelectRangedCompileEntries(
+            request,
+            directory,
+            names,
             EvaluateCompileSelection(
                 request,
                 directory,
-                packageId).Selection;
+                packageId).Selection);
+
+    private static PackageRangedSelection SelectRangedCompileEntries(
+        PackageHouseRequest request,
+        IPackageContent directory,
+        PackageImplementationNames? names,
+        PackageCompileAssetSelection compile)
+    {
         IEnumerable<string> surface =
             compile.Assets.Select(static asset => asset.Path);
         if (request.AssetDemand == PackageAssetDemand.Surface)
@@ -2363,13 +2353,22 @@ public sealed partial class PackageHouse
         IPackageContent directory,
         PackageImplementationNames? names)
     {
-        if (request.TargetContext?.RequestedFramework is not { } framework)
-            return new([]);
-        if (PackageAssetSelector.Evaluate(
-                directory,
-                framework,
-                request.TargetContext.RuntimeIdentifier).Selection
-            is not PackageAssetSelection.Selected selected)
+        PackageAssetSelection selection =
+            EvaluateRuntimeSelection(
+                request,
+                directory).Selection;
+        return SelectRangedRuntimeEntries(
+            directory,
+            names,
+            selection);
+    }
+
+    private static PackageRangedSelection SelectRangedRuntimeEntries(
+        IPackageContent directory,
+        PackageImplementationNames? names,
+        PackageAssetSelection selection)
+    {
+        if (selection is not PackageAssetSelection.Selected selected)
         {
             return new([]);
         }
@@ -2379,6 +2378,30 @@ public sealed partial class PackageHouse
             ? new(WholeFolders(universe, directory))
             : new([], Anchors(universe.Where(names.MatchesPath), directory));
     }
+
+    private static PackageRangedSelection
+        SelectRangedLibraryPopulationEntries(
+            PackageHouseRequest request,
+            string packageId,
+            IPackageContent directory) =>
+        EvaluateLibraryPopulation(
+            request,
+            directory,
+            packageId) switch
+        {
+            PackageLibraryPopulationSelection.Compile compile =>
+                SelectRangedCompileEntries(
+                    request,
+                    directory,
+                    names: null,
+                    compile.CompileReceipt.Selection),
+            PackageLibraryPopulationSelection.Runtime runtime =>
+                SelectRangedRuntimeEntries(
+                    directory,
+                    names: null,
+                    runtime.RuntimeReceipt.Selection),
+            _ => new([]),
+        };
 
     private static PackageRangedSelection AddRootManifest(
         PackageRangedSelection selected,
@@ -2471,11 +2494,17 @@ public sealed partial class PackageHouse
                 new PackageHouseRealizationReceipt.Runtime(
                     acquisition,
                     NameImplementation(
-                        PackageAssetSelector.Evaluate(
-                            content,
-                            request.TargetContext!.RequestedFramework!,
-                            request.TargetContext.RuntimeIdentifier),
+                        EvaluateRuntimeSelection(
+                            request,
+                            content),
                         request.ImplementationNames)),
+            PackageHouseAssetSelectionKind.LibraryPopulation =>
+                new PackageHouseRealizationReceipt.LibraryPopulation(
+                    acquisition,
+                    EvaluateLibraryPopulation(
+                        request,
+                        content,
+                        acquisition.Candidate.Coordinate.PackageId)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(request),
                 request.AssetSelection,
@@ -2509,6 +2538,45 @@ public sealed partial class PackageHouse
             IPackageContent content,
             string packageId) =>
         PackageCompileAssetSelector.Evaluate(
+            content,
+            packageId,
+            CompilePolicy(request),
+            request.TargetContext?.RequestedFramework,
+            request.TargetContext?.RuntimeIdentifier,
+            request.TargetContext?.IncludesNestedCompileAssets ?? true);
+
+    private static PackageAssetSelectionReceipt EvaluateRuntimeSelection(
+        PackageHouseRequest request,
+        IPackageContent content)
+    {
+        PackageHouseTargetContext? target = request.TargetContext;
+        if (target?.RequestedFramework is { } framework)
+        {
+            PackageAssetSelectionReceipt explicitSelection =
+                PackageAssetSelector.Evaluate(
+                    content,
+                    framework,
+                    target.RuntimeIdentifier);
+            if (target.RuntimeIdentifier is not null
+                || explicitSelection.Selection
+                    is not PackageAssetSelection.NoMatch)
+            {
+                return explicitSelection;
+            }
+        }
+
+        return PackageAssetSelector.EvaluateSingleRuntime(
+            content,
+            target?.RequestedFramework,
+            target?.RuntimeIdentifier);
+    }
+
+    private static PackageLibraryPopulationSelection
+        EvaluateLibraryPopulation(
+            PackageHouseRequest request,
+            IPackageContent content,
+            string packageId) =>
+        PackageLibraryPopulationSelector.Evaluate(
             content,
             packageId,
             CompilePolicy(request),
@@ -2597,9 +2665,70 @@ public sealed partial class PackageHouse
                         _ =>
                             "The acquired package runtime assets could not be selected.",
                     }),
+            PackageHouseRealizationReceipt.LibraryPopulation population =>
+                LibraryPopulationReason(population.Selection),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(realization)),
         };
+
+    private static InertString LibraryPopulationReason(
+        PackageLibraryPopulationSelection selection)
+    {
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                CompileReceipt.Selection.Status:
+                    PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.NoMatch,
+            })
+        {
+            return Reason(
+                "The selected compile Library group is explicitly empty.");
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.NoMatch noMatch,
+            })
+        {
+            return Reason(noMatch.Message);
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.Ambiguous ambiguous,
+            })
+        {
+            return Reason(ambiguous.Message);
+        }
+        if (selection is
+            PackageLibraryPopulationSelection.NonSuccess
+            {
+                RuntimeReceipt.Selection:
+                    PackageAssetSelection.Invalid invalid,
+            })
+        {
+            return Reason(invalid.Message);
+        }
+
+        PackageCompileAssetSelection compile =
+            selection.CompileReceipt.Selection;
+        return Reason(
+            compile.Message
+            ?? compile.Status switch
+            {
+                PackageCompileAssetSelectionStatus.NoCompileAssets =>
+                    "The acquired package carries no compile or runtime Library population.",
+                PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework =>
+                    "The acquired package has no Library population matching the requested target framework.",
+                _ =>
+                    "The acquired package Library population could not be selected.",
+            });
+    }
 
     private static bool IsOperationTimeout(
         PackageHouseFailure failure) =>

@@ -266,6 +266,10 @@ internal sealed record ImplementationMetricAnalysisPlan(
         RequestedMetrics.HasFlag(
             ImplementationMetricKind.DirectCallCount);
 
+    internal bool IncludesInvocationCountMetric =>
+        IncludesDirectCallCountMetric
+        || IncludesDirectCallMetric;
+
     internal bool IncludesCallSiteCountMetric =>
         RequestedMetrics.HasFlag(
             ImplementationMetricKind.CallSiteCount);
@@ -273,6 +277,18 @@ internal sealed record ImplementationMetricAnalysisPlan(
     internal bool IncludesAllocationCountMetric =>
         RequestedMetrics.HasFlag(
             ImplementationMetricKind.AllocationCount);
+
+    internal bool IncludesThrowCountMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.ThrowCount);
+
+    internal bool IncludesUnsafePresenceMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.UnsafePresence);
+
+    internal bool IncludesDirectReflectionCallsMetric =>
+        RequestedMetrics.HasFlag(
+            ImplementationMetricKind.DirectReflectionCalls);
 
     internal bool IncludesAsyncMetric =>
         RequestedMetrics.HasFlag(
@@ -431,7 +447,9 @@ internal sealed record ImplementationMetricAnalysisPlan(
             facts |= ImplementationMetricFactKind.DirectCalls;
         }
         if ((metrics & MetricsRequiringDiscovery)
-            != ImplementationMetricKind.None)
+                != ImplementationMetricKind.None
+            && (metrics & FocusedContextMetrics)
+                == ImplementationMetricKind.None)
         {
             facts |=
                 ImplementationMetricFactKind.DirectCallDiscovery;
@@ -566,6 +584,9 @@ internal sealed record ImplementationMetricAnalysisPlan(
         | ImplementationMetricKind.CallSiteCount
         | ImplementationMetricKind.DirectCalls
         | ImplementationMetricKind.AllocationCount
+        | ImplementationMetricKind.ThrowCount
+        | ImplementationMetricKind.UnsafePresence
+        | ImplementationMetricKind.DirectReflectionCalls
         | ImplementationMetricKind.Async
         | ImplementationMetricKind.NormalFlowComplexity
         | ImplementationMetricKind.LoopCount

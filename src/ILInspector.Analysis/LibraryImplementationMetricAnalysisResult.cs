@@ -66,6 +66,14 @@ internal sealed record MethodImplementationMetricEvidence(
 {
     internal bool? IsAsync { get; init; }
 
+    internal int? AllocationCount { get; init; }
+
+    internal int? ThrowCount { get; init; }
+
+    internal bool? Unsafe { get; init; }
+
+    internal int? ReflectionCallCount { get; init; }
+
     internal ImmutableArray<string> IncompleteReasons { get; init; } = [];
 
     internal bool DirectCallCollectionAttempted { get; init; }

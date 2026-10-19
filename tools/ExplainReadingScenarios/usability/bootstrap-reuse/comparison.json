@@ -1,0 +1,284 @@
+{
+  "package-hal": {
+    "requests": {
+      "before": 4,
+      "after": 3,
+      "delta": -1
+    },
+    "guidance_requests": {
+      "before": 3,
+      "after": 2,
+      "delta": -1
+    },
+    "guidance_retrieved_bytes": {
+      "before": 29494,
+      "after": 21933,
+      "delta": -7561
+    },
+    "guidance_rendered_bytes": {
+      "before": 13526,
+      "after": 17002,
+      "delta": 3476
+    },
+    "retrieved_with_guide_bytes": {
+      "before": 39186,
+      "after": 32027,
+      "delta": -7159
+    },
+    "rendered_with_guide_bytes": {
+      "before": 20765,
+      "after": 24574,
+      "delta": 3809
+    },
+    "failed_requests": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    },
+    "jq_errors": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    },
+    "format_violations": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    }
+  },
+  "package-data": {
+    "requests": {
+      "before": 6,
+      "after": 5,
+      "delta": -1
+    },
+    "guidance_requests": {
+      "before": 5,
+      "after": 4,
+      "delta": -1
+    },
+    "guidance_retrieved_bytes": {
+      "before": 11195,
+      "after": 11669,
+      "delta": 474
+    },
+    "guidance_rendered_bytes": {
+      "before": 10336,
+      "after": 11524,
+      "delta": 1188
+    },
+    "retrieved_with_guide_bytes": {
+      "before": 20134,
+      "after": 21012,
+      "delta": 878
+    },
+    "rendered_with_guide_bytes": {
+      "before": 17229,
+      "after": 18780,
+      "delta": 1551
+    },
+    "failed_requests": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    },
+    "jq_errors": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    },
+    "format_violations": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    }
+  },
+  "api-hal": {
+    "requests": {
+      "before": 6,
+      "after": 3,
+      "delta": -3
+    },
+    "guidance_requests": {
+      "before": 3,
+      "after": 1,
+      "delta": -2
+    },
+    "guidance_retrieved_bytes": {
+      "before": 13888,
+      "after": 3307,
+      "delta": -10581
+    },
+    "guidance_rendered_bytes": {
+      "before": 13888,
+      "after": 3307,
+      "delta": -10581
+    },
+    "retrieved_with_guide_bytes": {
+      "before": 36238,
+      "after": 24602,
+      "delta": -11636
+    },
+    "rendered_with_guide_bytes": {
+      "before": 33922,
+      "after": 18560,
+      "delta": -15362
+    },
+    "failed_requests": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    },
+    "jq_errors": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    },
+    "format_violations": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    }
+  },
+  "api-data": {
+    "requests": {
+      "before": 3,
+      "after": 8,
+      "delta": 5
+    },
+    "guidance_requests": {
+      "before": 1,
+      "after": 2,
+      "delta": 1
+    },
+    "guidance_retrieved_bytes": {
+      "before": 3307,
+      "after": 11182,
+      "delta": 7875
+    },
+    "guidance_rendered_bytes": {
+      "before": 3307,
+      "after": 11182,
+      "delta": 7875
+    },
+    "retrieved_with_guide_bytes": {
+      "before": 24072,
+      "after": 117196,
+      "delta": 93124
+    },
+    "rendered_with_guide_bytes": {
+      "before": 22761,
+      "after": 43162,
+      "delta": 20401
+    },
+    "failed_requests": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "jq_errors": {
+      "before": 0,
+      "after": 1,
+      "delta": 1
+    },
+    "format_violations": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    }
+  },
+  "vocabulary-hal": {
+    "requests": {
+      "before": 19,
+      "after": 3,
+      "delta": -16
+    },
+    "guidance_requests": {
+      "before": 19,
+      "after": 3,
+      "delta": -16
+    },
+    "guidance_retrieved_bytes": {
+      "before": 39975,
+      "after": 6341,
+      "delta": -33634
+    },
+    "guidance_rendered_bytes": {
+      "before": 32220,
+      "after": 6331,
+      "delta": -25889
+    },
+    "retrieved_with_guide_bytes": {
+      "before": 43150,
+      "after": 9982,
+      "delta": -33168
+    },
+    "rendered_with_guide_bytes": {
+      "before": 35395,
+      "after": 9972,
+      "delta": -25423
+    },
+    "failed_requests": {
+      "before": 1,
+      "after": 0,
+      "delta": -1
+    },
+    "jq_errors": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    },
+    "format_violations": {
+      "before": 0,
+      "after": 0,
+      "delta": 0
+    }
+  },
+  "vocabulary-data": {
+    "requests": {
+      "before": 24,
+      "after": 6,
+      "delta": -18
+    },
+    "guidance_requests": {
+      "before": 24,
+      "after": 6,
+      "delta": -18
+    },
+    "guidance_retrieved_bytes": {
+      "before": 43554,
+      "after": 38548,
+      "delta": -5006
+    },
+    "guidance_rendered_bytes": {
+      "before": 28461,
+      "after": 8902,
+      "delta": -19559
+    },
+    "retrieved_with_guide_bytes": {
+      "before": 46665,
+      "after": 42125,
+      "delta": -4540
+    },
+    "rendered_with_guide_bytes": {
+      "before": 31572,
+      "after": 12479,
+      "delta": -19093
+    },
+    "failed_requests": {
+      "before": 3,
+      "after": 1,
+      "delta": -2
+    },
+    "jq_errors": {
+      "before": 1,
+      "after": 0,
+      "delta": -1
+    },
+    "format_violations": {
+      "before": 1,
+      "after": 0,
+      "delta": -1
+    }
+  }
+}

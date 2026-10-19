@@ -2,10 +2,22 @@ namespace InertText;
 
 internal sealed class OpaqueByteBacking
 {
-    internal OpaqueByteBacking(byte[] bytes) =>
+    internal OpaqueByteBacking(byte[] bytes, bool frozen)
+    {
         Bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
+        IsFrozen = frozen;
+    }
 
     internal byte[] Bytes { get; }
+
+    // Builder state. A builder and every copy of it share this one object, so they share one
+    // write position, and freezing here also stops a copy taken before Freeze. Ranges may be
+    // issued only after the owner stops writing.
+    internal int Written { get; set; }
+
+    internal bool IsFrozen { get; private set; }
+
+    internal void Freeze() => IsFrozen = true;
 }
 
 /// <summary>
@@ -27,6 +39,9 @@ public readonly struct OpaqueByteRange :
         int length)
     {
         ArgumentNullException.ThrowIfNull(backing);
+        if (!backing.IsFrozen)
+            throw new InvalidOperationException(
+                "A range cannot be issued over a backing that is still being written.");
         if ((uint)offset > (uint)backing.Bytes.Length)
             throw new ArgumentOutOfRangeException(nameof(offset));
         if ((uint)length > (uint)(backing.Bytes.Length - offset))
@@ -43,7 +58,7 @@ public readonly struct OpaqueByteRange :
 
     internal static OpaqueByteRange FromOwned(byte[] bytes)
     {
-        var backing = new OpaqueByteBacking(bytes);
+        var backing = new OpaqueByteBacking(bytes, frozen: true);
         return new(backing, 0, bytes.Length);
     }
 
@@ -70,6 +85,20 @@ public readonly struct OpaqueByteRange :
             ? default
             : new(_backing, checked(_offset + offset), length);
     }
+
+    /// <summary>Returns the frozen subrange recorded by a builder slot.</summary>
+    public OpaqueByteRange Slice(OpaqueByteRangeSlot slot) =>
+        Slice(slot.Offset, slot.Length);
+
+    /// <summary>
+    /// Tests byte-exact equality with a caller-supplied sequence without lending this range.
+    /// </summary>
+    /// <remarks>
+    /// The query is input to the comparison and is never retained. The answer does not
+    /// classify either sequence as text.
+    /// </remarks>
+    public bool SequenceEqual(ReadOnlySpan<byte> other) =>
+        Bytes.SequenceEqual(other);
 
     /// <inheritdoc />
     public bool Equals(OpaqueByteRange other) =>

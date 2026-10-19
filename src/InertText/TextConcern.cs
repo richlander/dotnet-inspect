@@ -22,7 +22,10 @@ public enum TextConcern
     /// <summary>A formatting scalar in Unicode category <c>Cf</c>, including bidi controls.</summary>
     Format = 1 << 1,
 
-    /// <summary>An unpaired UTF-16 surrogate in Unicode category <c>Cs</c>.</summary>
+    /// <summary>
+    /// An unpaired UTF-16 surrogate in Unicode category <c>Cs</c>, or an ill-formed UTF-8 byte,
+    /// which is spelled as its surrogate escape <c>U+DC80</c>–<c>U+DCFF</c>.
+    /// </summary>
     Surrogate = 1 << 2,
 
     /// <summary>A Unicode line separator in category <c>Zl</c>.</summary>

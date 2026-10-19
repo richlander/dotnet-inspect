@@ -375,7 +375,9 @@ public static class PackageExtractor
         string tempDirPrefix = "inspect-pkg",
         NuGetSourceOptions? sourceOptions = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        PackageHouseTargetContext? compileTargetContext = null)
+        PackageHouseTargetContext? compileTargetContext = null,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile)
     {
         if (HttpClientFactory.IsOffline
             || !IsValidPackageId(packageId)
@@ -388,7 +390,8 @@ public static class PackageExtractor
             client.Timeout,
             tempDirPrefix,
             createComposition,
-            compileTargetContext);
+            compileTargetContext,
+            assetSelection);
         return await ExtractPackageCoreAsync(
             client, packageId, log, tempDirPrefix, sourceOptions,
             normalizedVersion, forceLatest: false, includePrerelease: false, session)
@@ -409,7 +412,9 @@ public static class PackageExtractor
         bool includePrerelease = false,
         string? rangeAddress = null,
         Func<DesktopPackageSourceComposition>? createComposition = null,
-        PackageHouseTargetContext? compileTargetContext = null)
+        PackageHouseTargetContext? compileTargetContext = null,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile)
     {
         if (HttpClientFactory.IsOffline || !IsValidPackageId(packageId))
         {
@@ -421,7 +426,8 @@ public static class PackageExtractor
             client.Timeout,
             tempDirPrefix,
             createComposition,
-            compileTargetContext);
+            compileTargetContext,
+            assetSelection);
         PackageExtractionOutcome selected;
         using (FeedFailureTelemetry.Scope())
         {

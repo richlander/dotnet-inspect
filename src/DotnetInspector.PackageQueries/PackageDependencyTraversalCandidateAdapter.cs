@@ -14,24 +14,26 @@ namespace DotnetInspector.PackageQueries;
 /// authorization or version-selection logic.
 /// </summary>
 public sealed class PackageDependencyTraversalCandidateAdapter(
-    IPackageDependencyCandidateSource source) :
+    IPackageSourceAuthorization sourceAuthorization,
+    Action<string>? log = null) :
     IPackageDependencyTraversalCandidateResolver
 {
-    private readonly IPackageDependencyCandidateSource _source =
-        source ?? throw new ArgumentNullException(nameof(source));
+    private readonly IPackageSourceAuthorization _sourceAuthorization =
+        sourceAuthorization
+        ?? throw new ArgumentNullException(nameof(sourceAuthorization));
 
     public async ValueTask<PackageDependencyTraversalCandidateResult> ResolveAsync(
         PackageDependencyEvidenceDeclaration declaration,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
+        PackageSourceOperationLease operation)
     {
         ArgumentNullException.ThrowIfNull(declaration);
+        ArgumentNullException.ThrowIfNull(operation);
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
                 new PackageDependencyCandidateRequest.Declared(declaration),
-                _source,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                _sourceAuthorization,
+                operation,
+                log).ConfigureAwait(false);
         return result switch
         {
             PackageDependencyCandidateResult.Resolved resolved =>

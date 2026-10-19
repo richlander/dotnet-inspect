@@ -273,7 +273,7 @@ public partial class PackageQueryTests
                 </group>
                 """),
             "Contoso.Root");
-        var traversal = new FakePackageQueryTraversal(
+        await using var traversal = new FakePackageQueryTraversal(
             ("Contoso.Bridge", "1.0.0",
                 """
                 <group targetFramework="net10.0">
@@ -364,7 +364,7 @@ public partial class PackageQueryTests
                 </group>
                 """),
             "Contoso.Root");
-        var traversal = new FakePackageQueryTraversal(
+        await using var traversal = new FakePackageQueryTraversal(
             ("Contoso.Target", "2.0.0", ""));
         PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
             "Contoso.*",
@@ -404,7 +404,7 @@ public partial class PackageQueryTests
                 </group>
                 """),
             "Contoso.Root");
-        var traversal = new FakePackageQueryTraversal(
+        await using var traversal = new FakePackageQueryTraversal(
             ("Contoso.Target", "2.0.0", ""));
         PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
             "Contoso.*",
@@ -450,7 +450,7 @@ public partial class PackageQueryTests
                 </group>
                 """),
             "Contoso.Root");
-        var traversal = new FakePackageQueryTraversal(
+        await using var traversal = new FakePackageQueryTraversal(
             ("Contoso.Bridge", "1.0.0",
                 """
                 <group targetFramework="net10.0">
@@ -503,7 +503,7 @@ public partial class PackageQueryTests
                 </group>
                 """),
             "Contoso.Root");
-        var traversal = new FakePackageQueryTraversal(
+        await using var traversal = new FakePackageQueryTraversal(
             ("Contoso.Bridge", "1.0.0",
                 """
                 <group targetFramework="net10.0">
@@ -554,7 +554,7 @@ public partial class PackageQueryTests
                 </group>
                 """),
             "Contoso.Root");
-        var traversal = new FakePackageQueryTraversal();
+        await using var traversal = new FakePackageQueryTraversal();
         PackageQueryPlan plan = Accepted(PackageQuery.PlanInput(
             "Contoso.*",
             terms:

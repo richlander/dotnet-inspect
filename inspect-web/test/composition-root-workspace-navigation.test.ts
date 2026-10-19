@@ -1140,8 +1140,8 @@ test("package Metadata retries remain explicit rather than render-driven", () =>
     ?? "";
   assert.match(
     autoLoad,
-    /state\.packageMetadataKey === packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
-  assert.doesNotMatch(autoLoad, /packageMetadataError/);
+    /packageMetadataStateKey\(state\.packageMetadata\)[\s\S]*=== packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+  assert.doesNotMatch(autoLoad, /status === "failed"/);
 });
 
 test("Spotlight searches framework Libraries without offering a Platform root", () => {

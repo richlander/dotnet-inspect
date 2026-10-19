@@ -799,19 +799,43 @@ public interface IPackageQueryContentProvider
 /// </summary>
 public sealed record PackageQueryDependencyTraversalServices
 {
+    private readonly Func<
+        CancellationToken,
+        PackageSourceOperationLease> _issueOperation;
+
     public PackageQueryDependencyTraversalServices(
         IPackageDependencyTraversalCandidateResolver candidateResolver,
-        IPackageDependencyTraversalManifestAcquirer manifestAcquirer)
+        IPackageDependencyTraversalManifestAcquirer manifestAcquirer,
+        Func<CancellationToken, PackageSourceOperationLease> issueOperation)
     {
         CandidateResolver = candidateResolver
             ?? throw new ArgumentNullException(nameof(candidateResolver));
         ManifestAcquirer = manifestAcquirer
             ?? throw new ArgumentNullException(nameof(manifestAcquirer));
+        _issueOperation = issueOperation
+            ?? throw new ArgumentNullException(nameof(issueOperation));
     }
 
     public IPackageDependencyTraversalCandidateResolver CandidateResolver { get; }
 
     public IPackageDependencyTraversalManifestAcquirer ManifestAcquirer { get; }
+
+    public PackageSourceOperationLease IssueOperation(
+        CancellationToken cancellationToken)
+    {
+        PackageSourceOperationLease operation =
+            _issueOperation(cancellationToken)
+            ?? throw new InvalidOperationException(
+                "Package Query dependency traversal did not receive a Package Source operation.");
+        if (operation.CancellationToken != cancellationToken)
+        {
+            operation.Dispose();
+            throw new InvalidOperationException(
+                "Package Query dependency traversal received a Package Source operation for another caller cancellation.");
+        }
+
+        return operation;
+    }
 }
 
 internal sealed record BoundPackageQueryTerm(

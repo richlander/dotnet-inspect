@@ -186,9 +186,11 @@ import {
 import {
   createPackageInspectionCoordinator,
   normalizePackageIntegrationsSnapshot,
+  normalizePackageMetadataSnapshot,
   normalizePackageOpportunitiesSnapshot,
   normalizePackageVulnerabilitySnapshot,
   packageIntegrationsStateKey,
+  packageMetadataStateKey,
   packageOpportunitiesStateKey,
   packageVulnerabilityStateKey,
   projectPackagePerformanceType,
@@ -197,6 +199,7 @@ import {
   type PackagePerformance,
   type PackageResourceTriage,
   type PackageIntegrationsState,
+  type PackageMetadataState,
   type PackageOpportunitiesState,
   type PackageVulnerabilityState,
 } from "./package-inspection.ts";
@@ -380,8 +383,18 @@ import {
   createPackageDocumentTitles,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
+  type PackageDocumentRenderInput,
   type DocumentViewerState,
 } from "./document-inspection.ts";
+import {
+  browserDocumentFragmentPresentationLeaves,
+  completeContainedDocumentFragment,
+  containedDocumentFragmentHtml,
+  prepareContainedDocumentFragment,
+  type ContainedDocumentFragment,
+  type DocumentPresentationTarget,
+  type DocumentTextPolicy,
+} from "./contained-document.ts";
 import {
   renderLibraryOverviewContent,
   renderOverviewSurface,
@@ -586,7 +599,6 @@ import {
   selectMetadataImage,
   type ExplorerFocus,
   type MetadataRootSelection,
-  type PackageMetadata,
 } from "./metadata-viewer.ts";
 import {
   bindSettingsPanel,
@@ -921,8 +933,8 @@ let engineClient: EngineClient;
 let cancelPackageActivity: EngineClient["package"]["cancelPackageActivity"];
 let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
 let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
-let containPackageDocumentHtml:
-  EngineClient["package"]["containPackageDocumentHtml"];
+let containPackageDocumentLeaves:
+  EngineClient["package"]["containPackageDocumentLeaves"];
 let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
@@ -1167,7 +1179,7 @@ async function loadEngineModule() {
       engineClient.source.cancelTypeExplorerQuery(...args);
     ({
       getPackageDocument: inspectPackageDocument,
-      containPackageDocumentHtml,
+      containPackageDocumentLeaves,
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
@@ -1620,10 +1632,7 @@ const initialState = {
   packageLibraryDependencyStructureLoading: false,
   packageLibraryDependencyStructureError: "",
   packageLibraryDependencyStructureKey: "",
-  packageMetadata: null,
-  packageMetadataLoading: false,
-  packageMetadataError: "",
-  packageMetadataKey: "",
+  packageMetadata: { status: "idle" as const },
   packageMetadataRoot: "cli" as MetadataRootSelection,
   explorer: null,
   memberCallGraph: null,
@@ -1780,7 +1789,7 @@ interface StateOverrides {
   packageOpportunities: PackageOpportunitiesState;
   packagePerformance: PackagePerformance | null;
   packageResourceTriage: PackageResourceTriage | null;
-  packageMetadata: PackageMetadata | null;
+  packageMetadata: PackageMetadataState;
   explorer: AppExplorerState | null;
   memberCallGraph: InspectedCallGraph | null;
   directUseClusterBoundary:
@@ -2062,7 +2071,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
-  const packageMetadataLoading = snapshotState.packageMetadataLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
   const memberCallGraphExpanding = snapshotState.memberCallGraphExpanding;
   const memberFactsLoading = snapshotState.memberFactsLoading;
@@ -2084,7 +2092,8 @@ function normalizeWorkspaceAsyncSnapshotState(
     normalizePackageOpportunitiesSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
-  snapshotState.packageMetadataLoading = false;
+  snapshotState.packageMetadata =
+    normalizePackageMetadataSnapshot(snapshotState.packageMetadata);
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
   snapshotState.directUseClusterLoading = false;
@@ -2130,7 +2139,6 @@ function normalizeWorkspaceAsyncSnapshotState(
   if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
-  if (packageMetadataLoading) snapshotState.packageMetadataKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
     snapshotState.memberCallGraphKey = "";
   }
@@ -4167,19 +4175,17 @@ const documentInspection = createDocumentInspectionCoordinator({
     request.packageId,
     request.version,
     request.document.path),
-  renderText: renderDocumentText,
-  renderMarkdown,
-  renderMarkdownInline,
+  renderDocument: renderPackageDocument,
   describeError: errorMessage,
   render,
 });
 
 const packageDocumentTitles = createPackageDocumentTitles({
   queryDocument: request => inspectPackageDocument(request.packageId, request.version, request.document.path),
-  renderMarkdown,
-  firstHeading: html => {
+  renderDocument: renderPackageDocument,
+  firstHeading: fragment => {
     const template = document.createElement("template");
-    template.innerHTML = html;
+    template.innerHTML = containedDocumentFragmentHtml(fragment);
     return template.content.querySelector("h1")?.textContent?.trim() || null;
   },
   describeError: errorMessage,
@@ -12207,7 +12213,9 @@ function maybeAutoLoadTypeLeverage() {
 function renderPackageMetadata() {
   const pkg = currentPackage();
   const isPlatform = pkg.isRuntimePack;
-  const fresh = state.packageMetadataKey === packageScopeSignature();
+  const metadataState = state.packageMetadata;
+  const fresh =
+    packageMetadataStateKey(metadataState) === packageScopeSignature();
   const scopedLibrary = selectedLibraryName();
   const platformMetadataSelect = isPlatform && state.rootKind !== "platform"
     ? platformLibrarySelectHtml({
@@ -12234,9 +12242,13 @@ function renderPackageMetadata() {
         </section>`
       : "",
     fresh,
-    loading: state.packageMetadataLoading,
-    error: state.packageMetadataError || "",
-    metadata: state.packageMetadata || null,
+    loading: fresh && metadataState.status === "loading",
+    error: fresh && metadataState.status === "failed"
+      ? metadataState.error
+      : "",
+    metadata: fresh && metadataState.status === "ready"
+      ? metadataState.result
+      : null,
     selectedRoot: state.packageMetadataRoot,
     escapeHtml,
     fmtBytes,
@@ -12256,7 +12268,8 @@ function maybeAutoLoadPackageMetadata() {
   if (!state.atLibraryRoot || state.libraryLens !== "metadata") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (state.packageMetadataKey === packageScopeSignature()) return;
+  if (packageMetadataStateKey(state.packageMetadata)
+      === packageScopeSignature()) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
 
@@ -12320,7 +12333,9 @@ function buildBaseExplorer(
   assemblyFileName: string,
   metadataRoot: MetadataRootSelection,
 ): AppExplorerState | null {
-  const data = state.packageMetadata;
+  const data = state.packageMetadata.status === "ready"
+    ? state.packageMetadata.result
+    : null;
   const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
     || (data?.assemblies || [])[0];
   if (!asm) return null;
@@ -25147,22 +25162,168 @@ function markdownSanitizeConfig() {
   };
 }
 
-async function renderMarkdown(text: string) {
-  const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parse(text, { gfm: true, breaks: false, async: false });
-  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
-  return (await containPackageDocumentHtml(sanitized)).html;
+const displayedDocumentAttributes = ["alt", "title"] as const;
+
+function sanitizeMarkdownFragment(
+  DOMPurify: DomPurifyModule["default"],
+  html: string,
+): DocumentFragment {
+  const sanitized = DOMPurify.sanitize(html, {
+    ...markdownSanitizeConfig(),
+    RETURN_DOM_FRAGMENT: true,
+  });
+  if (!(sanitized instanceof DocumentFragment)) {
+    throw new TypeError(
+      "Package document sanitization did not produce a document fragment.",
+    );
+  }
+  return sanitized;
 }
 
-async function renderDocumentText(text: string) {
-  return (await containPackageDocumentHtml(escapeHtml(text))).html;
+function appendDocumentPresentationText(
+  parent: Node,
+  text: string,
+  policy: DocumentTextPolicy,
+  targets: DocumentPresentationTarget[],
+) {
+  const node = document.createTextNode(text);
+  parent.appendChild(node);
+  targets.push({ kind: "text", node, policy });
 }
 
-async function renderMarkdownInline(text: string) {
+function collectDocumentPresentationTargets(
+  root: ParentNode,
+  textPolicy: DocumentTextPolicy,
+  targets: DocumentPresentationTarget[],
+) {
+  for (const child of root.childNodes) {
+    if (child instanceof Text) {
+      targets.push({ kind: "text", node: child, policy: textPolicy });
+      continue;
+    }
+    if (!(child instanceof Element)) continue;
+    for (const name of displayedDocumentAttributes) {
+      if (child.hasAttribute(name)) {
+        targets.push({
+          kind: "attribute",
+          element: child,
+          name,
+          policy: "Field",
+        });
+      }
+    }
+    collectDocumentPresentationTargets(child, textPolicy, targets);
+  }
+}
+
+function packageDocumentStructure(
+  input: PackageDocumentRenderInput,
+  body: DocumentFragment,
+  description: DocumentFragment | null,
+) {
+  const template = document.createElement("template");
+  const targets: DocumentPresentationTarget[] = [];
+  const frontmatter = input.frontmatter;
+  if (frontmatter) {
+    const card = document.createElement("div");
+    card.className = "doc-frontmatter";
+    const head = document.createElement("div");
+    head.className = "doc-fm-head";
+    const name = document.createElement("strong");
+    appendDocumentPresentationText(
+      name,
+      frontmatter.name,
+      "Field",
+      targets,
+    );
+    head.appendChild(name);
+    if (frontmatter.version) {
+      const version = document.createElement("span");
+      version.className = "doc-fm-version";
+      version.appendChild(document.createTextNode("v"));
+      appendDocumentPresentationText(
+        version,
+        frontmatter.version,
+        "Field",
+        targets,
+      );
+      head.appendChild(version);
+    }
+    card.appendChild(head);
+    if (description) {
+      const descriptionContainer = document.createElement("div");
+      descriptionContainer.className = "doc-fm-desc";
+      collectDocumentPresentationTargets(description, "Prose", targets);
+      descriptionContainer.appendChild(description);
+      card.appendChild(descriptionContainer);
+    }
+    template.content.appendChild(card);
+  }
+
+  const article = document.createElement("article");
+  article.className = "markdown-body";
+  collectDocumentPresentationTargets(body, "Prose", targets);
+  article.appendChild(body);
+  template.content.appendChild(article);
+  return { template, targets };
+}
+
+async function renderPackageDocument(
+  input: PackageDocumentRenderInput,
+  generation: string,
+  currentGeneration: () => string | null,
+): Promise<ContainedDocumentFragment> {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parseInline(text, { gfm: true, async: false });
-  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
-  return (await containPackageDocumentHtml(sanitized)).html;
+  const bodyHtml = marked.parse(input.body, {
+    gfm: true,
+    breaks: false,
+    async: false,
+  });
+  const body = sanitizeMarkdownFragment(DOMPurify, bodyHtml);
+  if (currentGeneration() !== generation) {
+    throw new Error("Package document generation is stale.");
+  }
+  const descriptionHtml = input.frontmatter?.description
+    ? marked.parseInline(input.frontmatter.description, {
+      gfm: true,
+      async: false,
+    })
+    : null;
+  const description = descriptionHtml === null
+    ? null
+    : sanitizeMarkdownFragment(DOMPurify, descriptionHtml);
+  const structure = packageDocumentStructure(input, body, description);
+  const prepared = prepareContainedDocumentFragment(
+    generation,
+    structure.template,
+    structure.targets,
+  );
+  const outcome = await containPackageDocumentLeaves(
+    generation,
+    browserDocumentFragmentPresentationLeaves(prepared),
+  );
+  const completion = completeContainedDocumentFragment(
+    prepared,
+    currentGeneration(),
+    outcome,
+  );
+  if (completion.kind === "rejected") {
+    const identity = completion.identity === null
+      ? ""
+      : ` at leaf ${completion.identity}`;
+    const failure = completion.failure;
+    const managedFailure = failure === null
+      ? ""
+      : ` (${String(failure.kind)}${
+        failure.actual === null ? "" : `; actual ${failure.actual}`
+      }${
+        failure.limit === null ? "" : `; limit ${failure.limit}`
+      })`;
+    throw new Error(
+      `Package document containment rejected ${completion.reason}${identity}${managedFailure}.`,
+    );
+  }
+  return completion.fragment;
 }
 
 function openPackageDocument(path: string) {

@@ -901,7 +901,7 @@ public static partial class WorkspaceCommand
         }
     }
 
-    static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
+    internal static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
         string value)
     {
         EcosystemPackId id = ParseEcosystemPackId(value);
@@ -927,7 +927,7 @@ public static partial class WorkspaceCommand
         return new WorkspaceRegistration.Ecosystem(known.Declaration);
     }
 
-    static EcosystemPackId ParseEcosystemPackId(string value)
+    internal static EcosystemPackId ParseEcosystemPackId(string value)
     {
         string canonical = value.StartsWith(
             "ecosystem.",

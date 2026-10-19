@@ -1661,6 +1661,14 @@ canaries:
   comparison semantics. The Metadata facade adapts those owner-issued values,
   and its typed paths plus positive dependency ceilings own product semantics,
   so its compiler ban input retains only runtime platform hazards.
+- Web Core owns package and Platform scope realization, exact Member
+  resolution, Clone Workspace acquisition, cancellation coordination, and
+  operation lifetime. Queries, Sections, Research, Analysis, Presentation, and
+  Decompiler Annotations own the typed method facts, Clone candidates,
+  integrations, opportunities, structural metrics, implementation profiles,
+  performance results, resource triage, and caret geometry that the Analysis
+  facade adapts. Its typed paths plus positive dependency ceilings own product
+  semantics, so its compiler ban input retains only runtime platform hazards.
 - Web Core's direct project and emitted assembly dependencies are separate
   positive ceilings. They admit the owner-issued package, Platform, workspace,
   query, presentation, call-graph, Metadata identity, and source-acquisition
@@ -1677,10 +1685,19 @@ canaries:
   without executing Decompiler producers. Its typed paths and positive
   dependency ceilings therefore own product semantics, and its compiler ban
   input retains only runtime platform hazards.
-- PDB source inspections project resolved and attributable browse URLs as
-  detached Services-owned values. The Browser Source facade preserves those
-  values without interpreting SourceLink documents, and its positive project
-  and compiled-assembly ratchets exclude `ILInspector.SourceLink`.
+- Web Core owns package, Platform, retained-workspace, exact Member and Type
+  resolution, cancellation coordination, and operation lifetime. Queries,
+  Sections, Services, SourceHouse, CSharp, Decompiler, Research, Presentation,
+  and Markout own the member and Type Source, Type Explorer document, source
+  and method-body comparison, Finding census, and Member Body Diff results that
+  the Browser Source facade adapts. PDB source inspections project resolved and
+  attributable browse URLs as detached Services-owned values, so the facade
+  does not interpret SourceLink documents and its positive project and
+  compiled-assembly ratchets exclude `ILInspector.SourceLink`. Metadata and
+  Queries project logical-member and physical-MethodDef identity before the
+  boundary. The facade's typed paths plus positive dependency ceilings own
+  product semantics, so its compiler inputs retain only three focused
+  projected-identity and failure-value bans plus runtime platform hazards.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

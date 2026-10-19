@@ -305,10 +305,6 @@ public sealed partial class BrowserEngineBoundaryTests
                         ? source
                         : throw new InvalidOperationException(
                             "The test continuation selected another package source."));
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                authorization,
-                sourceLease);
         TimeSpan operationTimeout =
             BrowserPackageWorkspace.SourceSettlementOperationTimeout(
                 deadline.Remaining);
@@ -324,9 +320,8 @@ public sealed partial class BrowserEngineBoundaryTests
         var packages =
             new PackageDependencyMemberCallGraphInspectionSource(
                 new PackageDependencyTraversalCandidateAdapter(
-                    candidateSource),
-                new AuthorizedPackageDependencyManifestSource(
-                    candidateSource),
+                    authorization),
+                new AuthorizedPackageDependencyManifestSource(),
                 new PackageHouse(
                     authorization,
                     packagePlan),

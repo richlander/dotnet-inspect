@@ -1156,6 +1156,86 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
+    public async Task
+        ExtractPinnedPackage_LibraryPopulationRetainsRuntimeRealization()
+    {
+        string id = $"Pinned.RuntimePopulation.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "runtime-only package",
+            library: new byte[17],
+            libraryName: $"{id}.dll",
+            libraryDirectory: "runtimes/linux-x64/lib/net11.0",
+            extraEntries:
+            [
+                ("analyzers/dotnet/cs/Analyzer.dll", new byte[5]),
+            ]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        using var client = new HttpClient(
+            new RejectNetworkHandler(new HttpClientHandler()));
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                client,
+                id,
+                Version,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [FirstFeed] },
+                compileTargetContext:
+                    PackageHouseTargetContext.OwnerDefault(),
+                assetSelection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        PackageExtractionResult result = outcome.Result!;
+        try
+        {
+            PackageHouseSettlement.Acquired settlement =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    result.HouseSettlement);
+            var realization = Assert.IsType<
+                PackageHouseRealizationReceipt.LibraryPopulation>(
+                    settlement.Result.Evidence.Realization);
+            var population = Assert.IsType<
+                PackageLibraryPopulationSelection.Runtime>(
+                    realization.Selection);
+            var selected = Assert.IsType<
+                PackageAssetSelection.Selected>(
+                    population.RuntimeReceipt.Selection);
+
+            Assert.Equal("linux-x64", selected.Universe.RuntimeIdentifier);
+            Assert.Equal("net11.0", selected.Universe.TargetFramework);
+            Assert.Equal(
+                $"runtimes/linux-x64/lib/net11.0/{id}.dll",
+                Assert.Single(selected.Universe.Assets).EntryPath);
+            Assert.True(
+                File.Exists(
+                    Path.Combine(
+                        result.ExtractPath,
+                        "runtimes",
+                        "linux-x64",
+                        "lib",
+                        "net11.0",
+                        $"{id}.dll")));
+            Assert.Equal(
+                1,
+                requests.Count(request =>
+                    request.EndsWith(
+                        ".nupkg",
+                        StringComparison.Ordinal)));
+        }
+        finally
+        {
+            DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_PackageInfoAndDetailRenderEcosystemDependencies()
     {
         string id = $"Pinned.Ecosystems.{Guid.NewGuid():N}";

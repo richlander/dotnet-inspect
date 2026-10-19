@@ -1,0 +1,43 @@
+Description:
+Find extension methods for a type
+
+Usage:
+dotnet-inspect extensions [<type>] [options]
+
+Arguments:
+<type>  Target type to find extensions for (e.g., HttpClient, IEnumerable<T>)
+
+Options:
+--package <package>                Search in package(s) (name or name@version). Can repeat.
+--library <library>                Search in library file(s). Can repeat.
+--platform                         Search all platform frameworks (runtime, aspnetcore, netstandard), or one platform library when followed by a value
+--extensions                       Search current Microsoft.Extensions.* packages outside the shared frameworks
+--aspnetcore                       Search current Microsoft.AspNetCore.* packages outside the shared frameworks
+--project <project>                Search project dependencies via project.assets.json. Can repeat.
+--reachable                        Include extensions on types reachable via properties/methods
+--depth <depth>                    Max depth for reachable type traversal (default: 2)
+--tfm <tfm>                        Target framework (e.g., net8.0)
+--all                              Include non-public, hidden, and obsolete members
+-t, --type <t>                     Filter declaring types by glob or name
+--json                             Output as JSON
+--compact                          Minified JSON (use with --json)
+--table                            Output as a pretty table (space-padded columns)
+--tsv                              Output as normalized tab-separated values
+--jsonl                            Output as JSON Lines (one object per row)
+--nh, --no-header, --no-headers    Suppress table/TSV column headers
+--package-prefix <package-prefix>  Search up to 500 packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)
+--columns <columns>                Filter columns by name (comma/semicolon-separated)
+--fields <fields>                  Filter fields by name (comma/semicolon-separated)
+--count                            Reduce the effective table/vector population to a row count
+--verbose                          Show progress messages on stderr
+-v <v>                             Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)
+-E <E>                             Write companion output to stderr (.tips is available; bare explanation and .references are reserved)
+--rows <rows>                      Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); adopted semantic-row surfaces accept only range forms and use -n for counts
+-n <n>                             Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end
+--head                             Take the count from the start (the default direction)
+--tail                             Take the count from the end instead of the start
+--lines                            Apply -n to rendered lines instead of semantic rows
+--tail-lines                       Apply -n to rendered lines from the end
+--source <source>                  NuGet source URL (replaces defaults, can repeat)
+--add-source <add-source>          NuGet source URL to add (can repeat)
+--nugetconfig <nugetconfig>        Path to nuget.config file

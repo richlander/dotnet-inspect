@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Ecosystems;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using QuerySpace.Rows;
 using NuGetFetch;
@@ -134,6 +135,16 @@ public partial class PackageCommand
             return false;
         }
     }
+
+    private static PackageHouseAssetSelectionKind
+        PackageInfoAssetSelection(
+            InspectionOptions options,
+            PackageHouseTargetContext? targetContext) =>
+        targetContext is not null
+        && (options.AllLibraries
+            || options.PackageLibrary is not null)
+            ? PackageHouseAssetSelectionKind.LibraryPopulation
+            : PackageHouseAssetSelectionKind.Compile;
 
     private static bool RequestsPackageInfoMeasurements(
         InspectionOptions options,
@@ -369,18 +380,13 @@ public partial class PackageCommand
         OutputDestination.Write(
             options.OutputPath,
             options.Rows,
-            writer =>
-            {
-                var markout = new MarkoutWriter(
-                    writer,
-                    new PlainTextFormatter());
-                markout.WriteGraph(
-                    DependencyHierarchyOutputAdapter.ToGraph(
-                        projection.Hierarchy,
-                        rows,
-                        markWindowedFragments: true));
-                markout.Flush();
-            });
+            writer => DependencyHierarchyPresentation.WriteTree(
+                projection.Hierarchy,
+                [
+                    .. rows.Select(
+                        static row => row.OccurrenceIdentity),
+                ],
+                writer));
     }
 
     private static bool WritePackageDependencyHierarchyProjection(

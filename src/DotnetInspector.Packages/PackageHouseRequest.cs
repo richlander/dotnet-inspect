@@ -16,6 +16,7 @@ public enum PackageHouseAssetSelectionKind
 {
     Compile,
     Runtime,
+    LibraryPopulation,
 }
 
 /// <summary>Whether a realization remains package-shaped or also unwraps libraries.</summary>
@@ -466,6 +467,13 @@ public sealed class PackageHouseRequest
             {
                 throw new ArgumentException(
                     "Named implementation assemblies require the SurfaceAndImplementation demand.",
+                    nameof(implementationNames));
+            }
+            if (assetSelection
+                == PackageHouseAssetSelectionKind.LibraryPopulation)
+            {
+                throw new ArgumentException(
+                    "Library-population realization does not accept named implementation assemblies.",
                     nameof(implementationNames));
             }
         }

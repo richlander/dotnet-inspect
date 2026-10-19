@@ -36,11 +36,11 @@ public class LoweredFidelityGateTests
         // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
         // #4229: the local-function positive restores the <>O cache while csc
-        // drops the bare-method-group carrier; the explicit neighbor preserves
-        // its allocation opcodes. Both import below Full on the lowered rail and
-        // are pinned by the shared focused gates.
+        // drops the bare-method-group carrier. It imports below Full on the
+        // lowered rail and is pinned by the shared focused gates. Its explicit
+        // neighbor (ExplicitStaticMethodGroupLocalFunction) now recompiles Exact
+        // in the lowered view and is pinned below.
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -104,11 +104,10 @@ public class LoweredFidelityGateTests
         // in-parameter operators rendered as illegal `ref`). Now compile-checked,
         // showing honest pre-existing over-renders. Same set as the sugared docket.
         "FloatPositionalPattern",
-        // These malformed/shared-graph near misses keep honest Expression.*
-        // factory calls, but their parameter-alias locals still recompile through
-        // a different stack shape.
-        "ManualReusedParameterFactory",
-        "ManualDuplicateNameFactory",
+        // This malformed/shared-graph near miss keeps honest Expression.* factory
+        // calls, but its parameter-alias locals still recompile through a
+        // different stack shape. Its two siblings (ManualReusedParameterFactory,
+        // ManualDuplicateNameFactory) now recompile Exact and are pinned below.
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         // The cross-assembly analog of MergedReferenceSlot: the Encoding/UTF8Encoding
@@ -144,7 +143,6 @@ public class LoweredFidelityGateTests
     static readonly HashSet<string> KnownNotFull = new(StringComparer.Ordinal)
     {
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
     };
 
     /// <summary>
@@ -268,6 +266,13 @@ public class LoweredFidelityGateTests
         "StaticLocalFunctionWithLocal",
         "TwoLocalFunctionQuadrants",
         "WhileNestedContinueKeepsArmExclusive",
+        // #9504: DocketRowsStayCheckedDiffs reported each of these KnownDiffs rows
+        // as "now recompiles Exact in the lowered view" on main at 7f06b4ee3
+        // (2026-10-16); the daily lane that runs this gate had not completed
+        // since 2026-10-06. Pinned rather than deleted so each fix is guarded.
+        "ExplicitStaticMethodGroupLocalFunction",
+        "ManualDuplicateNameFactory",
+        "ManualReusedParameterFactory",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>

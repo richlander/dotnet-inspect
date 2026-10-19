@@ -77,6 +77,16 @@ category, section, and renderable item identities, membership, ordering, and
 the selectable row address space. Shared presentation owns labels, resource
 paths, and streaming native Tree lowering without a CLI-built Markout graph.
 
+Dependency and reference Trees are the eighth adopter. [Dependency
+inspection](dependency-inspection-command.md#dependency-hierarchy-occurrence-model)
+owns roots, parent-relative occurrence identities, ordering, revisit and cycle
+disposition, and package-projection-specific depth boundaries. Library
+`Reference Hierarchy` binds that same Depends-owned occurrence document over
+assembly-reference evidence. The CLI supplies the selected occurrence
+identities; shared presentation owns fragment, disposition, and boundary
+markers and streams the native Tree without rebuilding the hierarchy as a
+retained CLI Markout graph.
+
 ## Owner and exact claim
 
 Host-neutral hierarchy projection owns this exact claim:

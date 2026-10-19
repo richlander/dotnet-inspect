@@ -1,0 +1,91 @@
+{
+  "source_head": "e701f56d4e3964ca47ed50c424b166ae7b4c9670",
+  "evidence_base": "d028fb4111b440a8e19ed711cd78eafb53a445db",
+  "sdk": "11.0.100-rc.1.26425.128",
+  "cli_sha256": "c681c0a073f219779b0585d1dcb6338263e92e4cf1e69fb359720405520cd558",
+  "cli_bytes": 145021408,
+  "binary_reuse": "Exact retained NativeAOT executable from narrowed baseline; no new source behavior claimed. Restored platform DLL inventory matches exactly.",
+  "baseline_study": "../narrowed",
+  "baseline_pr": 10097,
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "issue": 10101,
+  "trials": {
+    "package-hal": [
+      "package",
+      "hal"
+    ],
+    "package-data": [
+      "package",
+      "data"
+    ],
+    "api-hal": [
+      "api",
+      "hal"
+    ],
+    "api-data": [
+      "api",
+      "data"
+    ],
+    "vocabulary-hal": [
+      "vocabulary",
+      "hal"
+    ],
+    "vocabulary-data": [
+      "vocabulary",
+      "data"
+    ]
+  },
+  "trial_configs": {
+    "package-hal": "7a3362a7e60981729d3e2b062f6bf24140168cc452fcb0097ecbf15466cebe38",
+    "package-data": "6e2643095b54debf1701ab66770fb40f0fa5884432686fdf9a6bc7ce9b22f9e7",
+    "api-hal": "33c78a6807125e456c71078871b38fc04bcae1d2d83057be5e22086d9dad6d4c",
+    "api-data": "47ef6dcfd9f9582cb92f17b2d3ba7aff05b607f90a73e3f8b42c8eb1f1c62b4e",
+    "vocabulary-hal": "7ee2f2f7c67678c42c3821d66e594e9a97948da95ddf24ee94c396e453401a56",
+    "vocabulary-data": "56b948705ad5c207711e8d4dc2f03897ff60404810ae563d54bb622cc328f40a"
+  },
+  "guide_bytes": {
+    "hal": 3641,
+    "data": 3577
+  },
+  "inputs": {
+    "../command-bound/freeze.py": "0b62cddea6e81603b66e28efa23c5a5e0b4b63976fe980a92ba6a3d859a29cce",
+    "../command-bound/runner.py": "d16c947a0ad523fdcc30f75a563e2e9576d3a226a9988dfe68c072116e82c4ab",
+    "../narrowed/dispatch.json": "411c51c77682a079decaac7205e50c47ea336bec7da84e4e79283e6c86ed3cc8",
+    "../narrowed/guide-data.txt": "5aaaf94ef86383f5cf880f2a18b7a68f94ff2ab537f8547c5c9de40da1fbbf75",
+    "../narrowed/guide-hal.txt": "23ba3945cc1c24755afed0d30629a99c188806cd7b65c500d5229dc637f73a0f",
+    "../narrowed/measurements.json": "f28f5a7341e1628f244d923b7f79ba5842617c3d3d57bc9d558933215c767659",
+    "../narrowed/platform.json": "f4fe87734f5de339eddb1225ee7e9f5eb75d2336accb4c0ebf826e8eb87043c0",
+    "../narrowed/verify.py": "c14046cde617d9ac2e63111f6e34cc5323129f0bbe651bbe24f4e35e4d269804",
+    "api-data/briefing.txt": "e01221178b5698f0dd8da38dd86c376b62f6f8f10bc7278f036fba319e3f048c",
+    "api-hal/briefing.txt": "066a36d779985685cc0b2d6a144f9e950e8da98fae3bde37fb4006e51054fb13",
+    "api-task.txt": "f611837f24dfd3961ffca1a4bd51d5cd177a90e6b00b3bf8d772b1acb089dc40",
+    "criteria.txt": "f14bba56eea157615c6c9f5e0bed025fe6e2ce76071238d436a625cfb3695946",
+    "guide-change.patch": "8823c47a4be26e5aad6d8e18dd6122f7f92eb2b163587dd441e2f3132f98f83d",
+    "guide-data.txt": "fefe07363c292aa1e6abc416cab93352a3497e12a5126a30d5884c5e28b8a91d",
+    "guide-hal.txt": "933450b72b39987a3f7dbc5a6416d20c0b6c8dc51dcfd16eef021c26c2c0a7c8",
+    "package-data/briefing.txt": "b0dd489b003a6dc1e9a606aa0baf0d04e604b724984ace42d2402bf5b2110363",
+    "package-hal/briefing.txt": "081cf773b60c5eb626676df68a82771dfe4e770d479763054e9a23b4e48074bb",
+    "package-task.txt": "0767e00637f89641205e82a826a1273580b7dc0724c1c03bd8e7e4e972201307",
+    "participant.txt": "8455a870247f136189118b79ea5375a189d5415293df48e62f7e998ae691024f",
+    "platform.json": "f4fe87734f5de339eddb1225ee7e9f5eb75d2336accb4c0ebf826e8eb87043c0",
+    "post-task-question.txt": "9a4ac8b072fd35897657b8482a2fde9195a5a5b811684aa02487ec45103ef7db",
+    "preflight/package-hal-selected.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/package-hal-selected.out": "00b13c0fe164fbef89f01906cef2580050f3350ff1a82cfe9b33e6ad7478f3a3",
+    "preflight/receipts.json": "d426cca66a68fde11ab16b0cbb7b2c7248a52beb592b2a5841a57a21cea987bb",
+    "preflight/version.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/version.out": "e1c140afe4471f6ff5f9af05630c86266f4365f027f53b5a83e52d89a72d1b85",
+    "preflight/vocabulary-collection.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/vocabulary-collection.out": "4dac7db0c6581d93026e861c4aaa30ad020c3ae79ce2e713cf71d701d438dff5",
+    "preflight/vocabulary-data-selected.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/vocabulary-data-selected.out": "f732f0ecf4de1fb69de71d836cbfb61657ec9096828cab035d181908ef52ef91",
+    "preflight/vocabulary-hal-selected.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight/vocabulary-hal-selected.out": "7b3a345547eddb8723a12856855081c4cf4b865852e4109705b7e8b6a6310ca0",
+    "runner.py": "6417a5cfa98db9d7917d832dc2dd66fab7b3c07b2a066a216170aed563a00696",
+    "vocabulary-data/briefing.txt": "2605f5cc26ea28c6120e480087ac219ad44104326ca78290c3ac089ca4c3f30f",
+    "vocabulary-hal/briefing.txt": "26cfe9a249391a1e9e358c492829a15a0e245905e9e0934ccc48dd06061673c6",
+    "vocabulary-task.txt": "2d320530f84314f2359a589be59127690416a48b5fe5e8576b484396a12df433"
+  },
+  "frozen_before_dispatch_at": "2026-10-13T19:12:49.334136+00:00",
+  "comparison": "Diagnostic historical comparison; binary/platform/task/protocol/runner/model fixed, three guide substitutions; participants, live NuGet populations and caches remain variable; no causal or latency ranking"
+}

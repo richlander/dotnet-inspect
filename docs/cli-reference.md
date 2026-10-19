@@ -888,10 +888,22 @@ with `--tree` for rooted transitive dependencies.
 `package ID[@VERSION] --workspace PACKET` inspects the matching direct Package
 in the packet's selected context, independently of its focused tab, and reuses
 the exact Package Root and target admitted during Workspace restoration.
+If that context has no declaration for the Package ID, the command adds one to
+a derived Workspace, inheriting the context's TFM and RID. A registration-only
+base receives its first Package context with the product-default TFM. The
+input packet and ecosystem declarations stay unchanged. Existing Package
+versions are not replaced, and a missing selection in a Workspace that already
+has contexts remains an error.
 Appending `--share` preserves ordinary stdout and writes a derived Package
 packet or URL as the final stderr line. An exact selector can inspect a
 currently resolved floating Package member, but Share refuses rather than
 silently pinning that preserved definition.
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add runtime)
+dotnet-inspect package System.Text.Json@10.0.0 \
+  --workspace "$base" --share packet
+```
 
 For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
 append `--share url` to keep the hierarchy on stdout and print its Inspect Web
@@ -1316,14 +1328,32 @@ dotnet-inspect find '.Add*' --ecosystem aspire -n 20
 ```
 
 This searches Aspire's core packages first and, when they fill the window,
-does not realize ASP.NET Core or Runtime. Only named populations are searched:
-registered package prefixes do not trigger package-prefix discovery. If the
-entire selection has no named populations, Find fails with a prefix hint.
-Explicit Markdown output retains Find's existing Members-before-Results
-sections; rows remain nearest-first within each kind. Unbounded default TSV
-instead publishes each layer's settled unified rows before the next layer.
-Selection-bearing requests keep the existing selection order until the
-separately owned row-selection work adopts the unified stream.
+does not realize ASP.NET Core or Runtime. TSV and JSONL search the named
+populations first, then progressively discover and search packages under each
+registered prefix in the same nearest-first Ecosystem order. Each settled
+finding is written immediately. Prefix package work is bounded to ten
+candidates by default across the complete request; use `--take N` to select an
+explicit candidate bound up to 20. `-n` and `--rows` select findings and do not
+increase the package-work bound. Blocking formats search only named populations
+and report that prefix populations were not searched. Explicit Markdown output
+retains Find's existing Members-before-Results sections; rows remain
+nearest-first within each kind.
+Core packages admitted by another selected Ecosystem's demanded prefix retain
+both memberships without a second package evaluation. If a prefix source
+stops at its requested result limit before the selected candidate bound is reached,
+completion reports incomplete source coverage, not candidate-bound exhaustion.
+The host-neutral Ecosystem Find session owns the bounded-before-prefix barrier,
+shared core-package evaluation, the one-shot prefix continuation, the shared
+candidate bound, and completion.
+
+TSV and JSONL request prefix work and immediately resume that continuation;
+blocking output requests only bounded work. A finite row window stops before
+the next layer or package block, not midway through a started block, so that
+last block can exceed the requested row count; stderr identifies unsearched
+work rather than claiming prefix exhaustion.
+Unbounded default TSV instead publishes each layer's settled unified rows
+before the next layer. Selection-bearing requests keep the existing selection
+order until the separately owned row-selection work adopts the unified stream.
 
 ### Package Query over selected implementation libraries
 
@@ -1507,6 +1537,33 @@ dotnet-inspect workspace package add Markout@0.35.2 --packet "$w"
 dotnet-inspect workspace package remove \
   packages/markout@0.35.2/net10.0/~ --packet "$w"
 ```
+
+Compose shipped ecosystems and independent Package prefixes without acquiring
+content:
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add runtime)
+w=$(dotnet-inspect workspace prefix add Microsoft.Extensions. --packet "$base")
+
+dotnet-inspect workspace prefix remove Microsoft.Extensions. --packet "$w"
+dotnet-inspect workspace ecosystem remove runtime --packet "$w"
+dotnet-inspect workspace prefix add Polly. --share url
+```
+
+`workspace ecosystem add` selects a shipped declaration, including its existing
+namespace hints, core packages and populations. It accepts a short name such as
+`runtime` or a canonical identity such as `ecosystem.runtime`. The command
+registers that knowledge unchanged. `workspace prefix add` registers a literal
+Package ID prefix independently of any ecosystem. An independent prefix and an
+ecosystem containing that prefix may coexist; removing one leaves the other.
+
+Add without `--packet` creates a registration-only Workspace. With a packet it
+appends a new registration; remove requires a packet and an existing
+registration. Both return a new canonical packet on stdout, or a website URL
+with `--share url`. The input and unrelated content remain unchanged. Duplicate
+or absent registrations, invalid prefixes, unsupported empty results and
+non-projectable scanner capabilities are visibly refused without partial output.
+Formats 3, 4 and 5 are preserved; earlier packet formats are refused.
 
 The default `workspace` output is the typed top-level inventory. Package
 occurrences appear in committed Scope order, followed by inert registrations
@@ -2694,12 +2751,20 @@ existing limits and the browser's supported restoration shapes still apply.
 Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
 default explicitly, while `--share packet` emits only the canonical packet.
 
-`member --share[=url|packet]` projects one explicitly selected public member
-overload from an exact NuGet.org package version and target framework. The URL
-opens that member's API Overview in the published browser. Select an overload
-with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
-private-feed, non-public, multi-library, and other rendering or analysis modes
-fail visibly rather than producing a link the browser cannot restore.
+`member <Type> -m <Member> --workspace PACKET` consumes a canonical Base64URL
+packet as its sole location source. It searches the selected context, independent
+of the focused Navigation tab, and retains ordinary Member selectors, sections,
+formats and failure behavior. Package, Library, Platform, project, framework,
+TFM and range source selectors cannot be combined with this input.
+
+`member --share[=url|packet]` preserves ordinary stdout and appends the scalar
+as the final stderr line. Select an exact overload with `Name:N`, `Name~digest`,
+or `--index N`. Without Workspace input, sharing supports public members from
+an exact NuGet.org package version and target framework. With Workspace input,
+it preserves the complete environment and captures the resolved occurrence,
+Library, Type and Member anchor. An unqualified overload group or unsupported
+semantic choice preserves ordinary output but refuses Share with a nonzero
+exit and no partial scalar. Presentation such as `--json` remains independent.
 
 `depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
 projects the package Dependencies view without acquiring the package or

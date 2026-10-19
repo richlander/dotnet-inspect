@@ -1,3 +1,7 @@
+using System.Text;
+
+using DotnetInspect.Cli.Output;
+
 namespace DotnetInspect.Cli.Tests;
 
 /// <summary>
@@ -17,7 +21,8 @@ namespace DotnetInspect.Cli.Tests;
 /// Redirecting the console anywhere else in this assembly re-opens the race even if
 /// this type is used correctly everywhere else. The compiler enforces that boundary:
 /// this project's <c>BannedSymbols.txt</c> bans <c>Console.SetOut</c>, and the
-/// repository-wide ban already covers <c>Console.SetError</c>.
+/// repository-wide ban already covers <c>Console.SetError</c>. The byte-capable
+/// standard-output path is redirected under the same owner and lock.
 /// </para>
 /// </summary>
 static class ConsoleCapture
@@ -43,6 +48,9 @@ static class ConsoleCapture
         using var errWriter = new StringWriter();
         Console.SetOut(outWriter);
         Console.SetError(errWriter);
+        using IDisposable utf8Output = Utf8StandardOutput.Redirect(
+            bytes => outWriter.Write(
+                Encoding.UTF8.GetString(bytes.Span)));
         try
         {
             var exitCode = await action(errWriter);

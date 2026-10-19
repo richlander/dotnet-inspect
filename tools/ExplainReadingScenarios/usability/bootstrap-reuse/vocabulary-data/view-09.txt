@@ -1,0 +1,1 @@
+{"identity":{"owner":"product-vocabulary","schema":"installed","type":"vocabulary-value","value":"17:csharp.body-kinds14:BreakStatement"},"path":"vocabularies/csharp.body-kinds/values/breakstatement","facts":{"identity":"BreakStatement","name":"Break","map-entries":[]},"scope":"Installed"}
