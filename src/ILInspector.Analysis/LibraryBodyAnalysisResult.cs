@@ -46,6 +46,7 @@ internal sealed record MethodBodyAnalysisResult(
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
     IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
+    IReadOnlySet<int> DeclaredSourceSuppressedMethodTokens,
     ImmutableArray<MethodLocalThrowEvidence> LocalThrows);
 
 internal sealed record FailedMethodBodyAnalysis(

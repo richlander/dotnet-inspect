@@ -159,7 +159,7 @@ population, `MethodDefinition`. The implementation is mainly in
 | `MethodRowGate.cs`, `MethodDefinitionPredicates.cs`, and `MethodDefinitionTerminalWorkBudget.cs` | Source gate, predicates, and terminal work bounds |
 | `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
 | `SameModuleCallTargetSupport.cs` | `CallTargets` support |
-| `MethodCallMetadataSupport.cs` | `Calls`, local-signature, and field-operand support |
+| `MethodCallMetadataSupport.cs` | `Calls`, `LocalSignature`, and field-operand support |
 | `MethodAnalysisSupport.cs` | Allocation and optimization's shared reader-backed judgments and support-work receipt |
 
 Where this source sits among Query Space, Producer Planning, and Assembly
@@ -472,6 +472,7 @@ Depth is expressed as source capabilities rather than one broad `Body` bit:
 | Body | Managed body header, IL bytes, exception regions, and local-signature handle | Instruction meaning |
 | Instructions | One bounded instruction decode | Analysis of those instructions |
 | Control flow | The owner-issued CFG over the decoded instructions | Analysis-specific graph interpretation |
+| Local signature | Owner-issued local-variable types, declared count, and typed incomplete reason | Call operands or call targets |
 | Calls | Owner-issued classification and bounded resolution of call operands required by the request | Call-graph traversal or presentation |
 | Declared source | Authenticated attribution from a generated physical body to its declared owner | Replacing the physical method's identity |
 
@@ -676,6 +677,19 @@ Coverage also records the MethodDefs whose visits queried the lookup and the
 number of queries. The physical group receipt and each request receipt
 attribute construction and queries as memory-safety contract support does.
 
+### Local-signature support
+
+`LocalSignature` is the narrow per-method depth for a producer that needs the
+decoded local-variable signature but no call operand. It implies `Body` but not
+`Calls`, `CallTargets`, control flow, or `ModuleLookup`. The execution-scoped
+`MethodCallMetadataSupport` owns the decode and cache, so compatible lanes
+reuse the same packet while each producer receipts its own logical
+`LocalSignature` read. `ExactMethodAllocationProducer` is the first production
+adopter: it combines this depth with retained selective instructions,
+`SemanticIdentity`, memory-safety contracts, and `MethodAnalysis` support to
+construct one canonical method context without paying for call-target
+resolution.
+
 ### Calls support
 
 `Calls` is per-method depth for producers that need IL-ordered call sites with
@@ -685,8 +699,9 @@ resolved operand identity, tracked by
 A producer declares the retained-prefix, selective-operand
 `ResolvedCalls` analyzer capability and passes that owner-issued instruction
 sequence to `GetCalls`; the support does not open or decode another
-instruction stream. A producer that did not declare `Calls` cannot access call,
-local-signature, or field-operand facts.
+instruction stream. A producer that did not declare `Calls` cannot access call or field-operand
+facts. Local-signature access requires either `LocalSignature` or the wider
+`Calls` depth.
 
 Each `MethodCallSite` carries the IL offset, return address, operand token,
 call kind, full `MemberRef` callee identity, and typed `MethodCallTarget`.
@@ -800,12 +815,23 @@ During migration, `DeclaredSourceAttribution` composes this same
 `MethodAnalysisLookup`, and `LibraryBodyAnalysisBuilder` consumes its existing
 resolver and classifiers through that composition. This preserves the donor's
 current allocation and optimization behavior without copying the private
-resolver. Production exact allocation and optimization adoption remains
-[#10285](https://github.com/richlander/dotnet-inspect/issues/10285). Its
-performance case is
+resolver. [#10285](https://github.com/richlander/dotnet-inspect/issues/10285)
+adds dependent exact allocation and optimization producers over this support.
+The allocation owner constructs one canonical context and
+`MethodAllocationFacts`; optimization reads those same-unit facts and cannot
+rebuild body, control-flow, allocation-discovery, or escape work. The shared
+CLI and Browser/Wasm method-analysis consumer now sources exact allocations
+and intrinsic opportunities from that operation, applies the existing final
+publication enrichment with retained direct-call provenance, declared-owner
+suppression, and exception classification, and keeps only `MethodEvidence` on
+the donor for public direct-call rows and final `MethodSignals`. A recoverable
+allocation-operand failure retains the classified prefix and publishes its
+exact stopping offset and operation; optimization consumes that same partial
+fact rather than rebuilding or replacing it with successful-empty evidence.
+Its performance case is
 `System.Text.Json@10.0.0`
 `System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose
-current allocation-hotspot result reports 20 `newobj`, `newarr`, or `box`
+allocation-hotspot result reports 20 `newobj`, `newarr`, or `box`
 sites in a loop.
 
 The counted retirement sequence is:
@@ -1233,7 +1259,13 @@ Migration is incremental:
     prefix. It also recovers call-independent operation-safety evidence from
     the already materialized instructions, without adding duplicate work to
     the successful path.
-12. Move remaining producers and delete each superseded legacy scan and index
+12. #10285 adds `LocalSignature` depth and peels exact allocation and
+    optimization into dependent producers. The allocation producer owns one
+    context and allocation-facts instance; optimization consumes that exact
+    fact. `AssemblyContextMethodAnalysisQuery` composes the focused bundle in
+    one exact source execution, while its retained donor request is reduced to
+    `MethodEvidence` for public direct calls and final signals.
+13. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result

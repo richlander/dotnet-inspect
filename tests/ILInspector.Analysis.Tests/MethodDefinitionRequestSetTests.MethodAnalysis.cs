@@ -153,6 +153,105 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        MethodQuerySource_ExactOptimizationSharesAllocationContextAndFacts()
+    {
+        string path = typeof(MethodAnalysisSupportFixture).Assembly.Location;
+        int token = typeof(MethodAnalysisSupportFixture)
+            .GetMethod(nameof(MethodAnalysisSupportFixture.Target))!
+            .MetadataToken;
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(token & 0x00FF_FFFF);
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                ExactMethodOptimizationProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method),
+                new(
+                    maximumBodies: 1,
+                    maximumEncodedIlBytes: int.MaxValue));
+
+        MethodDefinitionSourceRequestSetExecution source =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        ProducerResult<ExactMethodOptimizationProducerResult>
+            producerResult =
+                ResultOf<ExactMethodOptimizationProducerResult>(
+                    source,
+                    exact);
+        Assert.True(
+            producerResult.HasValue,
+            producerResult.Failure?.Message);
+        ExactMethodOptimizationBody actual =
+            Assert.Single(producerResult.Value!.Bodies);
+
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.OptimizationOpportunities,
+                    new HashSet<int> { token }));
+        try
+        {
+            Assert.Equal(
+                legacy.Allocations.Occurrences.GetValueOrDefault(token),
+                actual.Allocation.Allocations);
+            Assert.Equal(
+                legacy.Optimization.Opportunities.Where(
+                        opportunity =>
+                            opportunity.Method.MetadataToken == token)
+                    .Select(OpportunityCore.From),
+                actual.Opportunities.Select(OpportunityCore.From));
+        }
+        finally
+        {
+            legacy.CallGraph.ReleaseCaches();
+        }
+
+        Assert.Same(
+            actual.Allocation.Context,
+            actual.ConsumedContext);
+        Assert.Same(
+            actual.Allocation.Facts,
+            actual.ConsumedFacts);
+        MethodDefinitionSourceRequestResult request =
+            source.ResultOf(exact);
+        MethodDefinitionSourceCoverage coverage =
+            request.SourceReceipt.Coverage;
+        Assert.Equal(1, coverage.BodiesAcquired.Count);
+        Assert.Equal(
+            1,
+            coverage.InstructionWork.LazyRetainedSourcesOpened);
+        Assert.Equal(0, coverage.ModuleLookupMethods.Count);
+        Assert.Equal(0, coverage.Calls.CallReads);
+        Assert.Equal(1, coverage.Calls.LocalSignatureReads);
+        Assert.False(coverage.CallTargets.Constructed);
+        Assert.Equal(2, coverage.MethodAnalysis.Queries);
+
+        ProducerParticipation allocation =
+            request.WorkReceipt.For(
+                ExactMethodAllocationProducer.Instance);
+        Assert.Contains(
+            allocation.Layers,
+            layer => layer
+                == new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.LocalSignature),
+                    1));
+        Assert.DoesNotContain(
+            allocation.Layers,
+            layer => layer.Layer
+                == nameof(MethodDefinitionLayers.Calls));
+        ProducerParticipation optimization =
+            request.WorkReceipt.For(
+                ExactMethodOptimizationProducer.Instance);
+        Assert.Contains(
+            optimization.Layers,
+            layer => layer
+                == new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.MethodAnalysis),
+                    1));
+    }
+
+    [Fact]
     public void MethodQuerySource_MethodAnalysisSharesCachesAcrossLanes()
     {
         string path = typeof(MethodAnalysisSupportFixture).Assembly.Location;
@@ -294,7 +393,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 version: 1,
                 tier: 0,
                 MethodDefinitionLayers.SemanticIdentity
-                    | MethodDefinitionLayers.Calls
+                    | MethodDefinitionLayers.LocalSignature
                     | MethodDefinitionLayers.MethodAnalysis,
                 parameters:
                     $"{asyncStateMachineToken:x8}:{targetMethodToken:x8}")

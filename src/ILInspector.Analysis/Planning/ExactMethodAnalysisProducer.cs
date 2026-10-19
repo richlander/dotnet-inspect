@@ -373,7 +373,7 @@ public sealed class ExactMethodAnalysisProducer :
                 "Unsupported exception region kind."),
         };
 
-    static MethodIdentity ToMethodIdentity(
+    internal static MethodIdentity ToMethodIdentity(
         MethodSemanticIdentityResult semanticIdentity,
         CallerUnsafeMode callerUnsafeMode) =>
         semanticIdentity switch
@@ -386,7 +386,7 @@ public sealed class ExactMethodAnalysisProducer :
                 "Malformed semantic identity has no MethodIdentity."),
         };
 
-    static CallerUnsafeMode ToCallerUnsafeMode(
+    internal static CallerUnsafeMode ToCallerUnsafeMode(
         MemorySafetyMethodContract contract) =>
         CallerUnsafeModeFacts.FromContract(contract.Contract);
 
@@ -405,7 +405,7 @@ public sealed class ExactMethodAnalysisProducer :
             ExceptionRegionError: null,
             diagnostics.ToImmutable());
 
-    static string MethodLabel(MethodIdentity method) =>
+    internal static string MethodLabel(MethodIdentity method) =>
         $"{method.DeclaringType}.{method.Name}";
 
     sealed class OwnerIssuedCallResolver(MethodCallSites callSites)

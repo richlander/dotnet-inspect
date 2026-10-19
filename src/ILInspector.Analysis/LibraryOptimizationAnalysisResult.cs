@@ -64,6 +64,141 @@ public sealed class LibraryOptimizationAnalysisResult
                 LibraryBodyAnalysisFeatures.OptimizationOpportunities);
     }
 
+    LibraryOptimizationAnalysisResult(
+        LibraryCallGraphAnalysisResult callGraph,
+        MethodIdentity method,
+        ImmutableArray<AllocationOccurrence> allocations,
+        ImmutableArray<OptimizationOpportunity> rawOpportunities,
+        bool suppressDerivedOpportunities,
+        bool requiresDeclaredOwner)
+    {
+        Receipt = callGraph.Receipt;
+        _callGraph = callGraph;
+        _generatedFrameworkTypes = new(callGraph);
+        _declaredMethods = callGraph.DeclaredMethods;
+        _methods = callGraph.Methods;
+        _directCalls = callGraph.DirectCalls;
+        _allocationOccurrences =
+            new Dictionary<int, ImmutableArray<AllocationOccurrence>>
+            {
+                [method.MetadataToken] = allocations,
+            };
+        _rawOpportunities =
+            ProjectOwnershipDerivedOpportunities(
+                callGraph,
+                method,
+                rawOpportunities,
+                requiresDeclaredOwner);
+        _stringMaterializations =
+            StringMaterializationAnalysis.Collect(
+                callGraph.PhysicalDirectCalls);
+        _suppressedOpportunityTokens =
+            suppressDerivedOpportunities
+                ? new HashSet<int> { method.MetadataToken }
+                : new HashSet<int>();
+        _scopeExcludedOpportunityTokens = new HashSet<int>();
+        _exceptionTypeNames =
+            allocations
+                .Where(
+                    occurrence =>
+                        occurrence.AllocatedType is { } type
+                        && callGraph.IsExceptionType(type))
+                .Select(
+                    static occurrence =>
+                    {
+                        TypeRef type = occurrence.AllocatedType!;
+                        TypeRef definition =
+                            type.Kind == TypeRefKind.GenericInstance
+                                ? type.ElementType ?? type
+                                : type;
+                        return definition.ToQualifiedDisplayString();
+                    })
+                .ToHashSet(StringComparer.Ordinal);
+        _opportunitiesComputed = true;
+        _allocationOpportunitiesComputed = true;
+    }
+
+    /// <summary>
+    /// Applies the existing publication enrichment to owner-issued exact
+    /// allocation and intrinsic optimization evidence while retaining the
+    /// donor's final direct-call provenance.
+    /// </summary>
+    public static ImmutableArray<OptimizationOpportunity>
+        ProjectExactMethod(
+            LibraryCallGraphAnalysisResult callGraph,
+            MethodIdentity method,
+            ImmutableArray<AllocationOccurrence> allocations,
+            ImmutableArray<OptimizationOpportunity> rawOpportunities,
+            bool suppressDerivedOpportunities = false,
+            bool requiresDeclaredOwner = false)
+    {
+        ArgumentNullException.ThrowIfNull(callGraph);
+        ArgumentNullException.ThrowIfNull(method);
+        if (allocations.IsDefault)
+        {
+            throw new ArgumentException(
+                "Exact allocation evidence must be initialized.",
+                nameof(allocations));
+        }
+        if (rawOpportunities.IsDefault)
+        {
+            throw new ArgumentException(
+                "Exact optimization evidence must be initialized.",
+                nameof(rawOpportunities));
+        }
+
+        return
+        [
+            .. new LibraryOptimizationAnalysisResult(
+                    callGraph,
+                    method,
+                    allocations,
+                    rawOpportunities,
+                    suppressDerivedOpportunities,
+                    requiresDeclaredOwner)
+                .Opportunities
+                .Where(opportunity =>
+                    (opportunity.EvidenceMethodToken
+                        ?? opportunity.Method.MetadataToken)
+                    == method.MetadataToken),
+        ];
+    }
+
+    static ImmutableArray<OptimizationOpportunity>
+        ProjectOwnershipDerivedOpportunities(
+            LibraryCallGraphAnalysisResult callGraph,
+            MethodIdentity method,
+            ImmutableArray<OptimizationOpportunity>
+                rawOpportunities,
+            bool requiresDeclaredOwner)
+    {
+        if (!requiresDeclaredOwner)
+            return rawOpportunities;
+
+        MethodIdentity? sourceOwner =
+            callGraph.ResolveDeclaredMethod(method);
+        if (sourceOwner is null
+            || callGraph.DeclaredSourceSuppressesOpportunities(
+                method.MetadataToken))
+        {
+            return [];
+        }
+
+        return
+        [
+            .. rawOpportunities
+                .Where(
+                    static opportunity =>
+                        opportunity.Shape
+                            == "generic-parameter-object-box")
+                .Select(
+                    opportunity => opportunity with
+                    {
+                        SourceOwner = sourceOwner,
+                    }),
+        ];
+    }
+
     /// <summary>
     /// Identity, coverage, and diagnostics shared with this execution's other
     /// focused results.

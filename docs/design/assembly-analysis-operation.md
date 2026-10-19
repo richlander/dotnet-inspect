@@ -435,6 +435,7 @@ Exact-member work is split across focused owners:
 | Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
 | Declared-source relation over all-definition and exact-type breadth | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) |
 | Method Query Source operand and signature resolution (Calls layer) | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868) |
+| Exact local-signature, allocation, and optimization ownership | [#10285](https://github.com/richlander/dotnet-inspect/issues/10285) |
 | Public root inventory and reference-assembly status as execution capabilities | [#9865](https://github.com/richlander/dotnet-inspect/issues/9865) |
 | First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
 
@@ -446,12 +447,19 @@ successful empty evidence.
 
 [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) adopts those
 prerequisites for `AssemblyContextMethodAnalysisQuery` through
-`ExactMethodAnalysisProducer`. The exact MethodDef source now supplies
-semantic identity, direct calls and same-module caller contracts, local and
-operation safety evidence, unsafe occurrences, diagnostics, and physical
-exception regions from one detached body. Allocations, optimization
-opportunities, and final `MethodSignals` composition remain explicitly on the
-old boundary in this mixed slice. The unsafe member census
+`ExactMethodAnalysisProducer`. [#10285](https://github.com/richlander/dotnet-inspect/issues/10285)
+adds `ExactMethodAllocationProducer` and
+`ExactMethodOptimizationProducer`; the latter consumes the former's same-unit
+canonical context and allocation facts. One composed exact source operation
+now supplies semantic identity, call-safety evidence, local and operation
+safety evidence, unsafe occurrences, exception regions, allocations, and
+intrinsic optimization opportunities. Existing final opportunity enrichment
+combines those focused rows with the retained call graph, including its scoped
+declared-owner suppression and in-module exception classification. Public
+direct-call rows and final `MethodSignals` remain explicitly on the old
+boundary under a `MethodEvidence`-only request; legacy allocation,
+string-materialization, and optimization stages no longer participate for this
+consumer. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
@@ -589,10 +597,10 @@ focused producer selects and acquires one requested MethodDef body, declares
 semantic identity, memory-safety contracts, and Calls support, performs no
 module lookup, and preserves the legacy identity, safety, diagnostic, and
 exception-region facts. `AssemblyContextMethodAnalysisQueryTests` gate the
-real mixed consumer while public direct-call rows, signals, allocations, and
-optimization remain on `LibraryBodyAnalysisService`; Calls support serves
-focused call-safety evidence until complete direct-call provenance has
-owner-issued capabilities. The focused producer preserves independent
+real mixed consumer while only public direct-call rows and final signals
+remain on `LibraryBodyAnalysisService`; Calls support serves focused
+call-safety evidence until complete direct-call provenance has owner-issued
+capabilities. The focused producers preserve independent
 exception-region, operation-safety, and safety-occurrence evidence when
 whole-body Calls decoding fails recoverably.
 

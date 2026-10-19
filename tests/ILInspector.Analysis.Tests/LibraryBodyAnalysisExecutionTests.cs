@@ -125,6 +125,50 @@ public sealed class LibraryBodyAnalysisExecutionTests
     }
 
     [Fact]
+    public void
+        MethodEvidence_DoesNotParticipateInAllocationOrOptimizationStages()
+    {
+        LibraryBodyAnalysisExecution execution =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithStageParticipation());
+        try
+        {
+            LibraryBodyAnalysisStageParticipationReceipt participation =
+                Assert.IsType<
+                    LibraryBodyAnalysisStageParticipationReceipt>(
+                        execution.Receipt.StageParticipation);
+            Assert.True(
+                participation.For(
+                        LibraryBodyAnalysisStage.CallAnalysis)
+                    .Attempts > 0);
+            Assert.Equal(
+                0,
+                participation.For(
+                        LibraryBodyAnalysisStage.AllocationAnalysis)
+                    .Attempts);
+            Assert.Equal(
+                0,
+                participation.For(
+                        LibraryBodyAnalysisStage
+                            .StringMaterializationAnalysis)
+                    .Attempts);
+            Assert.Equal(
+                0,
+                participation.For(
+                        LibraryBodyAnalysisStage
+                            .OptimizationOpportunityAnalysis)
+                    .Attempts);
+        }
+        finally
+        {
+            execution.CallGraph.ReleaseCaches();
+        }
+    }
+
+    [Fact]
     public void CompleteProfileRequest_CreatesVersionedMetricPlan()
     {
         LibraryBodyAnalysisRequest request =

@@ -110,6 +110,11 @@ internal interface IMethodAllocationResolver
 /// </remarks>
 internal sealed class MethodAllocationFacts
 {
+    internal sealed record MethodAllocationCollectionFailure(
+        int Offset,
+        ILOpCode Operation,
+        string Message);
+
     readonly MethodBodyAnalysisContext _context;
     readonly AllocationPathContextIndex _pathContexts;
     readonly AllocationPathConfidenceIndex _pathConfidences;
@@ -139,6 +144,12 @@ internal sealed class MethodAllocationFacts
         private set;
     } = [];
 
+    internal MethodAllocationCollectionFailure? CollectionFailure
+    {
+        get;
+        private set;
+    }
+
     internal static MethodAllocationFacts Create(
         MethodBodyAnalysisContext context)
         => new(context);
@@ -151,6 +162,7 @@ internal sealed class MethodAllocationFacts
     internal void Collect(
         IMethodAllocationResolver resolver)
     {
+        CollectionFailure = null;
         var raw = CollectOccurrences(resolver);
         var classified =
             raw.IsDefaultOrEmpty ? raw : ClassifyEscapes(raw, resolver);
@@ -377,6 +389,10 @@ internal sealed class MethodAllocationFacts
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
             {
+                CollectionFailure = new(
+                    offset,
+                    opcode,
+                    $"{ex.GetType().Name}: {ex.Message}");
                 break;
             }
 

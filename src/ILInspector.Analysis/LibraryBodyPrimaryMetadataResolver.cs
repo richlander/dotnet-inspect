@@ -508,7 +508,16 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     // has ordinary names (so the compiler-generated name heuristics miss it) but is not
     // an actionable source-shape optimization target.
     internal bool HasGeneratedCodeAttribute(CustomAttributeHandleCollection attributes)
-        => HasAttributeNamed(attributes, "GeneratedCodeAttribute", "System.CodeDom.Compiler");
+        => HasGeneratedCodeAttribute(_reader, attributes);
+
+    internal static bool HasGeneratedCodeAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes) =>
+        HasAttributeNamed(
+            reader,
+            attributes,
+            "GeneratedCodeAttribute",
+            "System.CodeDom.Compiler");
 
     // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]
     // — record synthesized members (EqualityContract/PrintMembers/Equals/GetHashCode/

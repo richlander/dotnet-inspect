@@ -122,6 +122,12 @@ public enum MethodDefinitionLayers
     /// <see cref="ModuleLookup"/>.
     /// </summary>
     MethodAnalysis = 65536,
+
+    /// <summary>
+    /// Per-method local-signature depth. It implies <see cref="Body"/> but
+    /// does not decode calls or imply <see cref="CallTargets"/>.
+    /// </summary>
+    LocalSignature = 131072,
 }
 
 /// <summary>
@@ -143,12 +149,18 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         string? parameters = null)
         : base(identity, version, tier, dependencies, parameters)
     {
-        Layers = layers.HasFlag(MethodDefinitionLayers.Calls)
-            ? layers
-                | MethodDefinitionLayers.Declaration
-                | MethodDefinitionLayers.Body
-                | MethodDefinitionLayers.CallTargets
-            : layers | MethodDefinitionLayers.Declaration;
+        Layers =
+            layers.HasFlag(MethodDefinitionLayers.Calls)
+                ? layers
+                    | MethodDefinitionLayers.Declaration
+                    | MethodDefinitionLayers.Body
+                    | MethodDefinitionLayers.CallTargets
+                : layers.HasFlag(
+                    MethodDefinitionLayers.LocalSignature)
+                    ? layers
+                        | MethodDefinitionLayers.Declaration
+                        | MethodDefinitionLayers.Body
+                    : layers | MethodDefinitionLayers.Declaration;
     }
 
     /// <summary>The layers this producer may acquire; the declaration layer is always included.</summary>
@@ -835,16 +847,28 @@ public readonly ref struct MethodDefinitionView
     internal MethodLocalSignature GetLocalSignature()
     {
         MethodDefinitionExecution.ProducerState producer = Producer;
-        if (!producer.HasCallsLayer)
+        if (!producer.HasLocalSignatureLayer
+            && !producer.HasCallsLayer)
         {
             throw new ProducerContractException(
-                $"Producer '{_owner}' did not declare Method call support.");
+                $"Producer '{_owner}' did not declare Method "
+                + "local-signature support.");
         }
 
-        producer.CountUnit(
-            ref producer.LastCallsUnit,
-            Token,
-            ref producer.CallsUses);
+        if (producer.HasLocalSignatureLayer)
+        {
+            producer.CountUnit(
+                ref producer.LastLocalSignatureUnit,
+                Token,
+                ref producer.LocalSignatureUses);
+        }
+        else
+        {
+            producer.CountUnit(
+                ref producer.LastCallsUnit,
+                Token,
+                ref producer.CallsUses);
+        }
         return _unit.GetLocalSignature(GetBody());
     }
 
