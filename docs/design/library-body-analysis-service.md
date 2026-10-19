@@ -1611,7 +1611,8 @@ incidental donor work is retired.
 Recoverable whole-body Calls failure does not erase independent focused
 evidence: exception regions are already detached, and a recovery-only
 owner-issued operand resolver preserves the safety-occurrence prefix while the
-diagnostic remains visible.
+already materialized instructions preserve call-independent operation-safety
+evidence and the diagnostic remains visible.
 
 Each result-type migration additionally gates:
 

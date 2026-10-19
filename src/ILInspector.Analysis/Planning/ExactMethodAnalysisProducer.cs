@@ -132,6 +132,11 @@ public sealed class ExactMethodAnalysisProducer :
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
+                CollectOperationSafety(
+                    method,
+                    instructions,
+                    includeIndirectOperations,
+                    safety);
                 MethodCallRecoveryResolver recovery =
                     view.GetCallRecoveryResolver();
                 unsafeOccurrences =
@@ -229,6 +234,26 @@ public sealed class ExactMethodAnalysisProducer :
                 exceptionRegions,
                 exceptionRegionError,
                 diagnostics.ToImmutable());
+        }
+    }
+
+    static void CollectOperationSafety(
+        MethodIdentity method,
+        MethodInstructions instructions,
+        bool includeIndirectOperations,
+        ImmutableArray<UnsafeEvidence>.Builder safety)
+    {
+        foreach (DecodedInstruction instruction in instructions.Instructions)
+        {
+            if (MethodSafetyAnalysis.InspectOperation(
+                    method,
+                    instruction.OpCode,
+                    instruction.Offset,
+                    includeIndirectOperations)
+                is { } operationEvidence)
+            {
+                safety.Add(operationEvidence);
+            }
         }
     }
 

@@ -1034,7 +1034,8 @@ before returning, and group execution remains sequential for Browser/Wasm.
 `AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
 allocation/call/exception/opportunity evidence, visible invalid and bodyless
 failures, preservation of independent safety and exception evidence after a
-recoverable Calls failure, and unbounded query cost.
+recoverable Calls failure, one public diagnostic for that failure, and
+unbounded query cost.
 `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` additionally
 gates exact breadth, one physical body, declared source capabilities, no
 unrelated module lookup, and focused identity, safety, diagnostics, and

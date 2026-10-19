@@ -252,6 +252,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 occurrence.Kind == UnsafetyKind.StackAlloc);
         Assert.Equal("byte*", occurrence.Detail);
         Assert.Single(result.ExceptionRegions);
+        Assert.Contains(
+            result.UnsafeEvidence,
+            evidence => evidence.Detail == "localloc");
+        Assert.Single(result.Diagnostics);
     }
 
     [Fact]

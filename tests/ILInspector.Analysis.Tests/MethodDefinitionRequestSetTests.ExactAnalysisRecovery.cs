@@ -80,5 +80,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                 occurrence.Kind == UnsafetyKind.StackAlloc);
         Assert.Equal("byte*", occurrence.Detail);
         Assert.Single(result.ExceptionRegions);
+        Assert.Contains(
+            result.SafetyEvidence,
+            evidence => evidence.Detail == "localloc");
     }
 }

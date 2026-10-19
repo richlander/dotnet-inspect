@@ -1104,7 +1104,9 @@ Migration is incremental:
     When whole-body Calls decoding fails recoverably, the producer projects
     independent exception-region evidence first and uses recovery-only
     owner-issued operand resolution to retain the donor's safety-occurrence
-    prefix without adding duplicate work to the successful path.
+    prefix. It also recovers call-independent operation-safety evidence from
+    the already materialized instructions, without adding duplicate work to
+    the successful path.
 12. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
