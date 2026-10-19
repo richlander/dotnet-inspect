@@ -34,6 +34,7 @@ public sealed class MethodDefinitionExecution
     SameModuleCallTargetSupport? _callTargets;
     MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
+    MethodAnalysisSupport? _methodAnalysis;
     PublicMethodRootSupport? _publicRoots;
     ReferenceAssemblyStatusSupport? _referenceStatus;
     MethodDefinitionDeclaredSources? _declaredSources;
@@ -195,6 +196,7 @@ public sealed class MethodDefinitionExecution
         bool callTargetsDeclared = false;
         bool methodCallsDeclared = false;
         bool semanticIdentityDeclared = false;
+        bool methodAnalysisDeclared = false;
         foreach (ProducerState state in execution._states)
         {
             lookupDeclared |= state.HasLookupLayer;
@@ -203,6 +205,7 @@ public sealed class MethodDefinitionExecution
             callTargetsDeclared |= state.HasCallTargetLayer;
             methodCallsDeclared |= state.HasCallsLayer;
             semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
+            methodAnalysisDeclared |= state.HasMethodAnalysisLayer;
         }
         execution._memorySafety =
             memorySafetyDeclared
@@ -219,6 +222,10 @@ public sealed class MethodDefinitionExecution
         execution._semanticIdentity =
             semanticIdentityDeclared
                 ? new MethodSemanticIdentitySupport(reader, sourceName)
+                : null;
+        execution._methodAnalysis =
+            methodAnalysisDeclared
+                ? new MethodAnalysisSupport(sourceName, reader, peReader)
                 : null;
         if (referenceBindingDeclared && referenceBinding is null)
         {
@@ -557,6 +564,11 @@ public sealed class MethodDefinitionExecution
                 static state => state.HasSemanticIdentityLayer))
                 ? new MethodSemanticIdentitySupport(reader, sourceName)
                 : null;
+        MethodAnalysisSupport? methodAnalysis =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasMethodAnalysisLayer))
+                ? new MethodAnalysisSupport(sourceName, reader, peReader)
+                : null;
         try
         {
             var visiting = new ProducerState[lanes.Length][];
@@ -592,6 +604,11 @@ public sealed class MethodDefinitionExecution
                         static state => state.HasSemanticIdentityLayer))
                 {
                     lane._semanticIdentity = semanticIdentity;
+                }
+                if (lane._states.Any(
+                        static state => state.HasMethodAnalysisLayer))
+                {
+                    lane._methodAnalysis = methodAnalysis;
                 }
                 if (referenceBinding is null
                     && lane._states.Any(
@@ -1376,6 +1393,7 @@ public sealed class MethodDefinitionExecution
             _callTargets,
             _methodCalls,
             _semanticIdentity,
+            _methodAnalysis,
             _sourceCoverage,
             CurrentOrdinal);
     }
@@ -2001,6 +2019,13 @@ public sealed class MethodDefinitionExecution
                     state.CallsUses));
             }
 
+            if (state.HasMethodAnalysisLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.MethodAnalysis),
+                    state.MethodAnalysisUses));
+            }
+
             producers.Add(new ProducerParticipation(
                 state.Producer.Identity,
                 state.Outcome
@@ -2195,6 +2220,9 @@ public sealed class MethodDefinitionExecution
         public bool HasCallsLayer { get; } =
             (layers & MethodDefinitionLayers.Calls) != 0;
 
+        public bool HasMethodAnalysisLayer { get; } =
+            (layers & MethodDefinitionLayers.MethodAnalysis) != 0;
+
         public bool HasPublicMethodRootsLayer { get; } =
             (layers & MethodDefinitionLayers.PublicMethodRoots) != 0;
 
@@ -2255,6 +2283,11 @@ public sealed class MethodDefinitionExecution
         public int CallsUses;
 
         public int LastCallsUnit;
+
+        /// <summary>Units in which method-analysis support was queried.</summary>
+        public int MethodAnalysisUses;
+
+        public int LastMethodAnalysisUnit;
 
         /// <summary>Counts <paramref name="unitToken"/> once, however often a layer is read in it.</summary>
         public void CountUnit(ref int lastUnit, int unitToken, ref int count)

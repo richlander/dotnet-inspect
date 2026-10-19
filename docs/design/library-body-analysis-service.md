@@ -119,6 +119,20 @@ combined coordinate requests still use this service: allocation requires
 `LibraryAllocationAnalysisResult`, while cost requires the donor-owned public
 direct-call rows.
 
+The method-analysis-support prerequisite for exact allocation and optimization
+is tracked by
+[#10307](https://github.com/richlander/dotnet-inspect/issues/10307).
+`DeclaredSourceAttribution` now composes the
+[Method Query Source support](method-query-source.md#method-analysis-support)
+used by the legacy builder's method resolver, method-reference resolver,
+generic-constraint classifier, and stable-receiver classifier. The primary
+resolver's memory-safety index is lazy, so allocation and optimization support
+does not silently construct unrelated safety infrastructure. This is a
+composition and ownership transfer, not production QuerySpace adoption:
+allocation, cost, and combined coordinate requests still use this service
+until #10285 moves their shared CLI and Browser/Wasm operation. Final donor
+drainage and deletion remain with #8965 and #9959.
+
 The CLI session adoption moved both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source

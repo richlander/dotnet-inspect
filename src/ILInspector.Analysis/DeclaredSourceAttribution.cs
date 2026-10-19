@@ -45,10 +45,16 @@ internal sealed class DeclaredSourceAttribution
             generatedExpansionWork = null)
     {
         _reader = reader;
-        AssemblyName = reader.IsAssembly
-            ? reader.GetString(reader.GetAssemblyDefinition().Name)
-            : Path.GetFileNameWithoutExtension(path);
-        Mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        MethodAnalysis =
+            new(
+                path,
+                reader,
+                peReader,
+                stableReceiverGetterClassified,
+                methodReferenceResolved,
+                asyncStateMachineTypesBuilt);
+        AssemblyName = MethodAnalysis.AssemblyName;
+        Mvid = MethodAnalysis.Mvid;
         AssemblyIdentity = reader.IsAssembly
             ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
             : new AssemblyReferenceIdentity(
@@ -57,27 +63,6 @@ internal sealed class DeclaredSourceAttribution
                 null,
                 null);
         GeneratedExpansionWork = generatedExpansionWork;
-        MethodReferenceResolver =
-            new LibraryBodyMethodReferenceResolver(
-                reader,
-                methodReferenceResolved);
-        GenericConstraintClassifier =
-            new LibraryBodyGenericConstraintClassifier(reader);
-        StableReceiverGetterClassifier =
-            new LibraryBodyStableReceiverGetterClassifier(
-                reader,
-                peReader,
-                stableReceiverGetterClassified);
-        PrimaryMetadataResolver =
-            new LibraryBodyPrimaryMetadataResolver(
-                reader,
-                AssemblyName,
-                Mvid,
-                MethodReferenceResolver.ResolveMethod,
-                MethodReferenceResolver.ResolvePresenceMethod,
-                GenericConstraintClassifier.GenericParameterCanBeValueType,
-                StableReceiverGetterClassifier.IsStableReceiverGetter,
-                asyncStateMachineTypesBuilt);
         GeneratedProvenanceClassifier =
             new LibraryBodyGeneratedProvenanceClassifier(
                 reader,
@@ -125,18 +110,20 @@ internal sealed class DeclaredSourceAttribution
     internal MethodDefinitionGeneratedExpansionWork? GeneratedExpansionWork
     { get; }
 
+    internal MethodAnalysisLookup MethodAnalysis { get; }
+
     internal LibraryBodyMethodReferenceResolver MethodReferenceResolver
-    { get; }
+        => MethodAnalysis.MethodReferenceResolver;
 
     internal LibraryBodyGenericConstraintClassifier GenericConstraintClassifier
-    { get; }
+        => MethodAnalysis.GenericConstraintClassifier;
 
     internal LibraryBodyStableReceiverGetterClassifier
         StableReceiverGetterClassifier
-    { get; }
+        => MethodAnalysis.StableReceiverGetterClassifier;
 
     internal LibraryBodyPrimaryMetadataResolver PrimaryMetadataResolver
-    { get; }
+        => MethodAnalysis.PrimaryMetadataResolver;
 
     internal LibraryBodyGeneratedProvenanceClassifier
         GeneratedProvenanceClassifier

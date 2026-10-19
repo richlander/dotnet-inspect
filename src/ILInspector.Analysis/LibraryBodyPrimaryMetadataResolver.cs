@@ -21,7 +21,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly AssemblyReferenceIdentity? _assemblyIdentity;
     readonly SameImageSignatureComparer _signatureComparer;
     readonly Guid _mvid;
-    readonly MemorySafetyMetadataIndex _memorySafety;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
     readonly Func<
         EntityHandle,
         GenericScope,
@@ -85,14 +85,16 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             isStableReceiverGetter;
         _asyncStateMachineTypesBuilt =
             asyncStateMachineTypesBuilt;
-        _memorySafety = MemorySafetyMetadataIndex.Create(reader);
+        _memorySafety = new(
+            () => MemorySafetyMetadataIndex.Create(reader),
+            LazyThreadSafetyMode.ExecutionAndPublication);
         _localTypeDefinitions = new(
             BuildLocalTypeDefinitions,
             LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     internal MemorySafetyRulesResult MemorySafetyRules =>
-        _memorySafety.Rules;
+        _memorySafety.Value.Rules;
 
     internal string AssemblyName => _assemblyName;
 
@@ -136,7 +138,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 method,
                 workBudget);
             return CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(
+                _memorySafety.Value.GetMemberContract(
                     method));
         }
         if (handle.Kind == HandleKind.MemberReference)
@@ -153,7 +155,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     method,
                     workBudget);
                 return CallerUnsafeModeFromContract(
-                    _memorySafety.GetMemberContract(
+                    _memorySafety.Value.GetMemberContract(
                         method));
             }
         }
@@ -197,7 +199,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         return target.IsNil
             ? null
             : CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(
+                _memorySafety.Value.GetMemberContract(
                     target));
     }
 
@@ -334,7 +336,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 out _);
         return identity.ToMethodIdentity(
             CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(methodHandle)));
+                _memorySafety.Value.GetMemberContract(methodHandle)));
     }
 
     internal MethodIdentity CreatePresenceMethodIdentity(
@@ -416,7 +418,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     method,
                     workBudget: null),
             CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(methodHandle)),
+                _memorySafety.Value.GetMemberContract(methodHandle)),
             genericArity,
             genericParameterNames)
         {
