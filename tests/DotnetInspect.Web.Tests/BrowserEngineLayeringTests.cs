@@ -109,6 +109,11 @@ public sealed class BrowserEngineLayeringTests
             "T:ILInspector.Analysis.LibraryBodyAnalysisService",
             banned);
         Assert.Contains(
+            "M:ILInspector.Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity"
+                + "(ILInspector.Metadata.ApiSurface,System.String,System.String,"
+                + "System.String,System.Nullable{System.Int32})",
+            banned);
+        Assert.Contains(
             banned,
             symbol => symbol.StartsWith(
                 "M:DotnetInspector.Queries.InspectionWorkspace.CreateAssemblyContextGroup",
