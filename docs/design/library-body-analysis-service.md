@@ -1574,6 +1574,9 @@ The initial Release gates are:
 - existing `AssemblyContextMethodAnalysisQueryTests` for exact physical
   method evidence, visible participant failures, resolver use, and
   cancellation;
+- `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` for the first
+  exact-member producer's one-body source receipt and identity, direct-call,
+  safety, diagnostic, and exception-region parity with this donor;
 - existing `AssemblyContextOptimizationOpportunitiesQueryTests` for ranking,
   public-member attribution, participant isolation, resolver use, and visible
   failure; and
@@ -1593,6 +1596,23 @@ The initial Release gates are:
 
 No source-code absence gate enforces service usage. Consumer migration is
 established by the production call sites and focused behavior gates.
+
+`AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
+`ExactMethodAnalysisProducer` owns semantic identity, safety evidence and
+occurrences, diagnostics, and detached physical exception regions. This
+service still owns the query's public direct-call rows, final `MethodSignals`,
+allocation occurrences, and optimization opportunities. Calls remain a
+focused source input only for call-safety evidence; declared async-source
+attribution, execution multiplicity, and complete external MethodSpec
+definition-token provenance remain donor-owned. Those retained products may
+incidentally perform work that the focused producer also needs; #9832 moves
+only complete result ownership and planning authority and does not claim that
+incidental donor work is retired.
+Recoverable whole-body Calls failure does not erase independent focused
+evidence: exception regions are already detached, and a recovery-only
+owner-issued operand resolver preserves the safety-occurrence prefix while the
+already materialized instructions preserve call-independent operation-safety
+evidence and the diagnostic remains visible.
 
 Each result-type migration additionally gates:
 

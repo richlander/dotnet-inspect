@@ -1095,10 +1095,23 @@ Migration is incremental:
     [Same-module call-target support](#same-module-call-target-support) (#8700)
     and [Semantic identity](#semantic-identity) (#9830) are implemented on the
     same terms.
-11. Move the first exact-member consumer in #9832 through
-    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
-    consuming #8700 and #8945 rather than defining another call resolver or
-    population.
+11. The first exact-member consumer moved in #9832 through
+    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers).
+    `ExactMethodAnalysisProducer` consumes the exact MethodDef population,
+    semantic identity, memory-safety contracts, Calls, and resolved-call body
+    analyzer owned by the source; it defines no second population or call
+    resolver. `AssemblyContextMethodAnalysisQuery` consumes that focused result
+    for identity, safety, diagnostics, and exception regions, while direct-call
+    rows, signals, allocations, and optimization remain legacy-owned. Calls
+    support is used only for focused call-safety evidence because declared
+    async-source attribution, execution multiplicity, and complete
+    definition-token provenance do not yet have owner-issued capabilities.
+    When whole-body Calls decoding fails recoverably, the producer projects
+    independent exception-region evidence first and uses recovery-only
+    owner-issued operand resolution to retain the donor's safety-occurrence
+    prefix. It also recovers call-independent operation-safety evidence from
+    the already materialized instructions, without adding duplicate work to
+    the successful path.
 12. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
