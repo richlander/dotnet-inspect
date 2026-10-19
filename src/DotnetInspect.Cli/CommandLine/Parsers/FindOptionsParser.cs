@@ -40,7 +40,8 @@ public static class FindOptionsParser
         Option<bool> NoHeaderOption,
         Option<string?> PackagePrefixOption,
         Option<bool> MembersOption,
-        Option<int?> TakeOption);
+        Option<int?> TakeOption,
+        Option<string?> WorkspaceOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -71,6 +72,16 @@ public static class FindOptionsParser
         var packagePrefix = parseResult.GetValue(args.PackagePrefixOption);
         var typeFilter = parseResult.GetValue(args.TypeFilterOption);
         int? take = parseResult.GetValue(args.TakeOption);
+        string? workspace = parseResult.GetValue(args.WorkspaceOption);
+        if (workspace is not null
+            && new Option[] { args.PackageOption, args.AssemblyOption, args.PlatformOption,
+                args.PlatformLibraryOption, args.EcosystemOption, args.ExtensionsOption,
+                args.AspNetCoreOption, args.ProjectOption, args.BinOption, args.PackagePrefixOption,
+                args.TfmOption }.Any(option => parseResult.GetResult(option) is { Implicit: false }))
+        {
+            CommandError.Write("--workspace cannot be combined with another Find source selector or --tfm.");
+            return new Invalid();
+        }
         if (!TryParseEcosystems(
                 parseResult,
                 args.EcosystemOption,
@@ -95,13 +106,13 @@ public static class FindOptionsParser
         }
         OutputFormat format = opts.ResolveFormat(parseResult, OutputFormat.Tsv);
         if (take is not null
-            && (ecosystems is null
+            && (ecosystems is null && workspace is null
                 || parseResult.GetValue(opts.Count)
                 || format is not (OutputFormat.Tsv or OutputFormat.Jsonl)))
         {
             CommandError.Write(
                 "find --take bounds Ecosystem prefix package candidates "
-                + "and requires --ecosystem with TSV or JSONL output.");
+                + "and requires --ecosystem with TSV or JSONL output, or --workspace with those formats.");
             return new Invalid();
         }
         if (take is <= 0 or > FindOptions.MaximumEcosystemPrefixPackagesLimit)
@@ -167,17 +178,18 @@ public static class FindOptionsParser
         var options = new FindOptions
         {
             Pattern = pattern ?? "",
-            SourceSelection = selection,
+            WorkspacePacket = workspace,
+            SourceSelection = workspace is null ? selection : null,
             Ecosystems = ecosystems,
             PackagePrefixLimitReached = packagePrefixLimitReached,
             MaximumEcosystemPrefixPackages =
                 take ?? FindOptions.DefaultMaximumEcosystemPrefixPackages,
-            Packages = [.. sources.Packages],
-            Assemblies = [.. sources.Assemblies],
-            PlatformAssemblies = [.. sources.PlatformAssemblies],
-            PlatformFrameworks = [.. sources.PlatformFrameworks],
-            Projects = [.. sources.Projects],
-            BinPaths = [.. sources.Directories],
+            Packages = workspace is null ? [.. sources.Packages] : [],
+            Assemblies = workspace is null ? [.. sources.Assemblies] : [],
+            PlatformAssemblies = workspace is null ? [.. sources.PlatformAssemblies] : [],
+            PlatformFrameworks = workspace is null ? [.. sources.PlatformFrameworks] : [],
+            Projects = workspace is null ? [.. sources.Projects] : [],
+            BinPaths = workspace is null ? [.. sources.Directories] : [],
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
             // Member lens: explicit --members, or auto-enabled by a leading '.'
@@ -323,6 +335,15 @@ public static class FindOptionsParser
                     pattern ?? "<ID-or-prefix*>",
                     "discover package IDs; find searches API symbols")]
                 : [];
+
+        if (options.WorkspacePacket is { } workspace)
+        {
+            return
+            [
+                new(FindCommand.Name, $"{tipPattern} --workspace {workspace}{memberFlag} --table", "compact output"),
+                new(FindCommand.Name, $"{tipPattern} --workspace {workspace}{memberFlag} -v:d", "detailed results")
+            ];
+        }
 
         var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
         if (pkg != null)

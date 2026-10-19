@@ -41,6 +41,12 @@ public partial class FindCommand
         FindOptions options,
         CancellationToken cancellationToken = default)
     {
+        if (!FindWorkspacePacketAdmission.TryAdmit(options, cancellationToken,
+                out options, out string? workspaceError))
+        {
+            CommandError.Write(workspaceError!);
+            return new(1, RowCount: null);
+        }
         var context = new CommandContext(options.Verbose);
         var logger = context.Logger;
 
@@ -390,7 +396,15 @@ public partial class FindCommand
         CancellationToken cancellationToken,
         FindDiscoveryTsvWriter? tsv = null)
     {
-        var layers = GetNamedLayers(options.Ecosystems!);
+        var layers = options.WorkspaceEcosystems is { } registrations
+            ? registrations.Select(registration =>
+            {
+                _ = EcosystemPackId.TryCreate(registration.Declaration.Id.Value, out EcosystemPackId? id);
+                return (Id: id!, Declaration: registration.Declaration,
+                    Platform: registration.Declaration.Populations.Any(
+                        population => population is WorkspaceEcosystemPopulationDeclaration.Platform));
+            }).ToArray()
+            : GetNamedLayers(options.Ecosystems!);
         return await SearchEcosystemSessionAsync(
             options, patterns, context, cancellationToken, tsv, layers);
     }
@@ -435,7 +449,9 @@ public partial class FindCommand
                     new([], []), 0);
             FindOptions scoped = options with
             {
-                Ecosystems = [id],
+                Ecosystems = options.WorkspaceEcosystems is null ? [id] : null,
+                WorkspacePacket = null,
+                WorkspaceEcosystems = null,
                 SourceSelection = null,
                 Packages = layer.CorePackageId is { } core
                     ? [core]
@@ -871,6 +887,8 @@ public partial class FindCommand
         FindOptions scoped = options with
         {
             Ecosystems = null,
+            WorkspacePacket = null,
+            WorkspaceEcosystems = null,
             SourceSelection = null,
             Packages = [$"{candidate.PackageId}@{candidate.Version}"],
             PlatformAssemblies = [],
