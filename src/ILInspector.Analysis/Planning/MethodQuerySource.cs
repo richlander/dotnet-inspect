@@ -111,6 +111,16 @@ public sealed record MethodDefinitionGeneratedExpansionLimits
     public int MaximumRelationshipNodes { get; }
 }
 
+/// <summary>Generated-body expansion work dimension that reached its bound.</summary>
+public enum MethodDefinitionGeneratedExpansionLimitKind
+{
+    CandidateDefinitions,
+    GeneratedMethods,
+    ProbeBodies,
+    ProbeEncodedIlBytes,
+    RelationshipNodes,
+}
+
 /// <summary>Terminal Method-source work dimension that reached its bound.</summary>
 public enum MethodDefinitionTerminalWorkLimitKind
 {
@@ -1024,6 +1034,13 @@ public sealed record MethodDefinitionGeneratedExpansionOrigin(
 /// Generated bodies no edge authenticates, in metadata order. They join
 /// breadth, without an owner, only when the request includes them.
 /// </param>
+/// <param name="ReachedLimit">
+/// The bound that stopped expansion before the relation settled, if any.
+/// </param>
+/// <param name="ReachedAtToken">
+/// The metadata token being recorded when <paramref name="ReachedLimit"/> was
+/// reached.
+/// </param>
 public sealed record MethodDefinitionGeneratedExpansionCoverage(
     MethodDefinitionHandleCoverage CandidateDefinitionsExamined,
     MethodDefinitionHandleCoverage ProbeBodiesAttempted,
@@ -1032,7 +1049,9 @@ public sealed record MethodDefinitionGeneratedExpansionCoverage(
     ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Origins,
     ImmutableArray<MethodDefinitionGeneratedExpansionOrigin>
         AttributedOutsideRoles,
-    ImmutableArray<MethodDefinitionHandle> UnauthenticatedCandidates)
+    ImmutableArray<MethodDefinitionHandle> UnauthenticatedCandidates,
+    MethodDefinitionGeneratedExpansionLimitKind? ReachedLimit = null,
+    int? ReachedAtToken = null)
 {
     public static MethodDefinitionGeneratedExpansionCoverage Empty { get; } =
         new(
@@ -1043,6 +1062,12 @@ public sealed record MethodDefinitionGeneratedExpansionCoverage(
             [],
             [],
             []);
+
+    /// <summary>
+    /// Whether expansion stopped at a declared bound. The outcomes then
+    /// describe the retained prefix only.
+    /// </summary>
+    public bool IsBounded => ReachedLimit is not null;
 }
 
 /// <summary>Actual physical-body work admitted to terminal producers.</summary>
@@ -1497,6 +1522,8 @@ internal static class MethodQuerySource
                 MethodDefinitionSourceCompletion.ProducerFailed,
             ProducerOutcome.Aborted =>
                 MethodDefinitionSourceCompletion.Aborted,
+            ProducerOutcome.SourceBounded =>
+                MethodDefinitionSourceCompletion.SourceIncomplete,
             _ => throw new ProducerContractException(
                 $"Unknown producer outcome '{outcome}'."),
         };

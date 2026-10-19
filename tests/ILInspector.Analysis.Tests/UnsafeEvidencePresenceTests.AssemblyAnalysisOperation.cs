@@ -1039,11 +1039,48 @@ public partial class UnsafeEvidencePresenceTests
             1,
             execution.SourceReceipt.Coverage.GeneratedExpansion
                 .ProbeBodiesAttempted.Count);
-        Assert.Equal(
-            ProducerOutcome.Failed,
-            execution.ResultOf(
-                    UnsafeEvidencePresenceProducer.Instance)
-                .Outcome);
+        AssertRetainedPrefix(
+            execution,
+            path,
+            type,
+            MethodDefinitionGeneratedExpansionLimitKind.ProbeBodies);
+    }
+
+    // A reached bound keeps the selected type's methods as the retained
+    // prefix and names the bound, while presence still answers nothing: a
+    // bounded result is not a value it reads.
+    static void AssertRetainedPrefix(
+        AssemblyAnalysisExecution<int> execution,
+        string path,
+        TypeDefinitionHandle type,
+        MethodDefinitionGeneratedExpansionLimitKind limit)
+    {
+        MethodDefinitionGeneratedExpansionCoverage expansion =
+            execution.SourceReceipt.Coverage.GeneratedExpansion;
+        Assert.True(expansion.IsBounded);
+        Assert.Equal(limit, expansion.ReachedLimit);
+        Assert.NotNull(expansion.ReachedAtToken);
+
+        using var peReader = new PEReader(File.OpenRead(path));
+        MetadataReader reader = peReader.GetMetadataReader();
+        ImmutableArray<MethodDefinitionHandle> direct =
+            [.. reader.GetTypeDefinition(type).GetMethods()];
+        Assert.NotEmpty(direct);
+        Assert.All(
+            direct,
+            method => Assert.True(
+                execution.SourceReceipt.Coverage.MethodsSelected
+                    .Contains(method)));
+
+        ProducerResult<int> result =
+            execution.ResultOf(UnsafeEvidencePresenceProducer.Instance);
+        Assert.Equal(ProducerOutcome.SourceBounded, result.Outcome);
+        Assert.False(result.HasValue);
+        Assert.IsType<UnsafeEvidencePresenceInspection.Incomplete>(
+            UnsafeEvidencePresence.Project(
+                result,
+                execution.WorkReceipt,
+                peReader));
     }
 
     [Fact]
@@ -1089,11 +1126,11 @@ public partial class UnsafeEvidencePresenceTests
             execution.SourceReceipt.Coverage.GeneratedExpansion;
         Assert.Equal(1, expansion.ProbeBodiesAttempted.Count);
         Assert.True(expansion.ProbeEncodedIlBytes > 1);
-        Assert.Equal(
-            ProducerOutcome.Failed,
-            execution.ResultOf(
-                    UnsafeEvidencePresenceProducer.Instance)
-                .Outcome);
+        AssertRetainedPrefix(
+            execution,
+            path,
+            type,
+            MethodDefinitionGeneratedExpansionLimitKind.ProbeEncodedIlBytes);
     }
 
     [Fact]

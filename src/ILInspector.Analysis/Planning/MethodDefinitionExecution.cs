@@ -288,19 +288,22 @@ public sealed class MethodDefinitionExecution
                 execution._breadth =
                     MethodDefinitionSourceBreadth.ExactMethods(
                         expansion.Methods);
+                if (expansion.Bound is { } bound)
+                    execution.BoundActiveSource(bound);
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
+                expansionWork!.Settle();
                 execution._sourceCoverage.RecordGeneratedExpansion(
-                    expansionWork!.Build());
+                    expansionWork.Build());
                 execution._declaredSources =
                     new MethodDefinitionDeclaredSources(
                         MethodDefinitionGeneratedExpansionCoverage.Empty);
                 execution.FailActiveSource(
                     0,
-                    "(generated body expansion)",
+                    GeneratedExpansionLabel,
                     ex);
                 execution._breadth =
                     MethodDefinitionSourceBreadth.ExactMethods();
@@ -921,6 +924,35 @@ public sealed class MethodDefinitionExecution
         }
     }
 
+    /// <summary>
+    /// Marks every active producer as running over the retained prefix of a
+    /// bounded expansion. The producers still visit that prefix and complete;
+    /// their outcome becomes <see cref="ProducerOutcome.SourceBounded"/>.
+    /// </summary>
+    void BoundActiveSource(
+        MethodDefinitionGeneratedExpansionBoundException bound)
+    {
+        // The bound is source work, not a unit; its subject token stays in
+        // the expansion coverage and the message.
+        const int unit = 0;
+        string message = ProducerFailure.Describe(bound);
+        foreach (ProducerState state in _states)
+        {
+            if (!state.IsActive)
+                continue;
+
+            state.SourceBounded = true;
+            state.Failure =
+                new ProducerFailure(unit, GeneratedExpansionLabel, message);
+            state.SourceFailure = new MethodDefinitionSourceFailure(
+                unit,
+                GeneratedExpansionLabel,
+                message);
+        }
+    }
+
+    const string GeneratedExpansionLabel = "(generated body expansion)";
+
     void FailActiveSourceForCurrentType(
         int unit,
         Exception error)
@@ -980,6 +1012,7 @@ public sealed class MethodDefinitionExecution
             state.Outcome = ProducerOutcome.Aborted;
             state.Failure = null;
             state.SourceFailure = null;
+            state.SourceBounded = false;
             state.FailedPrerequisite = null;
             state.ClearResult();
             state.IsActive = false;
@@ -1020,6 +1053,8 @@ public sealed class MethodDefinitionExecution
         {
             ProducerOutcome.Complete or ProducerOutcome.Stopped =>
                 new(state.Outcome.Value, state.Result),
+            ProducerOutcome.SourceBounded =>
+                new(state.Outcome.Value, state.Result, state.Failure),
             ProducerOutcome.Failed =>
                 new(state.Outcome.Value, default, state.Failure),
             ProducerOutcome.PrerequisiteFailed =>
@@ -1731,6 +1766,7 @@ public sealed class MethodDefinitionExecution
         // A producer whose visits stopped at a settled terminal still needs
         // its completion prerequisites, so only a final outcome is skipped.
         if (state.Outcome is ProducerOutcome.Complete
+            or ProducerOutcome.SourceBounded
             or ProducerOutcome.Failed
             or ProducerOutcome.PrerequisiteFailed
             or ProducerOutcome.Aborted)
@@ -1820,7 +1856,13 @@ public sealed class MethodDefinitionExecution
             return;
         }
 
-        state.Outcome ??= ProducerOutcome.Complete;
+        // A bounded source settles no terminal: even a producer that stopped
+        // early answered only over the retained prefix.
+        state.Outcome =
+            state.SourceBounded
+                && state.Outcome is null or ProducerOutcome.Stopped
+                ? ProducerOutcome.SourceBounded
+                : state.Outcome ?? ProducerOutcome.Complete;
         state.IsActive = false;
     }
 
@@ -2172,6 +2214,9 @@ public sealed class MethodDefinitionExecution
         public ProducerFailure? Failure { get; set; }
 
         public MethodDefinitionSourceFailure? SourceFailure { get; set; }
+
+        /// <summary>Whether the source covers only a bounded expansion's retained prefix.</summary>
+        public bool SourceBounded { get; set; }
 
         public string? FailedPrerequisite { get; set; }
 

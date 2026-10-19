@@ -312,9 +312,9 @@ section (step 3) ships only after every row has landed, because shipping it
 earlier would land the census's first consumer on the retiring aggregate.
 
 Status: every row except the first has landed. Of the first row, the
-exact-type relation with roles, nested-type reach, and unauthenticated
-candidates has landed; the all-definition reverse lowering and the typed
-bound outcomes remain with
+exact-type relation with roles, nested-type reach, unauthenticated
+candidates, and typed retained-prefix bound outcomes has landed; the
+all-definition reverse lowering remains with
 [#9864](https://github.com/richlander/dotnet-inspect/issues/9864). Type scope
 needs only the landed part, so it moves first, and the CLI section stays
 gated on the whole first row. The Type-scope census runs on Assembly Analysis
@@ -336,16 +336,18 @@ Operation:
   all-definition reverse lowering is **unverified**. It moves when
   [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) lands that
   lowering, and the accumulator path is deleted then.
-- Until #9864 lands the typed bound outcomes, a reached Type-scope expansion
-  bound fails the census visibly instead of keeping the visited prefix.
+- A reached Type-scope expansion bound keeps the visited prefix's findings
+  and adds the image-level `AttributionBounded` limitation, so the census is
+  available but incomplete.
 - No host consumes the census yet. The CLI section adopts both scopes
   together, so a member gets one row shape at every scope.
 
 The landed gates in `UnsafeMemberFindingsTests` compare the Type scope with
 the accumulator's census for every source type of the census fixtures, fold
 the #9755 shapes and the iterator bodies, report an unclaimed nested
-generated body as a limitation, fail the census at a reached bound, and keep
-breadth and terminal work within the selected type and its expansion.
+generated body as a limitation, keep the retained prefix at a reached bound,
+and keep breadth and terminal work within the selected type and its
+expansion.
 
 Focused gates for the move:
 

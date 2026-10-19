@@ -1088,6 +1088,12 @@ public readonly ref struct MethodDefinitionCompletionView
         _producer.ReferenceAssemblyStatusReads++;
         return _producer.Execution.ReadReferenceAssemblyStatus();
     }
+
+    /// <summary>
+    /// Whether the producer visited only the retained prefix of a bounded
+    /// generated-body expansion. Reading it does no source work.
+    /// </summary>
+    internal bool IsSourceBounded => _producer.SourceBounded;
 }
 
 /// <summary>
