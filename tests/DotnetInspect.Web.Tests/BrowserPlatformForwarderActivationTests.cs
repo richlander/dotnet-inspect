@@ -197,6 +197,66 @@ public sealed class BrowserPlatformForwarderActivationTests
     }
 
     [Fact]
+    public async Task StaleSourceMvidRemainsAStaleActivation()
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PlatformFamilyTarget target = Target();
+        PlatformSourcePlan sources = Sources();
+        LibraryTypeShape selected = await ReadForwarderAsync(
+            target,
+            sources,
+            "System.Xml",
+            XmlReaderName(),
+            cancellationToken);
+        Guid staleModuleVersionId = Guid.NewGuid();
+        LibraryTypeForwardingEvidence forwarding = selected.Forwarding!;
+        LibraryTypeShape staleShape = Shape(
+            selected.Identity,
+            new(
+                staleModuleVersionId,
+                forwarding.Declarations,
+                forwarding.TargetAssembly));
+        using var activation =
+            new BrowserPlatformForwarderActivation(
+                (request, token) => ResolveAsync(request, token));
+        BrowserPlatformForwarderResultAuthority authority =
+            Authority(
+                activation,
+                generation: 1,
+                target,
+                sources,
+                Identity("System.Xml"),
+                staleModuleVersionId);
+        BrowserPlatformForwarderAction action =
+            Assert.IsType<
+                BrowserPlatformForwarderActionPublication.Published>(
+                    activation.Publish(authority, staleShape)).Action;
+
+        var blocked = Assert.IsType<
+            BrowserPlatformForwarderActivationResult.Blocked>(
+                await activation.ActivateAsync(
+                    action,
+                    cancellationToken));
+        var stale = Assert.IsType<
+            BrowserPlatformForwarderActivationBlock.Stale>(
+                blocked.Block);
+        var termination = Assert.IsType<
+            PlatformHouseTermination.Rejected>(
+                stale.Receipt!.Termination);
+        var rejection = Assert.IsType<
+            PlatformHouseRejection.OwnerEvidence>(
+                termination.Rejection);
+
+        Assert.Equal(
+            BrowserPlatformForwarderStaleReason.Result,
+            stale.Reason);
+        Assert.Equal(
+            PlatformHouseRejectionKind.StaleCandidate,
+            rejection.Kind);
+    }
+
+    [Fact]
     public async Task SupersededAndCanceledActionsInstallNoDestination()
     {
         CancellationToken cancellationToken =
@@ -614,17 +674,10 @@ public sealed class BrowserPlatformForwarderActivationTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             activationRequest.SourceAssembly);
-        Assert.Equal(
-            activationRequest.SourceModuleVersionId,
-            ModuleVersionId(activationRequest.SourceAssembly.Name));
-        ResolvedAssemblyReference descriptor =
-            SnapshotDescriptor(prepared.Completed, starting);
         var metadataRequest =
-            new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
-                TypeResolutionRequest.FromAssembly(
-                    descriptor,
-                    AssemblyResolutionScope.Platform,
-                    activationRequest.Type),
+            new PlatformImplementationTypeResolutionRequestEvidence(
+                activationRequest.Type,
+                activationRequest.SourceModuleVersionId,
                 "browser-forwarder-activation");
         var request = new PlatformHouseRequest(
             PlatformHouseRequestIdentity.Create(
@@ -754,31 +807,6 @@ public sealed class BrowserPlatformForwarderActivationTests
             member =>
                 member.PlatformLibrary.Library.ApiAssembly.AssemblyIdentity is { } assembly
                 && assembly.Identity.IsEquivalentTo(identity));
-
-    private static ResolvedAssemblyReference SnapshotDescriptor(
-        PlatformPopulationArtifactMaterializationOutcome.Completed completed,
-        PlatformPopulationMember member)
-    {
-        LibraryContentOwner owner = Owner(completed, member);
-        LibraryContentReference content =
-            member.PlatformLibrary.Library.ImplementationAssembly!;
-        using LibraryOperationLease lease =
-            Assert.IsType<LibraryOperationLeaseIssueOutcome.Issued>(
-                    owner.IssueOperationLease(member.PlatformLibrary.Library))
-                .Lease;
-        return lease.Snapshot(
-            content,
-            static (view, _) =>
-            {
-                byte[] image = view.Content.ToArray();
-                return ResolvedAssemblyReference.CreateFromArtifactIfManaged(
-                    view.Reference.Registration,
-                    () => new MemoryStream(image, writable: false),
-                    AssemblyResolutionProvenance.Designated(
-                        "Browser forwarder activation test"))
-                    ?? throw new BadImageFormatException();
-            });
-    }
 
     private static LibraryContentOwner Owner(
         PlatformPopulationArtifactMaterializationOutcome.Completed completed,

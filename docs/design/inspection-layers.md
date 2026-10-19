@@ -1645,7 +1645,10 @@ canaries:
 - Web Core's Platform-forwarder navigation projects forwarder display fields
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata
-  identities or structured Type names.
+  identities or structured Type names. Web Core selects the exact
+  implementation population member and passes its structured Type and expected
+  MVID to PlatformHouse; PlatformHouse borrows the Library image, constructs
+  the live Metadata request, and reports a typed stale-candidate rejection.
 - Web Core owns package and Platform scope realization and operation lifetime.
   Package Queries, Queries, Sections, Services, Ecosystems, Packages, and
   Presentation own the acquisition, query, activity, vulnerability,

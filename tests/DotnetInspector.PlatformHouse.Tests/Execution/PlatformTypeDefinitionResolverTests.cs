@@ -26,12 +26,9 @@ public sealed class PlatformTypeDefinitionResolverTests
             prepared.Completed,
             "System.Private.Xml")
                 .PlatformLibrary.Library.ImplementationAssembly!;
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken);
         LibraryContentOwner startingOwner =
@@ -132,12 +129,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Private.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken);
 
@@ -189,8 +183,6 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         MetadataTypeDefinitionName type =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.Create(
@@ -199,7 +191,6 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             type,
             cancellationToken);
 
@@ -243,8 +234,6 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Private.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         MetadataTypeDefinitionName missing =
             Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                 MetadataTypeDefinitionName.Create(
@@ -253,7 +242,6 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             missing,
             cancellationToken);
 
@@ -300,12 +288,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken);
 
@@ -345,12 +330,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken,
             Work(maxForwardingHops: 1));
@@ -386,50 +368,46 @@ public sealed class PlatformTypeDefinitionResolverTests
 
     [Fact]
     public async Task
-        ResolveImplementationAsync_RejectsSameAssemblyFromAnotherPopulation()
+        ResolveImplementationAsync_RejectsStaleStartingAssembly()
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
-        PreparedPopulation expected =
+        PreparedPopulation prepared =
             await PrepareRuntimePopulationAsync(cancellationToken);
-        PreparedPopulation foreign =
-            await PrepareRuntimePopulationAsync(cancellationToken);
-        PlatformPopulationMember expectedMember = Member(
-            expected.Completed,
+        PlatformPopulationMember starting = Member(
+            prepared.Completed,
             "System.Xml");
-        PlatformPopulationMember foreignMember = Member(
-            foreign.Completed,
-            "System.Xml");
-        ResolvedAssemblyReference foreignStart =
-            SnapshotDescriptor(foreign.Completed, foreignMember);
         PlatformHouseRequest request = TypeRequest(
-            expected,
-            expectedMember,
-            foreignStart,
+            prepared,
+            starting,
             XmlReaderName(),
-            cancellationToken);
-        LibraryContentOwner expectedOwner =
-            Owner(expected.Completed, expectedMember);
+            cancellationToken,
+            expectedModuleVersionId: Guid.NewGuid());
+        LibraryContentOwner owner =
+            Owner(prepared.Completed, starting);
 
-        try
-        {
-            Assert.IsType<PlatformHouseOutcome<
+        var rejected = Assert.IsType<PlatformHouseOutcome<
                 PlatformTypeDefinitionValue
                     .Implementation<
                         PlatformTypeDefinitionResolutionResult>>.Rejected>(
-                        await PlatformHouseTypeDefinitionResolver
-                            .ResolveImplementationAsync(
-                                request,
-                                expected.Completed,
-                                expected.Consumed));
-            Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
-                expectedOwner.IssueOperationLease(
-                    expectedMember.PlatformLibrary.Library));
-        }
-        finally
-        {
-            await RetireAsync(foreign.Completed);
-        }
+                    await PlatformHouseTypeDefinitionResolver
+                        .ResolveImplementationAsync(
+                            request,
+                            prepared.Completed,
+                            prepared.Consumed));
+        var termination = Assert.IsType<
+            PlatformHouseTermination.Rejected>(
+                rejected.Receipt.Termination);
+        var evidence = Assert.IsType<
+            PlatformHouseRejection.OwnerEvidence>(
+                termination.Rejection);
+
+        Assert.Equal(
+            PlatformHouseRejectionKind.StaleCandidate,
+            evidence.Kind);
+        Assert.IsType<LibraryOperationLeaseIssueOutcome.OwnerReleased>(
+            owner.IssueOperationLease(
+                starting.PlatformLibrary.Library));
     }
 
     [Fact]
@@ -443,8 +421,6 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         var foreignSources = new PlatformSourcePlan(
             PlatformSourcePlanIdentity.Create("foreign-plan"),
             PlatformSourcePolicyGeneration.Create(
@@ -453,7 +429,6 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken,
             sources: foreignSources);
@@ -484,12 +459,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest exactRequest = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken);
         var selecting = new PlatformTargetDemand.Selecting(
@@ -538,12 +510,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest exactRequest = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken,
             Work(maxDuration: TimeSpan.Zero));
@@ -592,12 +561,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken,
             Work(maxAssemblies: 3));
@@ -628,13 +594,10 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         using var cancellation = new CancellationTokenSource();
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellation.Token);
         LibraryContentOwner startingOwner =
@@ -662,12 +625,9 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationMember starting = Member(
             prepared.Completed,
             "System.Private.Xml");
-        ResolvedAssemblyReference start =
-            SnapshotDescriptor(prepared.Completed, starting);
         PlatformHouseRequest request = TypeRequest(
             prepared,
             starting,
-            start,
             XmlReaderName(),
             cancellationToken);
 
@@ -790,6 +750,8 @@ public sealed class PlatformTypeDefinitionResolverTests
         var items = new List<
             PlatformPopulationLibraryArtifactMaterializationItem>(
                 names.Length);
+        var moduleVersionIds = new Dictionary<string, Guid>(
+            StringComparer.Ordinal);
         long totalBytes = 0;
         foreach (string name in names)
         {
@@ -801,6 +763,7 @@ public sealed class PlatformTypeDefinitionResolverTests
                     $"{name}.dll"),
                 cancellationToken);
             AssemblyReferenceIdentity identity = Identity(image);
+            moduleVersionIds.Add(name, ModuleVersionId(image));
             totalBytes = checked(totalBytes + image.LongLength);
             items.Add(
                 new PlatformPopulationLibraryArtifactMaterializationItem(
@@ -840,24 +803,31 @@ public sealed class PlatformTypeDefinitionResolverTests
                         items,
                         consumed,
                         "runtime-implementation-population"));
-        return new(completed, target, sources, consumed);
+        return new(
+            completed,
+            target,
+            sources,
+            consumed,
+            moduleVersionIds);
     }
 
     static PlatformHouseRequest TypeRequest(
         PreparedPopulation prepared,
         PlatformPopulationMember starting,
-        ResolvedAssemblyReference descriptor,
         MetadataTypeDefinitionName type,
         CancellationToken cancellationToken,
         PlatformHouseWorkBudget? work = null,
-        PlatformSourcePlan? sources = null)
+        PlatformSourcePlan? sources = null,
+        Guid? expectedModuleVersionId = null)
     {
+        string startingAssembly =
+            starting.PlatformLibrary.Library.ApiAssembly
+                .AssemblyIdentity!.Identity.Name;
         var metadataRequest =
-            new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
-                TypeResolutionRequest.FromAssembly(
-                    descriptor,
-                    AssemblyResolutionScope.Platform,
-                    type),
+            new PlatformImplementationTypeResolutionRequestEvidence(
+                type,
+                expectedModuleVersionId
+                    ?? prepared.ModuleVersionIds[startingAssembly],
                 "implementation-type-request");
         var operation = new PlatformHouseOperation.ResolveTypeDefinition
             .FromImplementation<PlatformPopulationMember>(
@@ -877,32 +847,6 @@ public sealed class PlatformTypeDefinitionResolverTests
             sources ?? prepared.Sources,
             work ?? Work(),
             cancellationToken);
-    }
-
-    static ResolvedAssemblyReference SnapshotDescriptor(
-        PlatformPopulationArtifactMaterializationOutcome.Completed completed,
-        PlatformPopulationMember member)
-    {
-        LibraryContentOwner owner = Owner(completed, member);
-        LibraryContentReference content =
-            member.PlatformLibrary.Library.ImplementationAssembly!;
-        using LibraryOperationLease lease =
-            Assert.IsType<LibraryOperationLeaseIssueOutcome.Issued>(
-                    owner.IssueOperationLease(member.PlatformLibrary.Library))
-                .Lease;
-        return lease.Snapshot(
-            content,
-            static (view, _) =>
-            {
-                byte[] image = view.Content.ToArray();
-                return ResolvedAssemblyReference
-                    .CreateFromArtifactIfManaged(
-                        view.Reference.Registration,
-                        () => new MemoryStream(image, writable: false),
-                        AssemblyResolutionProvenance.Designated(
-                            "PlatformHouse type-resolution test"))
-                    ?? throw new BadImageFormatException();
-            });
     }
 
     static PlatformPopulationMember Member(
@@ -932,6 +876,15 @@ public sealed class PlatformTypeDefinitionResolverTests
             new MemoryStream(image, writable: false));
         return AssemblyReferenceIdentity.FromAssemblyDefinition(
             reader.GetMetadataReader());
+    }
+
+    static Guid ModuleVersionId(byte[] image)
+    {
+        using var reader = new PEReader(
+            new MemoryStream(image, writable: false));
+        MetadataReader metadata = reader.GetMetadataReader();
+        return metadata.GetGuid(
+            metadata.GetModuleDefinition().Mvid);
     }
 
     static MetadataTypeDefinitionName XmlReaderName() =>
@@ -979,7 +932,8 @@ public sealed class PlatformTypeDefinitionResolverTests
         PlatformPopulationArtifactMaterializationOutcome.Completed Completed,
         PlatformFamilyTarget Target,
         PlatformSourcePlan Sources,
-        PlatformHouseConsumedWork Consumed);
+        PlatformHouseConsumedWork Consumed,
+        IReadOnlyDictionary<string, Guid> ModuleVersionIds);
 
     sealed record TestProvenance(string Name) : IArtifactProvenance;
 }

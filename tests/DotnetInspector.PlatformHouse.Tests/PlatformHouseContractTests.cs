@@ -664,8 +664,9 @@ public class PlatformHouseContractTests
         var resolveImplementation =
             new PlatformHouseOperation.ResolveTypeDefinition
                 .FromImplementation<TestReferenceCandidate>(
-                    new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
-                        typeRequest,
+                    new PlatformImplementationTypeResolutionRequestEvidence(
+                        typeName,
+                        Guid.NewGuid(),
                         "type-request-2"),
                     new PlatformTypeResolutionCandidateEvidence<
                         TestReferenceCandidate>(
@@ -1487,10 +1488,12 @@ public class PlatformHouseContractTests
     {
         PlatformFamilyTarget target = Target();
         var demand = new PlatformTargetDemand.Exact(target);
+        TypeResolutionRequest typeRequest = TypeRequest();
         var operation = new PlatformHouseOperation.ResolveTypeDefinition
             .FromImplementation<TestReferenceCandidate>(
-                new PlatformMetadataRequestEvidence<TypeResolutionRequest>(
-                    TypeRequest(),
+                new PlatformImplementationTypeResolutionRequestEvidence(
+                    typeRequest.Type,
+                    Guid.NewGuid(),
                     "implementation-type-request"),
                 new PlatformTypeResolutionCandidateEvidence<
                     TestReferenceCandidate>(

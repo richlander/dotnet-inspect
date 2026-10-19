@@ -42,6 +42,7 @@ public static class PlatformHouseTypeDefinitionResolver
         var failureKinds = new List<PlatformHouseFailureKind>();
         var cleanupFailures = new List<Exception>();
         PlatformTypeDefinitionResolutionResult? detachedOutcome = null;
+        bool staleCandidate = false;
         int observedForwardingHops = 0;
         OperationCanceledException? cancellation = null;
         Exception? unexpected = null;
@@ -62,6 +63,7 @@ public static class PlatformHouseTypeDefinitionResolver
                     request.Work.MaxForwardingHops
                         - consumedWork.ForwardingHops);
                 detachedOutcome = resolution.Outcome;
+                staleCandidate = resolution.StaleCandidate;
                 observedForwardingHops = resolution.ForwardingHops;
             }
             catch (OperationCanceledException failure)
@@ -173,6 +175,15 @@ public static class PlatformHouseTypeDefinitionResolver
                     $"{IdentityPrefix}.invalid-request");
         }
 
+        if (staleCandidate)
+        {
+            return Rejected(
+                request,
+                finalWork,
+                PlatformHouseRejectionKind.StaleCandidate,
+                $"{IdentityPrefix}.stale-candidate");
+        }
+
         if (finalExceedsBudget)
         {
             return Incomplete(
@@ -225,43 +236,46 @@ public static class PlatformHouseTypeDefinitionResolver
             population,
         int maximumForwardingHops)
     {
-        PopulationAssemblySnapshots snapshots =
-            SnapshotAssemblies(
-                population.Population,
-                request.CancellationToken);
-        ImmutableArray<ResolvedAssemblyReference> assemblies =
-            snapshots.Assemblies;
         PlatformPopulationMember startingMember =
             operation.StartingImplementation;
         LibraryContentReference startingContent =
             startingMember.PlatformLibrary.Library.ImplementationAssembly
             ?? throw new InvalidOperationException(
                 "An implementation population member requires implementation content.");
+        int startingIndex = population.Population.Value.Members
+            .Select((member, index) => (member, index))
+            .Single(item => ReferenceEquals(item.member, startingMember))
+            .index;
+        AssemblySnapshot startingSnapshot = SnapshotAssembly(
+            startingMember,
+            population.Population.Owners[startingIndex],
+            request.CancellationToken);
+        if (startingSnapshot.Assembly.Registration.ModuleVersionId
+            != operation.Request.ExpectedModuleVersionId)
+        {
+            return new(
+                Outcome: null,
+                ForwardingHops: 0,
+                StaleCandidate: true);
+        }
+
+        PopulationAssemblySnapshots snapshots =
+            SnapshotAssemblies(
+                population.Population,
+                startingMember,
+                startingSnapshot,
+                request.CancellationToken);
+        ImmutableArray<ResolvedAssemblyReference> assemblies =
+            snapshots.Assemblies;
         ResolvedAssemblyReference startingAssembly = assemblies.Single(
             assembly => ReferenceEquals(
                 assembly.Registration.ArtifactRegistration,
                 startingContent.Registration));
-        if (operation.Request.Start
-                is not TypeResolutionStart.Assembly start
-            || start.Scope != AssemblyResolutionScope.Platform
-            || !ReferenceEquals(
-                start.Value.Registration.ArtifactRegistration,
-                startingContent.Registration)
-            || !AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                start.Value.Identity,
-                startingAssembly.Identity)
-            || start.Value.Registration.ModuleVersionId
-                != startingAssembly.Registration.ModuleVersionId)
-        {
-            throw new ArgumentException(
-                "The Metadata request must start from the exact owner-issued implementation candidate.",
-                nameof(operation));
-        }
 
         TypeResolutionRequest executionRequest =
             TypeResolutionRequest.FromAssembly(
                 startingAssembly,
-                start.Scope,
+                AssemblyResolutionScope.Platform,
                 operation.Request.Type);
         var policy = new PlatformPopulationBindingPolicy(assemblies);
         using var catalog = new TypeResolutionCatalog(
@@ -285,11 +299,14 @@ public static class PlatformHouseTypeDefinitionResolver
         TypeResolutionOutcome outcome = context.Resolve(executionRequest);
         return new(
             PlatformTypeDefinitionResolutionProjection.Project(outcome),
-            ObservedForwardingHops(outcome));
+            ObservedForwardingHops(outcome),
+            StaleCandidate: false);
     }
 
     static PopulationAssemblySnapshots SnapshotAssemblies(
         PlatformPopulationRealizationResult.Completed population,
+        PlatformPopulationMember startingMember,
+        AssemblySnapshot startingSnapshot,
         CancellationToken cancellationToken)
     {
         var assemblies = ImmutableArray.CreateBuilder<
@@ -303,26 +320,45 @@ public static class PlatformHouseTypeDefinitionResolver
             PlatformPopulationMember member =
                 population.Value.Members[index];
             LibraryContentOwner owner = population.Owners[index];
-            LibraryContentReference content =
-                member.PlatformLibrary.Library.ImplementationAssembly
-                ?? throw new InvalidOperationException(
-                    "An implementation population member requires implementation content.");
-            if (owner.IssueOperationLease(member.PlatformLibrary.Library)
-                is not LibraryOperationLeaseIssueOutcome.Issued issued)
+            if (ReferenceEquals(member, startingMember))
             {
-                throw new ObjectDisposedException(
-                    nameof(LibraryContentOwner));
+                totalBytes = checked(
+                    totalBytes + startingSnapshot.Length);
+                assemblies.Add(startingSnapshot.Assembly);
+                continue;
             }
 
-            using LibraryOperationLease lease = issued.Lease;
-            AssemblySnapshot snapshot = lease.Snapshot(
-                content,
-                static (view, _) => CreateAssembly(view),
+            AssemblySnapshot snapshot = SnapshotAssembly(
+                member,
+                owner,
                 cancellationToken);
             totalBytes = checked(totalBytes + snapshot.Length);
             assemblies.Add(snapshot.Assembly);
         }
         return new(assemblies.MoveToImmutable(), totalBytes);
+    }
+
+    static AssemblySnapshot SnapshotAssembly(
+        PlatformPopulationMember member,
+        LibraryContentOwner owner,
+        CancellationToken cancellationToken)
+    {
+        LibraryContentReference content =
+            member.PlatformLibrary.Library.ImplementationAssembly
+            ?? throw new InvalidOperationException(
+                "An implementation population member requires implementation content.");
+        if (owner.IssueOperationLease(member.PlatformLibrary.Library)
+            is not LibraryOperationLeaseIssueOutcome.Issued issued)
+        {
+            throw new ObjectDisposedException(
+                nameof(LibraryContentOwner));
+        }
+
+        using LibraryOperationLease lease = issued.Lease;
+        return lease.Snapshot(
+            content,
+            static (view, _) => CreateAssembly(view),
+            cancellationToken);
     }
 
     static AssemblySnapshot CreateAssembly(
@@ -375,22 +411,11 @@ public static class PlatformHouseTypeDefinitionResolver
                 == PlatformViewDemand.Implementation
             && operation.RequiredView
                 == PlatformViewDemand.Implementation
-            && operation.Request.Start
-                is TypeResolutionStart.Assembly
-            {
-                Scope: AssemblyResolutionScope.Platform,
-            } requestStart
             && starting is not null
             && startingContent is not null
             && population.Population.Value.Members.Any(
                 member => ReferenceEquals(member, starting))
             && starting.Target == exact.Target
-            && ReferenceEquals(
-                requestStart.Value.Registration.ArtifactRegistration,
-                startingContent.Registration)
-            && AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                requestStart.Value.Identity,
-                startingContent.AssemblyIdentity!.Identity)
             && populationReceipt.SettlementKind
                 == PlatformHouseSettlementKind.Completed
             && populationReceipt.TargetSettlement.SettledTarget
@@ -611,8 +636,9 @@ public static class PlatformHouseTypeDefinitionResolver
         long Length);
 
     readonly record struct ResolutionExecution(
-        PlatformTypeDefinitionResolutionResult Outcome,
-        int ForwardingHops);
+        PlatformTypeDefinitionResolutionResult? Outcome,
+        int ForwardingHops,
+        bool StaleCandidate);
 
     readonly record struct PopulationAssemblySnapshots(
         ImmutableArray<ResolvedAssemblyReference> Assemblies,
