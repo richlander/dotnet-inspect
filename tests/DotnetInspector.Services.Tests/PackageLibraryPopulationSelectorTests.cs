@@ -26,6 +26,7 @@ public sealed class PackageLibraryPopulationSelectorTests
         Assert.Equal(
             "lib/net10.0/Neutral.dll",
             Assert.Single(selected.CompileReceipt.Selection.Assets).Path);
+        Assert.Equal("lib/net10.0/", selected.PopulationPath);
     }
 
     [Fact]
@@ -52,6 +53,9 @@ public sealed class PackageLibraryPopulationSelectorTests
         Assert.Equal(
             "runtimes/linux-x64/lib/net10.0/Current.dll",
             Assert.Single(runtime.Universe.Assets).EntryPath);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net10.0/",
+            selected.PopulationPath);
     }
 
     [Fact]
@@ -154,6 +158,7 @@ public sealed class PackageLibraryPopulationSelectorTests
                 "tools/net10.0/any/runtimes/win/lib/net10.0/Companion.dll",
             ],
             selected.ToolSelection.SelectedEntries);
+        Assert.Equal("tools/net10.0/any/", selected.PopulationPath);
     }
 
     [Fact]

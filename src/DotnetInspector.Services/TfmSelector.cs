@@ -29,6 +29,8 @@ public static class TfmSelector
         RequestedLibraryNotFound,
         Ambiguous,
         NamesakeIdentityUnavailable,
+        NamesakeNotFound,
+        NamesakeAmbiguous,
     }
 
     public sealed record PackageLibraryResolution(
@@ -37,7 +39,8 @@ public static class TfmSelector
         PackageLibraryResolutionStatus Status,
         IReadOnlyList<string> CandidatePaths,
         IReadOnlyList<string>? IdentityFailurePaths = null,
-        FirstPackageLibraryReason? FirstLibraryReason = null)
+        FirstPackageLibraryReason? FirstLibraryReason = null,
+        string? PopulationPath = null)
     {
         public bool IsSelected => Status == PackageLibraryResolutionStatus.Selected && Paths.Count > 0;
     }
@@ -495,8 +498,11 @@ public static class TfmSelector
         string extractPath,
         string packageId,
         string? requestedLibrary,
-        string? tfm = null)
+        string? tfm = null,
+        string? populationPath = null)
     {
+        populationPath ??=
+            GetPackageLibraryPopulationPath(candidates, extractPath);
         if (!string.IsNullOrWhiteSpace(requestedLibrary))
         {
             var (matchedAssembly, matchedTfm) = FindAssemblyInPackage(
@@ -505,12 +511,18 @@ public static class TfmSelector
                 requestedLibrary,
                 tfm);
             return matchedAssembly != null
-                ? new PackageLibraryResolution([matchedAssembly], matchedTfm, PackageLibraryResolutionStatus.Selected, [matchedAssembly])
+                ? new PackageLibraryResolution(
+                    [matchedAssembly],
+                    matchedTfm,
+                    PackageLibraryResolutionStatus.Selected,
+                    [matchedAssembly],
+                    PopulationPath: populationPath)
                 : new PackageLibraryResolution(
                     [],
                     tfm,
                     PackageLibraryResolutionStatus.RequestedLibraryNotFound,
-                    candidates);
+                    candidates,
+                    PopulationPath: populationPath);
         }
 
         var identityFailures = new List<string>();
@@ -546,20 +558,31 @@ public static class TfmSelector
                 tfm,
                 PackageLibraryResolutionStatus.NamesakeIdentityUnavailable,
                 candidates,
-                identityFailures);
+                identityFailures,
+                PopulationPath: populationPath);
         }
 
-        return packageNameMatches.Count == 1
-            ? new PackageLibraryResolution(
+        return packageNameMatches.Count switch
+        {
+            1 => new PackageLibraryResolution(
                 [packageNameMatches[0]],
                 tfm,
                 PackageLibraryResolutionStatus.Selected,
-                candidates)
-            : new PackageLibraryResolution(
+                candidates,
+                PopulationPath: populationPath),
+            0 => new PackageLibraryResolution(
                 [],
                 tfm,
-                PackageLibraryResolutionStatus.Ambiguous,
-                candidates);
+                PackageLibraryResolutionStatus.NamesakeNotFound,
+                candidates,
+                PopulationPath: populationPath),
+            _ => new PackageLibraryResolution(
+                [],
+                tfm,
+                PackageLibraryResolutionStatus.NamesakeAmbiguous,
+                candidates,
+                PopulationPath: populationPath),
+        };
     }
 
     /// <summary>
@@ -574,8 +597,11 @@ public static class TfmSelector
         IReadOnlyList<string> candidates,
         string extractPath,
         string packageId,
-        string? tfm = null)
+        string? tfm = null,
+        string? populationPath = null)
     {
+        populationPath ??=
+            GetPackageLibraryPopulationPath(candidates, extractPath);
         var libraries = new List<PackageLibraryIdentity>();
         var unresolved = new List<string>();
         var paths = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -608,20 +634,58 @@ public static class TfmSelector
                     PackageLibraryResolutionStatus.Selected,
                     [.. selected.LibraryOrder.Select(
                         library => paths[library.AssetPath])],
-                    FirstLibraryReason: selected.Reason),
+                    FirstLibraryReason: selected.Reason,
+                    PopulationPath: populationPath),
             FirstPackageLibrarySelection.IdentityUnresolved failed =>
                 new PackageLibraryResolution(
                     [],
                     tfm,
                     PackageLibraryResolutionStatus.NamesakeIdentityUnavailable,
                     candidates,
-                    [.. failed.AssetPaths.Select(assetPath => paths[assetPath])]),
+                    [.. failed.AssetPaths.Select(assetPath => paths[assetPath])],
+                    PopulationPath: populationPath),
             _ => new PackageLibraryResolution(
                 [],
                 tfm,
                 PackageLibraryResolutionStatus.NoAssemblies,
-                candidates),
+                candidates,
+                PopulationPath: populationPath),
         };
+    }
+
+    private static string? GetPackageLibraryPopulationPath(
+        IReadOnlyList<string> candidates,
+        string extractPath)
+    {
+        string[][] directories =
+        [
+            .. candidates
+                .Select(path =>
+                    Path.GetRelativePath(extractPath, path)
+                        .Replace('\\', '/')
+                        .Split('/'))
+                .Where(segments => segments.Length > 1)
+                .Select(segments => segments[..^1]),
+        ];
+        if (directories.Length == 0)
+            return null;
+
+        int commonLength = directories.Min(static segments => segments.Length);
+        for (int index = 0; index < commonLength; index++)
+        {
+            if (directories.Skip(1).Any(segments =>
+                    !segments[index].Equals(
+                        directories[0][index],
+                        StringComparison.Ordinal)))
+            {
+                commonLength = index;
+                break;
+            }
+        }
+
+        return commonLength == 0
+            ? null
+            : $"{string.Join('/', directories[0][..commonLength])}/";
     }
 
     private static string? TryReadAssemblySimpleName(string path)

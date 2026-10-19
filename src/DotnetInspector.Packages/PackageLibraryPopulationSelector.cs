@@ -17,6 +17,11 @@ public abstract record PackageLibraryPopulationSelection
 
     public PackageCompileAssetSelectionReceipt CompileReceipt { get; }
 
+    /// <summary>
+    /// The selected package-relative role-population root.
+    /// </summary>
+    public string? PopulationPath { get; protected init; }
+
     public sealed record Compile :
         PackageLibraryPopulationSelection
     {
@@ -24,6 +29,11 @@ public abstract record PackageLibraryPopulationSelection
             PackageCompileAssetSelectionReceipt compileReceipt)
             : base(compileReceipt)
         {
+            PackageCompileAsset asset =
+                compileReceipt.Selection.Assets[0];
+            PopulationPath = GetFrameworkPopulationPath(
+                asset.Path,
+                asset.TargetFramework);
         }
     }
 
@@ -37,6 +47,15 @@ public abstract record PackageLibraryPopulationSelection
         {
             ArgumentNullException.ThrowIfNull(runtimeReceipt);
             RuntimeReceipt = runtimeReceipt;
+            var selected =
+                (PackageAssetSelection.Selected)runtimeReceipt.Selection;
+            PopulationPath =
+                selected.Universe.RuntimeIdentifier is { Length: > 0 } rid
+                    ? $"runtimes/{rid}/lib/"
+                        + $"{selected.Universe.TargetFramework}/"
+                    : GetFrameworkPopulationPath(
+                        selected.Universe.Assets[0].EntryPath,
+                        selected.Universe.TargetFramework);
         }
 
         public PackageAssetSelectionReceipt RuntimeReceipt { get; }
@@ -69,6 +88,8 @@ public abstract record PackageLibraryPopulationSelection
             RuntimeReceipt = runtimeReceipt;
             ToolEvidence = toolEvidence;
             ToolSelection = toolSelection;
+            PopulationPath =
+                $"tools/{toolSelection.SelectedTargetFramework}/any/";
         }
 
         public PackageAssetSelectionReceipt RuntimeReceipt { get; }
@@ -113,6 +134,21 @@ public abstract record PackageLibraryPopulationSelection
         public PackageToolSliceSelection? ToolSelection { get; }
 
         public bool ToolDeclarationUnavailable { get; }
+    }
+
+    private static string GetFrameworkPopulationPath(
+        string assetPath,
+        string targetFramework)
+    {
+        string[] segments = assetPath.Split('/');
+        int populationSegments =
+            segments.Length > 2
+            && segments[1].Equals(
+                targetFramework,
+                StringComparison.OrdinalIgnoreCase)
+                ? 2
+                : 1;
+        return $"{string.Join('/', segments[..populationSegments])}/";
     }
 }
 

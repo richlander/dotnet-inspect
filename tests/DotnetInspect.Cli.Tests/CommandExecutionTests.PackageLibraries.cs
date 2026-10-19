@@ -1288,6 +1288,99 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("package", false)]
+    [InlineData("package", true)]
+    [InlineData("library", false)]
+    [InlineData("library", true)]
+    public async Task
+        PackageCommand_NamesakeLibrary_FailsTerselyWithoutUniqueNamesake(
+            string command,
+            bool severalNamesakes)
+    {
+        string packageId = severalNamesakes
+            ? typeof(CommandExecutionTests).Assembly.GetName().Name!
+            : "Contoso.Missing";
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            packageId,
+            packageType: null,
+            (TestAssemblyPath, "lib/net10.0/First.dll"),
+            (TestAssemblyPath, "lib/net10.0/Second.dll"));
+        try
+        {
+            string[] arguments = command == "package"
+                ? [
+                    "package",
+                    packagePath,
+                    "--namesake-library",
+                ]
+                : [
+                    "library",
+                    "--package",
+                    packagePath,
+                    "--namesake-library",
+                ];
+
+            var result = await RunAppAsync(arguments);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                severalNamesakes
+                    ? "Error: Multiple namesake libraries found in "
+                        + "lib/net10.0/"
+                    : "Error: No namesake library found in lib/net10.0/",
+                result.Error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "runtimes/linux-x64/lib/net10.0/System.Runtime.dll",
+        null,
+        "runtimes/linux-x64/lib/net10.0/")]
+    [InlineData(
+        "tools/net10.0/any/lib/System.Runtime.dll",
+        "DotnetToolRidPackage",
+        "tools/net10.0/any/")]
+    public async Task
+        PackageCommand_NamesakeLibrary_NamesTheSelectedPopulation(
+            string assetPath,
+            string? packageType,
+            string populationPath)
+    {
+        var (systemRuntime, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        Assert.True(
+            resolveError is null && systemRuntime is not null,
+            resolveError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "Contoso.Missing",
+            packageType,
+            (systemRuntime!, assetPath));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--namesake-library");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                $"Error: No namesake library found in {populationPath}",
+                result.Error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task
         PackageCommand_FirstLibrary_PrefersSystemTextJsonNamesake()
