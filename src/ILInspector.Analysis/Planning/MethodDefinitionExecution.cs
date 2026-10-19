@@ -36,6 +36,7 @@ public sealed class MethodDefinitionExecution
     MethodSemanticIdentitySupport? _semanticIdentity;
     PublicMethodRootSupport? _publicRoots;
     ReferenceAssemblyStatusSupport? _referenceStatus;
+    MethodDefinitionDeclaredSources? _declaredSources;
 
     /// <summary>
     /// The physical group's receipt when this execution is one lane of a
@@ -90,6 +91,13 @@ public sealed class MethodDefinitionExecution
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
 
     internal MethodBodyAnalyzerPlan? InstructionPlan => _instructionPlan;
+
+    /// <summary>
+    /// The declared-source outcome of each unit, present exactly when the
+    /// breadth declared generated-body expansion.
+    /// </summary>
+    internal MethodDefinitionDeclaredSources? DeclaredSources =>
+        _declaredSources;
 
     internal int CurrentOrdinal { get; private set; } = -1;
 
@@ -275,6 +283,8 @@ public sealed class MethodDefinitionExecution
                         breadth.IncludesUnauthenticatedCandidates);
                 execution._sourceCoverage.RecordGeneratedExpansion(
                     expansion.Coverage);
+                execution._declaredSources =
+                    new MethodDefinitionDeclaredSources(expansion.Coverage);
                 execution._breadth =
                     MethodDefinitionSourceBreadth.ExactMethods(
                         expansion.Methods);
@@ -285,6 +295,9 @@ public sealed class MethodDefinitionExecution
             {
                 execution._sourceCoverage.RecordGeneratedExpansion(
                     expansionWork!.Build());
+                execution._declaredSources =
+                    new MethodDefinitionDeclaredSources(
+                        MethodDefinitionGeneratedExpansionCoverage.Empty);
                 execution.FailActiveSource(
                     0,
                     "(generated body expansion)",

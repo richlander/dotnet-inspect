@@ -335,6 +335,15 @@ unauthenticated candidates.
   `CompilerGeneratedAttribute`.
 - A generated-named lifted body declared directly in breadth that no owner
   reaches is also an unauthenticated candidate.
+- A visiting producer reads its unit's outcome through
+  `MethodDefinitionView.DeclaredSource`. The outcome is `Generated` with the
+  unit's origin, `Unauthenticated`, or `Direct` when the unit entered breadth
+  directly and the relation published no generated outcome for it. A body
+  that origins name with two different owners is `Unauthenticated`, because
+  neither owner is unique. Reading an outcome does no source work; the
+  relation's work and outcomes stay in the expansion receipt. A breadth that
+  declares no expansion carries no relation, and reading it throws
+  `ProducerContractException`.
 
 The all-definition reverse lowering and retained-prefix bounds are the target
 design for [#9864](https://github.com/richlander/dotnet-inspect/issues/9864)
@@ -708,14 +717,10 @@ member identity or target, and leave both Calls and CallTargets coverage empty.
 Library Body Analysis uses the same local-signature decoder during migration,
 but new producers do not use its lookup or aggregate result.
 
-The first planned production adopter is the
-[unsafe-member census](unsafe-member-findings.md#execution). Its adoption
-remains separate until the declared-source and public-root prerequisites
-tracked by
-[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and
-[#9865](https://github.com/richlander/dotnet-inspect/issues/9865) land. This
-capability slice therefore has no production caller and makes no production
-performance claim.
+The first adopter is the
+[unsafe-member census](unsafe-member-findings.md#execution) at Type scope. It
+has no host consumer yet, so this capability makes no production performance
+claim.
 
 ### Semantic identity
 
