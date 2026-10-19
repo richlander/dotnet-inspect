@@ -19,6 +19,11 @@ public static class ClassicAsyncArtifactFixtures
         int right = await second;
         GC.KeepAlive((left, right));
     }
+
+    public static async IAsyncEnumerable<int> StreamAsync(Task<int> value)
+    {
+        yield return await value;
+    }
 }
 
 public interface IClassicDefaultArtifactFixture
@@ -42,6 +47,13 @@ static class Program
             defaultFixture.DefaultAsync(Task.FromResult(42))
                 .GetAwaiter()
                 .GetResult());
+
+        IAsyncEnumerator<int> stream =
+            ClassicAsyncArtifactFixtures.StreamAsync(Task.FromResult(43))
+                .GetAsyncEnumerator();
+        while (stream.MoveNextAsync().AsTask().GetAwaiter().GetResult())
+            GC.KeepAlive(stream.Current);
+        stream.DisposeAsync().AsTask().GetAwaiter().GetResult();
         return 0;
     }
 }
