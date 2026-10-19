@@ -17,6 +17,11 @@ public abstract record PackageLibraryPopulationSelection
 
     public PackageCompileAssetSelectionReceipt CompileReceipt { get; }
 
+    /// <summary>
+    /// The selected package-relative role-population root.
+    /// </summary>
+    public string? PopulationPath { get; protected init; }
+
     public sealed record Compile :
         PackageLibraryPopulationSelection
     {
@@ -24,6 +29,9 @@ public abstract record PackageLibraryPopulationSelection
             PackageCompileAssetSelectionReceipt compileReceipt)
             : base(compileReceipt)
         {
+            PackageCompileAsset asset =
+                compileReceipt.Selection.Assets[0];
+            PopulationPath = asset.PopulationPath;
         }
     }
 
@@ -37,6 +45,9 @@ public abstract record PackageLibraryPopulationSelection
         {
             ArgumentNullException.ThrowIfNull(runtimeReceipt);
             RuntimeReceipt = runtimeReceipt;
+            var selected =
+                (PackageAssetSelection.Selected)runtimeReceipt.Selection;
+            PopulationPath = selected.Universe.PopulationPath;
         }
 
         public PackageAssetSelectionReceipt RuntimeReceipt { get; }
@@ -69,6 +80,7 @@ public abstract record PackageLibraryPopulationSelection
             RuntimeReceipt = runtimeReceipt;
             ToolEvidence = toolEvidence;
             ToolSelection = toolSelection;
+            PopulationPath = toolSelection.PopulationPath;
         }
 
         public PackageAssetSelectionReceipt RuntimeReceipt { get; }
