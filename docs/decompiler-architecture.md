@@ -334,7 +334,7 @@ own the host and full preset list.
 | PR fast tests | `ci.yml` excludes `Speed=Slow` from the decompiler suite. |
 | PR decompiler gates | Change-selected `decompiler-gates` runs `--gate pre-merge`, independently discovers selected cases, and checks execution evidence against the expected classes/cases and pinned known-red docket. |
 | PR quick corpus | Bounded corpus measurement in `ci.yml`; not the full corpus or all changed-method fidelity evidence. |
-| Deep Inspect test lane | Runs `--gate no-corpus`, including slow tests outside the Corpus area. |
+| Deep Inspect decompiler test lane | Its own daily job runs `--gate no-corpus`, including slow tests outside the Corpus area, plus the bounded compile-back receipt; a host-suite hang or failure in the Test lane cannot stop it. |
 | Deep Inspect corpus lane | Separately runs `--gate corpus`; census/feature/authored-corpus jobs provide other targeted measurements. |
 
 The executable wiring lives in [PR CI](../.github/workflows/ci.yml),

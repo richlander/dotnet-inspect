@@ -1,0 +1,8 @@
+{"source": "bootstrap/reuse skill prototype (hal)", "operation": "guide", "file": "view-01.txt", "bytes": 3641, "sha256": "933450b72b39987a3f7dbc5a6416d20c0b6c8dc51dcfd16eef021c26c2c0a7c8"}
+{"source": "response-01.out", "operation": "text", "file": "view-02.txt", "bytes": 3255, "sha256": "8f8d67e605dbefada6bbed2310fa8c3b40a68b06859400b1a4452b9aef6b1386"}
+{"source": "response-02.out", "operation": "jq: {keys:keys, embedded:._embedded|keys, links:._links|keys}", "file": "view-03.txt", "bytes": 90, "sha256": "6d7586805256d99a5d5e592f4308d5cebcd17332f5030cc6d3863189a2c7c7e8"}
+{"source": "response-02.out", "operation": "jq: {scope,bindings:._embedded.bindings, facets:[._embedded.facets[]|{key,summary,description,options,fields}]}", "file": "view-04.txt", "bytes": 7934, "sha256": "47fdffc160018e8e1baef9948866ea51f07b245203970f67ef315725ec344d3e"}
+{"source": "response-02.out", "operation": "jq: ._embedded.facets[]|select(.key==\"depends\" or .key==\"dependency-depth\" or .key==\"dependency-target\" or .key==\"depends-transitive\")", "file": "view-05.txt", "bytes": 5723, "sha256": "dc4c56c92da561908bbe34b24590144f14eb0fbb3bdc6414e392fcacf2be7c4c"}
+{"source": "response-03.out", "operation": "jq: keys", "file": "view-06.txt", "bytes": 65, "sha256": "c79242680501ca5cecac13f9d382eac725502104bc0ecebe41af04aea04bb5da"}
+{"source": "response-03.out", "operation": "jq: {content,diagnostics,share}", "file": "view-07.txt", "bytes": 3718, "sha256": "51a65843042ae4e089048df4f51b939f85a3b3714197feb9c6701518fc11e274"}
+{"source": "response-03.err", "operation": "text", "file": "view-08.txt", "bytes": 148, "sha256": "a44e5ea5442ed9a55ee26bfd93ce8ddabad3ba9b191ed14976c2fecd642723c2"}

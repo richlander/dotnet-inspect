@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
+using System.Runtime.CompilerServices;
 
 namespace NuGetFetch;
 
@@ -289,6 +291,45 @@ public partial class SearchService
             operation).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Searches by package-ID prefix one source page at a time.
+    /// </summary>
+    public async IAsyncEnumerable<PrefixSearchPage> SearchByPrefixPagesAsync(
+        string prefix,
+        int take = 100,
+        bool prerelease = false,
+        AuthenticationHeaderValue? auth = null,
+        int? maximumSkip = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        PrefixSearchCursor cursor = CreatePrefixCandidateCursor(
+            prefix, take, prerelease, auth, maximumSkip);
+        TimeSpan remaining = _options.OperationTimeout;
+        while (!cursor.IsCompleted)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new NuGetOperationTimeoutException(
+                    _options.OperationTimeout,
+                    new OperationCanceledException(cancellationToken));
+            }
+            long started = Stopwatch.GetTimestamp();
+            PrefixSearchPage page;
+            using (var operation = new NuGetOperationDeadline(
+                _options with { OperationTimeout = remaining },
+                _client.Timeout,
+                cancellationToken))
+            {
+                page = await cursor.ReadNextAsync(operation)
+                    .ConfigureAwait(false);
+            }
+
+            remaining -= Stopwatch.GetElapsedTime(started);
+            yield return page;
+        }
+    }
+
     internal async Task<PrefixSearchResult> SearchByPrefixWithStateAsync(
         string prefix,
         int take,
@@ -360,7 +401,7 @@ public partial class SearchService
             includeVersionHistory);
     }
 
-    internal sealed record PrefixSearchPage(
+    public sealed record PrefixSearchPage(
         IReadOnlyList<SearchResult> Matches,
         PrefixSearchCompletion? Completion);
 

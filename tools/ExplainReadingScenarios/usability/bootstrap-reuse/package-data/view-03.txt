@@ -1,0 +1,5 @@
+## Query-capable sections
+
+| Section | Operators | Facets |
+| ------- | --------- | ------ |
+| Packages | `--where` | 14 |

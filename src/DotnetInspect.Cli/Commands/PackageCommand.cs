@@ -1268,13 +1268,21 @@ public partial class PackageCommand
                             client, packageName, pinnedVersion, logger.Log,
                             sourceOptions: options.SourceOptions,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext)
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext))
                         : await PackageExtractor.ExtractSelectedPackageAsync(
                             client, packageName, version.Length > 0 ? version : null, logger.Log,
                             sourceOptions: options.SourceOptions,
                             includePrerelease: options.IncludePrerelease,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext);
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext));
                 }
                 else
                 {

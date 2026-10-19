@@ -16,6 +16,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
     readonly LibraryBodyPrimaryMetadataResolver _primaryMetadataResolver;
     readonly bool _includeMethodEvidence;
     readonly bool _includeAllocationSignals;
+    readonly bool _includeUnsafeMetric;
     readonly bool _isScoped;
     readonly IReadOnlySet<string> _exceptionTypeNames;
 
@@ -31,6 +32,9 @@ internal sealed class LibraryBodyAnalysisAccumulator
         _includeAllocationSignals =
             plan.ImplementationMetrics
                 ?.IncludesAllocationCountMetric == true;
+        _includeUnsafeMetric =
+            plan.ImplementationMetrics
+                ?.IncludesUnsafePresenceMetric == true;
         _isScoped = plan.IsScoped;
         _exceptionTypeNames = _includeMethodEvidence
             ? ComputeExceptionTypeNames()
@@ -134,7 +138,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     r.Calls,
                     methodMap,
                     methodsByToken);
-            if (_includeMethodEvidence
+            if ((_includeMethodEvidence || _includeUnsafeMetric)
                 && (!r.UnsafeEvidence.IsDefaultOrEmpty
                     || !normalizedCalls.IsDefaultOrEmpty))
             {
@@ -401,44 +405,22 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ReadPublicRoots());
     }
 
-    ReferenceAssemblyState ClassifyReferenceAssembly()
-    {
-        try
-        {
-            return LibraryEnablementFacts.ClassifyReferenceAssembly(_reader);
-        }
-        catch (BadImageFormatException)
-        {
-            return ReferenceAssemblyState.Undecidable;
-        }
-    }
+    // The same issued facts Method Query Source publishes to declaring
+    // producers, so the two census paths cannot classify differently.
+    ReferenceAssemblyState ClassifyReferenceAssembly() =>
+        new Planning.ReferenceAssemblyStatusSupport(_reader).Acquire(out _);
 
-    // The limits are the image's own row counts, so only malformed metadata
-    // leaves exposure unknown.
-    UnsafeMemberRootSet ReadPublicRoots()
-    {
-        try
+    UnsafeMemberRootSet ReadPublicRoots() =>
+        new Planning.PublicMethodRootSupport(_reader).Acquire(out _) switch
         {
-            int methods = Math.Max(1, _reader.MethodDefinitions.Count);
-            PublicMethodRootInventory inventory =
-                PublicMethodRootInventoryReader.Read(
-                    _reader,
-                    new PublicMethodRootInventoryLimits(
-                        Math.Max(1, _reader.TypeDefinitions.Count),
-                        methods,
-                        methods));
-            return new UnsafeMemberRootSet(
-                inventory.Roots
+            Planning.PublicMethodRootsResult.Read read => new UnsafeMemberRootSet(
+                read.Inventory.Roots
                     .Select(static root => root.Token)
                     .ToHashSet(),
-                inventory.IsComplete,
-                Failed: false);
-        }
-        catch (BadImageFormatException)
-        {
-            return UnsafeMemberRootSet.Unavailable;
-        }
-    }
+                read.Inventory.IsComplete,
+                Failed: false),
+            _ => UnsafeMemberRootSet.Unavailable,
+        };
 
     static ImmutableArray<UnsafeMemberUse> BuildUnsafeMemberUses(
         IReadOnlyList<LibraryMethodAnalysisResult> results,
@@ -464,127 +446,44 @@ internal sealed class LibraryBodyAnalysisAccumulator
             if (result.Caller is not { } method)
                 continue;
 
-            var evidence =
-                ImmutableArray.CreateBuilder<
-                    UnsafeMemberUseEvidence>();
-            if (result.Mode == CallerUnsafeMode.Explicit)
-            {
-                evidence.Add(new(
-                    UnsafeMemberUseKind.ExplicitContract,
-                    ILOffset: null,
-                    "The member has an explicit updated-model caller-unsafe contract."));
-            }
-
-            foreach (UnsafetyOccurrence occurrence
-                in result.Unsafety.IsDefault
-                    ? []
-                    : result.Unsafety)
-            {
-                if (!occurrence.RequiresUnsafeContext)
-                    continue;
-
-                evidence.Add(new(
-                    occurrence.Kind switch
-                    {
-                        UnsafetyKind.Deref =>
-                            UnsafeMemberUseKind.PointerDereference,
-                        UnsafetyKind.CallIndirect =>
-                            UnsafeMemberUseKind.IndirectCall,
-                        UnsafetyKind.StackAlloc =>
-                            UnsafeMemberUseKind.StackAllocation,
-                        _ => throw new InvalidOperationException(
-                            $"Unsupported unsafe-member occurrence kind '{occurrence.Kind}'."),
-                    },
-                    occurrence.ILOffset,
-                    occurrence.Detail
-                        ?? occurrence.Kind.ToString()));
-            }
-
-            if (callsByCaller.TryGetValue(
-                    method.MetadataToken,
-                    out ImmutableArray<(
-                            DirectCall Call,
-                            UnsafeContractSource? Source)>
-                        explicitCalls))
-            {
-                HashSet<int> loweredSpanConstructors =
-                [
-                    .. result.ConstantDataSpanConstructors,
-                    .. result.Unsafety.IsDefault
-                        ? []
-                        : result.Unsafety
-                            .Where(static occurrence =>
-                                occurrence.SpanConstructorOffset
-                                    is not null)
-                            .Select(static occurrence =>
-                                occurrence.SpanConstructorOffset!.Value),
-                ];
-                foreach ((DirectCall call, UnsafeContractSource? source)
-                    in explicitCalls)
-                {
-                    if (loweredSpanConstructors.Contains(call.ILOffset))
-                        continue;
-                    evidence.Add(new(
-                        UnsafeMemberUseKind
-                            .ExplicitContractCall,
-                        call.ILOffset,
-                        call.Callee
-                            .ToQualifiedDisplayString(),
-                        source));
-                }
-            }
-
-            if (evidence.Count > 0)
+            ImmutableArray<UnsafeMemberUseEvidence> evidence =
+                UnsafeMemberUseRules.CollectEvidence(
+                    result.Mode,
+                    result.Unsafety,
+                    result.ConstantDataSpanConstructors,
+                    callsByCaller.TryGetValue(
+                        method.MetadataToken,
+                        out ImmutableArray<(
+                                DirectCall Call,
+                                UnsafeContractSource? Source)>
+                            explicitCalls)
+                        ? explicitCalls.Select(static item => (
+                            item.Call.ILOffset,
+                            item.Call.Callee,
+                            item.Source!))
+                        : []);
+            if (!evidence.IsEmpty)
             {
                 uses.Add(new(
                     method,
                     result.Mode
                         == CallerUnsafeMode.Explicit,
-                    evidence.ToImmutable()));
+                    evidence));
             }
         }
 
         return uses.ToImmutable();
     }
 
-    // A primary-image marker is authoritative. An image compiled under the
-    // updated rules is also authoritative for its unmarked definitions;
-    // otherwise the platform projection supplies the contract
-    // (docs/design/platform-caller-unsafe-contracts.md#contract-source).
-    // Roslyn synthesizes <PrivateImplementationDetails> helpers, such as
-    // InlineArrayAsSpan, to lower safe collection expressions and inline
-    // arrays; their platform calls are lowering, not source calls.
-    static bool IsPrivateImplementationDetailsBody(MethodIdentity body)
-        => body.DeclaringType.Kind == TypeRefKind.Definition
-            && body.DeclaringType.Namespace.Length == 0
-            && body.DeclaringType.Name.StartsWith(
-                "<PrivateImplementationDetails>",
-                StringComparison.Ordinal);
-
     internal static UnsafeContractSource? ExplicitCallContractSource(
         DirectCall call,
         bool primaryImageUsesUpdatedRules)
-    {
-        if (call.TargetCallerUnsafeMode == CallerUnsafeMode.Explicit)
-            return UnsafeContractSource.SameImage.Instance;
-        if (IsPrivateImplementationDetailsBody(call.EvidenceMethod))
-            return null;
-        if (call.Kind is not (
-                CallKind.Call
-                or CallKind.CallVirtual
-                or CallKind.NewObject)
-            || (primaryImageUsesUpdatedRules
-                && call.TargetCallerUnsafeMode is not null))
-        {
-            return null;
-        }
-
-        PlatformCallerUnsafeContracts platform =
-            PlatformCallerUnsafeContracts.Embedded;
-        return platform.Contains(call.Callee)
-            ? platform.Source
-            : null;
-    }
+        => UnsafeMemberUseRules.ExplicitCallContractSource(
+            call.Kind,
+            call.Callee,
+            call.TargetCallerUnsafeMode,
+            call.EvidenceMethod,
+            primaryImageUsesUpdatedRules);
 
     static ImmutableArray<DirectCall> NormalizeSameImageCallContracts(
         ImmutableArray<DirectCall> calls,

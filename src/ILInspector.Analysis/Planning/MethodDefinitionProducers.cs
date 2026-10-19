@@ -99,6 +99,21 @@ public enum MethodDefinitionLayers
     /// <see cref="CallTargets"/>.
     /// </summary>
     Calls = 8192,
+
+    /// <summary>
+    /// Image exposure support: the subject's public MethodDef root inventory,
+    /// read at completion, computed at most once per execution group, and
+    /// receipted. It acquires no body and does not imply
+    /// <see cref="ModuleLookup"/>.
+    /// </summary>
+    PublicMethodRoots = 16384,
+
+    /// <summary>
+    /// Image exposure support: the subject's reference-assembly status, read at
+    /// completion, classified at most once per execution group, and receipted.
+    /// It acquires no body and does not imply <see cref="ModuleLookup"/>.
+    /// </summary>
+    ReferenceAssemblyStatus = 32768,
 }
 
 /// <summary>
@@ -627,6 +642,35 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// The unit's outcome in the declared-source relation, settled before
+    /// traversal. Only a breadth that declares generated-body expansion
+    /// carries the relation.
+    /// </summary>
+    internal MethodDefinitionDeclaredSource DeclaredSource
+    {
+        get
+        {
+            MethodDefinitionDeclaredSources sources =
+                Producer.Execution.DeclaredSources
+                ?? throw new ProducerContractException(
+                    $"Producer '{_owner}' read the declared-source "
+                    + "relation, but its breadth declares no generated-body "
+                    + "expansion.");
+            return sources.Of(_unit.MethodHandle);
+        }
+    }
+
+    /// <summary>The subject's metadata, for a domain-layer producer's own probes.</summary>
+    internal MetadataReader Reader
+    {
+        get
+        {
+            RequireDomain();
+            return _unit.Reader;
+        }
+    }
+
     /// <summary>The module memory-safety rules, through the declared contract support.</summary>
     internal MemorySafetyRulesResult GetMemorySafetyRules()
     {
@@ -767,6 +811,26 @@ public readonly ref struct MethodDefinitionView
             Token,
             ref producer.CallsUses);
         return _unit.GetLocalSignature(GetBody());
+    }
+
+    /// <summary>
+    /// Returns recovery-only operand resolution after whole-body Calls
+    /// decoding fails.
+    /// </summary>
+    internal MethodCallRecoveryResolver GetCallRecoveryResolver()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallsUnit,
+            Token,
+            ref producer.CallsUses);
+        return new(_unit);
     }
 
     /// <summary>The resolved identity and current-module status of a field operand.</summary>
@@ -996,6 +1060,34 @@ public readonly ref struct MethodDefinitionCompletionView
             ProducerDependencyKind.VisitNeedsResult);
         return _producer.Execution.ResultOf(dependency);
     }
+
+    /// <summary>The subject's public MethodDef roots, through the declared support.</summary>
+    internal PublicMethodRootsResult GetPublicMethodRoots()
+    {
+        if (!_producer.HasPublicMethodRootsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_producer.Producer.Identity}' did not declare "
+                + "public MethodDef root support.");
+        }
+
+        _producer.PublicMethodRootReads++;
+        return _producer.Execution.ReadPublicMethodRoots();
+    }
+
+    /// <summary>The subject's reference-assembly status, through the declared support.</summary>
+    internal ReferenceAssemblyState GetReferenceAssemblyStatus()
+    {
+        if (!_producer.HasReferenceAssemblyStatusLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_producer.Producer.Identity}' did not declare "
+                + "reference-assembly status support.");
+        }
+
+        _producer.ReferenceAssemblyStatusReads++;
+        return _producer.Execution.ReadReferenceAssemblyStatus();
+    }
 }
 
 /// <summary>
@@ -1080,6 +1172,9 @@ internal struct MethodDefinitionUnit(
     public MethodDefinitionHandle MethodHandle { get; private set; }
 
     public MethodDefinition MethodDefinition { get; private set; }
+
+    /// <summary>The subject's metadata reader.</summary>
+    public readonly MetadataReader Reader => _reader;
 
     /// <summary>The module lookup; present whenever a planned producer declared it.</summary>
     public readonly LibraryMethodAnalysisRunner Lookup =>
@@ -1401,6 +1496,28 @@ internal struct MethodDefinitionUnit(
         return _localSignature;
     }
 
+    public MemberRef ResolveCallMember(int operandToken)
+    {
+        MethodCallMetadataLookup calls =
+            BeginMethodCallQuery(out MethodCallMetadataWork before);
+        try
+        {
+            return calls.ResolveCallMember(
+                TypeDefinition,
+                MethodDefinition,
+                operandToken);
+        }
+        finally
+        {
+            EndMethodCallQuery(
+                calls,
+                before,
+                callReads: 0,
+                localSignatureReads: 0,
+                fieldOperandReads: 0);
+        }
+    }
+
     public MethodFieldOperand ResolveFieldOperand(int operandToken)
     {
         _fieldOperands ??= [];
@@ -1507,6 +1624,7 @@ internal struct MethodDefinitionUnit(
                 _requestSourceCoverage?.RecordMemorySafetyConstruction(
                     lookup.ConstructionWork);
             }
+
         }
 
         before = lookup.RecordedWork;
@@ -1700,4 +1818,27 @@ internal struct MethodDefinitionUnit(
     /// </summary>
     public readonly string Label =>
         $"MethodDef 0x{MetadataTokens.GetToken(MethodHandle):X8}";
+}
+
+internal sealed class MethodCallRecoveryResolver(
+    MethodDefinitionUnit unit)
+{
+    public MemberRef ResolveMember(int token) =>
+        unit.ResolveCallMember(token);
+
+    public string? CalliReturnDetail(int token)
+    {
+        try
+        {
+            return ResolveMember(token)
+                .ReturnType
+                .ToDisplayString();
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            return null;
+        }
+    }
 }

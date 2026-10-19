@@ -13,8 +13,6 @@ public sealed class AuthorizedPackageDependencyCandidateSource
     private readonly IPackageSourceAuthorization _authorization;
     private readonly PackageSourceSettlementLease _sourceLease;
 
-    internal PackageSourceSettlementLease SourceLease => _sourceLease;
-
     public AuthorizedPackageDependencyCandidateSource(
         IPackageSourceAuthorization authorization,
         PackageSourceSettlementLease sourceLease)

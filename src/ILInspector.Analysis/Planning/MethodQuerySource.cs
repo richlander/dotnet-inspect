@@ -986,6 +986,12 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MethodSemanticIdentityCoverage SemanticIdentity
     { get; init; } = MethodSemanticIdentityCoverage.Empty;
+
+    public PublicMethodRootCoverage PublicMethodRoots
+    { get; init; } = PublicMethodRootCoverage.Empty;
+
+    public ReferenceAssemblyStatusCoverage ReferenceAssemblyStatus
+    { get; init; } = ReferenceAssemblyStatusCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -1513,6 +1519,13 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     MemorySafetyMetadataWork _memorySafetyQueries =
         MemorySafetyMetadataWork.Empty;
     int _memorySafetyQueryCount;
+    bool _publicRootsConstructed;
+    PublicMethodRootInventoryReceipt? _publicRootsReceipt;
+    bool _publicRootsFailed;
+    int _publicRootReads;
+    bool _referenceStatusConstructed;
+    int _referenceStatusAttributeRows;
+    int _referenceStatusReads;
     readonly MethodDefinitionHandleCoverageBuilder _callTargetMethods = new();
     bool _callTargetsConstructed;
     SameModuleCallTargetWork _callTargetQueries =
@@ -1630,6 +1643,42 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
         _memorySafetyMethods.Add(handle);
         _memorySafetyQueries = _memorySafetyQueries.Plus(work);
         _memorySafetyQueryCount = checked(_memorySafetyQueryCount + 1);
+    }
+
+    public void RecordPublicMethodRootsConstruction(
+        PublicMethodRootsResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!_enabled)
+            return;
+
+        _publicRootsConstructed = true;
+        _publicRootsReceipt =
+            (result as PublicMethodRootsResult.Read)?.Inventory.Receipt;
+        _publicRootsFailed = result is PublicMethodRootsResult.Failed;
+    }
+
+    public void RecordPublicMethodRootsRead()
+    {
+        if (_enabled)
+            _publicRootReads = checked(_publicRootReads + 1);
+    }
+
+    public void RecordReferenceAssemblyStatusConstruction(
+        int attributeRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(attributeRows);
+        if (!_enabled)
+            return;
+
+        _referenceStatusConstructed = true;
+        _referenceStatusAttributeRows = attributeRows;
+    }
+
+    public void RecordReferenceAssemblyStatusRead()
+    {
+        if (_enabled)
+            _referenceStatusReads = checked(_referenceStatusReads + 1);
     }
 
     public void RecordCallTargetConstruction()
@@ -1795,6 +1844,21 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                         _semanticIdentitiesBounded,
                         _semanticIdentitiesMalformed)
                     : MethodSemanticIdentityCoverage.Empty,
+            PublicMethodRoots =
+                _publicRootsConstructed || _publicRootReads != 0
+                    ? new(
+                        _publicRootsConstructed,
+                        _publicRootsReceipt,
+                        _publicRootsFailed,
+                        _publicRootReads)
+                    : PublicMethodRootCoverage.Empty,
+            ReferenceAssemblyStatus =
+                _referenceStatusConstructed || _referenceStatusReads != 0
+                    ? new(
+                        _referenceStatusConstructed,
+                        _referenceStatusAttributeRows,
+                        _referenceStatusReads)
+                    : ReferenceAssemblyStatusCoverage.Empty,
         };
 }
 

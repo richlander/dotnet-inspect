@@ -162,6 +162,21 @@ public sealed class PackageSourceOperationOwnershipTests
     }
 
     [Fact]
+    public async Task PackageSourceOperationLeaseSuccessfulReleaseDoesNotPublishCancellation()
+    {
+        await using var fixture = new SourceFixture();
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+        CancellationToken operationToken =
+            operation.OperationCancellationToken;
+
+        operation.Dispose();
+
+        Assert.False(operationToken.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task AuthorizationFailuresFlowThroughPinnedAndVersionDiscovery()
     {
         await using var fixture = new SourceFixture();

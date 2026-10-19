@@ -32,8 +32,9 @@ the cost of reaching the answer differs.
 > every Type, an **API** state and a **Body** state, each `Unchanged`,
 > `Changed`, or `Indeterminate`; when a caller asks for the API axis alone,
 > every Body state is `NotCompared`. The API state is `Changed` exactly when
-> the complete Public API comparison reports a change to the Type or one of
-> its Members. The Body state is `Changed` exactly when the Type is present on
+> the complete Public API comparison of the
+> [API axis population](diff-capabilities.md#axes) reports a change to the
+> Type or one of its Members. The Body state is `Changed` exactly when the Type is present on
 > one side only, a method of it with a body is present on one side only, a
 > paired method has a body on one side only, or a paired body is not `Exact`
 > under
@@ -63,9 +64,14 @@ The **API** axis compares the Public API facts of a Type and its members:
   shape rendered signatures; and
 - explicit interface implementations.
 
-A Type is public by its own row (public, nested public, protected, or
-protected internal), matching the Public API surface, which admits a public
-nested Type of a non-public Type. Non-public Types have no API facts.
+That is the API axis population of
+[Diff capabilities](diff-capabilities.md#axes): `private protected` Members
+belong to Body, and hidden Types and Members, such as ones marked
+`EditorBrowsable(Never)`, are compared like any other; their status is the
+API status analysis's, not Fast Diff's. A Type is public by its own row (public, nested public,
+protected, or protected internal), matching the API axis surface
+(`ApiSurfaceExtractionScope.ApiAxis`), which admits a public nested Type of a
+non-public Type. Non-public Types have no API facts.
 
 These facts are a census, and the census decides `Unchanged` alone: equal
 census facts mean the complete comparison reports no change. Each fact kind is
@@ -79,12 +85,12 @@ either **presented** or **uncertain**:
 - An **uncertain** fact can differ while the complete comparison reports
   nothing, such as a raw attribute blob, nullable context, or a flag that no
   view presents. A Type whose census differs only in uncertain facts is
-  decided by building the Public API surface of that Type alone on each side
+  decided by building the API axis surface of that Type alone on each side
   and comparing it as the complete comparison does.
 
-A fact is presented only where the Public API surface admits its Type and
-Member. A Type or Member the surface hides, such as one marked
-`EditorBrowsable(Never)`, makes its differences uncertain. A fact kind is
+A fact is presented only where the API axis surface admits its Type and
+Member. A hidden Type or Member is admitted, so a difference confined to it is
+decided like any other API fact, not made uncertain. A fact kind is
 presented only when a gate shows it (see [Gates](#gates)); every other kind
 is uncertain, which costs time, never correctness.
 
@@ -115,10 +121,18 @@ A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
 is a Body difference, as canonical comparison's endpoint topology reports it
 (`NoApplicableInput`). A body that cannot be decoded or an operand that cannot
-be resolved is `Indeterminate`, never a difference or equality.
+be resolved, before the walk decides a difference, is `Indeterminate`, never a
+difference or equality.
 
 An opcode that ECMA-335 does not define cannot be stepped over safely, so it
-makes the Body axis `Indeterminate` rather than comparing as equal.
+makes the Body axis `Indeterminate` rather than comparing as equal. The walk
+stops at the first difference it decides, so content after that point is never
+read: a body whose walk decides a difference before it reaches an undefined
+opcode is `Changed`, and its view is the complete diff's visible decode
+failure, as [Diff capabilities](diff-capabilities.md#the-exists-contract)
+states. A branch or switch target is decided only once the body's instruction
+map is complete, so a body whose only differences before an undefined opcode
+are targets is `Indeterminate`.
 
 Neither axis's facts are configurable. A caller can ask for the API axis alone;
 every Body state is then `NotCompared` and no IL is read. A method with a body
@@ -130,7 +144,7 @@ on either side partitions its facts as public on both, so a visibility change is
 an API fact only.
 
 A Type present in one image only is reported whole by a presence rule: its API
-is `Changed` when the Public API surface admits it and `Unchanged` otherwise,
+is `Changed` when the API axis surface admits it and `Unchanged` otherwise,
 and its Body is `Changed`, whether or not it declares a body, or
 `NotCompared` when only the API axis is asked for. A malformed
 one-sided Type is `Indeterminate` on each axis compared.
@@ -247,20 +261,38 @@ Fast Diff follows it; the axis never keeps a private exception.
   local-function-only bodies, constraint Types, constants, defaults,
   parameter names, attributes, interfaces, visibility, and added and removed
   Types;
-- API exactness: every Type's API state equals whether the complete Public
-  API comparison reports a change to it or one of its Members, over three
-  fixture pairs;
+- API exactness, in both directions: every Type's API state equals whether
+  the complete Public API comparison of the API axis surface reports a change
+  to it or one of its Members, over three fixture pairs. A changed non-enum
+  constant is the one known exception: Fast Diff reports it, and the complete
+  comparison does not yet compare constant values;
+- accessibility: a Member or nested Type whose accessibility moves between
+  API axis buckets is API `Changed`, and the complete comparison of the API
+  axis surface reports `MemberAccessibilityChanged` or
+  `TypeAccessibilityChanged`, breaking when narrowed (`public` to `protected`
+  or `protected internal`, `protected internal` to `protected`) and additive
+  when widened; the ordinary Public surface reports a move across the
+  `public` boundary as a removal or an addition, and an accessor's
+  accessibility as a signature change; only a comparison of two API axis
+  surfaces reports accessibility changes, so the include-all surface reports
+  none;
 - presented facts: for every fact kind treated as presented, a fixture case
   in which that fact alone differs, and the complete comparison reports the
   change; a kind without such a case is uncertain;
-- hidden subjects: a difference confined to a Type or Member the Public API
-  surface hides, such as `EditorBrowsable(Never)`, is not API `Changed`;
+- hidden subjects: a difference confined to a hidden Member, such as one
+  marked `EditorBrowsable(Never)`, is API `Changed`, and the complete
+  comparison of the API axis surface reports it with the Member marked
+  hidden; the ordinary Public surface omits it. A changed Member of a hidden
+  Type is the same: API `Changed`, reported against the API axis surface with
+  the Type marked hidden, and omitted from the ordinary Public surface;
+- `private protected`: a `private protected` Member added is not API
+  `Changed` and is absent from the API axis surface;
 - Body exactness: every method pair's Body verdict equals canonical IL
   comparison's endpoint verdict under the Body policy over the same fixture
   pairs: `Exact` is `Unchanged`, a body on one side only or any other verdict
-  is `Changed`, and a decode or resolution failure is `Indeterminate`, with
-  fixture cases for an `abstract` method made `virtual` and a default
-  interface implementation added;
+  is `Changed`, and a decode or resolution failure before the walk decides a difference
+  is `Indeterminate`, with fixture cases for an `abstract` method made
+  `virtual` and a default interface implementation added;
 - dependency versions: a generated image pair whose only difference is the
   version of a non-platform referenced assembly is Body `Unchanged` for every
   Type; and
@@ -280,7 +312,9 @@ a function pointer returning a pointer and a pointer to a function pointer, an
 attribute moved from a backing field to its event, a switch between external
 vararg overloads, duplicate Type names and duplicate generated Type names, a
 caller switching between two compiler-controlled methods or between methods of
-two Type rows of one name, and undefined one-byte and two-byte opcodes. The same
+two Type rows of one name, undefined one-byte and two-byte opcodes, and an
+undefined opcode after a difference the walk decides first, which is `Changed`.
+The same
 class checks that the stored UTF-8 of every System.Private.CoreLib Type, method,
 and field name equals the encoding of its decoded name.
 
@@ -470,7 +504,7 @@ fact describes is read from the fact's structure, never from its spelling:
    residual and every public Member API `Changed`. Every Member of a Type
    hidden on both sides has a Body state only. A Member or the residual
    whose facts differ only in uncertain facts is decided as the
-   [API axis](#axes) decides a Type, by the Public API surface of that
+   [API axis](#axes) decides a Type, by the API axis surface of that
    Member or of the Type's own declaration.
 3. **IL compares where the Library level compares it.** A Member's Body is
    the IL of its methods present on both sides and of the generated code it
@@ -484,7 +518,8 @@ Member Body is an existence check. A Member declared on one side only is
 therefore `Changed` on each axis where it owns facts.
 
 An owner is never `Unchanged` by omission. A fact or body that cannot be
-decided, such as IL with an undefined opcode or a reference to a compiler-
+decided, such as IL whose walk reaches an undefined opcode before it decides a
+difference, or a reference to a compiler-
 controlled method, makes the axis of the Member that owns it `Indeterminate`,
 where the owner is the row the census was describing, raised under rule 1; when
 that row has no single Member owner, the residual's axis is `Indeterminate`.
@@ -538,8 +573,8 @@ underlying-type change, a
 Type, and a nested Type whose
 inherited nullable context changed; an added and a removed public Type, one
 of them with no Members, are reported whole by the Library level and have no
-Type-level rows; an undefined opcode in one method makes that Member Body
-`Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
+Type-level rows; an undefined opcode reached before a difference in one method
+makes that Member Body `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
 name have no Type-level rows; a Member present on both sides carries both
 fingerprints, which differ after a nullable annotation change; an attribute
 added to an internal method changes no state; every Member's API state equals
@@ -598,8 +633,9 @@ Two slices adopt the shared equality before step 7, which builds on both:
   in the same slice Member Body Diff's IL comparison requests the Body policy,
   gated by the dependency versions pair showing no IL row there either.
 - **Shared API equality:** the census decides `Unchanged` and presented
-  differences, and the Public API surface of one Type decides the rest,
-  gated for exactness against the complete Public API comparison.
+  differences, and the API axis surface of one Type decides the rest,
+  gated for exactness against the complete Public API comparison of the API
+  axis surface.
 
 These slices make Fast Diff's equality the complete diffs' own, so a
 complete diff can adopt the same walk as its first pass and explain only what

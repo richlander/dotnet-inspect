@@ -99,12 +99,13 @@ public sealed class LibraryBodyAnalysisExecutionTests
         AssertStageParticipated(
             LibraryBodyAnalysisStage
                 .OptimizationOpportunityAnalysis);
-        Assert.True(
+        Assert.Equal(
+            0,
             profiled.Receipt.StageParticipation!
                 .For(
                     LibraryBodyAnalysisStage
                         .DirectCallDiscovery)
-                .Attempts > 0);
+                .Attempts);
         LibraryBodyAnalysisStageParticipation aggregation =
             participation.For(
                 LibraryBodyAnalysisStage.ResultAggregation);
@@ -146,6 +147,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
         Assert.True(
             plan.RequiredFacts.HasFlag(
                 ImplementationMetricFactKind.DirectCalls));
+        Assert.False(plan.RequiresDirectCallDiscovery);
         Assert.False(
             plan.RequiredFacts.HasFlag(
                 ImplementationMetricFactKind
@@ -155,13 +157,18 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 .CompleteProfileCompatibility,
             plan.Origin);
         Assert.True(plan.Limits.IsLegacyUnbounded);
-        Assert.True(
+        Assert.True(plan.UsesFocusedExecution);
+        Assert.False(
             request.Plan.Includes(
                 LibraryBodyAnalysisFeatures
                     .ImplementationProfiles));
-        Assert.True(
+        Assert.False(
             request.Plan.Includes(
                 LibraryBodyAnalysisFeatures.MethodEvidence));
+        Assert.False(
+            plan.WorkStages.HasFlag(
+                ImplementationMetricWorkStage
+                    .DirectCallDiscovery));
     }
 
     [Fact]
@@ -301,7 +308,9 @@ public sealed class LibraryBodyAnalysisExecutionTests
         LibraryImplementationProfileAnalysisResult migrated =
             migratedExecution.ImplementationProfiles;
 
-        Assert.Equal(legacy.Profiles, migrated.Profiles);
+        AssertImplementationProfilesEqual(
+            legacy.Profiles,
+            migrated.Profiles);
         Assert.Equal(
             legacy.OverloadRelationships,
             migrated.OverloadRelationships);
@@ -430,6 +439,18 @@ public sealed class LibraryBodyAnalysisExecutionTests
             profile.DistinctCalleeCount,
             directCalls.DistinctTargetCount);
         Assert.True(directCalls.IsComplete);
+        Assert.Equal(
+            profile.AllocationCount,
+            body.AllocationCount);
+        Assert.Equal(
+            profile.ThrowCount,
+            body.ThrowCount);
+        Assert.Equal(
+            profile.Unsafe,
+            body.Unsafe);
+        Assert.Equal(
+            profile.ReflectionCallCount,
+            body.ReflectionCallCount);
     }
 
     [Fact]
@@ -2689,7 +2710,7 @@ public sealed class LibraryBodyAnalysisExecutionTests
                 .AttributionProbeBodies,
             work.AttributionExhaustedLimit);
         Assert.Equal(work, repeatedWork);
-        Assert.Equal(
+        AssertImplementationProfilesEqual(
             execution.ImplementationProfiles.Profiles,
             repeated.ImplementationProfiles.Profiles);
         Assert.True(
@@ -3488,6 +3509,26 @@ public sealed class LibraryBodyAnalysisExecutionTests
         reader.GetHeapSize(heap) < 0x10000
             ? sizeof(ushort)
             : sizeof(uint);
+
+    static void AssertImplementationProfilesEqual(
+        ImmutableArray<MethodImplementationProfile> expected,
+        ImmutableArray<MethodImplementationProfile> actual)
+    {
+        Assert.Equal(expected.Length, actual.Length);
+        for (int index = 0; index < expected.Length; index++)
+        {
+            MethodImplementationProfile expectedProfile =
+                expected[index];
+            MethodImplementationProfile actualProfile =
+                actual[index];
+            Assert.Equal(
+                expectedProfile with { IncompleteReasons = [] },
+                actualProfile with { IncompleteReasons = [] });
+            Assert.Equal(
+                expectedProfile.IncompleteReasons,
+                actualProfile.IncompleteReasons);
+        }
+    }
 
     static int RvaToFileOffset(
         PEHeaders headers,

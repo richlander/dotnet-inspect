@@ -169,7 +169,7 @@ public class SlotResidualCensusTests
             body);
 
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.Equal(2, function.ResidualSlotBindings.Count);
         Assert.All(function.ResidualSlotBindings.Values, binding => Assert.Equal(ResidualSlotBindingKind.Split, binding.Kind));
@@ -206,7 +206,7 @@ public class SlotResidualCensusTests
             body);
 
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.Equal(2, function.ResidualSlotBindings.Count);
         Assert.Contains("object S_0 = left ?? right;", output);
@@ -243,7 +243,7 @@ public class SlotResidualCensusTests
             body);
 
         new ResidualSlotBindingPass().Run(function, PassContext.None);
-        var output = CSharpPrinter.Print(function).Output;
+        var output = DecidedPrint.Print(function).Output;
 
         Assert.Equal(2, function.ResidualSlotBindings.Count);
         Assert.Contains("string S_0 = left ?? right;", output);

@@ -1,0 +1,1 @@
+jq: error (at /Users/rich/git/dotnet-inspect/.worktrees/explain-bootstrap-reuse-trials/tools/ExplainReadingScenarios/usability/bootstrap-reuse/api-data/response-04.out:113): Cannot iterate over null (null)

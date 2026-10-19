@@ -398,6 +398,8 @@ public enum BrowserLibraryApiDiffChangeKind
     TypeAttributeRemoved,
     MemberAttributeAdded,
     MemberAttributeRemoved,
+    TypeAccessibilityChanged,
+    MemberAccessibilityChanged,
 }
 
 [JsonConverter(

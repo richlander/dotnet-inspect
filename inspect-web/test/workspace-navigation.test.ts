@@ -167,6 +167,7 @@ function workspaceView(
     atLibraryRoot: false,
     packageLens: "overview",
     libraryLens: "overview",
+    analysisMode: "relationships",
     libraryScope: null,
     ...overrides,
   };
@@ -395,6 +396,61 @@ test("workspace URLs delegate canonical encoding and product-decoded activation"
   assert.equal(parsed.memberAccessibilityFilter, "public");
   assert.deepEqual(parsed.contexts, state.contexts);
   assert.equal(parsed.selectedContextId, "g0");
+});
+
+test("Library Analysis mode survives URL projection and restoration", () => {
+  const baseline = workspaceState();
+  const state = workspaceState({
+    analysisMode: "performance",
+    view: {
+      ...baseline.view,
+      lens: "library:analysis",
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+    },
+  });
+  const url = buildWorkspaceStateUrl(
+    "https://inspect.example/?analysis=stale",
+    state,
+    () => encoded());
+
+  assert.equal(url.searchParams.get("analysis"), "performance");
+  const parsed = parseWorkspaceLocation(
+    locationSnapshot(url),
+    () => decoded(state));
+  assert.equal(parsed.libraryLens, "analysis");
+  assert.equal(parsed.analysisMode, "performance");
+
+  const defaultUrl = buildWorkspaceStateUrl(
+    url.href,
+    { ...state, analysisMode: "relationships" },
+    () => encoded());
+  assert.equal(defaultUrl.searchParams.has("analysis"), false);
+
+  const malformed = new URL(url);
+  malformed.searchParams.set("analysis", "unknown");
+  const defaulted = parseWorkspaceLocation(
+    locationSnapshot(malformed),
+    () => decoded(state));
+  assert.equal(defaulted.analysisMode, "relationships");
+
+  const metadataState = {
+    ...state,
+    view: { ...state.view, lens: "library:metadata" as const },
+  };
+  const metadataUrl = buildWorkspaceStateUrl(
+    url.href,
+    metadataState,
+    () => encoded());
+  assert.equal(metadataUrl.searchParams.has("analysis"), false);
+
+  metadataUrl.searchParams.set("analysis", "performance");
+  const ignored = parseWorkspaceLocation(
+    locationSnapshot(metadataUrl),
+    () => decoded(metadataState));
+  assert.equal(ignored.analysisMode, "relationships");
 });
 
 test("decompiled member source view survives workspace URL projection", () => {
@@ -1374,6 +1430,33 @@ test("history signatures distinguish captured library scope", () => {
       rootKind: "platform",
       platformLibrary: '["aspnetcore.app","System.Text.Json.dll"]',
     })));
+});
+
+test("history signatures distinguish Analysis modes", () => {
+  const relationships = workspaceView({
+    atLibraryRoot: true,
+    libraryLens: "analysis",
+    analysisMode: "relationships",
+  });
+  const performance = {
+    ...relationships,
+    analysisMode: "performance" as const,
+  };
+
+  assert.notEqual(
+    workspaceViewSignature(relationships),
+    workspaceViewSignature(performance));
+
+  const metadata = {
+    ...relationships,
+    libraryLens: "metadata" as const,
+  };
+  assert.equal(
+    workspaceViewSignature(metadata),
+    workspaceViewSignature({
+      ...metadata,
+      analysisMode: "performance",
+    }));
 });
 
 test("history signatures distinguish Workspace from Package", () => {

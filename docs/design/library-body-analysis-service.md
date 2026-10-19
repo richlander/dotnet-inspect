@@ -751,8 +751,18 @@ constructed, then releases reader-bound state before returning.
 During migration,
 `LibraryBodyAnalysisFeatures.ImplementationProfiles` normalizes to the named
 `CompleteProfileV1` metric request. The plan records that compatibility origin,
-and the focused metric result remains the sole Analysis result source for each
-profile value.
+so both routes share the named metric and fact plan while retirement
+progresses.
+
+The explicit `CreateCompleteImplementationProfile` route now executes that
+composition through focused metric producers. The legacy
+`ImplementationProfiles` feature temporarily retains its original execution
+path as the parity oracle; it does not force explicit complete-profile requests
+back onto `MethodEvidence` or legacy profile collection.
+When complete-profile structural metrics already traverse decoded
+instructions, direct-invocation counting joins that traversal instead of
+running a separate discovery pass. Count-only requests retain the shallow
+discovery producer and do not acquire canonical context.
 
 `LibraryImplementationProfileAnalysisResult` becomes an adapter over
 `LibraryImplementationMetricAnalysisResult`. It preserves:
@@ -1103,9 +1113,9 @@ The counted implementation path is:
 5. Publish per-body typed outcomes and per-metric coverage in
    `LibraryImplementationMetricAnalysisResult`.
 6. Adapt the complete implementation profile from the focused result and
-   migrate `AssemblyContextImplementationProfileFamilyQuery` and
-   `AssemblyContextLibraryMetricsQuery`, preserving their existing CLI and
-   Inspect Web consumers.
+   migrate `AssemblyContextImplementationProfileFamilyQuery`, preserving its
+   existing CLI and Inspect Web consumers. `AssemblyContextLibraryMetricsQuery`
+   instead consumes the exact structural result described below.
 7. Retire the monolithic feature bit after remaining complete-profile callers
    move, then let #8445 adopt the selective result through
    `MemberMetricsInspect`.
@@ -1143,8 +1153,11 @@ This request publishes `LibraryStructuralAnalysisResult`; it does not publish
 `MethodImplementationProfile` rows. Research consumes the structural result
 directly and preserves the existing Library Metrics document, compatibility
 receipt, population coverage, diagnostics, ordering, and transport bytes.
-Other queries, including Implementation Profiles and exact-family Member
-Metrics, retain their existing result and execution routes.
+The direct CLI route and the host-neutral
+`AssemblyContextLibraryMetricsQuery` used by package and platform Browser/Wasm
+exports both issue this request. Other queries, including Implementation
+Profiles and exact-family Member Metrics, retain their existing result and
+execution routes.
 
 The CLI exact-family Member Metrics route carries the exact TypeDef token and
 complete public overload selectors already issued by its member projection.
@@ -1561,6 +1574,9 @@ The initial Release gates are:
 - existing `AssemblyContextMethodAnalysisQueryTests` for exact physical
   method evidence, visible participant failures, resolver use, and
   cancellation;
+- `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` for the first
+  exact-member producer's one-body source receipt and identity, direct-call,
+  safety, diagnostic, and exception-region parity with this donor;
 - existing `AssemblyContextOptimizationOpportunitiesQueryTests` for ranking,
   public-member attribution, participant isolation, resolver use, and visible
   failure; and
@@ -1580,6 +1596,23 @@ The initial Release gates are:
 
 No source-code absence gate enforces service usage. Consumer migration is
 established by the production call sites and focused behavior gates.
+
+`AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
+`ExactMethodAnalysisProducer` owns semantic identity, safety evidence and
+occurrences, diagnostics, and detached physical exception regions. This
+service still owns the query's public direct-call rows, final `MethodSignals`,
+allocation occurrences, and optimization opportunities. Calls remain a
+focused source input only for call-safety evidence; declared async-source
+attribution, execution multiplicity, and complete external MethodSpec
+definition-token provenance remain donor-owned. Those retained products may
+incidentally perform work that the focused producer also needs; #9832 moves
+only complete result ownership and planning authority and does not claim that
+incidental donor work is retired.
+Recoverable whole-body Calls failure does not erase independent focused
+evidence: exception regions are already detached, and a recovery-only
+owner-issued operand resolver preserves the safety-occurrence prefix while the
+already materialized instructions preserve call-independent operation-safety
+evidence and the diagnostic remains visible.
 
 Each result-type migration additionally gates:
 

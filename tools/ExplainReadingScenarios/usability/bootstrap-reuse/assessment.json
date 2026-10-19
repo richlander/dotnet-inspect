@@ -1,0 +1,69 @@
+{
+  "method": "Author assessment against frozen executed evidence. Adequate does not imply protocol-perfect, exhaustiveness or executed method behavior. Failed/partial requests, inferred meanings and off-profile reads are explicit.",
+  "trials": {
+    "package-hal": {
+      "domain": "adequate",
+      "evidence": [
+        "response-03.out",
+        "response-03.err"
+      ],
+      "qualification": "One direct manifest Polly declaration from Microsoft.Extensions.Http.Polly 10.0.13; selected .NETStandard2.0 group for net10.0; 40 candidate limit and non-exhaustiveness explicit. Polly 7.2.4 is dependency declaration text, not a resolved dependency version.",
+      "reading": "One full command-local HAL, then cached jq selection; no narrower refetch. Retrieved fewer bytes than baseline, but rendered more through multiple local views."
+    },
+    "package-data": {
+      "domain": "adequate",
+      "evidence": [
+        "response-04.out",
+        "response-05.out",
+        "response-05.err"
+      ],
+      "qualification": "Same package/direct declaration/group/bound with no indirect or exhaustive claim. Reads transitive constraints, then executes exact direct depends=Polly.",
+      "reading": "Query help then one direct depends-transitive facet closure; no repeated structured request. One fewer request than baseline but guide-inclusive retrieval/rendering both larger."
+    },
+    "api-hal": {
+      "domain": "adequate",
+      "evidence": [
+        "response-02.out",
+        "response-03.out"
+      ],
+      "qualification": "Actual HttpClient/HttpContent receivers, declaring types/library and JsonTypeInfo representative signatures for GetFromJsonAsync, PostAsJsonAsync and ReadFromJsonAsync; installed runtime and inferred, unexecuted workflow semantics explicit.",
+      "reading": "Help and two ordinary extension inspections; neither reading representation nor explanation entrance exercised."
+    },
+    "api-data": {
+      "domain": "adequate with partial-evidence qualification",
+      "evidence": [
+        "response-02.out",
+        "response-03.out",
+        "response-04.out",
+        "response-06.out",
+        "response-07.out",
+        "response-08.out",
+        "response-08.err"
+      ],
+      "qualification": "Actual HttpClient/HttpContent/ASP.NET HttpResponse receivers, declaring types/library, signatures and documented GetFromJsonAsync/ReadFromJsonAsync/WriteAsJsonAsync utility. Third member request exits 1 with two rejected metadata rows. Selected overload is present and independently reported by successful extension inspection; partial warning and scope are disclosed.",
+      "reading": "Help, three extension inspections, member help and three member documentation inspections. Documentation adds behavior details absent from extension signatures; do not classify all these as verification-only. No explanation/assigned reading format used. One jq error on null signatures retained. Substantially greater retrieval than baseline reflects different methods and documentation depth, not direct JSON cost."
+    },
+    "vocabulary-hal": {
+      "domain": "adequate with semantic qualification",
+      "evidence": [
+        "response-01.out",
+        "response-02.out",
+        "response-03.out"
+      ],
+      "qualification": "72 catalog values, native IDs, Break display name and selected-scope omission. Prose value meanings are qualified ordinary interpretations, not asserted catalog definitions.",
+      "reading": "Immediate collection bootstrap, full vocabulary then redundant selected copy. Full response already contains count, summary and both value records; selected copy adds selection scope but no new requested domain facts. It could have narrowed on the first reading because task IDs were supplied."
+    },
+    "vocabulary-data": {
+      "domain": "adequate with semantic qualification and off-profile reads",
+      "evidence": [
+        "response-01.out",
+        "response-03.out",
+        "response-04.out",
+        "response-05.out",
+        "response-06.out"
+      ],
+      "qualification": "Correct native IDs/count/omission; adds separate opaque structured resource identities, and qualifies absence of detailed definitions.",
+      "reading": "Immediate collection bootstrap, one failed short-name request, full direct vocabulary, then ordinary vocabulary resource and two value details seeking identity/description data. Correct direct reading already supplied native keys, vocabulary summary, Break name and count. Extra records add encoded explanation identity but no missing requested domain meaning. No -Q use. Three successful reads leave the assigned reading profile; this is retained separately from the zero cross-direct/HAL profile mismatch count."
+    }
+  }
+}

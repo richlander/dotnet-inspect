@@ -5190,9 +5190,14 @@ public partial class LibraryCommand
 
         if (!string.IsNullOrEmpty(assemblyName))
         {
-            PackageCompileAssetSelection? selection = null;
-            if (allDlls.Any(path =>
-                    IsDirectRootLibrary(extractPath, path)))
+            PackageLibraryPopulationSelection population;
+            if (resolution.HouseSettlement?.Result.Evidence.Realization
+                is PackageHouseRealizationReceipt.LibraryPopulation
+                    realization)
+            {
+                population = realization.Selection;
+            }
+            else
             {
                 var content = new FileSystemPackageContent(
                     extractPath,
@@ -5201,18 +5206,22 @@ public partial class LibraryCommand
                     resolution.ProducerKey
                         ?? resolvedPackageName
                         ?? packageTarget.PackageName);
-                selection = PackageCompileAssetSelector.Evaluate(
+                population = PackageLibraryPopulationSelector.Evaluate(
                     content,
                     resolvedPackageName ?? packageTarget.PackageName,
                     string.IsNullOrWhiteSpace(tfm)
                         ? PackageCompileAssetSelectionPolicy.HighestAvailable
                         : PackageCompileAssetSelectionPolicy.ExplicitTarget,
-                    tfm).Selection;
+                    tfm);
             }
+
             string? matchedAssembly;
             string? matchedTfm;
-            if (selection is not null)
+            if (population is
+                PackageLibraryPopulationSelection.Compile compilePopulation)
             {
+                PackageCompileAssetSelection selection =
+                    compilePopulation.CompileReceipt.Selection;
                 IReadOnlyList<PackageCompileAsset> selected =
                     new PackageLibrarySelector(assemblyName).Select(selection);
                 PackageCompileAsset? selectedAsset =
@@ -5241,21 +5250,44 @@ public partial class LibraryCommand
 
                 matchedAssembly = selectedAsset is null
                     ? null
-                    : allDlls.SingleOrDefault(path =>
-                        Path.GetRelativePath(extractPath, path)
-                            .Replace('\\', '/')
-                            .Equals(
-                                selectedAsset.Path,
-                                StringComparison.OrdinalIgnoreCase));
+                    : FindExtractedPackageEntry(
+                        allDlls,
+                        extractPath,
+                        selectedAsset.Path);
                 matchedTfm = selection.TargetFramework;
+            }
+            else if (population is
+                PackageLibraryPopulationSelection.Runtime runtimePopulation
+                && runtimePopulation.RuntimeReceipt.Selection
+                    is PackageAssetSelection.Selected selected)
+            {
+                IReadOnlyList<string> candidates =
+                [
+                    .. selected.Universe.Assets
+                        .Select(asset =>
+                            FindExtractedPackageEntry(
+                                allDlls,
+                                extractPath,
+                                asset.EntryPath))
+                        .OfType<string>(),
+                ];
+                TfmSelector.PackageLibraryResolution runtimeResolution =
+                    TfmSelector.SelectPackageLibrary(
+                        candidates,
+                        extractPath,
+                        resolvedPackageName
+                            ?? packageTarget.PackageName,
+                        assemblyName,
+                        selected.Universe.TargetFramework);
+                matchedAssembly = runtimeResolution.IsSelected
+                    ? runtimeResolution.Paths[0]
+                    : null;
+                matchedTfm = selected.Universe.TargetFramework;
             }
             else
             {
-                (matchedAssembly, matchedTfm) =
-                    TfmSelector.FindAssemblyInPackage(
-                        extractPath,
-                        assemblyName,
-                        tfm);
+                matchedAssembly = null;
+                matchedTfm = tfm;
             }
             if (matchedAssembly == null)
             {
@@ -5312,17 +5344,16 @@ public partial class LibraryCommand
         return ([selectedPath], extractPath, tempDir, nupkgPath, resolvedPackageName, resolvedPackageVersion);
     }
 
-    private static bool IsDirectRootLibrary(
+    private static string? FindExtractedPackageEntry(
+        IEnumerable<string> files,
         string extractPath,
-        string path)
-    {
-        string relativePath = Path.GetRelativePath(extractPath, path)
-            .Replace('\\', '/');
-        return relativePath.StartsWith(
-                "lib/",
-                StringComparison.OrdinalIgnoreCase)
-            && relativePath.AsSpan("lib/".Length).IndexOf('/') < 0;
-    }
+        string entryPath) =>
+        files.SingleOrDefault(path =>
+            Path.GetRelativePath(extractPath, path)
+                .Replace('\\', '/')
+                .Equals(
+                    entryPath,
+                    StringComparison.OrdinalIgnoreCase));
 
     private static string[] GetPackageDllFiles(string extractPath) =>
         [

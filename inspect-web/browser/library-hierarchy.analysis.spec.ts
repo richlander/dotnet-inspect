@@ -61,6 +61,44 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     .toHaveAttribute("aria-selected", "true");
 });
 
+test("Analysis mode survives copy, reload, and the default URL", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+
+  await page.getByRole("tab", {
+    name: "Performance Triage",
+    exact: true,
+  }).click();
+  await expect.poll(() =>
+    new URL(page.url()).searchParams.get("analysis"))
+    .toBe("performance");
+
+  const shared = page.url();
+  await page.reload();
+  await expect(page.getByRole("tab", {
+    name: "Performance Triage",
+    exact: true,
+  })).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(shared);
+
+  await page.getByRole("tab", {
+    name: "Relationships",
+    exact: true,
+  }).click();
+  await expect.poll(() =>
+    new URL(page.url()).searchParams.has("analysis"))
+    .toBe(false);
+});
+
 test("Dependencies auto-loads and reveals one selected relationship", async ({
   page,
 }) => {
@@ -1099,6 +1137,39 @@ async function openReferences(page: Page) {
   await chooseInspector(page, "data-library-lens", "references", "References");
   await expect(inspectorTab(page, "data-library-lens", "references"))
     .toHaveAttribute("aria-selected", "true");
+}
+
+for (const width of [1440, 390]) {
+  test(`production References shows the complete root diagram label at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    const name = "Microsoft.Extensions.AI.OpenAI";
+    const namedCore = library(core.id, name, 1);
+    await installFacades(page, {
+      ...surface,
+      assemblies: [namedCore],
+      types: [type("Example.Widget", namedCore)],
+      totalMembers: 1,
+    });
+    await openReferences(page);
+
+    const graph = page.locator("#library-reference-graph-diagram");
+    const rootNode = graph.locator("g.node.inspected");
+    const rootLabel = rootNode.locator("foreignObject");
+    await expect(rootLabel).toContainText(name);
+    const labelFits = await rootLabel.evaluate(element => {
+      const label = element.querySelector("p")!;
+      const bounds = element.getBoundingClientRect();
+      const text = document.createRange();
+      text.selectNodeContents(label);
+      const textBounds = text.getBoundingClientRect();
+      return textBounds.right <= bounds.right + 1
+        && textBounds.bottom <= bounds.bottom + 1;
+    });
+    expect(labelFits).toBe(true);
+    if (width === 1440) {
+      await rootNode.screenshot({ path: testInfo.outputPath("reference-root-label.png") });
+    }
+  });
 }
 
 for (const width of [1440, 390]) {

@@ -52,7 +52,10 @@ generated execution-body expansion. The source uses targeted nested metadata
 for state-machine bodies and the existing lifted ownership authority for
 bounded body-dependent discovery; its receipt separates candidate definitions,
 probe bodies and bytes, relationship nodes, and
-authenticated origins from terminal work. Metadata-predicate breadth, body
+authenticated origins from terminal work. Declaring producers read the
+subject's public MethodDef roots and reference-assembly status at completion
+through [image exposure support](#image-exposure-support), receipted apart from
+breadth. Metadata-predicate breadth, body
 packets, and collapsed sparse request groups remain **unverified**.
 
 ## Demo and pathological case
@@ -332,6 +335,15 @@ unauthenticated candidates.
   `CompilerGeneratedAttribute`.
 - A generated-named lifted body declared directly in breadth that no owner
   reaches is also an unauthenticated candidate.
+- A visiting producer reads its unit's outcome through
+  `MethodDefinitionView.DeclaredSource`. The outcome is `Generated` with the
+  unit's origin, `Unauthenticated`, or `Direct` when the unit entered breadth
+  directly and the relation published no generated outcome for it. A body
+  that origins name with two different owners is `Unauthenticated`, because
+  neither owner is unique. Reading an outcome does no source work; the
+  relation's work and outcomes stay in the expansion receipt. A breadth that
+  declares no expansion carries no relation, and reading it throws
+  `ProducerContractException`.
 
 The all-definition reverse lowering and retained-prefix bounds are the target
 design for [#9864](https://github.com/richlander/dotnet-inspect/issues/9864)
@@ -705,14 +717,10 @@ member identity or target, and leave both Calls and CallTargets coverage empty.
 Library Body Analysis uses the same local-signature decoder during migration,
 but new producers do not use its lookup or aggregate result.
 
-The first planned production adopter is the
-[unsafe-member census](unsafe-member-findings.md#execution). Its adoption
-remains separate until the declared-source and public-root prerequisites
-tracked by
-[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and
-[#9865](https://github.com/richlander/dotnet-inspect/issues/9865) land. This
-capability slice therefore has no production caller and makes no production
-performance claim.
+The first adopter is the
+[unsafe-member census](unsafe-member-findings.md#execution) at Type scope. It
+has no host consumer yet, so this capability makes no production performance
+claim.
 
 ### Semantic identity
 
@@ -792,6 +800,55 @@ every lane that reads it shares that decode. The source receipt carries
 The physical group receipt charges each decode once. Each request receipt
 records the identities that request read, with the work they required, so a
 request that shares another lane's decode still shows what its answer cost.
+
+### Image exposure support
+
+`PublicMethodRoots` and `ReferenceAssemblyStatus` are declared,
+execution-scoped support for producers whose answer depends on facts about the
+whole image rather than about one MethodDef, tracked by
+[#9865](https://github.com/richlander/dotnet-inspect/issues/9865). The unsafe
+member census needs both. Exposure comes from the
+[public MethodDef root inventory](public-method-root-inventory.md), and a
+reference assembly makes the census incomplete under the
+[reference-assembly rule](library-enablements.md#reference-assemblies).
+
+A producer reads them only at completion, through its completion view. They
+acquire no body, do not imply `ModuleLookup`, and do not widen breadth. A
+producer that did not declare one cannot obtain it. Semantics stay with their
+owners. This support only issues and receipts them, and the Library Body
+Analysis census reads the same two supports, so the paths cannot classify
+differently while both exist:
+
+- **Public MethodDef roots** come from `PublicMethodRootInventoryReader.Read`,
+  with the image's own TypeDef and MethodDef row counts as limits. The result is the inventory, complete or
+  bounded with its retained prefix and boundary, or a typed failure when the
+  metadata is malformed. Under image-sized limits a well-formed image is always
+  complete; the bounded shape is preserved, not produced.
+- **Reference-assembly status** comes from
+  `LibraryEnablementFacts.ClassifyReferenceAssembly` as `Implementation`,
+  `Reference`, or `Undecidable`. A malformed assembly row is `Undecidable`,
+  exactly as the census classifies it today.
+
+Each fact is computed at most once per execution group, at the first read by a
+declaring producer, and every lane that reads it shares that result. Both
+results are detached: they hold tokens, the module version ID, and counts, never
+a reader. An image without metadata publishes a roots failure and an
+`Undecidable` status without reading anything.
+
+The source receipt carries `PublicMethodRootCoverage` and
+`ReferenceAssemblyStatusCoverage`, separate from MethodDef breadth:
+
+- roots: whether this receipt's lane computed the inventory, its
+  `PublicMethodRootInventoryReceipt` (the TypeDefs and MethodDefs visited and
+  the roots retained), whether it failed, and the number of reads; and
+- status: whether this receipt's lane computed it, the assembly CustomAttribute
+  rows it read, and the number of reads.
+
+The physical group receipt records each computation once and every read. A
+request receipt records a computation only for the lane whose read created it,
+and only that lane's reads. Coverage is empty when no producer declares the
+support or no declaring producer reads it. A failed root inventory has no
+receipt, because the reader publishes none for a malformed image.
 
 ## Planning
 
@@ -976,8 +1033,10 @@ canonical `BlockGraph` or `ExceptionFlowTopology`. The physical request
 therefore omits local-signature and canonical-context facts entirely. Async
 disposition retains the generated-type provenance metadata needed to suppress
 runtime-async methods in generated types without requesting complete
-MethodEvidence. Research consumes a focused structural result rather than
-reconstructing or publishing complete implementation profiles.
+MethodEvidence. The direct CLI route and the host-neutral AssemblyContext query
+used by package and platform Browser/Wasm exports issue the same request.
+Research consumes a focused structural result rather than reconstructing or
+publishing complete implementation profiles.
 
 The distinction is measured, not aesthetic. A rejected retained
 complete-profile packet removed traversals but improved the exact NativeAOT
@@ -1036,10 +1095,23 @@ Migration is incremental:
     [Same-module call-target support](#same-module-call-target-support) (#8700)
     and [Semantic identity](#semantic-identity) (#9830) are implemented on the
     same terms.
-11. Move the first exact-member consumer in #9832 through
-    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers),
-    consuming #8700 and #8945 rather than defining another call resolver or
-    population.
+11. The first exact-member consumer moved in #9832 through
+    [exact-member scoped producers](assembly-analysis-operation.md#exact-member-scoped-producers).
+    `ExactMethodAnalysisProducer` consumes the exact MethodDef population,
+    semantic identity, memory-safety contracts, Calls, and resolved-call body
+    analyzer owned by the source; it defines no second population or call
+    resolver. `AssemblyContextMethodAnalysisQuery` consumes that focused result
+    for identity, safety, diagnostics, and exception regions, while direct-call
+    rows, signals, allocations, and optimization remain legacy-owned. Calls
+    support is used only for focused call-safety evidence because declared
+    async-source attribution, execution multiplicity, and complete
+    definition-token provenance do not yet have owner-issued capabilities.
+    When whole-body Calls decoding fails recoverably, the producer projects
+    independent exception-region evidence first and uses recovery-only
+    owner-issued operand resolution to retain the donor's safety-occurrence
+    prefix. It also recovers call-independent operation-safety evidence from
+    the already materialized instructions, without adding duplicate work to
+    the successful path.
 12. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

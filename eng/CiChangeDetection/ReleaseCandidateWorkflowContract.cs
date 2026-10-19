@@ -99,6 +99,21 @@ internal static class ReleaseCandidateWorkflowContract
             "Deep Inspect contract accepted a missing NativeAOT probe.");
         AssertMutationRejected(
             deepInspect,
+            "      - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)\n" +
+            "        if: ${{ !cancelled() && steps.build.outcome == 'success' }}\n" +
+            "        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- --gate no-corpus\n",
+            "",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted a removed daily decompiler sweep.");
+        AssertMutationRejected(
+            deepInspect,
+            "    runs-on: ubuntu-26.04\n" +
+            "    timeout-minutes: 180\n",
+            "    runs-on: ubuntu-26.04\n",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted an unbounded decompiler test lane.");
+        AssertMutationRejected(
+            deepInspect,
             "        if: ${{ !cancelled() && steps.package_fixture.outcome == 'failure' }}\n",
             "        if: false\n",
             ValidateDeepInspectAdoption,
@@ -496,15 +511,38 @@ internal static class ReleaseCandidateWorkflowContract
             "if",
             "${{ !cancelled() && steps.package_fixture.outcome == 'failure' }}",
             "Deep Inspect package fixture failure check");
+        // The decompiler sweep and bounded receipt run in their own job so a
+        // host-suite hang in the test lane cannot cancel them before they start
+        // (#9504 went unobserved for ten days that way). The job keeps the test
+        // lane's schedule, dispatch routes, and permissions, and carries an
+        // explicit time limit well inside the six-hour host default.
+        YamlMappingNode decompilerTestJob =
+            GetRequiredMapping(jobs, "decompiler-test", "Deep Inspect jobs");
+        YamlMappingNode decompilerTestPermissions = GetRequiredMapping(
+            decompilerTestJob, "permissions", "Deep Inspect decompiler test lane");
+        RequireScalarValue(
+            decompilerTestPermissions, "contents", "read", "Deep Inspect decompiler test permissions");
+        RequireScalarValue(
+            decompilerTestPermissions, "packages", "read", "Deep Inspect decompiler test permissions");
+        RequireContains(
+            GetRequiredScalar(decompilerTestJob, "if", "Deep Inspect decompiler test lane"),
+            "github.event_name == 'schedule' && github.event.schedule == '30 11 * * *'");
+        RequireScalarValue(
+            decompilerTestJob, "timeout-minutes", "180", "Deep Inspect decompiler test lane");
+        YamlMappingNode[] decompilerTestSteps = GetRequiredSequence(
+                decompilerTestJob, "steps", "Deep Inspect decompiler test lane")
+            .Children
+            .Select(node => RequireMapping(node, "Deep Inspect decompiler test step"))
+            .ToArray();
         foreach ((string name, string command) in new[]
         {
+            ("Run decompiler tests (slow gates except the multi-hour corpus sweep)", "--gate no-corpus"),
             ("Discover expected decompiler gate tests", "--gate-discovery-receipt"),
             ("Run bounded decompiler receipt", "--gate pre-merge"),
             ("Compare bounded decompiler receipt against known-red", "eng/check-decompiler-gate.cs"),
         })
         {
-            YamlMappingNode[] matches = testSteps.Children
-                .Select(node => RequireMapping(node, "Deep Inspect test step"))
+            YamlMappingNode[] matches = decompilerTestSteps
                 .Where(step => GetOptionalScalar(step, "name") == name)
                 .ToArray();
             if (matches.Length != 1 || !GetRequiredScalar(
@@ -513,6 +551,11 @@ internal static class ReleaseCandidateWorkflowContract
                     $"Deep Inspect {name}").Contains(command, StringComparison.Ordinal))
                 throw new InvalidOperationException(
                     $"Daily Deep Inspect must run {name} once.");
+            RequireScalarValue(
+                matches[0],
+                "if",
+                "${{ !cancelled() && steps.build.outcome == 'success' }}",
+                $"Deep Inspect {name} condition");
         }
         foreach ((string name, string command) in new[]
         {
@@ -586,6 +629,7 @@ internal static class ReleaseCandidateWorkflowContract
         string[] requiredJobs =
         [
             "test",
+            "decompiler-test",
             "platform-test",
             "decompiler-corpus",
             "release-certification",

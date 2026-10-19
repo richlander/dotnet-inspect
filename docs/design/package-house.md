@@ -135,6 +135,8 @@ The owner defines:
 - the distinction between settlement, acquisition, and realization;
 - composition of owner-issued package source, version, pruning, payload,
   asset-selection, and dependency capabilities;
+- composition of one Navigation-issued Library-population demand with compile
+  precedence and typed one-RID runtime fallback;
 - package-local compile-selection policy and preservation of the complete
   owner-issued inventory beside its selected projection;
 - the House result envelope and terminal outcome;
@@ -1533,6 +1535,14 @@ composition retains only compatibility input validation, exact authority
 registration, and its remaining host capability and direct-operation
 surfaces. Removing the type still waits for those surfaces and their production
 callers to adopt their owner-issued operations.
+
+Dependency traversal has adopted one host-issued Package Source operation for
+its sequential candidate and manifest schedule. CLI and Browser/Wasm traversal
+adapters now retain explicit authorization and consume the transferred
+operation instead of retaining a settlement root or
+`DesktopPackageSourceComposition` manifest adapter. Concurrent package-license
+inventory remains a separate successor because one operation lease admits only
+one active source step.
 
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path

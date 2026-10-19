@@ -1,10 +1,13 @@
+using System.Buffers;
 using System.Reflection;
 using System.Reflection.Metadata.Ecma335;
 
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using Markout;
@@ -13,7 +16,7 @@ namespace DotnetInspect.Cli.Commands;
 
 public static partial class TypeCommand
 {
-    static readonly ApiSurfaceExtractionBounds s_directDiscoveryBounds =
+    static readonly ApiSurfaceExtractionBounds s_directExactTypeBounds =
         new(
             maxTypes: 5_000,
             maxMembers: 100_000,
@@ -51,7 +54,7 @@ public static partial class TypeCommand
                 : null;
         var inspectionPlan = new TypeSubjectInspectionPlan(
             typeName,
-            s_directDiscoveryBounds,
+            s_directExactTypeBounds,
             declarations,
             new MetadataExactTypeInput(typeName));
         ResolvedAssemblyReference assembly;
@@ -176,6 +179,113 @@ public static partial class TypeCommand
             skipBareUnsafeApplicability: true);
     }
 
+    static int? TryExecuteDirectLibraryExactTypeInfo(
+        TypeOptions options,
+        Action<Action<IBufferWriter<byte>>>? writeUtf8,
+        CancellationToken cancellationToken)
+    {
+        if (writeUtf8 is null
+            || !CanExecuteDirectLibraryExactTypeInfo(
+                options,
+                out string assemblyPath,
+                out MetadataTypeDefinitionName typeName))
+        {
+            return null;
+        }
+
+        var inspectionPlan = new TypeSubjectInspectionPlan(
+            typeName,
+            s_directExactTypeBounds,
+            exactInput: new MetadataExactTypeInput(typeName));
+        ResolvedAssemblyReference assembly;
+        try
+        {
+            assembly = ResolvedAssemblyReference.CreateFromPath(
+                assemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "direct Library Type Info"));
+        }
+        catch (Exception failure) when (
+            failure is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException)
+        {
+            return null;
+        }
+
+        InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
+            TypeSubjectInspectionOperation.Execute(
+                assembly,
+                inspectionPlan,
+                cancellationToken);
+        if (envelope.Content
+            is TypeSubjectInspectionOutcome.Rejected
+            {
+                Reason:
+                    TypeSubjectInspectionRejection.TypeNotFound
+                    or TypeSubjectInspectionRejection.TypeAmbiguous,
+            })
+        {
+            return null;
+        }
+        if (envelope.Content
+            is not TypeSubjectInspectionOutcome.Available available)
+        {
+            WriteInspectionDiagnostics(envelope.Diagnostics);
+            CommandError.Write(
+                "The exact Type Info inspection did not complete.");
+            return 1;
+        }
+
+        TypeSubjectInspectionContent document = available.Document;
+        if (!envelope.Diagnostics.IsEmpty
+            || !CanProjectDirectLibraryTypeInfo(
+                document.Subject,
+                options.IncludeAll)
+            || !CanWriteDirectTypeInfo(
+                document,
+                assemblyPath))
+        {
+            return null;
+        }
+
+        TypeSubject subject = document.Subject;
+        string kind = TypeKind(subject, document.BaseKind);
+        TypeAttributes attributes = subject.Attributes;
+        var modifierBasis = new ApiType
+        {
+            Kind = kind,
+            IsAbstract =
+                (attributes & TypeAttributes.Abstract) != 0,
+            IsSealed =
+                (attributes & TypeAttributes.Sealed) != 0,
+            IsStatic =
+                kind == "class"
+                && (attributes & TypeAttributes.Abstract) != 0
+                && (attributes & TypeAttributes.Sealed) != 0,
+            IsByRefLike = subject.IsByRefLike,
+            IsReadOnly = subject.IsReadOnly,
+        };
+        IReadOnlyList<string> modifiers =
+            ILInspector.Research.ResearchViews.TypeModifiers(
+                modifierBasis);
+        var presentation = new ExactTypeInfoTsvDocument(
+            subject.ContainedType!,
+            kind,
+            modifiers,
+            document.InterfaceCount,
+            assemblyPath,
+            SourceKind.Library);
+
+        WriteInspectionDiagnostics(envelope.Diagnostics);
+        writeUtf8(
+            output => ExactTypeInfoTsvPresentation.Write(
+                output,
+                presentation,
+                showHeader: !options.NoHeader));
+        return 0;
+    }
+
     static bool RequiresMemberApplicability(TypeOptions options) =>
         options.Discover is null or { Length: 0 }
         || RequiresAuditMemberApplicability(options);
@@ -271,7 +381,7 @@ public static partial class TypeCommand
         out string assemblyPath,
         out MetadataTypeDefinitionName typeName)
     {
-        assemblyPath = options.AssemblyPath ?? "";
+        assemblyPath = "";
         typeName = null!;
         if (!options.EffectiveDiscovery
             || options.EnvelopeOutput
@@ -306,6 +416,81 @@ public static partial class TypeCommand
                         && !section.Equals(
                             SectionNames.UnsafeMembers,
                             StringComparison.OrdinalIgnoreCase))
+            || !TryGetDirectLibraryExactType(
+                options,
+                out assemblyPath,
+                out typeName))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool CanExecuteDirectLibraryExactTypeInfo(
+        TypeOptions options,
+        out string assemblyPath,
+        out MetadataTypeDefinitionName typeName)
+    {
+        if (options.EnvelopeOutput
+            || options.EffectiveDiscovery
+            || options.Discover is not null
+            || options.SelectDeferredToListing
+            || options.DiscoverDeferredToListing
+            || options.UserVerbosity != Verbosity.Minimal
+            || !options.Tsv
+            || options.JsonOutput
+            || options.Jsonl
+            || options.PlainText
+            || options.MarkdownExplicitlySet
+            || options.Tree
+            || options.ShapeOutput
+            || options.Count
+            || options.Print
+            || options.Value
+            || options.Urls
+            || options.Paths
+            || options.LineWindowExplicitlySet
+            || options.Rows is not null
+            || options.Limit is not null
+            || options.Columns is { Length: > 0 }
+            || options.Fields is { Length: > 0 }
+            || options.IncludeSections is not { Count: 1 } sections
+            || !sections.Contains(SectionNames.TypeInfo)
+            || options.TypeFilter is not null
+            || options.MemberFilter.Count > 0
+            || options.KindFilter.Count > 0
+            || options.UnsafeOnly
+            || options.BodyKindQuery.HasFilter
+            || options.CloneCandidateQuery.HasPredicates
+            || options.ShowDocs
+            || options.ShowSamples
+            || options.CompanionOutput != CompanionOutput.None
+            || !TryGetDirectLibraryExactType(
+                options,
+                out assemblyPath,
+                out typeName))
+        {
+            assemblyPath = "";
+            typeName = null!;
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool TryGetDirectLibraryExactType(
+        TypeOptions options,
+        out string assemblyPath,
+        out MetadataTypeDefinitionName typeName)
+    {
+        assemblyPath = options.AssemblyPath ?? "";
+        typeName = null!;
+        if (options.PackagePath is not null
+            || options.PackageRangeAddress is not null
+            || options.PlatformAssembly is not null
+            || options.ProjectPath is not null
+            || options.ProjectAssetsPath is not null
             || string.IsNullOrWhiteSpace(options.TypeName)
             || string.IsNullOrWhiteSpace(assemblyPath)
             || !File.Exists(assemblyPath))
@@ -330,6 +515,28 @@ public static partial class TypeCommand
         return true;
     }
 
+    static bool CanWriteDirectTypeInfo(
+        TypeSubjectInspectionContent document,
+        string assemblyPath)
+    {
+        TypeSubject subject = document.Subject;
+        MetadataContainedTypeDefinitionName? contained =
+            subject.ContainedType;
+        return document.BaseKind
+                is not MetadataTypeDeclarationBaseKind.Other
+            && subject.Signature.GenericParameters.IsEmpty
+            && subject.Type.Segments.All(
+                segment => !segment.Contains('`'))
+            && contained is not null
+            && !contained.Namespace.RequiredContainment
+            && contained.Segments.All(
+                segment => !segment.RequiredContainment)
+            && IsTsvField(assemblyPath);
+    }
+
+    static bool IsTsvField(string value) =>
+        value.IndexOfAny('\t', '\r', '\n') < 0;
+
     static bool CanProjectDirectLibraryDiscovery(
         TypeSubject subject,
         bool includeAll) =>
@@ -338,6 +545,17 @@ public static partial class TypeCommand
                 or MetadataTypeDeclarationCategory.Interface
                 or MetadataTypeDeclarationCategory.Delegate
         && !subject.IsCompilerGenerated
+        && (includeAll
+            || !subject.IsHidden
+                && subject.DeclaringTypeDefinitionToken is null
+                && (subject.Attributes
+                    & TypeAttributes.VisibilityMask)
+                    == TypeAttributes.Public);
+
+    static bool CanProjectDirectLibraryTypeInfo(
+        TypeSubject subject,
+        bool includeAll) =>
+        !subject.IsCompilerGenerated
         && (includeAll
             || !subject.IsHidden
                 && subject.DeclaringTypeDefinitionToken is null

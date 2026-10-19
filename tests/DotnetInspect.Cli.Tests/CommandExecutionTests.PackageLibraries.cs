@@ -1083,6 +1083,146 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryCommand_RuntimeOnlyPackageUsesOneImplementationPopulation()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRuntimeOnlyPackage();
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Neighbor.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var namesake = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--namesake-library",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.True(
+                aggregate.Exit == 0,
+                $"Error: {aggregate.Error}{Environment.NewLine}"
+                    + $"Output: {aggregate.Output}");
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "runtimes/linux-x64/lib/net10.0/Neighbor.dll",
+                aggregate.Output);
+            Assert.Contains(
+                "runtimes/linux-x64/lib/net10.0/Unexpected.FileName.dll",
+                aggregate.Output);
+            Assert.DoesNotContain("Analyzer.dll", aggregate.Output);
+            Assert.DoesNotContain("BuildTask.dll", aggregate.Output);
+            Assert.DoesNotContain("Native.dll", aggregate.Output);
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Neighbor.dll", exact.Output);
+            Assert.DoesNotContain(
+                "Unexpected.FileName.dll",
+                exact.Output);
+
+            Assert.Equal(0, namesake.Exit);
+            Assert.Empty(namesake.Error);
+            Assert.Contains(
+                "# Unexpected.FileName.dll",
+                namesake.Output);
+            Assert.DoesNotContain("Neighbor.dll", namesake.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_RuntimeOnlyPackageDoesNotMergeRuntimeIdentifiers()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRuntimeOnlyPackage(
+                includeSecondRuntimeIdentifier: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "explicit runtime identifier",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Neighbor.dll")]
+    [InlineData(null)]
+    public async Task
+        LibraryCommand_ExactAndNamesakeRejectAllFrameworks(
+            string? requestedLibrary)
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRuntimeOnlyPackage();
+        try
+        {
+            string[] arguments = requestedLibrary is null
+                ? [
+                    "library",
+                    "--package",
+                    packagePath,
+                    "--namesake-library",
+                    "--tfm",
+                    "all",
+                ]
+                : [
+                    "library",
+                    requestedLibrary,
+                    "--package",
+                    packagePath,
+                    "--tfm",
+                    "all",
+                ];
+            var result = await RunAppAsync(arguments);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--tfm all",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_NamesakeLibrary_UsesManagedAssemblyIdentity()
     {
         string packageId =

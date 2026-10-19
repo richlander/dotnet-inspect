@@ -113,6 +113,13 @@ public static class SearchCommandDefinitions
         {
             Description = "Filter API types by glob (for example --type *Json*)"
         };
+        var takeOption = new Option<int?>("--take")
+        {
+            Description =
+                "Maximum Ecosystem prefix package candidates to inspect "
+                + $"(default {FindOptions.DefaultMaximumEcosystemPrefixPackages}; "
+                + $"maximum {FindOptions.MaximumEcosystemPrefixPackagesLimit})"
+        };
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
         findCommand.Options.Add(assemblyOption);
@@ -128,6 +135,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(membersOption);
         findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
+        findCommand.Options.Add(takeOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(opts.Markdown);
         findCommand.Options.Add(compactOption);
@@ -146,7 +154,8 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption);
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
+            takeOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {

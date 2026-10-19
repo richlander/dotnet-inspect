@@ -21,7 +21,8 @@
 
   <ItemGroup>
     <!-- Tests reach the rule table for exhaustive encoder proofs. Metadata reaches only the
-         exact encoded-length preflight so it can admit retained text before allocation. -->
+         exact encoded-length preflight so it can admit retained text before allocation;
+         InertTextBoundaryTests in ILInspector.Metadata.Tests fails on any other internal reach. -->
     <InternalsVisibleTo Include="InertText.Tests" />
     <InternalsVisibleTo Include="ILInspector.Metadata" />
   </ItemGroup>

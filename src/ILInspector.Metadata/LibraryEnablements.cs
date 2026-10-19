@@ -168,7 +168,28 @@ public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> It
         return ReadReferenceAssemblyState(reader);
     }
 
+    /// <summary>
+    /// Classifies the image as <see cref="ClassifyReferenceAssembly(MetadataReader)"/>
+    /// does, and counts the assembly CustomAttribute rows it read in
+    /// <paramref name="attributeRowsRead"/>, which stays current if the read fails.
+    /// </summary>
+    public static ReferenceAssemblyState ClassifyReferenceAssembly(
+        MetadataReader reader,
+        ref int attributeRowsRead)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        return ReadReferenceAssemblyState(reader, ref attributeRowsRead);
+    }
+
     private static ReferenceAssemblyState ReadReferenceAssemblyState(MetadataReader reader)
+    {
+        int attributeRowsRead = 0;
+        return ReadReferenceAssemblyState(reader, ref attributeRowsRead);
+    }
+
+    private static ReferenceAssemblyState ReadReferenceAssemblyState(
+        MetadataReader reader,
+        ref int attributeRowsRead)
     {
         if (!reader.IsAssembly)
             return ReferenceAssemblyState.Implementation;
@@ -176,6 +197,7 @@ public sealed record LibraryEnablementFacts(ImmutableArray<LibraryEnablement> It
         bool undecidable = false;
         foreach (CustomAttributeHandle handle in reader.GetAssemblyDefinition().GetCustomAttributes())
         {
+            attributeRowsRead = checked(attributeRowsRead + 1);
             CustomAttribute attribute = reader.GetCustomAttribute(handle);
             try
             {

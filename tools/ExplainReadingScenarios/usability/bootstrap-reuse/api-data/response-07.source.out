@@ -1,0 +1,413 @@
+{
+  "namespace": "System.Net.Http.Json",
+  "name": "HttpContentJsonExtensions",
+  "metadata_name": "HttpContentJsonExtensions",
+  "definition_name": {
+    "namespace": "System.Net.Http.Json",
+    "segments": [
+      "HttpContentJsonExtensions"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+    "type_token": 33554443,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": true,
+  "is_abstract": true,
+  "is_static": true,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "base_type": "System.Object",
+  "interfaces": [],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [
+    {
+      "name": "ReadFromJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task\u003Cobject?\u003E ReadFromJsonAsync(System.Net.Http.HttpContent content, System.Type type, System.Text.Json.JsonSerializerOptions? options, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "fb595de28b",
+      "canonical_signature": "M:System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync(System.Net.Http.HttpContent,System.Type,System.Text.Json.JsonSerializerOptions?,System.Threading.CancellationToken)",
+      "metadata_token": 100663404,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663404,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "method_token": 100663404,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "documentation": {
+        "summary": "Reads the HTTP content and returns the value that results from deserializing the content as JSON in an asynchronous operation.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ReadFromJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task\u003Cobject?\u003E ReadFromJsonAsync(System.Net.Http.HttpContent content, System.Type type, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "50881405cb",
+      "canonical_signature": "M:System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync(System.Net.Http.HttpContent,System.Type,System.Threading.CancellationToken)",
+      "metadata_token": 100663405,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663405,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "method_token": 100663405,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "documentation": {
+        "summary": "Reads the HTTP content and returns the value that results from deserializing the content as JSON in an asynchronous operation.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ReadFromJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task\u003CT?\u003E ReadFromJsonAsync\u003CT\u003E(System.Net.Http.HttpContent content, System.Text.Json.JsonSerializerOptions? options, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "28f7e0f519",
+      "canonical_signature": "M:System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync\u003CT\u003E(System.Net.Http.HttpContent,System.Text.Json.JsonSerializerOptions?,System.Threading.CancellationToken)",
+      "metadata_token": 100663406,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663406,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "method_token": 100663406,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "documentation": {
+        "summary": "Reads the HTTP content and returns the value that results from deserializing the content as JSON in an asynchronous operation.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ReadFromJsonAsync",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext.\u0022)"
+      ],
+      "signature": "System.Threading.Tasks.Task\u003CT?\u003E ReadFromJsonAsync\u003CT\u003E(System.Net.Http.HttpContent content, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "deb1c2d69a",
+      "canonical_signature": "M:System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync\u003CT\u003E(System.Net.Http.HttpContent,System.Threading.CancellationToken)",
+      "metadata_token": 100663407,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663407,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "method_token": 100663407,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "documentation": {
+        "summary": "Reads the HTTP content and returns the value that results from deserializing the content as JSON in an asynchronous operation.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ReadFromJsonAsync",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Threading.Tasks.Task\u003Cobject?\u003E ReadFromJsonAsync(System.Net.Http.HttpContent content, System.Type type, System.Text.Json.Serialization.JsonSerializerContext context, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "b4c64df531",
+      "canonical_signature": "M:System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync(System.Net.Http.HttpContent,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)",
+      "metadata_token": 100663410,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663410,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "method_token": 100663410,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "documentation": {
+        "summary": "Reads the HTTP content and returns the value that results from deserializing the content as JSON in an asynchronous operation.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ReadFromJsonAsync",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Threading.Tasks.Task\u003CT?\u003E ReadFromJsonAsync\u003CT\u003E(System.Net.Http.HttpContent content, System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CT\u003E jsonTypeInfo, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "b370d4442e",
+      "canonical_signature": "M:System.Net.Http.Json.HttpContentJsonExtensions.ReadFromJsonAsync\u003CT\u003E(System.Net.Http.HttpContent,System.Text.Json.Serialization.Metadata.JsonTypeInfo\u003CT\u003E,System.Threading.CancellationToken)",
+      "metadata_token": 100663411,
+      "generic_arity": 1,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100663411,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "0168e8d9-eacf-48d0-bec3-35d91a5b7515",
+        "method_token": 100663411,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": true,
+      "is_obsolete": false,
+      "extended_type": "System.Net.Http.HttpContent",
+      "declaring_type": "System.Net.Http.Json.HttpContentJsonExtensions",
+      "documentation": {
+        "summary": "Reads the HTTP content and returns the value that results from deserializing the content as JSON in an asynchronous operation.",
+        "returns": "The task object representing the asynchronous operation.",
+        "samples": []
+      }
+    }
+  ],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "System.Net.Http.Json.HttpContentJsonExtensions",
+  "documentation": {
+    "summary": "Contains extension methods to read and then parse the HttpContent from JSON.",
+    "samples": []
+  }
+}

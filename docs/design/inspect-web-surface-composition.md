@@ -1101,7 +1101,8 @@ One independently scrolling region begins with a bounded one-hop AssemblyRef
 graph and follows it with the complete reference rows. The graph uses the
 existing shared Mermaid viewport and pan/zoom controls, keeps the selected
 assembly as its root, and projects only the direct references already returned
-by the Library query. It performs no additional acquisition or transitive
+by the Library query. The root assembly name fits inside its rendered node
+without clipped text. It performs no additional acquisition or transitive
 inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
@@ -1263,6 +1264,18 @@ Library-required, loading, failure, partial-failure, and no-image states retain
 the same header, controls, and scroll owner, without a bottom context row.
 Failures remain visibly distinct from a successful
 empty result.
+
+Package Metadata owns one closed acquisition lifecycle. Idle carries no
+coordinate or evidence; loading carries the exact request for its package,
+framework, and optional Library coordinate; ready carries either complete
+metadata, partial metadata with its owner-issued inspection diagnostic, or a
+successful no-image result; failed carries a non-empty visible diagnostic and
+no metadata result. Only the exact current loading request may publish.
+Explicit retry replaces failed evidence, while automatic loading does not loop
+on the same failed coordinate. Workspace snapshots retain ready and failed
+evidence and normalize interrupted loading to idle. `System.Text.Json` 10.0.0
+is the real-package witness for ordinary image evidence; focused owner tests
+preserve partial-image and all-image-failure boundaries.
 
 At narrow widths, controls wrap within their row and header values
 may elide as complete strings. The surface creates no page-level horizontal

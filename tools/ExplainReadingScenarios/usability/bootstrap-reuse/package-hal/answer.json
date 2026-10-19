@@ -1,0 +1,36 @@
+{
+  "answer": {
+    "search": "package query Microsoft.Extensions.* --take 40 --where depends=Polly --where dependency-target=net10.0 --envelope",
+    "packages": [
+      {
+        "package_id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.13",
+        "dependency_kind": "direct",
+        "dependency_evidence": "The selected .NETStandard2.0 dependency group declares Polly 7.2.4 directly (and Polly.Extensions.Http 3.0.0). The query's depends evidence previews '.NETStandard2.0: Polly 7.2.4'.",
+        "framework_evidence": "For requested dependency-target net10.0, the query selected the package's .NETStandard2.0 dependency group."
+      }
+    ],
+    "exhausts_family": false,
+    "exhaustiveness_reason": "The recorder warned CandidateLimitReached: 40/40 candidates inspected, 1 match. It explicitly says these results do not exhaust the requested Microsoft.Extensions. package-ID scope. This establishes one match among the inspected candidates, not that there are no other direct or indirect Polly dependencies in the family."
+  },
+  "provenance": [
+    {
+      "command": "package query --help",
+      "response": "response-01.out",
+      "purpose": "Learn package-query syntax and candidate limit option."
+    },
+    {
+      "command": "package query --explain",
+      "response": "response-02.out",
+      "purpose": "Read HAL facet rules for depends and dependency-target."
+    },
+    {
+      "command": "package query Microsoft.Extensions.* --take 40 --where depends=Polly --where dependency-target=net10.0 --envelope",
+      "responses": ["response-03.out", "response-03.err"],
+      "purpose": "Inspect bounded search results, package manifest dependency group, selection evidence, and completion warning."
+    }
+  ],
+  "uncertainty": "The result covers only the first 40 package candidates selected by this query. I did not test transitive dependency reachability or inspect further package candidates; no indirect-dependency claim follows from this search.",
+  "discovery_schema_navigation_friction": "The HAL query explanation exposed the relevant facet names and rules. The result envelope contained the selected framework group and direct dependency evidence, while the completion qualification appeared on stderr; both had to be read to avoid a false exhaustiveness claim.",
+  "truncation": "No recorder output or view was truncated. The search itself reached its explicit 40-candidate limit."
+}
