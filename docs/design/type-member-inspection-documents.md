@@ -420,8 +420,13 @@ consume `MemberDocumentResolutionOperation`. A singleton population renders
 the final `MemberDocument`; a multi-declaration population renders the final
 `MemberOverviewDocument`. The distinct returned-row compiled-documentation
 table remains on `MemberGroupDocumentInspectionOperation` until attachments
-have a final document-composition contract. Browser family views remain a
-separate host-adoption slice.
+have a final document-composition contract.
+
+Browser package, Platform, and uploaded-Library family views now consume the
+same final resolution. The managed exports preserve the established
+`queryMemberGroupDocument` transport and project either final document into
+that stable Browser contract, so TypeScript navigation and presentation do not
+reconstruct document identity or change wire behavior.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
 model. CLI MemberGroup Tree presentation now streams the owner-issued complete

@@ -1110,14 +1110,13 @@ public static class OutputFormatter
             {
                 if (options.Tree)
                 {
-                    DependencyHierarchyOutputAdapter.Write(
+                    DependencyHierarchyPresentation.WriteTree(
                         projection.Hierarchy,
-                        rows,
-                        OutputFormat.PlainText,
-                        tree: true,
-                        embeddedMermaid: false,
-                        options.NoHeader,
-                        compactJson: false,
+                        [
+                            .. rows.Select(
+                                static row =>
+                                    row.OccurrenceIdentity),
+                        ],
                         output);
                     return;
                 }
@@ -1195,7 +1194,6 @@ public static class OutputFormatter
                             projection.Hierarchy,
                             rows,
                             options.Format,
-                            tree: false,
                             embeddedMermaid: false,
                             options.NoHeader,
                             compactJson: false,
@@ -1245,7 +1243,6 @@ public static class OutputFormatter
                     projection.Hierarchy,
                     rows,
                     options.Format,
-                    tree: false,
                     embeddedMermaid: false,
                     options.NoHeader,
                     compactJson: false,

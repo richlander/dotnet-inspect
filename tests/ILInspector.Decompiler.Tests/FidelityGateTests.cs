@@ -44,11 +44,10 @@ public class FidelityGateTests
         // compared. The widened skeleton now exposes its pre-existing double access.
         "CompoundAssignDictionaryIndexer",
         // #4229: the cached local-function argument recompiles with the restored
-        // <>O cache but without csc's bare-method-group stloc/ldloc carrier. The
-        // explicit neighbor retains identical opcodes and differs only in its
-        // reconstructed local-function ordinal. Focused gates below pin both shapes.
+        // <>O cache but without csc's bare-method-group stloc/ldloc carrier. Its
+        // explicit neighbor (ExplicitStaticMethodGroupLocalFunction) now recompiles
+        // Exact and is pinned below. Focused gates below pin both shapes.
         "CachedStaticMethodGroupLocalFunction",
-        "ExplicitStaticMethodGroupLocalFunction",
         "BothPositive",
         // ByteRangeSearchTree is the #1084 comparison-tree bool-arm fixture:
         // now fully raised by ComparisonTreeBoolArmPass, but still recompiles to
@@ -126,11 +125,10 @@ public class FidelityGateTests
         // honest pre-existing body over-renders (ref/in/out call sites, positional
         // patterns, slot/ternary merges, null-coalescing assignment).
         "FloatPositionalPattern",
-        // These malformed/shared-graph near misses keep honest Expression.*
-        // factory calls, but their parameter-alias locals still recompile through
-        // a different stack shape.
-        "ManualReusedParameterFactory",
-        "ManualDuplicateNameFactory",
+        // This malformed/shared-graph near miss keeps honest Expression.* factory
+        // calls, but its parameter-alias locals still recompile through a
+        // different stack shape. Its two siblings (ManualReusedParameterFactory,
+        // ManualDuplicateNameFactory) now recompile Exact and are pinned below.
         "ManualPositionalPatternLookalike",
         "MergedReferenceSlot",
         // The cross-assembly analog of MergedReferenceSlot: the Encoding/UTF8Encoding
@@ -141,11 +139,6 @@ public class FidelityGateTests
         "MergedTernaryDeclaration",
         "NullCoalescingAssignStaticProperty",
         "set_SlotMergedDateTimeFormat",
-        // The compile-back fidelity contract reclassifies these previously
-        // opcode-exact rows because a value, symbolic target, or branch target
-        // differs after recompilation.
-        "CapturingLambda",
-        "CapturingLocalBodyLambda",
         // #9005 added nested-capture fixtures before these methods and recovered
         // CollectValidDoubles's nested lambda. The reconstructed type therefore
         // assigns different Roslyn display-class ordinals; that anonymous shape
@@ -158,25 +151,15 @@ public class FidelityGateTests
         "CapturingLocalFunction",
         "CapturingLocalFunctionWithHostReadAndBranches",
         "CapturingLocalFunctionWithLocal",
-        "CapturingLocalWithNestedLambdaInBranch",
-        "CapturingParameterWithNestedLambda",
         "CollectValidDoubles",
         "InstanceAndEnvironmentCapturingLocalFunction",
-        // The local display-class raise consumes every reference to these
-        // environment slots, so their generated local types no longer lower
-        // fidelity. Compile-back now reaches the existing operand-only
-        // differences in compiler-generated display-class ordinals.
-        "ClosureWithLinq",
-        "CountAbove",
-        "SharedCaptureLambdas",
         // #2945 substitutes outer-body reads of a hoisted capture field back to
         // the captured source and elides the display class. #7687 restores the
         // exact PDB local scope across final basic blocks, so the remaining
-        // compiler-generated ordinal difference is a Full OperandDiff.
-        "CapturedParamReadInOuterBody",
-        "ClosureCapture",
+        // compiler-generated ordinal difference is a Full OperandDiff. Its
+        // siblings (CapturedParamReadInOuterBody, ClosureCapture,
+        // InvokeLocalCapture) now recompile Exact and are pinned below.
         "DayNumber",
-        "InvokeLocalCapture",
         // MakeConsumerWithTwoLeadingArgs (#3272): ExpressionInliningPass removes only
         // one of the two single-use spill temps around the trailing object
         // initializer, leaving an extra stloc/ldloc pair on compile-back. #3290 added
@@ -188,7 +171,6 @@ public class FidelityGateTests
         // itself stays Valid + Correct and is pinned by
         // ObjectInitializerPassTests. Tracked as #3490.
         "MakeConsumerWithTwoLeadingArgs",
-        "TwoCaptureLambda",
     };
 
     /// <summary>
@@ -550,6 +532,28 @@ public class FidelityGateTests
         // post-switch tail moves into default and the other sections end in break.
         "SwitchCaseContinueInLoop",
         "TwoLocalFunctionQuadrants",
+        // #9504: DocketRowsStayCheckedDiffs reported each of these KnownDiffs rows
+        // as "now recompiles Exact" on main at 7f06b4ee3 (2026-10-16). Measured,
+        // not assumed: the daily lane that runs this gate had not completed since
+        // 2026-10-06, so the fixes landed unratcheted. Twelve are the closure and
+        // local-function ordinal class whose remaining difference was a
+        // display-class or local-function ordinal; the two Manual*Factory rows
+        // are the expression-tree parameter-alias shape. They are pinned rather
+        // than deleted so each fix is guarded.
+        "CapturedParamReadInOuterBody",
+        "CapturingLambda",
+        "CapturingLocalBodyLambda",
+        "CapturingLocalWithNestedLambdaInBranch",
+        "CapturingParameterWithNestedLambda",
+        "ClosureCapture",
+        "ClosureWithLinq",
+        "CountAbove",
+        "ExplicitStaticMethodGroupLocalFunction",
+        "InvokeLocalCapture",
+        "ManualDuplicateNameFactory",
+        "ManualReusedParameterFactory",
+        "SharedCaptureLambdas",
+        "TwoCaptureLambda",
     };
 
     static readonly Lazy<IReadOnlyList<FidelityCheck.CompileBackResult>> Results = new(() =>
@@ -721,7 +725,7 @@ public class FidelityGateTests
         var explicitConstruction = Assert.Single(
             EvaluateFixtures(),
             result => result.Method == "ExplicitStaticMethodGroupLocalFunction");
-        Assert.Equal(FidelityCheck.CompileBackStatus.OperandDiff, explicitConstruction.Status);
+        Assert.Equal(FidelityCheck.CompileBackStatus.Exact, explicitConstruction.Status);
         Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.OriginalOpcodes);
         Assert.Equal("ldnull ldftn newobj call ret", explicitConstruction.RecompiledOpcodes);
     }

@@ -118,6 +118,10 @@ public sealed record CapabilityCatalogSearchRow(
                 "Query facet",
             CapabilityCatalogSearchResourceKind.ConsumerBinding =>
                 "Binding",
+            CapabilityCatalogSearchResourceKind.Section =>
+                "Section",
+            CapabilityCatalogSearchResourceKind.Category =>
+                "Category",
             _ => kind.ToString(),
         };
 }

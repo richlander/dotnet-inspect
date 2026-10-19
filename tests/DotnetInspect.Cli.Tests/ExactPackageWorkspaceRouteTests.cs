@@ -16,7 +16,7 @@ using NuGetFetch;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class ExactPackageWorkspaceRouteTests
+public sealed partial class ExactPackageWorkspaceRouteTests
 {
     const string SelectedPackage = "selected.package";
     const string FocusedPackage = "focused.package";
@@ -1039,7 +1039,7 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task NoMatchIsDistinctAndDoesNotFallBackToFeed()
+    public async Task LibraryNoMatchIsDistinctAndDoesNotFallBackToFeed()
     {
         var store = await StoreAsync(SelectedPackage);
         string packet = EncodePacket(
@@ -1049,17 +1049,15 @@ public sealed class ExactPackageWorkspaceRouteTests
             focusedTab: 0,
             selectedContext: 0);
         using var client = new HttpClient(new FailingHandler());
-        var options = new InspectionOptions
+        var options = new LibraryOptions
         {
-            PackageArgs = ["missing.package"],
+            PackagePath = "missing.package",
             WorkspacePacket = packet,
-            CompanionOutput = CompanionOutput.None,
         };
 
         var result = await ConsoleCapture.RunAsync(
-            () => PackageCommand.ExecuteAsync(
+            () => LibraryCommand.ExecuteAsync(
                 options,
-                new CommandContext(verbose: false),
                 LoadOptions(client, store)));
 
         Assert.Equal(1, result.ExitCode);
@@ -1146,16 +1144,13 @@ public sealed class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
-    public async Task MissingSelectedContextIsDistinct()
+    public async Task MissingSelectedContextIsRejectedBeforeAcquisition()
     {
         var store = await StoreAsync(SelectedPackage);
-        WorkspaceSharePacket workspace =
-            WorkspaceSharePacketCodec.ParseJson(
-                """
-                {"f":4,"t":[],"g":[],"r":[["p","Test."]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}
-                """,
-                TestContext.Current.CancellationToken);
-        string packet = WorkspaceSharePacketCodec.Encode(workspace);
+        string packet = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+            """
+            {"f":4,"t":[["selected.package","1.0.0","net11.0",null]],"g":[[0]],"r":[],"a":0,"x":null,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"u":{"k":"package"},"r":{"k":"package"}}]}
+            """)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         using var client = new HttpClient(new FailingHandler());
         var options = new InspectionOptions
         {
@@ -1174,7 +1169,7 @@ public sealed class ExactPackageWorkspaceRouteTests
         Assert.Equal(1, exitCode);
         Assert.Empty(output);
         Assert.Contains(
-            "no selected context",
+            "selected context must be null exactly when contexts are empty",
             error,
             StringComparison.OrdinalIgnoreCase);
     }

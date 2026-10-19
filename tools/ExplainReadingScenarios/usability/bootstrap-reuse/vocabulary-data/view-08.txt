@@ -1,0 +1,1 @@
+{"identity":{"owner":"product-vocabulary","schema":"installed","type":"vocabulary-value","value":"17:csharp.body-kinds24:ObjectCreationExpression"},"path":"vocabularies/csharp.body-kinds/values/objectcreationexpression","facts":{"identity":"ObjectCreationExpression","name":"ObjectCreationExpression","map-entries":[]},"scope":"Installed"}

@@ -30,6 +30,9 @@ public static class MemberOptionsParser
                 args.PackageOption,
                 args.AssemblyOption,
                 args.PlatformOption);
+        if (args.WorkspaceOption is { } workspaceOption
+            && parseResult.GetValue(workspaceOption) is not null)
+            sourceInputs = sourceInputs with { HasExplicitSource = true };
         bool hasProjectSource =
             (parseResult.GetValue(args.ProjectOption) ?? []).Length > 0
             && !sourceInputs.HasExplicitSource;
@@ -104,6 +107,9 @@ public static class MemberOptionsParser
                 args.PackageOption,
                 args.AssemblyOption,
                 args.PlatformOption);
+        if (args.WorkspaceOption is { } workspaceOption
+            && parseResult.GetValue(workspaceOption) is not null)
+            sourceInputs = sourceInputs with { HasExplicitSource = true };
         error =
             SharedParsers.GetStructuralUnrecognizedOptionError(
                 sourceInputs);
@@ -319,7 +325,8 @@ public static class MemberOptionsParser
         Option<bool> SourcePartsOption,
         Option<string?> SourcePartOption,
         Option<string?> ExplainOption,
-        Option<string?> CompanionOption);
+        Option<string?> CompanionOption,
+        Option<string?>? WorkspaceOption = null);
 
     /// <summary>
     /// Result of parsing member command options.
@@ -422,6 +429,26 @@ public static class MemberOptionsParser
 
         var sourceInputs = SharedParsers.ReadSourceSelectionInputs(
             parseResult, args.ArgsArg, args.PackageOption, args.AssemblyOption, args.PlatformOption);
+        string? workspacePacket = args.WorkspaceOption is { } workspaceOption
+            ? parseResult.GetValue(workspaceOption)
+            : null;
+        if (workspacePacket is not null)
+        {
+            if (sourceInputs.ExplicitPackage is not null
+                || sourceInputs.ExplicitAssembly is not null
+                || sourceInputs.ExplicitPlatform is not null
+                || parseResult.GetValue(args.FrameworkOption) is not null
+                || parseResult.GetValue(args.TfmOption) is not null
+                || parseResult.GetValue(args.AtOption) is not null
+                || (parseResult.GetValue(args.ProjectOption) ?? []).Length > 0)
+            {
+                return new VersionError(
+                    "--workspace is the sole Member location source; it cannot "
+                    + "be combined with Package, Library, Platform, project, "
+                    + "framework, TFM, or range source selection.");
+            }
+            sourceInputs = sourceInputs with { HasExplicitSource = true };
+        }
         var projectValues = parseResult.GetValue(args.ProjectOption) ?? [];
         var projectSourcePath = !sourceInputs.HasExplicitSource && projectValues.Length > 0
             ? projectValues[0]
@@ -457,7 +484,7 @@ public static class MemberOptionsParser
         // Resolve source
         SharedParsers.SourceSelection sourceSelection;
         SourceResolver.ResolvedSource source;
-        if (projectSourcePath is not null)
+        if (projectSourcePath is not null || workspacePacket is not null)
         {
             source = new SourceResolver.ResolvedSource(
                 PackagePath: null,
@@ -710,6 +737,7 @@ public static class MemberOptionsParser
                 || parseResult.GetResult(opts.Head) is { Implicit: false }
                 || parseResult.GetResult(opts.Tail) is { Implicit: false },
             ShareFormat = shareFormat,
+            WorkspacePacket = workspacePacket,
             SourceParts = sourceParts,
             SourcePart = sourcePart,
             MemberDigest = memberDigest,

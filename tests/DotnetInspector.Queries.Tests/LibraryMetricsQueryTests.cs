@@ -8,6 +8,23 @@ namespace DotnetInspector.Queries.Tests;
 public sealed class LibraryMetricsQueryTests
 {
     [Fact]
+    public void
+        AssemblyContextRequest_SelectsFocusedStructuralEvidence()
+    {
+        LibraryBodyAnalysisExecution analysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+                AssemblyContextLibraryMetricsQuery
+                    .CreateAnalysisRequest());
+
+        Assert.True(analysis.StructuralMetrics.WasRequested);
+        Assert.False(
+            analysis.ImplementationProfiles.WasRequested);
+        Assert.IsType<LibraryMetricsResult.Available>(
+            LibraryMetricsQuery.Execute(analysis));
+    }
+
+    [Fact]
     public void Execute_PublishesResearchDocumentFromImplementationProfiles()
     {
         LibraryBodyAnalysisExecution analysis =

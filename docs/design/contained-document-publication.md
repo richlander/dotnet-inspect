@@ -157,11 +157,12 @@ current generation and exact identity-and-policy correspondence, restores
 request order, and constructs the Browser-local `ContainedLeafPopulation`
 brand only after every expected result is present exactly once.
 
-This is deliberately not a publishable document or contained DOM fragment.
-Structure, leaf placement, actionable values, and current-generation ownership
-remain with the adopter. The package README renderer does not call this
-operation yet; its whole-serialized-HTML transition remains active until the
-Browser adoption slice completes.
+`ContainedLeafPopulation` is deliberately not a publishable document or
+contained DOM fragment. Structure, leaf placement, actionable values, and
+current-generation ownership remain with the adopter. The Browser package
+document owner combines that population with its privately retained prepared
+fragment and constructs `ContainedDocumentFragment` only after exact
+correspondence.
 
 ## Displayed and actionable values
 
@@ -189,8 +190,8 @@ for assigning the policy that matches its structural role.
 
 ## Browser package README adoption
 
-Inspect Web package README publication is the first planned adopter. Its target
-composition is:
+Inspect Web package README publication is the first adopter. Its composition
+is:
 
 ```text
 decoded package Markdown
@@ -208,7 +209,7 @@ the chosen DOM structure. The managed containment boundary continues to
 construct `InertString` and the generated TypeScript contract continues to
 carry its brand.
 
-The target path:
+The Browser path:
 
 - contains text nodes after Markdown escapes and entities have resolved;
 - contains displayed attributes such as alternative text and tooltips;
@@ -216,18 +217,21 @@ The target path:
   containment;
 - reinserts contained values through text or attribute APIs rather than
   reparsing them as markup;
-- constructs a Browser-local contained-fragment brand only after exact leaf
-  correspondence; and
-- permits the document viewer to publish only that brand.
+- prepares the sanitized Markdown body and directly constructed frontmatter as
+  one fragment with one leaf population;
+- sends that complete population through one managed containment batch;
+- constructs the Browser-local `ContainedDocumentFragment` brand only after
+  exact current-generation correspondence; and
+- permits the document viewer ready sink to publish only that brand.
 
 Frontmatter displayed beside the Markdown participates in the same document
 composition even when the Browser constructs its structure directly rather
 than through Marked.
 
-The whole-serialized-HTML containment operation from #10098 remains a safe
-transitional path. The adoption retires it only after the contained-fragment
-path carries the same ordinary rendering behavior and stronger leaf-completion
-evidence.
+The package document composition root no longer calls the
+whole-serialized-HTML containment operation from #10098. That operation
+remains available as a safe transition until the dedicated retirement slice
+establishes that no remaining consumer requires it.
 
 ## CLI and Markout boundary
 
@@ -277,17 +281,18 @@ identities have the same numeric or textual spelling.
 | Real asset | The exact `WrongTurn@0.1.15` package README reaches the Browser sink with no raw refused scalar in displayed leaves and unchanged allowed structure. |
 | Neighboring behavior | Ordinary package Markdown, inline formatting, tables, fenced code, links, frontmatter, and document lifecycle retain their supported behavior. |
 
-The design is documentation-only and makes no implementation or performance
-claim. Markdown lint is its local gate. Each implementation and adoption slice
-must name the focused executable gates that establish its subset of this table.
+The original design slice made no implementation or performance claim.
+Markdown lint remains this document's local gate. Each implementation and
+adoption slice names the focused executable gates that establish its subset of
+this table.
 
 ## Adoption sequence
 
 1. Lock this focused pattern and transfer package-document composition from
    Inert Text without changing that owner's scalar policy. Completed by #10113.
 2. Implement the smallest shared leaf-containment and correspondence contract.
-   The current implementation is tracked by #10167.
-3. Adopt it in Inspect Web package README publication.
+   Completed by #10175.
+3. Adopt it in Inspect Web package README publication. Tracked by #10248.
 4. Assess the CLI/Markout boundary and adopt only an identified externally
    authored structured-document consumer.
 5. Retire the transitional Browser whole-HTML containment operation.

@@ -1,0 +1,29 @@
+{
+  "vocabulary-hal": {
+    "bootstrap_request": 1,
+    "full_read": 2,
+    "repeated_selected_read": 3,
+    "additional_domain_facts_from_repeat": false,
+    "evidence": "The full and selected records for the two known IDs, count and vocabulary summary agree; a selected-scope label is a presentation qualification, not new task data."
+  },
+  "vocabulary-data": {
+    "bootstrap_request": 1,
+    "failed_short_path": 2,
+    "full_direct_read": 3,
+    "off_profile_detail_requests": [
+      4,
+      5,
+      6
+    ],
+    "encoded_identity_detail": "Extra ordinary resource reads expose length-prefixed explanation identities; native vocabulary keys were already available. No extra prose definitions."
+  },
+  "api-data": {
+    "documentation_requests": [
+      6,
+      7,
+      8
+    ],
+    "partial_metadata_request": 8,
+    "warning": "Warning: API inspection rejected 2 metadata row(s); selected output excludes failure details."
+  }
+}

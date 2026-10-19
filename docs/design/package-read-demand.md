@@ -136,6 +136,13 @@ runtime realization selects its runtime universe as before. The complete
 archive, when a read takes the complete fetch, is unaffected: it holds every
 entry whatever the demand.
 
+`LibraryPopulation` asks PackageHouse to choose one role population from the
+same validated directory used for ranged planning. Compile selection has
+precedence. Only `NoCompileAssets` or `EmptyCompileGroup` permits one-RID
+runtime selection. A selected compile population expands exactly as compile
+realization; a selected runtime population expands exactly as runtime
+realization. Typed non-success selects no entry bodies.
+
 The package Root records the demand it was realized with. A surface-only Root
 prepares no implementation role and forms no role correspondence, so no
 consumer can observe a missing implementation as a correspondence failure.
@@ -172,6 +179,10 @@ owner-issued exception: a name is satisfied when it selects an API asset whose
 compile correspondence explicitly has no implementation counterpart. Other
 House callers cannot request that policy, and every other unmatched name still
 fails.
+
+A Library-population realization does not accept implementation names. Its
+role must be selected before a narrower exact-Library probe runs, so named
+implementation demand cannot change which population exists.
 
 Named implementation assets are read in **aligned blocks**, not folders.
 Blocks are fixed by the archive alone:
@@ -506,6 +517,7 @@ All gates run in Release.
 | 25. One high-level exact-Library request is cold, warm, or missing | cold execution uses ranged acquisition, warm execution uses the entry cache without a package request, and a missing selector is a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_ColdWarmAndMissing_AreOrchestrated`, real asset `PCLStorage` 1.0.2 |
 | 26. Exact-Library depth and selection are pathological | implementation depth reads fewer implementation entries than selection depth, while an ambiguous query remains a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_DepthReachesRangedAcquisition` and `PackageLibraryRealization_QueryAmbiguityIsTyped`, real asset `Avalonia` 12.1.2 plus an ambiguity fixture |
 | 27. Browser member documentation reads one implementation and its PDB from an archive above the cut | cold execution uses ranges and skips an unrelated 2 MiB implementation plus 2 MiB padding; after store recreation, the same authored documentation makes no package request | `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesRangeAndWarmEntryCache` |
+| 28. Package Library navigation has no compile population | one eligible runtime RID reads only its selected managed folder; compile assets retain precedence; several eligible RIDs settle ambiguous after directory planning and before entry-body transfer | `PackageRangedRealizationTests.LibraryPopulation_RuntimeOnlyReadsOneSelectedRuntimeFolder`, `LibraryPopulation_CompileSelectionPreventsRuntimeBodyReads`, and `LibraryPopulation_MultipleRuntimeIdentifiersStopBeforeBodyTransfer` |
 
 ## Adoption
 

@@ -1,0 +1,31 @@
+{
+  "answer": {
+    "vocabulary": "csharp.body-kinds",
+    "meaning": "The catalog describes these as exact rendered C# syntax kinds accepted by body queries (decompiler.body-kind). ObjectCreationExpression identifies an object-creation expression, such as new Widget(). BreakStatement identifies a break statement, displayed as Break, such as break;.",
+    "native_identities": {
+      "ObjectCreationExpression": "ObjectCreationExpression",
+      "BreakStatement": "BreakStatement"
+    },
+    "catalog_value_count": 72,
+    "omission": "No. A response selected for ObjectCreationExpression alone describes only that selected population. Omitting BreakStatement from it does not invalidate BreakStatement, which appears as a separate value in the catalog."
+  },
+  "provenance": [
+    {
+      "command": "explain vocabularies --json",
+      "response": "response-01.out",
+      "evidence": "The installed vocabulary collection gives the canonical path vocabularies/csharp.body-kinds."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds .hal --json",
+      "response": "response-02.out",
+      "evidence": "The HAL vocabulary identifies 72 catalog values, the accepted_by binding decompiler.body-kind, the exact-rendered-syntax-kind summary, and both requested native IDs."
+    },
+    {
+      "command": "explain vocabularies/csharp.body-kinds .hal -Q ObjectCreationExpression,BreakStatement --json",
+      "response": "response-03.out",
+      "evidence": "The selected HAL response contains both IDs, shows BreakStatement's display name Break, and declares scope population selected-values with completeness Complete."
+    }
+  ],
+  "uncertainty": "The catalog does not supply prose definitions or code examples for these two values. The expression and statement descriptions, and their examples, interpret the native C# syntax-kind names; the catalog itself establishes their IDs, Break display name, body-query role, and count. No tool output was truncated.",
+  "discovery_schema_navigation_friction": "The vocabulary collection made the canonical path easy to find. The full HAL vocabulary exposed the native IDs and count, while the narrowed HAL response clarified that completeness applies to selected values. Value objects carried no individual definitions."
+}
