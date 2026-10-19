@@ -1441,6 +1441,55 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Fact]
+    public async Task
+        PackageCommand_FirstLibrary_ChosenFailureDoesNotTrySibling()
+    {
+        string sourceDir = Directory.CreateTempSubdirectory(
+            "first-library-failure-").FullName;
+        string malformedPath = Path.Combine(
+            sourceDir,
+            "MalformedIntegrations.dll");
+        WriteMalformedTypeNameAssembly(malformedPath);
+        var (healthyPath, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly(
+                "Microsoft.Extensions.Configuration");
+        Assert.True(
+            resolveError is null && healthyPath is not null,
+            resolveError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "First.Library.Failure",
+            packageType: null,
+            (malformedPath,
+                "lib/net10.0/MalformedIntegrations.dll"),
+            (healthyPath!,
+                "lib/net10.0/Microsoft.Extensions.Configuration.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "--verbose",
+                "-S",
+                "Integrations");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Found: lib/net10.0/MalformedIntegrations.dll",
+                result.Error.Replace('\\', '/'));
+            Assert.DoesNotContain(
+                "Found: lib/net10.0/Microsoft.Extensions.Configuration.dll",
+                result.Error.Replace('\\', '/'));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData("package")]
     [InlineData("library")]
