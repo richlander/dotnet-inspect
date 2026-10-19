@@ -76,20 +76,18 @@ public sealed partial class BrowserEngineBoundaryTests
             ImmutableArray<TypeRef>.Empty,
             returnType,
             MemberKind.Method);
-        CallGraphNode[] nodes =
+        AssemblyContextMemberCallGraphNode[] nodes =
         [
             new(
                 0,
-                GraphNodeIdentity.FromMember(nestedMember),
                 nestedMember,
                 "nested",
-                CallGraphNodeKind.Normal),
+                AssemblyContextMemberCallGraphNodeKind.Normal),
             new(
                 1,
-                GraphNodeIdentity.FromMember(literalPlusMember),
                 literalPlusMember,
                 "literal",
-                CallGraphNodeKind.Normal),
+                AssemblyContextMemberCallGraphNodeKind.Normal),
         ];
 
         BrowserCallGraphTargetInfo[] targets = BrowserCallGraphProjection.Targets(nodes);
@@ -147,14 +145,13 @@ public sealed partial class BrowserEngineBoundaryTests
             ImmutableArray<TypeRef>.Empty,
             TypeRef.Definition(TypeRef.CoreLibrary, "System", "Void"),
             MemberKind.Method);
-        CallGraphNode[] nodes =
+        AssemblyContextMemberCallGraphNode[] nodes =
         [
             new(
                 0,
-                GraphNodeIdentity.FromMember(member),
                 member,
                 "nested",
-                CallGraphNodeKind.Normal),
+                AssemblyContextMemberCallGraphNodeKind.Normal),
         ];
 
         BrowserCallGraphTargetInfo[] targets = BrowserCallGraphProjection.Targets(nodes);
