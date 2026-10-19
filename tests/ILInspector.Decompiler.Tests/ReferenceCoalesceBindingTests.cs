@@ -263,9 +263,12 @@ public class ReferenceCoalesceBindingTests
             Assert.False(result.UsedCompileBackFloor);
             // The local-function shape preserves its opcode contract but retains
             // a generated-identity operand difference, so it is OperandDiff, not
-            // Exact. The nested lambda shape reached Exact once the display-class
-            // closure reconstruction landed; a drop back to OperandDiff is a
-            // regression.
+            // Exact: its display struct declares no owned member, so the fidelity
+            // comparison leaves its renumbered name unfolded. The nested lambda
+            // shape is Exact under fidelity contract v5 (#9636), which keys a
+            // display class by the lambdas it holds, so the recompiled skeleton's
+            // renumbered class folds onto the original; the raw IL diff still
+            // reports OperandDiff. A drop back to OperandDiff is a regression.
             var expected = result.Plan.TargetMethod.Method switch
             {
                 nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload)
