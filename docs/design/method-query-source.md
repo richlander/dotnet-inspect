@@ -451,9 +451,12 @@ other's cost class:
   **unverified**.
 
 Over all-definition breadth the relation is therefore a source-completion
-fact. A producer reads it in `Complete`, not during a unit visit, and a
-request that reads it runs to exhaustion rather than settling early. Over
-exact breadth it is also available during the visit.
+fact. A producer reads it in `Complete`, not during a unit visit. A producer
+whose visits stop early at a settled terminal still reads the whole-module
+relation: settling probes the bodies traversal left unvisited, and a bound
+or failure at settle reaches that producer too, so it completes
+`SourceBounded` or fails with the source. Over exact breadth the relation is
+also available during the visit.
 
 Both lowerings publish the same origins for the same declared owners. That
 equivalence is a required gate, the first gate of
@@ -463,10 +466,13 @@ origins, attributed methods outside the requested roles, and unauthenticated
 candidates with the union of the exact-type expansions over every user type.
 It runs over the unsafe fixtures, the Analysis test assembly, the iterator
 fixture, and System.Text.Json. `AllDefinitionRelationReadsTraversalOperandsWithoutProbes`,
+`AllDefinitionRelationScansTheBodyAProducerAcquired`,
 `AllDefinitionRelationIsNotReadableDuringAVisit`,
+`AllDefinitionRelationBoundReachesAProducerThatStoppedEarly`,
 `AllDefinitionRelationDeclaresNoCandidatesAndModuleBounds`, and
 `Plan_KeepsAllDefinitionRelationRequestsInTheirOwnLanes` gate the receipts,
-the completion-only read, the declaration, and the lane rule. A host that retains a session may keep the
+the completion-only read, a bound reaching an early-stopped producer, the
+declaration, and the lane rule. A host that retains a session may keep the
 reverse relation as a typed prepared resource only when measured repeat
 requests amortize its preparation.
 
