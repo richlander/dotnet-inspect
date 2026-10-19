@@ -114,6 +114,14 @@ public enum MethodDefinitionLayers
     /// It acquires no body and does not imply <see cref="ModuleLookup"/>.
     /// </summary>
     ReferenceAssemblyStatus = 32768,
+
+    /// <summary>
+    /// Execution-scoped method-analysis support: reader-owned allocation and
+    /// optimization judgments, including receipted async-type metadata and
+    /// stable-getter body probes. It does not imply
+    /// <see cref="ModuleLookup"/>.
+    /// </summary>
+    MethodAnalysis = 65536,
 }
 
 /// <summary>
@@ -415,7 +423,8 @@ public readonly ref struct MethodDefinitionView
         | MethodDefinitionLayers.ModuleLookup
         | MethodDefinitionLayers.ReferenceBinding
         | MethodDefinitionLayers.MemorySafetyContracts
-        | MethodDefinitionLayers.CallTargets;
+        | MethodDefinitionLayers.CallTargets
+        | MethodDefinitionLayers.MethodAnalysis;
 
     readonly ref MethodDefinitionUnit _unit;
     readonly MethodDefinitionExecution.ProducerState? _producer;
@@ -776,6 +785,32 @@ public readonly ref struct MethodDefinitionView
     }
 
     /// <summary>
+    /// Opens one receipted method-analysis query over this unit's owner-issued
+    /// identity and instructions. Allocation and optimization may share the
+    /// returned resolver until the query is disposed.
+    /// </summary>
+    internal MethodAnalysisQuery BeginMethodAnalysis(
+        MethodIdentity method,
+        MethodInstructions instructions)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(instructions);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMethodAnalysisLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "method-analysis support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastMethodAnalysisUnit,
+            Token,
+            ref producer.MethodAnalysisUses);
+        return _unit.BeginMethodAnalysis(method, instructions);
+    }
+
+    /// <summary>
     /// The unit's IL-ordered call sites with resolved member identity and typed
     /// target, decoded once per physical MethodDef.
     /// </summary>
@@ -1097,6 +1132,59 @@ public readonly ref struct MethodDefinitionCompletionView
 }
 
 /// <summary>
+/// One scoped method-analysis support query. Disposing it records the support
+/// work performed by every algorithm that shared its resolver.
+/// </summary>
+internal struct MethodAnalysisQuery : IDisposable
+{
+    readonly MethodDefinitionSourceCoverageBuilder _physicalCoverage;
+    readonly MethodDefinitionSourceCoverageBuilder? _requestCoverage;
+    readonly MethodDefinitionHandle _method;
+    readonly MethodAnalysisLookup _lookup;
+    readonly MethodAnalysisSupportWork _before;
+    bool _disposed;
+
+    internal MethodAnalysisQuery(
+        MethodDefinitionSourceCoverageBuilder physicalCoverage,
+        MethodDefinitionSourceCoverageBuilder? requestCoverage,
+        MethodDefinitionHandle method,
+        MethodAnalysisLookup lookup,
+        MethodAnalysisSupportWork before,
+        ILibraryMethodAnalysisResolver resolver)
+    {
+        _physicalCoverage = physicalCoverage;
+        _requestCoverage = requestCoverage;
+        _method = method;
+        _lookup = lookup;
+        _before = before;
+        Resolver = resolver;
+    }
+
+    internal ILibraryMethodAnalysisResolver Resolver { get; }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        MethodAnalysisSupportWork work =
+            _lookup.RecordedWork.Since(_before);
+        _physicalCoverage.RecordMethodAnalysisQuery(
+            _method,
+            work);
+        if (!ReferenceEquals(
+                _requestCoverage,
+                _physicalCoverage))
+        {
+            _requestCoverage?.RecordMethodAnalysisQuery(
+                _method,
+                work);
+        }
+        _disposed = true;
+    }
+}
+
+/// <summary>
 /// The executor's cursor over method definitions. It is a struct local to the
 /// visiting loop, so advancing it writes only to the stack; views borrow it by
 /// reference for one visit.
@@ -1119,6 +1207,7 @@ internal struct MethodDefinitionUnit(
     SameModuleCallTargetSupport? _callTargets;
     MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
+    MethodAnalysisSupport? _methodAnalysis;
     MethodSemanticIdentityResult? _semanticIdentityResult;
     MethodSemanticIdentityWork _semanticIdentityWork;
     MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
@@ -1194,6 +1283,7 @@ internal struct MethodDefinitionUnit(
         SameModuleCallTargetSupport? callTargets,
         MethodCallMetadataSupport? methodCalls,
         MethodSemanticIdentitySupport? semanticIdentity,
+        MethodAnalysisSupport? methodAnalysis,
         MethodDefinitionSourceCoverageBuilder sourceCoverage,
         int ordinal)
     {
@@ -1205,6 +1295,7 @@ internal struct MethodDefinitionUnit(
         _callTargets = callTargets;
         _methodCalls = methodCalls;
         _semanticIdentity = semanticIdentity;
+        _methodAnalysis = methodAnalysis;
         _requestSourceCoverage = sourceCoverage;
         Ordinal = ordinal;
         gate.MoveTo(
@@ -1652,6 +1743,44 @@ internal struct MethodDefinitionUnit(
                 MethodHandle,
                 work);
         }
+    }
+
+    public MethodAnalysisQuery BeginMethodAnalysis(
+        MethodIdentity method,
+        MethodInstructions instructions)
+    {
+        MethodAnalysisSupport support =
+            _methodAnalysis ?? throw new InvalidOperationException(
+                "Method-analysis support was not declared by any planned "
+                + "producer.");
+        MethodAnalysisLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _physicalSourceCoverage.RecordMethodAnalysisConstruction();
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage
+                    ?.RecordMethodAnalysisConstruction();
+            }
+        }
+
+        MethodAnalysisSupportWork before = lookup.RecordedWork;
+        ILibraryMethodAnalysisResolver resolver =
+            lookup.CreateResolver(
+                TypeDefinition,
+                MethodDefinition,
+                method,
+                instructions);
+        return new(
+            _physicalSourceCoverage,
+            _requestSourceCoverage,
+            MethodHandle,
+            lookup,
+            before,
+            resolver);
     }
 
     /// <summary>
