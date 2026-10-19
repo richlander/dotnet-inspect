@@ -21,7 +21,6 @@ public enum EcosystemFindIndexGapKind
     ScannerUnavailable,
     TypeIdentityUnresolved,
     MemberEvidenceIncomplete,
-    SymbolIdentityUnresolved,
 }
 
 public static class EcosystemFindIndexGenerationContract
@@ -134,7 +133,9 @@ public sealed record EcosystemFindIndexGapInput(
     EcosystemFindIndexGapKind Kind,
     int PrefixOrdinal,
     PackageCoordinate? Package,
+    int? PackageOrdinal,
     PackageLibraryIdentity? Library,
+    int? LibraryOrdinal,
     string Detail,
     int? SignalOrdinal = null);
 
@@ -171,7 +172,9 @@ public sealed record EcosystemFindIndexGap(
     EcosystemFindIndexGapKind Kind,
     int PrefixOrdinal,
     PackageCoordinate? Package,
+    int? PackageOrdinal,
     PackageLibraryIdentity? Library,
+    int? LibraryOrdinal,
     InertString Detail,
     int? SignalOrdinal);
 
@@ -456,7 +459,9 @@ public static class EcosystemFindIndexBuilder
                 gap.Kind,
                 gap.PrefixOrdinal,
                 gap.Package,
+                gap.PackageOrdinal,
                 gap.Library,
+                gap.LibraryOrdinal,
                 new InertString(TextPolicy.Field, gap.Detail),
                 gap.SignalOrdinal));
         }
@@ -502,23 +507,31 @@ public static class EcosystemFindIndexBuilder
         bool validShape = gap.Kind switch
         {
             EcosystemFindIndexGapKind.PrefixEnumerationBounded
-                or EcosystemFindIndexGapKind.ScannerUnavailable =>
+                =>
                 gap.Package is null
+                    && gap.PackageOrdinal is null
                     && gap.Library is null
+                    && gap.LibraryOrdinal is null
                     && gap.SignalOrdinal is null,
             EcosystemFindIndexGapKind.PackageRejected =>
                 gap.Package is not null
+                    && gap.PackageOrdinal >= 0
                     && gap.Library is null
+                    && gap.LibraryOrdinal is null
                     && gap.SignalOrdinal is null,
-            EcosystemFindIndexGapKind.LibraryFailed =>
+            EcosystemFindIndexGapKind.LibraryFailed
+                or EcosystemFindIndexGapKind.ScannerUnavailable =>
                 gap.Package is not null
+                    && gap.PackageOrdinal >= 0
                     && gap.Library is not null
+                    && gap.LibraryOrdinal >= 0
                     && gap.SignalOrdinal is null,
             EcosystemFindIndexGapKind.TypeIdentityUnresolved
-                or EcosystemFindIndexGapKind.MemberEvidenceIncomplete
-                or EcosystemFindIndexGapKind.SymbolIdentityUnresolved =>
+                or EcosystemFindIndexGapKind.MemberEvidenceIncomplete =>
                 gap.Package is not null
+                    && gap.PackageOrdinal >= 0
                     && gap.Library is not null
+                    && gap.LibraryOrdinal >= 0
                     && gap.SignalOrdinal >= 0,
             _ => false,
         };
@@ -667,7 +680,9 @@ public static class EcosystemFindIndexBuilder
             kind,
             coordinate.PrefixOrdinal,
             coordinate.Package,
+            coordinate.PackageOrdinal,
             coordinate.Asset,
+            coordinate.LibraryOrdinal,
             new InertString(TextPolicy.Field, detail),
             signalOrdinal);
 
@@ -864,13 +879,17 @@ public static class EcosystemFindIndexBuilder
                 return 1;
             int order = x.PrefixOrdinal.CompareTo(y.PrefixOrdinal);
             if (order == 0)
+                order = Nullable.Compare(x.PackageOrdinal, y.PackageOrdinal);
+            if (order == 0)
+                order = Nullable.Compare(x.LibraryOrdinal, y.LibraryOrdinal);
+            if (order == 0)
+                order = Nullable.Compare(x.SignalOrdinal, y.SignalOrdinal);
+            if (order == 0)
                 order = string.CompareOrdinal(x.Package?.PackageId, y.Package?.PackageId);
             if (order == 0)
                 order = string.CompareOrdinal(x.Package?.Version, y.Package?.Version);
             if (order == 0)
                 order = string.CompareOrdinal(x.Library?.AssetPath, y.Library?.AssetPath);
-            if (order == 0)
-                order = Nullable.Compare(x.SignalOrdinal, y.SignalOrdinal);
             if (order == 0)
                 order = x.Kind.CompareTo(y.Kind);
             if (order == 0)
@@ -955,7 +974,6 @@ internal static class EcosystemFindIndexValidation
                 throw new ArgumentException("Artifact source coordinates are duplicated.");
             previous = source;
         }
-
         var symbols = new HashSet<(int Source, EcosystemFindIndexSymbolKind Kind, object Identity)>();
         int previousSource = -1;
         int expectedSymbolOrdinal = 0;
@@ -1027,6 +1045,158 @@ internal static class EcosystemFindIndexValidation
                 throw new ArgumentException("Artifact gaps are not strictly ordered.");
             previousGap = gap;
         }
+        ValidateCoordinateClosure(artifact);
+    }
+
+    private static void ValidateCoordinateClosure(
+        EcosystemFindIndexArtifact artifact)
+    {
+        var packages =
+            new Dictionary<(int Prefix, int Package), PackageCoordinate>();
+        var libraries =
+            new Dictionary<(int Prefix, int Package, int Library), PackageLibraryIdentity>();
+        var sourceLibraries =
+            new HashSet<(int Prefix, int Package, int Library)>();
+        var rejectedPackages =
+            new HashSet<(int Prefix, int Package)>();
+        var failedLibraries =
+            new HashSet<(int Prefix, int Package, int Library)>();
+        var identityGaps =
+            new HashSet<(int Prefix, int Package, int Library)>();
+
+        foreach (EcosystemFindIndexSourceCoordinate source in artifact.Sources)
+        {
+            AddPackage(
+                (source.PrefixOrdinal, source.PackageOrdinal),
+                source.Package);
+            var libraryKey = (
+                source.PrefixOrdinal,
+                source.PackageOrdinal,
+                source.LibraryOrdinal);
+            AddLibrary(libraryKey, source.Asset);
+            sourceLibraries.Add(libraryKey);
+        }
+
+        foreach (EcosystemFindIndexGap gap in artifact.Gaps)
+        {
+            if (gap.Package is { } package
+                && gap.PackageOrdinal is int packageOrdinal)
+            {
+                AddPackage((gap.PrefixOrdinal, packageOrdinal), package);
+            }
+            if (gap.Library is { } library
+                && gap.PackageOrdinal is int libraryPackageOrdinal
+                && gap.LibraryOrdinal is int libraryOrdinal)
+            {
+                var libraryKey = (
+                    gap.PrefixOrdinal,
+                    libraryPackageOrdinal,
+                    libraryOrdinal);
+                AddLibrary(libraryKey, library);
+                if (gap.Kind == EcosystemFindIndexGapKind.PackageRejected)
+                    throw new ArgumentException("A rejected package cannot name a Library.");
+                if (gap.Kind is EcosystemFindIndexGapKind.LibraryFailed
+                    or EcosystemFindIndexGapKind.ScannerUnavailable)
+                {
+                    failedLibraries.Add(libraryKey);
+                }
+                else if (gap.Kind is EcosystemFindIndexGapKind.TypeIdentityUnresolved
+                    or EcosystemFindIndexGapKind.MemberEvidenceIncomplete)
+                {
+                    identityGaps.Add(libraryKey);
+                }
+            }
+            if (gap.Kind == EcosystemFindIndexGapKind.PackageRejected
+                && gap.PackageOrdinal is int rejectedOrdinal)
+            {
+                rejectedPackages.Add((gap.PrefixOrdinal, rejectedOrdinal));
+            }
+        }
+
+        if (rejectedPackages.Any(key =>
+                sourceLibraries.Any(library =>
+                    library.Prefix == key.Prefix
+                    && library.Package == key.Package)))
+        {
+            throw new ArgumentException(
+                "A rejected package ordinal also has an indexed Library.");
+        }
+        if (failedLibraries.Overlaps(sourceLibraries))
+        {
+            throw new ArgumentException(
+                "A failed Library ordinal also has an indexed source.");
+        }
+        if (identityGaps.Any(key => !sourceLibraries.Contains(key)))
+        {
+            throw new ArgumentException(
+                "A symbol-identity gap does not belong to an indexed source.");
+        }
+
+        for (int prefixOrdinal = 0;
+             prefixOrdinal < artifact.Prefixes.Length;
+             prefixOrdinal++)
+        {
+            int[] packageOrdinals =
+            [
+                .. packages.Keys
+                    .Where(key => key.Prefix == prefixOrdinal)
+                    .Select(key => key.Package)
+                    .Order(),
+            ];
+            EnsureContiguous(packageOrdinals, "package");
+            foreach (int packageOrdinal in packageOrdinals)
+            {
+                int[] libraryOrdinals =
+                [
+                    .. libraries.Keys
+                        .Where(key => key.Prefix == prefixOrdinal
+                            && key.Package == packageOrdinal)
+                        .Select(key => key.Library)
+                        .Order(),
+                ];
+                EnsureContiguous(libraryOrdinals, "Library");
+            }
+        }
+
+        void AddPackage(
+            (int Prefix, int Package) key,
+            PackageCoordinate package)
+        {
+            if (packages.TryGetValue(key, out PackageCoordinate? existing)
+                && existing != package)
+            {
+                throw new ArgumentException(
+                    "One package ordinal names inconsistent exact coordinates.");
+            }
+            packages[key] = package;
+        }
+
+        void AddLibrary(
+            (int Prefix, int Package, int Library) key,
+            PackageLibraryIdentity library)
+        {
+            if (libraries.TryGetValue(key, out PackageLibraryIdentity? existing)
+                && existing != library)
+            {
+                throw new ArgumentException(
+                    "One Library ordinal names inconsistent exact coordinates.");
+            }
+            libraries[key] = library;
+        }
+
+        static void EnsureContiguous(
+            IReadOnlyList<int> ordinals,
+            string coordinate)
+        {
+            for (int index = 0; index < ordinals.Count; index++)
+            {
+                if (ordinals[index] != index)
+                {
+                    throw new ArgumentException(
+                        $"Artifact {coordinate} ordinals are not contiguous.");
+                }
+            }
+        }
     }
 
     private static void ValidateGap(
@@ -1056,23 +1226,31 @@ internal static class EcosystemFindIndexValidation
         bool validShape = gap.Kind switch
         {
             EcosystemFindIndexGapKind.PrefixEnumerationBounded
-                or EcosystemFindIndexGapKind.ScannerUnavailable =>
+                =>
                 gap.Package is null
+                    && gap.PackageOrdinal is null
                     && gap.Library is null
+                    && gap.LibraryOrdinal is null
                     && gap.SignalOrdinal is null,
             EcosystemFindIndexGapKind.PackageRejected =>
                 gap.Package is not null
+                    && gap.PackageOrdinal >= 0
                     && gap.Library is null
+                    && gap.LibraryOrdinal is null
                     && gap.SignalOrdinal is null,
-            EcosystemFindIndexGapKind.LibraryFailed =>
+            EcosystemFindIndexGapKind.LibraryFailed
+                or EcosystemFindIndexGapKind.ScannerUnavailable =>
                 gap.Package is not null
+                    && gap.PackageOrdinal >= 0
                     && gap.Library is not null
+                    && gap.LibraryOrdinal >= 0
                     && gap.SignalOrdinal is null,
             EcosystemFindIndexGapKind.TypeIdentityUnresolved
-                or EcosystemFindIndexGapKind.MemberEvidenceIncomplete
-                or EcosystemFindIndexGapKind.SymbolIdentityUnresolved =>
+                or EcosystemFindIndexGapKind.MemberEvidenceIncomplete =>
                 gap.Package is not null
+                    && gap.PackageOrdinal >= 0
                     && gap.Library is not null
+                    && gap.LibraryOrdinal >= 0
                     && gap.SignalOrdinal >= 0,
             _ => false,
         };
@@ -1089,13 +1267,17 @@ internal static class EcosystemFindIndexValidation
     {
         int order = x.PrefixOrdinal.CompareTo(y.PrefixOrdinal);
         if (order == 0)
+            order = Nullable.Compare(x.PackageOrdinal, y.PackageOrdinal);
+        if (order == 0)
+            order = Nullable.Compare(x.LibraryOrdinal, y.LibraryOrdinal);
+        if (order == 0)
+            order = Nullable.Compare(x.SignalOrdinal, y.SignalOrdinal);
+        if (order == 0)
             order = string.CompareOrdinal(x.Package?.PackageId, y.Package?.PackageId);
         if (order == 0)
             order = string.CompareOrdinal(x.Package?.Version, y.Package?.Version);
         if (order == 0)
             order = string.CompareOrdinal(x.Library?.AssetPath, y.Library?.AssetPath);
-        if (order == 0)
-            order = Nullable.Compare(x.SignalOrdinal, y.SignalOrdinal);
         if (order == 0)
             order = x.Kind.CompareTo(y.Kind);
         if (order == 0)

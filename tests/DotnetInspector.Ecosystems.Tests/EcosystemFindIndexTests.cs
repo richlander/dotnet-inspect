@@ -112,7 +112,8 @@ public class EcosystemFindIndexTests
                     assetPath: "lib/net10.0/Second.Empty.dll",
                     assemblyName: "Second.Empty",
                     []),
-            ]));
+            ],
+            gaps: CoverageGaps()));
 
         Assert.Empty(artifact.Symbols);
         Assert.Equal(2, artifact.Sources.Length);
@@ -126,7 +127,47 @@ public class EcosystemFindIndexTests
             EcosystemFindIndexJson.Load(EcosystemFindIndexJson.Serialize(artifact)));
         Assert.Empty(available.Artifact.Symbols);
         Assert.Equal(2, available.Artifact.Sources.Length);
-        Assert.Equal(7, available.Artifact.Gaps.Length);
+        Assert.Equal(6, available.Artifact.Gaps.Length);
+    }
+
+    [Fact]
+    public void Build_RetainsRejectedPackageCandidateOrder()
+    {
+        var request = new EcosystemFindIndexBuildRequest(
+            EcosystemPackIds.Aspire,
+            [IntegrationConceptCatalog.DependencyInjection],
+            [new PackagePrefixDeclaration("Fixture.")],
+            [],
+            [
+                new(
+                    EcosystemFindIndexGapKind.PackageRejected,
+                    PrefixOrdinal: 0,
+                    Package: new PackageCoordinate("Fixture.B", "1.0.0"),
+                    PackageOrdinal: 0,
+                    Library: null,
+                    LibraryOrdinal: null,
+                    Detail: "B was enumerated first."),
+                new(
+                    EcosystemFindIndexGapKind.PackageRejected,
+                    PrefixOrdinal: 0,
+                    Package: new PackageCoordinate("Fixture.A", "1.0.0"),
+                    PackageOrdinal: 1,
+                    Library: null,
+                    LibraryOrdinal: null,
+                    Detail: "A was enumerated second."),
+            ]);
+
+        EcosystemFindIndexArtifact artifact =
+            EcosystemFindIndexBuilder.Build(request);
+
+        Assert.Equal(
+            ["Fixture.B", "Fixture.A"],
+            artifact.Gaps.Select(gap => gap.Package!.PackageId));
+        var available = Assert.IsType<EcosystemFindIndexLoadResult.Available>(
+            EcosystemFindIndexJson.Load(EcosystemFindIndexJson.Serialize(artifact)));
+        Assert.Equal(
+            [0, 1],
+            available.Artifact.Gaps.Select(gap => gap.PackageOrdinal));
     }
 
     [Fact]
@@ -234,7 +275,8 @@ public class EcosystemFindIndexTests
 
     private static EcosystemFindIndexBuildRequest Request(
         IReadOnlyList<EcosystemFindIndexSourceInput> sources,
-        EcosystemPackId? ecosystem = null) =>
+        EcosystemPackId? ecosystem = null,
+        IReadOnlyList<EcosystemFindIndexGapInput>? gaps = null) =>
         new(
             ecosystem ?? EcosystemPackIds.Aspire,
             [
@@ -246,43 +288,47 @@ public class EcosystemFindIndexTests
                 new PackagePrefixDeclaration("Second."),
             ],
             sources,
-            [
-                new(
-                    EcosystemFindIndexGapKind.PrefixEnumerationBounded,
-                    PrefixOrdinal: 0,
-                    Package: null,
-                    Library: null,
-                    Detail: "Package enumeration reached its configured bound."),
-                new(
-                    EcosystemFindIndexGapKind.PackageRejected,
-                    PrefixOrdinal: 0,
-                    Package: new PackageCoordinate("Fixture.Rejected", "1.0.0"),
-                    Library: null,
-                    Detail: "The package did not contain an admitted Library."),
-                new(
-                    EcosystemFindIndexGapKind.LibraryFailed,
-                    PrefixOrdinal: 0,
-                    Package: new PackageCoordinate("Fixture.LibraryFailure", "1.0.0"),
-                    Library: new PackageLibraryIdentity(
-                        "lib/net10.0/Fixture.LibraryFailure.dll",
-                        "Fixture.LibraryFailure"),
-                    Detail: "The selected Library could not be inspected."),
-                new(
-                    EcosystemFindIndexGapKind.ScannerUnavailable,
-                    PrefixOrdinal: 1,
-                    Package: null,
-                    Library: null,
-                    Detail: "The configured scanner was unavailable."),
-                new(
-                    EcosystemFindIndexGapKind.SymbolIdentityUnresolved,
-                    PrefixOrdinal: 0,
-                    Package: new PackageCoordinate("Fixture.Unresolved", "1.0.0"),
-                    Library: new PackageLibraryIdentity(
-                        "lib/net10.0/Fixture.Unresolved.dll",
-                        "Fixture.Unresolved"),
-                    Detail: "A scanner symbol could not be associated with its source.",
-                    SignalOrdinal: 0),
-            ]);
+            gaps ?? []);
+
+    private static IReadOnlyList<EcosystemFindIndexGapInput> CoverageGaps() =>
+        [
+            new(
+                EcosystemFindIndexGapKind.PrefixEnumerationBounded,
+                PrefixOrdinal: 0,
+                Package: null,
+                PackageOrdinal: null,
+                Library: null,
+                LibraryOrdinal: null,
+                Detail: "Package enumeration reached its configured bound."),
+            new(
+                EcosystemFindIndexGapKind.PackageRejected,
+                PrefixOrdinal: 0,
+                Package: new PackageCoordinate("Fixture.Rejected", "1.0.0"),
+                PackageOrdinal: 1,
+                Library: null,
+                LibraryOrdinal: null,
+                Detail: "The package did not contain an admitted Library."),
+            new(
+                EcosystemFindIndexGapKind.LibraryFailed,
+                PrefixOrdinal: 0,
+                Package: new PackageCoordinate("Fixture.LibraryFailure", "1.0.0"),
+                PackageOrdinal: 2,
+                Library: new PackageLibraryIdentity(
+                    "lib/net10.0/Fixture.LibraryFailure.dll",
+                    "Fixture.LibraryFailure"),
+                LibraryOrdinal: 0,
+                Detail: "The selected Library could not be inspected."),
+            new(
+                EcosystemFindIndexGapKind.ScannerUnavailable,
+                PrefixOrdinal: 1,
+                Package: new PackageCoordinate("Second.Unavailable", "1.0.0"),
+                PackageOrdinal: 1,
+                Library: new PackageLibraryIdentity(
+                    "lib/net10.0/Second.Unavailable.dll",
+                    "Second.Unavailable"),
+                LibraryOrdinal: 0,
+                Detail: "The configured scanner was unavailable."),
+        ];
 
     private static IReadOnlyList<EcosystemIntegrationSignalInfo>
         MissingIdentitySignals() =>

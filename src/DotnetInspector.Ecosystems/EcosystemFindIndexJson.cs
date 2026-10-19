@@ -141,7 +141,9 @@ public static class EcosystemFindIndexJson
             Kind = gap.Kind,
             PrefixOrdinal = gap.PrefixOrdinal,
             Package = gap.Package is null ? null : ToPackage(gap.Package),
+            PackageOrdinal = gap.PackageOrdinal,
             Library = gap.Library is null ? null : ToLibrary(gap.Library),
+            LibraryOrdinal = gap.LibraryOrdinal,
             Detail = gap.Detail.ToString(),
             SignalOrdinal = gap.SignalOrdinal,
         };
@@ -332,7 +334,9 @@ public static class EcosystemFindIndexJson
             gap.Kind,
             gap.PrefixOrdinal,
             gap.Package is null ? null : FromPackage(gap.Package),
+            gap.PackageOrdinal,
             gap.Library is null ? null : FromLibrary(gap.Library),
+            gap.LibraryOrdinal,
             InertString.FromEncoded(TextPolicy.Field, gap.Detail),
             gap.SignalOrdinal);
     }
@@ -471,7 +475,9 @@ internal sealed record EcosystemFindIndexGapDocument
     public required EcosystemFindIndexGapKind Kind { get; init; }
     public required int PrefixOrdinal { get; init; }
     public EcosystemFindIndexPackageDocument? Package { get; init; }
+    public int? PackageOrdinal { get; init; }
     public EcosystemFindIndexLibraryDocument? Library { get; init; }
+    public int? LibraryOrdinal { get; init; }
     public required string Detail { get; init; }
     public int? SignalOrdinal { get; init; }
 }
