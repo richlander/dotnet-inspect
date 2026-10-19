@@ -141,6 +141,33 @@ public sealed class PackageAcquisitionCandidateIssuer
     internal PackageVersionDiscoveryResult
         CreateIncompleteVersionDiscovery(
         string packageId,
+        PackageVersionDiscoveryContract contract,
+        IReadOnlyList<PackageAuthorityFailure> terminalFailures)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(contract);
+        ArgumentNullException.ThrowIfNull(terminalFailures);
+        if (terminalFailures.Count == 0)
+        {
+            throw new ArgumentException(
+                "Incomplete version discovery requires terminal failure evidence.",
+                nameof(terminalFailures));
+        }
+
+        return new PackageVersionDiscoveryResult(
+            packageId,
+            PackageVersionDiscoveryState.Failed,
+            sourceListings: [],
+            failures: terminalFailures,
+            hasAnyCandidate: false,
+            candidates: [],
+            contract: contract,
+            candidateIssuer: _issuer);
+    }
+
+    internal PackageVersionDiscoveryResult
+        CreateIncompleteVersionDiscovery(
+        string packageId,
         PackageSourceAuthorization authorization,
         IReadOnlyList<PackageSourceOperationResult<PackageVersionResult>>
             completedOutcomes,

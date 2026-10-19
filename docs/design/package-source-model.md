@@ -192,6 +192,12 @@ The operation lease:
 - is released synchronously only after its current awaited source step has
   settled.
 
+Explicit-authorized version discovery checks the operation ceiling before
+package-ID source authorization. An already-expired operation returns typed
+failed discovery evidence without invoking the authorization policy or creating
+a source client. This boundary is enforced by
+`PackageSourceOperationOwnershipTests.ExpiredVersionDiscoveryDoesNotAuthorizeSources`.
+
 Public asynchronous Package Source operations use the operation lease rather
 than accepting a root lease, an independently supplied operation context, or
 both. PackageHouse consumes the lease under
