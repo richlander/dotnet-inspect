@@ -1134,36 +1134,24 @@ same reference row and diagram node only while the package, selected Library,
 and direct reference result remain current. The graph icon sits in space added
 to the node's left edge so it cannot shorten the Library or AssemblyRef text.
 
-`Microsoft.Extensions.AI.OpenAI@10.11.0/net10.0` is the motivating NuGet
-asset: its root package declares `Microsoft.Extensions.AI.Abstractions@10.11.0`
-and `OpenAI@2.14.0` dependencies, while the shared References URL admits only
-the root package. The browser gate uses that exact coordinate and pins a
-deterministic reference-list control; the package association owner supplies
-the Metadata binding evidence for the reverse lookup.
+[`Microsoft.Extensions.AI.OpenAI@10.11.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI/10.11.0)
+at `net10.0` is the motivating NuGet asset: its root package declares
+`Microsoft.Extensions.AI.Abstractions@10.11.0` and `OpenAI@2.14.0`
+dependencies, while the shared References URL admits only the root package.
+The browser renderer gate uses a deterministic package-backed fixture to check
+that an external supplier icon arrives after the direct rows and diagram.
 
 For a uniquely matched Workspace Library, References may show the owning
 ordinary package's icon beside the AssemblyRef row. It uses the admitted
 Library-to-package provenance established by that exact identity match, then
 the package's retained icon or the default icon for a known package source.
 For nuget.org coordinates, the existing exact-coordinate icon query may
-replace the default. Framework/runtime Libraries, absent matches, and ambiguous
-matches have no package icon. A local artifact
+replace the default. Framework/runtime Libraries and absent or ambiguous
+Workspace matches receive no icon from this path. A local artifact
 without retained package-icon evidence also remains plain. Icon loading is
 bounded and cannot change the direct AssemblyRef answer or a newer Library
-view. The graph remains an AssemblyRef diagram; icons annotate rows where
-package ownership is known.
-References does not acquire packages to discover external suppliers.
-
-The motivating real asset is
-[`Microsoft.Extensions.AI.OpenAI@10.11.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI/10.11.0)
-at `net10.0`, opened through the shared Library References URL in
-[#10244](https://github.com/richlander/dotnet-inspect/issues/10244). Its
-AssemblyRef names alone do not establish package ownership. The focused
-renderer gate exercises an admitted exact match and an unmatched reference;
-the production browser gate checks that an admitted package icon appears
-without changing Library navigation. A one-package share may have no
-icon-attributable external rows until the supplying Libraries are admitted to
-the Workspace.
+view. The graph remains an AssemblyRef diagram; icons annotate rows and nodes
+where package ownership is known.
 
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows
