@@ -1010,7 +1010,7 @@ equivalents. The following map distinguishes those contracts:
 | `--tfm TFM` with Files | Match a complete directory segment on file rows | `--where "Target=TFM"`; `--tfm all` adds no predicate |
 | `--path SELECTOR` | Select Files and apply package path/role selection | One literal file can use `--where "Path=FILE"`; repeated selectors, directory expansion, glob rules, `@readme`, and `@agents` retain their selector semantics |
 | `--library [DLL]` | Inspect selected compile libraries, optionally one exact DLL | Changes the inspection subject; it is not a Files filter or section shortcut |
-| `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter. Without exactly one match, it reports `No namesake library found in <population>` or `Multiple namesake libraries found in <population>` |
+| `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter. Without exactly one match, it reports `No namesake library found in <population>` or `Multiple namesake libraries found in <population>`; identity-unavailable failures also name the population and unreadable candidates |
 | `--first-library` | Select the first namesake in Library order, otherwise the first Library | Uses owner-issued assembly identities and ordering; it does not sort file names or paths in the CLI |
 | `--tfm TFM` with library inspection | Select the package target before Library scope | Uses package asset selection; it is not Files `Target=TFM` |
 | `--roots` | Project distinct top-level folders from selected Files | A result projection, not a predicate or another section |

@@ -1193,9 +1193,13 @@ public partial class PackageCommand
             == TfmSelector.PackageLibraryResolutionStatus
                 .NamesakeIdentityUnavailable)
         {
+            string population =
+                resolution.PopulationPath is { Length: > 0 } populationPath
+                    ? populationPath
+                    : "the selected Library population";
             CommandError.Write(
                 $"{(options.FirstLibrary ? "First" : "Namesake")} Library "
-                    + $"identity is unavailable in package "
+                    + $"identity is unavailable in {population} for package "
                     + $"'{packageName}'.");
             foreach (string path in resolution.IdentityFailurePaths ?? [])
             {

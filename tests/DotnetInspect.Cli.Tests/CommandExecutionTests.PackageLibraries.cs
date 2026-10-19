@@ -1381,6 +1381,66 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("--namesake-library", "Namesake")]
+    [InlineData("--first-library", "First")]
+    public async Task
+        PackageCommand_LibraryIdentityFailureNamesSelectedPopulation(
+            string option,
+            string selector)
+    {
+        const string packageId = "Contoso.Bad";
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "content");
+            string libDir = Path.Combine(
+                packageRoot,
+                "lib",
+                "net10.0");
+            Directory.CreateDirectory(libDir);
+            File.WriteAllBytes(
+                Path.Combine(libDir, "Broken.dll"),
+                []);
+            File.WriteAllText(
+                Path.Combine(packageRoot, $"{packageId}.nuspec"),
+                $$"""
+                <?xml version="1.0"?>
+                <package>
+                  <metadata>
+                    <id>{{packageId}}</id>
+                    <version>1.0.0</version>
+                    <authors>tests</authors>
+                    <description>Unreadable Library fixture.</description>
+                  </metadata>
+                </package>
+                """);
+            string packagePath = Path.Combine(
+                tempDir,
+                $"{packageId}.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                option);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                $"Error: {selector} Library identity is unavailable in "
+                    + $"lib/net10.0/ for package '{packageId}'."
+                    + $"{Environment.NewLine}  lib/net10.0/Broken.dll",
+                result.Error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task
         PackageCommand_FirstLibrary_PrefersSystemTextJsonNamesake()

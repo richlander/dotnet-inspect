@@ -306,6 +306,7 @@ public class TfmSelectorTests : IDisposable
                 .NamesakeIdentityUnavailable,
             result.Status);
         Assert.Equal([unreadable], result.IdentityFailurePaths);
+        Assert.Equal("lib/net8.0/", result.PopulationPath);
     }
 
     [Fact]
@@ -413,6 +414,7 @@ public class TfmSelectorTests : IDisposable
         Assert.Equal([unreadable], result.IdentityFailurePaths);
         Assert.Equal([namesake, unreadable], result.CandidatePaths);
         Assert.Null(result.FirstLibraryReason);
+        Assert.Equal("lib/net8.0/", result.PopulationPath);
     }
 
     [Fact]
