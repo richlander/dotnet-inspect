@@ -166,8 +166,8 @@ route and adds two pointers: read a Library section's `Empty` and `Boundary`
 before reporting none, and search for a thread the skill does not name. Its
 efficacy matched on every task. Its efficiency was mixed: equal on dependency
 risk, and one to four more invocations with more bytes read on the other
-three. One run per task cannot separate that from participant variance; the
-first B3 baseline participant made 30 calls where the recorded one made 20.
+three. Each task ran once per skill revision, so no same-skill repeat yet
+separates those deltas from participant variance.
 
 The comparison therefore distinguishes two kinds of change. Moving a named
 route into explanation must match or beat the baseline's efficacy and
@@ -178,8 +178,8 @@ them in no more calls than the skill.
 
 Efficacy is whether each review reaches the task's predetermined material
 findings with correct evidence classes and qualifications. Efficiency is
-invocations, rounds, tool time, and bytes read. Comparisons hold the binary,
-tasks, subjects, cache state, and participant configuration fixed, and remain
+invocations, rounds, tool time, and bytes read. Comparisons hold the product
+revision, tasks, subjects, cache state, and participant configuration fixed, and remain
 descriptive evidence rather than a regression gate.
 
 ## Result validation
@@ -260,7 +260,7 @@ The shipped `project-analysis` skill is the first bounded adopter. It:
 3. names every command each scenario needs, with known product traps and
    their issues;
 4. states the quick-review bound, placement, and validation rules;
-5. states the lowlight stages and outcomes; and
+5. states the lowlight stages and outcomes;
 6. delegates command semantics to the focused skills; and
 7. points to installed Library section explanation for a section's meaning,
    empty result, and boundary, and to capability search for threads it does
@@ -395,12 +395,16 @@ include product changes between the two builds.
 | B3 Complexity, thorough | 7 / 7; 20 calls; 5.2 s; 3,539 KB | 7 / 7; 32 calls (12 `explain`); 6.2 s; 6,164 KB | 7 / 7; 24 calls (2 `explain`); 8.0 s; 4,971 KB |
 | B4 Deep-dive, thorough | 6 / 6; 37 calls; 3.7 s; 96 KB | 6 / 6; 38 calls (7 `explain`); 2.8 s; 121 KB | 6 / 6; 38 calls (3 `explain`); 2.7 s; 259 KB |
 
+The wrappers record invocations, tool time, and bytes, not rounds, so the
+table omits rounds.
+
 † E2 missed the added `http://` literal because the draft dropped the quick
 review's named literal check. It also missed the advisory, because its
 working directory inherited a `nuget.config` that redefined the `nuget.org`
 source to another feed with no advisory data. The first two adopted-revision
 B2 participants inherited the same configuration. The recorded H2 is a rerun
-from a working directory outside it, and the configuration's effects are
+from a working directory outside it, with an added instruction not to change
+directory; the configuration's effects are
 filed as #10263 and #10264.
 
 Discovery through search and exact explanation costs two calls where the
@@ -409,19 +413,26 @@ raised Complexity's by 60 percent. Package and Member section explanations
 carry only shape, so participants recorded them as dead ends (#10265).
 
 The adopted revision's six explanation calls were three exact reads and three
-searches:
+searches. Each task's call delta is net: participants also chose different
+probes from the baseline's, so the explanation calls and their follow-ups
+account for part of each delta, not all of it.
 
-- **B1:** one read, Integrations' `Empty`, qualified an empty section; the
-  participant's other extra calls were two Unsafe Members probes. The
-  baseline and adopted B1 participants recovered README text the same way.
-- **B2:** no explanation calls, and no extra calls.
-- **B3:** one read of Dependency Structure's fields, and one search,
+- **B1 (+3):** one read, Integrations' `Empty`, qualified an empty section.
+  The participant also made two Unsafe Members probes. The baseline and
+  adopted B1 participants recovered README text the same way.
+- **B2 (0):** no explanation calls. Equal only as a net count: the
+  participant spent five calls recovering from string-literal diff errors and
+  three re-running the literal checks, where the baseline spent calls on a
+  repeated breaking diff and Unsafe Members probes.
+- **B3 (+4):** one read of Dependency Structure's fields, and one search,
   `explain clones`, which led to three Member Clone Candidates probes on a
-  route the skill does not name. The other extra calls were a repeated
-  Library Metrics read and one more dating version.
-- **B4:** a search and read for Array Pool Escapes' scope, and an
-  `explain callers` search that dead-ended. Three more calls failed on the
-  correctness skill's `library coordinate` guidance.
+  route the skill does not name. Among other differences, the participant
+  also repeated a Library Metrics read and dated one more version, and
+  skipped several of the baseline's member probes.
+- **B4 (+1):** a search and read for Array Pool Escapes' scope, and an
+  `explain callers` search that dead-ended. Among other differences, two
+  calls failed on the correctness skill's `library coordinate` guidance and
+  two more read help to recover.
 
 The E3 and H3 participants were given work directories under the same
 inherited configuration; the logs do not record whether they ran from them.
