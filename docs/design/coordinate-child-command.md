@@ -255,7 +255,7 @@ The address rule is intentionally narrow:
 | `library --metadata-root` | Keep as a selector | It chooses the metadata image in which all metadata sections and coordinates are interpreted; it does not identify one subordinate point. |
 | Body Shapes `Kind=...` | Keep as a predicate | It narrows one observation producer and does not establish a reusable coordinate. |
 | `--row`, `--value`, `--print`, `--urls`, `--paths`, `--out` | Keep as projections | They select or transfer completed content and do not authorize a new inspection address. |
-| Workspace Root reopening and active navigation selectors | Keep with Workspace and navigation | They select Workspace input or structural focus; they are not subordinate coordinates within one inspected subject. |
+| Exact Root reopening and active navigation selectors | Root source admission belongs to the inspected subject; retained focus belongs to navigation | [CLI Root admission](../cli-architecture.md#exact-package-reference-admission) supplies a Package source. Neither source selection nor structural focus is a subordinate address within one inspected subject. |
 | Package path or content selection | Keep with Package rows and payload projection | A file row may be selected and printed without creating a peer family of coordinate observations. |
 
 ### Resource extraction

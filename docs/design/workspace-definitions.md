@@ -470,7 +470,7 @@ The migration preserves useful operations through their owning surfaces:
 | `--type` | Type inspection owns selection and facets within admitted Workspace context. Its existing packet route is the baseline. |
 | `--member`, `--lens` | Member and the selected operation own their query/facet grammar. #10184 adds the missing Member packet-context entrance before this path retires. |
 | `--active-ecosystem` | The Ecosystem command owns declaration description; Find and other operation owners own searches over its populations. The retirement slice must account for any remaining useful data. |
-| `--root-request` | #10185 moves exact Root reopening to its owning inspection/source surface. Preserve the opaque owner-issued request; package ID/version/TFM reconstruction is insufficient. |
+| `--root-request` | `package "$package_ref"`, the bare router and Library/Type/Member `--package "$package_ref"` admit exact Root source under [CLI host admission](../cli-architecture.md#exact-package-reference-admission) (#10185). Preserve the opaque owner-issued request; package ID/version/TFM reconstruction is insufficient. Retire the transitional Workspace entrance in #10186. |
 
 The motivating direct and Workspace-context routes use the same real subject:
 
