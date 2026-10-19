@@ -1377,7 +1377,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserCallGraphDiagnostics diagnostics =
             BrowserCallGraphWireProjection.Project(
                 BrowserCallGraphProjection.Diagnostics(
-                    new CatalogCallGraphDiagnostics(2, 3, 4),
+                    new AssemblyContextMemberCallGraphDiagnostics(2, 3, 4),
                     hasUnexploredTraversalBoundary: true,
                     hasAnalysisFailureBoundary: true));
 
