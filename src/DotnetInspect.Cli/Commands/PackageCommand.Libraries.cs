@@ -154,7 +154,8 @@ public partial class PackageCommand
             : !string.IsNullOrWhiteSpace(version)
                 ? $"{packageName}@{version}"
                 : packageName;
-        if (!Directory.EnumerateFiles(
+        if (options.WorkspaceLibraryAssetPaths is null
+            && !Directory.EnumerateFiles(
                     extractPath,
                     "*.dll",
                     SearchOption.AllDirectories).Any()

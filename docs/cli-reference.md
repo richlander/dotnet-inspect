@@ -366,7 +366,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-ecosystem ID` for a resource-free Ecosystem subject or `--active-package N` for structural Library, Type, Member, and lens descriptors. |
-| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
+| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `package --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -1407,13 +1407,30 @@ Each evaluated candidate carries a `Root` reopening token. Hand that token back
 to reopen exactly the Root the result came from:
 
 ```bash
-dotnet-inspect workspace --root-request TOKEN
+dotnet-inspect package --root-request TOKEN
+dotnet-inspect package --root-request TOKEN --files --json
+dotnet-inspect package --root-request TOKEN --library Newtonsoft.Json.dll -S "Library Info"
 ```
 
-The token is opaque, credential-free, and exact. `workspace --root-request`
-rejects a token this tool did not issue, and reports an unauthorized producer
-or unavailable content instead of opening a different Root that happens to
-share the package id and version.
+The token is opaque, credential-free, and exact. `package --root-request`
+uses ordinary Package inspection on that Root under the receiving command's
+source authorization and acquisition limits. It rejects malformed tokens and
+reports unauthorized producers, unavailable content and exact-selection
+failures rather than opening a neighboring Root. The token supplies the
+Package and target: omit positional Packages, `--version`, `--tfm`,
+`--workspace`, version-population and preview selectors, and `--share`.
+For example, keep the producer-issued token intact while selecting ordinary
+Files rows:
+
+```bash
+token=$(dotnet-inspect package query Newtonsoft.Json \
+  --where "library-literal=Unexpected end when reading JSON" --tfm net6.0 \
+  --json | jq -r '.results[0].libraryLiteral.rootRequest')
+dotnet-inspect package --root-request "$token" --files --paths -n 3
+```
+
+Section, Library narrowing and output options still apply. The older
+`workspace --root-request` inventory entrance remains during migration.
 
 ### Workspace inventory and structural navigation
 

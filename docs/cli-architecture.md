@@ -48,6 +48,46 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Exact Package Root source admission
+
+`package --root-request TOKEN` admits the opaque reopening token issued by a
+Package Query library-literal result as its sole Package source. It consumes
+[the Package Root transport seam](design/artifact-acquisition-and-workspaces.md#the-transport-seam)
+without reconstructing coordinates or decoding fields in the host. The
+receiving CLI retains its source authorization, bounded acquisition policy,
+and Root lifetime. After admission, ordinary Package inspection consumes the
+acquired binding and its content; it must not select a neighboring Package,
+producer, or target through coordinate acquisition.
+
+The token supplies the Package and target selection. Positional Packages,
+`--version`, `--tfm`, `--workspace`, version-population selectors and preview
+selection cannot accompany it. Root admission does not define a portable
+Workspace scenario, so `--share` is rejected. Ordinary Package sections,
+Library narrowing, discovery and supported output terminals remain available
+on the admitted content. The transitional `workspace --root-request` entrance
+remains until the Workspace retirement slice; both consume the same admission
+helper and owner-typed failure reporting.
+
+The motivating real asset is nuget.org `Newtonsoft.Json` 13.0.4. Running
+`package query Newtonsoft.Json --where
+"library-literal=Unexpected end when reading JSON" --tfm net6.0 --json`
+at implementation base `a19ce50f1a5684e5b96b6900c2e350501dcf16e8`
+produced a `pkgroot6` request for that exact version and
+`lib/net6.0/Newtonsoft.Json.dll`. This source transition lets the reader inspect
+the producing Root without introducing an unrelated Workspace inventory.
+Durable CLI tests will carry a real query result through token admission to
+completed Package output, alongside deterministic malformed-token,
+unauthorized-producer, missing-content and other-target controls. Exact
+NativeAOT base/head commands will compare the old and new entrances and
+ordinary unchanged neighbors, including Count and empty selections.
+
+This CLI-only admission is slice 6 of the 15-slice
+[continuous resource discovery plan](https://github.com/richlander/dotnet-inspect/issues/10132),
+implemented by [#10185](https://github.com/richlander/dotnet-inspect/issues/10185).
+It adds no shared schema or Browser-navigation contract. Shared Root token
+semantics remain with their existing owner; duplicate Workspace inspection
+retirement is the following slice, #10186.
+
 ### Vocabulary reading admission
 
 The CLI admits `-Q` / `--query-help` on an exact vocabulary root only with a

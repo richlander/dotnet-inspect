@@ -2111,6 +2111,15 @@ public class PackageQueryCliTests
         Assert.Contains(libraryPath, markdown.Output);
         Assert.Contains("/IL_", markdown.Output);
         Assert.Contains(rootToken, markdown.Output);
+
+        // Hand the actual owner-issued query result through the ordinary
+        // Package parser to completed inspection, without a Workspace packet.
+        var reopened = await Run(
+            "package", "--root-request", rootToken, "--files", "--json");
+        Assert.True(reopened.ExitCode == 0, reopened.Error);
+        Assert.Empty(reopened.Error);
+        Assert.Contains(libraryPath, reopened.Output, StringComparison.Ordinal);
+        Assert.Contains(rootRequest.Coordinate.Version, reopened.Output, StringComparison.Ordinal);
     }
 
     [Fact]

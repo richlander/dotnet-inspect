@@ -27,6 +27,9 @@ public record InspectionOptions : IProjectionOptions
 
     internal PackageReferenceTarget? DeclaredPackageTarget { get; init; }
 
+    /// <summary>Opaque owner-issued exact Package Root source.</summary>
+    public string? RootRequest { get; init; }
+
     /// <summary>
     /// Canonical Workspace packet supplying the selected Package context.
     /// </summary>

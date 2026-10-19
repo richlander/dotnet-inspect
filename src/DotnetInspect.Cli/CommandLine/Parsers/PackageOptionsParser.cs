@@ -55,7 +55,8 @@ public static class PackageOptionsParser
         Option<bool> NoHeaderOption,
         Option<string?> WorkspaceOption,
         Option<string?> ShareOption,
-        Option<string?>? EvidenceEnvelopeOption);
+        Option<string?>? EvidenceEnvelopeOption,
+        Option<string?>? RootRequestOption = null);
 
     /// <summary>
     /// Result of parsing package command options.
@@ -154,6 +155,14 @@ public static class PackageOptionsParser
                 is { Implicit: false }
             && string.IsNullOrWhiteSpace(
                 result.GetValue(args.LibraryOption)));
+
+    private static bool HasSinglePackageSource(
+        CommandResult result,
+        PackageCommandArgs args) =>
+        (result.GetValue(args.PackageNameArg) ?? []).Length == 1
+        || ((result.GetValue(args.PackageNameArg) ?? []).Length == 0
+            && args.RootRequestOption is { } rootRequest
+            && result.GetValue(rootRequest) is not null);
 
     private static bool HasLibraryTarget(
         CommandResult result,
@@ -542,6 +551,9 @@ public static class PackageOptionsParser
             PackageArgs = packageArgs,
             ExplicitVersion = explicitVersion,
             WorkspacePacket = parseResult.GetValue(args.WorkspaceOption),
+            RootRequest = args.RootRequestOption is { } rootRequestOption
+                ? parseResult.GetValue(rootRequestOption)
+                : null,
             ShareFormat = WorkspaceShareOption.Parse(
                 parseResult,
                 args.ShareOption),
@@ -660,7 +672,7 @@ public static class PackageOptionsParser
     {
         string[] packageArgs =
             result.GetValue(args.PackageNameArg) ?? [];
-        if (packageArgs.Length != 1
+        if (!HasSinglePackageSource(result, args)
             || result.GetResult(opts.Discover)
                 is { Implicit: false }
             || result.GetValue(args.DependenciesOption)
@@ -737,7 +749,7 @@ public static class PackageOptionsParser
     {
         string[] packageArgs =
             result.GetValue(args.PackageNameArg) ?? [];
-        if (packageArgs.Length != 1
+        if (!HasSinglePackageSource(result, args)
             || result.GetResult(opts.Discover)
                 is { Implicit: false }
             || result.GetValue(args.DependenciesOption)
@@ -927,7 +939,7 @@ public static class PackageOptionsParser
     {
         string[] packageArgs =
             result.GetValue(args.PackageNameArg) ?? [];
-        return packageArgs.Length == 1
+        return HasSinglePackageSource(result, args)
             && result.GetResult(opts.Discover)
                 is not { Implicit: false }
             && !result.GetValue(args.DependenciesOption)
@@ -967,12 +979,15 @@ public static class PackageOptionsParser
     {
         string[] packageArgs =
             result.GetValue(args.PackageNameArg) ?? [];
-        if (packageArgs.Length != 1
+        if (!HasSinglePackageSource(result, args)
             || !SelectsOnlyTargetFrameworks(result, opts, args)
             || HasCompetingPackageTfmIntent(result, opts, args))
         {
             return false;
         }
+
+        if (packageArgs.Length == 0)
+            return true;
 
         string packageReference = packageArgs[0];
         if (!File.Exists(packageReference))
@@ -1004,7 +1019,7 @@ public static class PackageOptionsParser
     {
         string[] packageArgs =
             result.GetValue(args.PackageNameArg) ?? [];
-        if (packageArgs.Length != 1
+        if (!HasSinglePackageSource(result, args)
             || !HasExactLibraryTarget(result, args)
             || result.GetResult(opts.Discover)
                 is { Implicit: false })
