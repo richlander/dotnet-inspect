@@ -1682,6 +1682,11 @@ canaries:
   scope expansion, Browser rendering, attribution, navigation, diagnostics
   lowering, and wire projection without a direct `ILInspector.CallGraph`
   project or emitted assembly edge.
+- Platform call-graph resolution selects the implementation participant in Web,
+  then delegates exact body matching to
+  `AssemblyContextMemberSelectionQuery`. Web retains Platform acquisition,
+  type-resolution expansion, bounds, and scope lifetime without projecting an
+  API surface solely to invoke `CallGraphMemberResolver` itself.
 - Product demo plans resolve their owner-issued member anchor over
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog
