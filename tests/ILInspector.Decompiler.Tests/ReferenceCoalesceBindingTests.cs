@@ -261,12 +261,14 @@ public class ReferenceCoalesceBindingTests
         Assert.All(results, result =>
         {
             Assert.False(result.UsedCompileBackFloor);
-            // These nested shapes preserve their opcode contracts but retain
-            // generated-identity operand differences; neither is Exact.
+            // The local-function shape preserves its opcode contract but retains
+            // a generated-identity operand difference, so it is OperandDiff, not
+            // Exact. The nested lambda shape reached Exact once the display-class
+            // closure reconstruction landed; a drop back to OperandDiff is a
+            // regression.
             var expected = result.Plan.TargetMethod.Method switch
             {
-                nameof(ReferenceCoalesceBindingSamples.NestedObjectOverload)
-                    or nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload)
+                nameof(ReferenceCoalesceBindingSamples.LocalFunctionObjectOverload)
                     => FidelityCheck.CompileBackStatus.OperandDiff,
                 _ => FidelityCheck.CompileBackStatus.Exact,
             };
