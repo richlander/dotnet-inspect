@@ -1072,7 +1072,9 @@ public partial class CommandExecutionTests
         LibraryCommand_ToolPayloadExactPathStaysInToolPopulation()
     {
         var (packagePath, _, tempDir) =
-            CreateLocalToolPackageSet(includeAnalyzer: true);
+            CreateLocalToolPackageSet(
+                includeAnalyzer: true,
+                includeCompileLibrary: true);
         try
         {
             var tool = await RunAppAsync(
@@ -1091,6 +1093,16 @@ public partial class CommandExecutionTests
                 "-S",
                 "Library Info",
                 "--markdown");
+            var unavailableToolSlice = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "lib/net8.0/Other.dll",
+                "--tfm",
+                "net8.0",
+                "-S",
+                "Library Info",
+                "--markdown");
 
             Assert.Equal(0, tool.Exit);
             Assert.Empty(tool.Error);
@@ -1101,6 +1113,12 @@ public partial class CommandExecutionTests
             Assert.Contains(
                 "Library 'analyzers/dotnet/cs/Analyzer.dll' not found",
                 analyzer.Error);
+
+            Assert.Equal(1, unavailableToolSlice.Exit);
+            Assert.Empty(unavailableToolSlice.Output);
+            Assert.Contains(
+                "No tool Library slice matches target 'net8.0'",
+                unavailableToolSlice.Error);
         }
         finally
         {

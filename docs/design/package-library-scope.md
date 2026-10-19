@@ -398,7 +398,8 @@ CLI runtime-role adoption is gated by
 `LibraryAddressCommand_PackageNonCompileSelectionsAreRejected`.
 `LibraryCommand_ToolPayloadExactPathStaysInToolPopulation` gates the boundary
 between a retained Package Library path and the separately owned
-settings-issued tool population.
+settings-issued tool population, including terminal non-success when the
+requested target cannot issue one tool slice.
 `ProducerCapabilityPlanSelectsBeforeEnrichment` gates selection before
 per-Library work, while
 `PackageTreeCapabilitiesPreserveHostsAndWorkReduction` gates equivalent

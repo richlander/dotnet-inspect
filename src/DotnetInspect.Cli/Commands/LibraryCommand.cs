@@ -5167,6 +5167,7 @@ public partial class LibraryCommand
         // Find DLLs in the extracted package
         string[] allDlls = GetPackageDllFiles(extractPath);
         PackageToolSliceSelection? toolSelection = null;
+        IReadOnlyList<string>? selectedToolAssemblies = null;
         if (allDlls.Length == 0)
         {
             var payload = await TryResolveToolPayloadPackageAsync(
@@ -5205,6 +5206,46 @@ public partial class LibraryCommand
                                         path)
                                     .Replace('\\', '/')),
                         tfm);
+            }
+        }
+
+        if (toolSelection is not null)
+        {
+            if (toolSelection.Status
+                != PackageToolSliceSelectionStatus.Selected)
+            {
+                string error = toolSelection.Status switch
+                {
+                    PackageToolSliceSelectionStatus.NoToolSlices =>
+                        "The tool payload contains no managed Libraries.",
+                    PackageToolSliceSelectionStatus.NoApplicableSlice =>
+                        $"No tool Library slice matches target '{tfm}'.",
+                    PackageToolSliceSelectionStatus.InvalidSelection =>
+                        toolSelection.Detail!,
+                    _ => throw new InvalidOperationException(
+                        "Unknown tool Library selection status."),
+                };
+                CommandError.Write(error);
+                DeleteTempDir(tempDir);
+                return null;
+            }
+
+            selectedToolAssemblies =
+            [
+                .. toolSelection.SelectedEntries
+                    .Select(asset =>
+                        FindExtractedPackageEntry(
+                            allDlls,
+                            extractPath,
+                            asset))
+                    .OfType<string>(),
+            ];
+            if (selectedToolAssemblies.Count == 0)
+            {
+                CommandError.Write(
+                    "The selected tool payload contains no managed Libraries.");
+                DeleteTempDir(tempDir);
+                return null;
             }
         }
 
@@ -5250,34 +5291,21 @@ public partial class LibraryCommand
                     ? null
                     : TfmResolver.ExtractTfmFromPath(requestedPath);
             }
-            else if (toolSelection is
+            else if (toolSelection is not null)
             {
-                Status: PackageToolSliceSelectionStatus.Selected,
-            } selectedToolPopulation)
-            {
-                IReadOnlyList<string> candidates =
-                [
-                    .. selectedToolPopulation.SelectedEntries
-                        .Select(asset =>
-                            FindExtractedPackageEntry(
-                                allDlls,
-                                extractPath,
-                                asset))
-                        .OfType<string>(),
-                ];
                 TfmSelector.PackageLibraryResolution toolResolution =
                     TfmSelector.SelectPackageLibrary(
-                        candidates,
+                        selectedToolAssemblies!,
                         extractPath,
                         resolvedPackageName
                             ?? packageTarget.PackageName,
                         assemblyName,
-                        selectedToolPopulation.SelectedTargetFramework);
+                        toolSelection.SelectedTargetFramework);
                 matchedAssembly = toolResolution.IsSelected
                     ? toolResolution.Paths[0]
                     : null;
                 matchedTfm =
-                    selectedToolPopulation.SelectedTargetFramework;
+                    toolSelection.SelectedTargetFramework;
             }
             else if (population is
                 PackageLibraryPopulationSelection.Compile compilePopulation)
