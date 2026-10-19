@@ -3814,10 +3814,6 @@ public partial class CommandExecutionTests
         "Newtonsoft.Json@13.0.4",
         "lib/net6.0/Newtonsoft.Json.dll",
         "Newtonsoft.Json.dll")]
-    [InlineData(
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers@5.6.0",
-        "analyzers/dotnet/cs/Microsoft.CodeAnalysis.BannedApiAnalyzers.dll",
-        "Microsoft.CodeAnalysis.BannedApiAnalyzers.dll")]
     public async Task Router_PackageLibrarySubpath_IsIndependentOfCurrentDirectory(
         string package,
         string libraryPath,

@@ -1109,15 +1109,16 @@ public partial class CommandExecutionTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
-        string? tfm = null;
 
         foreach (var assemblyName in assemblyNames)
         {
             var (path, _, _, error) = PlatformResolver.ResolveAssembly(assemblyName);
             Assert.True(error == null && path != null, $"Could not resolve platform assembly '{assemblyName}': {error}");
 
-            tfm ??= Path.GetFileName(Path.GetDirectoryName(path!));
-            var targetDir = Path.Combine(packageRoot, "ref", tfm!);
+            var targetDir = Path.Combine(
+                packageRoot,
+                "ref",
+                "net11.0");
             Directory.CreateDirectory(targetDir);
             File.Copy(path!, Path.Combine(targetDir, Path.GetFileName(path!)));
         }
@@ -1564,6 +1565,38 @@ public partial class CommandExecutionTests
             File.Copy(
                 systemRuntime,
                 Path.Combine(frameworkDir, "Preferred.dll"));
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalPackageWithEntries(
+            string packageId,
+            params (string EntryPath, string? SourcePath)[] entries)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        foreach ((string entryPath, string? sourcePath) in entries)
+        {
+            string path = Path.Combine(
+                packageRoot,
+                entryPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (sourcePath is null)
+            {
+                File.WriteAllBytes(path, []);
+            }
+            else
+            {
+                File.Copy(sourcePath, path);
+            }
         }
 
         string packagePath = Path.Combine(

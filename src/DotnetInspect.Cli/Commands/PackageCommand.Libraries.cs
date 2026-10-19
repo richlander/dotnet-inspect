@@ -188,7 +188,8 @@ public partial class PackageCommand
                     .Replace('\\', '/'),
                 packageReference,
                 options,
-                selected.TargetFramework),
+                selected.TargetFramework,
+                selected.RuntimeIdentifier),
             extraction).ConfigureAwait(false);
     }
 
@@ -248,7 +249,8 @@ public partial class PackageCommand
             assemblyName: null,
             packageReference,
             options,
-            selectionResult.TargetFramework);
+            selectionResult.TargetFramework,
+            selectionResult.RuntimeIdentifier);
 
         libraryOptions = LibraryCommand.NormalizeBareSelect(libraryOptions);
         libraryOptions = libraryOptions with
@@ -475,7 +477,7 @@ public partial class PackageCommand
                         packageName,
                         version,
                         TfmResolver.ExtractTfmFromPath(relativePath),
-                        rid: null);
+                        selection.RuntimeIdentifier);
             LibraryInspectionSubjectSelection subjectSelection =
                 LibraryInspectionSubject.Select(
                     selection.Path,
@@ -943,7 +945,8 @@ public partial class PackageCommand
         string? assemblyName,
         string packageReference,
         InspectionOptions options,
-        string? selectedTargetFramework)
+        string? selectedTargetFramework,
+        string? selectedRuntimeIdentifier = null)
         => new()
         {
             AssemblyName = assemblyName,
@@ -958,6 +961,7 @@ public partial class PackageCommand
             ReferenceHierarchyDepth = options.ReferenceHierarchyDepth,
             IncludePrerelease = options.IncludePrerelease,
             Tfm = selectedTargetFramework ?? options.Tfm,
+            PackageRuntimeIdentifier = selectedRuntimeIdentifier,
             TypeNamespace = options.TypeNamespace,
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,
@@ -1045,15 +1049,17 @@ public partial class PackageCommand
         if (requestedLibrary == null)
             return null;
         var packageId = PackageExtractor.ParsePackageReference(packageName).name;
-        TfmSelector.PackageLibraryResolution? candidates =
+        PackageLibraryPopulationResolution? population =
             ResolvePackageLibraryCandidates(
                 extractPath,
                 packageName,
                 version,
                 extraction,
                 options);
-        if (candidates is null)
+        if (population is null)
             return null;
+        TfmSelector.PackageLibraryResolution candidates =
+            population.Resolution;
 
         TfmSelector.PackageLibraryResolution resolution;
         if (options.NamesakeLibrary)
@@ -1083,7 +1089,8 @@ public partial class PackageCommand
         if (resolution.IsSelected)
             return new PackageLibrarySelection(
                 resolution.Paths[0],
-                resolution.Tfm);
+                resolution.Tfm,
+                population.RuntimeIdentifier);
 
         ReportPackageLibraryResolutionFailure(
             extractPath,
@@ -1176,15 +1183,17 @@ public partial class PackageCommand
         PackageExtractionResult extraction,
         InspectionOptions options)
     {
-        TfmSelector.PackageLibraryResolution? resolution =
+        PackageLibraryPopulationResolution? population =
             ResolvePackageLibraryCandidates(
                 extractPath,
                 packageName,
                 version,
                 extraction,
                 options);
-        if (resolution is null)
+        if (population is null)
             return null;
+        TfmSelector.PackageLibraryResolution resolution =
+            population.Resolution;
 
         PackageLibrarySelection[] libraries =
         [
@@ -1195,7 +1204,8 @@ public partial class PackageCommand
                         != TfmSelector.PackageLibraryImageKind.NonAssembly)
                 .Select(path => new PackageLibrarySelection(
                     path,
-                    resolution.Tfm)),
+                    resolution.Tfm,
+                    population.RuntimeIdentifier)),
         ];
         if (libraries.Length == 0)
         {
@@ -1206,10 +1216,11 @@ public partial class PackageCommand
 
         return new PackageLibrarySelectionResult(
             libraries,
-            resolution.Tfm);
+            resolution.Tfm,
+            population.RuntimeIdentifier);
     }
 
-    private static TfmSelector.PackageLibraryResolution?
+    private static PackageLibraryPopulationResolution?
         ResolvePackageLibraryCandidates(
             string extractPath,
             string packageName,
@@ -1226,11 +1237,13 @@ public partial class PackageCommand
         }
         if (workspacePaths is not null)
         {
-            return new TfmSelector.PackageLibraryResolution(
-                workspacePaths,
-                options.Tfm,
-                TfmSelector.PackageLibraryResolutionStatus.Selected,
-                workspacePaths);
+            return new PackageLibraryPopulationResolution(
+                new TfmSelector.PackageLibraryResolution(
+                    workspacePaths,
+                    options.Tfm,
+                    TfmSelector.PackageLibraryResolutionStatus.Selected,
+                    workspacePaths),
+                RuntimeIdentifier: null);
         }
 
         if (options.Tfm?.Equals(
@@ -1242,7 +1255,11 @@ public partial class PackageCommand
                     extractPath,
                     options.Tfm);
             if (allFrameworks.IsSelected)
-                return allFrameworks;
+            {
+                return new PackageLibraryPopulationResolution(
+                    allFrameworks,
+                    RuntimeIdentifier: null);
+            }
 
             ReportPackageLibraryResolutionFailure(
                 extractPath,
@@ -1260,23 +1277,42 @@ public partial class PackageCommand
                 packageName,
                 extraction,
                 options.Tfm);
-        if (selection.Status
-            == PackageCompileAssetSelectionStatus.NoCompileAssets)
+        if (selection.CandidateAssets.Count == 0
+            && selection.Status
+                is PackageCompileAssetSelectionStatus.NoCompileAssets
+                    or PackageCompileAssetSelectionStatus.EmptyCompileGroup)
         {
-            TfmSelector.PackageLibraryResolution unsupportedLayout =
-                TfmSelector.SelectPackageLibraries(
-                    extractPath,
-                    options.Tfm);
-            if (unsupportedLayout.IsSelected)
-                return unsupportedLayout;
-
-            ReportPackageLibraryResolutionFailure(
+            var content = new FileSystemPackageContent(
                 extractPath,
+                extraction.NupkgPath,
+                extraction.FromCache,
+                extraction.ProducerKey ?? packageName);
+            PackageAssetSelection runtimeSelection =
+                PackageAssetSelector.EvaluateSingleRuntime(
+                    content,
+                    options.Tfm).Selection;
+            if (runtimeSelection
+                is PackageAssetSelection.Selected selected)
+            {
+                string[] selectedPaths =
+                [
+                    .. selected.Universe.Assets.Select(asset =>
+                        ResolveContainedEntry(
+                            extractPath,
+                            asset.EntryPath)),
+                ];
+                return new PackageLibraryPopulationResolution(
+                    new TfmSelector.PackageLibraryResolution(
+                        selectedPaths,
+                        selected.Universe.TargetFramework,
+                        TfmSelector.PackageLibraryResolutionStatus.Selected,
+                        selectedPaths),
+                    selected.Universe.RuntimeIdentifier);
+            }
+
+            ReportRuntimePackageLibrarySelectionFailure(
                 packageName,
-                version,
-                options,
-                options.PackageLibrary ?? "",
-                unsupportedLayout);
+                runtimeSelection);
             return null;
         }
 
@@ -1292,11 +1328,13 @@ public partial class PackageCommand
                 ResolvePackageCompileAssetPaths(
                     extractPath,
                     selection.Assets);
-            return new TfmSelector.PackageLibraryResolution(
-                selectedPaths,
-                selection.TargetFramework,
-                TfmSelector.PackageLibraryResolutionStatus.Selected,
-                candidatePaths);
+            return new PackageLibraryPopulationResolution(
+                new TfmSelector.PackageLibraryResolution(
+                    selectedPaths,
+                    selection.TargetFramework,
+                    TfmSelector.PackageLibraryResolutionStatus.Selected,
+                    candidatePaths),
+                RuntimeIdentifier: null);
         }
 
         switch (selection.Status)
@@ -1333,6 +1371,23 @@ public partial class PackageCommand
         }
 
         return null;
+    }
+
+    private static void ReportRuntimePackageLibrarySelectionFailure(
+        string packageName,
+        PackageAssetSelection selection)
+    {
+        string message = selection switch
+        {
+            PackageAssetSelection.NoMatch noMatch => noMatch.Message,
+            PackageAssetSelection.Ambiguous ambiguous =>
+                ambiguous.Message,
+            PackageAssetSelection.Invalid invalid => invalid.Message,
+            _ => "The runtime Library population could not be selected.",
+        };
+        CommandError.Write(
+            $"Package '{packageName}' cannot issue one runtime Library "
+                + $"population. {message}");
     }
 
     private static PackageCompileAssetSelection
@@ -1420,11 +1475,17 @@ public partial class PackageCommand
 
     private sealed record PackageLibrarySelection(
         string Path,
-        string? TargetFramework);
+        string? TargetFramework,
+        string? RuntimeIdentifier);
 
     private sealed record PackageLibrarySelectionResult(
         IReadOnlyList<PackageLibrarySelection> Libraries,
-        string? TargetFramework);
+        string? TargetFramework,
+        string? RuntimeIdentifier);
+
+    private sealed record PackageLibraryPopulationResolution(
+        TfmSelector.PackageLibraryResolution Resolution,
+        string? RuntimeIdentifier);
 
     internal static bool ShouldUsePackageCompileRoles(
         bool isLocalFile,

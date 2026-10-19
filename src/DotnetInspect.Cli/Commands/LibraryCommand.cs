@@ -1622,7 +1622,8 @@ public partial class LibraryCommand
                                 assemblyPaths[0],
                                 extractPath,
                                 packageName,
-                                packageVersion));
+                                packageVersion,
+                                options.PackageRuntimeIdentifier));
                     if (coordinateSubject is null)
                         return 1;
 
@@ -1650,7 +1651,8 @@ public partial class LibraryCommand
                                     path,
                                     extractPath,
                                     packageName,
-                                    packageVersion))),
+                                    packageVersion,
+                                    options.PackageRuntimeIdentifier))),
                         trace);
                 List<LibraryInspectionSubjectSelection> subjectSelections =
                     inspectionPaths.Select(path =>
@@ -1660,7 +1662,8 @@ public partial class LibraryCommand
                                 path,
                                 extractPath,
                                 packageName,
-                                packageVersion),
+                                packageVersion,
+                                options.PackageRuntimeIdentifier),
                             integrations?.AssemblyForInspection(
                                 path)))
                     .ToList();
@@ -5010,7 +5013,8 @@ public partial class LibraryCommand
                             targetPath,
                             extractPath,
                             packageName,
-                            version),
+                            version,
+                            options.PackageRuntimeIdentifier),
                         integrations?.AssemblyForInspection(targetPath));
             if (subjectSelection
                 is LibraryInspectionSubjectSelection.Rejected rejected)
@@ -5101,7 +5105,8 @@ public partial class LibraryCommand
         string assemblyPath,
         string extractPath,
         string? packageName,
-        string? packageVersion)
+        string? packageVersion,
+        string? runtimeIdentifier)
     {
         if (string.IsNullOrWhiteSpace(packageName)
             || string.IsNullOrWhiteSpace(packageVersion))
@@ -5117,7 +5122,7 @@ public partial class LibraryCommand
             packageName,
             packageVersion,
             TfmResolver.ExtractTfmFromPath(relativePath),
-            rid: null);
+            runtimeIdentifier);
     }
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(

@@ -1176,6 +1176,21 @@ be one or many; cardinality never changes its identity into a one-Library
 subject. The former primary and declaration-order Library preferences do not
 participate in initial subject selection.
 
+Package Library aggregate, Exact Library, and Namesake Library requests declare
+the compile role when the Package has any real compile-Library candidate. A
+selected explicit empty compile group or an unmatched target remains that
+compile role's typed non-success; Navigation does not switch roles merely
+because another compile slice or runtime implementation exists. When the
+Package has no real compile-Library candidate, including a package whose only
+compile declaration is an explicit empty marker, those requests instead
+declare one owner-default runtime implementation role. The runtime owner uses
+the requested target when present, otherwise its highest available target, and
+may infer a RID only when exactly one eligible
+`runtimes/<rid>/lib/<tfm>` RID occurs. Zero or several eligible RIDs fail before
+the aggregate or any Library probe runs. This fallback never admits
+`analyzers/`, `build/`, `tools/`, `runtimes/<rid>/native/`, or an archive-wide
+DLL search.
+
 Participant rejection, decode failure, or inspection failure remains attached
 to the aggregate result. Healthy participant evidence may remain usable, but
 the snapshot and every projection identify the result as partial; Navigation
@@ -1244,6 +1259,11 @@ several namesakes that differ only in tie-break order,
 The chosen-Library rule remains **unverified** until a consuming route adds
 `FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback`, under
 [#9683](https://github.com/richlander/dotnet-inspect/issues/9683).
+
+The CLI's current Package Library routes implement the role declaration above
+before their existing aggregate, exact, and namesake operations. This is a
+host adoption of the Navigation rule, not yet the typed Library-gesture
+authority described by the preceding paragraph.
 
 One Navigation evaluation consumes one selected framework projection. A
 coordinator requesting multiple frameworks presents separately associated

@@ -453,7 +453,7 @@ public partial class CommandExecutionTests
     [InlineData("tools/net11.0/Coordinate.Package.dll")]
     [InlineData("Coordinate.Package")]
     public async Task
-        LibraryAddressCommand_PackageNonCompileSelectionsPreserveLegacySelection(
+        LibraryAddressCommand_PackageNonCompileSelectionsAreRejected(
             string library)
     {
         var (token, callOffset) = FindIlCoordinate(
@@ -488,12 +488,14 @@ public partial class CommandExecutionTests
                 "-S",
                 "Context: Member", "--markdown");
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Contains("## Context: Member", output);
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
             Assert.Contains(
-                nameof(SemanticFactsFixture.AllSignals),
-                output);
+                "cannot issue one runtime Library population",
+                error);
+            Assert.Contains(
+                "no runtime Library assembly folder",
+                error);
         }
         finally
         {

@@ -348,26 +348,25 @@ population Count. CLI and Browser/Wasm consume the same Package-owned planning
 strategy and identity-row provision; hosts do not infer one provision from
 another.
 
-CLI `library --package` and its namesake request do not yet adopt Library
-probes. When compile selection returns `NoCompileAssets`, and under
-`--tfm all`, the CLI's package Library routes search the extracted archive
-through `TfmSelector` instead of consuming a role population; #9833 records
-each route. Observed results include a runtime pack yielding its
-implementation assemblies, an analyzer package its analyzers, and a
-satellite-only package its satellite resource assemblies. Direct root
-`lib/*.dll` packages no longer enter that search because compile selection
-issues their framework-agnostic population. The standalone exact
-`library --package` route consumes that same selected population when a package
-contains direct root Libraries, so a real framework-qualified slice still
-outranks the root slice. Under `--tfm all` the search also merges
-frameworks and roles and ignores explicit empty groups; those routes are
-retired rather than repopulated, because `--tfm all` is package discovery
-under [All-frameworks package discovery](package-tfm-all-discovery.md), which
-records that adoption. Without `--tfm all`, a selected explicit empty compile
-group fails before the search and reports the group's own folder spelling,
-such as `netstandard`. #9833 records the search's exact rules and decides the
-remaining `NoCompileAssets` path after the RID-implementation decision above,
-and Browser adoption of Library probes is not yet recorded.
+CLI `library --package`, Package Library aggregate, and their exact and
+namesake requests now adopt one role population before probing. A real compile
+inventory keeps the compile role, including its selected empty-group or
+unmatched-target non-success. With no real compile candidate, including a
+marker-only compile inventory, the routes request one owner-default runtime
+population from `PackageAssetSelector`. They therefore admit one eligible RID
+and target slice, reject multi-RID ambiguity before probing, and no longer
+admit analyzer, native, build, tool, satellite, or arbitrary archive DLLs
+through the former `NoCompileAssets` search. The selected RID remains in
+Package provenance for the exact and aggregate inspections.
+
+Direct root `lib/*.dll` packages continue to consume their framework-agnostic
+compile population, and a real framework-qualified compile slice still
+outranks that root slice. Under `--tfm all`, the CLI still uses the legacy
+archive search, which can merge frameworks and roles and ignore explicit empty
+groups. That route is retired rather than repopulated because `--tfm all` is
+Package discovery under
+[All-frameworks package discovery](package-tfm-all-discovery.md). Browser
+adoption of Library probes is not yet recorded.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
@@ -387,6 +386,14 @@ settings status and case-insensitive entry-point correspondence, while
 `QueryPackage_ToolPayloadPublishesExactManagedLibraries` and
 `QueryPackage_DeclaredToolWithoutSettingsRemainsUnavailable` gate Browser
 adoption.
+
+CLI runtime-role adoption is gated by
+`LibraryCommand_RuntimeOnlyPackageUsesOneRuntimePopulation`,
+`PackageCommand_RuntimeOnlyNamesakeUsesManagedAssemblyIdentity`,
+`LibraryCommand_MarkerOnlyCompileGroupUsesRuntimePopulation`,
+`LibraryCommand_RealCompileInventoryPreventsRuntimeRoleSwitch`,
+`LibraryCommand_MultipleRuntimeIdentifiersFailBeforeProbing`, and
+`LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries`.
 `ProducerCapabilityPlanSelectsBeforeEnrichment` gates selection before
 per-Library work, while
 `PackageTreeCapabilitiesPreserveHostsAndWorkReduction` gates equivalent
