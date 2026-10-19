@@ -228,15 +228,19 @@ System.Text.Json 11.0.0.0
 `--tree` and `-v:m` select the same Tree, and `--mermaid` renders the same
 nodes as a Mermaid graph. Platform, package, and file sources are accepted,
 together with `--framework`, `--version`, `--preview`, one `--tfm`,
-`--namesake-library`, NuGet source options, and `--verbose`. A package that
-contributes more than one Library keeps the multi-Library view; explicit
-`--tree` or `--mermaid` on such a package fails and asks for the assembly
-within the package. Any other option, including `-S`, `-v:n`, `-v:d`, and
-every format option, keeps the sectioned Library view; combined with such an
-option, `--tree` and `--mermaid` keep their `-S "Reference Hierarchy"`
-requirement. A `DOTNET_INSPECT_FORMAT` default also keeps the sectioned view
-unless `--tree`, `--mermaid`, or `-v:m` is given explicitly. Library facts
-remain available as `-S "Library Info"`.
+`--namesake-library`, `--first-library`, NuGet source options, and `--verbose`.
+`--namesake-library` requires a unique assembly-name match to the package ID.
+`--first-library` takes the first namesake in host-neutral Library order, or
+the first Library in that order when there is no namesake. A package that
+contributes more than one Library keeps the multi-Library view unless one of
+those explicit narrowing gestures is supplied; explicit `--tree` or
+`--mermaid` on an aggregate fails and asks for the assembly within the package.
+Any other option, including `-S`, `-v:n`, `-v:d`, and every format option,
+keeps the sectioned Library view; combined with such an option, `--tree` and
+`--mermaid` keep their `-S "Reference Hierarchy"` requirement. A
+`DOTNET_INSPECT_FORMAT` default also keeps the sectioned view unless `--tree`,
+`--mermaid`, or `-v:m` is given explicitly. Library facts remain available as
+`-S "Library Info"`.
 
 A Library with no public Types renders its identity line marked
 `(no public types)`. A Library whose Type population cannot be read completely
@@ -1007,6 +1011,7 @@ equivalents. The following map distinguishes those contracts:
 | `--path SELECTOR` | Select Files and apply package path/role selection | One literal file can use `--where "Path=FILE"`; repeated selectors, directory expansion, glob rules, `@readme`, and `@agents` retain their selector semantics |
 | `--library [DLL]` | Inspect selected compile libraries, optionally one exact DLL | Changes the inspection subject; it is not a Files filter or section shortcut |
 | `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter |
+| `--first-library` | Select the first namesake in Library order, otherwise the first Library | Uses owner-issued assembly identities and ordering; it does not sort file names or paths in the CLI |
 | `--tfm TFM` with library inspection | Select the package target before Library scope | Uses package asset selection; it is not Files `Target=TFM` |
 | `--roots` | Project distinct top-level folders from selected Files | A result projection, not a predicate or another section |
 | `--tfms` | Select the Target Frameworks section | `-S "Target Frameworks"`; native output, formats, row selection, and Count are identical |

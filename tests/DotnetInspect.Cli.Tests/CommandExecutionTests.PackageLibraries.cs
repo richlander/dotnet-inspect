@@ -1289,6 +1289,256 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        PackageCommand_FirstLibrary_PrefersSystemTextJsonNamesake()
+    {
+        var (systemTextJson, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly("System.Text.Json");
+        Assert.True(
+            resolveError is null && systemTextJson is not null,
+            resolveError);
+        var (systemRuntime, _, _, runtimeError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        Assert.True(
+            runtimeError is null && systemRuntime is not null,
+            runtimeError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "System.Text.Json",
+            packageType: null,
+            (systemRuntime!, "lib/net10.0/First.By.Order.dll"),
+            (systemTextJson!, "lib/net10.0/Namesake.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("# Namesake.dll", result.Output);
+            Assert.DoesNotContain("First.By.Order.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_FirstLibrary_OrdersMicrosoftTestPlatformObjectModelPopulation()
+    {
+        var (systemTextJson, _, _, jsonError) =
+            PlatformResolver.ResolveAssembly("System.Text.Json");
+        Assert.True(
+            jsonError is null && systemTextJson is not null,
+            jsonError);
+        var (systemRuntime, _, _, runtimeError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        Assert.True(
+            runtimeError is null && systemRuntime is not null,
+            runtimeError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "Microsoft.TestPlatform.ObjectModel",
+            packageType: null,
+            (systemTextJson!, "lib/net10.0/Declared.First.dll"),
+            (systemRuntime!, "lib/net10.0/Library.Order.First.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--first-library",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("# Library.Order.First.dll", result.Output);
+            Assert.DoesNotContain("Declared.First.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_FirstLibrary_TieBreaksDotnetInspectAnyDuplicateNames()
+    {
+        var (pkcs, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly(
+                "System.Security.Cryptography.Pkcs");
+        Assert.True(resolveError is null && pkcs is not null, resolveError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "dotnet-inspect.any",
+            "DotnetToolRidPackage",
+            (pkcs!,
+                "tools/net10.0/any/z/System.Security.Cryptography.Pkcs.dll"),
+            (pkcs!,
+                "tools/net10.0/any/a/System.Security.Cryptography.Pkcs.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "--verbose",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "tools/net10.0/any/a/System.Security.Cryptography.Pkcs.dll",
+                result.Error.Replace('\\', '/'));
+            Assert.Contains(
+                "# System.Security.Cryptography.Pkcs.dll",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_FirstLibrary_FollowsToolPointerPayload()
+    {
+        var (packagePath, _, tempDir) =
+            CreateLocalToolPackageSet(firstLibraryFixture: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "--verbose",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "Found: tools/net10.0/any/Support.dll",
+                result.Error.Replace('\\', '/'));
+            Assert.Contains("# Support.dll", result.Output);
+            Assert.Contains(
+                "| Name | DotnetInspect.Cli.Tests |",
+                result.Output);
+            Assert.DoesNotContain("# Test.Tool.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("package")]
+    [InlineData("library")]
+    public async Task FirstLibrary_RejectsNamesakeLibrary(
+        string command)
+    {
+        string[] arguments = command == "package"
+            ? [
+                "package",
+                "System.Text.Json",
+                "--first-library",
+                "--namesake-library",
+            ]
+            : [
+                "library",
+                "--package",
+                "System.Text.Json",
+                "--first-library",
+                "--namesake-library",
+            ];
+
+        var result = await RunAppAsync(arguments);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            "--namesake-library cannot be combined with --first-library",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("package")]
+    [InlineData("library")]
+    public async Task FirstLibrary_RejectsExactLibrary(
+        string command)
+    {
+        string[] arguments = command == "package"
+            ? [
+                "package",
+                "System.Text.Json",
+                "--first-library",
+                "--library",
+                "System.Text.Json.dll",
+            ]
+            : [
+                "library",
+                "System.Text.Json.dll",
+                "--package",
+                "System.Text.Json",
+                "--first-library",
+            ];
+
+        var result = await RunAppAsync(arguments);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            command == "package"
+                ? "--first-library cannot be combined with --library"
+                : "--first-library requires --package and cannot be combined "
+                    + "with an exact Library source",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_FirstLibrary_RequiresPackage()
+    {
+        var result = await RunAppAsync(
+            "library",
+            "--first-library");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            "--first-library requires --package",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_MissingExactLibraryNamesFirstLibraryTip()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "Missing.dll");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Contains("--first-library", result.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_BarePackageRemainsPackageScoped()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();
@@ -2940,6 +3190,7 @@ public partial class CommandExecutionTests
             var help = await RunAppAsync("package", "--help");
             Assert.Equal(0, help.Exit);
             Assert.Contains("--namesake-library", help.Output);
+            Assert.Contains("--first-library", help.Output);
             Assert.DoesNotContain("--all-libraries", help.Output);
         }
         finally
