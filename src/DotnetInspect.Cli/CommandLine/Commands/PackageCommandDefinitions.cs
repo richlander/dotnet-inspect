@@ -84,6 +84,11 @@ public static class PackageCommandDefinitions
             Description =
                 "Narrow to the Library whose assembly name matches the package ID",
         };
+        var firstLibraryOption = new Option<bool>("--first-library")
+        {
+            Description =
+                "Narrow to the first namesake in Library order, otherwise the first Library",
+        };
         var allLibrariesOption = new Option<bool>("--all-libraries")
         {
             Hidden = true,
@@ -154,6 +159,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(namesakeLibraryOption);
+        packageCommand.Options.Add(firstLibraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
@@ -172,7 +178,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, filesOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, namesakeLibraryOption, firstLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption,
@@ -227,7 +233,8 @@ public static class PackageCommandDefinitions
             opts.Lines, opts.TailLines,
             dependenciesOption, filesOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
-            libraryOption, namesakeLibraryOption, allLibrariesOption,
+            libraryOption, namesakeLibraryOption, firstLibraryOption,
+            allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption, rootsOption);
