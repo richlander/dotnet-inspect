@@ -108,6 +108,33 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                         new HashSet<int> { token }));
             try
             {
+                Assert.Equal(
+                    legacy.CallGraph.DirectCalls.Where(
+                        call =>
+                            call.EvidenceMethod.MetadataToken
+                                == token),
+                    actual.DirectCalls);
+                MethodSignals expectedSignals =
+                    legacy.CallGraph.MethodSignals
+                        .GetValueOrDefault(token)
+                    ?? MethodSignals.None;
+                Assert.Equal(
+                    expectedSignals with
+                    {
+                        EvidenceOffsets = [],
+                        ExceptionTypeNames = [],
+                    },
+                    actual.Signals with
+                    {
+                        EvidenceOffsets = [],
+                        ExceptionTypeNames = [],
+                    });
+                Assert.Equal(
+                    expectedSignals.Evidence,
+                    actual.Signals.Evidence);
+                Assert.Equal(
+                    expectedSignals.ExceptionTypes,
+                    actual.Signals.ExceptionTypes);
                 ImmutableArray<AllocationOccurrence> expectedAllocations =
                     legacy.Allocations.Occurrences
                         .GetValueOrDefault(token);
@@ -144,10 +171,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
             .Single(method => method.Name.Contains(
                 "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
                 StringComparison.Ordinal));
-        MethodInfo owner = typeof(MethodAnalysisProbe)
-            .GetMethod(
-                nameof(MethodAnalysisProbe
-                    .GenericObjectEqualsLocalFunction))!;
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
 
@@ -157,7 +180,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     group,
                     Assert.Single(group.Participants),
                     lifted.MetadataToken,
-                    owner.MetadataToken,
                     TestContext.Current.CancellationToken)).Value;
         LibraryBodyAnalysisExecution legacy =
             LibraryBodyAnalysisService.ExecutePath(
@@ -203,10 +225,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 "<GeneratedGenericObjectEqualsLocalFunction>"
                     + "g__EqualsCore|",
                 StringComparison.Ordinal));
-        MethodInfo owner = typeof(MethodAnalysisProbe)
-            .GetMethod(
-                nameof(MethodAnalysisProbe
-                    .GeneratedGenericObjectEqualsLocalFunction))!;
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
 
@@ -216,7 +234,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     group,
                     Assert.Single(group.Participants),
                     lifted.MetadataToken,
-                    owner.MetadataToken,
                     TestContext.Current.CancellationToken)).Value;
         LibraryBodyAnalysisExecution legacy =
             LibraryBodyAnalysisService.ExecutePath(
@@ -309,7 +326,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     group,
                     participant,
                     moveNext.MetadataToken,
-                    kickoff.MetadataToken,
                     TestContext.Current.CancellationToken)).Value;
 
         Assert.DoesNotContain(
@@ -440,6 +456,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
             result.DirectCalls,
             call => call.Callee.Name
                 == nameof(MethodAnalysisProbe.Neighbor));
+        Assert.Contains(
+            result.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape == "box-value-type");
         Assert.Single(result.Diagnostics);
     }
 
@@ -782,6 +802,7 @@ public static class MethodAnalysisProbe
         try
         {
             Span<int> values = stackalloc int[1];
+            _value = value;
             value = Neighbor(value);
             values[0] = Neighbor(value);
             return values[0];

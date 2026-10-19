@@ -1258,10 +1258,11 @@ Migration is incremental:
     one exact source execution. Calls now owns complete MethodSpec
     definition-token provenance; the bundle publishes direct calls,
     multiplicity, and final signals from the same context and allocation
-    facts. For a selected generated body, bounded expansion from the selected
-    declaration authenticates caller attribution and owner suppression.
-    Final opportunity enrichment consumes only the exact evidence, and the
-    query has no `LibraryBodyAnalysisService` execution.
+    facts. For a selected generated body, exact method-analysis support
+    authenticates the ultimate declared owner without widening terminal
+    breadth; caller attribution and owner suppression consume that receipted
+    answer. Final opportunity enrichment consumes only the exact evidence, and
+    the query has no `LibraryBodyAnalysisService` execution.
 13. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

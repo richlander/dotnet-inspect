@@ -80,7 +80,10 @@ public sealed class LibraryOptimizationAnalysisResult
         bool declaredOwnerSuppressesOpportunities,
         IReadOnlyDictionary<
             (string Namespace, string Name),
-            bool>? inAssemblyTypeIsException)
+            bool>? inAssemblyTypeIsException,
+        IReadOnlyDictionary<
+            int,
+            CallReceiverSource>? stringReceiverSources)
     {
         _receipt = null;
         _callGraph = null;
@@ -88,7 +91,14 @@ public sealed class LibraryOptimizationAnalysisResult
         _declaredMethods = [method];
         _methods = [method];
         _directCalls = directCalls;
-        _physicalDirectCalls = directCalls;
+        _physicalDirectCalls =
+        [
+            .. directCalls.Select(
+                static call => call with
+                {
+                    Caller = call.EvidenceMethod,
+                }),
+        ];
         _declaredMethodMap =
             MethodDefinitionMap.Create([method]);
         _allocationOccurrences =
@@ -105,7 +115,8 @@ public sealed class LibraryOptimizationAnalysisResult
                 declaredOwnerSuppressesOpportunities);
         _stringMaterializations =
             StringMaterializationAnalysis.Collect(
-                directCalls);
+                directCalls,
+                stringReceiverSources);
         _suppressedOpportunityTokens =
             suppressDerivedOpportunities
                 ? new HashSet<int> { method.MetadataToken }
@@ -150,7 +161,10 @@ public sealed class LibraryOptimizationAnalysisResult
             bool declaredOwnerSuppressesOpportunities = false,
             IReadOnlyDictionary<
                 (string Namespace, string Name),
-                bool>? inAssemblyTypeIsException = null)
+                bool>? inAssemblyTypeIsException = null,
+            IReadOnlyDictionary<
+                int,
+                CallReceiverSource>? stringReceiverSources = null)
     {
         ArgumentNullException.ThrowIfNull(method);
         if (allocations.IsDefault)
@@ -183,7 +197,8 @@ public sealed class LibraryOptimizationAnalysisResult
                     requiresDeclaredOwner,
                     declaredOwner,
                     declaredOwnerSuppressesOpportunities,
-                    inAssemblyTypeIsException)
+                    inAssemblyTypeIsException,
+                    stringReceiverSources)
                 .Opportunities
                 .Where(opportunity =>
                     (opportunity.EvidenceMethodToken

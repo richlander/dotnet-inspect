@@ -42,11 +42,13 @@ internal sealed class DeclaredSourceAttribution
         ImplementationMetricExecutionRecorder?
             implementationMetricRecorder = null,
         MethodDefinitionGeneratedExpansionWork?
-            generatedExpansionWork = null)
+            generatedExpansionWork = null,
+        MethodAnalysisLookup? methodAnalysis = null)
     {
         _reader = reader;
         MethodAnalysis =
-            new(
+            methodAnalysis
+            ?? new(
                 path,
                 reader,
                 peReader,

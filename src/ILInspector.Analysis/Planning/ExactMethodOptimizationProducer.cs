@@ -89,11 +89,14 @@ public sealed record ExactMethodAnalysisBundleBody(
 
     public MethodSignals Signals { get; init; } = MethodSignals.None;
 
+    public IReadOnlyDictionary<int, CallReceiverSource>
+        StringReceiverSources { get; init; } =
+            new Dictionary<int, CallReceiverSource>();
+
     public MethodIdentity? DeclaredOwner { get; init; }
 
     public bool DeclaredOwnerSuppressesOpportunities { get; init; }
 
-    internal int? DeclaredOwnerToken { get; init; }
 }
 
 /// <summary>
@@ -142,7 +145,6 @@ public sealed class ExactMethodAllocationProducer :
         int token = analysis.MethodToken;
         var diagnostics =
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
-        diagnostics.AddRange(analysis.Diagnostics);
         if (analysis.Method is not { } method
             || !analysis.HasManagedBody
             || analysis.Context is not { } context)
@@ -375,13 +377,9 @@ public sealed class ExactMethodAnalysisBundleProducer :
         ImmutableArray<ExactMethodAnalysisBundleBody>.Builder,
         ExactMethodAnalysisBundleProducerResult>
 {
-    readonly bool _readsDeclaredSource;
-
-    ExactMethodAnalysisBundleProducer(
-        string name,
-        bool readsDeclaredSource)
+    ExactMethodAnalysisBundleProducer()
         : base(
-            name,
+            "Exact Method Analysis Bundle",
             version: 1,
             tier: 0,
             layers: 0,
@@ -395,19 +393,10 @@ public sealed class ExactMethodAnalysisBundleProducer :
                     ProducerDependencyKind.VisitNeedsVisit),
             ])
     {
-        _readsDeclaredSource = readsDeclaredSource;
     }
 
     public static ExactMethodAnalysisBundleProducer Instance { get; } =
-        new(
-            "Exact Method Analysis Bundle",
-            readsDeclaredSource: false);
-
-    public static ExactMethodAnalysisBundleProducer
-        DeclaredSourceInstance { get; } =
-        new(
-            "Exact Method Analysis Bundle with Declared Source",
-            readsDeclaredSource: true);
+        new();
 
     internal override ExactMethodAnalysisBundleBody Visit(
         scoped MethodDefinitionView view)
@@ -417,18 +406,14 @@ public sealed class ExactMethodAnalysisBundleProducer :
         ExactMethodOptimizationBody optimization =
             view.FactOf(ExactMethodOptimizationProducer.Instance);
         ImmutableArray<DirectCall> directCalls =
-            optimization.Allocation.Facts is { } facts
-                ?
-                [
-                    .. method.DirectCalls.Select(
-                        call => call with
-                        {
-                            Multiplicity =
-                                facts.MultiplicityAt(
-                                    call.ILOffset),
-                        }),
-                ]
-                : method.DirectCalls;
+            ExactMethodAnalysisProducer
+                .CollectDirectCalls(
+                    method,
+                    optimization.Allocation.Facts,
+                    out IReadOnlyDictionary<
+                        int,
+                        CallReceiverSource>
+                        stringReceiverSources);
         BodySignals bodySignals =
             method.Context is { } context
                 ? BodySignalAnalysis.Collect(
@@ -468,6 +453,8 @@ public sealed class ExactMethodAnalysisBundleProducer :
         return new(method, optimization)
         {
             DirectCalls = directCalls,
+            StringReceiverSources =
+                stringReceiverSources,
             Signals =
                 method.Method is { } signalMethod
                     && signals.TryGetValue(
@@ -475,14 +462,9 @@ public sealed class ExactMethodAnalysisBundleProducer :
                         out MethodSignals? value)
                         ? value
                         : MethodSignals.None,
-            DeclaredOwnerToken =
-                _readsDeclaredSource
-                    && view.DeclaredSource
-                        is MethodDefinitionDeclaredSource.Generated
-                            generated
-                    ? MetadataTokens.GetToken(
-                        generated.Origin.DeclaredOwner)
-                    : null,
+            DeclaredOwner = method.DeclaredOwner,
+            DeclaredOwnerSuppressesOpportunities =
+                method.DeclaredOwnerSuppressesOpportunities,
         };
     }
 
@@ -501,45 +483,6 @@ public sealed class ExactMethodAnalysisBundleProducer :
 
     internal override ExactMethodAnalysisBundleProducerResult Complete(
         ImmutableArray<ExactMethodAnalysisBundleBody>.Builder accumulator,
-        MethodDefinitionCompletionView completion)
-    {
-        ImmutableArray<ExactMethodAnalysisBundleBody> bodies =
-            accumulator.ToImmutable();
-        if (!_readsDeclaredSource)
-            return new(bodies);
-
-        Dictionary<int, ExactMethodAnalysisBundleBody> byToken =
-            bodies.ToDictionary(
-                static body => body.Method.MethodToken);
-        return new(
-        [
-            .. bodies.Select(body =>
-            {
-                if (body.DeclaredOwnerToken is not int ownerToken
-                    || !byToken.TryGetValue(
-                        ownerToken,
-                        out ExactMethodAnalysisBundleBody? owner)
-                    || owner.Method.Method is not { } ownerMethod)
-                {
-                    return body;
-                }
-
-                return body with
-                {
-                    DeclaredOwner = ownerMethod,
-                    DeclaredOwnerSuppressesOpportunities =
-                        owner.Optimization
-                            .SuppressesDerivedOpportunities,
-                    DirectCalls =
-                    [
-                        .. body.DirectCalls.Select(
-                            call => call with
-                            {
-                                Caller = ownerMethod,
-                            }),
-                    ],
-                };
-            }),
-        ]);
-    }
+        MethodDefinitionCompletionView completion) =>
+        new(accumulator.ToImmutable());
 }

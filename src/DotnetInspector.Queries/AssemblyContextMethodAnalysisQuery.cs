@@ -34,11 +34,6 @@ public static class AssemblyContextMethodAnalysisQuery
         ExactMethodAnalysisBundleProducer.Instance;
     static readonly WorkDescription FocusedWork =
         CreateFocusedWork(FocusedProducer);
-    static readonly ExactMethodAnalysisBundleProducer
-        DeclaredSourceProducer =
-            ExactMethodAnalysisBundleProducer.DeclaredSourceInstance;
-    static readonly WorkDescription DeclaredSourceWork =
-        CreateFocusedWork(DeclaredSourceProducer);
 
     public static InspectionQuery<
         AssemblyContextEntry<AssemblyMethodAnalysis>> Definition { get; } =
@@ -74,30 +69,6 @@ public static class AssemblyContextMethodAnalysisQuery
                 subject,
                 snapshot,
                 methodToken,
-                declaredMethodToken: methodToken,
-                cancellationToken));
-    }
-
-    public static AssemblyContextEntry<AssemblyMethodAnalysis> ExecuteParticipant(
-        AssemblyContextGroup group,
-        AssemblyContextParticipant participant,
-        int methodToken,
-        int declaredMethodToken,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(group);
-        ArgumentNullException.ThrowIfNull(participant);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        return AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
-            group,
-            participant,
-            cancellationToken,
-            (subject, snapshot) => Analyze(
-                subject,
-                snapshot,
-                methodToken,
-                declaredMethodToken,
                 cancellationToken));
     }
 
@@ -105,7 +76,6 @@ public static class AssemblyContextMethodAnalysisQuery
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
         int methodToken,
-        int declaredMethodToken,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -113,8 +83,7 @@ public static class AssemblyContextMethodAnalysisQuery
             ExecuteFocused(
                 snapshot,
                 subject,
-                methodToken,
-                declaredMethodToken);
+                methodToken);
         if (focused.Method.Method is not { } method)
         {
             throw new InvalidOperationException(
@@ -159,7 +128,8 @@ public static class AssemblyContextMethodAnalysisQuery
                 focused
                     .DeclaredOwnerSuppressesOpportunities,
                 focused.Optimization.Allocation
-                    .InAssemblyTypeIsException),
+                    .InAssemblyTypeIsException,
+                focused.StringReceiverSources),
             [
                 .. focused.Method.Diagnostics
                     .Concat(
@@ -173,8 +143,7 @@ public static class AssemblyContextMethodAnalysisQuery
     static ExactMethodAnalysisBundleBody ExecuteFocused(
         AssemblyImageSnapshot snapshot,
         AssemblyContextSubject subject,
-        int methodToken,
-        int declaredMethodToken)
+        int methodToken)
     {
         EntityHandle entity = MetadataTokens.EntityHandle(methodToken);
         if (entity.Kind != HandleKind.MethodDefinition)
@@ -184,45 +153,18 @@ public static class AssemblyContextMethodAnalysisQuery
                 nameof(methodToken));
         }
 
-        EntityHandle declaredEntity =
-            MetadataTokens.EntityHandle(declaredMethodToken);
-        if (declaredEntity.Kind != HandleKind.MethodDefinition)
-        {
-            throw new ArgumentException(
-                $"Token 0x{declaredMethodToken:X8} is not a MethodDef token.",
-                nameof(declaredMethodToken));
-        }
-        bool readsDeclaredSource =
-            declaredMethodToken != methodToken;
-        ExactMethodAnalysisBundleProducer producer =
-            readsDeclaredSource
-                ? DeclaredSourceProducer
-                : FocusedProducer;
-        WorkDescription work =
-            readsDeclaredSource
-                ? DeclaredSourceWork
-                : FocusedWork;
         MethodDefinitionSourceBreadth breadth =
-            readsDeclaredSource
-                ? MethodDefinitionSourceBreadth
-                    .ExactMethods(
-                        (MethodDefinitionHandle)declaredEntity)
-                    .IncludeGeneratedExecutionBodies()
-                : MethodDefinitionSourceBreadth.ExactMethods(
-                    (MethodDefinitionHandle)entity);
+            MethodDefinitionSourceBreadth.ExactMethods(
+                (MethodDefinitionHandle)entity);
         var limits = new MethodDefinitionTerminalWorkLimits(
-            maximumBodies:
-                readsDeclaredSource
-                    ? MethodDefinitionGeneratedExpansionLimits
-                        .Default.MaximumGeneratedMethods + 1
-                    : 1,
+            maximumBodies: 1,
             maximumEncodedIlBytes: int.MaxValue);
         MethodDefinitionSourceRequest<
             ExactMethodAnalysisBundleProducerResult> request =
                 MethodDefinitionSourceRequest<
                     ExactMethodAnalysisBundleProducerResult>.Create(
-                        work,
-                        producer,
+                        FocusedWork,
+                        FocusedProducer,
                         breadth,
                         limits);
         AssemblyAnalysisOperation<
@@ -259,7 +201,7 @@ public static class AssemblyContextMethodAnalysisQuery
                 .Execution;
         ProducerResult<ExactMethodAnalysisBundleProducerResult>
             producerResult =
-                execution.ResultOf(producer);
+                execution.ResultOf(FocusedProducer);
         if (!producerResult.HasValue)
         {
             throw new InvalidOperationException(

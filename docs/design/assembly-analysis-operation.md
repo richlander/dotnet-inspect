@@ -457,10 +457,11 @@ intrinsic optimization opportunities. The same operation publishes complete
 direct-call provenance and final `MethodSignals`, retains a successfully
 resolved call prefix after a later recoverable operand failure, and applies
 final opportunity enrichment directly to the exact evidence. When the
-selected physical body differs from its declared member, the query supplies
-the selected declaration and bounded generated expansion authenticates the
-declared-source relation before caller attribution or generated-owner
-suppression. `AssemblyContextMethodAnalysisQuery` no longer invokes
+selected physical body differs from its declared member, receipted exact
+method-analysis support authenticates the ultimate declared owner without
+expanding terminal breadth or visiting sibling bodies; caller attribution and
+generated-owner suppression consume that result.
+`AssemblyContextMethodAnalysisQuery` no longer invokes
 `LibraryBodyAnalysisService`. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.

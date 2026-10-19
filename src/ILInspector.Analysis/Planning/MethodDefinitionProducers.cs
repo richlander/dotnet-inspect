@@ -823,6 +823,29 @@ public readonly ref struct MethodDefinitionView
     }
 
     /// <summary>
+    /// Resolves the exact physical MethodDef's authenticated declared owner
+    /// through receipted method-analysis support.
+    /// </summary>
+    internal ExactMethodDeclaredSource ResolveDeclaredSource(
+        MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMethodAnalysisLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "method-analysis support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastMethodAnalysisUnit,
+            Token,
+            ref producer.MethodAnalysisUses);
+        return _unit.ResolveDeclaredSource(method);
+    }
+
+    /// <summary>
     /// The unit's IL-ordered call sites with resolved member identity and typed
     /// target, decoded once per physical MethodDef.
     /// </summary>
@@ -1837,6 +1860,56 @@ internal struct MethodDefinitionUnit(
             lookup,
             before,
             resolver);
+    }
+
+    public ExactMethodDeclaredSource ResolveDeclaredSource(
+        MethodIdentity method)
+    {
+        MethodAnalysisSupport support =
+            _methodAnalysis ?? throw new InvalidOperationException(
+                "Method-analysis support was not declared by any planned "
+                + "producer.");
+        MethodAnalysisLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _physicalSourceCoverage.RecordMethodAnalysisConstruction();
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage
+                    ?.RecordMethodAnalysisConstruction();
+            }
+        }
+
+        MethodAnalysisSupportWork before =
+            lookup.RecordedWork;
+        try
+        {
+            return lookup.ResolveDeclaredSource(
+                MethodHandle,
+                MethodDefinition,
+                method);
+        }
+        finally
+        {
+            MethodAnalysisSupportWork work =
+                lookup.RecordedWork.Since(before);
+            _physicalSourceCoverage
+                .RecordMethodAnalysisQuery(
+                    MethodHandle,
+                    work);
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage
+                    ?.RecordMethodAnalysisQuery(
+                        MethodHandle,
+                        work);
+            }
+        }
     }
 
     /// <summary>

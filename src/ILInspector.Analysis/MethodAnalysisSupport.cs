@@ -18,6 +18,8 @@ public sealed record MethodAnalysisSupportWork(
     long StableGetterEncodedIlBytes,
     int AsyncStateMachineTypeRows)
 {
+    public int DeclaredSourceQueries { get; init; }
+
     public static MethodAnalysisSupportWork Empty { get; } =
         new(0, 0, 0, 0, 0, 0, 0);
 
@@ -32,7 +34,12 @@ public sealed record MethodAnalysisSupportWork(
             StableGetterEncodedIlBytes
                 - before.StableGetterEncodedIlBytes,
             AsyncStateMachineTypeRows
-                - before.AsyncStateMachineTypeRows);
+                - before.AsyncStateMachineTypeRows)
+        {
+            DeclaredSourceQueries =
+                DeclaredSourceQueries
+                - before.DeclaredSourceQueries,
+        };
 
     public MethodAnalysisSupportWork Plus(MethodAnalysisSupportWork other) =>
         new(
@@ -49,8 +56,22 @@ public sealed record MethodAnalysisSupportWork(
             checked(StableGetterEncodedIlBytes
                 + other.StableGetterEncodedIlBytes),
             checked(AsyncStateMachineTypeRows
-                + other.AsyncStateMachineTypeRows));
+                + other.AsyncStateMachineTypeRows))
+        {
+            DeclaredSourceQueries =
+                checked(DeclaredSourceQueries
+                    + other.DeclaredSourceQueries),
+        };
 }
+
+/// <summary>
+/// Authenticated declared owner of one exact physical MethodDef.
+/// </summary>
+public sealed record ExactMethodDeclaredSource(
+    MethodIdentity? Owner,
+    bool SuppressesOpportunities,
+    bool IsAuthenticated,
+    string? Failure);
 
 /// <summary>
 /// Exact method-analysis support work in one Method source receipt.
@@ -83,6 +104,10 @@ internal sealed class MethodAnalysisLookup
     int _stableGetterBodiesRead;
     long _stableGetterEncodedIlBytes;
     int _asyncStateMachineTypeRows;
+    int _declaredSourceQueries;
+    readonly string _path;
+    readonly PEReader _peReader;
+    DeclaredSourceAttribution? _declaredSourceAttribution;
 
     internal MethodAnalysisLookup(
         string path,
@@ -96,6 +121,8 @@ internal sealed class MethodAnalysisLookup
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(peReader);
 
+        _path = path;
+        _peReader = peReader;
         _reader = reader;
         AssemblyName = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
@@ -174,7 +201,11 @@ internal sealed class MethodAnalysisLookup
             Volatile.Read(ref _stableReceiverQueries),
             Volatile.Read(ref _stableGetterBodiesRead),
             Interlocked.Read(ref _stableGetterEncodedIlBytes),
-            Volatile.Read(ref _asyncStateMachineTypeRows));
+            Volatile.Read(ref _asyncStateMachineTypeRows))
+        {
+            DeclaredSourceQueries =
+                Volatile.Read(ref _declaredSourceQueries),
+        };
 
     internal ILibraryMethodAnalysisResolver CreateResolver(
         TypeDefinition typeDefinition,
@@ -187,6 +218,58 @@ internal sealed class MethodAnalysisLookup
                 methodDefinition),
             caller,
             instructions);
+
+    internal ExactMethodDeclaredSource ResolveDeclaredSource(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodIdentity method)
+    {
+        Interlocked.Increment(
+            ref _declaredSourceQueries);
+        DeclaredSourceAttribution attribution =
+            _declaredSourceAttribution
+            ??= new(
+                _path,
+                _reader,
+                _peReader,
+                methodAnalysis: this);
+        bool typeSourceGenerated =
+            attribution.GeneratedProvenanceClassifier
+                .IsSourceGeneratedTypeOrEnclosing(
+                    methodDefinition.GetDeclaringType());
+        DeclaredOwnerResolution resolution =
+            attribution.DeclaredSourceResolver
+                .ResolveUltimateDeclaredMethod(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    typeSourceGenerated,
+                    out _,
+                    out AuthenticatedSourceOwner?
+                        ultimateOwner);
+        return resolution switch
+        {
+            DeclaredOwnerResolution.Resolved
+                when ultimateOwner is { } owner =>
+                new(
+                    owner.Method,
+                    owner.SuppressesOpportunities,
+                    IsAuthenticated: true,
+                    Failure: null),
+            DeclaredOwnerResolution.None =>
+                new(
+                    Owner: null,
+                    SuppressesOpportunities: false,
+                    IsAuthenticated: true,
+                    Failure: null),
+            _ => new(
+                Owner: null,
+                SuppressesOpportunities: true,
+                IsAuthenticated: false,
+                Failure:
+                    $"Declared owner resolution was {resolution}."),
+        };
+    }
 
     bool GenericParameterCanBeValueType(
         TypeRef genericParameter,

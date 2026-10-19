@@ -252,7 +252,11 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(1, coverage.Calls.CallReads);
         Assert.Equal(1, coverage.Calls.LocalSignatureReads);
         Assert.True(coverage.CallTargets.Constructed);
-        Assert.Equal(2, coverage.MethodAnalysis.Queries);
+        Assert.Equal(3, coverage.MethodAnalysis.Queries);
+        Assert.Equal(
+            1,
+            coverage.MethodAnalysis.QueryWork
+                .DeclaredSourceQueries);
 
         ProducerParticipation allocation =
             request.WorkReceipt.For(
