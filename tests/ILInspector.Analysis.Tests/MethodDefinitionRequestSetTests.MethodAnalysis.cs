@@ -79,6 +79,29 @@ public sealed partial class MethodDefinitionRequestSetTests
         using var stream = File.OpenRead(path);
         using var pe = new PEReader(stream);
         MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinition definition =
+            reader.GetMethodDefinition(method);
+        DecodedInstruction constructor =
+            Assert.Single(
+                InstructionDecoder.Decode(
+                    pe.GetMethodBody(
+                            definition.RelativeVirtualAddress)
+                        .GetILBytes()!),
+                instruction =>
+                    instruction.OpCode == ILOpCode.Newobj);
+        EntityHandle constructorHandle =
+            MetadataTokens.EntityHandle(
+                MethodInstructionFacts.OperandInt32(constructor));
+        Assert.Equal(
+            HandleKind.MemberReference,
+            constructorHandle.Kind);
+        MemberReferenceHandle constructorReference =
+            (MemberReferenceHandle)constructorHandle;
+        int constructorSignatureBytes =
+            reader.GetBlobReader(
+                    reader.GetMemberReference(constructorReference)
+                        .Signature)
+                .Length;
         Type? asyncStateMachine = Array.Find(
             typeof(MethodAnalysisSupportFixture).Assembly.GetTypes(),
             type => type.IsClass
@@ -145,6 +168,10 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(0, coverage.ModuleLookupMethods.Count);
         Assert.Equal(1, coverage.BodiesAcquired.Count);
         Assert.True(support.QueryWork.StableReceiverQueries > 0);
+        Assert.Equal(1, support.QueryWork.MethodReferencesResolved);
+        Assert.Equal(
+            2L * Math.Max(constructorSignatureBytes, 1),
+            support.QueryWork.MethodReferenceSignatureWork);
         Assert.Equal(1, support.QueryWork.StableGetterBodiesRead);
         Assert.True(support.QueryWork.StableGetterEncodedIlBytes > 0);
         Assert.Equal(
@@ -462,6 +489,7 @@ public static class MethodAnalysisSupportFixture
     {
         object[] values = new object[2];
         values[0] = holder.Value;
+        values[1] = new object();
         return values;
     }
 }
