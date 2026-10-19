@@ -185,28 +185,197 @@ public sealed partial class UnsafeMemberFindingsTests
             evidence => evidence.Kind == UnsafeMemberUseKind.ExplicitContractCall);
     }
 
-    // Retained-prefix expansion bounds belong to #9864. Until they land, a
-    // reached bound fails the census visibly instead of presenting the
-    // empty breadth as a negative.
-    [Fact]
-    public void TypeScopeExpansionBoundFailsTheCensusVisibly()
+    // A reached expansion bound keeps the retained prefix: the census is
+    // available, carries the attribution-bound limitation, and every finding
+    // it keeps is evidence the unbounded census also reports for the same
+    // member. Sweeping the bound covers a cut at every step of the walk.
+    [Theory]
+    [InlineData("GeneratedIteratorLiftedUnsafeSample")]
+    [InlineData("TypeScopeCapturingLambda")]
+    [InlineData("TypeScopeAsyncMethod")]
+    public void TypeScopeExpansionBoundKeepsTheRetainedPrefix(string typeName)
     {
-        var limits = new MethodDefinitionGeneratedExpansionLimits(
-            maximumCandidateDefinitions: 1,
-            maximumGeneratedMethods: 1,
-            maximumProbeBodies: 1,
-            maximumProbeEncodedIlBytes: 1,
-            maximumRelationshipNodes: 1);
+        TypeDefinitionHandle type = FixtureType(IteratorFixturePath, typeName);
+        var full = Assert.IsType<UnsafeMemberCensusResult.Available>(
+            TypeScopeCensus(IteratorFixturePath, [type]));
+        Assert.False(full.SourceReceipt.Coverage.GeneratedExpansion.IsBounded);
+        Assert.DoesNotContain(
+            full.Census.Limitations,
+            static limitation => limitation.Reason
+                == UnsafeMemberLimitationReason.AttributionBounded);
+        HashSet<string> fullEvidence = EvidenceKeys(full.Census);
 
-        var failed = Assert.IsType<UnsafeMemberCensusResult.Failed>(
-            TypeScopeCensus(
-                IteratorFixturePath,
-                [FixtureType(IteratorFixturePath, "GeneratedIteratorLiftedUnsafeSample")],
-                limits));
+        int bounded = 0;
+        int boundedWithFindings = 0;
+        for (int limit = 1; ; limit++)
+        {
+            var limits = new MethodDefinitionGeneratedExpansionLimits(
+                maximumCandidateDefinitions: limit,
+                maximumGeneratedMethods: limit,
+                maximumProbeBodies: limit,
+                maximumProbeEncodedIlBytes: 64L * limit,
+                maximumRelationshipNodes: limit);
+            var scoped = Assert.IsType<UnsafeMemberCensusResult.Available>(
+                TypeScopeCensus(IteratorFixturePath, [type], limits));
+            MethodDefinitionSourceReceipt receipt = scoped.SourceReceipt;
+            if (!receipt.Coverage.GeneratedExpansion.IsBounded)
+            {
+                // Once the walk fits, the census is the unbounded one.
+                Assert.Equal(
+                    MethodDefinitionSourceCompletion.Exhausted,
+                    receipt.Completion);
+                Assert.Equal(
+                    full.Census.Members.Select(FindingKey),
+                    scoped.Census.Members.Select(FindingKey));
+                break;
+            }
 
-        Assert.Equal(ProducerOutcome.Failed, failed.Outcome);
-        Assert.Contains("limit was exhausted", failed.Error.Message, StringComparison.Ordinal);
+            bounded++;
+            Assert.Equal(
+                MethodDefinitionSourceCompletion.SourceIncomplete,
+                receipt.Completion);
+            Assert.Equal(
+                ProducerOutcome.SourceBounded,
+                scoped.Receipt.For(UnsafeMemberCensusProducer.Instance).Outcome);
+            UnsafeMemberLimitation limitation = Assert.Single(
+                scoped.Census.Limitations,
+                static limitation => limitation.Reason
+                    == UnsafeMemberLimitationReason.AttributionBounded);
+            Assert.Null(limitation.BodyToken);
+            Assert.Subset(fullEvidence, EvidenceKeys(scoped.Census));
+            if (scoped.Census.Members.Length > 0)
+                boundedWithFindings++;
+            Assert.True(limit < 1_000, "The expansion never fit its bounds.");
+        }
+
+        Assert.True(bounded > 0);
+        Assert.True(boundedWithFindings > 0);
     }
+
+    // Each bound dimension cuts the declared-source relation to a prefix of
+    // the settled one: every outcome it keeps is one the settled relation
+    // publishes, and every origin's body is in breadth. A bound swallowed as
+    // a rejection would instead publish an outcome the settled relation does
+    // not.
+    [Theory]
+    [InlineData("GeneratedIteratorLiftedUnsafeSample")]
+    [InlineData("TypeScopeCapturingLambda")]
+    [InlineData("TypeScopeAsyncMethod")]
+    [InlineData("UnclaimedGeneratedBodySample")]
+    public void DeclaredSourceRelationBoundIsAPrefixOfTheSettledRelation(
+        string typeName)
+    {
+        TypeDefinitionHandle type = FixtureType(IteratorFixturePath, typeName);
+        MethodDefinitionSourceCoverage settled =
+            Assert.IsType<UnsafeMemberCensusResult.Available>(
+                    TypeScopeCensus(IteratorFixturePath, [type]))
+                .SourceReceipt.Coverage;
+        Assert.False(settled.GeneratedExpansion.IsBounded);
+
+        MethodDefinitionGeneratedExpansionLimits defaults =
+            MethodDefinitionGeneratedExpansionLimits.Default;
+        foreach (MethodDefinitionGeneratedExpansionLimitKind dimension
+            in Enum.GetValues<MethodDefinitionGeneratedExpansionLimitKind>())
+        {
+            for (int limit = 1; limit < 1_000; limit++)
+            {
+                MethodDefinitionGeneratedExpansionLimits limits = dimension switch
+                {
+                    MethodDefinitionGeneratedExpansionLimitKind.CandidateDefinitions =>
+                        new(limit, defaults.MaximumGeneratedMethods, defaults.MaximumProbeBodies, defaults.MaximumProbeEncodedIlBytes, defaults.MaximumRelationshipNodes),
+                    MethodDefinitionGeneratedExpansionLimitKind.GeneratedMethods =>
+                        new(defaults.MaximumCandidateDefinitions, limit, defaults.MaximumProbeBodies, defaults.MaximumProbeEncodedIlBytes, defaults.MaximumRelationshipNodes),
+                    MethodDefinitionGeneratedExpansionLimitKind.ProbeBodies =>
+                        new(defaults.MaximumCandidateDefinitions, defaults.MaximumGeneratedMethods, limit, defaults.MaximumProbeEncodedIlBytes, defaults.MaximumRelationshipNodes),
+                    MethodDefinitionGeneratedExpansionLimitKind.ProbeEncodedIlBytes =>
+                        new(defaults.MaximumCandidateDefinitions, defaults.MaximumGeneratedMethods, defaults.MaximumProbeBodies, 16L * limit, defaults.MaximumRelationshipNodes),
+                    _ =>
+                        new(defaults.MaximumCandidateDefinitions, defaults.MaximumGeneratedMethods, defaults.MaximumProbeBodies, defaults.MaximumProbeEncodedIlBytes, limit),
+                };
+                MethodDefinitionSourceCoverage coverage =
+                    Assert.IsType<UnsafeMemberCensusResult.Available>(
+                            TypeScopeCensus(IteratorFixturePath, [type], limits))
+                        .SourceReceipt.Coverage;
+                MethodDefinitionGeneratedExpansionCoverage expansion =
+                    coverage.GeneratedExpansion;
+                if (!expansion.IsBounded)
+                {
+                    Assert.Equal(settled.GeneratedExpansion.Origins, expansion.Origins);
+                    break;
+                }
+
+                Assert.Equal(dimension, expansion.ReachedLimit);
+                Assert.Subset(
+                    settled.GeneratedExpansion.Origins.ToHashSet(),
+                    expansion.Origins.ToHashSet());
+                Assert.Subset(
+                    settled.GeneratedExpansion.AttributedOutsideRoles.ToHashSet(),
+                    expansion.AttributedOutsideRoles.ToHashSet());
+                Assert.Subset(
+                    settled.GeneratedExpansion.UnauthenticatedCandidates.ToHashSet(),
+                    expansion.UnauthenticatedCandidates.ToHashSet());
+                Assert.All(
+                    expansion.Origins,
+                    origin => Assert.True(coverage.MethodsSelected.Contains(origin.Method)));
+                Assert.All(
+                    coverage.MethodsSelected.Ranges.SelectMany(static range =>
+                        Enumerable.Range(
+                                MetadataTokens.GetRowNumber(range.First),
+                                range.Count)
+                            .Select(MetadataTokens.MethodDefinitionHandle)),
+                    method => Assert.True(settled.MethodsSelected.Contains(method)));
+            }
+        }
+    }
+
+    // A bound is never a recoverable method failure, so no resolver handler
+    // can turn it into a rejected or unauthenticated outcome; even one that
+    // is caught still bounds the relation. After expansion settles, a module
+    // lookup's charge is that unit's recoverable failure, as before.
+    [Fact]
+    public void ExpansionBoundIsNotRecoverableAndAlwaysBoundsTheRelation()
+    {
+        var work = new MethodDefinitionGeneratedExpansionWork(
+            new MethodDefinitionGeneratedExpansionLimits(
+                maximumCandidateDefinitions: 1,
+                maximumGeneratedMethods: 1,
+                maximumProbeBodies: 1,
+                maximumProbeEncodedIlBytes: 1,
+                maximumRelationshipNodes: 1));
+        work.RecordCandidateDefinition(MetadataTokens.MethodDefinitionHandle(1));
+
+        var bound = Assert.Throws<MethodDefinitionGeneratedExpansionBoundException>(
+            () => work.RecordCandidateDefinition(
+                MetadataTokens.MethodDefinitionHandle(2)));
+        Assert.False(AnalysisMethodFailures.IsRecoverable(bound));
+        Assert.False(LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(bound));
+        Assert.Same(bound, work.Reached);
+        MethodDefinitionGeneratedExpansionCoverage coverage =
+            work.BuildBounded(bound);
+        Assert.Equal(
+            MethodDefinitionGeneratedExpansionLimitKind.CandidateDefinitions,
+            coverage.ReachedLimit);
+        Assert.Equal(
+            MetadataTokens.GetToken(MetadataTokens.MethodDefinitionHandle(2)),
+            coverage.ReachedAtToken);
+        Assert.Equal(1, coverage.CandidateDefinitionsExamined.Count);
+
+        work.Settle();
+        var late = Assert.Throws<InvalidOperationException>(
+            () => work.RecordCandidateDefinition(
+                MetadataTokens.MethodDefinitionHandle(3)));
+        Assert.IsNotType<MethodDefinitionGeneratedExpansionBoundException>(late);
+        Assert.True(LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(late));
+    }
+
+    // One key per piece of evidence and the member it is reported under.
+    static HashSet<string> EvidenceKeys(UnsafeMemberCensus census) =>
+    [
+        .. census.Members.SelectMany(static finding => finding.Evidence.Select(
+            evidence =>
+                $"{finding.Member.MetadataToken:X8}<-{evidence.Body.MetadataToken:X8}:"
+                + $"{evidence.Kind}@{evidence.ILOffset}:{evidence.Detail}")),
+    ];
 
     // Breadth and terminal work stay within the selected type and its
     // declared expansion; the module-wide inputs are execution-scoped

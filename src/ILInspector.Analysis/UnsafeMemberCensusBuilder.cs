@@ -43,7 +43,8 @@ internal static class UnsafeMemberCensusBuilder
         IReadOnlyList<UnsafeMemberBodyFacts> bodies,
         bool hasFullMethodEvidenceScope,
         ReferenceAssemblyState referenceAssembly,
-        UnsafeMemberRootSet roots)
+        UnsafeMemberRootSet roots,
+        bool attributionBounded = false)
     {
         ArgumentNullException.ThrowIfNull(bodies);
         ArgumentNullException.ThrowIfNull(roots);
@@ -52,6 +53,8 @@ internal static class UnsafeMemberCensusBuilder
             ImmutableArray.CreateBuilder<UnsafeMemberLimitation>();
         if (!hasFullMethodEvidenceScope)
             limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.ScopedReceipt));
+        if (attributionBounded)
+            limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.AttributionBounded));
         if (referenceAssembly == ReferenceAssemblyState.Reference)
             limitations.Add(ImageLimitation(UnsafeMemberLimitationReason.ReferenceAssembly));
         else if (referenceAssembly == ReferenceAssemblyState.Undecidable)

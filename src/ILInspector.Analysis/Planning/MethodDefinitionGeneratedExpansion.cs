@@ -18,10 +18,17 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     readonly HashSet<int> _unauthenticatedRows = [];
     long _probeEncodedIlBytes;
     int _relationshipNodes;
+    MethodDefinitionGeneratedExpansionBoundException? _reached;
+    bool _settled;
 
     internal MethodDefinitionGeneratedExpansionWork(
         MethodDefinitionGeneratedExpansionLimits limits) =>
         _limits = limits;
+
+    // A work counter includes the attempt that reached its bound, because
+    // that work was done. An outcome recorder checks its bound before it
+    // records, so a reached bound leaves only outcomes whose bodies are in
+    // breadth: the retained prefix.
 
     internal void RecordCandidateDefinition(
         MethodDefinitionHandle handle)
@@ -33,6 +40,8 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
         {
             throw LimitExceeded(
                 handle,
+                MethodDefinitionGeneratedExpansionLimitKind
+                    .CandidateDefinitions,
                 "generated candidate-definition");
         }
         _candidates.Add(handle);
@@ -41,17 +50,11 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     internal void RecordGeneratedMethod(
         MethodDefinitionGeneratedExpansionOrigin origin)
     {
-        if (!_origins.Add(origin))
+        if (_origins.Contains(origin))
             return;
 
-        int row = MetadataTokens.GetRowNumber(origin.Method);
-        if (_generatedRows.Add(row)
-            && _generatedRows.Count > _limits.MaximumGeneratedMethods)
-        {
-            throw LimitExceeded(
-                origin.Method,
-                "generated physical-method");
-        }
+        ReserveGeneratedRow(origin.Method);
+        _origins.Add(origin);
     }
 
     internal void RecordAttributedOutsideRoles(
@@ -67,15 +70,11 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
         bool joinsBreadth)
     {
         int row = MetadataTokens.GetRowNumber(handle);
-        if (!_unauthenticatedRows.Add(row) || !joinsBreadth)
+        if (_unauthenticatedRows.Contains(row))
             return;
-        if (_generatedRows.Add(row)
-            && _generatedRows.Count > _limits.MaximumGeneratedMethods)
-        {
-            throw LimitExceeded(
-                handle,
-                "generated physical-method");
-        }
+        if (joinsBreadth)
+            ReserveGeneratedRow(handle);
+        _unauthenticatedRows.Add(row);
     }
 
     internal void RecordProbeBody(MethodDefinitionHandle handle)
@@ -84,7 +83,12 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
         if (!_probeRows.Add(row))
             return;
         if (_probeRows.Count > _limits.MaximumProbeBodies)
-            throw LimitExceeded(handle, "generated-discovery probe-body");
+        {
+            throw LimitExceeded(
+                handle,
+                MethodDefinitionGeneratedExpansionLimitKind.ProbeBodies,
+                "generated-discovery probe-body");
+        }
         _probeBodies.Add(handle);
     }
 
@@ -94,11 +98,12 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     {
         ArgumentOutOfRangeException.ThrowIfNegative(bytes);
         _probeEncodedIlBytes = checked(_probeEncodedIlBytes + bytes);
-        if (_probeEncodedIlBytes
-            > _limits.MaximumProbeEncodedIlBytes)
+        if (_probeEncodedIlBytes > _limits.MaximumProbeEncodedIlBytes)
         {
             throw LimitExceeded(
                 handle,
+                MethodDefinitionGeneratedExpansionLimitKind
+                    .ProbeEncodedIlBytes,
                 "generated-discovery probe encoded-IL-byte");
         }
     }
@@ -108,7 +113,46 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     {
         _relationshipNodes++;
         if (_relationshipNodes > _limits.MaximumRelationshipNodes)
-            throw LimitExceeded(handle, "generated relationship-node");
+        {
+            throw LimitExceeded(
+                handle,
+                MethodDefinitionGeneratedExpansionLimitKind.RelationshipNodes,
+                "generated relationship-node");
+        }
+    }
+
+    /// <summary>
+    /// Settles the work at <paramref name="bound"/>. The bound must be the one
+    /// this work raised, so a caller cannot report a bound that no recorder
+    /// reached.
+    /// </summary>
+    /// <summary>
+    /// Ends expansion. A module lookup that shares this work's attribution can
+    /// still charge it during unit visits; a bound reached then is that unit's
+    /// recoverable failure, as before expansion kept a prefix.
+    /// </summary>
+    internal void Settle() => _settled = true;
+
+    /// <summary>
+    /// The first bound a recorder raised during expansion, even if a handler
+    /// caught it. A raised bound always bounds the relation.
+    /// </summary>
+    internal MethodDefinitionGeneratedExpansionBoundException? Reached =>
+        _reached;
+
+    internal MethodDefinitionGeneratedExpansionCoverage BuildBounded(
+        MethodDefinitionGeneratedExpansionBoundException bound)
+    {
+        if (!ReferenceEquals(bound, _reached))
+        {
+            throw new InvalidOperationException(
+                "The expansion bound was not raised by this work.");
+        }
+        return Build() with
+        {
+            ReachedLimit = bound.Limit,
+            ReachedAtToken = bound.SubjectToken,
+        };
     }
 
     internal MethodDefinitionGeneratedExpansionCoverage Build() =>
@@ -124,6 +168,21 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
                 .Select(static row =>
                     MetadataTokens.MethodDefinitionHandle(row))]);
 
+    void ReserveGeneratedRow(MethodDefinitionHandle handle)
+    {
+        int row = MetadataTokens.GetRowNumber(handle);
+        if (_generatedRows.Contains(row))
+            return;
+        if (_generatedRows.Count == _limits.MaximumGeneratedMethods)
+        {
+            throw LimitExceeded(
+                handle,
+                MethodDefinitionGeneratedExpansionLimitKind.GeneratedMethods,
+                "generated physical-method");
+        }
+        _generatedRows.Add(row);
+    }
+
     static ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Ordered(
         IEnumerable<MethodDefinitionGeneratedExpansionOrigin> origins) =>
         [.. origins
@@ -134,18 +193,49 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
                 MetadataTokens.GetRowNumber(origin.DeclaredOwner))
             .ThenBy(static origin => origin.Role)];
 
-    static InvalidOperationException LimitExceeded(
+    Exception LimitExceeded(
         EntityHandle subject,
-        string dimension) =>
-        new(
+        MethodDefinitionGeneratedExpansionLimitKind limit,
+        string dimension)
+    {
+        string message =
             $"Method generated-body expansion {dimension} limit was "
             + "exhausted at "
-            + $"0x{MetadataTokens.GetToken(subject):X8}.");
+            + $"0x{MetadataTokens.GetToken(subject):X8}.";
+        if (_settled)
+            return new InvalidOperationException(message);
+
+        // The first reached bound ends expansion; a later recorder call
+        // reports the same bound.
+        _reached ??= new(limit, MetadataTokens.GetToken(subject), message);
+        return _reached;
+    }
 }
 
+/// <summary>
+/// A declared generated-expansion bound was reached. It is not a recoverable
+/// method failure, so no resolver's recoverable-failure handler can turn it
+/// into an unauthenticated or rejected outcome; only the expansion driver
+/// settles it into the retained prefix.
+/// </summary>
+internal sealed class MethodDefinitionGeneratedExpansionBoundException(
+    MethodDefinitionGeneratedExpansionLimitKind limit,
+    int subjectToken,
+    string message)
+    : Exception(message)
+{
+    internal MethodDefinitionGeneratedExpansionLimitKind Limit { get; } = limit;
+
+    internal int SubjectToken { get; } = subjectToken;
+}
+
+/// <param name="Bound">
+/// The reached bound when <paramref name="Methods"/> is a retained prefix.
+/// </param>
 internal sealed record MethodDefinitionGeneratedExpansionResult(
     ImmutableArray<MethodDefinitionHandle> Methods,
-    MethodDefinitionGeneratedExpansionCoverage Coverage);
+    MethodDefinitionGeneratedExpansionCoverage Coverage,
+    MethodDefinitionGeneratedExpansionBoundException? Bound = null);
 
 /// <summary>
 /// One visited unit's outcome in the declared-source relation, as
