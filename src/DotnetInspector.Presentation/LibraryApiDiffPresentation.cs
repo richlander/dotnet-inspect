@@ -1358,7 +1358,8 @@ public static class LibraryApiDiffPresentationAdapter
                 or ChangeKind.TypeParameterConstraintTightened
                 or ChangeKind.TypeParameterConstraintLoosened
                 or ChangeKind.TypeAttributeAdded
-                or ChangeKind.TypeAttributeRemoved => true,
+                or ChangeKind.TypeAttributeRemoved
+                or ChangeKind.TypeAccessibilityChanged => true,
             ChangeKind.MemberAdded
                 or ChangeKind.MemberRemoved
                 or ChangeKind.MemberSignatureChanged
@@ -1366,7 +1367,8 @@ public static class LibraryApiDiffPresentationAdapter
                 or ChangeKind.AbstractMemberAdded
                 or ChangeKind.EnumValueChanged
                 or ChangeKind.MemberAttributeAdded
-                or ChangeKind.MemberAttributeRemoved => false,
+                or ChangeKind.MemberAttributeRemoved
+                or ChangeKind.MemberAccessibilityChanged => false,
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 

@@ -51,6 +51,11 @@ public enum ChangeKind
     TypeAttributeRemoved,
     MemberAttributeAdded,
     MemberAttributeRemoved,
+
+    // Accessibility within the API axis (public, protected internal, protected):
+    // narrowing is breaking, widening is additive.
+    TypeAccessibilityChanged,
+    MemberAccessibilityChanged,
 }
 
 /// <summary>
@@ -612,6 +617,14 @@ public static class ApiDiffAnalyzer
 
     private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes)
     {
+        CompareAccessibility(
+            oldType.Accessibility,
+            newType.Accessibility,
+            ChangeKind.TypeAccessibilityChanged,
+            $"Type '{oldType.FullName}'",
+            ApiChangeSubject.Type(oldType, newType),
+            changes);
+
         // Kind changed
         if (oldType.Kind != newType.Kind)
         {
@@ -940,6 +953,14 @@ public static class ApiDiffAnalyzer
 
     internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
     {
+        CompareAccessibility(
+            oldMember.Accessibility,
+            newMember.Accessibility,
+            ChangeKind.MemberAccessibilityChanged,
+            $"Member '{oldMember.Name}'",
+            ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
+            changes);
+
         // Virtual removed
         if (oldMember.IsVirtual && !newMember.IsVirtual)
         {
@@ -970,6 +991,54 @@ public static class ApiDiffAnalyzer
                 Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
         }
     }
+
+    /// <summary>
+    /// Reports an accessibility change between two API axis buckets
+    /// (docs/design/diff-capabilities.md#axes). Narrowing removes the subject from
+    /// some callers, so it is breaking, as public to internal is; widening is
+    /// additive. A change that leaves the axis on either side is a population
+    /// difference, which surfaces as a removal or an addition instead, so the
+    /// ordinary public presentation, where both sides are public, never reports one.
+    /// </summary>
+    static void CompareAccessibility(
+        string? oldAccessibility,
+        string? newAccessibility,
+        ChangeKind kind,
+        string subjectText,
+        ApiChangeSubject subject,
+        List<ApiChange> changes)
+    {
+        if (ApiAxisAccessRank(oldAccessibility) is not { } oldRank
+            || ApiAxisAccessRank(newAccessibility) is not { } newRank
+            || oldRank == newRank)
+        {
+            return;
+        }
+
+        string oldText = string.IsNullOrEmpty(oldAccessibility) ? "public" : oldAccessibility;
+        string newText = string.IsNullOrEmpty(newAccessibility) ? "public" : newAccessibility;
+        bool narrowed = newRank < oldRank;
+        changes.Add(new ApiChange(
+            kind,
+            narrowed ? ChangeClassification.Breaking : ChangeClassification.Additive,
+            $"{subjectText} accessibility {(narrowed ? "narrowed" : "widened")} from '{oldText}' to '{newText}'",
+            oldText,
+            newText,
+            Subject: subject));
+    }
+
+    /// <summary>
+    /// The reach of an API axis accessibility, widest first; <see langword="null"/>
+    /// outside the axis. <c>protected internal</c> reaches every caller
+    /// <c>protected</c> does, and the declaring assembly's friends too.
+    /// </summary>
+    static int? ApiAxisAccessRank(string? accessibility) => accessibility switch
+    {
+        null or "" or "public" => 3,
+        "protected internal" => 2,
+        "protected" => 1,
+        _ => null,
+    };
 
     private static List<ApiMember> FilterMembers(List<ApiMember>? members)
     {

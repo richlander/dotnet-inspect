@@ -689,6 +689,44 @@ public class ApiDiffAnalyzerTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
     }
 
+    [Theory]
+    [InlineData(null, "protected", ChangeClassification.Breaking)]
+    [InlineData("protected internal", "protected", ChangeClassification.Breaking)]
+    [InlineData("protected", null, ChangeClassification.Additive)]
+    public void MemberAccessibilityChange_WithinTheApiAxis_IsClassifiedByDirection(
+        string? oldAccessibility,
+        string? newAccessibility,
+        ChangeClassification classification)
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        oldMember.Accessibility = oldAccessibility;
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = newAccessibility;
+
+        var diff = ApiDiffAnalyzer.Compare(
+            Surface(Type("Foo", members: [oldMember])),
+            Surface(Type("Foo", members: [newMember])));
+
+        var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberAccessibilityChanged, change.Kind);
+        Assert.Equal(classification, change.Classification);
+    }
+
+    [Fact]
+    public void MemberAccessibilityChange_LeavingTheApiAxis_IsNotAnAccessibilityChange()
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        oldMember.Accessibility = "protected";
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = "internal";
+
+        var diff = ApiDiffAnalyzer.Compare(
+            Surface(Type("Foo", members: [oldMember])),
+            Surface(Type("Foo", members: [newMember])));
+
+        Assert.Empty(diff.TypeDiffs);
+    }
+
     [Fact]
     public void AbstractMemberAdded_IsBreaking()
     {

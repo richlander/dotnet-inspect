@@ -261,9 +261,19 @@ Fast Diff follows it; the axis never keeps a private exception.
   local-function-only bodies, constraint Types, constants, defaults,
   parameter names, attributes, interfaces, visibility, and added and removed
   Types;
-- API exactness: every Type's API state equals whether the complete Public
-  API comparison of the API axis surface reports a change to it or one of its
-  Members, over three fixture pairs;
+- API exactness, in both directions: every Type's API state equals whether
+  the complete Public API comparison of the API axis surface reports a change
+  to it or one of its Members, over three fixture pairs. A changed non-enum
+  constant is the one known exception: Fast Diff reports it, and the complete
+  comparison does not yet compare constant values;
+- accessibility: a Member or nested Type whose accessibility moves between
+  API axis buckets is API `Changed`, and the complete comparison of the API
+  axis surface reports `MemberAccessibilityChanged` or
+  `TypeAccessibilityChanged`, breaking when narrowed (`public` to `protected`
+  or `protected internal`, `protected internal` to `protected`) and additive
+  when widened; the ordinary Public surface reports a move across the
+  `public` boundary as a removal or an addition, and an accessor's
+  accessibility as a signature change;
 - presented facts: for every fact kind treated as presented, a fixture case
   in which that fact alone differs, and the complete comparison reports the
   change; a kind without such a case is uncertain;

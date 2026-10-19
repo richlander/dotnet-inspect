@@ -165,3 +165,48 @@ public class PrivateProtectedMemberAdded
 {
     public int Value(int x) => x;
 }
+
+// Accessibility changes within the API axis.
+public class PublicToProtected
+{
+    public int Value(int x) => x;
+}
+
+public class PublicToProtectedInternal
+{
+    public int Value(int x) => x;
+}
+
+public class ProtectedInternalToProtected
+{
+    protected internal int Value(int x) => x;
+}
+
+public class ProtectedToProtectedInternal
+{
+    protected int Value(int x) => x;
+}
+
+public class ProtectedInternalToPublic
+{
+    protected internal int Value(int x) => x;
+}
+
+public class SetterToProtected
+{
+    public int Value { get; set; }
+}
+
+public class NestedPublicToProtected
+{
+    public class Nested
+    {
+    }
+}
+
+public class NestedProtectedToPublic
+{
+    protected class Nested
+    {
+    }
+}
