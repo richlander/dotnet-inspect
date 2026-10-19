@@ -1546,6 +1546,10 @@ operation instead of retaining a settlement root or
 inventory now retains explicit authorization and issues an independent
 operation for every concurrent manifest acquisition under one shared
 inventory deadline; each lease still admits only one active source step.
+Dependency pruning now retains explicit authorization and transfers one
+Package Source operation through its sequential candidate-required declaration
+schedule. Candidate-free applicability remains source-free, and Workspace is
+the remaining production owner of the desktop dependency-candidate adapter.
 
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path

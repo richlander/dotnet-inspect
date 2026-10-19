@@ -227,6 +227,7 @@ public partial class LibraryCommand
         && options.WorkspacePacket is null
         && !options.JsonOutput
         && !options.NamesakeLibrary
+        && !options.FirstLibrary
         && !string.IsNullOrWhiteSpace(options.AssemblyName)
         && TryGetPackageCompileLibrarySelection(
             options.AssemblyName,

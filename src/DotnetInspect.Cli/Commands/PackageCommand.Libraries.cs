@@ -131,7 +131,8 @@ public partial class PackageCommand
             return new OptionError(
                 $"Library aggregate inspection cannot be combined with "
                     + $"{string.Join(", ", conflicts)}. Narrow with "
-                    + "--library <dll> or --namesake-library.");
+                    + "--library <dll>, --namesake-library, or "
+                    + "--first-library.");
         }
 
         return null;
@@ -154,6 +155,7 @@ public partial class PackageCommand
             : !string.IsNullOrWhiteSpace(version)
                 ? $"{packageName}@{version}"
                 : packageName;
+        bool resolvedPayload = false;
         if (options.WorkspaceLibraryAssetPaths is null
             && !Directory.EnumerateFiles(
                     extractPath,
@@ -163,13 +165,24 @@ public partial class PackageCommand
                 extractPath,
                 packageName) is not null)
         {
-            return await LibraryCommand.ExecuteResolvedPackageAsync(
-                CreateLibraryOptions(
-                    options.PackageLibrary,
-                    packageReference,
-                    options,
-                    options.Tfm),
-                extraction).ConfigureAwait(false);
+            LibraryCommand.ToolPayloadResolution payload =
+                await LibraryCommand.TryResolveToolPayloadPackageAsync(
+                    extraction,
+                    target,
+                    options.SourceOptions,
+                    logger,
+                    httpClient).ConfigureAwait(false);
+            if (payload.Error is not null)
+            {
+                CommandError.Write(payload.Error);
+                return 1;
+            }
+
+            extraction = payload.Result!;
+            extractPath = extraction.ExtractPath;
+            packageName = extraction.PackageName ?? packageName;
+            version = extraction.Version ?? version;
+            resolvedPayload = true;
         }
 
         var selected = ResolvePackageLibrary(
@@ -179,7 +192,11 @@ public partial class PackageCommand
             extraction,
             options);
         if (selected == null)
+        {
+            if (resolvedPayload)
+                PackageExtractor.Cleanup(extraction.TempDir);
             return 1;
+        }
 
         return await LibraryCommand.ExecuteResolvedPackageAsync(
             CreateLibraryOptions(
@@ -1057,7 +1074,18 @@ public partial class PackageCommand
             return null;
 
         TfmSelector.PackageLibraryResolution resolution;
-        if (options.NamesakeLibrary)
+        if (options.FirstLibrary)
+        {
+            resolution = candidates.IsSelected
+                ? TfmSelector.SelectFirstPackageLibrary(
+                    candidates.Paths,
+                    extractPath,
+                    packageId,
+                    candidates.Tfm,
+                    candidates.PopulationPath)
+                : candidates;
+        }
+        else if (options.NamesakeLibrary)
         {
             resolution = candidates.IsSelected
                 ? TfmSelector.SelectPackageLibrary(
@@ -1065,7 +1093,8 @@ public partial class PackageCommand
                     extractPath,
                     packageId,
                     requestedLibrary: null,
-                    tfm: candidates.Tfm)
+                    tfm: candidates.Tfm,
+                    populationPath: candidates.PopulationPath)
                 : candidates;
         }
         else
@@ -1079,7 +1108,8 @@ public partial class PackageCommand
                     extractPath,
                     packageId,
                     requestedLibrary,
-                    candidates.Tfm);
+                    candidates.Tfm,
+                    candidates.PopulationPath);
         }
         if (resolution.IsSelected)
             return new PackageLibrarySelection(
@@ -1145,11 +1175,31 @@ public partial class PackageCommand
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
             CommandError.Write($"No library found for TFM '{options.Tfm}' in package '{packageName}'.");
         else if (resolution.Status
+            is TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound
+                or TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeAmbiguous)
+        {
+            string outcome = resolution.Status
+                == TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeNotFound
+                    ? "No namesake library found"
+                    : "Multiple namesake libraries found";
+            CommandError.Write(
+                resolution.PopulationPath is { Length: > 0 } populationPath
+                    ? $"{outcome} in {populationPath}"
+                    : $"{outcome} in the selected Library population");
+        }
+        else if (resolution.Status
             == TfmSelector.PackageLibraryResolutionStatus
                 .NamesakeIdentityUnavailable)
         {
+            string population =
+                resolution.PopulationPath is { Length: > 0 } populationPath
+                    ? populationPath
+                    : "the selected Library population";
             CommandError.Write(
-                $"Namesake Library identity is unavailable in package "
+                $"{(options.FirstLibrary ? "First" : "Namesake")} Library "
+                    + $"identity is unavailable in {population} for package "
                     + $"'{packageName}'.");
             foreach (string path in resolution.IdentityFailurePaths ?? [])
             {
@@ -1166,7 +1216,10 @@ public partial class PackageCommand
             is not (
                 TfmSelector.PackageLibraryResolutionStatus.NoAssemblies
                 or TfmSelector.PackageLibraryResolutionStatus
-                    .NamesakeIdentityUnavailable))
+                    .NamesakeIdentityUnavailable
+                or TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound
+                or TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeAmbiguous))
             WritePackageLibraryCandidates(extractPath, packageName, version, resolution.Tfm ?? options.Tfm, resolution.CandidatePaths.ToList());
     }
 
@@ -1241,7 +1294,8 @@ public partial class PackageCommand
             if (options.PackageLibrary is not null)
             {
                 CommandError.Write(
-                    "--tfm all cannot select one exact or namesake Library; choose one target framework.");
+                    "--tfm all cannot select one exact, namesake, or First "
+                        + "Library; choose one target framework.");
                 return null;
             }
 
@@ -1286,7 +1340,8 @@ public partial class PackageCommand
                 selectedPaths,
                 selection.TargetFramework,
                 TfmSelector.PackageLibraryResolutionStatus.Selected,
-                candidatePaths);
+                candidatePaths,
+                PopulationPath: population.PopulationPath);
         }
         if (population is
             PackageLibraryPopulationSelection.Runtime runtime
@@ -1304,7 +1359,8 @@ public partial class PackageCommand
                 selectedPaths,
                 selected.Universe.TargetFramework,
                 TfmSelector.PackageLibraryResolutionStatus.Selected,
-                selectedPaths);
+                selectedPaths,
+                PopulationPath: population.PopulationPath);
         }
         if (population is
             PackageLibraryPopulationSelection.Tool tool)
@@ -1320,7 +1376,8 @@ public partial class PackageCommand
                 selectedPaths,
                 tool.ToolSelection.SelectedTargetFramework,
                 TfmSelector.PackageLibraryResolutionStatus.Selected,
-                selectedPaths);
+                selectedPaths,
+                PopulationPath: population.PopulationPath);
         }
         if (population is
             PackageLibraryPopulationSelection.NonSuccess nonSuccess)
@@ -2461,5 +2518,6 @@ public partial class PackageCommand
         CommandError.WriteBlankLine();
         CommandError.WriteLine("Use:");
         CommandError.WriteLine($"  dotnet-inspect package {packageReference} --library <dll>");
+        CommandError.WriteLine($"  dotnet-inspect package {packageReference} --first-library");
     }
 }

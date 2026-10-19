@@ -408,9 +408,12 @@ resulting Workspace includes that Package and makes it active. Ordinary
 inspection content goes to stdout; the requested derived packet is the final
 non-empty stderr line under the Share contract. It can be retained as input to
 later commands. The Find invocation illustrates the search-space role owned by
-[Find Workspace scope](find-workspace-scope.md); its packet/population adoption
-is tracked there. Search matches do not automatically add Package contributions
-or change the active Package. The unchanged base can be reused for either path.
+[Find Workspace scope](find-workspace-scope.md#workspace-packet-admission);
+the admission in #10302 accepts registration-only Ecosystem packets before
+the retirement in #10186 removes the transitional Workspace inspection flags. General content-context search remains
+staged under that owner. Search matches do not automatically add Package
+contributions or change the active Package. The unchanged base can be reused
+for either path.
 
 Package addition and Find search follow their source, target and population
 owners' admission rules; ecosystem registration does not promise arbitrary
