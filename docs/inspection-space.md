@@ -1022,21 +1022,22 @@ gates the shared resolver's group-containment boundary.
 It accepts one group participant and physical MethodDef token and first runs
 one exact Method Query Source operation over the participant's retained
 snapshot. That focused operation supplies the matching method identity,
-physical call sites and same-image caller contracts, unsafe evidence and
-occurrences, diagnostics, and detached exception regions. One scoped legacy
-execution still supplies final signals, allocations, and optimization
-opportunities until their producer slices move. Invalid and bodyless tokens
-are typed participant failures rather than empty success. The query does not
-aggregate a source method with async or lifted implementation bodies; callers
-select each exact physical body explicitly. The query releases retained
-legacy call-graph caches before returning, and group execution remains
-sequential for Browser/Wasm.
+physical call sites and same-image caller contracts for call-safety evidence,
+unsafe evidence and occurrences, diagnostics, and detached exception regions.
+One scoped legacy execution still supplies public direct-call rows, final
+signals, allocations, and optimization opportunities until their complete
+semantic inputs move. Invalid and bodyless tokens are typed participant
+failures rather than empty success. The query does not aggregate a source
+method with async or lifted implementation bodies; callers select each exact
+physical body explicitly. The query releases retained legacy call-graph caches
+before returning, and group execution remains sequential for Browser/Wasm.
 `AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
 allocation/call/exception/opportunity evidence, visible invalid and bodyless
 failures, and unbounded query cost.
 `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` additionally
 gates exact breadth, one physical body, declared source capabilities, no
-unrelated module lookup, and focused parity with the retained donor facts.
+unrelated module lookup, and focused identity, safety, diagnostics, and
+exception-region parity with the retained donor facts.
 
 `AssemblyContextImplementationProfilesQuery` is the participant-scoped
 whole-assembly implementation-profile seam. It borrows one selected

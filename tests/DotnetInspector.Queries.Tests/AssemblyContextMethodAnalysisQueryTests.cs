@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -148,9 +149,15 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 call.EvidenceMethod.MetadataToken));
         Assert.All(
             moveNextAnalysis.DirectCalls,
-            call => Assert.Equal(
-                moveNext.MetadataToken,
-                call.EvidenceMethod.MetadataToken));
+            call =>
+            {
+                Assert.Equal(
+                    kickoff.MetadataToken,
+                    call.Caller.MetadataToken);
+                Assert.Equal(
+                    moveNext.MetadataToken,
+                    call.EvidenceMethod.MetadataToken);
+            });
         Assert.All(
             moveNextAnalysis.OptimizationOpportunities,
             opportunity => Assert.Equal(
@@ -162,6 +169,54 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
             diagnostic => Assert.Equal(
                 moveNext.MetadataToken,
                 diagnostic.MethodToken));
+    }
+
+    [Fact]
+    public async Task MethodAnalysis_PreservesDirectCallProvenance()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        int loopToken = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.CallInLoop))!
+            .MetadataToken;
+        AssemblyMethodAnalysis loop = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    loopToken,
+                    TestContext.Current.CancellationToken)).Value;
+        Assert.Contains(
+            loop.DirectCalls,
+            call =>
+                call.Callee.Name == nameof(List<object>.Add)
+                && call.Multiplicity == AllocationMultiplicity.Loop);
+
+        int genericToken = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.ExternalGenericCall))!
+            .MetadataToken;
+        AssemblyMethodAnalysis generic = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    genericToken,
+                    TestContext.Current.CancellationToken)).Value;
+        DirectCall empty = Assert.Single(
+            generic.DirectCalls,
+            call => call.Callee.Name == nameof(Array.Empty));
+        Assert.Equal(
+            HandleKind.MethodSpecification,
+            MetadataTokens.EntityHandle(empty.OperandToken).Kind);
+        Assert.Equal(
+            HandleKind.MemberReference,
+            MetadataTokens.EntityHandle(
+                empty.CalleeDefinitionToken).Kind);
     }
 
     [Fact]
@@ -415,6 +470,14 @@ public static class MethodAnalysisProbe
         values[0] = value;
         return values[0];
     }
+
+    public static void CallInLoop(int count, List<object> sink)
+    {
+        for (int index = 0; index < count; index++)
+            sink.Add(new object());
+    }
+
+    public static int[] ExternalGenericCall() => Array.Empty<int>();
 }
 
 public interface IMethodAnalysisProbe

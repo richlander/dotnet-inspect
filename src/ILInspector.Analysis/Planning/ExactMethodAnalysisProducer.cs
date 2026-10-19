@@ -11,7 +11,6 @@ public sealed record ExactMethodAnalysisBody(
     int MethodToken,
     MethodIdentity? Method,
     bool HasManagedBody,
-    ImmutableArray<DirectCall> DirectCalls,
     ImmutableArray<UnsafeEvidence> SafetyEvidence,
     ImmutableArray<UnsafetyOccurrence> UnsafeOccurrences,
     ImmutableArray<MethodExceptionRegionInfo> ExceptionRegions,
@@ -82,7 +81,6 @@ public sealed class ExactMethodAnalysisProducer :
 
         ImmutableArray<UnsafeEvidence>.Builder safety =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
-        ImmutableArray<DirectCall> directCalls = [];
         ImmutableArray<UnsafetyOccurrence> unsafeOccurrences = [];
         ImmutableArray<MethodExceptionRegionInfo> exceptionRegions = [];
         string? exceptionRegionError = null;
@@ -124,18 +122,10 @@ public sealed class ExactMethodAnalysisProducer :
                 || localSafety.HasUnsafeLocals;
             MethodCallSites callSites = view.GetCalls(instructions);
             var resolver = new OwnerIssuedCallResolver(callSites);
-            ImmutableArray<DirectCall>.Builder directCallBuilder =
-                ImmutableArray.CreateBuilder<DirectCall>();
-            MethodCallAnalysis.CollectPhysicalCallSites(
-                context,
-                resolver,
-                directCallBuilder);
-            directCalls =
-                ProjectTargetContracts(
+            Dictionary<int, CallerUnsafeMode> targetModes =
+                ReadTargetContracts(
                     view,
-                    callSites,
-                    directCallBuilder,
-                    out Dictionary<int, CallerUnsafeMode> targetModes);
+                    callSites);
             foreach (DecodedInstruction instruction in instructions.Instructions)
             {
                 if (resolver.TryGetSite(
@@ -195,7 +185,6 @@ public sealed class ExactMethodAnalysisProducer :
                 token,
                 method,
                 HasManagedBody: true,
-                directCalls,
                 safetyEvidence,
                 unsafeOccurrences,
                 exceptionRegions,
@@ -218,7 +207,6 @@ public sealed class ExactMethodAnalysisProducer :
                 token,
                 method,
                 HasManagedBody: true,
-                directCalls,
                 safety.ToImmutable(),
                 unsafeOccurrences,
                 exceptionRegions,
@@ -244,13 +232,11 @@ public sealed class ExactMethodAnalysisProducer :
         MethodDefinitionCompletionView completion) =>
         new(accumulator.ToImmutable());
 
-    static ImmutableArray<DirectCall> ProjectTargetContracts(
+    static Dictionary<int, CallerUnsafeMode> ReadTargetContracts(
         MethodDefinitionView view,
-        MethodCallSites callSites,
-        ImmutableArray<DirectCall>.Builder calls,
-        out Dictionary<int, CallerUnsafeMode> targetModes)
+        MethodCallSites callSites)
     {
-        targetModes = [];
+        Dictionary<int, CallerUnsafeMode> targetModes = [];
         Dictionary<MethodDefinitionHandle, CallerUnsafeMode> cachedModes = [];
         foreach (MethodCallSite callSite in callSites.Sites)
         {
@@ -278,21 +264,7 @@ public sealed class ExactMethodAnalysisProducer :
                 targetModes.Add(callSite.ILOffset, mode);
         }
 
-        for (int index = 0; index < calls.Count; index++)
-        {
-            DirectCall call = calls[index];
-            if (targetModes.TryGetValue(
-                    call.ILOffset,
-                    out CallerUnsafeMode targetMode))
-            {
-                calls[index] = call with
-                {
-                    TargetCallerUnsafeMode = targetMode,
-                };
-            }
-        }
-
-        return calls.ToImmutable();
+        return targetModes;
 
         CallerUnsafeMode CacheMode(
             MethodDefinitionHandle method,
@@ -385,7 +357,6 @@ public sealed class ExactMethodAnalysisProducer :
             token,
             method,
             hasManagedBody,
-            [],
             [],
             [],
             [],

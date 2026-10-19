@@ -51,9 +51,6 @@ public sealed partial class MethodDefinitionRequestSetTests
             MethodIdentity expectedMethod = Assert.Single(
                 graph.Methods,
                 candidate => candidate.MetadataToken == token);
-            graph.DirectCallsByEvidenceMethod.TryGetValue(
-                token,
-                out ImmutableArray<DirectCall> expectedCalls);
             legacyExecution.Safety.Occurrences.TryGetValue(
                 token,
                 out ImmutableArray<UnsafetyOccurrence> expectedOccurrences);
@@ -68,28 +65,17 @@ public sealed partial class MethodDefinitionRequestSetTests
                     out string? exceptionRegionError);
 
             Assert.Equal(expectedMethod, actual.Method);
-            Assert.Equal(
-                EmptyIfDefault(expectedCalls),
-                actual.DirectCalls);
             Assert.Contains(
-                actual.DirectCalls,
-                call =>
-                    call.Callee.Name
-                        == "get_Pointer"
-                    && call.TargetCallerUnsafeMode
-                        == CallerUnsafeMode.Implicit);
+                actual.SafetyEvidence,
+                evidence =>
+                    evidence.Reason == "Unsafe call"
+                    && evidence.Detail.Contains(
+                        "get_Pointer",
+                        StringComparison.Ordinal));
             Assert.Contains(
-                actual.DirectCalls,
-                call =>
-                    call.Kind == CallKind.LoadFunction
-                    && call.Callee.Name
-                        == nameof(ExactMethodAnalysisFixture.Callee)
-                    && call.TargetCallerUnsafeMode is null);
-            Assert.Contains(
-                actual.DirectCalls,
-                call =>
-                    call.Kind == CallKind.CallIndirect
-                    && call.TargetCallerUnsafeMode is null);
+                actual.SafetyEvidence,
+                evidence =>
+                    evidence.Kind == "calli");
             Assert.Equal(
                 EmptyIfDefault(expectedOccurrences),
                 actual.UnsafeOccurrences);

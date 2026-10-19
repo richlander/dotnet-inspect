@@ -1096,8 +1096,11 @@ Migration is incremental:
     semantic identity, memory-safety contracts, Calls, and resolved-call body
     analyzer owned by the source; it defines no second population or call
     resolver. `AssemblyContextMethodAnalysisQuery` consumes that focused result
-    for identity, direct calls, safety, diagnostics, and exception regions,
-    while signals, allocations, and optimization remain legacy-owned.
+    for identity, safety, diagnostics, and exception regions, while direct-call
+    rows, signals, allocations, and optimization remain legacy-owned. Calls
+    support is used only for focused call-safety evidence because declared
+    async-source attribution, execution multiplicity, and complete
+    definition-token provenance do not yet have owner-issued capabilities.
 12. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

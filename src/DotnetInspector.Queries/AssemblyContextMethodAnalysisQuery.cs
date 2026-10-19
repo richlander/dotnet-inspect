@@ -132,13 +132,16 @@ public static class AssemblyContextMethodAnalysisQuery
             execution.Allocations.Occurrences.TryGetValue(
                 methodToken,
                 out ImmutableArray<AllocationOccurrence> allocations);
+            callGraph.DirectCallsByEvidenceMethod.TryGetValue(
+                methodToken,
+                out ImmutableArray<DirectCall> directCalls);
 
             var result = new AssemblyMethodAnalysis(
                 methodToken,
                 method,
                 signals ?? MethodSignals.None,
                 EmptyIfDefault(allocations),
-                focused.DirectCalls,
+                EmptyIfDefault(directCalls),
                 focused.UnsafeOccurrences,
                 focused.SafetyEvidence,
                 focused.ExceptionRegions,

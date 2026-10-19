@@ -102,20 +102,6 @@ internal static partial class MethodCallAnalysis
             includeCallValueFlow: false,
             includeNonInvocationSites: false);
 
-    internal static void CollectPhysicalCallSites(
-        MethodBodyAnalysisContext context,
-        IMethodCallResolver resolver,
-        ImmutableArray<DirectCall>.Builder calls) =>
-        CollectCore(
-            context,
-            resolver,
-            multiplicityAt: null,
-            calls,
-            unsafeEvidence: null,
-            includeIndirectOpcodes: false,
-            includeCallValueFlow: false,
-            includeNonInvocationSites: true);
-
     internal static void CollectStructuralDirectCalls(
         MethodIdentity caller,
         ImmutableArray<DecodedInstruction> instructions,

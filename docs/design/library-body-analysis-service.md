@@ -1598,13 +1598,16 @@ No source-code absence gate enforces service usage. Consumer migration is
 established by the production call sites and focused behavior gates.
 
 `AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
-`ExactMethodAnalysisProducer` owns semantic identity, direct calls,
-same-module caller contracts, safety evidence and occurrences, diagnostics,
-and detached physical exception regions. This service still owns the query's
-final `MethodSignals`, allocation occurrences, and optimization opportunities.
-Those retained products may incidentally perform work that the focused
-producer also needs; #9832 moves result ownership and planning authority but
-does not claim that incidental donor work is retired.
+`ExactMethodAnalysisProducer` owns semantic identity, safety evidence and
+occurrences, diagnostics, and detached physical exception regions. This
+service still owns the query's public direct-call rows, final `MethodSignals`,
+allocation occurrences, and optimization opportunities. Calls remain a
+focused source input only for call-safety evidence; declared async-source
+attribution, execution multiplicity, and complete external MethodSpec
+definition-token provenance remain donor-owned. Those retained products may
+incidentally perform work that the focused producer also needs; #9832 moves
+only complete result ownership and planning authority and does not claim that
+incidental donor work is retired.
 
 Each result-type migration additionally gates:
 

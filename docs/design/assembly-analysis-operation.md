@@ -579,10 +579,12 @@ The exact-member successors own their evidence:
 `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` proves that the
 focused producer selects and acquires one requested MethodDef body, declares
 semantic identity, memory-safety contracts, and Calls support, performs no
-module lookup, and preserves the legacy identity, call, safety, diagnostic,
-and exception-region facts. `AssemblyContextMethodAnalysisQueryTests` gate the
-real mixed consumer while signals, allocations, and optimization remain on
-`LibraryBodyAnalysisService`.
+module lookup, and preserves the legacy identity, safety, diagnostic, and
+exception-region facts. `AssemblyContextMethodAnalysisQueryTests` gate the
+real mixed consumer while public direct-call rows, signals, allocations, and
+optimization remain on `LibraryBodyAnalysisService`; Calls support serves
+focused call-safety evidence until complete direct-call provenance has
+owner-issued capabilities.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
