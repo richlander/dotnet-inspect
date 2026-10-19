@@ -6,6 +6,8 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 
+using ILInspector.MetadataPrimitives;
+
 using Fixtures =
     ILInspector.Metadata.StateMachineFixtures.StateMachineFixtures;
 
@@ -169,6 +171,209 @@ public sealed class StateMachineRelationshipIndexTests
         Assert.IsType<StateMachineRelationshipResult.Resolved>(
             index.GetByStateMachine(
                 MetadataTokens.TypeDefinitionHandle(3)));
+    }
+
+    [Theory]
+    [InlineData(AsyncIteratorSetStateMachine.Present)]
+    [InlineData(AsyncIteratorSetStateMachine.Missing)]
+    public void
+        StateMachineRelationshipIndex_ResolvesAsyncIteratorWithAbsentSupportRole(
+            AsyncIteratorSetStateMachine setStateMachine)
+    {
+        using var image = new LoadedImage(
+            BuildAsyncIteratorRelationshipImage(
+                AsyncEnumeratorShape.Exact,
+                setStateMachine));
+        bool expectAbsent =
+            setStateMachine == AsyncIteratorSetStateMachine.Missing;
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var result =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+
+        Assert.Equal(
+            StateMachineClaimKind.AsyncIterator,
+            result.Relationship.Kind);
+        Assert.Equal(
+            [
+                StateMachineMethodRole.MoveNext,
+                StateMachineMethodRole.SetStateMachine,
+                StateMachineMethodRole.MoveNextAsync,
+                StateMachineMethodRole.DisposeAsync,
+            ],
+            result.Relationship.Roles.Select(role => role.Role));
+        foreach (StateMachineRoleDisposition role
+            in result.Relationship.Roles)
+        {
+            if (expectAbsent
+                && role.Role == StateMachineMethodRole.SetStateMachine)
+            {
+                Assert.IsType<
+                    StateMachineRoleDisposition.AbsentFromArtifact>(role);
+                Assert.False(
+                    result.Relationship.TryGetMethod(
+                        role.Role,
+                        out _));
+                continue;
+            }
+
+            var present = Assert.IsType<
+                StateMachineRoleDisposition.Present>(role);
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                index.GetByImplementation(present.Method.Handle));
+        }
+        Assert.IsType<StateMachineRelationshipResult.Resolved>(
+            index.GetByStateMachine(
+                MetadataTokens.TypeDefinitionHandle(3)));
+    }
+
+    [Theory]
+    [InlineData(
+        AsyncIteratorSetStateMachine.NonIl,
+        StateMachineRelationshipFailureKind.Unresolved)]
+    [InlineData(
+        AsyncIteratorSetStateMachine.ExplicitWrongSignature,
+        StateMachineRelationshipFailureKind.Unresolved)]
+    [InlineData(
+        AsyncIteratorSetStateMachine.ExplicitMalformedInterface,
+        StateMachineRelationshipFailureKind.Malformed)]
+    [InlineData(
+        AsyncIteratorSetStateMachine.Duplicate,
+        StateMachineRelationshipFailureKind.Ambiguous)]
+    public void
+        StateMachineRelationshipIndex_RejectsInvalidAsyncIteratorSupportRole(
+            AsyncIteratorSetStateMachine setStateMachine,
+            StateMachineRelationshipFailureKind expected)
+    {
+        using var image = new LoadedImage(
+            BuildAsyncIteratorRelationshipImage(
+                AsyncEnumeratorShape.Exact,
+                setStateMachine));
+
+        StateMachineRelationshipIndex index =
+            StateMachineRelationshipIndex.Create(image.Reader);
+        var kickoff =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByKickoff(
+                    MetadataTokens.MethodDefinitionHandle(1)));
+        var stateMachine =
+            Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                index.GetByStateMachine(
+                    MetadataTokens.TypeDefinitionHandle(3)));
+
+        Assert.Equal(expected, kickoff.Failure.Kind);
+        Assert.Same(kickoff.Failure, stateMachine.Failure);
+    }
+
+    [Fact]
+    public void
+        StateMachineRelationshipIndex_ExhaustedBudgetNeverCertifiesAsyncIteratorAbsence()
+    {
+        using var image = new LoadedImage(
+            BuildAsyncIteratorRelationshipImage(
+                AsyncEnumeratorShape.Exact,
+                AsyncIteratorSetStateMachine.Missing));
+
+        int required = 1;
+        while (StateMachineRelationshipIndex.Create(
+                    image.Reader,
+                    relationshipBudget: required)
+                .GetByKickoff(MetadataTokens.MethodDefinitionHandle(1))
+                is not StateMachineRelationshipResult.Resolved)
+        {
+            required++;
+            Assert.True(required < 10_000, "The fixture never resolved.");
+        }
+
+        // Every smaller budget stops somewhere in discovery, including the
+        // negative SetStateMachine scan, and must never certify absence.
+        Assert.True(required > 1);
+        for (int budget = 1; budget < required; budget++)
+        {
+            var result =
+                Assert.IsType<StateMachineRelationshipResult.Rejected>(
+                    StateMachineRelationshipIndex.Create(
+                            image.Reader,
+                            relationshipBudget: budget)
+                        .GetByKickoff(
+                            MetadataTokens.MethodDefinitionHandle(1)));
+            Assert.Equal(
+                StateMachineRelationshipFailureKind.BudgetExceeded,
+                result.Failure.Kind);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        StateMachineClaimKind.ClassicAsync,
+        StateMachineMethodRole.SetStateMachine,
+        true)]
+    [InlineData(
+        StateMachineClaimKind.ClassicAsync,
+        StateMachineMethodRole.MoveNext,
+        false)]
+    [InlineData(
+        StateMachineClaimKind.AsyncIterator,
+        StateMachineMethodRole.SetStateMachine,
+        true)]
+    [InlineData(
+        StateMachineClaimKind.AsyncIterator,
+        StateMachineMethodRole.MoveNext,
+        false)]
+    [InlineData(
+        StateMachineClaimKind.AsyncIterator,
+        StateMachineMethodRole.MoveNextAsync,
+        false)]
+    [InlineData(
+        StateMachineClaimKind.AsyncIterator,
+        StateMachineMethodRole.DisposeAsync,
+        false)]
+    [InlineData(
+        StateMachineClaimKind.Iterator,
+        StateMachineMethodRole.MoveNext,
+        false)]
+    [InlineData(
+        StateMachineClaimKind.Iterator,
+        StateMachineMethodRole.Dispose,
+        false)]
+    public void StateMachineRelationship_AdmitsOnlyContractedAbsentRoles(
+        StateMachineClaimKind kind,
+        StateMachineMethodRole absentRole,
+        bool admitted)
+    {
+        var method = new MetadataMethodAddress(
+            Guid.NewGuid(),
+            MetadataTokens.MethodDefinitionHandle(2));
+        ImmutableArray<StateMachineRoleDisposition> roles =
+        [
+            .. StateMachineRelationship.RolesFor(kind).ToArray().Select(
+                StateMachineRoleDisposition (role) =>
+                    role == absentRole
+                        ? new StateMachineRoleDisposition
+                            .AbsentFromArtifact(role)
+                        : new StateMachineRoleDisposition.Present(
+                            role,
+                            method)),
+        ];
+
+        StateMachineRelationship Construct() =>
+            new(
+                method,
+                default,
+                default!,
+                kind,
+                roles);
+
+        Assert.Equal(
+            admitted,
+            StateMachineRelationship.CanBeAbsent(kind, absentRole));
+        if (admitted)
+            Assert.Equal(roles, Construct().Roles);
+        else
+            Assert.Throws<ArgumentException>(Construct);
     }
 
     [Theory]
@@ -3474,7 +3679,9 @@ public sealed class StateMachineRelationshipIndexTests
     }
 
     static byte[] BuildAsyncIteratorRelationshipImage(
-        AsyncEnumeratorShape shape)
+        AsyncEnumeratorShape shape,
+        AsyncIteratorSetStateMachine setStateMachineShape =
+            AsyncIteratorSetStateMachine.Present)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -3534,6 +3741,27 @@ public sealed class StateMachineRelationshipIndexTests
             AddTypeReference(
                 "System.Runtime.CompilerServices",
                 "IsReadOnlyAttribute");
+        bool explicitWrongSignature =
+            setStateMachineShape
+                == AsyncIteratorSetStateMachine.ExplicitWrongSignature;
+        bool explicitMalformedInterface =
+            setStateMachineShape
+                == AsyncIteratorSetStateMachine.ExplicitMalformedInterface;
+        TypeReferenceHandle setStateMachineDeclarationParent =
+            asyncStateMachine;
+        if (explicitMalformedInterface)
+        {
+            // A self-cyclic resolution scope cannot be read as a type name.
+            TypeReferenceHandle self =
+                MetadataTokens.TypeReferenceHandle(
+                    metadata.GetRowCount(TableIndex.TypeRef) + 1);
+            setStateMachineDeclarationParent =
+                metadata.AddTypeReference(
+                    self,
+                    metadata.GetOrAddString(
+                        "System.Runtime.CompilerServices"),
+                    metadata.GetOrAddString("IAsyncStateMachine"));
+        }
 
         var staticVoid = new BlobBuilder();
         new BlobEncoder(staticVoid)
@@ -3641,11 +3869,34 @@ public sealed class StateMachineRelationshipIndexTests
             instanceVoid,
             MethodAttributes.Public
                 | MethodAttributes.Virtual);
-        AddMethod(
-            "SetStateMachine",
-            setStateMachine,
-            MethodAttributes.Public
-                | MethodAttributes.Virtual);
+        MethodDefinitionHandle setStateMachineMethod = default;
+        if (setStateMachineShape
+            != AsyncIteratorSetStateMachine.Missing)
+        {
+            setStateMachineMethod =
+                AddMethod(
+                    explicitWrongSignature || explicitMalformedInterface
+                        ? "IAsyncStateMachine.SetStateMachine"
+                        : "SetStateMachine",
+                    explicitWrongSignature
+                        ? instanceVoid
+                        : setStateMachine,
+                    MethodAttributes.Public
+                        | MethodAttributes.Virtual,
+                    setStateMachineShape
+                        == AsyncIteratorSetStateMachine.NonIl
+                        ? MethodImplAttributes.Runtime
+                        : MethodImplAttributes.IL);
+        }
+        if (setStateMachineShape
+            == AsyncIteratorSetStateMachine.Duplicate)
+        {
+            AddMethod(
+                "SetStateMachine",
+                setStateMachine,
+                MethodAttributes.Public
+                    | MethodAttributes.Virtual);
+        }
         MethodDefinitionHandle moveNextAsyncMethod =
             AddMethod(
             "MoveNextAsync",
@@ -3698,6 +3949,21 @@ public sealed class StateMachineRelationshipIndexTests
                 moveNextAsyncMethod,
                 declaration);
         }
+        if (explicitWrongSignature || explicitMalformedInterface)
+        {
+            MemberReferenceHandle declaration =
+                metadata.AddMemberReference(
+                    setStateMachineDeclarationParent,
+                    metadata.GetOrAddString("SetStateMachine"),
+                    metadata.GetOrAddBlob(
+                        explicitWrongSignature
+                            ? instanceVoid
+                            : setStateMachine));
+            metadata.AddMethodImplementation(
+                machine,
+                setStateMachineMethod,
+                declaration);
+        }
 
         MemberReferenceHandle constructor =
             metadata.AddMemberReference(
@@ -3736,10 +4002,12 @@ public sealed class StateMachineRelationshipIndexTests
         MethodDefinitionHandle AddMethod(
             string name,
             BlobBuilder signature,
-            MethodAttributes attributes) =>
+            MethodAttributes attributes,
+            MethodImplAttributes implementation =
+                MethodImplAttributes.IL) =>
             metadata.AddMethodDefinition(
                 attributes,
-                MethodImplAttributes.IL,
+                implementation,
                 metadata.GetOrAddString(name),
                 metadata.GetOrAddBlob(signature),
                 bodyOffset,
@@ -3872,10 +4140,21 @@ public sealed class StateMachineRelationshipIndexTests
 
     public enum AsyncEnumeratorShape
     {
+        Exact,
         Bare,
         WrongArity,
         CrossConstruction,
         ModifiedArgument,
+    }
+
+    public enum AsyncIteratorSetStateMachine
+    {
+        Present,
+        Missing,
+        NonIl,
+        ExplicitWrongSignature,
+        ExplicitMalformedInterface,
+        Duplicate,
     }
 
     public enum ConstructorTypeNameRejection
