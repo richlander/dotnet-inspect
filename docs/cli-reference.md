@@ -366,7 +366,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-ecosystem ID` for a resource-free Ecosystem subject or `--active-package N` for structural Library, Type, Member, and lens descriptors. |
-| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
+| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `package "$package_ref"` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -1403,17 +1403,32 @@ selection, Count, projection, discovery, section selection, and competing
 formats are rejected. Typed incomplete or failed Content is still emitted
 before a nonzero exit.
 
-Each evaluated candidate carries a `Root` reopening token. Hand that token back
-to reopen exactly the Root the result came from:
+Each evaluated candidate carries an opaque, credential-free exact Package
+reference in `libraryLiteral.rootRequest`. Use it as ordinary source input:
 
 ```bash
-dotnet-inspect workspace --root-request TOKEN
+package_ref=$(dotnet-inspect package query Newtonsoft.Json \
+  --where "library-literal=Unexpected end when reading JSON" --tfm net6.0 \
+  --json | jq -r '.results[0].libraryLiteral.rootRequest')
+dotnet-inspect "$package_ref"
+dotnet-inspect package "$package_ref" --files --paths -n 3
+dotnet-inspect library Newtonsoft.Json.dll --package "$package_ref" -S "Library Info"
+dotnet-inspect type Newtonsoft.Json.JsonConvert --package "$package_ref" --json
+dotnet-inspect member Newtonsoft.Json.JsonConvert SerializeObject --package "$package_ref"
 ```
 
-The token is opaque, credential-free, and exact. `workspace --root-request`
-rejects a token this tool did not issue, and reports an unauthorized producer
-or unavailable content instead of opening a different Root that happens to
-share the package id and version.
+These forms reopen the same Root under the receiving command's source
+authorization and acquisition limits. Malformed references, unauthorized
+producers, unavailable content, and exact-selection failures produce visible
+errors. They cannot silently select a neighboring Root. Library narrowing
+stays within the frozen compile selection. Type and Member inspection require
+one exact Type selector.
+
+The reference supplies the Package, version and target. Omit other Package
+sources, `--version`, `--tfm`, `--workspace`, version-population and preview
+selectors, and `--share`. Ordinary section, row and output options still apply.
+The older `workspace --root-request` inventory entrance remains during
+migration.
 
 ### Workspace inventory and structural navigation
 
@@ -2751,12 +2766,20 @@ existing limits and the browser's supported restoration shapes still apply.
 Bare `--share` emits a complete Inspect Web URL; `--share url` spells that
 default explicitly, while `--share packet` emits only the canonical packet.
 
-`member --share[=url|packet]` projects one explicitly selected public member
-overload from an exact NuGet.org package version and target framework. The URL
-opens that member's API Overview in the published browser. Select an overload
-with `Name:N`, `Name~digest`, or `--index N`. Local, project, platform,
-private-feed, non-public, multi-library, and other rendering or analysis modes
-fail visibly rather than producing a link the browser cannot restore.
+`member <Type> -m <Member> --workspace PACKET` consumes a canonical Base64URL
+packet as its sole location source. It searches the selected context, independent
+of the focused Navigation tab, and retains ordinary Member selectors, sections,
+formats and failure behavior. Package, Library, Platform, project, framework,
+TFM and range source selectors cannot be combined with this input.
+
+`member --share[=url|packet]` preserves ordinary stdout and appends the scalar
+as the final stderr line. Select an exact overload with `Name:N`, `Name~digest`,
+or `--index N`. Without Workspace input, sharing supports public members from
+an exact NuGet.org package version and target framework. With Workspace input,
+it preserves the complete environment and captures the resolved occurrence,
+Library, Type and Member anchor. An unqualified overload group or unsupported
+semantic choice preserves ordinary output but refuses Share with a nonzero
+exit and no partial scalar. Presentation such as `--json` remains independent.
 
 `depends --package <id>[@<version>] --tfm <tfm> --share[=url|packet]`
 projects the package Dependencies view without acquiring the package or

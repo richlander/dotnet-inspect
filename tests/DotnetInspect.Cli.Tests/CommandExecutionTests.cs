@@ -1944,6 +1944,17 @@ public partial class CommandExecutionTests
         var payloadRoot = Path.Combine(tempDir, "payload");
         var payloadToolsDir = Path.Combine(payloadRoot, "tools", "net10.0", "any");
         Directory.CreateDirectory(payloadToolsDir);
+        File.WriteAllText(
+            Path.Combine(payloadRoot, "Test.Tool.any.nuspec"),
+            """
+            <package><metadata>
+              <id>Test.Tool.any</id>
+              <version>1.0.0</version>
+              <packageTypes>
+                <packageType name="DotnetToolRidPackage" />
+              </packageTypes>
+            </metadata></package>
+            """);
         File.Copy(TestAssemblyPath, Path.Combine(payloadToolsDir, "Test.Tool.dll"));
 
         var ridRoot = Path.Combine(tempDir, "rid");

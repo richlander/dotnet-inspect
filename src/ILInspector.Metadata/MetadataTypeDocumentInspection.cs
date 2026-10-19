@@ -78,14 +78,6 @@ public sealed record MetadataTypeDocument(
         get;
         internal init;
     }
-
-    /// <summary>Whether exact byte proof authorized reuse of host-owned query bytes.</summary>
-    [JsonIgnore]
-    public bool ReusedExactInput
-    {
-        get;
-        internal init;
-    }
 }
 
 public abstract record MetadataTypeDocumentDeclarations
@@ -262,7 +254,6 @@ internal static class MetadataTypeDocumentInspection
                     memberDeclarations)
                 {
                     MatchedName = matchedName,
-                    ReusedExactInput = exactMatch is not null,
                 });
         }
         catch (Exception exception) when (

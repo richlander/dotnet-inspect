@@ -1073,6 +1073,8 @@ public static class InspectionCommandDefinitions
             var options = new LibraryOptions
             {
                 SourceIntent = sourceIntent,
+                PackagePath = PackageReferenceAdmission.IsCandidate(packagePath) ? packagePath : null,
+                PlatformAssembly = PackageReferenceAdmission.IsCandidate(packagePath) ? platformAssembly : null,
                 AssemblyName = assemblyPath,
                 WorkspacePacket = workspacePacket,
                 NamesakeLibrary = namesakeLibrary,

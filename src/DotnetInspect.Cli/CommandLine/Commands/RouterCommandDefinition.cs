@@ -83,6 +83,15 @@ public static class RouterCommandDefinition
                 return 0;
             }
 
+            if (PackageReferenceAdmission.IsCandidate(tokens[0]))
+            {
+                string[] referenceRoute = CommandLineBuilder.PreprocessArgs(
+                    [PackageCommand.Name, .. tokens], rootCommand);
+                RouterDecisionLog.Record("exact-package-reference", "package");
+                return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                    rootCommand.Parse(referenceRoute), referenceRoute);
+            }
+
             // The router intentionally captures all options as raw tokens so the rewritten
             // command remains the authority on their semantics. Parse a package-shaped probe
             // with the shared option instances to obtain the caller's NuGet scope without

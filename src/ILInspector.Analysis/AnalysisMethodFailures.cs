@@ -9,12 +9,18 @@ namespace ILInspector.Analysis;
 /// </summary>
 internal static class AnalysisMethodFailures
 {
+    // A generated-expansion bound is recoverable only once its expansion has
+    // settled, when a resolver cache can replay it to a later unit.
     internal static bool IsRecoverable(Exception ex) =>
         ex is BadImageFormatException
             or InvalidOperationException
             or ArgumentException
             or ArgumentOutOfRangeException
-            or IndexOutOfRangeException;
+            or IndexOutOfRangeException
+            or Planning.MethodDefinitionGeneratedExpansionBoundException
+            {
+                IsSettled: true,
+            };
 
     internal static string Label(
         MetadataReader reader,

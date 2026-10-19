@@ -7,6 +7,22 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
+    // PR-fast: canonicalizes the actual CLI Member packet through the Browser codec.
+    // The retained root owner admits Workspace/Package views; deep Member activation
+    // remains outside that owner's supported entry scope.
+    [Fact]
+    public async Task MemberDerivedPacket_IsCanonicalForTheBrowserCodec()
+    {
+        string json = await File.ReadAllTextAsync(Path.Combine(
+            FindRepositoryRoot(), "docs", "examples", "workspace-member-derived.json"),
+            TestContext.Current.CancellationToken);
+        string packet = WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(json, TestContext.Current.CancellationToken));
+        var result = DotnetInspect.Web.Interop.Catalog.BrowserWorkspaceShareOperations.Canonicalize(packet);
+        Assert.True(result.Succeeded, result.Failure?.Message);
+        Assert.Equal(packet, result.Packet);
+    }
+
     // PR-fast: recorded CLI output plus the existing pinned NuGet payload.
     // workspace ecosystem add runtime; package System.Text.Json@10.0.0 --workspace PACKET --share packet
     [Fact]

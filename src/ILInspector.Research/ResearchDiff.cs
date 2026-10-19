@@ -1757,7 +1757,8 @@ public static partial class ResearchDiff
     static bool IsMemberChange(ChangeKind kind)
         => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
             or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged
-            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved;
+            or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved
+            or ChangeKind.MemberAccessibilityChanged;
 
     static ResearchChangeKind Direction(ChangeKind kind)
         => kind switch

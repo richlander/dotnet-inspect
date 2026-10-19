@@ -683,10 +683,11 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                 cancellationToken:
                     TestContext.Current.CancellationToken);
 
+        using var operation = composition.IssueSettlementOperation(
+            TestContext.Current.CancellationToken);
         ConfiguredPackageManifestResult result =
-            await composition.AcquireCandidateManifestAsync(
-                authorization.Candidate!,
-                TestContext.Current.CancellationToken);
+            await operation.AcquireCandidateManifestAsync(
+                authorization.Candidate!);
 
         Assert.NotNull(result.Manifest);
         Assert.Equal(
@@ -1233,6 +1234,152 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             DesktopPackageExtractor.Cleanup(result.TempDir);
         }
+    }
+
+    [Fact]
+    public async Task
+        ExtractPinnedPackage_LibraryPopulationRetainsToolRealization()
+    {
+        string id = $"Pinned.ToolPopulation.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreateToolPackage(
+            id,
+            "DotnetTool",
+            ($"tools/net8.0/any/{id}.dll", assembly),
+            ($"tools/net11.0/any/{id}.dll", assembly),
+            ("tools/net11.0/any/runtimes/win/lib/net11.0/Companion.dll",
+                assembly),
+            ("tools/net11.0/any/runtimes/win/native/Native.dll",
+                new byte[5]),
+            ($"tools/net11.0/any/fr/{id}.resources.dll",
+                new byte[7]),
+            ("analyzers/dotnet/cs/Analyzer.dll", new byte[11]));
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        using var client = new HttpClient(
+            new RejectNetworkHandler(new HttpClientHandler()));
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                client,
+                id,
+                Version,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [FirstFeed] },
+                compileTargetContext:
+                    PackageHouseTargetContext.OwnerDefault(),
+                assetSelection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        PackageExtractionResult result = outcome.Result!;
+        try
+        {
+            PackageHouseSettlement.Acquired settlement =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    result.HouseSettlement);
+            var realization = Assert.IsType<
+                PackageHouseRealizationReceipt.LibraryPopulation>(
+                    settlement.Result.Evidence.Realization);
+            var population = Assert.IsType<
+                PackageLibraryPopulationSelection.Tool>(
+                    realization.Selection);
+
+            Assert.Equal(
+                "net11.0",
+                population.ToolSelection.SelectedTargetFramework);
+            Assert.Equal(
+                [
+                    $"tools/net11.0/any/{id}.dll",
+                    "tools/net11.0/any/runtimes/win/lib/net11.0/Companion.dll",
+                ],
+                population.ToolSelection.SelectedEntries);
+            Assert.True(
+                File.Exists(
+                    Path.Combine(
+                        result.ExtractPath,
+                        "tools",
+                        "net11.0",
+                        "any",
+                        $"{id}.dll")));
+            Assert.True(
+                File.Exists(
+                    Path.Combine(
+                        result.ExtractPath,
+                        "tools",
+                        "net11.0",
+                        "any",
+                        "runtimes",
+                        "win",
+                        "lib",
+                        "net11.0",
+                        "Companion.dll")));
+            Assert.Equal(
+                1,
+                requests.Count(request =>
+                    request.EndsWith(
+                        ".nupkg",
+                        StringComparison.Ordinal)));
+        }
+        finally
+        {
+            DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_ExactLibraryUsesDeclaredToolPopulation()
+    {
+        string id = $"Pinned.ToolCommand.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreateToolPackage(
+            id,
+            "DotnetTool",
+            ($"tools/net11.0/any/{id}.dll", assembly),
+            ("tools/net11.0/any/runtimes/win/lib/net11.0/Companion.dll",
+                assembly),
+            ("tools/net11.0/any/runtimes/win/native/Native.dll",
+                new byte[5]));
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "--library",
+                $"{id}.dll",
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown",
+            ]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(
+                    ".nupkg",
+                    StringComparison.Ordinal)));
     }
 
     [Fact]

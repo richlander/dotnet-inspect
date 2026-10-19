@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace ILInspector.Research.Tests;
@@ -30,6 +31,13 @@ public class ILOffsetProjectionProducerTests
     }
 
     static int AddOne(int value) => value + 1;
+
+    static int Stackalloc()
+    {
+        Span<int> values = stackalloc int[1];
+        values[0] = 1;
+        return values[0];
+    }
 
     [Fact]
     public void
@@ -238,6 +246,107 @@ public class ILOffsetProjectionProducerTests
             outcome.Failure!.Kind);
         Assert.Contains(
             "no focused Analysis input",
+            outcome.Failure.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        ProjectILOffset_ExactSafetyUsesOneDeduplicatedMethodRequest()
+    {
+        MethodInfo method =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(Stackalloc),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        string path =
+            typeof(ILOffsetProjectionProducerTests).Assembly.Location;
+        LibraryBodyAnalysisExecution legacy = AnalyzePath(path);
+        int ilOffset = Assert.Single(
+            legacy.Safety.Occurrences[method.MetadataToken],
+            occurrence => occurrence.Kind == UnsafetyKind.StackAlloc).ILOffset;
+        using var source = SourceLinkService.OpenPrefetched(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(source.Context);
+
+        ILOffsetSafetyAnalysisInput safety =
+            ILOffsetSafetyAnalysis.Execute(
+                session,
+                "IL-offset exact safety test",
+                source.Context.ModuleVersionId(),
+                [method.MetadataToken, method.MetadataToken],
+                TestContext.Current.CancellationToken);
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    method.MetadataToken,
+                    ilOffset,
+                    ILOffsetProjectionCapabilities.SafetyContext,
+                    SafetyAnalysis: safety));
+
+        Assert.True(outcome.Succeeded);
+        ILOffsetSafetyContext context = Assert.Single(
+            outcome.Projection!.SafetyContext!);
+        Assert.Equal("stackalloc", context.SafetyKind);
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.ExactMethods,
+            safety.SourceReceipt.Breadth.Kind);
+        Assert.Single(safety.SourceReceipt.Breadth.Methods);
+        Assert.Equal(
+            session.ImageLength,
+            safety.SourceReceipt.TerminalWorkLimits
+                .MaximumEncodedIlBytes);
+        Assert.Equal(1, safety.SourceReceipt.DefinitionsVisited);
+        Assert.Equal(1, safety.SourceReceipt.BodiesAcquired);
+        Assert.Equal(0, safety.SourceReceipt.ModuleLookups);
+        Assert.Single(safety.WorkReceipt.Producers);
+    }
+
+    [Fact]
+    public void
+        ProjectILOffset_RejectsMismatchedExactSafetyGeneration()
+    {
+        MethodInfo method =
+            typeof(ILOffsetProjectionProducerTests).GetMethod(
+                nameof(AddOne),
+                BindingFlags.Static | BindingFlags.NonPublic)!;
+        MethodInfo foreignMethod =
+            typeof(LibraryBodyAnalysisExecution)
+                .GetProperty(
+                    nameof(LibraryBodyAnalysisExecution.Receipt))!
+                .GetMethod!;
+        string foreignPath =
+            typeof(LibraryBodyAnalysisExecution).Assembly.Location;
+        using var foreignSource =
+            SourceLinkService.OpenPrefetched(foreignPath);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(foreignSource.Context);
+        ILOffsetSafetyAnalysisInput safety =
+            ILOffsetSafetyAnalysis.Execute(
+                session,
+                "IL-offset mismatched safety test",
+                foreignSource.Context.ModuleVersionId(),
+                [foreignMethod.MetadataToken],
+                TestContext.Current.CancellationToken);
+        using var source = SourceLinkService.OpenPrefetched(
+            typeof(ILOffsetProjectionProducerTests)
+                .Assembly.Location);
+
+        ILOffsetProjectionOutcome outcome =
+            ResearchViews.ProjectILOffset(
+                new ILOffsetProjectionRequest(
+                    source,
+                    method.MetadataToken,
+                    ILOffset: 0,
+                    ILOffsetProjectionCapabilities.SafetyContext,
+                    SafetyAnalysis: safety));
+
+        Assert.False(outcome.Succeeded);
+        Assert.Equal(
+            ILOffsetProjectionFailureKind.SafetyAnalysisUnavailable,
+            outcome.Failure!.Kind);
+        Assert.Contains(
+            "different module generations",
             outcome.Failure.Message,
             StringComparison.Ordinal);
     }

@@ -138,6 +138,13 @@ public class ApiSurface
     public ApiAssemblyIdentity? AssemblyIdentity { get; set; }
 
     /// <summary>
+    /// The extraction scope that built this surface, or <see langword="null"/> for a surface
+    /// no single extraction built (merged, projected, summarized, or deserialized).
+    /// </summary>
+    [JsonIgnore]
+    public ApiSurfaceExtractionScope? ExtractionScope { get; set; }
+
+    /// <summary>
     /// Package or assembly name.
     /// </summary>
     public string? Name { get; set; }

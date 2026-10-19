@@ -61,6 +61,44 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     .toHaveAttribute("aria-selected", "true");
 });
 
+test("Analysis mode survives copy, reload, and the default URL", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+
+  await page.getByRole("tab", {
+    name: "Performance Triage",
+    exact: true,
+  }).click();
+  await expect.poll(() =>
+    new URL(page.url()).searchParams.get("analysis"))
+    .toBe("performance");
+
+  const shared = page.url();
+  await page.reload();
+  await expect(page.getByRole("tab", {
+    name: "Performance Triage",
+    exact: true,
+  })).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(shared);
+
+  await page.getByRole("tab", {
+    name: "Relationships",
+    exact: true,
+  }).click();
+  await expect.poll(() =>
+    new URL(page.url()).searchParams.has("analysis"))
+    .toBe(false);
+});
+
 test("Dependencies auto-loads and reveals one selected relationship", async ({
   page,
 }) => {

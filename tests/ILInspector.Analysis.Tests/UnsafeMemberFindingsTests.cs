@@ -8,7 +8,7 @@ using Inspector.Findings;
 namespace ILInspector.Analysis.Tests;
 
 // Gates for docs/design/unsafe-member-findings.md.
-public sealed class UnsafeMemberFindingsTests
+public sealed partial class UnsafeMemberFindingsTests
 {
     static readonly FindingSubject Subject = new("library:unsafe-fixture", "unsafe fixture");
 
