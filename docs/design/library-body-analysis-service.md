@@ -1608,6 +1608,10 @@ definition-token provenance remain donor-owned. Those retained products may
 incidentally perform work that the focused producer also needs; #9832 moves
 only complete result ownership and planning authority and does not claim that
 incidental donor work is retired.
+Recoverable whole-body Calls failure does not erase independent focused
+evidence: exception regions are already detached, and a recovery-only
+owner-issued operand resolver preserves the safety-occurrence prefix while the
+diagnostic remains visible.
 
 Each result-type migration additionally gates:
 

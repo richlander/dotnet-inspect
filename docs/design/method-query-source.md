@@ -1101,6 +1101,10 @@ Migration is incremental:
     support is used only for focused call-safety evidence because declared
     async-source attribution, execution multiplicity, and complete
     definition-token provenance do not yet have owner-issued capabilities.
+    When whole-body Calls decoding fails recoverably, the producer projects
+    independent exception-region evidence first and uses recovery-only
+    owner-issued operand resolution to retain the donor's safety-occurrence
+    prefix without adding duplicate work to the successful path.
 12. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

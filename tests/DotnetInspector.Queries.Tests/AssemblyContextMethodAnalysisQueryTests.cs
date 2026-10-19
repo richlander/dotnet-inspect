@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -8,6 +9,7 @@ using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -220,6 +222,39 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
+    public async Task MethodAnalysis_PreservesIndependentEvidenceWhenCallsFail()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        int token = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.RecoverableCallFailure))!
+            .MetadataToken;
+        CorruptFirstCallOperandToField(image, token);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+
+        AssemblyMethodAnalysis result = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    token,
+                    TestContext.Current.CancellationToken)).Value;
+
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "call operand is a FieldDefinition",
+                StringComparison.Ordinal));
+        UnsafetyOccurrence occurrence = Assert.Single(
+            result.UnsafetyOccurrences,
+            occurrence =>
+                occurrence.Kind == UnsafetyKind.StackAlloc);
+        Assert.Equal("byte*", occurrence.Detail);
+        Assert.Single(result.ExceptionRegions);
+    }
+
+    [Fact]
     public async Task MethodAnalysis_ReturnsExactUnsafetyOccurrences()
     {
         byte[] image = File.ReadAllBytes(
@@ -385,6 +420,56 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         return workspace.CreateAssemblyContextGroup([participant]);
     }
 
+    static void CorruptFirstCallOperandToField(
+        byte[] image,
+        int methodToken)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(
+                methodToken & 0x00FF_FFFF);
+        MethodDefinition definition =
+            reader.GetMethodDefinition(method);
+        MethodBodyBlock body =
+            pe.GetMethodBody(definition.RelativeVirtualAddress);
+        DecodedInstruction call =
+            InstructionDecoder
+                .Decode(body.GetILBytes()!)
+                .First(static instruction =>
+                    instruction.OpCode == ILOpCode.Call);
+        int bodyOffset = RvaToFileOffset(
+            pe.PEHeaders,
+            definition.RelativeVirtualAddress);
+        int headerSize = (image[bodyOffset] & 3) == 2
+            ? 1
+            : ((BinaryPrimitives.ReadUInt16LittleEndian(
+                    image.AsSpan(bodyOffset, sizeof(ushort)))
+                >> 12)
+                & 0xF) * sizeof(uint);
+        int fieldToken = MetadataTokens.GetToken(
+            reader.FieldDefinitions.First());
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                bodyOffset + headerSize + call.OperandOffset,
+                sizeof(int)),
+            fieldToken);
+    }
+
+    static int RvaToFileOffset(PEHeaders headers, int rva)
+    {
+        SectionHeader section =
+            headers.SectionHeaders.Single(header =>
+                rva >= header.VirtualAddress
+                && rva < header.VirtualAddress
+                    + Math.Max(
+                        header.VirtualSize,
+                        header.SizeOfRawData));
+        return checked(
+            rva - section.VirtualAddress + section.PointerToRawData);
+    }
+
     sealed class AnalysisCancellationBindingPolicy(
         ManualResetEventSlim entered,
         ManualResetEventSlim release) : IAssemblyBindingPolicy
@@ -478,6 +563,20 @@ public static class MethodAnalysisProbe
     }
 
     public static int[] ExternalGenericCall() => Array.Empty<int>();
+
+    public static int RecoverableCallFailure(int value)
+    {
+        try
+        {
+            Span<int> values = stackalloc int[1];
+            values[0] = Neighbor(value);
+            return values[0];
+        }
+        catch (InvalidOperationException)
+        {
+            return -1;
+        }
+    }
 }
 
 public interface IMethodAnalysisProbe

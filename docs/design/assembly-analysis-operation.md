@@ -584,7 +584,9 @@ exception-region facts. `AssemblyContextMethodAnalysisQueryTests` gate the
 real mixed consumer while public direct-call rows, signals, allocations, and
 optimization remain on `LibraryBodyAnalysisService`; Calls support serves
 focused call-safety evidence until complete direct-call provenance has
-owner-issued capabilities.
+owner-issued capabilities. The focused producer preserves independent
+exception-region and safety-occurrence evidence when whole-body Calls decoding
+fails recoverably.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

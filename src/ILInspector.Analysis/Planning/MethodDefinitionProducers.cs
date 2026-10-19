@@ -784,6 +784,26 @@ public readonly ref struct MethodDefinitionView
         return _unit.GetLocalSignature(GetBody());
     }
 
+    /// <summary>
+    /// Returns recovery-only operand resolution after whole-body Calls
+    /// decoding fails.
+    /// </summary>
+    internal MethodCallRecoveryResolver GetCallRecoveryResolver()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallsUnit,
+            Token,
+            ref producer.CallsUses);
+        return new(_unit);
+    }
+
     /// <summary>The resolved identity and current-module status of a field operand.</summary>
     internal MethodFieldOperand ResolveFieldOperand(int operandToken)
     {
@@ -1444,6 +1464,28 @@ internal struct MethodDefinitionUnit(
         return _localSignature;
     }
 
+    public MemberRef ResolveCallMember(int operandToken)
+    {
+        MethodCallMetadataLookup calls =
+            BeginMethodCallQuery(out MethodCallMetadataWork before);
+        try
+        {
+            return calls.ResolveCallMember(
+                TypeDefinition,
+                MethodDefinition,
+                operandToken);
+        }
+        finally
+        {
+            EndMethodCallQuery(
+                calls,
+                before,
+                callReads: 0,
+                localSignatureReads: 0,
+                fieldOperandReads: 0);
+        }
+    }
+
     public MethodFieldOperand ResolveFieldOperand(int operandToken)
     {
         _fieldOperands ??= [];
@@ -1550,6 +1592,7 @@ internal struct MethodDefinitionUnit(
                 _requestSourceCoverage?.RecordMemorySafetyConstruction(
                     lookup.ConstructionWork);
             }
+
         }
 
         before = lookup.RecordedWork;
@@ -1743,4 +1786,27 @@ internal struct MethodDefinitionUnit(
     /// </summary>
     public readonly string Label =>
         $"MethodDef 0x{MetadataTokens.GetToken(MethodHandle):X8}";
+}
+
+internal sealed class MethodCallRecoveryResolver(
+    MethodDefinitionUnit unit)
+{
+    public MemberRef ResolveMember(int token) =>
+        unit.ResolveCallMember(token);
+
+    public string? CalliReturnDetail(int token)
+    {
+        try
+        {
+            return ResolveMember(token)
+                .ReturnType
+                .ToDisplayString();
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            return null;
+        }
+    }
 }

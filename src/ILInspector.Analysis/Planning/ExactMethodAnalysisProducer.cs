@@ -120,7 +120,27 @@ public sealed class ExactMethodAnalysisProducer :
                 declarationSafety.HasUnsafeApiMember
                 || declarationSafety.HasUnsafeSignature
                 || localSafety.HasUnsafeLocals;
-            MethodCallSites callSites = view.GetCalls(instructions);
+            (exceptionRegions, exceptionRegionError) =
+                ProjectExceptionRegions(
+                    bodyData.ExceptionRegionCatalog);
+            MethodCallSites callSites;
+            try
+            {
+                callSites = view.GetCalls(instructions);
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                MethodCallRecoveryResolver recovery =
+                    view.GetCallRecoveryResolver();
+                unsafeOccurrences =
+                    MethodSafetyAnalysis.CollectOccurrences(
+                        context,
+                        recovery.CalliReturnDetail,
+                        recovery.ResolveMember);
+                throw;
+            }
             var resolver = new OwnerIssuedCallResolver(callSites);
             Dictionary<int, CallerUnsafeMode> targetModes =
                 ReadTargetContracts(
@@ -177,9 +197,6 @@ public sealed class ExactMethodAnalysisProducer :
                     context,
                     resolver.CalliReturnDetail,
                     resolver.ResolveMember);
-            (exceptionRegions, exceptionRegionError) =
-                    ProjectExceptionRegions(
-                        bodyData.ExceptionRegionCatalog);
 
             return new(
                 token,
