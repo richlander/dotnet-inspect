@@ -61,6 +61,44 @@ test("Analysis opens on Relationships as its first tab", async ({ page }) => {
     .toHaveAttribute("aria-selected", "true");
 });
 
+test("Analysis mode survives copy, reload, and the default URL", async ({
+  page,
+}) => {
+  await installFacades(page);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseInspector(
+    page,
+    "data-library-lens",
+    "analysis",
+    "Analysis",
+  );
+
+  await page.getByRole("tab", {
+    name: "Performance Triage",
+    exact: true,
+  }).click();
+  await expect.poll(() =>
+    new URL(page.url()).searchParams.get("analysis"))
+    .toBe("performance");
+
+  const shared = page.url();
+  await page.reload();
+  await expect(page.getByRole("tab", {
+    name: "Performance Triage",
+    exact: true,
+  })).toHaveAttribute("aria-selected", "true");
+  expect(page.url()).toBe(shared);
+
+  await page.getByRole("tab", {
+    name: "Relationships",
+    exact: true,
+  }).click();
+  await expect.poll(() =>
+    new URL(page.url()).searchParams.has("analysis"))
+    .toBe(false);
+});
+
 test("Dependencies auto-loads and reveals one selected relationship", async ({
   page,
 }) => {
@@ -337,6 +375,150 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
     "data-member-group-document-request",
   )).toBeNull();
   await expect(inspectorTab(page, "data-member-section", "overview")).toHaveAttribute("aria-selected", "true");
+});
+
+test("production Analysis row activation returns in one Back", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  await page.locator(".library-performance-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+  expect(new URL(page.url()).searchParams.get("analysis")).toBe("performance");
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(inspectorTab(page, "data-member-section", "facts"))
+    .toHaveAttribute("aria-selected", "true");
+
+  await page.keyboard.press("Alt+ArrowLeft");
+
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-analysis-mode="performance"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-performance-surface .perf-row").first())
+    .toBeVisible();
+});
+
+test("newer subject navigation supersedes deferred Analysis row publication", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  await page.locator(".library-performance-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+
+  await chooseSubject(page, "package", "Package");
+
+  await expect(subjectTab(page, "package"))
+    .toHaveAttribute("aria-selected", "true");
+  expect(new URL(page.url()).searchParams.get("analysis")).toBeNull();
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "package"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member")).toHaveCount(0);
+});
+
+test("newer Member spelling supersedes deferred Analysis row publication", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  await page.locator(".library-performance-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+
+  await page.locator("#member-filter-summary").click();
+  const spelling = page.locator("[data-member-spelling]");
+  await spelling.selectOption("metadata");
+
+  await expect(spelling).toHaveValue("metadata");
+  expect(new URL(page.url()).searchParams.get("analysis")).toBeNull();
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member")).toHaveCount(0);
+});
+
+test("rejected ranked population leaves its provisional Type unpublished", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { rejectedPerformanceTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  const analysisUrl = page.url();
+
+  await page.locator(".library-performance-surface .perf-row").first().click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspection-error"))
+    .toContainText("The ranked Member population was rejected.");
+  expect(page.url()).toBe(analysisUrl);
 });
 
 test("production Analysis opens a private ranked member through all accessibility", async ({

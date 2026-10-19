@@ -73,6 +73,11 @@ public record LibraryOptions : IProjectionOptions
     public bool NamesakeLibrary { get; init; }
 
     /// <summary>
+    /// Select the owner-issued First Library instead of the admitted aggregate.
+    /// </summary>
+    public bool FirstLibrary { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when resolving an unversioned package.
     /// </summary>
     public bool IncludePrerelease { get; init; }

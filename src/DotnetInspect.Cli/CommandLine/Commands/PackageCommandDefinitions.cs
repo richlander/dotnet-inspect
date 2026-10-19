@@ -28,7 +28,7 @@ public static class PackageCommandDefinitions
 
         var packageNameArg = new Argument<string[]>("package")
         {
-            Description = "NuGet package name or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
+            Description = "NuGet package name, exact Package reference, or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
             Arity = ArgumentArity.ZeroOrMore
         };
         var workspaceOption = new Option<string?>("--workspace")
@@ -83,6 +83,11 @@ public static class PackageCommandDefinitions
         {
             Description =
                 "Narrow to the Library whose assembly name matches the package ID",
+        };
+        var firstLibraryOption = new Option<bool>("--first-library")
+        {
+            Description =
+                "Narrow to the first namesake in Library order, otherwise the first Library",
         };
         var allLibrariesOption = new Option<bool>("--all-libraries")
         {
@@ -154,6 +159,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(toolsOption);
         packageCommand.Options.Add(libraryOption);
         packageCommand.Options.Add(namesakeLibraryOption);
+        packageCommand.Options.Add(firstLibraryOption);
         packageCommand.Options.Add(allLibrariesOption);
         packageCommand.Options.Add(versionsOption);
         packageCommand.Options.Add(versionsWithFeedOption);
@@ -172,7 +178,7 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(outOption);
         var commandArgs = new PackageOptionsParser.PackageCommandArgs(
             packageNameArg, dependenciesOption, filesOption, pathOption, tfmsOption,
-            libOption, toolsOption, libraryOption, namesakeLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
+            libOption, toolsOption, libraryOption, namesakeLibraryOption, firstLibraryOption, allLibrariesOption, versionsOption, versionsWithFeedOption, prereleaseOption, includeUnlistedOption,
             contentOption, frontmatterOption, bodyOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption,
@@ -227,7 +233,8 @@ public static class PackageCommandDefinitions
             opts.Lines, opts.TailLines,
             dependenciesOption, filesOption, pathOption, pathMatchOption,
             skipEmptyOption, tfmsOption, libOption, toolsOption,
-            libraryOption, namesakeLibraryOption, allLibrariesOption,
+            libraryOption, namesakeLibraryOption, firstLibraryOption,
+            allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
             versionOption, rootsOption);
@@ -519,11 +526,12 @@ public static class PackageCommandDefinitions
 
                 case PackageOptionsParser.Success success:
                     {
-                        var exitCode = await PackageCommand.ExecuteAsync(success.Options);
+                        var exitCode = await PackageCommand.ExecuteAsync(success.Options, ct);
 
                         if (exitCode == 0
                             && success.Options.CompanionOutput != CompanionOutput.None
                             && success.Options.PackageArgs.Length > 0
+                            && !PackageReferenceAdmission.Contains(success.Options.PackageArgs)
                             && success.Options.PackageLibrary == null
                             && !success.Options.AllLibraries)
                         {

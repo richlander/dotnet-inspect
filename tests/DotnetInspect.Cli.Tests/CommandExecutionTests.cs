@@ -1514,6 +1514,49 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
+        CreateLocalFirstLibraryPackage(
+            string packageId,
+            string? packageType,
+            params (string SourcePath, string EntryPath)[] libraries)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(packageRoot);
+        foreach ((string sourcePath, string entryPath) in libraries)
+        {
+            string destination = Path.Combine(
+                packageRoot,
+                entryPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(sourcePath, destination);
+        }
+
+        File.WriteAllText(
+            Path.Combine(packageRoot, $"{packageId}.nuspec"),
+            $$"""
+            <?xml version="1.0"?>
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>1.0.0</version>
+                {{(packageType is null ? "" : $"""
+                <packageTypes>
+                  <packageType name="{packageType}" />
+                </packageTypes>
+                """)}}
+              </metadata>
+            </package>
+            """);
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
         CreateLocalRootLibPackage(
             bool includeRealTfm = false,
             bool uppercaseExtensions = false)
@@ -1954,9 +1997,13 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static (string PointerPackagePath, string RidPackagePath, string TempDir) CreateLocalToolPackageSet(
-        bool includeAnalyzer = false,
-        bool includeCompileLibrary = false)
+    private static (
+        string PointerPackagePath,
+        string RidPackagePath,
+        string TempDir) CreateLocalToolPackageSet(
+            bool firstLibraryFixture = false,
+            bool includeAnalyzer = false,
+            bool includeCompileLibrary = false)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tool-package-test-{Guid.NewGuid():N}");
 
@@ -1978,7 +2025,28 @@ public partial class CommandExecutionTests
         var payloadRoot = Path.Combine(tempDir, "payload");
         var payloadToolsDir = Path.Combine(payloadRoot, "tools", "net10.0", "any");
         Directory.CreateDirectory(payloadToolsDir);
-        File.Copy(TestAssemblyPath, Path.Combine(payloadToolsDir, "Test.Tool.dll"));
+        File.WriteAllText(
+            Path.Combine(payloadRoot, "Test.Tool.any.nuspec"),
+            """
+            <package><metadata>
+              <id>Test.Tool.any</id>
+              <version>1.0.0</version>
+              <packageTypes>
+                <packageType name="DotnetToolRidPackage" />
+              </packageTypes>
+            </metadata></package>
+            """);
+        File.Copy(
+            firstLibraryFixture
+                ? typeof(JsonDocument).Assembly.Location
+                : TestAssemblyPath,
+            Path.Combine(payloadToolsDir, "Test.Tool.dll"));
+        if (firstLibraryFixture)
+        {
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(payloadToolsDir, "Support.dll"));
+        }
         if (includeAnalyzer)
         {
             var analyzerDir = Path.Combine(

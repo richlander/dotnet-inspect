@@ -1,10 +1,8 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
-using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using NuGetFetch;
-using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web;
 
@@ -214,37 +212,33 @@ internal static class BrowserPlatformCallGraph
                 initial,
                 acquisition,
                 cancellationToken);
-
         BrowserPlatformScopeResolution resolution = build.Resolution;
-        MemberCallGraphView view = build.View;
-        CallGraphProjection projection = build.Projection;
+        AssemblyContextMemberCallGraphDocument document = build.Document;
         int callerAssemblies = resolution.Scope.Members
             .Select(candidate =>
                 candidate.Participant.Assembly.Identity.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
         return new BrowserCallGraphInfo(
-            BrowserCallGraphProjection.Mermaid(projection),
-            BrowserCallGraphProjection.Tree(view.CallerRoot),
-            BrowserCallGraphProjection.Tree(view.CalleeRoot),
+            BrowserCallGraphProjection.Mermaid(document),
+            BrowserCallGraphProjection.Tree(document.CallerRoot),
+            BrowserCallGraphProjection.Tree(document.CalleeRoot),
             new BrowserCallGraphScopeInfo(
                 Packages: 0,
                 resolution.Scope.Members.Length,
                 callerAssemblies,
-                view.Tier.ToString()),
+                document.Tier.ToString()),
             BrowserCallGraphProjection.Targets(
-                projection.Nodes,
+                document.Nodes,
                 resolution.Scope.Members.Select(candidate =>
                     candidate.Participant.Assembly.Identity),
                 resolution.Scope.PlatformPackForAssembly),
             [],
             BrowserCallGraphProjection.Diagnostics(
-                view.Diagnostics,
-                projection.HasUnexploredTraversalBoundary,
-                projection.HasAnalysisFailureBoundary),
-            NoBody:
-                view.CalleeRoot is null
-                && view.CallerRoot is null);
+                document.Diagnostics,
+                document.HasUnexploredTraversalBoundary,
+                document.HasAnalysisFailureBoundary),
+            document.NoBody);
     }
 
     static async Task<PlatformGraphBuild> BuildAsync(
@@ -325,30 +319,21 @@ internal static class BrowserPlatformCallGraph
                     acquisition,
                     cancellationToken);
             BrowserPlatformScopeResolution current = owner.Current;
-            MemberCallGraphView view = current.Scope.Use(group =>
-            {
-                using var session = new MemberCallGraphSession(
-                    group,
-                    focus.Participant.Participant.Assembly,
-                    focus.Member.BodyToken);
-                return session.HasCrossLibraryScope
-                    ? session.CrossLibrary()
-                    : session.Callers();
-            });
-            CallGraphProjection projection =
-                CallGraphProjection.Create(
-                    view.CallerRoot,
-                    view.CalleeRoot);
+            AssemblyContextMemberCallGraphDocument document =
+                current.Scope.Use(group =>
+                    AssemblyContextMemberCallGraphQuery.Execute(
+                        group,
+                        focus.Participant.Participant.Assembly,
+                        focus.Member.BodyToken));
             AssemblyReferenceIdentity[] required =
                 RequiredAssemblies(
-                    projection,
+                    document,
                     current.Scope);
             if (required.Length == 0)
             {
                 return new PlatformGraphBuild(
                     owner.Detach(),
-                    view,
-                    projection);
+                    document);
             }
 
             foreach (AssemblyReferenceIdentity identity in required)
@@ -486,21 +471,17 @@ internal static class BrowserPlatformCallGraph
                         + "unambiguous definition participant.");
                 }
 
-                Analysis.CallGraphMemberResolution? member =
-                    TryResolveMember(
-                        current.Scope,
+                AssemblyContextMemberBody member =
+                    current.Scope.UseParticipant(
                         definitions[0],
-                        typeFullName,
-                        memberName,
-                        selectorKey,
-                        metadataToken);
-                if (member is null)
-                {
-                    throw new InvalidOperationException(
-                        $"The resolved implementation of "
-                        + $"'{typeFullName}.{memberName}' does not contain "
-                        + "the selected API body.");
-                }
+                        (group, selected) =>
+                            BrowserMemberResolution.ResolveImplementationMember(
+                                group,
+                                selected,
+                                typeFullName,
+                                memberName,
+                                selectorKey,
+                                metadataToken));
 
                 return new PlatformMemberFocus(
                     definitions[0],
@@ -566,50 +547,34 @@ internal static class BrowserPlatformCallGraph
             + "assembly-count limit.");
     }
 
-    static Analysis.CallGraphMemberResolution? TryResolveMember(
+    static AssemblyContextMemberBody? TryResolveMember(
         BrowserPlatformScope scope,
         WorkspaceContextMember participant,
         string typeFullName,
         string memberName,
         string selectorKey,
-        int metadataToken)
-    {
-        AssemblyContextApiSurfaceResult implementation =
-            scope.UseParticipant(
-                participant,
-                (group, selected) =>
-                    AssemblyContextApiSurfaceQuery.ExecuteBounded(
+        int metadataToken) =>
+        scope.UseParticipant(
+            participant,
+            (group, selected) =>
+                BrowserMemberResolution.RequireSelection(
+                    AssemblyContextMemberSelectionQuery.ExecuteOptionalBody(
                         group,
-                        ApiSurfaceScope.IncludeAll,
-                        BrowserApiSurfacePolicy.Limits,
-                        [selected]));
-        if (implementation.Truncation is { } truncation)
-        {
-            throw new InvalidOperationException(
-                $"The implementation surface for '{typeFullName}' exceeds the "
-                + "browser projection bounds, so the selected body cannot be "
-                + "resolved. "
-                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
-        }
-
-        AssemblyApiSurface surface = BrowserSurfaceProjection.Require(
-            implementation.Assemblies.Assemblies.Single(),
-            $"Implementation surface for '{typeFullName}'");
-        return Analysis.CallGraphMemberResolver
-            .ResolveDefinitionIdentity(
-                surface.Surface,
-                typeFullName,
-                memberName,
-                selectorKey,
-                metadataToken == 0 ? null : metadataToken);
-    }
+                        selected,
+                        new(
+                            typeFullName,
+                            memberName,
+                            selectorKey,
+                            metadataToken == 0 ? null : metadataToken),
+                        BrowserApiSurfacePolicy.Limits),
+                    "Optional implementation member selection"));
 
     static AssemblyReferenceIdentity[] RequiredAssemblies(
-        CallGraphProjection projection,
+        AssemblyContextMemberCallGraphDocument document,
         BrowserPlatformScope scope)
     {
         var required = new List<AssemblyReferenceIdentity>();
-        foreach (CallGraphNode node in projection.Nodes)
+        foreach (AssemblyContextMemberCallGraphNode node in document.Nodes)
         {
             AssemblyReferenceIdentity? identity =
                 node.DefinitionAssemblyIdentity is null
@@ -761,7 +726,7 @@ internal static class BrowserPlatformCallGraph
 
     sealed record PlatformMemberFocus(
         WorkspaceContextMember Participant,
-        Analysis.CallGraphMemberResolution Member);
+        AssemblyContextMemberBody Member);
 
     sealed record AcquisitionHost(
         HttpClient Client,
@@ -805,8 +770,7 @@ internal static class BrowserPlatformCallGraph
 
     sealed record PlatformGraphBuild(
         BrowserPlatformScopeResolution Resolution,
-        MemberCallGraphView View,
-        CallGraphProjection Projection) : IAsyncDisposable
+        AssemblyContextMemberCallGraphDocument Document) : IAsyncDisposable
     {
         public ValueTask DisposeAsync() => Resolution.DisposeAsync();
     }

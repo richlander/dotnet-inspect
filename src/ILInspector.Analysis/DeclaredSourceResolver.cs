@@ -283,134 +283,157 @@ internal sealed class DeclaredSourceResolver(
             ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
         expanded.AddRange(directMethods);
 
-        while (pending.Count > 0)
+        MethodDefinitionGeneratedExpansionCoverage coverage;
+        MethodDefinitionGeneratedExpansionBoundException? reached = null;
+        try
         {
-            MethodDefinitionHandle sourceHandle = pending.Dequeue();
-            MethodDefinition sourceMethod =
-                _reader.GetMethodDefinition(sourceHandle);
-
-            if (_stateMachineSourceResolver
-                .TryResolveTargetedStateMachineExecutionMethod(
-                    sourceHandle,
-                    sourceMethod,
-                    work,
-                    out MethodDefinitionHandle executionMethod,
-                    out TypeDefinitionHandle stateMachineType))
+            while (pending.Count > 0)
             {
-                work.RecordCandidateDefinition(executionMethod);
-                work.RecordRelationshipNode(executionMethod);
-                MethodDefinitionHandle stateMachineOwner =
-                    declaredOwnerByToken[
-                        MetadataTokens.GetToken(sourceHandle)];
-                AddGenerated(
-                    executionMethod,
-                    stateMachineOwner,
-                    MethodDefinitionGeneratedExpansionOriginKind
-                        .StateMachineExecutionBody);
-                if (helperRoles != MethodDefinitionGeneratedBodyRoles.None
-                    || reachesNestedTypes)
+                MethodDefinitionHandle sourceHandle = pending.Dequeue();
+                MethodDefinition sourceMethod =
+                    _reader.GetMethodDefinition(sourceHandle);
+
+                if (_stateMachineSourceResolver
+                    .TryResolveTargetedStateMachineExecutionMethod(
+                        sourceHandle,
+                        sourceMethod,
+                        work,
+                        out MethodDefinitionHandle executionMethod,
+                        out TypeDefinitionHandle stateMachineType))
                 {
-                    foreach ((MethodDefinitionHandle helper,
-                        MethodDefinitionGeneratedBodyRoles role)
-                        in _stateMachineSourceResolver.StateMachineHelperMethods(
-                            stateMachineType,
-                            executionMethod,
-                            work))
+                    work.RecordCandidateDefinition(executionMethod);
+                    work.RecordRelationshipNode(executionMethod);
+                    MethodDefinitionHandle stateMachineOwner =
+                        declaredOwnerByToken[
+                            MetadataTokens.GetToken(sourceHandle)];
+                    AddGenerated(
+                        executionMethod,
+                        stateMachineOwner,
+                        MethodDefinitionGeneratedExpansionOriginKind
+                            .StateMachineExecutionBody);
+                    if (helperRoles != MethodDefinitionGeneratedBodyRoles.None
+                        || reachesNestedTypes)
                     {
-                        if ((role & helperRoles) == 0)
+                        foreach ((MethodDefinitionHandle helper,
+                            MethodDefinitionGeneratedBodyRoles role)
+                            in _stateMachineSourceResolver.StateMachineHelperMethods(
+                                stateMachineType,
+                                executionMethod,
+                                work))
                         {
-                            attributed.Add(MetadataTokens.GetToken(helper));
-                            work.RecordAttributedOutsideRoles(
-                                new(
-                                    helper,
-                                    stateMachineOwner,
-                                    MethodDefinitionGeneratedExpansionOriginKind
-                                        .StateMachineExecutionBody,
-                                    role));
-                            continue;
+                            if ((role & helperRoles) == 0)
+                            {
+                                attributed.Add(MetadataTokens.GetToken(helper));
+                                work.RecordAttributedOutsideRoles(
+                                    new(
+                                        helper,
+                                        stateMachineOwner,
+                                        MethodDefinitionGeneratedExpansionOriginKind
+                                            .StateMachineExecutionBody,
+                                        role));
+                                continue;
+                            }
+                            AddGenerated(
+                                helper,
+                                stateMachineOwner,
+                                MethodDefinitionGeneratedExpansionOriginKind
+                                    .StateMachineExecutionBody,
+                                role);
                         }
-                        AddGenerated(
-                            helper,
-                            stateMachineOwner,
-                            MethodDefinitionGeneratedExpansionOriginKind
-                                .StateMachineExecutionBody,
-                            role);
                     }
                 }
+
+                foreach (MethodDefinitionHandle liftedHandle
+                    in _liftedSourceOwnerResolver
+                        .PotentialLiftedMethods(sourceHandle))
+                {
+                    MethodDefinition liftedMethod =
+                        _reader.GetMethodDefinition(liftedHandle);
+                    TypeDefinitionHandle liftedTypeHandle =
+                        liftedMethod.GetDeclaringType();
+                    TypeDefinition liftedType =
+                        _reader.GetTypeDefinition(liftedTypeHandle);
+                    MethodIdentity liftedIdentity =
+                        _primaryMetadataResolver.CreateMethodIdentity(
+                            liftedTypeHandle,
+                            liftedHandle,
+                            liftedMethod,
+                            _primaryMetadataResolver.CreateScope(
+                                liftedType,
+                                liftedMethod));
+                    if (!_liftedSourceOwnerResolver
+                        .TryResolveForScopeExpansion(
+                            liftedHandle,
+                            liftedMethod,
+                            liftedIdentity,
+                            out AuthenticatedSourceOwner owner,
+                            selected,
+                            ownerTypeScope: null,
+                            directlySelectedBody: false))
+                    {
+                        continue;
+                    }
+
+                    EntityHandle ownerEntity =
+                        MetadataTokens.EntityHandle(
+                            owner.Method.MetadataToken);
+                    if (ownerEntity.Kind
+                        != HandleKind.MethodDefinition)
+                    {
+                        throw new BadImageFormatException(
+                            "A generated body resolved to a non-MethodDef owner.");
+                    }
+                    var ownerHandle =
+                        (MethodDefinitionHandle)ownerEntity;
+                    if (declaredOwnerByToken.TryGetValue(
+                            owner.Method.MetadataToken,
+                            out MethodDefinitionHandle declaredOwner))
+                    {
+                        ownerHandle = declaredOwner;
+                    }
+                    AddGenerated(
+                        liftedHandle,
+                        ownerHandle,
+                        MethodDefinitionGeneratedExpansionOriginKind
+                            .LiftedExecutionBody);
+                }
             }
 
-            foreach (MethodDefinitionHandle liftedHandle
-                in _liftedSourceOwnerResolver
-                    .PotentialLiftedMethods(sourceHandle))
+            // A generated-named lifted body declared directly in breadth that no
+            // owner reaches is unauthenticated, not silently ownerless.
+            foreach (MethodDefinitionHandle direct in directMethods)
             {
-                MethodDefinition liftedMethod =
-                    _reader.GetMethodDefinition(liftedHandle);
-                TypeDefinitionHandle liftedTypeHandle =
-                    liftedMethod.GetDeclaringType();
-                TypeDefinition liftedType =
-                    _reader.GetTypeDefinition(liftedTypeHandle);
-                MethodIdentity liftedIdentity =
-                    _primaryMetadataResolver.CreateMethodIdentity(
-                        liftedTypeHandle,
-                        liftedHandle,
-                        liftedMethod,
-                        _primaryMetadataResolver.CreateScope(
-                            liftedType,
-                            liftedMethod));
-                if (!_liftedSourceOwnerResolver
-                    .TryResolveForScopeExpansion(
-                        liftedHandle,
-                        liftedMethod,
-                        liftedIdentity,
-                        out AuthenticatedSourceOwner owner,
-                        selected,
-                        ownerTypeScope: null,
-                        directlySelectedBody: false))
+                if (!attributed.Contains(MetadataTokens.GetToken(direct))
+                    && CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                        _reader.GetString(
+                            _reader.GetMethodDefinition(direct).Name)))
                 {
-                    continue;
+                    work.RecordUnauthenticatedCandidate(
+                        direct,
+                        joinsBreadth: false);
                 }
-
-                EntityHandle ownerEntity =
-                    MetadataTokens.EntityHandle(
-                        owner.Method.MetadataToken);
-                if (ownerEntity.Kind
-                    != HandleKind.MethodDefinition)
-                {
-                    throw new BadImageFormatException(
-                        "A generated body resolved to a non-MethodDef owner.");
-                }
-                var ownerHandle =
-                    (MethodDefinitionHandle)ownerEntity;
-                if (declaredOwnerByToken.TryGetValue(
-                        owner.Method.MetadataToken,
-                        out MethodDefinitionHandle declaredOwner))
-                {
-                    ownerHandle = declaredOwner;
-                }
-                AddGenerated(
-                    liftedHandle,
-                    ownerHandle,
-                    MethodDefinitionGeneratedExpansionOriginKind
-                        .LiftedExecutionBody);
             }
-        }
+            if (reachesNestedTypes)
+                ReachNestedGeneratedTypes();
 
-        // A generated-named lifted body declared directly in breadth that no
-        // owner reaches is unauthenticated, not silently ownerless.
-        foreach (MethodDefinitionHandle direct in directMethods)
+            // A bound raised and caught along the way still bounds the
+            // relation: outcomes after it may rest on a swallowed cut.
+            reached = work.Reached;
+            coverage = reached is null
+                ? work.Build()
+                : work.BuildBounded(reached);
+        }
+        catch (MethodDefinitionGeneratedExpansionBoundException bound)
         {
-            if (!attributed.Contains(MetadataTokens.GetToken(direct))
-                && CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                    _reader.GetString(
-                        _reader.GetMethodDefinition(direct).Name)))
-            {
-                work.RecordUnauthenticatedCandidate(
-                    direct,
-                    joinsBreadth: false);
-            }
+            // A reached bound keeps the retained prefix: the direct methods
+            // and every outcome recorded within the limits. Nothing after it,
+            // including the unauthenticated direct-body and nested-type
+            // passes, is settled, so a unit outside the prefix's outcomes
+            // stays Direct and the coverage says the relation is bounded.
+            coverage = work.BuildBounded(bound);
+            reached = bound;
         }
-        if (reachesNestedTypes)
-            ReachNestedGeneratedTypes();
+        work.Settle();
 
         ImmutableArray<MethodDefinitionHandle> methods =
         [
@@ -419,7 +442,7 @@ internal sealed class DeclaredSourceResolver(
                 .OrderBy(static handle =>
                     MetadataTokens.GetRowNumber(handle)),
         ];
-        return new(methods, work.Build());
+        return new(methods, coverage, reached);
 
         void AddGenerated(
             MethodDefinitionHandle method,

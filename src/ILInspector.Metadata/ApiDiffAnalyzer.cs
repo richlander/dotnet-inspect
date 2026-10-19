@@ -51,6 +51,11 @@ public enum ChangeKind
     TypeAttributeRemoved,
     MemberAttributeAdded,
     MemberAttributeRemoved,
+
+    // Accessibility within the API axis (public, protected internal, protected):
+    // narrowing is breaking, widening is additive.
+    TypeAccessibilityChanged,
+    MemberAccessibilityChanged,
 }
 
 /// <summary>
@@ -333,6 +338,8 @@ public static class ApiDiffAnalyzer
             HasIncompleteTypeIdentity(oldSurface);
         bool newIdentityIncomplete =
             HasIncompleteTypeIdentity(newSurface);
+        bool compareAccessibility =
+            ComparesAccessibility(oldSurface, newSurface);
 
         List<TypeDiff> typeDiffs = [];
         int totalBreaking = 0;
@@ -369,7 +376,7 @@ public static class ApiDiffAnalyzer
             }
             else
             {
-                changes = CompareTypes(oldType!, newType!, options);
+                changes = CompareTypes(oldType!, newType!, options, compareAccessibility);
             }
 
             if (changes.Count > 0)
@@ -577,10 +584,20 @@ public static class ApiDiffAnalyzer
         return lookup;
     }
 
-    private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options)
+    /// <summary>
+    /// Whether accessibility changes between API axis buckets are compared: only when
+    /// both surfaces were extracted with <see cref="ApiSurfaceExtractionScope.ApiAxis"/>.
+    /// Other scopes keep their existing comparison; the include-all contract for
+    /// accessibility moves is separate work.
+    /// </summary>
+    internal static bool ComparesAccessibility(ApiSurface oldSurface, ApiSurface newSurface)
+        => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.ApiAxis
+            && newSurface.ExtractionScope is ApiSurfaceExtractionScope.ApiAxis;
+
+    private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareAccessibility)
     {
-        var changes = CompareTypeFacetsOnly(oldType, newType, options);
-        CompareMembers(oldType, newType, changes, options);
+        var changes = CompareTypeFacetsOnly(oldType, newType, options, compareAccessibility);
+        CompareMembers(oldType, newType, changes, options, compareAccessibility);
         return changes;
     }
 
@@ -590,12 +607,12 @@ public static class ApiDiffAnalyzer
     /// <see cref="ApiFindingClassifier"/>, which sources member-level changes from the
     /// Finding lane's own member comparison instead of this analyzer's member matcher.
     /// </summary>
-    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options)
+    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareAccessibility)
     {
         List<ApiChange> changes = [];
         if (IncludesSignature(options))
         {
-            CompareTypeMetadata(oldType, newType, changes);
+            CompareTypeMetadata(oldType, newType, changes, compareAccessibility);
             CompareTypeParameters(oldType, newType, changes);
         }
         if (IncludesAttributes(options))
@@ -610,8 +627,19 @@ public static class ApiDiffAnalyzer
         return changes;
     }
 
-    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes)
+    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes, bool compareAccessibility)
     {
+        if (compareAccessibility)
+        {
+            CompareAccessibility(
+                oldType.Accessibility,
+                newType.Accessibility,
+                ChangeKind.TypeAccessibilityChanged,
+                $"Type '{oldType.FullName}'",
+                ApiChangeSubject.Type(oldType, newType),
+                changes);
+        }
+
         // Kind changed
         if (oldType.Kind != newType.Kind)
         {
@@ -802,7 +830,7 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    private static void CompareMembers(ApiType oldType, ApiType newType, List<ApiChange> changes, ApiDiffOptions options)
+    private static void CompareMembers(ApiType oldType, ApiType newType, List<ApiChange> changes, ApiDiffOptions options, bool compareAccessibility)
     {
         var oldMembers = FilterMembers(oldType.Members);
         var newMembers = FilterMembers(newType.Members);
@@ -910,7 +938,7 @@ public static class ApiDiffAnalyzer
             {
                 var oldMember = oldBySignature[key];
                 var newMember = newBySignature[key];
-                CompareMemberModifiers(oldType, newType, oldMember, newMember, changes);
+                CompareMemberModifiers(oldType, newType, oldMember, newMember, changes, compareAccessibility);
                 CompareMemberTypeParameterConstraints(
                     oldType,
                     newType,
@@ -938,8 +966,19 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
+    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes, bool compareAccessibility)
     {
+        if (compareAccessibility)
+        {
+            CompareAccessibility(
+                oldMember.Accessibility,
+                newMember.Accessibility,
+                ChangeKind.MemberAccessibilityChanged,
+                $"Member '{oldMember.Name}'",
+                ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
+                changes);
+        }
+
         // Virtual removed
         if (oldMember.IsVirtual && !newMember.IsVirtual)
         {
@@ -970,6 +1009,55 @@ public static class ApiDiffAnalyzer
                 Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
         }
     }
+
+    /// <summary>
+    /// Reports an accessibility change between two API axis buckets
+    /// (docs/design/diff-capabilities.md#axes). Narrowing removes the subject from
+    /// some callers, so it is breaking, as public to internal is; widening is
+    /// additive. A change that leaves the axis on either side is a population
+    /// difference, which surfaces as a removal or an addition instead, so the
+    /// ordinary public presentation, where both sides are public, never reports one.
+    /// Runs only between API axis surfaces (<see cref="ComparesAccessibility"/>).
+    /// </summary>
+    static void CompareAccessibility(
+        string? oldAccessibility,
+        string? newAccessibility,
+        ChangeKind kind,
+        string subjectText,
+        ApiChangeSubject subject,
+        List<ApiChange> changes)
+    {
+        if (ApiAxisAccessRank(oldAccessibility) is not { } oldRank
+            || ApiAxisAccessRank(newAccessibility) is not { } newRank
+            || oldRank == newRank)
+        {
+            return;
+        }
+
+        string oldText = string.IsNullOrEmpty(oldAccessibility) ? "public" : oldAccessibility;
+        string newText = string.IsNullOrEmpty(newAccessibility) ? "public" : newAccessibility;
+        bool narrowed = newRank < oldRank;
+        changes.Add(new ApiChange(
+            kind,
+            narrowed ? ChangeClassification.Breaking : ChangeClassification.Additive,
+            $"{subjectText} accessibility {(narrowed ? "narrowed" : "widened")} from '{oldText}' to '{newText}'",
+            oldText,
+            newText,
+            Subject: subject));
+    }
+
+    /// <summary>
+    /// The reach of an API axis accessibility, widest first; <see langword="null"/>
+    /// outside the axis. <c>protected internal</c> reaches every caller
+    /// <c>protected</c> does, and the declaring assembly's friends too.
+    /// </summary>
+    static int? ApiAxisAccessRank(string? accessibility) => accessibility switch
+    {
+        null or "" or "public" => 3,
+        "protected internal" => 2,
+        "protected" => 1,
+        _ => null,
+    };
 
     private static List<ApiMember> FilterMembers(List<ApiMember>? members)
     {

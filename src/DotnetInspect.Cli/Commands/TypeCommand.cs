@@ -231,6 +231,13 @@ public static partial class TypeCommand
                 "A type command requires a type inspection plan.",
                 nameof(plan));
 
+        if (resolvedSource is null && loadedSurface is null
+            && PackageReferenceAdmission.IsCandidate(options.PackagePath))
+        {
+            return await ExecutePackageReferenceAsync(options, plan, exactTypeCapabilities, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         commandPlan ??= new TypeCommandPlan.Standard();
         TypeCommandPlan.ExactTypeOverview? exactTypeOverview =
             commandPlan as TypeCommandPlan.ExactTypeOverview;

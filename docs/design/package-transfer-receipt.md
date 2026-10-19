@@ -109,6 +109,12 @@ directory region needs none.
 A receipt whose request list would exceed 256 entries keeps the first 256 and
 records that it was truncated, with the full totals.
 
+When one House acquisition defers role-specific entry selection until after
+its directory has settled, sequential ranged stages against the same authority
+form one receipt. Their requests remain in issue order, their totals include
+both stages, and the final stage owns the path and fallback outcome. A fully
+warm staged read remains `EntryCache` with no request.
+
 Bytes received count the response body bytes the step consumed. An abandoned
 response counts the bytes read before it was abandoned. A retried request
 records each attempt as its own request. A complete request is recorded once

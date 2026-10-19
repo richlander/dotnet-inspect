@@ -228,15 +228,19 @@ System.Text.Json 11.0.0.0
 `--tree` and `-v:m` select the same Tree, and `--mermaid` renders the same
 nodes as a Mermaid graph. Platform, package, and file sources are accepted,
 together with `--framework`, `--version`, `--preview`, one `--tfm`,
-`--namesake-library`, NuGet source options, and `--verbose`. A package that
-contributes more than one Library keeps the multi-Library view; explicit
-`--tree` or `--mermaid` on such a package fails and asks for the assembly
-within the package. Any other option, including `-S`, `-v:n`, `-v:d`, and
-every format option, keeps the sectioned Library view; combined with such an
-option, `--tree` and `--mermaid` keep their `-S "Reference Hierarchy"`
-requirement. A `DOTNET_INSPECT_FORMAT` default also keeps the sectioned view
-unless `--tree`, `--mermaid`, or `-v:m` is given explicitly. Library facts
-remain available as `-S "Library Info"`.
+`--namesake-library`, `--first-library`, NuGet source options, and `--verbose`.
+`--namesake-library` requires a unique assembly-name match to the package ID.
+`--first-library` takes the first namesake in host-neutral Library order, or
+the first Library in that order when there is no namesake. A package that
+contributes more than one Library keeps the multi-Library view unless one of
+those explicit narrowing gestures is supplied; explicit `--tree` or
+`--mermaid` on an aggregate fails and asks for the assembly within the package.
+Any other option, including `-S`, `-v:n`, `-v:d`, and every format option,
+keeps the sectioned Library view; combined with such an option, `--tree` and
+`--mermaid` keep their `-S "Reference Hierarchy"` requirement. A
+`DOTNET_INSPECT_FORMAT` default also keeps the sectioned view unless `--tree`,
+`--mermaid`, or `-v:m` is given explicitly. Library facts remain available as
+`-S "Library Info"`.
 
 A Library with no public Types renders its identity line marked
 `(no public types)`. A Library whose Type population cannot be read completely
@@ -366,7 +370,7 @@ bodies were not searched (`--verbose` lists them), and the command exits 1.
 | Decompiler *(experimental)* | `member -S @Decompiler`, `member -S "Fidelity Causes"`, `member`/`type`/`library --where "Kind=<ID>"` | Decompiled C#, annotated source, IL, body-shape queries, and typed `DEC####` fidelity causes. |
 | Raw metadata | `library -S @Metadata`, `library address "#Strings:0x1a4"` | Decoded ECMA-335 metadata tables and heap addressing. |
 | Workspace definition, inventory, and navigation | `workspace --package X --tfm TFM --share packet` | Author a durable format-3 Workspace definition without acquisition, or omit `--share` to realize and render typed top-level inventory. Repeat `--package` to compose Package Scope; add `--register-library`, `--register-package-prefix`, or `--register-ecosystem` for registration intent. `--packet` accepts a canonical Base64URL packet string. Add `--active-ecosystem ID` for a resource-free Ecosystem subject or `--active-package N` for structural Library, Type, Member, and lens descriptors. |
-| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `workspace --root-request TOKEN` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
+| Package Queries | `package query ID --where "library-literal=TEXT" --tfm TFM`, `package "$package_ref"` | AND-compose ordinary Package Query terms with an ordinal decoded-`ldstr` substring over each prequalified package's selected implementation libraries. Results remain package-grain and carry typed producing-Library context, complete occurrences, and exact Root reopening tokens. |
 | Workspace sharing and editing | `workspace packet encode` / `decode`, `workspace component list`, `workspace package add` / `update` / `remove` | Convert canonical browser/CLI packets, discover stable component paths, and immutably derive edited Workspace packets. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--json`, Mermaid diagrams, section/field projection, `--count`, and row limiting. |
 
@@ -1007,6 +1011,7 @@ equivalents. The following map distinguishes those contracts:
 | `--path SELECTOR` | Select Files and apply package path/role selection | One literal file can use `--where "Path=FILE"`; repeated selectors, directory expansion, glob rules, `@readme`, and `@agents` retain their selector semantics |
 | `--library [DLL]` | Inspect selected compile libraries, optionally one exact DLL | Changes the inspection subject; it is not a Files filter or section shortcut |
 | `--namesake-library` | Select the Library whose assembly name matches the package ID | Selects a Library subject; it is not `Root=lib` or a filename filter |
+| `--first-library` | Select the first namesake in Library order, otherwise the first Library | Uses owner-issued assembly identities and ordering; it does not sort file names or paths in the CLI |
 | `--tfm TFM` with library inspection | Select the package target before Library scope | Uses package asset selection; it is not Files `Target=TFM` |
 | `--roots` | Project distinct top-level folders from selected Files | A result projection, not a predicate or another section |
 | `--tfms` | Select the Target Frameworks section | `-S "Target Frameworks"`; native output, formats, row selection, and Count are identical |
@@ -1327,6 +1332,27 @@ and reports unsearched ancestors on stderr:
 dotnet-inspect find '.Add*' --ecosystem aspire -n 20
 ```
 
+`--workspace PACKET` searches a registration-only Ecosystem Workspace. It uses
+the declarations stored in the packet, in packet order, without reloading
+catalog definitions by ID or adding ancestors. This lets a Workspace act as a
+reusable search space:
+
+```bash
+base=$(dotnet-inspect workspace --register-ecosystem runtime --share packet)
+dotnet-inspect find JsonSerializer --type JsonSerializer --workspace "$base" -n 1
+```
+
+This first admission accepts one or more Ecosystem registrations with platform,
+core-package or prefix populations. It rejects direct content contexts, exact
+Library registrations (including those inside Ecosystems), independent prefixes,
+portable package-source declarations, empty Workspaces, and mixed platform and
+core-package populations in one Ecosystem. Other source selectors and `--tfm`
+cannot accompany `--workspace`; receiving NuGet source authorization options
+remain available. Saved queries and navigation in the packet are not replayed,
+and Find does not modify the packet. General Workspace content search remains
+staged under [Find Workspace scope](design/find-workspace-scope.md#workspace-packet-admission).
+The same Ecosystem output, row limits, Count and prefix-search rules below apply.
+
 This searches Aspire's core packages first and, when they fill the window,
 does not realize ASP.NET Core or Runtime. TSV and JSONL search the named
 populations first, then progressively discover and search packages under each
@@ -1403,17 +1429,32 @@ selection, Count, projection, discovery, section selection, and competing
 formats are rejected. Typed incomplete or failed Content is still emitted
 before a nonzero exit.
 
-Each evaluated candidate carries a `Root` reopening token. Hand that token back
-to reopen exactly the Root the result came from:
+Each evaluated candidate carries an opaque, credential-free exact Package
+reference in `libraryLiteral.rootRequest`. Use it as ordinary source input:
 
 ```bash
-dotnet-inspect workspace --root-request TOKEN
+package_ref=$(dotnet-inspect package query Newtonsoft.Json \
+  --where "library-literal=Unexpected end when reading JSON" --tfm net6.0 \
+  --json | jq -r '.results[0].libraryLiteral.rootRequest')
+dotnet-inspect "$package_ref"
+dotnet-inspect package "$package_ref" --files --paths -n 3
+dotnet-inspect library Newtonsoft.Json.dll --package "$package_ref" -S "Library Info"
+dotnet-inspect type Newtonsoft.Json.JsonConvert --package "$package_ref" --json
+dotnet-inspect member Newtonsoft.Json.JsonConvert SerializeObject --package "$package_ref"
 ```
 
-The token is opaque, credential-free, and exact. `workspace --root-request`
-rejects a token this tool did not issue, and reports an unauthorized producer
-or unavailable content instead of opening a different Root that happens to
-share the package id and version.
+These forms reopen the same Root under the receiving command's source
+authorization and acquisition limits. Malformed references, unauthorized
+producers, unavailable content, and exact-selection failures produce visible
+errors. They cannot silently select a neighboring Root. Library narrowing
+stays within the frozen compile selection. Type and Member inspection require
+one exact Type selector.
+
+The reference supplies the Package, version and target. Omit other Package
+sources, `--version`, `--tfm`, `--workspace`, version-population and preview
+selectors, and `--share`. Ordinary section, row and output options still apply.
+The older `workspace --root-request` inventory entrance remains during
+migration.
 
 ### Workspace inventory and structural navigation
 

@@ -671,6 +671,43 @@ public abstract class PackageHouseLibraryHandoff
 
         public PackageAssetEntry Asset { get; }
     }
+
+    public sealed class Tool : PackageHouseLibraryHandoff
+    {
+        internal Tool(
+            PackageHouseAcquisitionReceipt acquisition,
+            PackageToolSliceMeasurementEvidence evidence,
+            PackageToolSliceSelection selection,
+            string assetPath)
+            : base(acquisition)
+        {
+            ArgumentNullException.ThrowIfNull(evidence);
+            ArgumentNullException.ThrowIfNull(selection);
+            ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
+            PackageHouseRealizationCorrespondence.RequireTool(
+                acquisition,
+                evidence,
+                selection);
+            if (!selection.SelectedEntries.Contains(
+                    assetPath,
+                    StringComparer.Ordinal))
+            {
+                throw new ArgumentException(
+                    "A tool handoff must use one exact selected entry.",
+                    nameof(assetPath));
+            }
+
+            Evidence = evidence;
+            Selection = selection;
+            AssetPath = assetPath;
+        }
+
+        public PackageToolSliceMeasurementEvidence Evidence { get; }
+
+        public PackageToolSliceSelection Selection { get; }
+
+        public string AssetPath { get; }
+    }
 }
 
 /// <summary>
@@ -893,6 +930,14 @@ public abstract class PackageHouseRealizationReceipt
                     PackageHouseRealizationCompletion.Settled,
                 PackageLibraryPopulationSelection.Runtime =>
                     PackageHouseRealizationCompletion.Settled,
+                PackageLibraryPopulationSelection.Tool =>
+                    PackageHouseRealizationCompletion.Settled,
+                PackageLibraryPopulationSelection.NonSuccess
+                    {
+                        ToolSelection.Status:
+                            PackageToolSliceSelectionStatus.InvalidSelection,
+                    } =>
+                    PackageHouseRealizationCompletion.Rejected,
                 PackageLibraryPopulationSelection.NonSuccess
                     {
                         RuntimeReceipt.Selection:
@@ -967,6 +1012,17 @@ public abstract class PackageHouseRealizationReceipt
                                     acquisition,
                                     runtime.RuntimeReceipt,
                                     asset)),
+                ],
+                PackageLibraryPopulationSelection.Tool tool =>
+                [
+                    .. tool.ToolSelection.SelectedEntries.Select(
+                        assetPath =>
+                            (PackageHouseLibraryHandoff)
+                                    new PackageHouseLibraryHandoff.Tool(
+                                        acquisition,
+                                        tool.ToolEvidence,
+                                        tool.ToolSelection,
+                                        assetPath)),
                 ],
                 _ => [],
             };
@@ -1076,6 +1132,8 @@ internal static class PackageHouseRealizationCorrespondence
         {
             PackageLibraryPopulationSelection.Runtime runtime =>
                 runtime.RuntimeReceipt,
+            PackageLibraryPopulationSelection.Tool toolSelection =>
+                toolSelection.RuntimeReceipt,
             PackageLibraryPopulationSelection.NonSuccess nonSuccess =>
                 nonSuccess.RuntimeReceipt,
             _ => null,
@@ -1085,6 +1143,58 @@ internal static class PackageHouseRealizationCorrespondence
             RequireRuntime(
                 acquisition,
                 runtimeReceipt);
+        }
+
+        (PackageToolSliceMeasurementEvidence Evidence,
+            PackageToolSliceSelection Selection)? retainedTool =
+            selection switch
+        {
+            PackageLibraryPopulationSelection.Tool selected =>
+                (selected.ToolEvidence, selected.ToolSelection),
+            PackageLibraryPopulationSelection.NonSuccess
+                {
+                    ToolEvidence: not null,
+                    ToolSelection: not null,
+                } nonSuccess =>
+                (nonSuccess.ToolEvidence, nonSuccess.ToolSelection),
+            _ => null,
+        };
+        if (retainedTool is { } tool)
+        {
+            RequireTool(
+                acquisition,
+                tool.Evidence,
+                tool.Selection);
+        }
+    }
+
+    internal static void RequireTool(
+        PackageHouseAcquisitionReceipt acquisition,
+        PackageToolSliceMeasurementEvidence evidence,
+        PackageToolSliceSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        ArgumentNullException.ThrowIfNull(evidence);
+        ArgumentNullException.ThrowIfNull(selection);
+        PackageHouseRequest request = acquisition.Decision.Request;
+        if (request.AssetSelection
+                != PackageHouseAssetSelectionKind.LibraryPopulation
+            || !evidence.Coordinate.Equals(
+                acquisition.Candidate.Coordinate)
+            || !ReferenceEquals(
+                evidence.Generation,
+                acquisition.Generation)
+            || !string.Equals(
+                evidence.RequestedTargetFramework,
+                request.TargetContext?.RequestedFramework,
+                StringComparison.OrdinalIgnoreCase)
+            || !evidence.AvailableTargetFrameworks.SequenceEqual(
+                selection.AvailableTargetFrameworks,
+                StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                "Tool selection evidence must describe the acquired generation and exact House Library-population request.",
+                nameof(evidence));
         }
     }
 

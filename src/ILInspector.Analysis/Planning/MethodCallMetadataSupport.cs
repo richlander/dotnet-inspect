@@ -204,6 +204,35 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
             RecordSignature);
     }
 
+    public MemberRef ResolveCallMember(
+        TypeDefinition type,
+        MethodDefinition method,
+        int operandToken)
+    {
+        GenericScope scope = Scope(type, method);
+        EntityHandle handle = MetadataTokens.EntityHandle(operandToken);
+        if (handle.Kind == HandleKind.StandaloneSignature)
+        {
+            return ResolveIndirectCall(
+                (StandaloneSignatureHandle)handle,
+                scope);
+        }
+        if (handle.Kind is not (
+                HandleKind.MethodDefinition
+                or HandleKind.MemberReference
+                or HandleKind.MethodSpecification))
+        {
+            throw new BadImageFormatException(
+                $"A call operand is a {handle.Kind}.");
+        }
+        RecordMethodOperand(handle);
+        ValidateMethodOperand(handle);
+        return MemberResolver.ResolveMethod(
+            reader,
+            handle,
+            scope);
+    }
+
     public MethodFieldOperand ResolveField(
         TypeDefinition type,
         MethodDefinition method,

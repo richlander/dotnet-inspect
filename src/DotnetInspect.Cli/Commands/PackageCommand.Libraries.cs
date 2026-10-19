@@ -131,7 +131,8 @@ public partial class PackageCommand
             return new OptionError(
                 $"Library aggregate inspection cannot be combined with "
                     + $"{string.Join(", ", conflicts)}. Narrow with "
-                    + "--library <dll> or --namesake-library.");
+                    + "--library <dll>, --namesake-library, or "
+                    + "--first-library.");
         }
 
         return null;
@@ -154,7 +155,10 @@ public partial class PackageCommand
             : !string.IsNullOrWhiteSpace(version)
                 ? $"{packageName}@{version}"
                 : packageName;
-        if (!Directory.EnumerateFiles(
+        bool resolvedPayload = false;
+        PackageToolSliceSelection? retainedToolSelection = null;
+        if (options.WorkspaceLibraryAssetPaths is null
+            && !Directory.EnumerateFiles(
                     extractPath,
                     "*.dll",
                     SearchOption.AllDirectories).Any()
@@ -162,13 +166,69 @@ public partial class PackageCommand
                 extractPath,
                 packageName) is not null)
         {
-            return await LibraryCommand.ExecuteResolvedPackageAsync(
-                CreateLibraryOptions(
-                    options.PackageLibrary,
-                    packageReference,
-                    options,
-                    options.Tfm),
-                extraction).ConfigureAwait(false);
+            LibraryCommand.ToolPayloadResolution payload =
+                await LibraryCommand.TryResolveToolPayloadPackageAsync(
+                    extraction,
+                    target,
+                    options.SourceOptions,
+                    logger,
+                    httpClient).ConfigureAwait(false);
+            if (payload.Error is not null)
+            {
+                CommandError.Write(payload.Error);
+                return 1;
+            }
+
+            extraction = payload.Result!;
+            extractPath = extraction.ExtractPath;
+            packageName = extraction.PackageName ?? packageName;
+            version = extraction.Version ?? version;
+            resolvedPayload = true;
+
+            IPackageContent content = new FileSystemPackageContent(
+                extractPath,
+                extraction.NupkgPath,
+                extraction.FromCache,
+                extraction.ProducerKey ?? packageName);
+            PackageSourceCoordinate coordinate =
+                extraction.HouseSettlement?.Result.Evidence.Acquisition?
+                    .Candidate.Coordinate
+                ?? PackageSourceCoordinate.Create(
+                    PackageExtractor.ParsePackageReference(packageName).name,
+                    version);
+            if (await PackageToolDeclarationEvidence.TryCreateAsync(
+                    coordinate,
+                    content).ConfigureAwait(false) is null)
+            {
+                CommandError.Write(
+                    $"The exact tool declaration for package '{packageName}' "
+                        + "is unavailable; no tool Libraries were selected.");
+                PackageExtractor.Cleanup(extraction.TempDir);
+                return 1;
+            }
+
+            retainedToolSelection =
+                PackageToolSliceMeasurementProjection.SelectEntries(
+                    content.EnumerateEntries(),
+                    options.Tfm);
+            if (retainedToolSelection.Status
+                != PackageToolSliceSelectionStatus.Selected)
+            {
+                string error = retainedToolSelection.Status switch
+                {
+                    PackageToolSliceSelectionStatus.NoToolSlices =>
+                        "The tool payload contains no managed Libraries.",
+                    PackageToolSliceSelectionStatus.NoApplicableSlice =>
+                        $"No tool Library slice matches target '{options.Tfm}'.",
+                    PackageToolSliceSelectionStatus.InvalidSelection =>
+                        retainedToolSelection.Detail!,
+                    _ => throw new InvalidOperationException(
+                        "Unknown tool Library selection status."),
+                };
+                CommandError.Write(error);
+                PackageExtractor.Cleanup(extraction.TempDir);
+                return 1;
+            }
         }
 
         var selected = ResolvePackageLibrary(
@@ -176,9 +236,14 @@ public partial class PackageCommand
             packageName,
             version,
             extraction,
-            options);
+            options,
+            retainedToolSelection);
         if (selected == null)
+        {
+            if (resolvedPayload)
+                PackageExtractor.Cleanup(extraction.TempDir);
             return 1;
+        }
 
         string selectedPath = Path.GetRelativePath(
                 extractPath,
@@ -1047,7 +1112,8 @@ public partial class PackageCommand
         string packageName,
         string version,
         PackageExtractionResult extraction,
-        InspectionOptions options)
+        InspectionOptions options,
+        PackageToolSliceSelection? retainedToolSelection)
     {
         var requestedLibrary = options.PackageLibrary;
         if (requestedLibrary == null)
@@ -1059,14 +1125,25 @@ public partial class PackageCommand
                 packageName,
                 version,
                 extraction,
-                options);
+                options,
+                retainedToolSelection);
         if (population is null)
             return null;
         TfmSelector.PackageLibraryResolution candidates =
             population.Resolution;
 
         TfmSelector.PackageLibraryResolution resolution;
-        if (options.NamesakeLibrary)
+        if (options.FirstLibrary)
+        {
+            resolution = candidates.IsSelected
+                ? TfmSelector.SelectFirstPackageLibrary(
+                    candidates.Paths,
+                    extractPath,
+                    packageId,
+                    candidates.Tfm)
+                : candidates;
+        }
+        else if (options.NamesakeLibrary)
         {
             resolution = candidates.IsSelected
                 ? TfmSelector.SelectPackageLibrary(
@@ -1159,7 +1236,8 @@ public partial class PackageCommand
                 .NamesakeIdentityUnavailable)
         {
             CommandError.Write(
-                $"Namesake Library identity is unavailable in package "
+                $"{(options.FirstLibrary ? "First" : "Namesake")} Library "
+                    + $"identity is unavailable in package "
                     + $"'{packageName}'.");
             foreach (string path in resolution.IdentityFailurePaths ?? [])
             {
@@ -1193,7 +1271,8 @@ public partial class PackageCommand
                 packageName,
                 version,
                 extraction,
-                options);
+                options,
+                retainedToolSelection: null);
         if (population is null)
             return null;
         TfmSelector.PackageLibraryResolution resolution =
@@ -1230,7 +1309,8 @@ public partial class PackageCommand
             string packageName,
             string version,
             PackageExtractionResult extraction,
-            InspectionOptions options)
+            InspectionOptions options,
+            PackageToolSliceSelection? retainedToolSelection)
     {
         if (!TryResolveWorkspaceLibraryPaths(
                 extractPath,
@@ -1249,6 +1329,23 @@ public partial class PackageCommand
                     workspacePaths),
                 RuntimeIdentifier: null);
         }
+        if (retainedToolSelection is not null)
+        {
+            IReadOnlyList<string> selectedPaths =
+            [
+                .. retainedToolSelection.SelectedEntries.Select(
+                    assetPath => ResolveContainedEntry(
+                        extractPath,
+                        assetPath)),
+            ];
+            return new PackageLibraryPopulationResolution(
+                new TfmSelector.PackageLibraryResolution(
+                    selectedPaths,
+                    retainedToolSelection.SelectedTargetFramework,
+                    TfmSelector.PackageLibraryResolutionStatus.Selected,
+                    selectedPaths),
+                RuntimeIdentifier: null);
+        }
 
         if (options.Tfm?.Equals(
                 "all",
@@ -1257,7 +1354,8 @@ public partial class PackageCommand
             if (options.PackageLibrary is not null)
             {
                 CommandError.Write(
-                    "--tfm all cannot select one exact or namesake Library; choose one target framework.");
+                    "--tfm all cannot select one exact, namesake, or First "
+                        + "Library; choose one target framework.");
                 return null;
             }
 
@@ -1286,6 +1384,7 @@ public partial class PackageCommand
             ResolvePackageLibraryPopulationSelection(
                 extractPath,
                 packageName,
+                version,
                 extraction,
                 options.Tfm);
         if (population is
@@ -1330,6 +1429,24 @@ public partial class PackageCommand
                 selected.Universe.RuntimeIdentifier);
         }
         if (population is
+            PackageLibraryPopulationSelection.Tool tool)
+        {
+            IReadOnlyList<string> selectedPaths =
+            [
+                .. tool.ToolSelection.SelectedEntries.Select(
+                    assetPath => ResolveContainedEntry(
+                        extractPath,
+                        assetPath)),
+            ];
+            return new PackageLibraryPopulationResolution(
+                new TfmSelector.PackageLibraryResolution(
+                    selectedPaths,
+                    tool.ToolSelection.SelectedTargetFramework,
+                    TfmSelector.PackageLibraryResolutionStatus.Selected,
+                    selectedPaths),
+                RuntimeIdentifier: null);
+        }
+        if (population is
             PackageLibraryPopulationSelection.NonSuccess nonSuccess)
         {
             ReportPackageLibraryPopulationFailure(
@@ -1349,6 +1466,7 @@ public partial class PackageCommand
         ResolvePackageLibraryPopulationSelection(
             string extractPath,
             string packageName,
+            string version,
             PackageExtractionResult extraction,
             string? targetFramework)
     {
@@ -1363,13 +1481,20 @@ public partial class PackageCommand
             extraction.NupkgPath,
             extraction.FromCache,
             extraction.ProducerKey ?? packageName);
+        PackageSourceCoordinate? coordinate =
+            extraction.HouseSettlement?.Result.Evidence.Acquisition?
+                .Candidate.Coordinate
+            ?? PackageSourceCoordinate.Create(
+                PackageExtractor.ParsePackageReference(packageName).name,
+                version);
         return PackageLibraryPopulationSelector.Evaluate(
             content,
             packageName,
             string.IsNullOrWhiteSpace(targetFramework)
                 ? PackageCompileAssetSelectionPolicy.HighestAvailable
                 : PackageCompileAssetSelectionPolicy.ExplicitTarget,
-            targetFramework);
+            targetFramework,
+            coordinate: coordinate);
     }
 
     private static void ReportPackageLibraryPopulationFailure(
@@ -1379,6 +1504,56 @@ public partial class PackageCommand
         InspectionOptions options,
         PackageLibraryPopulationSelection.NonSuccess selection)
     {
+        if (selection.ToolDeclarationUnavailable)
+        {
+            CommandError.Write(
+                $"The exact tool declaration for package '{packageName}' "
+                    + "is unavailable; no tool Libraries were selected.");
+            return;
+        }
+        if (selection.ToolSelection is
+            {
+                Status:
+                    PackageToolSliceSelectionStatus.InvalidSelection,
+                Detail: { } detail,
+            })
+        {
+            CommandError.Write(detail);
+            return;
+        }
+        if (selection.ToolSelection is
+            {
+                Status:
+                    PackageToolSliceSelectionStatus.NoApplicableSlice,
+            })
+        {
+            CommandError.Write(
+                $"No tool Library slice matches target "
+                    + $"'{options.Tfm}' in package '{packageName}'.");
+            return;
+        }
+        if (selection.ToolSelection is
+            {
+                Status:
+                    PackageToolSliceSelectionStatus.NoToolSlices,
+            })
+        {
+            CommandError.Write(
+                $"The declared tool package '{packageName}' contains no "
+                    + "tool Library slice.");
+            return;
+        }
+        if (selection.ToolSelection is
+            {
+                Status: PackageToolSliceSelectionStatus.Selected,
+                SelectedEntries.IsEmpty: true,
+            })
+        {
+            CommandError.Write(
+                $"The selected tool payload in package '{packageName}' "
+                    + "contains no managed Libraries.");
+            return;
+        }
         if (selection.RuntimeReceipt?.Selection
             is PackageAssetSelection.Ambiguous ambiguous)
         {
@@ -2416,5 +2591,6 @@ public partial class PackageCommand
         CommandError.WriteBlankLine();
         CommandError.WriteLine("Use:");
         CommandError.WriteLine($"  dotnet-inspect package {packageReference} --library <dll>");
+        CommandError.WriteLine($"  dotnet-inspect package {packageReference} --first-library");
     }
 }

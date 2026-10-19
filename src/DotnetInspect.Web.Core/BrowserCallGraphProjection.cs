@@ -4,7 +4,6 @@ using System.Text;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using ILInspector.CallGraph;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 
@@ -110,53 +109,46 @@ internal static class BrowserCallGraphProjection
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(resolution);
 
-        MemberCallGraphView view = scope.UseImplementation(group =>
-        {
-            using var session = new MemberCallGraphSession(
-                group,
-                resolution.ImplementationParticipant.Assembly,
-                resolution.Member.BodyToken);
-            return session.HasCrossLibraryScope
-                ? session.CrossLibrary()
-                : session.Callers();
-        });
-        return Project(scope, view);
+        AssemblyContextMemberCallGraphDocument document =
+            scope.UseImplementation(group =>
+                AssemblyContextMemberCallGraphQuery.Execute(
+                    group,
+                    resolution.ImplementationParticipant.Assembly,
+                    resolution.Member.BodyToken));
+        return Project(scope, document);
     }
 
     internal static BrowserCallGraphInfo Project(
         BrowserInspectionScope scope,
-        MemberCallGraphView view)
+        AssemblyContextMemberCallGraphDocument document)
     {
         ArgumentNullException.ThrowIfNull(scope);
-        ArgumentNullException.ThrowIfNull(view);
-        CallGraphProjection projection = CallGraphProjection.Create(
-            view.CallerRoot,
-            view.CalleeRoot);
+        ArgumentNullException.ThrowIfNull(document);
         int callerAssemblies = scope.ImplementationParticipants
             .Select(candidate => candidate.Assembly.Identity.Name)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
 
         return new BrowserCallGraphInfo(
-            Mermaid(projection),
-            Tree(view.CallerRoot),
-            Tree(view.CalleeRoot),
+            Mermaid(document),
+            Tree(document.CallerRoot),
+            Tree(document.CalleeRoot),
             new BrowserCallGraphScopeInfo(
                 scope.Coordinates.Length,
                 scope.ImplementationParticipants.Length,
                 callerAssemblies,
-                view.Tier.ToString()),
+                document.Tier.ToString()),
             Targets(
-                projection.Nodes,
+                document.Nodes,
                 scope.ImplementationParticipants.Select(
                     participant => participant.Assembly.Identity),
                 surfaceParticipants: scope.SurfaceParticipants),
             [],
             Diagnostics(
-                view.Diagnostics,
-                projection.HasUnexploredTraversalBoundary,
-                projection.HasAnalysisFailureBoundary),
-            NoBody: view.CalleeRoot is null && view.CallerRoot is null);
+                document.Diagnostics,
+                document.HasUnexploredTraversalBoundary,
+                document.HasAnalysisFailureBoundary),
+            document.NoBody);
     }
 
     internal static BrowserCallGraphInfo Project(
@@ -325,20 +317,21 @@ internal static class BrowserCallGraphProjection
             _ => throw new ArgumentOutOfRangeException(nameof(baseline)),
         };
 
-    internal static string Mermaid(CallGraphProjection projection)
+    internal static string Mermaid(
+        AssemblyContextMemberCallGraphDocument document)
     {
-        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(document);
         var builder = new StringBuilder("graph LR\n");
-        foreach (CallGraphNode node in projection.Nodes)
+        foreach (AssemblyContextMemberCallGraphNode node in document.Nodes)
         {
             builder.Append("  n").Append(node.Id).Append("[\"")
-                .Append(MermaidLabel(node.Label))
+                .Append(MermaidLabel(node.DefaultLabel))
                 .Append("\"]:::")
                 .Append(node.Kind.ToString().ToLowerInvariant())
                 .Append('\n');
         }
 
-        foreach (CallGraphEdge edge in projection.Edges)
+        foreach (AssemblyContextMemberCallGraphEdge edge in document.Edges)
         {
             builder.Append("  n").Append(edge.From)
                 .Append(edge.AnyCallInLoop ? " -- loop --> " : " --> ")
@@ -748,7 +741,7 @@ internal static class BrowserCallGraphProjection
     }
 
     internal static BrowserCallGraphTargetInfo Target(
-        CallGraphNode node,
+        AssemblyContextMemberCallGraphNode node,
         IReadOnlyList<AssemblyReferenceIdentity> loadedIdentities,
         Func<string, string?>? platformPackForAssembly,
         IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants = null)
@@ -884,7 +877,7 @@ internal static class BrowserCallGraphProjection
     }
 
     internal static BrowserCallGraphTargetInfo[] Targets(
-        IEnumerable<CallGraphNode> nodes,
+        IEnumerable<AssemblyContextMemberCallGraphNode> nodes,
         IEnumerable<AssemblyReferenceIdentity>? loadedIdentities = null,
         Func<string, string?>? platformPackForAssembly = null,
         IReadOnlyList<BrowserWorkspaceParticipant>? surfaceParticipants = null)

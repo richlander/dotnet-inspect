@@ -365,6 +365,7 @@ interface DiagnosticsFixture {
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
+  rejectedPerformanceTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
   physicalOnlyStructuralSalience?: boolean;
   rejectedOwnershipStructuralSalience?: boolean;
@@ -1830,6 +1831,14 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
+        if (${JSON.stringify(diagnostics.rejectedPerformanceTypeMemberPopulation === true)}) {
+          return {
+            outcome: "Rejected",
+            detail: "The ranked Member population was rejected.",
+            population: null,
+            diagnostics: [],
+          };
+        }
         return typeMemberPopulation(
           implementationPerformanceSurface(
             surfaceFor(id, version, framework)),

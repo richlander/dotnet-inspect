@@ -1,12 +1,15 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
+using ILInspector.Instructions;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -148,9 +151,15 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 call.EvidenceMethod.MetadataToken));
         Assert.All(
             moveNextAnalysis.DirectCalls,
-            call => Assert.Equal(
-                moveNext.MetadataToken,
-                call.EvidenceMethod.MetadataToken));
+            call =>
+            {
+                Assert.Equal(
+                    kickoff.MetadataToken,
+                    call.Caller.MetadataToken);
+                Assert.Equal(
+                    moveNext.MetadataToken,
+                    call.EvidenceMethod.MetadataToken);
+            });
         Assert.All(
             moveNextAnalysis.OptimizationOpportunities,
             opportunity => Assert.Equal(
@@ -162,6 +171,91 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
             diagnostic => Assert.Equal(
                 moveNext.MetadataToken,
                 diagnostic.MethodToken));
+    }
+
+    [Fact]
+    public async Task MethodAnalysis_PreservesDirectCallProvenance()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+        AssemblyContextParticipant participant =
+            Assert.Single(group.Participants);
+
+        int loopToken = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.CallInLoop))!
+            .MetadataToken;
+        AssemblyMethodAnalysis loop = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    loopToken,
+                    TestContext.Current.CancellationToken)).Value;
+        Assert.Contains(
+            loop.DirectCalls,
+            call =>
+                call.Callee.Name == nameof(List<object>.Add)
+                && call.Multiplicity == AllocationMultiplicity.Loop);
+
+        int genericToken = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.ExternalGenericCall))!
+            .MetadataToken;
+        AssemblyMethodAnalysis generic = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    participant,
+                    genericToken,
+                    TestContext.Current.CancellationToken)).Value;
+        DirectCall empty = Assert.Single(
+            generic.DirectCalls,
+            call => call.Callee.Name == nameof(Array.Empty));
+        Assert.Equal(
+            HandleKind.MethodSpecification,
+            MetadataTokens.EntityHandle(empty.OperandToken).Kind);
+        Assert.Equal(
+            HandleKind.MemberReference,
+            MetadataTokens.EntityHandle(
+                empty.CalleeDefinitionToken).Kind);
+    }
+
+    [Fact]
+    public async Task MethodAnalysis_PreservesIndependentEvidenceWhenCallsFail()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        int token = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.RecoverableCallFailure))!
+            .MetadataToken;
+        CorruptFirstCallOperandToField(image, token);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+
+        AssemblyMethodAnalysis result = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    token,
+                    TestContext.Current.CancellationToken)).Value;
+
+        Assert.Contains(
+            result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains(
+                "call operand is a FieldDefinition",
+                StringComparison.Ordinal));
+        UnsafetyOccurrence occurrence = Assert.Single(
+            result.UnsafetyOccurrences,
+            occurrence =>
+                occurrence.Kind == UnsafetyKind.StackAlloc);
+        Assert.Equal("byte*", occurrence.Detail);
+        Assert.Single(result.ExceptionRegions);
+        Assert.Contains(
+            result.UnsafeEvidence,
+            evidence => evidence.Detail == "localloc");
+        Assert.Single(result.Diagnostics);
     }
 
     [Fact]
@@ -208,6 +302,25 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     TestContext.Current.CancellationToken));
 
         Assert.Contains("not a MethodDef", failed.Error.Message);
+    }
+
+    [Fact]
+    public async Task MethodAnalysis_MissingMethodDefIsAVisibleParticipantFailure()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+
+        var failed = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Failed>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    0x06FF_FFFF,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("not a MethodDef in", failed.Error.Message);
     }
 
     [Fact]
@@ -311,6 +424,56 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         return workspace.CreateAssemblyContextGroup([participant]);
     }
 
+    static void CorruptFirstCallOperandToField(
+        byte[] image,
+        int methodToken)
+    {
+        using var stream = new MemoryStream(image, writable: false);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(
+                methodToken & 0x00FF_FFFF);
+        MethodDefinition definition =
+            reader.GetMethodDefinition(method);
+        MethodBodyBlock body =
+            pe.GetMethodBody(definition.RelativeVirtualAddress);
+        DecodedInstruction call =
+            InstructionDecoder
+                .Decode(body.GetILBytes()!)
+                .First(static instruction =>
+                    instruction.OpCode == ILOpCode.Call);
+        int bodyOffset = RvaToFileOffset(
+            pe.PEHeaders,
+            definition.RelativeVirtualAddress);
+        int headerSize = (image[bodyOffset] & 3) == 2
+            ? 1
+            : ((BinaryPrimitives.ReadUInt16LittleEndian(
+                    image.AsSpan(bodyOffset, sizeof(ushort)))
+                >> 12)
+                & 0xF) * sizeof(uint);
+        int fieldToken = MetadataTokens.GetToken(
+            reader.FieldDefinitions.First());
+        BinaryPrimitives.WriteInt32LittleEndian(
+            image.AsSpan(
+                bodyOffset + headerSize + call.OperandOffset,
+                sizeof(int)),
+            fieldToken);
+    }
+
+    static int RvaToFileOffset(PEHeaders headers, int rva)
+    {
+        SectionHeader section =
+            headers.SectionHeaders.Single(header =>
+                rva >= header.VirtualAddress
+                && rva < header.VirtualAddress
+                    + Math.Max(
+                        header.VirtualSize,
+                        header.SizeOfRawData));
+        return checked(
+            rva - section.VirtualAddress + section.PointerToRawData);
+    }
+
     sealed class AnalysisCancellationBindingPolicy(
         ManualResetEventSlim entered,
         ManualResetEventSlim release) : IAssemblyBindingPolicy
@@ -395,6 +558,28 @@ public static class MethodAnalysisProbe
         Span<int> values = stackalloc int[1];
         values[0] = value;
         return values[0];
+    }
+
+    public static void CallInLoop(int count, List<object> sink)
+    {
+        for (int index = 0; index < count; index++)
+            sink.Add(new object());
+    }
+
+    public static int[] ExternalGenericCall() => Array.Empty<int>();
+
+    public static int RecoverableCallFailure(int value)
+    {
+        try
+        {
+            Span<int> values = stackalloc int[1];
+            values[0] = Neighbor(value);
+            return values[0];
+        }
+        catch (InvalidOperationException)
+        {
+            return -1;
+        }
     }
 }
 

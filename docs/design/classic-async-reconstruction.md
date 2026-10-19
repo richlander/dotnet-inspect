@@ -428,7 +428,11 @@ prove the new physical, semantic, or structured-ancestor ledgers.
 async source population into implementation and SDK reference assemblies.
 `ClassicAsyncArtifactMatrixTests` additionally publishes that project twice
 with full trimming: once under ordinary reachability and once with the fixture
-assembly rooted so every classic role remains available.
+assembly rooted so every classic role remains available. The fixture also
+carries one reachable async iterator, `StreamAsync`, as trimmed-artifact
+evidence for the
+[state-machine relationship index](state-machine-relationship-index.md#contract-demonstration);
+it is outside the classic inverse.
 
 The resulting matrix separates artifact availability from reconstruction:
 
