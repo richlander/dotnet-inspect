@@ -1,0 +1,403 @@
+# Annotated Type Relations
+
+## Status and owner
+
+This document owns **Annotated Type Relations**: the host-neutral document that
+describes how one exact Type relates to subjects outside its owned closure. It
+owns:
+
+- the document's focus, subjects, logical relations, occurrences, annotations,
+  family outcomes, and focus joins;
+- preservation of producer-owned logical-relation identity and the separation
+  of semantic direction from focus-relative incidence;
+- the boundary between topology, supporting occurrences, and optional
+  annotations;
+- the Type-focused relation inventory that the shape must admit;
+- Rows, Count, and Exists over the retained logical relations; and
+- equivalence of table and graph projections over one document.
+
+Its exact claim is:
+
+> For one exact Type and one resolved set of relationship descriptors,
+> Annotated Type Relations retains each admitted logical relationship incident
+> to the Type's owned closure and reaching outside it, its semantic direction,
+> its focus-relative incidence, its producer-native occurrences, annotations
+> targeting retained subjects, relations, or occurrences, and the
+> family-specific outcome needed to interpret absence.
+
+This owner is tracked by
+[#10283](https://github.com/richlander/dotnet-inspect/issues/10283). It is the
+relationship-side counterpart to [Annotated Type Map](annotated-type-map.md):
+the Map looks within one Type; Relations looks outside it.
+
+It consumes and does not redefine:
+
+| Owner | Contract consumed |
+| --- | --- |
+| [Subject Relations](subject-relations-workflows.md) | Canonical one-hop logical rows, exact focus and candidate-population binding, producer outcomes, focus-relative direction, and relation forms |
+| [Inspection graph document](inspection-graph-document.md) | Producer-owned relationship descriptors, exact semantic endpoints, occurrences, characteristics, derivation, endpoint projection, and semantic direction |
+| [Annotated Type Map](annotated-type-map.md) and [Fast Diff](fast-diff.md) | Type, Member, accessor, and generated-body ownership |
+| [Scope symmetry](scope-symmetry.md) | Library, Type, and Member targets; Rows, Count, and exact Exists; no rows within rows |
+| [Finding nomenclature](finding-nomenclature.md) and [Finding coordinates](finding-coordinates.md) | Producer-owned findings, descriptors, subjects, evidence, and outcomes used as annotations |
+| [Inspection envelope](inspection-envelope.md) | Completed host boundary carrying Content, Share, and diagnostics |
+
+The query and generation infrastructure, producer registrations, and request
+UX for all applicable or selected relations are focused successors. This
+document constrains their output; it does not own their planning or gestures.
+
+## Why
+
+Annotated Type Map answers what is inside a Type: its owned Members, their
+shape, and findings about their own instructions. It deliberately excludes
+callee facts, call relationships, and effects attributable to another Type.
+
+Those exclusions are useful relationships, not missing local annotations. A
+reader looking at one Type may ask:
+
+- which external Members its Members call, and which Members call them;
+- which Types receive its extension surface or occupy its generic slots;
+- which Types derive from it, which Types it derives from, and which interfaces
+  it implements;
+- which exception Types its Members throw;
+- which repository naming families it satisfies; and
+- where it refers to ecosystem anchor Types such as `IChatClient`.
+
+These questions do not all form a call graph. Some are Type topology, some are
+Member-to-Type evidence, some target owner-issued semantic subjects, and some
+need an incoming candidate population. Their shared shape is an exact relation
+incident to one Type, with evidence and honest completion.
+
+## Focus and owned closure
+
+One document focuses one exact Type in one exact binding context. Its owned
+closure contains:
+
+- the Type;
+- its Members under Annotated Type Map's accessor ownership; and
+- physical implementation bodies attributed to those logical Members under
+  the same generated-body ownership.
+
+A descriptor admits the focus as:
+
+- an exact semantic endpoint;
+- an original occurrence endpoint retained behind a projected relation; or
+- the strict typed owner of an admitted endpoint.
+
+Those admission mechanisms remain distinct. Display names, namespaces, and
+package labels never establish ownership or incidence.
+
+A retained relation reaches outside the closure through at least one semantic
+or original occurrence endpoint under its descriptor's admission rule. A
+relation whose complete endpoint and occurrence closure stays inside the Type
+may support another retained relation, but is not an external relation row.
+
+## Document shape
+
+The document has seven independent planes:
+
+```text
+AnnotatedTypeRelationsDocument
+  Focus
+  Selection
+  Subjects[]
+  Relations[]
+  Occurrences[]
+  Annotations[]
+  FamilyOutcomes[]
+  FocusJoins[]
+```
+
+### Focus and selection
+
+`Focus` retains the exact Type and binding context. `Selection` records the
+resolved relationship descriptors, incidence directions, and optional
+annotation descriptors that determined which logical relations are listed.
+The document does not infer selection from populated rows: a selected family
+with zero rows or an unavailable producer remains selected and visible.
+
+The shape does not decide how a request spells all applicable relationships,
+an explicit subset, or an authored preset. A portable request preserves that
+intent; the result records the exact resolved descriptor set.
+
+### Subjects
+
+Every semantic and original occurrence endpoint retains its owner-issued
+subject identity and lifetime. Endpoint kinds may include Member, Type,
+Library, Package, or an owner-issued semantic subject such as a naming family
+or language-pattern role.
+
+Equal display text never joins subjects. A portable document detaches a
+subject only through its owner's portable projection; display text is not a
+fallback identity.
+
+### Logical relations
+
+One canonical row is one logical relation:
+
+```text
+(semantic source, semantic target, relationship descriptor,
+ optional producer discriminator)
+```
+
+The descriptor owns the discriminator and logical identity. Different
+descriptors sharing endpoints remain different rows. Different exact
+endpoints with the same display text remain different rows.
+
+Relationship kind and semantic direction are mandatory topology. They are not
+annotations and do not change when a caller asks for incoming incidence.
+
+### Occurrences
+
+An occurrence is one producer-native contribution to a logical relation. It
+retains:
+
+- the same relationship descriptor as its logical relation;
+- its original source and target subjects;
+- its producer-native coordinate and evidence;
+- its descriptor-owned occurrence identity; and
+- source occurrence receipts when it is derived.
+
+Several occurrences may support one logical relation. They remain individually
+addressable and never collapse merely because they render alike. A projected
+Type relation may retain Member, metadata-row, or body-site occurrence
+endpoints.
+
+An observed or derived relation has at least one occurrence. A relation with
+none is admitted only when its descriptor explicitly defines synthetic
+construction and derivation.
+
+### Annotations
+
+An annotation is an optional producer-owned observation targeting one retained
+subject, logical relation, or occurrence. It retains its descriptor, evidence,
+producer identity, outcome, and derivation.
+
+Annotations never create, retarget, or change the identity of topology. For
+example, a call to a `RequiresDynamicCode` Member remains a `call` relation;
+the callee's finding explains why that relation is notable.
+
+One annotation may target several retained hooks only when its owner defines
+that targeting. The document does not duplicate the observation to make each
+hook look independently authored.
+
+### Family outcomes
+
+Each selected descriptor retains its own:
+
+- candidate population identity;
+- supported incidence directions;
+- producer availability and completion;
+- work limits and continuation where applicable;
+- failures and diagnostics; and
+- Rows, Count, and Exists outcomes.
+
+A complete neighboring family never hides or upgrades an incomplete one. A
+family with no admitted rows is a complete negative only when its own
+population and evidence are complete for the selected direction.
+
+### Focus joins
+
+Every row records how it is incident to the focused closure: semantic source,
+semantic target, original occurrence source, original occurrence target, or
+strict owned endpoint. Its focus-relative reading is `Incoming`, `Outgoing`,
+or both for a self-incident relation.
+
+Incidence never reverses semantic endpoints. A subclass-to-base relation stays
+`subclass -> base` when viewed as incoming from the base.
+
+## Type-focused relation inventory
+
+The inventory shapes the document but is not a closed universal enum. A family
+enters a result only through an owner-issued descriptor, endpoint and
+occurrence contracts, Type-focus admission, and family outcome.
+
+| View | Canonical relation | Focus reading and evidence boundary |
+| --- | --- | --- |
+| Callees | owned Member calls external Member | Outgoing; exact call edge and physical sites; unresolved or indirect targets qualify absence |
+| Callers | external Member calls owned Member | Incoming; requires an explicit caller population and its completion |
+| Extension receivers | extension Member extends receiver Type | Incoming to the receiver, outgoing from its owning provider; exact extension declaration |
+| Generic receivers | generic Type receives an exact Type in one parameter slot | Outgoing from the receiver, incoming for the received Type; exact constructed occurrence and slot position |
+| Subclasses | derived Type inherits base Type | Incoming to the base; direct declaration or an owner-issued hierarchy path |
+| Superclasses | derived Type inherits base Type | Outgoing from the derived Type; direct and transitive projections remain distinguishable |
+| Implemented interfaces | implementing Type implements interface Type | Type topology; direct declaration and any owner-issued inherited path remain distinguishable |
+| Thrown Types | throwing Member throws exact exception Type | Outgoing from the throwing Type or incoming to the exception; local throw evidence does not imply escape |
+| Naming schemes | Type conforms to an owner-issued repository family or scheme | Derived classification retaining matched rules, coverage, and exact scheme identity |
+| Ecosystem Type references | Type or owned Member references an exact ecosystem anchor Type | Exact declaration or body occurrences plus a separate owner-issued ecosystem/concept association |
+
+The broader product relation dialect also includes signature uses, object
+construction, metadata references and constraints, package dependencies and
+ownership, Integration observations and compositions, opportunities,
+structural matches, and language-pattern candidates. Their endpoint diversity,
+occurrence forms, and completion semantics are requirements on this shape even
+before each family has a Type-focused adopter.
+
+### Type topology
+
+Base classes, subclasses, and implemented interfaces are Type topology.
+Directness and transitivity are independent of focus direction. A superclass
+chain, indirect subclass match, or inherited interface retains the direct
+declarations or owner-issued path that supports its projected row; it never
+becomes an indistinguishable one-hop edge.
+
+### Receiver relations
+
+Receiver is broader than extension syntax:
+
+- an extension receiver receives an added method, property, or other
+  owner-issued extension-member surface through its declaration's receiver
+  site; and
+- a generic receiver receives an exact Type argument through a declared
+  generic parameter slot.
+
+The forms share a Receiver view and typed-slot concept, not a producer or
+evidence codec. For example:
+
+```text
+Finding<AllocationFact>
+  -> Finding<> --receives parameter position 0--> AllocationFact
+```
+
+The open declaration `Finding<T>` proves the slot and constraints, not that a
+concrete Type was received. Parameter name `T` is presentation; generic
+definition identity and zero-based position identify the slot. A complete
+negative requires a declared population of constructed occurrences.
+
+### Thrown-Type relations
+
+One local throw occurrence establishes:
+
+```text
+throwing Member -> exact exception Type
+```
+
+The Type view rolls up owned Members without losing the Member or physical
+throw site. A local throw may be caught and does not prove escape. Propagated,
+task-fault, runtime, documented, unknown, and untyped rethrow cases need their
+own producers and evidence claims.
+
+### Semantic classifications
+
+A naming relation targets an owner-issued nominal family or repository scheme;
+it is not a CLR edge inferred from a suffix. An ecosystem reference retains an
+exact CLR reference and separately attaches an owner-issued ecosystem or
+concept association. Package membership alone establishes neither relation.
+
+## Rows and terminals
+
+Rows is the deterministic projection of admitted logical relations. It never
+flattens occurrence evidence into duplicate relation rows or fabricates a
+logical endpoint for unresolved evidence. A producer may retain that evidence
+and its reason in the family outcome; it qualifies absence without becoming a
+successful row.
+
+The document adopts [Scope symmetry](scope-symmetry.md):
+
+| Scope | Rows |
+| --- | --- |
+| Library | one row per Type with at least one admitted relation or an unsettled selected-family outcome, carrying relation Count and outcome rather than nested relation rows |
+| Type | the focused Type's admitted external logical relations |
+| Member | the admitted external logical relations incident to that exact owned Member |
+
+Count equals the admitted Rows and carries an unsettled outcome when additional
+rows may exist. Exists is `true` when an admitted row exists, undecided when
+none exists but any selected family cannot settle absence, and `false` only
+when every selected family is complete and no row exists.
+
+A Member's row at Member scope equals that row in its Type document. A
+Library-scope ephemeral result never nests each Type's relation Rows.
+
+## Projection
+
+The keyed document is canonical. Table and graph are projections over the same
+subjects, logical relations, occurrences, annotations, and outcomes.
+
+A graph projection may roll exact endpoints up to Types or Packages only
+through descriptor-owned endpoint projection while retaining original
+occurrence endpoints. A table may expand occurrences beneath one logical row.
+Neither projection changes relation identity, semantic direction, focus
+incidence, or completion.
+
+Presentation may omit a repeated relation title or unselected annotation. It
+must not parse labels to recover identity or semantics.
+
+## First adopter
+
+The first focused adopter is outgoing calls from a selected Type to external
+Members annotated with `RequiresUnreferencedCode`, `RequiresDynamicCode`, or
+`RequiresAssemblyFiles`.
+
+It uses the general shape as follows:
+
+- `call` is the relationship descriptor;
+- owned caller and external callee Members are semantic endpoints;
+- physical call sites are occurrences;
+- trimming and NativeAOT findings target the callee;
+- Type, Library, Package, and Platform boundaries are characteristics derived
+  through owner-issued correspondence; and
+- call resolution and callee-annotation completion remain separate outcomes.
+
+This adopter must not introduce a call-specific row, occurrence, annotation,
+or completion shape.
+
+Real assets are `System.Text.Json` 10.0.13 and `Newtonsoft.Json` 13.0.4. Both
+carry substantial trimming and dynamic-code annotations; a consumer Type
+calling those APIs demonstrates same-Library, dependency-package, and Platform
+resolution. The adopter records its exact measured scenarios and durable
+fixtures in its focused design.
+
+## Gates
+
+- **Identity:** unequal exact endpoints or descriptors never join because
+  their display text matches; equal endpoints under different descriptors
+  remain different rows.
+- **Direction:** incoming traversal preserves producer semantic direction and
+  records focus-relative incidence separately.
+- **Occurrences:** several native occurrences support one row without losing
+  coordinates; duplicate descriptor-owned occurrence identity is rejected.
+- **Projection:** a rolled-up Type relation retains every original Member or
+  metadata occurrence endpoint.
+- **Annotations:** annotations on a subject, relation, and occurrence do not
+  change topology or each other's identity.
+- **Derivation:** observed, derived, and synthetic relations remain distinct;
+  a derived relation retains its source occurrence receipts.
+- **Isolation:** failure or incompleteness in one selected family neither
+  erases rows nor strengthens outcomes from another.
+- **Selection:** the document records every selected descriptor, including
+  complete-empty, unavailable, and failed families.
+- **Exact terminals:** Count equals Rows and Exists follows Rows plus selected
+  family outcomes at Library, Type, and Member scope.
+- **Symmetry:** a Member's relation answer is identical at Member scope and
+  inside its Type answer.
+- **Projection equivalence:** table and graph projections contain the same
+  logical relations and retain the same occurrence and completion evidence.
+
+## Adoption
+
+The complete feature has five independently mergeable steps:
+
+1. lock this document shape;
+2. implement query and generation infrastructure over owner-issued relation
+   descriptors and producer outcomes;
+3. adopt outgoing calls to trimming and NativeAOT-annotated callees;
+4. expose all-applicable and selected-family requests in the CLI; and
+5. expose the same host-neutral requests and document in Inspect Web.
+
+Each additional relation family adopts the locked shape through its own owner.
+Existing Type Relationships and Subject Relations paths retire or compose only
+after their focused successor demonstrates parity.
+
+## Non-claims
+
+- This owner does not define a universal relationship enum, graph database, or
+  producer.
+- It does not define relationship discovery, producer planning, acquisition,
+  caching, or request spelling.
+- It does not redefine Subject Relations rows, Inspection Graph descriptors,
+  producer evidence, Findings, or Type and Member ownership.
+- It does not make annotations part of logical-relation identity.
+- It does not claim whole-Workspace incoming completeness without an explicit
+  population and receipt.
+- It does not reproduce ILLink or ILC dataflow analysis or predict a publish's
+  complete warning set.
+- It does not define relation diff. A future diff compares two one-version
+  documents without changing this document's identity or evidence.

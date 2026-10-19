@@ -1054,6 +1054,10 @@ rules, this document describes subsystem ownership, and
   keyed collection of its Members' findings at one version, and the map diff
   of two such maps by the same implementation, with Rows as a projection, at
   Library, Type, and Member scope.
+- [Annotated Type Relations](design/annotated-type-relations.md): one Type's
+  exact external logical relations, producer-native occurrences, optional
+  annotations, focus-relative incidence, and family-specific outcomes, with
+  Rows, Count, and Exists at Library, Type, and Member scope.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
