@@ -5264,14 +5264,19 @@ public partial class LibraryCommand
 
         if (!string.IsNullOrEmpty(assemblyName))
         {
-            PackageLibraryPopulationSelection population;
-            if (resolution.HouseSettlement?.Result.Evidence.Realization
-                is PackageHouseRealizationReceipt.LibraryPopulation
-                    realization)
+            string? retainedSelectionPath =
+                preResolvedPackage is not null
+                    ? selectedPackageLibraryPath
+                    : null;
+            PackageLibraryPopulationSelection? population = null;
+            if (retainedSelectionPath is null
+                && resolution.HouseSettlement?.Result.Evidence.Realization
+                    is PackageHouseRealizationReceipt.LibraryPopulation
+                        realization)
             {
                 population = realization.Selection;
             }
-            else
+            else if (retainedSelectionPath is null)
             {
                 var content = new FileSystemPackageContent(
                     extractPath,
@@ -5298,14 +5303,12 @@ public partial class LibraryCommand
                     tfm,
                     coordinate: coordinate);
             }
-
             string? matchedAssembly;
             string? matchedTfm;
-            if (preResolvedPackage is not null
-                && selectedPackageLibraryPath is not null)
+            if (retainedSelectionPath is not null)
             {
                 string requestedPath =
-                    selectedPackageLibraryPath.Replace('\\', '/');
+                    retainedSelectionPath.Replace('\\', '/');
                 matchedAssembly = FindExtractedPackageEntry(
                     allDlls,
                     extractPath,
