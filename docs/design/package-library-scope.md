@@ -353,10 +353,14 @@ probes under #10240. PackageHouse receives one `LibraryPopulation`
 realization demand before payload transfer. It preserves compile precedence
 and evaluates the one-RID runtime implementation policy only for
 `NoCompileAssets` or `EmptyCompileGroup`; ranged planning and the retained
-realization receipt consume that same generation-bound decision. Analyzer,
-build, native, tool, satellite, second-RID, and unrelated framework entries
-do not become probe candidates. The CLI consumes the retained role population
-and no longer uses `TfmSelector` to recover from `NoCompileAssets`.
+realization receipt consume that same generation-bound decision. When that
+runtime policy returns `NoMatch`, a nuspec-authenticated `DotnetTool` or
+`DotnetToolRidPackage` may supply the one tool-Library population selected by
+the Package Info tool-measurement owner. Eligible nested managed runtime DLLs
+remain ordinary members of that selected tool slice. Analyzer, build, native,
+satellite, second-RID, and unrelated framework entries do not become probe
+candidates. The CLI consumes the retained role population and no longer uses
+`TfmSelector` to recover from `NoCompileAssets`.
 
 Direct framework-less `lib/*.dll` packages continue to use their
 framework-agnostic compile population, and a real framework-qualified slice
@@ -364,9 +368,12 @@ still outranks it. Exact and Namesake `--tfm all` requests are rejected because
 one probe cannot merge framework projections. Aggregate `--tfm all` remains
 package discovery under
 [All-frameworks package discovery](package-tfm-all-discovery.md), rather than
-one Library Scope population. Tool-package settings-issued populations and
-Browser adoption remain separately owned. #9833 records First Library,
-remaining host adoption, and final archive-search retirement.
+one Library Scope population. Package children continue to consume their
+separate settings-issued tool population; Library probes consume the
+declaration-authenticated measurement population and do not redefine tool
+layout or settings correspondence. Browser adoption remains separately owned.
+Issue #9833 records First Library, remaining host adoption, and final
+archive-search retirement.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.

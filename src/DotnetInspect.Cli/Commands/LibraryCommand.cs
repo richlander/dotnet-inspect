@@ -5206,13 +5206,23 @@ public partial class LibraryCommand
                     resolution.ProducerKey
                         ?? resolvedPackageName
                         ?? packageTarget.PackageName);
+                PackageSourceCoordinate? coordinate =
+                    resolution.HouseSettlement?.Result.Evidence.Acquisition?
+                        .Candidate.Coordinate
+                    ?? (resolvedPackageVersion is null
+                        ? null
+                        : PackageSourceCoordinate.Create(
+                            resolvedPackageName
+                                ?? packageTarget.PackageName,
+                            resolvedPackageVersion));
                 population = PackageLibraryPopulationSelector.Evaluate(
                     content,
                     resolvedPackageName ?? packageTarget.PackageName,
                     string.IsNullOrWhiteSpace(tfm)
                         ? PackageCompileAssetSelectionPolicy.HighestAvailable
                         : PackageCompileAssetSelectionPolicy.ExplicitTarget,
-                    tfm);
+                    tfm,
+                    coordinate: coordinate);
             }
 
             string? matchedAssembly;
@@ -5283,6 +5293,34 @@ public partial class LibraryCommand
                     ? runtimeResolution.Paths[0]
                     : null;
                 matchedTfm = selected.Universe.TargetFramework;
+            }
+            else if (population is
+                PackageLibraryPopulationSelection.Tool toolPopulation)
+            {
+                IReadOnlyList<string> candidates =
+                [
+                    .. toolPopulation.ToolSelection.SelectedEntries
+                        .Select(assetPath =>
+                            FindExtractedPackageEntry(
+                                allDlls,
+                                extractPath,
+                                assetPath))
+                        .OfType<string>(),
+                ];
+                TfmSelector.PackageLibraryResolution toolResolution =
+                    TfmSelector.SelectPackageLibrary(
+                        candidates,
+                        extractPath,
+                        resolvedPackageName
+                            ?? packageTarget.PackageName,
+                        assemblyName,
+                        toolPopulation.ToolSelection
+                            .SelectedTargetFramework);
+                matchedAssembly = toolResolution.IsSelected
+                    ? toolResolution.Paths[0]
+                    : null;
+                matchedTfm = toolPopulation.ToolSelection
+                    .SelectedTargetFramework;
             }
             else
             {

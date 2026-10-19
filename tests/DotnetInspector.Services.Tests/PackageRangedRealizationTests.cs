@@ -1006,6 +1006,8 @@ public sealed partial class PackageRangedRealizationTests
     private sealed class RangeFeed(string id, string version, byte[] archive)
         : HttpMessageHandler
     {
+        private readonly byte[]? _manifest = ReadRootManifest(archive);
+
         /// <summary>The host this feed answers as; distinct feeds are distinct sources.</summary>
         public string Host { get; init; } = "ranged.example";
 
@@ -1018,8 +1020,11 @@ public sealed partial class PackageRangedRealizationTests
 
         private int _rangedRequests;
         private int _fullRequests;
+        private int _manifestRequests;
 
         public bool IgnoreRange { get; init; }
+
+        public bool ServeManifest { get; init; } = true;
 
         /// <summary>Answer complete requests without a Content-Length.</summary>
         public bool OmitLength { get; init; }
@@ -1045,6 +1050,8 @@ public sealed partial class PackageRangedRealizationTests
 
         public int FullRequests => Volatile.Read(ref _fullRequests);
 
+        public int ManifestRequests => Volatile.Read(ref _manifestRequests);
+
         public ConcurrentQueue<string> Requests { get; } = new();
 
         protected override Task<HttpResponseMessage> SendAsync(
@@ -1069,6 +1076,21 @@ public sealed partial class PackageRangedRealizationTests
                     request,
                     HttpStatusCode.OK,
                     new StringContent($$"""{"versions":["{{version}}"]}""")));
+            }
+            if (url
+                == $"{FlatUrl}{lower}/{version}/{lower}.nuspec")
+            {
+                Interlocked.Increment(ref _manifestRequests);
+                return Task.FromResult(
+                    Respond(
+                        request,
+                        !ServeManifest || _manifest is null
+                            ? HttpStatusCode.NotFound
+                            : HttpStatusCode.OK,
+                        new ByteArrayContent(
+                            ServeManifest
+                                ? _manifest ?? []
+                                : [])));
             }
             if (url != $"{FlatUrl}{lower}/{version}/{lower}.{version}.nupkg")
                 return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
@@ -1134,6 +1156,27 @@ public sealed partial class PackageRangedRealizationTests
                 request, HttpStatusCode.PartialContent, content);
             partial.Headers.ETag = new EntityTagHeaderValue("\"pcl\"");
             return Task.FromResult(partial);
+        }
+
+        private static byte[]? ReadRootManifest(byte[] package)
+        {
+            using var archive = new ZipArchive(
+                new MemoryStream(package, writable: false),
+                ZipArchiveMode.Read);
+            ZipArchiveEntry[] manifests =
+            [
+                .. archive.Entries.Where(entry =>
+                    !entry.FullName.Contains('/')
+                    && !entry.FullName.Contains('\\')
+                    && entry.FullName.EndsWith(
+                        ".nuspec",
+                        StringComparison.OrdinalIgnoreCase)),
+            ];
+            if (manifests.Length != 1)
+                return null;
+
+            using Stream stream = manifests[0].Open();
+            return ReadAll(stream);
         }
 
         private static HttpResponseMessage Respond(

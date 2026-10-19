@@ -136,7 +136,8 @@ The owner defines:
 - composition of owner-issued package source, version, pruning, payload,
   asset-selection, and dependency capabilities;
 - composition of one Navigation-issued Library-population demand with compile
-  precedence and typed one-RID runtime fallback;
+  precedence, typed one-RID runtime fallback, and declaration-authenticated
+  tool fallback when runtime selection has no match;
 - package-local compile-selection policy and preservation of the complete
   owner-issued inventory beside its selected projection;
 - the House result envelope and terminal outcome;
@@ -158,7 +159,8 @@ It does not define:
 - platform/package pruning inventory or comparison;
 - dependency candidate resolution or graph traversal;
 - package archive admission, content generation, or cache publication;
-- compile, runtime, resource, analyzer, or build asset selection;
+- compile, runtime, tool, resource, analyzer, or build asset selection;
+- tool declaration grammar or tool-slice membership;
 - framework compatibility, compile-slice ranking, asset-role preference,
   empty-group interpretation, or managed-image classification;
 - artifact identity, Workspace admission, revisions, leases, replacement, or

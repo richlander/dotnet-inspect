@@ -139,9 +139,24 @@ entry whatever the demand.
 `LibraryPopulation` asks PackageHouse to choose one role population from the
 same validated directory used for ranged planning. Compile selection has
 precedence. Only `NoCompileAssets` or `EmptyCompileGroup` permits one-RID
-runtime selection. A selected compile population expands exactly as compile
-realization; a selected runtime population expands exactly as runtime
-realization. Typed non-success selects no entry bodies.
+runtime selection. Only runtime `NoMatch` permits declared-tool selection;
+runtime ambiguity or invalidity remains terminal. The tool-measurement owner
+authenticates an exact `DotnetTool` or `DotnetToolRidPackage` nuspec
+declaration and selects one compatible `tools/<tfm>/` slice. A selected compile
+population expands exactly as compile realization, and a selected runtime
+population expands exactly as runtime realization. A selected tool population
+adds only its exact managed-Library entries, including eligible nested managed
+runtime entries; it does not expand tool folders or admit native, satellite,
+analyzer, build, or another-framework entries.
+
+For ranged HTTP acquisition, PackageHouse requests the bounded exact candidate
+nuspec before selecting tool entry bodies. The declaration evidence is bound
+to the same candidate coordinate and central-directory content generation used
+for entry planning. If the source cannot provide that manifest, or the
+declaration is absent or invalid, ranged planning does not transfer tool entry
+bodies and returns typed non-success. It does not speculatively read a root
+nuspec and tool payload together. Complete acquisition may retain the whole
+archive, but publishes the same selected role population.
 
 The package Root records the demand it was realized with. A surface-only Root
 prepares no implementation role and forms no role correspondence, so no
@@ -518,6 +533,7 @@ All gates run in Release.
 | 26. Exact-Library depth and selection are pathological | implementation depth reads fewer implementation entries than selection depth, while an ambiguous query remains a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_DepthReachesRangedAcquisition` and `PackageLibraryRealization_QueryAmbiguityIsTyped`, real asset `Avalonia` 12.1.2 plus an ambiguity fixture |
 | 27. Browser member documentation reads one implementation and its PDB from an archive above the cut | cold execution uses ranges and skips an unrelated 2 MiB implementation plus 2 MiB padding; after store recreation, the same authored documentation makes no package request | `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesRangeAndWarmEntryCache` |
 | 28. Package Library navigation has no compile population | one eligible runtime RID reads only its selected managed folder; compile assets retain precedence; several eligible RIDs settle ambiguous after directory planning and before entry-body transfer | `PackageRangedRealizationTests.LibraryPopulation_RuntimeOnlyReadsOneSelectedRuntimeFolder`, `LibraryPopulation_CompileSelectionPreventsRuntimeBodyReads`, and `LibraryPopulation_MultipleRuntimeIdentifiersStopBeforeBodyTransfer` |
+| 29. Package Library navigation reaches a declared tool package after compile and runtime miss | the bounded candidate nuspec authenticates the tool role before body transfer; only managed Libraries from one selected tool TFM are read and handed off, while undeclared shape or unavailable declaration transfers no tool bodies | `PackageRangedRealizationTests.LibraryPopulation_DeclaredToolReadsOnlyTheSelectedToolLibraries`, `LibraryPopulation_UndeclaredToolShapeStopsBeforeBodyTransfer`, and `LibraryPopulation_UnavailableToolDeclarationStopsBeforeBodyTransfer` |
 
 ## Adoption
 
