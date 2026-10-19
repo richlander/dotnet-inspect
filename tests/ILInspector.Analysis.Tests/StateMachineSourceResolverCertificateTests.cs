@@ -95,6 +95,39 @@ public sealed class StateMachineSourceResolverCertificateTests
     }
 
     /// <summary>
+    /// Full trim removes <c>IAsyncStateMachine.SetStateMachine</c> from async
+    /// iterators too. The async iterator certificate then reports the role as
+    /// <c>AbsentFromArtifact</c>, and the resolver still resolves both
+    /// directions.
+    /// </summary>
+    [Fact]
+    public void AsyncIteratorWithoutSetStateMachine_ResolvesBothDirections()
+    {
+        byte[] image = WithoutSetStateMachine(
+            File.ReadAllBytes(FixturePath));
+        using var subject = new Subject(image);
+        (MethodDefinitionHandle kickoff,
+            TypeDefinitionHandle stateMachine,
+            MethodDefinitionHandle moveNext) =
+                subject.StaticFixtureStateMachine(
+                    nameof(StateMachineFixtureMethods.AsyncIterator));
+
+        var certificate =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(
+                StateMachineRelationshipIndex.Create(subject.Reader)
+                    .GetByKickoff(kickoff));
+        Assert.Equal(
+            StateMachineClaimKind.AsyncIterator,
+            certificate.Relationship.Kind);
+        Assert.IsType<StateMachineRoleDisposition.AbsentFromArtifact>(
+            certificate.Relationship.GetRole(
+                StateMachineMethodRole.SetStateMachine));
+
+        subject.AssertForward(kickoff, stateMachine, moveNext);
+        subject.AssertReverse(kickoff, moveNext);
+    }
+
+    /// <summary>
     /// Renames every <c>#Strings</c> entry that ends in
     /// <c>SetStateMachine</c>. The state machines then have neither an
     /// explicit nor an implicit <c>SetStateMachine</c> candidate, which is the
@@ -211,6 +244,13 @@ public sealed class StateMachineSourceResolverCertificateTests
             MethodDefinition kickoffDefinition =
                 Reader.GetMethodDefinition(kickoff);
 
+            // The kickoff is itself the declared source: no other source.
+            Assert.Null(
+                Resolver.ResolveSourceMethod(
+                    CreateIdentity(kickoff, kickoffDefinition),
+                    kickoffDefinition,
+                    typeSourceGenerated: false));
+
             Assert.True(
                 Resolver.TryResolveStateMachineExecutionMethod(
                     kickoff,
@@ -245,16 +285,8 @@ public sealed class StateMachineSourceResolverCertificateTests
         {
             MethodDefinition moveNextDefinition =
                 Reader.GetMethodDefinition(moveNext);
-            TypeDefinitionHandle stateMachine =
-                moveNextDefinition.GetDeclaringType();
             MethodIdentity moveNextIdentity =
-                _attribution.PrimaryMetadataResolver.CreateMethodIdentity(
-                    stateMachine,
-                    moveNext,
-                    moveNextDefinition,
-                    _attribution.PrimaryMetadataResolver.CreateScope(
-                        Reader.GetTypeDefinition(stateMachine),
-                        moveNextDefinition));
+                CreateIdentity(moveNext, moveNextDefinition);
 
             Assert.Equal(
                 AsyncSourceResolution.Resolved,
@@ -268,8 +300,28 @@ public sealed class StateMachineSourceResolverCertificateTests
                 source!.MetadataToken);
             Assert.Equal(
                 MetadataTokens.GetToken(kickoff),
+                Resolver.ResolveSourceMethod(
+                    moveNextIdentity,
+                    moveNextDefinition,
+                    typeSourceGenerated: false)!.MetadataToken);
+            Assert.Equal(
+                MetadataTokens.GetToken(kickoff),
                 Resolver.ExecutionSourceMethodsByMoveNextToken()[
                     MetadataTokens.GetToken(moveNext)].MetadataToken);
+        }
+
+        MethodIdentity CreateIdentity(
+            MethodDefinitionHandle method,
+            MethodDefinition definition)
+        {
+            TypeDefinitionHandle owner = definition.GetDeclaringType();
+            return _attribution.PrimaryMetadataResolver.CreateMethodIdentity(
+                owner,
+                method,
+                definition,
+                _attribution.PrimaryMetadataResolver.CreateScope(
+                    Reader.GetTypeDefinition(owner),
+                    definition));
         }
 
         TypeDefinitionHandle FindType(string name) =>

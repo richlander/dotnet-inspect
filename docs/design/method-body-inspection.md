@@ -650,7 +650,7 @@ split: to keep a type named by an attribute the resolver itself rejects
 failing closed, since the certificate carries no type for it, and in the
 targeted generated-expansion lookup, which builds no module-wide index.
 `StateMachineSourceResolverCertificateTests` gates escaped-comma names and an
-absent classic `SetStateMachine` on both paths. Full builds prewarm its
+absent classic or async iterator `SetStateMachine` on both paths. Full builds prewarm its
 snapshots before parallel method analysis.
 For value-flow consumers, `AsyncBodyAttribution` projects the exact
 Analysis-authenticated source method together with an explicit `Runtime` or
