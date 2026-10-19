@@ -28,18 +28,13 @@ public static class PackageCommandDefinitions
 
         var packageNameArg = new Argument<string[]>("package")
         {
-            Description = "NuGet package name or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
+            Description = "NuGet package name, exact Package reference, or path to .nupkg file, optionally with version (e.g., System.Text.Json@9.0.0)",
             Arity = ArgumentArity.ZeroOrMore
         };
         var workspaceOption = new Option<string?>("--workspace")
         {
             Description =
                 "Source: canonical Base64URL Workspace packet string",
-        };
-        var rootRequestOption = new Option<string?>("--root-request")
-        {
-            Description = "Source: exact Package Root token from a package query library-literal=TEXT result",
-            Arity = ArgumentArity.ExactlyOne,
         };
         var shareOption = WorkspaceShareOption.Create(
             "Emit the resolved Package scenario as a canonical Workspace packet or complete URL");
@@ -152,7 +147,6 @@ public static class PackageCommandDefinitions
         packageCommand.Options.Add(opts.RowWhere);
         packageCommand.Options.Add(pathOption);
         packageCommand.Options.Add(pathMatchOption);
-        packageCommand.Options.Add(rootRequestOption);
         packageCommand.Options.Add(skipEmptyOption);
         packageCommand.Options.Add(rootsOption);
         packageCommand.Options.Add(tfmsOption);
@@ -186,11 +180,11 @@ public static class PackageCommandDefinitions
             skipEmptyOption, rootsOption, opts.NoHeaders,
             workspaceOption, shareOption,
 #if DEBUG
-            evidenceEnvelopeOption,
+            evidenceEnvelopeOption
 #else
-            null,
+            null
 #endif
-            rootRequestOption);
+            );
         SharedOptions.AddOutputPathValidator(packageCommand, outOption);
         opts.AddTableOptionsTo(packageCommand);
         packageCommand.Options.Add(opts.Json);
@@ -271,8 +265,7 @@ public static class PackageCommandDefinitions
                     hasPluralVersionSelector
                     || (isRange && result.GetValue(opts.Count));
                 bool isPackageChildrenEnvelope =
-                    (packageReferences is [_]
-                        || result.GetValue(rootRequestOption) is not null)
+                    packageReferences is [_]
                     && !hasPopulationGesture
                     && !isRange
                     && !result.GetValue(opts.Count);
@@ -531,6 +524,7 @@ public static class PackageCommandDefinitions
                         if (exitCode == 0
                             && success.Options.CompanionOutput != CompanionOutput.None
                             && success.Options.PackageArgs.Length > 0
+                            && !PackageReferenceAdmission.Contains(success.Options.PackageArgs)
                             && success.Options.PackageLibrary == null
                             && !success.Options.AllLibraries)
                         {

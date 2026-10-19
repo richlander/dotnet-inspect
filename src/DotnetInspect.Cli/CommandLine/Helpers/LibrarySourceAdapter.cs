@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Commands;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 
@@ -44,6 +45,12 @@ internal static class LibrarySourceAdapter
         out SourceIntent intent,
         out string? error)
     {
+        if (PackageReferenceAdmission.IsCandidate(packagePath))
+        {
+            intent = SourceIntent.Empty;
+            error = null;
+            return true;
+        }
         string? value;
         string label;
         Func<string, SourceSelector> create;

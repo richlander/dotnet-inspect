@@ -48,45 +48,57 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
-### Exact Package Root source admission
+### Exact Package reference admission
 
-`package --root-request TOKEN` admits the opaque reopening token issued by a
-Package Query library-literal result as its sole Package source. It consumes
-[the Package Root transport seam](design/artifact-acquisition-and-workspaces.md#the-transport-seam)
-without reconstructing coordinates or decoding fields in the host. The
-receiving CLI retains its source authorization, bounded acquisition policy,
-and Root lifetime. After admission, ordinary Package inspection consumes the
-acquired binding and its content; it must not select a neighboring Package,
-producer, or target through coordinate acquisition.
+An owner-issued exact Package reference is accepted as positional `package`
+input, as the bare router target, and as `--package` input for Library and
+exact Type or Member inspection. These are ordinary source gestures over the
+same acquired Package binding. The Package owner retains the opaque token's
+validation, producer, logical Root selection, and failure semantics through
+[its transport seam](design/artifact-acquisition-and-workspaces.md#the-transport-seam).
+The receiving CLI supplies source authorization and bounded acquisition. A
+reference conveys no authority and cannot silently become an ordinary NuGet
+coordinate after reopening fails.
 
-The token supplies the Package and target selection. Positional Packages,
-`--version`, `--tfm`, `--workspace`, version-population selectors and preview
-selection cannot accompany it. Root admission does not define a portable
-Workspace scenario, so `--share` is rejected. Ordinary Package sections,
-Library narrowing, discovery and supported output terminals remain available
-on the admitted content. The transitional `workspace --root-request` entrance
-remains until the Workspace retirement slice; both consume the same admission
-helper and owner-typed failure reporting.
+The CLI recognizes the owner's current token prefix before name/platform
+probing; successfully decoded legacy references are also accepted. Malformed
+current-prefix values fail as references. It does not interpret token fields.
+The reference supplies version and target selection, so competing versions,
+TFMs, preview/latest selection, Workspace context, or another source fail.
+Library narrowing stays within frozen compile assets. Exact Type/Member
+inspection uses an ephemeral operation context over the already acquired
+binding; it does not author or restore a Workspace packet or reacquire a
+coordinate. Type/Member input requires one exact Type, matching the existing
+admitted-context inspection boundary. Share cannot currently preserve this
+exact source and fails visibly. Other source forms retain their own contracts.
+The transitional `workspace --root-request` entrance remains until #10186;
+ordinary Package inspection has no separate reopening option.
 
 The motivating real asset is nuget.org `Newtonsoft.Json` 13.0.4. Running
 `package query Newtonsoft.Json --where
 "library-literal=Unexpected end when reading JSON" --tfm net6.0 --json`
-at implementation base `a19ce50f1a5684e5b96b6900c2e350501dcf16e8`
-produced a `pkgroot6` request for that exact version and
-`lib/net6.0/Newtonsoft.Json.dll`. This source transition lets the reader inspect
-the producing Root without introducing an unrelated Workspace inventory.
-Durable CLI tests will carry a real query result through token admission to
-completed Package output, alongside deterministic malformed-token,
-unauthorized-producer, missing-content and other-target controls. Exact
-NativeAOT base/head commands will compare the old and new entrances and
-ordinary unchanged neighbors, including Count and empty selections.
+produced an owner-issued reference for `lib/net6.0/Newtonsoft.Json.dll`.
+That same value can feed `package "$package_ref"`, the bare router, or
+`type Newtonsoft.Json.JsonConvert --package "$package_ref"` and its Member
+inspection. The user approved ordinary Package reference syntax and bare-router
+admission on 2026-10-18, replacing the proposed public `--root-request` option.
 
-This CLI-only admission is slice 6 of the 15-slice
+Durable tests carry a real query value through these ordinary parser/router
+entrances into completed output. Deterministic controls cover malformed
+references, unauthorized same-named producer content, missing content,
+other-target replacements, absent Types/Members/Libraries, and conflicting
+source selectors. Exact NativeAOT base/head comparisons cover adopted terminal
+families, Count and row narrowing, unchanged coordinate neighbors and the
+retained Workspace entrance. This is source admission; existing section and
+row owners retain their work and rendering semantics.
+
+This CLI adoption is slice 6 of the 15-slice
 [continuous resource discovery plan](https://github.com/richlander/dotnet-inspect/issues/10132),
 implemented by [#10185](https://github.com/richlander/dotnet-inspect/issues/10185).
-It adds no shared schema or Browser-navigation contract. Shared Root token
-semantics remain with their existing owner; duplicate Workspace inspection
-retirement is the following slice, #10186.
+It adds no shared token schema or Browser-navigation contract.
+[Acquired Package declaration admission](design/workspace-live-locator.md#exact-acquired-package-declaration-context)
+supplies the supporting Queries-owned adapter to existing exact-Type readers. Duplicate
+Workspace inspection retirement remains the following slice, #10186.
 
 ### Vocabulary reading admission
 

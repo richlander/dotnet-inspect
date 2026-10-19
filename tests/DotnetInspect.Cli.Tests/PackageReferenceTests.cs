@@ -11,13 +11,129 @@ using NuGetFetch.Plugins;
 namespace DotnetInspect.Cli.Tests;
 
 [Collection("Console")]
-public sealed class PackageRootRequestTests
+public sealed class PackageReferenceTests
 {
     const string PackageId = "Exact.Root.Fixture";
     const string Version = "1.0.0";
     const string Framework = "net10.0";
     static readonly PackageSource Source = new("fixture", "https://fixture.invalid/v3/index.json");
     static readonly PackageSource OtherSource = new("other", "https://other.invalid/v3/index.json");
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task TypeAndMemberUseTheAdmittedReference(bool member)
+    {
+        var (store, reference) = await IssueAsync();
+        using var client = new HttpClient(new ForbiddenNetwork());
+        var load = LoadOptions(client, store, [Source]);
+        await using var executor = Executor(store, load, [Source]);
+        var captured = await ConsoleCapture.RunAsync(() => member
+            ? MemberCommand.ExecutePackageReferenceAsync(
+                new MemberOptions
+                {
+                    PackagePath = reference,
+                    TypeName = typeof(ReferenceInspectionCanary).FullName,
+                    MemberFilter = ["Answer"], OverloadIndex = 1,
+                    Select = ["Signature"],
+                },
+                DotnetInspect.Cli.Planning.ResolvedMemberInspectionPlan.FromCompatibilityOptions(
+                    new MemberOptions { TypeName = typeof(ReferenceInspectionCanary).FullName, MemberFilter = ["Answer"], OverloadIndex = 1, Select = ["Signature"] }),
+                load, executor.Execution)
+            : TypeCommand.ExecutePackageReferenceAsync(
+                new TypeOptions { PackagePath = reference, TypeName = typeof(ReferenceInspectionCanary).FullName, JsonOutput = true },
+                DotnetInspect.Cli.Planning.ResolvedMemberInspectionPlan.FromCompatibilityOptions(
+                    new TypeOptions { TypeName = typeof(ReferenceInspectionCanary).FullName, JsonOutput = true }),
+                load, TestContext.Current.CancellationToken, executor.Execution));
+        Assert.True(captured.ExitCode == 0, captured.Error);
+        Assert.Contains(member ? "Answer" : nameof(ReferenceInspectionCanary), captured.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Neighbor.dll", captured.Output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("router")]
+    [InlineData("package")]
+    [InlineData("library")]
+    [InlineData("type")]
+    [InlineData("member")]
+    public async Task MalformedCurrentReferenceCannotFallBackToNameDiscovery(string entrance)
+    {
+        const string invalid = "pkgroot6.not-a-token";
+        string[] argv = entrance switch
+        {
+            "router" => [invalid],
+            "package" => [entrance, invalid],
+            "library" => [entrance, "Selected.dll", "--package", invalid],
+            "type" => [entrance, "Sample.Type", "--package", invalid],
+            _ => [entrance, "Sample.Type", "Answer", "--package", invalid],
+        };
+        var root = CommandLineBuilder.CreateRootCommand();
+        string[] processed = CommandLineBuilder.PreprocessArgs(argv, root);
+        var result = await ConsoleCapture.RunAsync(() =>
+            CommandLineBuilder.InvokeAsync(root.Parse(processed), processed));
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("must be an exact Package reference", result.Error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false, "Sample.Absent", null)]
+    [InlineData(true, "Sample.Absent", null)]
+    [InlineData(false, null, "Neighbor.dll")]
+    [InlineData(true, null, "Neighbor.dll")]
+    [InlineData(true, null, null)]
+    public async Task TypeOrMemberCannotSelectAnAbsentDeclaration(bool member, string? type, string? library)
+    {
+        var (store, reference) = await IssueAsync();
+        using var client = new HttpClient(new ForbiddenNetwork());
+        var load = LoadOptions(client, store, [Source]);
+        await using var executor = Executor(store, load, [Source]);
+        var options = new MemberOptions
+        {
+            PackagePath = reference,
+            TypeName = type ?? typeof(ReferenceInspectionCanary).FullName,
+            AssemblyPath = library,
+            MemberFilter = ["AbsentMember"],
+        };
+        var result = await ConsoleCapture.RunAsync(() => member
+            ? MemberCommand.ExecutePackageReferenceAsync(options,
+                DotnetInspect.Cli.Planning.ResolvedMemberInspectionPlan.FromCompatibilityOptions(options), load, executor.Execution)
+            : TypeCommand.ExecutePackageReferenceAsync(
+                new TypeOptions { PackagePath = reference, TypeName = options.TypeName, AssemblyPath = library },
+                DotnetInspect.Cli.Planning.ResolvedMemberInspectionPlan.FromCompatibilityOptions(new TypeOptions()),
+                load, TestContext.Current.CancellationToken, executor.Execution));
+        Assert.Equal(1, result.ExitCode);
+        Assert.NotEmpty(result.Error);
+    }
+
+    [Theory]
+    [InlineData("tfm")]
+    [InlineData("workspace")]
+    [InlineData("platform")]
+    [InlineData("share")]
+    [InlineData("wildcard")]
+    public async Task TypeReferenceRejectsConflictsBeforeAcquisition(string conflict)
+    {
+        using var client = new HttpClient(new ForbiddenNetwork());
+        var store = new InMemoryPackageStore();
+        var load = LoadOptions(client, store, [Source]);
+        await using var executor = Executor(store, load, [Source]);
+        var options = new TypeOptions
+        {
+            PackagePath = "pkgroot6.not-a-token",
+            TypeName = conflict == "wildcard" ? "Sample.*" : "Sample.Type",
+            Tfm = conflict == "tfm" ? "net11.0" : null,
+            WorkspacePacket = conflict == "workspace" ? "packet" : null,
+            PlatformAssembly = conflict == "platform" ? "System.Text.Json" : null,
+            ShareFormat = conflict == "share" ? WorkspaceShareFormat.Packet : null,
+        };
+        var result = await ConsoleCapture.RunAsync(() => TypeCommand.ExecutePackageReferenceAsync(
+            options, DotnetInspect.Cli.Planning.ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
+            load, TestContext.Current.CancellationToken, executor.Execution));
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(conflict == "wildcard" ? "requires one exact Type" : "cannot be combined", result.Error, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task EnvelopeRetainsAdmittedPackageChildren()
@@ -80,22 +196,22 @@ public sealed class PackageRootRequestTests
     [InlineData("--share", "packet")]
     public async Task CompetingSourceIsRejectedBeforeAcquisition(params string[] conflict)
     {
-        var result = await ExecuteAsync(new InMemoryPackageStore(), "not-a-token", conflict);
+        var result = await ExecuteAsync(new InMemoryPackageStore(), "pkgroot6.not-a-token", conflict);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains("--root-request cannot be combined", result.Error, StringComparison.Ordinal);
+        Assert.Contains("Package reference cannot be combined", result.Error, StringComparison.Ordinal);
     }
 
     [Theory]
-    [InlineData("")]
-    [InlineData("not-a-token")]
+    [InlineData("pkgroot6.")]
+    [InlineData("pkgroot6.not-a-token")]
     [InlineData("pkgroot6.a.b.c")]
     public async Task InvalidTokenIsVisibleAndDoesNotAcquire(string token)
     {
         var result = await ExecuteAsync(new InMemoryPackageStore(), token, ["--files"]);
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Output);
-        Assert.Contains("must be a package Root reopening token", result.Error, StringComparison.Ordinal);
+        Assert.Contains("must be an exact Package reference", result.Error, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -189,7 +305,7 @@ public sealed class PackageRootRequestTests
 
     static async Task CommitAsync(InMemoryPackageStore store, PackageSource producer, string entry, bool neighbor = true)
     {
-        byte[] assembly = await File.ReadAllBytesAsync(typeof(PackageRootRequestTests).Assembly.Location,
+        byte[] assembly = await File.ReadAllBytesAsync(typeof(PackageReferenceTests).Assembly.Location,
             TestContext.Current.CancellationToken);
         byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
         [
@@ -215,7 +331,7 @@ public sealed class PackageRootRequestTests
         var package = PackageCommandDefinitions.CreatePackageCommand(shared, out var args);
         var root = new RootCommand { package };
         root.Options.Add(shared.Companion);
-        string[] argv = ["package", "--root-request", token, .. arguments];
+        string[] argv = ["package", token, .. arguments];
         string[] processed = CommandLineBuilder.PreprocessArgs(argv, root);
         using var client = new HttpClient(new ForbiddenNetwork(allowMissing));
         var load = LoadOptions(client, store, sources);
@@ -225,7 +341,7 @@ public sealed class PackageRootRequestTests
             var result = PackageOptionsParser.Parse(parsed, shared, args);
             Assert.True(result is PackageOptionsParser.Success, result.ToString());
             var success = (PackageOptionsParser.Success)result;
-            return await PackageCommand.ExecuteRootRequestAsync(
+            return await PackageCommand.ExecutePackageReferenceAsync(
                 success.Options, new CommandContext(false, client, () => Composition(allowMissing)),
                 load, executor.Execution, ct);
         });
@@ -261,4 +377,9 @@ public sealed class PackageRootRequestTests
             Uri source, bool isRetry, CancellationToken cancellationToken) =>
             Task.FromResult<PackageSourceCredential?>(null);
     }
+}
+
+public static class ReferenceInspectionCanary
+{
+    public static int Answer(int value) => value + 1;
 }

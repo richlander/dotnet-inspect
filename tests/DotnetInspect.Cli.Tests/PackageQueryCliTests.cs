@@ -2115,11 +2115,28 @@ public class PackageQueryCliTests
         // Hand the actual owner-issued query result through the ordinary
         // Package parser to completed inspection, without a Workspace packet.
         var reopened = await Run(
-            "package", "--root-request", rootToken, "--files", "--json");
+            "package", rootToken, "--files", "--json");
         Assert.True(reopened.ExitCode == 0, reopened.Error);
         Assert.Empty(reopened.Error);
         Assert.Contains(libraryPath, reopened.Output, StringComparison.Ordinal);
         Assert.Contains(rootRequest.Coordinate.Version, reopened.Output, StringComparison.Ordinal);
+
+        var routed = await Run(rootToken, "--files", "--json");
+        Assert.True(routed.ExitCode == 0, routed.Error);
+        Assert.Equal(reopened.Output, routed.Output);
+        Assert.Empty(routed.Error);
+
+        foreach (string[] sourceQuery in new string[][]
+        {
+            ["library", "Newtonsoft.Json.dll", "--package", rootToken, "-S", "Library Info", "--json"],
+            ["type", "Newtonsoft.Json.JsonConvert", "--package", rootToken, "--json"],
+            ["member", "Newtonsoft.Json.JsonConvert", "SerializeObject", "--package", rootToken, "-S", "Signature", "--count"],
+        })
+        {
+            var inspected = await Run(sourceQuery);
+            Assert.True(inspected.ExitCode == 0, $"{sourceQuery[0]}: {inspected.Error}");
+            Assert.NotEmpty(inspected.Output);
+        }
     }
 
     [Fact]

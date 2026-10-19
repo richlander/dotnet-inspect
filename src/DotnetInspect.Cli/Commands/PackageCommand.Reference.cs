@@ -7,14 +7,14 @@ namespace DotnetInspect.Cli.Commands;
 
 public partial class PackageCommand
 {
-    internal static async Task<int> ExecuteRootRequestAsync(
+    internal static async Task<int> ExecutePackageReferenceAsync(
         InspectionOptions options,
         CommandContext context,
         WorkspaceContextLoadOptions? loadOptions = null,
         PackageRootHouseExecution? rootHouse = null,
         CancellationToken cancellationToken = default)
     {
-        if (options.PackageArgs.Length != 0
+        if (options.PackageArgs.Length != 1
             || options.ExplicitVersion is not null
             || options.Tfm is not null
             || options.WorkspacePacket is not null
@@ -26,33 +26,19 @@ public partial class PackageCommand
             || options.ShareFormat is not null)
         {
             CommandError.Write(
-                "--root-request cannot be combined with positional Packages, "
+                "An exact Package reference cannot be combined with other Packages, "
                     + "--version, --tfm, --workspace, version-population or "
-                    + "preview selection, or --share. The token supplies the exact Root source.");
+                    + "preview selection, or --share. The reference supplies the exact Package source.");
             return 1;
         }
 
-        loadOptions ??= CreateWorkspaceContextLoadOptions(options);
-        if (rootHouse is not null)
-            return await InspectAsync(rootHouse).ConfigureAwait(false);
+        return await PackageReferenceAdmission.ExecuteAsync(
+            options.PackageArgs[0], options.SourceOptions, options.Verbose,
+            InspectAsync, loadOptions, rootHouse, cancellationToken)
+            .ConfigureAwait(false);
 
-        await using var executor = new ConfiguredPackageRootHouseExecutor(
-            context.CreatePackageSourceComposition(),
-            options.SourceOptions,
-            loadOptions);
-        return await InspectAsync(executor.Execution).ConfigureAwait(false);
-
-        async Task<int> InspectAsync(PackageRootHouseExecution execution)
+        async Task<int> InspectAsync(PackageRootBinding root)
         {
-            PackageRootBinding? root =
-                await PackageRootRequestAdmission.AcquireAsync(
-                    options.RootRequest!,
-                    loadOptions,
-                    execution,
-                    cancellationToken).ConfigureAwait(false);
-            if (root is null)
-                return 1;
-
             // This label feeds ordinary presentation/section validation only.
             // The binding and its admitted content supply the source; the core
             // must not acquire a Package from this label.
@@ -65,7 +51,7 @@ public partial class PackageCommand
                     admittedOptions,
                     context,
                     root,
-                    contextTargetFramework: null).ConfigureAwait(false);
+                    contextTargetFramework: null, exactReference: true).ConfigureAwait(false);
             if (result.ExitCode == 0
                 && options.CompanionOutput != CompanionOutput.None
                 && options.PackageLibrary is null

@@ -159,6 +159,18 @@ public partial class LibraryCommand
         if (!ValidateDependencyStructureTransport(options))
             return 1;
 
+        if (PackageReferenceAdmission.IsCandidate(options.PackagePath))
+        {
+            if (options.WorkspacePacket is not null || options.PlatformAssembly is not null
+                || options.PlatformFramework is not null || options.PlatformVersion is not null)
+            {
+                CommandError.Write("An exact Package reference cannot be combined with --workspace, --platform, --framework, or --version.");
+                return 1;
+            }
+            return await ExecutePackageAsync(options, declaredPackageTarget: null, workspaceLoadOptions)
+                .ConfigureAwait(false);
+        }
+
         if (!LibrarySourceAdapter.TryBind(
                 options,
                 out LibrarySourceBinding? source,

@@ -36,7 +36,9 @@ public static partial class MemberCommand
     internal static Task<int> ExecuteAsync(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan)
-        => options.WorkspacePacket is not null
+        => PackageReferenceAdmission.IsCandidate(options.PackagePath)
+            ? ExecutePackageReferenceAsync(options, plan)
+            : options.WorkspacePacket is not null
             ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options))
             : ExecuteWithShareAsync(options, plan);
 

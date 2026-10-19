@@ -236,7 +236,8 @@ public partial class PackageCommand
         InspectionOptions options,
         CommandContext context,
         PackageRootBinding root,
-        string? contextTargetFramework)
+        string? contextTargetFramework,
+        bool exactReference = false)
     {
         string? temporaryPath = null;
         try
@@ -256,16 +257,15 @@ public partial class PackageCommand
             InspectionOptions ordinaryOptions = options with
             {
                 WorkspacePacket = null,
-                RootRequest = null,
                 ShareFormat = null,
                 Tfm = options.WorkspaceLibrarySelection is null
-                    && options.RootRequest is null
+                    && !exactReference
                     ? requestedTargetFramework
                     : root.Root.AssetSelection.TargetFramework
                         ?? requestedTargetFramework,
                 WorkspaceLibraryAssetPaths =
                     options.WorkspaceLibrarySelection is null
-                        && options.RootRequest is null
+                        && !exactReference
                         ? null
                         :
                         [

@@ -11,14 +11,17 @@ internal static class PackageRootRequestAdmission
         string token,
         WorkspaceContextLoadOptions loadOptions,
         PackageRootHouseExecution rootHouse,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string sourceLabel = "--root-request")
     {
         if (!PackageRootReacquisitionRequest.TryDecode(
                 token,
                 out PackageRootReacquisitionRequest? request))
         {
             CommandError.Write(
-                "--root-request must be a package Root reopening token issued by this tool.",
+                sourceLabel == "--root-request"
+                    ? "--root-request must be a package Root reopening token issued by this tool."
+                    : "Package reference must be an exact Package reference issued by this tool.",
                 [
                     $"Expected a '{PackageRootReacquisitionRequest.TokenPrefix}' token of at most "
                     + $"{PackageRootReacquisitionRequest.MaxEncodedLength} characters, as printed in the "
@@ -52,7 +55,7 @@ internal static class PackageRootRequestAdmission
             string message)
         {
             CommandError.Write(
-                $"The package Root named by --root-request could not be reopened: {request}.",
+                $"The Package named by {sourceLabel} could not be reopened: {request}.",
                 [$"{kind}: {message}"]);
             return null;
         }

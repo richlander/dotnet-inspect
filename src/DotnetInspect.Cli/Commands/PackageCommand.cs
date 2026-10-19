@@ -41,8 +41,8 @@ public partial class PackageCommand
     {
         ArgumentNullException.ThrowIfNull(options);
         var context = new CommandContext(options.Verbose);
-        return options.RootRequest is not null
-            ? ExecuteRootRequestAsync(
+        return PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? ExecutePackageReferenceAsync(
                 options, context, cancellationToken: cancellationToken)
             : ExecuteAsync(options, context);
     }
@@ -50,8 +50,8 @@ public partial class PackageCommand
     internal static async Task<int> ExecuteAsync(
         InspectionOptions options,
         CommandContext context) =>
-        options.RootRequest is not null
-            ? await ExecuteRootRequestAsync(options, context).ConfigureAwait(false)
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context).ConfigureAwait(false)
             : await ExecuteCoreAsync(
             options,
             context,
@@ -67,8 +67,8 @@ public partial class PackageCommand
         InspectionOptions options,
         CommandContext context,
         WorkspaceContextLoadOptions workspaceLoadOptions) =>
-        options.RootRequest is not null
-            ? await ExecuteRootRequestAsync(options, context, workspaceLoadOptions)
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context, workspaceLoadOptions)
                 .ConfigureAwait(false)
             : await ExecuteCoreAsync(
             options,
