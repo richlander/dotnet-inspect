@@ -242,6 +242,27 @@ product-owned canonical packet:
 ?package=System.Text.Json&w=<opaque-canonical-packet>
 ```
 
+Library Analysis composes one optional Browser-owned presentation refinement
+over that packet:
+
+```text
+?package=System.Text.Json&w=<opaque-canonical-packet>&analysis=performance
+```
+
+`analysis` carries one recognized Analysis mode only while the packet resolves
+the Library `analysis` facet. Its absence, an unknown value, or any other
+surface selects `relationships`; canonical composition omits that default and
+removes the parameter outside Library Analysis. Selecting an Analysis mode
+replaces the current browser entry, and refresh, copied links, Back, and
+Forward restore the selected mode without adding host presentation to the
+Workspace definition.
+
+The motivating production witness is
+`Microsoft.Extensions.AI.OpenAI` 10.11.0 on `net10.0`. Before this refinement,
+selecting **Performance Triage** updated only live Browser state, so the
+[published workspace link](https://dotnet-inspect.ca/?package=Microsoft.Extensions.AI.OpenAI&w=eyJmIjoxLCJ0IjpbWyJNaWNyb3NvZnQuRXh0ZW5zaW9ucy5BSS5PcGVuQUkiLCIxMC4xMS4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpbWzBdXSwiYSI6MCwieCI6MCwidiI6ImxpYnJhcnk6YW5hbHlzaXMiLCJsIjpbImNvbXBpbGU6bGliL25ldDEwLjAvTWljcm9zb2Z0LkV4dGVuc2lvbnMuQUkuT3BlbkFJLmRsbCJdfQ)
+reopened on **Relationships**.
+
 The UI does not expand Package, Library, Type, Member, filter, or source
 identity into readable path segments merely to make them URL-addressable. A
 non-package workspace omits the `package` courtesy field rather than placing a
@@ -1095,6 +1116,10 @@ outcomes.
 5. Confirm that route preflight, refresh, and shared-link activation never parse
    compact packet fields or use the readable package courtesy identity as a
    fallback workspace.
+6. Select every Library Analysis mode and confirm that non-default modes compose
+   the `analysis` refinement, copied links and refresh restore it, an unknown
+   value defaults to Relationships, and Relationships or another surface omits
+   the parameter.
 
 ### Browser history
 

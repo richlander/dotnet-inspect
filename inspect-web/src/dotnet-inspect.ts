@@ -4237,6 +4237,9 @@ function captureView(): WorkspaceView | null {
     atLibraryRoot: state.atLibraryRoot,
     packageLens: state.packageLens,
     libraryLens: state.libraryLens,
+    ...(state.atLibraryRoot && state.libraryLens === "analysis"
+      ? { analysisMode: state.analysisMode }
+      : {}),
     libraryScope: captureLibraryScope(state.libraryScope),
     platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
       ? selectedLibraryShareKey() || null
@@ -4451,6 +4454,9 @@ function applyView(view: WorkspaceView) {
     view.workspaceSubjectOpen && state.atPackageRoot;
   state.packageLens = view.packageLens ?? "overview";
   state.libraryLens = view.libraryLens ?? "overview";
+  if (view.atLibraryRoot && view.libraryLens === "analysis") {
+    state.analysisMode = view.analysisMode ?? defaultAnalysisMode;
+  }
   state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
@@ -4970,6 +4976,7 @@ if (initialLocation.atPackageRoot) {
   state.atPackageRoot = false;
   state.atLibraryRoot = true;
   state.libraryLens = initialLocation.libraryLens || "overview";
+  state.analysisMode = initialLocation.analysisMode;
 }
 
 function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
@@ -18107,6 +18114,9 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
+    analysisMode: librarySubjectOpen && state.libraryLens === "analysis"
+      ? state.analysisMode
+      : null,
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
@@ -27143,6 +27153,7 @@ function applyLocationView(loc: ParsedLocation) {
   }
   state.packageLens = loc.packageLens || "overview";
   state.libraryLens = loc.libraryLens || "overview";
+  state.analysisMode = loc.analysisMode;
 }
 
 function workspaceFeedActivationCoordinator():
