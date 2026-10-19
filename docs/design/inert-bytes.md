@@ -131,12 +131,14 @@ path. It deliberately changes only the selected result boundary:
 2. After uniqueness is known, `MetadataUtf8TypeDefinitionName` detaches the
    matched root namespace and root-to-leaf metadata-name segments into one
    compact immutable backing. No unmatched candidate Name is copied.
-3. Its `MetadataUtf8Name` views issue `Utf8RangeReader`; projection constructs
-   `InertUtf8String(TextPolicy.Field, reader)` values in a separate
+3. Its `MetadataUtf8Name` views issue `Utf8RangeReader`; containment
+   constructs `InertUtf8String(TextPolicy.Field, reader)` values in a separate
    `MetadataContainedTypeDefinitionName`.
 4. The existing raw `MetadataTypeDefinitionName` remains the exact lookup and
-   binding identity. `TypeSubject` carries the contained presentation beside
-   it without substituting escaped presentation spellings into identity.
+   binding identity. `TypeSubject` carries the byte-native name beside it and
+   contains it on the first read of `ContainedType`, caching the result, so a
+   command whose output never presents the name as bytes does no containment.
+   Escaped presentation spellings never substitute into identity.
 
 The direct command additionally creates one `MetadataExactTypeInput` from the
 validated structured query. That host-owned value retains the raw
@@ -148,10 +150,8 @@ does the metadata operation compare every selected `#Strings` range byte for
 byte with the corresponding host-owned range. The internal
 `MetadataExactTypeMatch` issued by those comparisons permits the result to
 reuse the query backing; a missing input or any byte mismatch falls back to
-selected-range detachment. The exact-Type plan also contains that host-owned
-query once under `TextPolicy.Field`; successful byte proof permits projection
-to reuse the cached contained value, while fallback results contain the
-detached artifact ranges normally.
+selected-range detachment. Either way the subject carries one byte-native name,
+and containment happens only when a sink reads `ContainedType`.
 
 `OpaqueByteRange.SequenceEqual(ReadOnlySpan<byte>)` owns the closed cross-range
 comparison. It is a byte operation, not a text query, so it does not require
@@ -168,9 +168,9 @@ exact-Type inspection boundary:
 
 1. The host creates `MetadataExactTypeInput`; metadata resolution and typed
    byte-match evidence remain authoritative exactly as above.
-2. `TypeSubject.ContainedType` carries the proven, policy-contained namespace
-   and root-to-leaf Type segments into Presentation without rebuilding that
-   spelling from `MetadataTypeDefinitionName`.
+2. `TypeSubject.ContainedType` contains the proven namespace and root-to-leaf
+   Type segments on first read and carries them into Presentation without
+   rebuilding that spelling from `MetadataTypeDefinitionName`.
 3. Presentation writes the Type spelling directly to `IBufferWriter<byte>`,
    and the CLI writes the completed UTF-8 document to standard output without
    an intermediate UTF-16 document.
