@@ -218,6 +218,113 @@ completeness remain those supplied by its owner; a local index cannot establish
 a global dependent population. Navigation does not automatically execute the
 linked operation or expand every reverse match.
 
+### Routing declarations
+
+Status: **proposed, not implemented**, the design slice of
+[#10312](https://github.com/richlander/dotnet-inspect/issues/10312).
+
+The root's entries are projections of **routing declarations**. An owner issues
+one routing declaration for each subject kind, operation, or reference
+collection it wants a reader to be able to choose from the root. Resource
+Explanation defines the declaration contract, validates declarations against
+the composed catalog, and projects the root from them. It writes none of their
+content.
+
+A routing declaration carries:
+
+- an owner-issued typed identity, unique within its role;
+- one role: **subject kind**, **operation**, or **reference**. A reference
+  entry routes to a shared resource family, such as value vocabularies, that
+  is neither something inspected nor work performed;
+- a display title, which is never used to join or discriminate entries;
+- a one-sentence purpose stating what the destination covers;
+- representative questions the destination answers, written as a reader
+  would ask them;
+- the result grain and scope, where the owner registers them; and
+- either one or more destinations, each the explanation key of an installed
+  resource in the composed catalog, or an explicit not-yet-explainable state
+  naming why no destination exists.
+
+An operation declaration also names the subject kinds it accepts, by their
+subject-kind identities. The root projects that relationship in both
+directions, so subject-first and operation-first readers reach the same
+operation. Applicability that depends on an instance stays qualified; the
+declaration does not claim it.
+
+Declarations are routing hints, not definitions. The purpose and questions
+summarize; the destination's canonical definition, facets, and validation
+remain at the destination. A declaration cannot embed a destination's members,
+facet inventory, or subject-by-facet cross-product.
+
+#### Root composition
+
+The root is one installed resource with its own typed identity. It has three
+ordered collections, one per role. Each entry is a bounded summary of one
+declaration: its title, purpose, questions, grain and scope, its destinations,
+and, for an operation, its accepted subject kinds. The root's direct facts state
+that each collection covers the declarations registered with this host's
+catalog, not every command the host exposes. A not-yet-explainable entry is
+listed with its state, so a reader learns that the subject or operation exists
+and that explanation does not yet cover it, rather than inferring from its
+absence that it does not exist.
+
+Collection readings below the root carry the same kind of routing hint for
+each member. A member's summary is projected from its owner's purpose fact
+where the owner issues one. A member without one is listed by identity alone,
+and the reading does not synthesize a summary from its key or title.
+
+Each host composes its own root over the catalog it admits. A host's root
+covers that host's catalog and lists only declarations whose destinations that
+catalog contains or that are explicitly not yet explainable. The same
+declaration therefore projects identically in every host that admits it,
+without one host's catalog standing in for another's.
+
+#### Validation and reachability
+
+Catalog construction validates declarations with the existing
+[Exact resolution](#exact-resolution) outcomes. It is an invalid registry, and
+the catalog is not published, when:
+
+- two declarations of the same role share an identity;
+- a destination does not resolve to exactly one installed resource in the
+  composed catalog;
+- an operation names a subject kind no declaration issues;
+- a declaration has neither a destination nor an explicit not-yet-explainable
+  state; or
+- an installed resource in the catalog has no directed navigation path from
+  the root.
+
+The last rule is the root's reachability invariant. Every resource that exact
+explanation resolves in a host belongs to that host's composed catalog and is
+reachable from its root through owner-issued navigation, membership, or entry
+relationships. A resource with no incoming relationship must therefore be a
+declaration's destination. The check runs over the completed catalog, not a
+maintained list of expected paths.
+
+Direct JSON and HAL readings of the root carry the same entries, facts, and
+destination identities. The HAL reading embeds the entry summaries and links
+each destination. Neither reading expands a destination.
+
+#### Adoption
+
+The root is published by a host only when its reachability invariant holds over
+that host's complete catalog. Each owner of a resource family without an
+incoming relationship adopts this contract by issuing its declarations, in its
+own focused effort: Schema Query for the structural subject kinds (#10316),
+Inspection Capability Composition for Package Query, Package Files, and
+analyses (#10317), and Product Vocabulary for value vocabularies (#10318).
+The Library address route's coordinate sections must first join the complete
+catalog (#10315). Until every such owner has adopted it, hosts keep their
+current required-operand behavior; bare root admission belongs to the
+[CLI host](../cli-architecture.md) and Browser host adoptions, which consume
+the published root and do not compose one themselves.
+
+This contract does not change any owner's identities, paths, or definitions;
+declare which commands exist; rank or recommend routes; or measure whether a
+reader chooses well. Whether the hints suffice for an unfamiliar agent is the
+agent-trial claim under [Evidence, consumers and staged
+adoption](#evidence-consumers-and-staged-adoption).
+
 ### Workspace participation and detached component input
 
 A Workspace contribution is declarative construction intent. Workspace
@@ -294,7 +401,10 @@ retirement (#10184 through #10186), and router activation (#4647); Workspace
 owner declarations; shared graph/projection implementation; CLI root/help;
 contextual component admission; Browser adoption; individually owned index
 relations; and fresh-agent trials. Each later slice changes one owner's
-contract. There is no second explanation model to maintain or retire: consumers
+contract. The shared root's declaration contract is
+[Routing declarations](#routing-declarations) (#10312); it precedes CLI
+root/help (#10139) and does not wait for Workspace component inputs.
+There is no second explanation model to maintain or retire: consumers
 reuse the existing catalog, typed snapshots and lowerings. The required-operand
 bootstrap and superseded discovery summaries are retired in their host adoption.
 
@@ -420,6 +530,7 @@ and whole-value Base64 do not satisfy the canonical handoff requirement.
 | [Host-observable Content Kinds](host-observable-content-kinds.md) | The semantic meaning of Document Content. |
 | [Inspection Envelope](inspection-envelope.md) and [Output Shapes](output-shapes.md) | Completed service transport, Share, diagnostics, `(result_kind, schema_version)`, serializers, and output-contract identity. |
 | Reusable Inspection Reference | Subject-reference identity, shell-safe subject IDs, unchanged handoff, and affordance descriptors. |
+| Each adopting owner of a root destination | Its [routing declarations](#routing-declarations): subject-kind, operation, or reference identity, purpose, representative questions, grain and scope, destinations or not-yet-explainable state, and an operation's accepted subject kinds. |
 
 Resource Explanation may project those facts into its Document. It may not
 repair, reinterpret, or supplement a missing owner fact from labels, rendered
