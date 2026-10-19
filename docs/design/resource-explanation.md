@@ -136,8 +136,11 @@ contract. It does not change current CLI admission or the Workspace wire format.
 
 ### Root reachability and routing knowledge
 
-The explanation graph has one discoverable root. Every admitted installed
-resource has a directed navigation path from that root. Every admitted
+Each host's explanation graph has one discoverable root. Shared Resource
+Explanation code projects that root over the catalog the host composes; hosts
+compose catalogs, not roots, so one declaration projects identically wherever
+it is admitted. Every admitted installed resource has a directed navigation
+path from that root. Every admitted
 contextual resource kind has a discoverable contract and input affordance;
 its instances are reached with the input required by their owner. Reachability
 does not mean enumerating every possible package, member or future Workspace.
@@ -150,8 +153,10 @@ kinds describe what can be configured or inspected, such
 as Workspace, Package, Library, Type and Member. Operations describe available
 work, such as Find, Depends, Diff and the Package or Type inspection operation.
 These are two navigation entrances into one graph, not an exhaustive taxonomy
-of every node: facets, schemas and vocabularies remain reachable through their
-registered relationships. Operation descriptions are themselves addressable
+of every node: facets and schemas remain reachable through their registered
+relationships. A shared resource family that is neither inspected nor
+performed, such as value vocabularies, may have a third, reference entry where
+nothing else reaches it. Operation descriptions are themselves addressable
 explanation resources without becoming subject kinds.
 
 Identity preserves the distinction when labels overlap. A Package subject kind
@@ -273,33 +278,36 @@ each member. A member's summary is projected from its owner's purpose fact
 where the owner issues one. A member without one is listed by identity alone,
 and the reading does not synthesize a summary from its key or title.
 
-Each host composes its own root over the catalog it admits. A host's root
-covers that host's catalog and lists only declarations whose destinations that
-catalog contains or that are explicitly not yet explainable. The same
-declaration therefore projects identically in every host that admits it,
-without one host's catalog standing in for another's.
+A host admits a declaration only together with the owner module that issues
+its destinations, so a host's catalog either contains every destination of a
+declaration it admits or the declaration is not admitted at all. Root
+composition never filters entries. The root has a typed identity; its public
+address and bare entry are assigned by the host adoption that admits it
+(#10139 for the CLI).
 
 #### Validation and reachability
 
-Catalog construction validates declarations with the existing
+Catalog construction validates admitted declarations with the existing
 [Exact resolution](#exact-resolution) outcomes. It is an invalid registry, and
 the catalog is not published, when:
 
 - two declarations of the same role share an identity;
-- a destination does not resolve to exactly one installed resource in the
+- any destination does not resolve to exactly one installed resource in the
   composed catalog;
-- an operation names a subject kind no declaration issues;
+- an operation names a subject kind no admitted declaration issues; or
 - a declaration has neither a destination nor an explicit not-yet-explainable
-  state; or
-- an installed resource in the catalog has no directed navigation path from
-  the root.
+  state.
 
-The last rule is the root's reachability invariant. Every resource that exact
-explanation resolves in a host belongs to that host's composed catalog and is
-reachable from its root through owner-issued navigation, membership, or entry
-relationships. A resource with no incoming relationship must therefore be a
-declaration's destination. The check runs over the completed catalog, not a
-maintained list of expected paths.
+Reachability is separate: it decides whether the host may publish its root,
+not whether its catalog is valid. The root's reachability invariant holds when
+every resource that exact explanation resolves in the host belongs to the
+host's composed catalog and is reachable from the root through owner-issued
+navigation, membership, or entry relationships. A resource with no incoming
+relationship must therefore be a declaration's destination. The check runs
+over the completed catalog, not a maintained list of expected paths. While it
+fails, the catalog, exact explanation, and search stay published unchanged and
+the host withholds only the root, reporting the unreachable resources in its
+own gate rather than at run time.
 
 Direct JSON and HAL readings of the root carry the same entries, facts, and
 destination identities. The HAL reading embeds the entry summaries and links
@@ -307,8 +315,9 @@ each destination. Neither reading expands a destination.
 
 #### Adoption
 
-The root is published by a host only when its reachability invariant holds over
-that host's complete catalog. Each owner of a resource family without an
+A host publishes its root only when the reachability invariant holds over that
+host's complete catalog; partial adoption therefore never breaks existing
+explanation. Each owner of a resource family without an
 incoming relationship adopts this contract by issuing its declarations, in its
 own focused effort: Schema Query for the structural subject kinds (#10316),
 Inspection Capability Composition for Package Query, Package Files, and
@@ -401,8 +410,9 @@ retirement (#10184 through #10186), and router activation (#4647); Workspace
 owner declarations; shared graph/projection implementation; CLI root/help;
 contextual component admission; Browser adoption; individually owned index
 relations; and fresh-agent trials. Each later slice changes one owner's
-contract. The shared root's declaration contract is
-[Routing declarations](#routing-declarations) (#10312); it precedes CLI
+contract. The root's declaration contract is
+[Routing declarations](#routing-declarations) (#10312), projected by shared
+code over each host's catalog; it precedes CLI
 root/help (#10139) and does not wait for Workspace component inputs.
 There is no second explanation model to maintain or retire: consumers
 reuse the existing catalog, typed snapshots and lowerings. The required-operand
