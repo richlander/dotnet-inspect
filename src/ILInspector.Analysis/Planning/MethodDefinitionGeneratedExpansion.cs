@@ -146,3 +146,96 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
 internal sealed record MethodDefinitionGeneratedExpansionResult(
     ImmutableArray<MethodDefinitionHandle> Methods,
     MethodDefinitionGeneratedExpansionCoverage Coverage);
+
+/// <summary>
+/// One visited unit's outcome in the declared-source relation, as
+/// <c>docs/design/method-query-source.md#declared-source-relation</c> defines
+/// it.
+/// </summary>
+public abstract record MethodDefinitionDeclaredSource
+{
+    private protected MethodDefinitionDeclaredSource()
+    {
+    }
+
+    /// <summary>
+    /// The unit entered breadth directly and the relation published no
+    /// generated outcome for it.
+    /// </summary>
+    public sealed record Direct : MethodDefinitionDeclaredSource
+    {
+        Direct()
+        {
+        }
+
+        public static Direct Instance { get; } = new();
+    }
+
+    /// <summary>The relation authenticated the unit's ultimate declared owner.</summary>
+    public sealed record Generated(
+        MethodDefinitionGeneratedExpansionOrigin Origin)
+        : MethodDefinitionDeclaredSource;
+
+    /// <summary>
+    /// The relation examined the unit as generated and no edge authenticates
+    /// one owner for it.
+    /// </summary>
+    public sealed record Unauthenticated : MethodDefinitionDeclaredSource
+    {
+        Unauthenticated()
+        {
+        }
+
+        public static Unauthenticated Instance { get; } = new();
+    }
+}
+
+/// <summary>
+/// The settled declared-source relation of one execution, indexed by unit.
+/// Reading it does no source work; the relation's work and outcomes are
+/// receipted with the expansion.
+/// </summary>
+internal sealed class MethodDefinitionDeclaredSources
+{
+    readonly Dictionary<MethodDefinitionHandle, MethodDefinitionDeclaredSource>
+        _sources = [];
+
+    internal MethodDefinitionDeclaredSources(
+        MethodDefinitionGeneratedExpansionCoverage coverage)
+    {
+        foreach (MethodDefinitionHandle candidate
+            in coverage.UnauthenticatedCandidates)
+        {
+            _sources[candidate] =
+                MethodDefinitionDeclaredSource.Unauthenticated.Instance;
+        }
+
+        foreach (MethodDefinitionGeneratedExpansionOrigin origin
+            in coverage.Origins)
+        {
+            if (!_sources.TryGetValue(
+                    origin.Method,
+                    out MethodDefinitionDeclaredSource? existing))
+            {
+                _sources.Add(
+                    origin.Method,
+                    new MethodDefinitionDeclaredSource.Generated(origin));
+            }
+            else if (existing
+                    is MethodDefinitionDeclaredSource.Generated generated
+                && generated.Origin.DeclaredOwner != origin.DeclaredOwner)
+            {
+                // Two owners for one body authenticate neither.
+                _sources[origin.Method] =
+                    MethodDefinitionDeclaredSource.Unauthenticated.Instance;
+            }
+        }
+    }
+
+    internal MethodDefinitionDeclaredSource Of(MethodDefinitionHandle method) =>
+        _sources.TryGetValue(
+            method,
+            out MethodDefinitionDeclaredSource? source)
+            ? source
+            : MethodDefinitionDeclaredSource.Direct.Instance;
+}
