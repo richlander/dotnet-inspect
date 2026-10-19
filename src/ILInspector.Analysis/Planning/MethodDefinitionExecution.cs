@@ -318,7 +318,7 @@ public sealed class MethodDefinitionExecution
                     MethodDefinitionSourceBreadth.ExactMethods(
                         expansion.Methods);
                 if (expansion.Bound is { } bound)
-                    execution.BoundActiveSource(bound);
+                    execution.BoundRelationReaders(bound);
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
@@ -957,11 +957,20 @@ public sealed class MethodDefinitionExecution
     }
 
     /// <summary>
-    /// Marks every active producer as running over the retained prefix of a
-    /// bounded expansion. The producers still visit that prefix and complete;
-    /// their outcome becomes <see cref="ProducerOutcome.SourceBounded"/>.
+    /// Whether the producer will still complete and so reads the relation:
+    /// it is active, or its visits stopped at a settled terminal.
     /// </summary>
-    void BoundActiveSource(
+    static bool ReadsRelation(ProducerState state) =>
+        state.IsActive || state.Outcome is ProducerOutcome.Stopped;
+
+    /// <summary>
+    /// Marks every producer that reads the relation as running over the
+    /// retained prefix of a bounded expansion. The producers still visit that
+    /// prefix and complete; their outcome becomes
+    /// <see cref="ProducerOutcome.SourceBounded"/>, including a producer that
+    /// stopped early, because it answered only over the prefix.
+    /// </summary>
+    void BoundRelationReaders(
         MethodDefinitionGeneratedExpansionBoundException bound)
     {
         // The bound is source work, not a unit; its subject token stays in
@@ -970,7 +979,7 @@ public sealed class MethodDefinitionExecution
         string message = ProducerFailure.Describe(bound);
         foreach (ProducerState state in _states)
         {
-            if (!state.IsActive)
+            if (!ReadsRelation(state))
                 continue;
 
             state.SourceBounded = true;
@@ -1472,7 +1481,7 @@ public sealed class MethodDefinitionExecution
             _declaredSources =
                 new MethodDefinitionDeclaredSources(relation.Coverage);
             if (relation.Bound is { } bound)
-                BoundActiveSource(bound);
+                BoundRelationReaders(bound);
         }
         catch (Exception ex)
             when (LibraryMethodAnalysisRunner
@@ -1483,7 +1492,13 @@ public sealed class MethodDefinitionExecution
             _declaredSources =
                 new MethodDefinitionDeclaredSources(
                     MethodDefinitionGeneratedExpansionCoverage.Empty);
-            FailActiveSource(0, GeneratedExpansionLabel, ex);
+            // A producer that stopped early still reads the relation at
+            // completion, so the failure is its source failure too.
+            foreach (ProducerState state in _states)
+            {
+                if (ReadsRelation(state))
+                    FailSource(state, 0, GeneratedExpansionLabel, ex);
+            }
         }
     }
 

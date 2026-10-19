@@ -1103,8 +1103,9 @@ public sealed record MethodDefinitionGeneratedExpansionCoverage(
 
     /// <summary>
     /// Over all-definition breadth, the bodies whose call and function-pointer
-    /// operands the relation scanned during traversal, from bodies the source
-    /// had already acquired. Exact breadth scans none.
+    /// operands the relation scanned during traversal, whether a producer had
+    /// already acquired the body or the relation read it. Exact breadth scans
+    /// none.
     /// </summary>
     public int TraversalReferenceBodies { get; init; }
 

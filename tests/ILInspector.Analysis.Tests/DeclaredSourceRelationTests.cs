@@ -100,7 +100,7 @@ public sealed class DeclaredSourceRelationTests
         MethodDefinitionGeneratedExpansionCoverage relation =
             read.Coverage.GeneratedExpansion;
 
-        int bodies = ManagedBodies(path, out long encodedIlBytes);
+        int bodies = ManagedBodies(path, out long encodedIlBytes, out _);
         Assert.Equal(bodies, relation.TraversalReferenceBodies);
         Assert.Equal(bodies, relation.TraversalReferenceBodiesAcquired);
         Assert.Equal(encodedIlBytes, relation.TraversalReferenceEncodedIlBytes);
@@ -115,6 +115,93 @@ public sealed class DeclaredSourceRelationTests
                     roles: MethodDefinitionGeneratedBodyRoles.All));
         Assert.Equal(0, exact.Coverage.GeneratedExpansion.TraversalReferenceBodies);
         Assert.NotEqual(0, exact.Coverage.GeneratedExpansion.ProbeBodiesAttempted.Count);
+    }
+
+    // A producer that acquires the body leaves the relation to scan it
+    // without a second read: only bodies no producer acquired are the
+    // relation's own reads.
+    [Fact]
+    public void AllDefinitionRelationScansTheBodyAProducerAcquired()
+    {
+        string path = PathOf("iterators");
+        MethodDefinitionSourceRequest<int> request =
+            MethodDefinitionSourceRequest<int>.Create(
+                Plan(BodyReader.Instance),
+                BodyReader.Instance,
+                MethodDefinitionSourceBreadth.AllDefinitions
+                    .IncludeGeneratedExecutionBodies(
+                        roles: MethodDefinitionGeneratedBodyRoles.All));
+        var operation = AssemblyAnalysisOperation<int>.Create(path, request);
+        using AssemblyInspectionSession session = OpenSession(path);
+        AssemblyAnalysisExecution<int> execution =
+            Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access => AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access)))
+                .Execution;
+        Assert.True(execution.ResultOf(BodyReader.Instance).HasValue);
+        MethodDefinitionGeneratedExpansionCoverage relation =
+            execution.SourceReceipt.Coverage.GeneratedExpansion;
+
+        int bodies = ManagedBodies(path, out _, out int unacquirable);
+        Assert.Equal(bodies, relation.TraversalReferenceBodies);
+        Assert.Equal(unacquirable, relation.TraversalReferenceBodiesAcquired);
+        Assert.Equal(0, relation.ProbeBodiesAttempted.Count);
+    }
+
+    // A producer whose visits stopped at a settled terminal still reads the
+    // relation at completion, so a bound reached at settle bounds it too: it
+    // answered only over the retained prefix.
+    [Theory]
+    [InlineData(ProducerTerminal.Rows, 1)]
+    [InlineData(ProducerTerminal.Exists, null)]
+    [InlineData(ProducerTerminal.Rows, null)]
+    public void AllDefinitionRelationBoundReachesAProducerThatStoppedEarly(
+        ProducerTerminal terminal,
+        int? rowLimit)
+    {
+        string path = PathOf("iterators");
+        var limits = new MethodDefinitionGeneratedExpansionLimits(
+            maximumCandidateDefinitions: 0xFFFFFF,
+            maximumGeneratedMethods: 0xFFFFFF,
+            maximumProbeBodies: 0xFFFFFF,
+            maximumProbeEncodedIlBytes: 1L << 30,
+            maximumRelationshipNodes: 1);
+        WorkDescription description =
+            Assert.IsType<ProducerPlanResult.Accepted>(
+                    ProducerPlanner.Plan(
+                    [
+                        new ProducerRequest(
+                            StoppingReader.Instance,
+                            terminal,
+                            rowLimit),
+                    ]))
+                .Description;
+        MethodDefinitionSourceRequest<bool> request =
+            MethodDefinitionSourceRequest<bool>.Create(
+                description,
+                StoppingReader.Instance,
+                MethodDefinitionSourceBreadth.AllDefinitions
+                    .IncludeGeneratedExecutionBodies(
+                        limits,
+                        MethodDefinitionGeneratedBodyRoles.All));
+        var operation = AssemblyAnalysisOperation<bool>.Create(path, request);
+        using AssemblyInspectionSession session = OpenSession(path);
+        AssemblyAnalysisExecution<bool> execution =
+            Assert.IsType<AssemblyAnalysisServiceResult<bool>.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access => AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access)))
+                .Execution;
+
+        Assert.True(execution.SourceReceipt.Coverage.GeneratedExpansion.IsBounded);
+        ProducerResult<bool> result = execution.ResultOf(StoppingReader.Instance);
+        Assert.Equal(ProducerOutcome.SourceBounded, result.Outcome);
+        Assert.False(result.HasValue);
     }
 
     // Over all-definition breadth the relation settles at source completion,
@@ -213,19 +300,27 @@ public sealed class DeclaredSourceRelationTests
         ];
     }
 
-    static int ManagedBodies(string path, out long encodedIlBytes)
+    // Bodies with an RVA, their encoded IL bytes, and those a producer's body
+    // layer cannot acquire because they are not managed IL.
+    static int ManagedBodies(
+        string path,
+        out long encodedIlBytes,
+        out int unacquirable)
     {
         using var stream = File.OpenRead(path);
         using var pe = new PEReader(stream);
         MetadataReader reader = pe.GetMetadataReader();
         int bodies = 0;
         encodedIlBytes = 0;
+        unacquirable = 0;
         foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
         {
             MethodDefinition method = reader.GetMethodDefinition(handle);
             if (method.RelativeVirtualAddress == 0)
                 continue;
             bodies++;
+            if (!LibraryMethodAnalysisRunner.HasManagedIlBody(method.ImplAttributes))
+                unacquirable++;
             encodedIlBytes += pe.GetMethodBody(method.RelativeVirtualAddress)
                 .GetILReader().Length;
         }
@@ -286,6 +381,71 @@ public sealed class DeclaredSourceRelationTests
                     MetadataTokens.MethodDefinitionHandle(token & 0x00FFFFFF));
             }
             return new(sources.ToImmutable());
+        }
+    }
+
+    // Acquires every managed body, and reads no relation.
+    sealed class BodyReader
+        : MethodDefinitionProducer<int, int, int>
+    {
+        BodyReader()
+            : base(
+                "Test.DeclaredSourceRelation.BodyReader",
+                version: 1,
+                tier: 1,
+                MethodDefinitionLayers.Declaration | MethodDefinitionLayers.Body)
+        {
+        }
+
+        public static BodyReader Instance { get; } = new();
+
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.HasManagedBody ? view.GetBody().Size : 0;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            accumulator + fact;
+
+        internal override int Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion) =>
+            accumulator;
+    }
+
+    // Settles on its first fact, so its visits stop early, and reads the
+    // relation at completion.
+    sealed class StoppingReader
+        : MethodDefinitionProducer<int, int, bool>
+    {
+        StoppingReader()
+            : base(
+                "Test.DeclaredSourceRelation.StoppingReader",
+                version: 1,
+                tier: 1,
+                MethodDefinitionLayers.Declaration)
+        {
+        }
+
+        public static StoppingReader Instance { get; } = new();
+
+        internal override int Visit(scoped MethodDefinitionView view) =>
+            view.Token;
+
+        internal override bool Settles(int fact) => true;
+
+        internal override int Seed() => 0;
+
+        internal override int Accumulate(int accumulator, int fact) =>
+            fact;
+
+        internal override bool Complete(
+            int accumulator,
+            MethodDefinitionCompletionView completion)
+        {
+            _ = completion.DeclaredSourceOf(
+                MetadataTokens.MethodDefinitionHandle(accumulator & 0x00FFFFFF));
+            return completion.IsSourceBounded;
         }
     }
 
