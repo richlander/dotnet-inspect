@@ -963,9 +963,12 @@ A reached generated-expansion bound keeps the retained prefix instead of
 failing the source with empty breadth:
 
 - Breadth is the direct methods plus every body the relation recorded
-  within the limits. A work counter includes the attempt that reached its
-  bound, because that work was done. An outcome is recorded only after its
-  bound check, so every origin's body is in breadth.
+  within the limits. The work totals, `ProbeEncodedIlBytes` and
+  `RelationshipNodes`, include the attempt that reached the bound, because
+  that work was done. The handle sets `CandidateDefinitionsExamined` and
+  `ProbeBodiesAttempted` record only the handles admitted within the limit,
+  because the bound check runs before that work. An outcome is recorded only
+  after its bound check, so every origin's body is in breadth.
 - The expansion coverage names the bound in `ReachedLimit` and
   `ReachedAtToken`. Completion is source incomplete, and the source failure
   carries the bound's message.
@@ -973,14 +976,15 @@ failing the source with empty breadth:
   `SourceBounded`, which is not `HasValue`, so only a consumer that decides
   what the prefix proves reads the value. A producer that stopped early is
   also `SourceBounded`, because it answered only over the prefix.
-- A bound is not a recoverable method failure, so no resolver handler turns
-  it into a rejected or unauthenticated outcome. A bound that is raised and
-  caught anyway still bounds the relation.
+- During expansion a bound is not a recoverable method failure, so no
+  resolver handler turns it into a rejected or unauthenticated outcome. A
+  bound that is raised and caught anyway still bounds the relation.
 - A unit the relation had not settled when the bound was reached stays
   `Direct`. `IsBounded` on the coverage says the relation is incomplete.
 - Once expansion settles, a module lookup that shares its attribution can
-  still charge its work. A bound reached then is that unit's recoverable
-  failure.
+  still charge its work, and a resolver cache that stored the bound during
+  expansion can replay it. A new bound reached then, and a replayed one, are
+  each that unit's recoverable failure.
 
 Terminal body admission retains normalized ordered ranges during forward
 traversal rather than one identity per MethodDef. A multipass request may

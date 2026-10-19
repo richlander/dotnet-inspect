@@ -328,10 +328,11 @@ public sealed partial class UnsafeMemberFindingsTests
         }
     }
 
-    // A bound is never a recoverable method failure, so no resolver handler
-    // can turn it into a rejected or unauthenticated outcome; even one that
-    // is caught still bounds the relation. After expansion settles, a module
-    // lookup's charge is that unit's recoverable failure, as before.
+    // During expansion a bound is not a recoverable method failure, so no
+    // resolver handler can turn it into a rejected or unauthenticated
+    // outcome; even one that is caught still bounds the relation. After
+    // expansion settles, a module lookup's new charge and a cached replay of
+    // the bound are each that unit's recoverable failure, as before.
     [Fact]
     public void ExpansionBoundIsNotRecoverableAndAlwaysBoundsTheRelation()
     {
@@ -360,12 +361,115 @@ public sealed partial class UnsafeMemberFindingsTests
             coverage.ReachedAtToken);
         Assert.Equal(1, coverage.CandidateDefinitionsExamined.Count);
 
+        // A resolver cache that stored the bound during expansion can replay
+        // the same instance after settling; it is then recoverable.
         work.Settle();
+        Assert.True(bound.IsSettled);
+        Assert.True(AnalysisMethodFailures.IsRecoverable(bound));
+        Assert.True(LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(bound));
         var late = Assert.Throws<InvalidOperationException>(
             () => work.RecordCandidateDefinition(
                 MetadataTokens.MethodDefinitionHandle(3)));
         Assert.IsNotType<MethodDefinitionGeneratedExpansionBoundException>(late);
         Assert.True(LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(late));
+    }
+
+    // A module lookup shares the expansion's attribution, and its resolver
+    // caches keep exceptions. After a bounded expansion settles, a lookup
+    // that reads a cache which stored the bound replays that bound; it must
+    // be a recoverable failure of that lookup, never an escaping one.
+    [Fact]
+    public void LookupAfterABoundedExpansionFailsRecoverably()
+    {
+        string path = IteratorFixturePath;
+        byte[] bytes = File.ReadAllBytes(path);
+        int replays = 0;
+        using (var types = new PEReader(ImmutableArray.Create(bytes)))
+        {
+            MetadataReader typeReader = types.GetMetadataReader();
+            foreach (TypeDefinitionHandle type in typeReader.TypeDefinitions)
+            {
+                TypeDefinition definition = typeReader.GetTypeDefinition(type);
+                if (!definition.GetDeclaringType().IsNil
+                    || definition.GetMethods().Count == 0)
+                {
+                    continue;
+                }
+
+                for (int limit = 1; limit <= 12; limit++)
+                    replays += LookupReplays(path, bytes, type, limit);
+            }
+        }
+
+        Assert.True(replays > 0, "No lookup read a cache that stored the bound.");
+    }
+
+    static int LookupReplays(
+        string path,
+        byte[] bytes,
+        TypeDefinitionHandle type,
+        int probeBodies)
+    {
+        using var pe = new PEReader(ImmutableArray.Create(bytes));
+        MetadataReader reader = pe.GetMetadataReader();
+        var work = new MethodDefinitionGeneratedExpansionWork(
+            new MethodDefinitionGeneratedExpansionLimits(
+                maximumCandidateDefinitions: 1_000,
+                maximumGeneratedMethods: 1_000,
+                maximumProbeBodies: probeBodies,
+                maximumProbeEncodedIlBytes: 1L << 30,
+                maximumRelationshipNodes: 1_000));
+        var attribution = new DeclaredSourceAttribution(
+            path,
+            reader,
+            pe,
+            generatedExpansionWork: work);
+        MethodDefinitionGeneratedExpansionResult result =
+            attribution.ExpandGeneratedExecutionBodies(
+                [.. reader.GetTypeDefinition(type).GetMethods()],
+                MethodDefinitionGeneratedBodyRoles.All,
+                [type],
+                includeUnauthenticatedCandidates: true);
+        if (result.Bound is not { } bound)
+            return 0;
+
+        int replays = 0;
+        foreach (MethodDefinitionHandle method in reader.MethodDefinitions)
+        {
+            MethodDefinition definition = reader.GetMethodDefinition(method);
+            if (!CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                    reader.GetString(definition.Name)))
+            {
+                continue;
+            }
+
+            TypeDefinitionHandle declaring = definition.GetDeclaringType();
+            try
+            {
+                MethodIdentity identity =
+                    attribution.PrimaryMetadataResolver.CreateMethodIdentity(
+                        declaring,
+                        method,
+                        definition,
+                        attribution.PrimaryMetadataResolver.CreateScope(
+                            reader.GetTypeDefinition(declaring),
+                            definition));
+                _ = attribution.LiftedSourceOwnerResolver.TryResolve(
+                    method,
+                    definition,
+                    identity,
+                    out _);
+            }
+            catch (Exception ex)
+            {
+                Assert.True(
+                    LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex),
+                    $"{ex.GetType().Name}: {ex.Message}");
+                if (ReferenceEquals(ex, bound))
+                    replays++;
+            }
+        }
+        return replays;
     }
 
     // One key per piece of evidence and the member it is reported under.

@@ -25,10 +25,12 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
         MethodDefinitionGeneratedExpansionLimits limits) =>
         _limits = limits;
 
-    // A work counter includes the attempt that reached its bound, because
-    // that work was done. An outcome recorder checks its bound before it
-    // records, so a reached bound leaves only outcomes whose bodies are in
-    // breadth: the retained prefix.
+    // The work totals, encoded IL bytes and relationship nodes, include the
+    // attempt that reached the bound, because that work was done. The
+    // candidate and probe handle sets record only handles admitted within
+    // the limit, because the check runs before that work. An outcome
+    // recorder checks its bound before it records, so a reached bound leaves
+    // only outcomes whose bodies are in breadth: the retained prefix.
 
     internal void RecordCandidateDefinition(
         MethodDefinitionHandle handle)
@@ -122,16 +124,16 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     }
 
     /// <summary>
-    /// Settles the work at <paramref name="bound"/>. The bound must be the one
-    /// this work raised, so a caller cannot report a bound that no recorder
-    /// reached.
-    /// </summary>
-    /// <summary>
     /// Ends expansion. A module lookup that shares this work's attribution can
-    /// still charge it during unit visits; a bound reached then is that unit's
+    /// still charge it during unit visits, and a resolver cache can replay a
+    /// bound it stored during expansion. Either is then that unit's
     /// recoverable failure, as before expansion kept a prefix.
     /// </summary>
-    internal void Settle() => _settled = true;
+    internal void Settle()
+    {
+        _settled = true;
+        _reached?.Settle();
+    }
 
     /// <summary>
     /// The first bound a recorder raised during expansion, even if a handler
@@ -140,6 +142,11 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     internal MethodDefinitionGeneratedExpansionBoundException? Reached =>
         _reached;
 
+    /// <summary>
+    /// Settles the coverage at <paramref name="bound"/>. The bound must be the
+    /// one this work raised, so a caller cannot report a bound that no
+    /// recorder reached.
+    /// </summary>
     internal MethodDefinitionGeneratedExpansionCoverage BuildBounded(
         MethodDefinitionGeneratedExpansionBoundException bound)
     {
@@ -213,10 +220,12 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
 }
 
 /// <summary>
-/// A declared generated-expansion bound was reached. It is not a recoverable
-/// method failure, so no resolver's recoverable-failure handler can turn it
-/// into an unauthenticated or rejected outcome; only the expansion driver
-/// settles it into the retained prefix.
+/// A declared generated-expansion bound was reached. During expansion it is
+/// not a recoverable method failure, so no resolver's recoverable-failure
+/// handler can turn it into an unauthenticated or rejected outcome; only the
+/// expansion driver settles it into the retained prefix. Once its work
+/// settles, a resolver cache that stored it may replay it, and it is then a
+/// recoverable failure of the unit that read the cache.
 /// </summary>
 internal sealed class MethodDefinitionGeneratedExpansionBoundException(
     MethodDefinitionGeneratedExpansionLimitKind limit,
@@ -227,6 +236,11 @@ internal sealed class MethodDefinitionGeneratedExpansionBoundException(
     internal MethodDefinitionGeneratedExpansionLimitKind Limit { get; } = limit;
 
     internal int SubjectToken { get; } = subjectToken;
+
+    /// <summary>Whether the expansion that raised this bound has settled.</summary>
+    internal bool IsSettled { get; private set; }
+
+    internal void Settle() => IsSettled = true;
 }
 
 /// <param name="Bound">
