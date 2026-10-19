@@ -2,7 +2,7 @@
 
 ## Status and owner
 
-**Active focused pattern.**
+**Adopted focused pattern.**
 [#10111](https://github.com/richlander/dotnet-inspect/issues/10111) tracks the
 design, shared construction contract, first Browser adoption, CLI assessment,
 and retirement of the transitional package README path.
@@ -243,9 +243,11 @@ composition even when the Browser constructs its structure directly rather
 than through Marked.
 
 The package document composition root no longer calls the
-whole-serialized-HTML containment operation from #10098. That operation
-remains available as a safe transition until the dedicated retirement slice
-establishes that no remaining consumer requires it.
+whole-serialized-HTML containment operation from #10098. The dedicated
+retirement tracked by #10313 removed that operation after the generated
+facade, worker catalog, managed export inventory, and product source confirmed
+that no remaining consumer required it. Arbitrary serialized HTML therefore
+cannot be mistaken for a completed contained document.
 
 ## CLI and Markout boundary
 
@@ -351,7 +353,8 @@ this table.
    boundaries. It records `InertUtf8String` as the authoritative presentation
    value for a future typed UTF-8 README path, with `InertString` only as its
    string-sink projection.
-5. Retire the transitional Browser whole-HTML containment operation.
+5. Retire the transitional Browser whole-HTML containment operation. Completed
+   under #10313.
 
 The Browser package README is the first production consumer. Additional
 document grammars or hosts adopt one owner at a time under
@@ -368,5 +371,4 @@ This contract does not claim:
 - that a structurally valid document has safe presentation leaves;
 - that a contained leaf makes arbitrary surrounding structure safe;
 - that complete containment makes an actionable value trustworthy;
-- exact-byte reconstruction from a contained document; or
-- completed adoption before the tracked implementation slices land.
+- exact-byte reconstruction from a contained document.

@@ -375,7 +375,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageDocument_RealWrongTurnReadmeIsContainedForBrowserPublication()
+    public async Task PackageDocument_RealWrongTurnReadmeRetainsBidiUntilBrowserPublication()
     {
         const string PackageId = "WrongTurn";
         const string Version = "0.1.15";
@@ -407,14 +407,6 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Contains('\u202E', payload.Text);
         Assert.Contains('\u202C', payload.Text);
-
-        const string sanitizedHtml =
-            "<p>https://api.\u202Etegun\u202C.org/v3/index.json</p>";
-        BrowserPackageDocumentHtml document =
-            BrowserPackageWireProjection.ProjectDocumentHtml(sanitizedHtml);
-        Assert.Equal(
-            "<p>https://api.\\u202Etegun\\u202C.org/v3/index.json</p>",
-            document.Html.ToString());
     }
 
     [Fact]

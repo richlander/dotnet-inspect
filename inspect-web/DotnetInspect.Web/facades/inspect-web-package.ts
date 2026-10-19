@@ -835,10 +835,6 @@ export interface BrowserPackageDocumentContent {
   readonly text: string;
 }
 
-export interface BrowserPackageDocumentHtml {
-  readonly html: InertString;
-}
-
 export interface BrowserPackageHierarchy {
   readonly package: string;
   readonly version: string;
@@ -1583,7 +1579,6 @@ type $ManagedExports = {
             readonly "ClassifyPackageGraphIdentities.271973316": (inspectedPackageId: string, packageIdsJson: string) => string;
             readonly "ClearWorkspacePackageOccurrences.1731052262": () => Promise<void>;
             readonly "ClosePlatformForwarderView.91425100": (view: string) => boolean;
-            readonly "ContainPackageDocumentHtml.304094707": (html: string) => string;
             readonly "ContainPackageDocumentLeaves.271973316": (generation: string, leavesJson: string) => string;
             readonly "ExplainPackageQuery.1596740838": (path: string, facetKeys: string[] | null) => string;
             readonly "GetPackageDocument.1001223652": (packageId: string, version: string, path: string) => Promise<string>;
@@ -1760,18 +1755,6 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ClosePlatformForwarderView.91425100");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ClosePlatformForwarderView.91425100\u0027 is not callable.");
-    }
-  }
-  {
-    let value: unknown = exports;
-    value = $ownDataProperty(value, "DotnetInspect");
-    value = $ownDataProperty(value, "Web");
-    value = $ownDataProperty(value, "Interop");
-    value = $ownDataProperty(value, "Package");
-    value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "ContainPackageDocumentHtml.304094707");
-    if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.ContainPackageDocumentHtml.304094707\u0027 is not callable.");
     }
   }
   {
@@ -2263,12 +2246,6 @@ export async function clearWorkspacePackageOccurrences(): Promise<void> {
 
 export function closePlatformForwarderView(view: string): boolean {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ClosePlatformForwarderView.91425100"](view);
-}
-
-export function containPackageDocumentHtml(html: string): BrowserPackageDocumentHtml {
-  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["ContainPackageDocumentHtml.304094707"](html);
-  const $parsed: unknown = JSON.parse($result);
-  return $parsed as BrowserPackageDocumentHtml;
 }
 
 export function containPackageDocumentLeaves(generation: string, leavesJson: ReadonlyArray<BrowserDocumentPresentationLeaf>): BrowserDocumentLeafContainmentOutcome {
