@@ -101,7 +101,7 @@ internal sealed class ConfiguredPackageExtractionSession(
             : [];
         foreach (string reason in stageReasons)
             log?.Invoke(reason);
-        if (result.Payload is not { } payload)
+        if (result.Payload is null)
         {
             IEnumerable<string> reasons = result.Failures
                 .Select(failure => $"{failure.Authority}: {failure.Message}")
@@ -113,24 +113,9 @@ internal sealed class ConfiguredPackageExtractionSession(
                 $"{request} could not be acquired. {reason}");
         }
 
-        return new PackageExtractionResult(
-            payload.Content.RootPath
-                ?? throw new InvalidOperationException("Desktop package acquisition requires filesystem content."),
-            TempDir: null,
-            packageId,
-            payload.Coordinate.Version,
-            payload.Content.NupkgPath,
-            FromCache: payload.Origin == PackagePayloadOrigin.Cache,
-            payload.ProducerKey)
+        return PackageExtractionResult.FromAcquisition(result) with
         {
-            Authority = result.Authority,
-            AcquiredPayload = payload,
-            HouseSettlement = result.HouseSettlement,
-            SelectedVersionSourceUrls = result.ReportingAuthorities is null
-                ? null
-                : Array.AsReadOnly(result.ReportingAuthorities
-                    .Select(authority => authority.Source.Url).ToArray()),
-            SelectedVersionUsesOriginalSources = result.SelectionUsesOriginalSources,
+            PackageName = packageId,
         };
     }
 
