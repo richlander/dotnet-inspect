@@ -179,9 +179,16 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Throws<ArgumentException>(
             () => MethodDefinitionSourceBreadth.ExactTypes(
                 default(TypeDefinitionHandle)));
-        Assert.Throws<InvalidOperationException>(
-            () => MethodDefinitionSourceBreadth.AllDefinitions
-                .IncludeGeneratedExecutionBodies());
+        // All-definition breadth declares the relation without changing
+        // breadth.
+        MethodDefinitionSourceBreadth relation =
+            MethodDefinitionSourceBreadth.AllDefinitions
+                .IncludeGeneratedExecutionBodies();
+        Assert.Equal(
+            MethodDefinitionSourceBreadthKind.AllDefinitions,
+            relation.Kind);
+        Assert.Empty(relation.Methods);
+        Assert.Empty(relation.Types);
     }
 
     [Fact]

@@ -18,6 +18,9 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
     readonly HashSet<int> _unauthenticatedRows = [];
     long _probeEncodedIlBytes;
     int _relationshipNodes;
+    int _traversalReferenceBodies;
+    int _traversalReferenceBodiesAcquired;
+    long _traversalReferenceEncodedIlBytes;
     MethodDefinitionGeneratedExpansionBoundException? _reached;
     bool _settled;
 
@@ -110,6 +113,23 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
         }
     }
 
+    /// <summary>
+    /// Records one body whose call and function-pointer operands the relation
+    /// scanned during traversal, and whether the relation read that body
+    /// itself because no producer had.
+    /// </summary>
+    internal void RecordTraversalReferenceBody(
+        int encodedIlBytes,
+        bool acquiredByRelation)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(encodedIlBytes);
+        _traversalReferenceBodies++;
+        if (acquiredByRelation)
+            _traversalReferenceBodiesAcquired++;
+        _traversalReferenceEncodedIlBytes = checked(
+            _traversalReferenceEncodedIlBytes + encodedIlBytes);
+    }
+
     internal void RecordRelationshipNode(
         EntityHandle handle)
     {
@@ -173,7 +193,14 @@ internal sealed class MethodDefinitionGeneratedExpansionWork
             [.. _unauthenticatedRows
                 .Order()
                 .Select(static row =>
-                    MetadataTokens.MethodDefinitionHandle(row))]);
+                    MetadataTokens.MethodDefinitionHandle(row))])
+        {
+            TraversalReferenceBodies = _traversalReferenceBodies,
+            TraversalReferenceBodiesAcquired =
+                _traversalReferenceBodiesAcquired,
+            TraversalReferenceEncodedIlBytes =
+                _traversalReferenceEncodedIlBytes,
+        };
 
     void ReserveGeneratedRow(MethodDefinitionHandle handle)
     {
