@@ -1260,9 +1260,11 @@ Migration is incremental:
     multiplicity, and final signals from the same context and allocation
     facts. For a selected generated body, exact method-analysis support
     authenticates the ultimate declared owner without widening terminal
-    breadth; caller attribution and owner suppression consume that receipted
-    answer. Final opportunity enrichment consumes only the exact evidence, and
-    the query has no `LibraryBodyAnalysisService` execution.
+    breadth. The support receipt separately reports its finite attribution IL
+    probes and any targeted candidate or relationship work; caller attribution
+    and owner suppression consume that answer. Final opportunity enrichment
+    consumes only the exact evidence, and the query has no
+    `LibraryBodyAnalysisService` execution.
 13. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

@@ -20,6 +20,14 @@ public sealed record MethodAnalysisSupportWork(
 {
     public int DeclaredSourceQueries { get; init; }
 
+    public int DeclaredSourceCandidateDefinitions { get; init; }
+
+    public int DeclaredSourceProbeBodies { get; init; }
+
+    public long DeclaredSourceProbeEncodedIlBytes { get; init; }
+
+    public int DeclaredSourceRelationshipNodes { get; init; }
+
     public static MethodAnalysisSupportWork Empty { get; } =
         new(0, 0, 0, 0, 0, 0, 0);
 
@@ -39,6 +47,18 @@ public sealed record MethodAnalysisSupportWork(
             DeclaredSourceQueries =
                 DeclaredSourceQueries
                 - before.DeclaredSourceQueries,
+            DeclaredSourceCandidateDefinitions =
+                DeclaredSourceCandidateDefinitions
+                - before.DeclaredSourceCandidateDefinitions,
+            DeclaredSourceProbeBodies =
+                DeclaredSourceProbeBodies
+                - before.DeclaredSourceProbeBodies,
+            DeclaredSourceProbeEncodedIlBytes =
+                DeclaredSourceProbeEncodedIlBytes
+                - before.DeclaredSourceProbeEncodedIlBytes,
+            DeclaredSourceRelationshipNodes =
+                DeclaredSourceRelationshipNodes
+                - before.DeclaredSourceRelationshipNodes,
         };
 
     public MethodAnalysisSupportWork Plus(MethodAnalysisSupportWork other) =>
@@ -61,6 +81,18 @@ public sealed record MethodAnalysisSupportWork(
             DeclaredSourceQueries =
                 checked(DeclaredSourceQueries
                     + other.DeclaredSourceQueries),
+            DeclaredSourceCandidateDefinitions =
+                checked(DeclaredSourceCandidateDefinitions
+                    + other.DeclaredSourceCandidateDefinitions),
+            DeclaredSourceProbeBodies =
+                checked(DeclaredSourceProbeBodies
+                    + other.DeclaredSourceProbeBodies),
+            DeclaredSourceProbeEncodedIlBytes =
+                checked(DeclaredSourceProbeEncodedIlBytes
+                    + other.DeclaredSourceProbeEncodedIlBytes),
+            DeclaredSourceRelationshipNodes =
+                checked(DeclaredSourceRelationshipNodes
+                    + other.DeclaredSourceRelationshipNodes),
         };
 }
 
@@ -107,6 +139,9 @@ internal sealed class MethodAnalysisLookup
     int _declaredSourceQueries;
     readonly string _path;
     readonly PEReader _peReader;
+    readonly MethodDefinitionGeneratedExpansionWork
+        _declaredSourceWork =
+            new(MethodDefinitionGeneratedExpansionLimits.Default);
     DeclaredSourceAttribution? _declaredSourceAttribution;
 
     internal MethodAnalysisLookup(
@@ -193,19 +228,34 @@ internal sealed class MethodAnalysisLookup
     internal LibraryBodyPrimaryMetadataResolver PrimaryMetadataResolver
     { get; }
 
-    internal MethodAnalysisSupportWork RecordedWork =>
-        new(
-            Volatile.Read(ref _methodReferencesResolved),
-            Interlocked.Read(ref _methodReferenceSignatureWork),
-            Volatile.Read(ref _genericConstraintQueries),
-            Volatile.Read(ref _stableReceiverQueries),
-            Volatile.Read(ref _stableGetterBodiesRead),
-            Interlocked.Read(ref _stableGetterEncodedIlBytes),
-            Volatile.Read(ref _asyncStateMachineTypeRows))
+    internal MethodAnalysisSupportWork RecordedWork
+    {
+        get
         {
-            DeclaredSourceQueries =
-                Volatile.Read(ref _declaredSourceQueries),
-        };
+            MethodDefinitionGeneratedExpansionCoverage declaredSource =
+                _declaredSourceWork.Build();
+            return new(
+                Volatile.Read(ref _methodReferencesResolved),
+                Interlocked.Read(ref _methodReferenceSignatureWork),
+                Volatile.Read(ref _genericConstraintQueries),
+                Volatile.Read(ref _stableReceiverQueries),
+                Volatile.Read(ref _stableGetterBodiesRead),
+                Interlocked.Read(ref _stableGetterEncodedIlBytes),
+                Volatile.Read(ref _asyncStateMachineTypeRows))
+            {
+                DeclaredSourceQueries =
+                    Volatile.Read(ref _declaredSourceQueries),
+                DeclaredSourceCandidateDefinitions =
+                    declaredSource.CandidateDefinitionsExamined.Count,
+                DeclaredSourceProbeBodies =
+                    declaredSource.ProbeBodiesAttempted.Count,
+                DeclaredSourceProbeEncodedIlBytes =
+                    declaredSource.ProbeEncodedIlBytes,
+                DeclaredSourceRelationshipNodes =
+                    declaredSource.RelationshipNodes,
+            };
+        }
+    }
 
     internal ILibraryMethodAnalysisResolver CreateResolver(
         TypeDefinition typeDefinition,
@@ -232,6 +282,8 @@ internal sealed class MethodAnalysisLookup
                 _path,
                 _reader,
                 _peReader,
+                generatedExpansionWork:
+                    _declaredSourceWork,
                 methodAnalysis: this);
         bool typeSourceGenerated =
             attribution.GeneratedProvenanceClassifier

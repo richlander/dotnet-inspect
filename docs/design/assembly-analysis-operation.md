@@ -459,8 +459,9 @@ resolved call prefix after a later recoverable operand failure, and applies
 final opportunity enrichment directly to the exact evidence. When the
 selected physical body differs from its declared member, receipted exact
 method-analysis support authenticates the ultimate declared owner without
-expanding terminal breadth or visiting sibling bodies; caller attribution and
-generated-owner suppression consume that result.
+expanding terminal breadth. Its finite attribution IL probes and any targeted
+candidate or relationship work are reported separately in the support receipt;
+caller attribution and generated-owner suppression consume that result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
 `LibraryBodyAnalysisService`. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as

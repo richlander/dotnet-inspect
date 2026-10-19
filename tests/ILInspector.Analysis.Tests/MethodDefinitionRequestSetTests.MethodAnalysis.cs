@@ -296,6 +296,45 @@ public sealed partial class MethodDefinitionRequestSetTests
     }
 
     [Fact]
+    public void
+        MethodQuerySource_ReceiptsExactDeclaredSourceAttributionProbes()
+    {
+        string path = typeof(MethodAnalysisSupportFixture).Assembly.Location;
+        MethodInfo lifted = typeof(MethodAnalysisSupportFixture)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Single(method => method.Name.Contains(
+                "<Lifted>g__Core|",
+                StringComparison.Ordinal));
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(
+                lifted.MetadataToken & 0x00FF_FFFF);
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                ExactMethodOptimizationProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method),
+                new(
+                    maximumBodies: 1,
+                    maximumEncodedIlBytes: int.MaxValue));
+
+        MethodDefinitionSourceRequestSetExecution source =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        MethodDefinitionSourceCoverage coverage =
+            source.ResultOf(exact).SourceReceipt.Coverage;
+
+        Assert.Equal(1, coverage.BodiesAcquired.Count);
+        Assert.Equal(
+            0,
+            coverage.GeneratedExpansion.ProbeBodiesAttempted.Count);
+        Assert.True(
+            coverage.MethodAnalysis.QueryWork
+                .DeclaredSourceProbeBodies > 0);
+        Assert.True(
+            coverage.MethodAnalysis.QueryWork
+                .DeclaredSourceProbeEncodedIlBytes > 0);
+    }
+
+    [Fact]
     public void MethodQuerySource_MethodAnalysisSharesCachesAcrossLanes()
     {
         string path = typeof(MethodAnalysisSupportFixture).Assembly.Location;
@@ -607,5 +646,12 @@ public static class MethodAnalysisSupportFixture
         values[0] = holder.Value;
         values[1] = new object();
         return values;
+    }
+
+    public static object Lifted(Holder holder)
+    {
+        return Core(holder);
+
+        static object Core(Holder value) => value.Value;
     }
 }

@@ -414,6 +414,14 @@ public sealed class ExactMethodAnalysisBundleProducer :
                         int,
                         CallReceiverSource>
                         stringReceiverSources);
+        ImmutableArray<DirectCall> physicalDirectCalls =
+        [
+            .. directCalls.Select(
+                static call => call with
+                {
+                    Caller = call.EvidenceMethod,
+                }),
+        ];
         BodySignals bodySignals =
             method.Context is { } context
                 ? BodySignalAnalysis.Collect(
@@ -430,7 +438,7 @@ public sealed class ExactMethodAnalysisBundleProducer :
                 : default;
         Dictionary<int, MethodSignals> signals =
             MethodSignalAnalysis.Collect(
-                directCalls,
+                physicalDirectCalls,
                 method.SafetyEvidence,
                 method.Method is { } identity
                     ? new Dictionary<int, BodySignals>

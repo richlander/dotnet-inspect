@@ -368,6 +368,43 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
+    public async Task MethodAnalysis_UsesPhysicalCallerForGeneratedSignals()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+        MethodInfo kickoff = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.CopyAfterYield))!;
+        MethodInfo moveNext = kickoff
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!;
+
+        AssemblyMethodAnalysis analysis = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    moveNext.MetadataToken,
+                    TestContext.Current.CancellationToken)).Value;
+
+        Assert.Equal(1, analysis.Signals.Copies);
+        Assert.Contains(
+            analysis.DirectCalls,
+            call =>
+                call.Caller.MetadataToken
+                    == kickoff.MetadataToken
+                && call.EvidenceMethod.MetadataToken
+                    == moveNext.MetadataToken
+                && call.Callee.Name == nameof(Array.CopyTo));
+    }
+
+    [Fact]
     public async Task MethodAnalysis_PreservesDirectCallProvenance()
     {
         byte[] image = File.ReadAllBytes(
@@ -694,6 +731,14 @@ public static class MethodAnalysisProbe
     }
 
     public static int Neighbor(int value) => value + 1;
+
+    public static async Task CopyAfterYield(
+        object[] source,
+        object[] destination)
+    {
+        await Task.Yield();
+        source.CopyTo(destination, 0);
+    }
 
     public static int StackAllocate(int value)
     {
