@@ -1248,23 +1248,20 @@ Migration is incremental:
     semantic identity, memory-safety contracts, Calls, and resolved-call body
     analyzer owned by the source; it defines no second population or call
     resolver. `AssemblyContextMethodAnalysisQuery` consumes that focused result
-    for identity, safety, diagnostics, and exception regions, while direct-call
-    rows, signals, allocations, and optimization remain legacy-owned. Calls
-    support is used only for focused call-safety evidence because declared
-    async-source attribution, execution multiplicity, and complete
-    definition-token provenance do not yet have owner-issued capabilities.
-    When whole-body Calls decoding fails recoverably, the producer projects
-    independent exception-region evidence first and uses recovery-only
-    owner-issued operand resolution to retain the donor's safety-occurrence
-    prefix. It also recovers call-independent operation-safety evidence from
-    the already materialized instructions, without adding duplicate work to
-    the successful path.
+    for identity, safety, diagnostics, and exception regions. When call
+    decoding fails recoverably, Calls retains the successfully resolved prefix
+    plus a typed stopping failure so independent evidence remains publishable.
 12. #10285 adds `LocalSignature` depth and peels exact allocation and
     optimization into dependent producers. The allocation producer owns one
     context and allocation-facts instance; optimization consumes that exact
     fact. `AssemblyContextMethodAnalysisQuery` composes the focused bundle in
-    one exact source execution, while its retained donor request is reduced to
-    `MethodEvidence` for public direct calls and final signals.
+    one exact source execution. Calls now owns complete MethodSpec
+    definition-token provenance; the bundle publishes direct calls,
+    multiplicity, and final signals from the same context and allocation
+    facts. For a selected generated body, bounded expansion from the selected
+    declaration authenticates caller attribution and owner suppression.
+    Final opportunity enrichment consumes only the exact evidence, and the
+    query has no `LibraryBodyAnalysisService` execution.
 13. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

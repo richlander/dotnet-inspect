@@ -34,6 +34,11 @@ public static class AssemblyContextMethodAnalysisQuery
         ExactMethodAnalysisBundleProducer.Instance;
     static readonly WorkDescription FocusedWork =
         CreateFocusedWork(FocusedProducer);
+    static readonly ExactMethodAnalysisBundleProducer
+        DeclaredSourceProducer =
+            ExactMethodAnalysisBundleProducer.DeclaredSourceInstance;
+    static readonly WorkDescription DeclaredSourceWork =
+        CreateFocusedWork(DeclaredSourceProducer);
 
     public static InspectionQuery<
         AssemblyContextEntry<AssemblyMethodAnalysis>> Definition { get; } =
@@ -66,114 +71,110 @@ public static class AssemblyContextMethodAnalysisQuery
             participant,
             cancellationToken,
             (subject, snapshot) => Analyze(
-                group,
                 subject,
                 snapshot,
                 methodToken,
+                declaredMethodToken: methodToken,
+                cancellationToken));
+    }
+
+    public static AssemblyContextEntry<AssemblyMethodAnalysis> ExecuteParticipant(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        int methodToken,
+        int declaredMethodToken,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(participant);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return AssemblyContextQueryExecutor.ExecuteParticipantOverSnapshot(
+            group,
+            participant,
+            cancellationToken,
+            (subject, snapshot) => Analyze(
+                subject,
+                snapshot,
+                methodToken,
+                declaredMethodToken,
                 cancellationToken));
     }
 
     static AssemblyMethodAnalysis Analyze(
-        AssemblyContextGroup group,
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
         int methodToken,
+        int declaredMethodToken,
         CancellationToken cancellationToken)
     {
-        LibraryCallGraphAnalysisResult? callGraph = null;
-        try
+        cancellationToken.ThrowIfCancellationRequested();
+        ExactMethodAnalysisBundleBody focused =
+            ExecuteFocused(
+                snapshot,
+                subject,
+                methodToken,
+                declaredMethodToken);
+        if (focused.Method.Method is not { } method)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            ExactMethodAnalysisBundleBody focused =
-                ExecuteFocused(
-                    snapshot,
-                    subject,
-                    methodToken);
-            if (focused.Method.Method is not { } method)
-            {
-                throw new InvalidOperationException(
-                    focused.Method.Diagnostics.FirstOrDefault()?.Message
-                        ?? $"Method 0x{methodToken:X8} in "
-                        + $"'{subject.Identity.Name}' could not be decoded.");
-            }
-            if (!focused.Method.HasManagedBody)
-            {
-                throw new InvalidOperationException(
-                    $"Method '{method.Name}' (0x{methodToken:X8}) in "
-                        + $"'{subject.Identity.Name}' does not have an IL body.");
-            }
-            if (focused.Method.ExceptionRegionError is not null)
-            {
-                throw new InvalidOperationException(
-                    focused.Method.ExceptionRegionError);
-            }
+            throw new InvalidOperationException(
+                focused.Method.Diagnostics.FirstOrDefault()?.Message
+                    ?? $"Method 0x{methodToken:X8} in "
+                    + $"'{subject.Identity.Name}' could not be decoded.");
+        }
+        if (!focused.Method.HasManagedBody)
+        {
+            throw new InvalidOperationException(
+                $"Method '{method.Name}' (0x{methodToken:X8}) in "
+                    + $"'{subject.Identity.Name}' does not have an IL body.");
+        }
+        if (focused.Method.ExceptionRegionError is not null)
+        {
+            throw new InvalidOperationException(
+                focused.Method.ExceptionRegionError);
+        }
 
-            var resolver = AssemblyContextAnalysisSource.Resolver(
-                group,
-                subject);
-            cancellationToken.ThrowIfCancellationRequested();
-            LibraryBodyAnalysisRequest request =
-                CreateRetainedEvidenceRequest(methodToken);
-            LibraryBodyAnalysisExecution execution =
-                LibraryBodyAnalysisService.ExecuteImage(
-                    AssemblyContextAnalysisSource.Name(subject),
-                    snapshot.Content,
-                    request,
-                    resolver);
-            callGraph = execution.CallGraph;
-            cancellationToken.ThrowIfCancellationRequested();
+        ImmutableArray<AllocationOccurrence> allocations =
+            focused.Optimization.Allocation.Allocations;
 
-            callGraph.MethodSignals.TryGetValue(
-                methodToken,
-                out MethodSignals? signals);
-            callGraph.DirectCallsByEvidenceMethod.TryGetValue(
-                methodToken,
-                out ImmutableArray<DirectCall> directCalls);
-            ImmutableArray<AllocationOccurrence> allocations =
-                focused.Optimization.Allocation.Allocations;
-
-            var result = new AssemblyMethodAnalysis(
-                methodToken,
+        var result = new AssemblyMethodAnalysis(
+            methodToken,
+            method,
+            focused.Signals,
+            EmptyIfDefault(allocations),
+            focused.DirectCalls,
+            focused.Method.UnsafeOccurrences,
+            focused.Method.SafetyEvidence,
+            focused.Method.ExceptionRegions,
+            LibraryOptimizationAnalysisResult.ProjectExactMethod(
                 method,
-                signals ?? MethodSignals.None,
-                EmptyIfDefault(allocations),
-                EmptyIfDefault(directCalls),
-                focused.Method.UnsafeOccurrences,
-                focused.Method.SafetyEvidence,
-                focused.Method.ExceptionRegions,
-                LibraryOptimizationAnalysisResult.ProjectExactMethod(
-                    callGraph,
-                    method,
-                    allocations,
-                    focused.Optimization.Opportunities,
-                    focused.Optimization
-                        .SuppressesDerivedOpportunities,
-                    focused.Optimization
-                        .RequiresDeclaredOwner),
-                [
-                    .. focused.Method.Diagnostics
-                        .Concat(
-                            focused.Optimization.Allocation.Diagnostics)
-                        .Concat(
-                            execution.Receipt.Diagnostics.Where(
-                                diagnostic =>
-                                    diagnostic.MethodToken == methodToken))
-                        .Distinct(),
-                ]);
-            resolver.ValidateForPublication();
-            cancellationToken.ThrowIfCancellationRequested();
-            return result;
-        }
-        finally
-        {
-            callGraph?.ReleaseCaches();
-        }
+                allocations,
+                focused.DirectCalls,
+                focused.Optimization.Opportunities,
+                focused.Optimization
+                    .SuppressesDerivedOpportunities,
+                focused.Optimization
+                    .RequiresDeclaredOwner,
+                focused.DeclaredOwner,
+                focused
+                    .DeclaredOwnerSuppressesOpportunities,
+                focused.Optimization.Allocation
+                    .InAssemblyTypeIsException),
+            [
+                .. focused.Method.Diagnostics
+                    .Concat(
+                        focused.Optimization.Allocation.Diagnostics)
+                    .Distinct(),
+            ]);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
     }
 
     static ExactMethodAnalysisBundleBody ExecuteFocused(
         AssemblyImageSnapshot snapshot,
         AssemblyContextSubject subject,
-        int methodToken)
+        int methodToken,
+        int declaredMethodToken)
     {
         EntityHandle entity = MetadataTokens.EntityHandle(methodToken);
         if (entity.Kind != HandleKind.MethodDefinition)
@@ -183,18 +184,45 @@ public static class AssemblyContextMethodAnalysisQuery
                 nameof(methodToken));
         }
 
+        EntityHandle declaredEntity =
+            MetadataTokens.EntityHandle(declaredMethodToken);
+        if (declaredEntity.Kind != HandleKind.MethodDefinition)
+        {
+            throw new ArgumentException(
+                $"Token 0x{declaredMethodToken:X8} is not a MethodDef token.",
+                nameof(declaredMethodToken));
+        }
+        bool readsDeclaredSource =
+            declaredMethodToken != methodToken;
+        ExactMethodAnalysisBundleProducer producer =
+            readsDeclaredSource
+                ? DeclaredSourceProducer
+                : FocusedProducer;
+        WorkDescription work =
+            readsDeclaredSource
+                ? DeclaredSourceWork
+                : FocusedWork;
         MethodDefinitionSourceBreadth breadth =
-            MethodDefinitionSourceBreadth.ExactMethods(
-                (MethodDefinitionHandle)entity);
+            readsDeclaredSource
+                ? MethodDefinitionSourceBreadth
+                    .ExactMethods(
+                        (MethodDefinitionHandle)declaredEntity)
+                    .IncludeGeneratedExecutionBodies()
+                : MethodDefinitionSourceBreadth.ExactMethods(
+                    (MethodDefinitionHandle)entity);
         var limits = new MethodDefinitionTerminalWorkLimits(
-            maximumBodies: 1,
+            maximumBodies:
+                readsDeclaredSource
+                    ? MethodDefinitionGeneratedExpansionLimits
+                        .Default.MaximumGeneratedMethods + 1
+                    : 1,
             maximumEncodedIlBytes: int.MaxValue);
         MethodDefinitionSourceRequest<
             ExactMethodAnalysisBundleProducerResult> request =
                 MethodDefinitionSourceRequest<
                     ExactMethodAnalysisBundleProducerResult>.Create(
-                        FocusedWork,
-                        FocusedProducer,
+                        work,
+                        producer,
                         breadth,
                         limits);
         AssemblyAnalysisOperation<
@@ -231,7 +259,7 @@ public static class AssemblyContextMethodAnalysisQuery
                 .Execution;
         ProducerResult<ExactMethodAnalysisBundleProducerResult>
             producerResult =
-                execution.ResultOf(FocusedProducer);
+                execution.ResultOf(producer);
         if (!producerResult.HasValue)
         {
             throw new InvalidOperationException(
@@ -263,12 +291,6 @@ public static class AssemblyContextMethodAnalysisQuery
             ? accepted.Description
             : throw new ProducerContractException(
                 "The exact-method Analysis request must plan.");
-
-    internal static LibraryBodyAnalysisRequest
-        CreateRetainedEvidenceRequest(int methodToken) =>
-        LibraryBodyAnalysisRequest.Create(
-            LibraryBodyAnalysisFeatures.MethodEvidence,
-            new HashSet<int> { methodToken });
 
     static ImmutableArray<T> EmptyIfDefault<T>(
         ImmutableArray<T> values)

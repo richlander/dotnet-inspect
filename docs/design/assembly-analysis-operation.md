@@ -435,7 +435,7 @@ Exact-member work is split across focused owners:
 | Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
 | Declared-source relation over all-definition and exact-type breadth | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) |
 | Method Query Source operand and signature resolution (Calls layer) | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868) |
-| Exact local-signature, allocation, and optimization ownership | [#10285](https://github.com/richlander/dotnet-inspect/issues/10285) |
+| Exact local-signature, calls, signals, allocation, and optimization ownership | [#10285](https://github.com/richlander/dotnet-inspect/issues/10285) |
 | Public root inventory and reference-assembly status as execution capabilities | [#9865](https://github.com/richlander/dotnet-inspect/issues/9865) |
 | First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
 
@@ -453,13 +453,15 @@ adds `ExactMethodAllocationProducer` and
 canonical context and allocation facts. One composed exact source operation
 now supplies semantic identity, call-safety evidence, local and operation
 safety evidence, unsafe occurrences, exception regions, allocations, and
-intrinsic optimization opportunities. Existing final opportunity enrichment
-combines those focused rows with the retained call graph, including its scoped
-declared-owner suppression and in-module exception classification. Public
-direct-call rows and final `MethodSignals` remain explicitly on the old
-boundary under a `MethodEvidence`-only request; legacy allocation,
-string-materialization, and optimization stages no longer participate for this
-consumer. The unsafe member census
+intrinsic optimization opportunities. The same operation publishes complete
+direct-call provenance and final `MethodSignals`, retains a successfully
+resolved call prefix after a later recoverable operand failure, and applies
+final opportunity enrichment directly to the exact evidence. When the
+selected physical body differs from its declared member, the query supplies
+the selected declaration and bounded generated expansion authenticates the
+declared-source relation before caller attribution or generated-owner
+suppression. `AssemblyContextMethodAnalysisQuery` no longer invokes
+`LibraryBodyAnalysisService`. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
@@ -594,15 +596,16 @@ The exact-member successors own their evidence:
 
 `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` proves that the
 focused producer selects and acquires one requested MethodDef body, declares
-semantic identity, memory-safety contracts, and Calls support, performs no
-module lookup, and preserves the legacy identity, safety, diagnostic, and
-exception-region facts. `AssemblyContextMethodAnalysisQueryTests` gate the
-real mixed consumer while only public direct-call rows and final signals
-remain on `LibraryBodyAnalysisService`; Calls support serves focused
-call-safety evidence until complete direct-call provenance has owner-issued
-capabilities. The focused producers preserve independent
-exception-region, operation-safety, and safety-occurrence evidence when
-whole-body Calls decoding fails recoverably.
+semantic identity, memory-safety contracts, Calls, and local-signature support,
+performs no module lookup, and preserves the legacy identity, safety,
+diagnostic, and exception-region facts. The exact optimization gate proves
+that calls, local signatures, allocation, and optimization share one physical
+body and one canonical context. `AssemblyContextMethodAnalysisQueryTests` gate
+complete direct-call provenance, final signals, declared-owner attribution,
+generated-owner suppression, and exact publication parity without an LBA
+donor. The focused producers preserve the resolved direct-call prefix and
+independent exception-region, operation-safety, allocation, and
+safety-occurrence evidence when a later call operand fails recoverably.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

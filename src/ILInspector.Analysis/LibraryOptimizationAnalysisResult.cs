@@ -11,8 +11,9 @@ public sealed class LibraryOptimizationAnalysisResult
 {
     private const int AllocationHotspotThreshold = 16;
 
-    private readonly LibraryCallGraphAnalysisResult _callGraph;
-    private readonly GeneratedFrameworkTypeSet _generatedFrameworkTypes;
+    private readonly LibraryCallGraphAnalysisResult? _callGraph;
+    private readonly GeneratedFrameworkTypeSet? _generatedFrameworkTypes;
+    private readonly LibraryBodyAnalysisReceipt? _receipt;
     private readonly ImmutableArray<MethodIdentity> _declaredMethods;
     private readonly ImmutableArray<MethodIdentity> _methods;
     private readonly ImmutableArray<DirectCall> _directCalls;
@@ -23,6 +24,8 @@ public sealed class LibraryOptimizationAnalysisResult
     private readonly IReadOnlySet<int> _suppressedOpportunityTokens;
     private readonly IReadOnlySet<int> _scopeExcludedOpportunityTokens;
     private readonly IReadOnlySet<string> _exceptionTypeNames;
+    private readonly ImmutableArray<DirectCall> _physicalDirectCalls;
+    private readonly MethodDefinitionMap _declaredMethodMap;
     private readonly bool _opportunitiesComputed;
     private readonly bool _allocationOpportunitiesComputed;
     private ImmutableArray<OptimizationOpportunity> _opportunities;
@@ -40,9 +43,11 @@ public sealed class LibraryOptimizationAnalysisResult
         LibraryCallGraphAnalysisResult callGraph,
         GeneratedFrameworkTypeSet generatedFrameworkTypes)
     {
-        Receipt = receipt;
+        _receipt = receipt;
         _callGraph = callGraph;
         _generatedFrameworkTypes = generatedFrameworkTypes;
+        _physicalDirectCalls = callGraph.PhysicalDirectCalls;
+        _declaredMethodMap = callGraph.DeclaredMethodMap;
         _declaredMethods = analysis.Methods.DeclaredMethods;
         _methods = analysis.Methods.Methods;
         _directCalls = analysis.Methods.DirectCalls;
@@ -65,19 +70,27 @@ public sealed class LibraryOptimizationAnalysisResult
     }
 
     LibraryOptimizationAnalysisResult(
-        LibraryCallGraphAnalysisResult callGraph,
         MethodIdentity method,
         ImmutableArray<AllocationOccurrence> allocations,
+        ImmutableArray<DirectCall> directCalls,
         ImmutableArray<OptimizationOpportunity> rawOpportunities,
         bool suppressDerivedOpportunities,
-        bool requiresDeclaredOwner)
+        bool requiresDeclaredOwner,
+        MethodIdentity? declaredOwner,
+        bool declaredOwnerSuppressesOpportunities,
+        IReadOnlyDictionary<
+            (string Namespace, string Name),
+            bool>? inAssemblyTypeIsException)
     {
-        Receipt = callGraph.Receipt;
-        _callGraph = callGraph;
-        _generatedFrameworkTypes = new(callGraph);
-        _declaredMethods = callGraph.DeclaredMethods;
-        _methods = callGraph.Methods;
-        _directCalls = callGraph.DirectCalls;
+        _receipt = null;
+        _callGraph = null;
+        _generatedFrameworkTypes = null;
+        _declaredMethods = [method];
+        _methods = [method];
+        _directCalls = directCalls;
+        _physicalDirectCalls = directCalls;
+        _declaredMethodMap =
+            MethodDefinitionMap.Create([method]);
         _allocationOccurrences =
             new Dictionary<int, ImmutableArray<AllocationOccurrence>>
             {
@@ -85,13 +98,14 @@ public sealed class LibraryOptimizationAnalysisResult
             };
         _rawOpportunities =
             ProjectOwnershipDerivedOpportunities(
-                callGraph,
                 method,
                 rawOpportunities,
-                requiresDeclaredOwner);
+                requiresDeclaredOwner,
+                declaredOwner,
+                declaredOwnerSuppressesOpportunities);
         _stringMaterializations =
             StringMaterializationAnalysis.Collect(
-                callGraph.PhysicalDirectCalls);
+                directCalls);
         _suppressedOpportunityTokens =
             suppressDerivedOpportunities
                 ? new HashSet<int> { method.MetadataToken }
@@ -102,7 +116,9 @@ public sealed class LibraryOptimizationAnalysisResult
                 .Where(
                     occurrence =>
                         occurrence.AllocatedType is { } type
-                        && callGraph.IsExceptionType(type))
+                        && IsExceptionType(
+                            type,
+                            inAssemblyTypeIsException))
                 .Select(
                     static occurrence =>
                     {
@@ -120,19 +136,22 @@ public sealed class LibraryOptimizationAnalysisResult
 
     /// <summary>
     /// Applies the existing publication enrichment to owner-issued exact
-    /// allocation and intrinsic optimization evidence while retaining the
-    /// donor's final direct-call provenance.
+    /// allocation, call, and intrinsic optimization evidence.
     /// </summary>
     public static ImmutableArray<OptimizationOpportunity>
         ProjectExactMethod(
-            LibraryCallGraphAnalysisResult callGraph,
             MethodIdentity method,
             ImmutableArray<AllocationOccurrence> allocations,
+            ImmutableArray<DirectCall> directCalls,
             ImmutableArray<OptimizationOpportunity> rawOpportunities,
             bool suppressDerivedOpportunities = false,
-            bool requiresDeclaredOwner = false)
+            bool requiresDeclaredOwner = false,
+            MethodIdentity? declaredOwner = null,
+            bool declaredOwnerSuppressesOpportunities = false,
+            IReadOnlyDictionary<
+                (string Namespace, string Name),
+                bool>? inAssemblyTypeIsException = null)
     {
-        ArgumentNullException.ThrowIfNull(callGraph);
         ArgumentNullException.ThrowIfNull(method);
         if (allocations.IsDefault)
         {
@@ -146,16 +165,25 @@ public sealed class LibraryOptimizationAnalysisResult
                 "Exact optimization evidence must be initialized.",
                 nameof(rawOpportunities));
         }
+        if (directCalls.IsDefault)
+        {
+            throw new ArgumentException(
+                "Exact direct-call evidence must be initialized.",
+                nameof(directCalls));
+        }
 
         return
         [
             .. new LibraryOptimizationAnalysisResult(
-                    callGraph,
                     method,
                     allocations,
+                    directCalls,
                     rawOpportunities,
                     suppressDerivedOpportunities,
-                    requiresDeclaredOwner)
+                    requiresDeclaredOwner,
+                    declaredOwner,
+                    declaredOwnerSuppressesOpportunities,
+                    inAssemblyTypeIsException)
                 .Opportunities
                 .Where(opportunity =>
                     (opportunity.EvidenceMethodToken
@@ -166,20 +194,17 @@ public sealed class LibraryOptimizationAnalysisResult
 
     static ImmutableArray<OptimizationOpportunity>
         ProjectOwnershipDerivedOpportunities(
-            LibraryCallGraphAnalysisResult callGraph,
             MethodIdentity method,
             ImmutableArray<OptimizationOpportunity>
                 rawOpportunities,
-            bool requiresDeclaredOwner)
+            bool requiresDeclaredOwner,
+            MethodIdentity? declaredOwner,
+            bool declaredOwnerSuppressesOpportunities)
     {
         if (!requiresDeclaredOwner)
             return rawOpportunities;
-
-        MethodIdentity? sourceOwner =
-            callGraph.ResolveDeclaredMethod(method);
-        if (sourceOwner is null
-            || callGraph.DeclaredSourceSuppressesOpportunities(
-                method.MetadataToken))
+        if (declaredOwner is null
+            || declaredOwnerSuppressesOpportunities)
         {
             return [];
         }
@@ -194,27 +219,54 @@ public sealed class LibraryOptimizationAnalysisResult
                 .Select(
                     opportunity => opportunity with
                     {
-                        SourceOwner = sourceOwner,
+                        SourceOwner = declaredOwner,
                     }),
         ];
+    }
+
+    static bool IsExceptionType(
+        TypeRef type,
+        IReadOnlyDictionary<
+            (string Namespace, string Name),
+            bool>? inAssemblyTypeIsException)
+    {
+        TypeRef definition =
+            type.Kind == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+        if (inAssemblyTypeIsException is not null
+            && inAssemblyTypeIsException.TryGetValue(
+                (definition.Namespace, definition.Name),
+                out bool isException))
+        {
+            return isException;
+        }
+        return definition.Name.EndsWith(
+            "Exception",
+            StringComparison.Ordinal);
     }
 
     /// <summary>
     /// Identity, coverage, and diagnostics shared with this execution's other
     /// focused results.
     /// </summary>
-    public LibraryBodyAnalysisReceipt Receipt { get; }
+    public LibraryBodyAnalysisReceipt Receipt =>
+        _receipt
+        ?? throw new InvalidOperationException(
+            "An exact-method projection has no Library Body Analysis receipt.");
 
     /// <summary>
     /// Whether full optimization-opportunity production participated in this
     /// execution.
     /// </summary>
     public bool WasRequested =>
-        Receipt.Features.HasFlag(
-            LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+        _receipt is null
+            ? _opportunitiesComputed
+            : _receipt.Features.HasFlag(
+                LibraryBodyAnalysisFeatures.OptimizationOpportunities);
 
     internal bool HasProjectedPhysicalDirectCalls =>
-        _callGraph.HasProjectedPhysicalDirectCalls;
+        _callGraph?.HasProjectedPhysicalDirectCalls == true;
 
     /// <summary>
     /// Completed source and IL optimization opportunities, enriched with
@@ -393,7 +445,8 @@ public sealed class LibraryOptimizationAnalysisResult
     /// framework types.
     /// </summary>
     public ImmutableHashSet<TypeRef> GeneratedFrameworkTypes
-        => _generatedFrameworkTypes.Types;
+        => _generatedFrameworkTypes?.Types
+            ?? ImmutableHashSet<TypeRef>.Empty;
 
     public OptimizationOpportunityCounts CountPerformanceCandidates()
     {
@@ -434,10 +487,10 @@ public sealed class LibraryOptimizationAnalysisResult
     }
 
     private ImmutableArray<DirectCall> PhysicalDirectCalls
-        => _callGraph.PhysicalDirectCalls;
+        => _physicalDirectCalls;
 
     internal MethodDefinitionMap DeclaredMethodMap =>
-        _callGraph.DeclaredMethodMap;
+        _declaredMethodMap;
 
     private IReadOnlyDictionary<int, CallerLoopEvidence>
         DirectCallerLoops

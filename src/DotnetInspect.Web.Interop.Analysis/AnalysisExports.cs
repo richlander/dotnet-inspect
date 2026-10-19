@@ -100,7 +100,10 @@ public static partial class AnalysisExports
                     AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                         group,
                         member,
-                        resolution.BodyToken)),
+                        resolution.BodyToken,
+                        resolution.Member.MetadataToken
+                            ?? resolution.BodyToken,
+                        CancellationToken.None)),
             $"Facts for '{typeIdentity}.{memberName}'");
 
         var result = new BrowserMemberFacts(

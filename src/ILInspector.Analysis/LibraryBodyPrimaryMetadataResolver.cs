@@ -643,6 +643,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         public bool IsInAssemblyReferenceType(int typeToken)
             => owner.IsInAssemblyReferenceTypeElement(typeToken);
 
+        public bool? IsInAssemblyExceptionType(TypeRef type)
+            => owner.IsInAssemblyExceptionType(type);
+
         public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken)
             => owner.ResolveFieldOwner(fieldToken, scope);
 
@@ -650,6 +653,54 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             => ReachingDefinitions.Analyze(
                 instructions,
                 ArgumentSlotCount(caller));
+    }
+
+    bool? IsInAssemblyExceptionType(TypeRef type)
+    {
+        if (!TryResolveLocalTypeDefinition(
+                type,
+                out TypeDefinitionHandle handle))
+        {
+            return null;
+        }
+
+        var cache =
+            new Dictionary<TypeDefinitionHandle, bool>();
+        var path = new List<TypeDefinitionHandle>();
+        bool result = false;
+        while (!cache.TryGetValue(handle, out result))
+        {
+            cache[handle] = false;
+            path.Add(handle);
+            EntityHandle baseHandle =
+                _reader.GetTypeDefinition(handle).BaseType;
+            if (baseHandle.IsNil)
+                break;
+            if (baseHandle.Kind
+                == HandleKind.TypeDefinition)
+            {
+                handle =
+                    (TypeDefinitionHandle)baseHandle;
+                continue;
+            }
+            if (baseHandle.Kind
+                == HandleKind.TypeReference)
+            {
+                TypeRef baseType =
+                    TypeRefDecoder.Instance
+                        .GetTypeFromReference(
+                            _reader,
+                            (TypeReferenceHandle)baseHandle,
+                            0);
+                result = baseType.Name.EndsWith(
+                    "Exception",
+                    StringComparison.Ordinal);
+            }
+            break;
+        }
+        foreach (TypeDefinitionHandle visited in path)
+            cache[visited] = result;
+        return result;
     }
 
     // Metadata-dependent call-site facts for one method. MethodCallAnalysis owns

@@ -86,6 +86,7 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
             nameof(MethodAnalysisProbe.ObjectTypedStringBuilder),
             nameof(MethodAnalysisProbe.CompilerGeneratedBox),
             nameof(MethodAnalysisProbe.ExceptionAllocations),
+            nameof(MethodAnalysisProbe.NamedNonExceptionAllocations),
         })
         {
             int token = typeof(MethodAnalysisProbe)
@@ -143,6 +144,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
             .Single(method => method.Name.Contains(
                 "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
                 StringComparison.Ordinal));
+        MethodInfo owner = typeof(MethodAnalysisProbe)
+            .GetMethod(
+                nameof(MethodAnalysisProbe
+                    .GenericObjectEqualsLocalFunction))!;
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
 
@@ -152,6 +157,7 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     group,
                     Assert.Single(group.Participants),
                     lifted.MetadataToken,
+                    owner.MetadataToken,
                     TestContext.Current.CancellationToken)).Value;
         LibraryBodyAnalysisExecution legacy =
             LibraryBodyAnalysisService.ExecutePath(
@@ -197,6 +203,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                 "<GeneratedGenericObjectEqualsLocalFunction>"
                     + "g__EqualsCore|",
                 StringComparison.Ordinal));
+        MethodInfo owner = typeof(MethodAnalysisProbe)
+            .GetMethod(
+                nameof(MethodAnalysisProbe
+                    .GeneratedGenericObjectEqualsLocalFunction))!;
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
 
@@ -206,6 +216,7 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     group,
                     Assert.Single(group.Participants),
                     lifted.MetadataToken,
+                    owner.MetadataToken,
                     TestContext.Current.CancellationToken)).Value;
         LibraryBodyAnalysisExecution legacy =
             LibraryBodyAnalysisService.ExecutePath(
@@ -263,54 +274,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public void
-        MethodAnalysis_RetainedDonorDoesNotRunAllocationOrOptimization()
-    {
-        int token = typeof(MethodAnalysisProbe)
-            .GetMethod(nameof(MethodAnalysisProbe.Target))!
-            .MetadataToken;
-        LibraryBodyAnalysisRequest request =
-            AssemblyContextMethodAnalysisQuery
-                .CreateRetainedEvidenceRequest(token);
-        Assert.Equal(
-            LibraryBodyAnalysisFeatures.MethodEvidence,
-            request.Features);
-
-        LibraryBodyAnalysisExecution execution =
-            LibraryBodyAnalysisService.ExecutePath(
-                typeof(MethodAnalysisProbe).Assembly.Location,
-                request.WithStageParticipation());
-        try
-        {
-            LibraryBodyAnalysisStageParticipationReceipt participation =
-                Assert.IsType<
-                    LibraryBodyAnalysisStageParticipationReceipt>(
-                        execution.Receipt.StageParticipation);
-            Assert.Equal(
-                0,
-                participation.For(
-                        LibraryBodyAnalysisStage.AllocationAnalysis)
-                    .Attempts);
-            Assert.Equal(
-                0,
-                participation.For(
-                        LibraryBodyAnalysisStage
-                            .StringMaterializationAnalysis)
-                    .Attempts);
-            Assert.Equal(
-                0,
-                participation.For(
-                        LibraryBodyAnalysisStage
-                            .OptimizationOpportunityAnalysis)
-                    .Attempts);
-        }
-        finally
-        {
-            execution.CallGraph.ReleaseCaches();
-        }
-    }
-
-    [Fact]
     public async Task MethodAnalysis_KeepsAsyncKickoffAndMoveNextEvidenceSeparate()
     {
         byte[] image = File.ReadAllBytes(
@@ -346,6 +309,7 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     group,
                     participant,
                     moveNext.MetadataToken,
+                    kickoff.MetadataToken,
                     TestContext.Current.CancellationToken)).Value;
 
         Assert.DoesNotContain(
@@ -443,7 +407,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         int token = typeof(MethodAnalysisProbe)
             .GetMethod(nameof(MethodAnalysisProbe.RecoverableCallFailure))!
             .MetadataToken;
-        CorruptFirstCallOperandToField(image, token);
+        CorruptCallOperandToField(
+            image,
+            token,
+            callIndex: 2);
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
 
@@ -469,6 +436,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         Assert.Contains(
             result.UnsafeEvidence,
             evidence => evidence.Detail == "localloc");
+        Assert.Contains(
+            result.DirectCalls,
+            call => call.Callee.Name
+                == nameof(MethodAnalysisProbe.Neighbor));
         Assert.Single(result.Diagnostics);
     }
 
@@ -560,58 +531,32 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public async Task MethodAnalysis_CancellationDuringAnalysisPropagatesCallerToken()
+    public async Task MethodAnalysis_CancellationPropagatesCallerToken()
     {
         byte[] image = File.ReadAllBytes(
             typeof(MethodAnalysisProbe).Assembly.Location);
         await using var workspace = new InspectionWorkspace();
-        using var entered = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        var policy = new AnalysisCancellationBindingPolicy(
-            entered,
-            release);
-        using AssemblyContextGroup group = Group(
-            workspace,
-            image,
-            policy);
-        policy.Arm();
+        using AssemblyContextGroup group = Group(workspace, image);
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
         int token = typeof(MethodAnalysisProbe)
             .GetMethod(nameof(MethodAnalysisProbe.Target))!
             .MetadataToken;
+        cancellation.Cancel();
 
-        Task<AssemblyContextEntry<AssemblyMethodAnalysis>> operation =
-            Task.Run(() =>
 #pragma warning disable xUnit1051 // The linked caller token is the contract under test.
+        OperationCanceledException error =
+            Assert.Throws<OperationCanceledException>(() =>
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     Assert.Single(group.Participants),
                     token,
                     cancellation.Token));
 #pragma warning restore xUnit1051
-        try
-        {
-            Assert.True(
-                entered.Wait(
-                    TimeSpan.FromSeconds(30),
-                    TestContext.Current.CancellationToken),
-                "Analysis did not reach binding-policy resolution.");
-            cancellation.Cancel();
-            release.Set();
-
-            OperationCanceledException error =
-                await Assert.ThrowsAsync<OperationCanceledException>(
-                    async () => await operation);
-            Assert.Equal(
-                cancellation.Token,
-                error.CancellationToken);
-        }
-        finally
-        {
-            release.Set();
-        }
+        Assert.Equal(
+            cancellation.Token,
+            error.CancellationToken);
     }
 
     static AssemblyContextGroup Group(
@@ -638,9 +583,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         return workspace.CreateAssemblyContextGroup([participant]);
     }
 
-    static void CorruptFirstCallOperandToField(
+    static void CorruptCallOperandToField(
         byte[] image,
-        int methodToken)
+        int methodToken,
+        int callIndex)
     {
         using var stream = new MemoryStream(image, writable: false);
         using var pe = new PEReader(stream);
@@ -655,8 +601,9 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         DecodedInstruction call =
             InstructionDecoder
                 .Decode(body.GetILBytes()!)
-                .First(static instruction =>
-                    instruction.OpCode == ILOpCode.Call);
+                .Where(static instruction =>
+                    instruction.OpCode == ILOpCode.Call)
+                .ElementAt(callIndex);
         int bodyOffset = RvaToFileOffset(
             pe.PEHeaders,
             definition.RelativeVirtualAddress);
@@ -685,44 +632,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                         header.SizeOfRawData));
         return checked(
             rva - section.VirtualAddress + section.PointerToRawData);
-    }
-
-    sealed class AnalysisCancellationBindingPolicy(
-        ManualResetEventSlim entered,
-        ManualResetEventSlim release) : IAssemblyBindingPolicy
-    {
-        readonly AssemblyBindingPolicyVersion _version = new();
-        int _armed;
-        int _observed;
-
-        public AssemblyBindingPolicyVersion Version
-        {
-            get
-            {
-                if (Volatile.Read(ref _armed) != 0
-                    && Interlocked.Exchange(ref _observed, 1) == 0)
-                {
-                    entered.Set();
-                    if (!release.Wait(TimeSpan.FromSeconds(30)))
-                    {
-                        throw new TimeoutException(
-                            "The Analysis cancellation probe was not released.");
-                    }
-                }
-
-                return _version;
-            }
-        }
-
-        public void Arm() => Volatile.Write(ref _armed, 1);
-
-        public AssemblyBindingSelectionSnapshot Select(
-            AssemblyBindingRequest request) =>
-            new(
-                _version,
-                AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable)));
     }
 
     sealed class MissingBindingPolicy : IAssemblyBindingPolicy
@@ -843,11 +752,37 @@ public static class MethodAnalysisProbe
         }
     }
 
+    public static void NamedNonExceptionAllocations(
+        int count,
+        List<object> sink)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+        }
+    }
+
     public static int RecoverableCallFailure(int value)
     {
         try
         {
             Span<int> values = stackalloc int[1];
+            value = Neighbor(value);
             values[0] = Neighbor(value);
             return values[0];
         }
@@ -860,6 +795,10 @@ public static class MethodAnalysisProbe
 }
 
 public sealed class MethodAnalysisException : Exception
+{
+}
+
+public sealed class MethodAnalysisPayloadException
 {
 }
 

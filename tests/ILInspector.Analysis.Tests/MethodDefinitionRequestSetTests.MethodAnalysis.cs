@@ -249,24 +249,37 @@ public sealed partial class MethodDefinitionRequestSetTests
             1,
             coverage.InstructionWork.LazyRetainedSourcesOpened);
         Assert.Equal(0, coverage.ModuleLookupMethods.Count);
-        Assert.Equal(0, coverage.Calls.CallReads);
+        Assert.Equal(1, coverage.Calls.CallReads);
         Assert.Equal(1, coverage.Calls.LocalSignatureReads);
-        Assert.False(coverage.CallTargets.Constructed);
+        Assert.True(coverage.CallTargets.Constructed);
         Assert.Equal(2, coverage.MethodAnalysis.Queries);
 
         ProducerParticipation allocation =
             request.WorkReceipt.For(
                 ExactMethodAllocationProducer.Instance);
-        Assert.Contains(
+        Assert.DoesNotContain(
             allocation.Layers,
-            layer => layer
-                == new ProducerLayerParticipation(
-                    nameof(MethodDefinitionLayers.LocalSignature),
-                    1));
+            layer => layer.Layer
+                == nameof(MethodDefinitionLayers.LocalSignature));
         Assert.DoesNotContain(
             allocation.Layers,
             layer => layer.Layer
                 == nameof(MethodDefinitionLayers.Calls));
+        ProducerParticipation methodAnalysis =
+            request.WorkReceipt.For(
+                ExactMethodAnalysisProducer.Instance);
+        Assert.Contains(
+            methodAnalysis.Layers,
+            layer => layer
+                == new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.LocalSignature),
+                    1));
+        Assert.Contains(
+            methodAnalysis.Layers,
+            layer => layer
+                == new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.Calls),
+                    1));
         ProducerParticipation optimization =
             request.WorkReceipt.For(
                 ExactMethodOptimizationProducer.Instance);

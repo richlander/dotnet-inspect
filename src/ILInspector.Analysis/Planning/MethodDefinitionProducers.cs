@@ -828,6 +828,22 @@ public readonly ref struct MethodDefinitionView
     /// </summary>
     internal MethodCallSites GetCalls(MethodInstructions instructions)
     {
+        MethodCallSites calls =
+            GetCallsRetainingPrefix(instructions);
+        if (calls.Failure is { } failure)
+        {
+            throw new BadImageFormatException(
+                failure.Message);
+        }
+        return calls;
+    }
+
+    /// <summary>
+    /// The unit's resolved call prefix and any recoverable stopping failure.
+    /// </summary>
+    internal MethodCallSites GetCallsRetainingPrefix(
+        MethodInstructions instructions)
+    {
         ArgumentNullException.ThrowIfNull(instructions);
         MethodDefinitionExecution.ProducerState producer = Producer;
         if (!producer.HasCallsLayer)
@@ -1463,10 +1479,10 @@ internal struct MethodDefinitionUnit(
         {
             MethodCallMetadataLookup calls =
                 BeginMethodCallQuery(out MethodCallMetadataWork before);
-            ImmutableArray<MethodCallOperandSite> operands;
+            MethodCallOperandSites operandResult;
             try
             {
-                operands = calls.ReadCalls(
+                operandResult = calls.ReadCalls(
                     TypeDefinition,
                     MethodDefinition,
                     instructions);
@@ -1484,15 +1500,18 @@ internal struct MethodDefinitionUnit(
 
             var targetWork =
                 ImmutableArray.CreateBuilder<SameModuleCallTargetWork>(
-                    operands.Length);
+                    operandResult.Sites.Length);
             var sites =
                 ImmutableArray.CreateBuilder<MethodCallSite>(
-                    operands.Length);
-            if (!operands.IsEmpty)
+                    operandResult.Sites.Length);
+            MethodCallCollectionFailure? failure =
+                operandResult.Failure;
+            if (!operandResult.Sites.IsEmpty)
             {
                 SameModuleCallTargetLookup targets =
                     BeginCallTargetQuery(out _);
-                foreach (MethodCallOperandSite operand in operands)
+                foreach (MethodCallOperandSite operand
+                    in operandResult.Sites)
                 {
                     SameModuleCallTargetWork targetBefore =
                         targets.RecordedWork;
@@ -1504,6 +1523,15 @@ internal struct MethodDefinitionUnit(
                             MethodHandle,
                             operand.Kind,
                             operand.OperandToken);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        failure = new(
+                            operand.ILOffset,
+                            ex.Message);
+                        break;
                     }
                     finally
                     {
@@ -1517,6 +1545,7 @@ internal struct MethodDefinitionUnit(
                             operand.ILOffset,
                             operand.ReturnAddress,
                             operand.OperandToken,
+                            operand.DefinitionToken,
                             operand.Kind,
                             operand.Callee,
                             target));
@@ -1524,7 +1553,10 @@ internal struct MethodDefinitionUnit(
             }
 
             _callTargetWork = targetWork.MoveToImmutable();
-            _calls = new(sites.MoveToImmutable());
+            _calls = new(sites.MoveToImmutable())
+            {
+                Failure = failure,
+            };
         }
         else
         {
