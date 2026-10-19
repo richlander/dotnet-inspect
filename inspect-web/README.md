@@ -2666,13 +2666,15 @@ Normal Type-member first paint requests the compact, owner-issued
 delivers exact group identities, counts, receiver forms, and selector counts
 without repeating the rich assembly-surface and exact-declaration work used to
 establish the resident package, platform, or uploaded-Library inventory.
-Opening a supported method group requests the shared `MemberGroupDocument`
-with the selected accessibility intent. Interactions that still need the
-legacy rich Type-member population (including Metadata spelling, non-public
-declarations without resident rows, and other resident-row gaps) request it
-only after opening a group. This slice does not replace the rich resident
-surface used to enter Type navigation. Hierarchy, graphs, source, metrics,
-documentation, and analysis remain independent requests.
+Opening a supported method group requests final exact-or-overview Member
+resolution with the selected accessibility intent. The managed facade projects
+that final `MemberDocument` or `MemberOverviewDocument` into the stable Browser
+transport. Interactions that still need the legacy rich Type-member population
+(including Metadata spelling, non-public declarations without resident rows,
+and other resident-row gaps) request it only after opening a group. This slice
+does not replace the rich resident surface used to enter Type navigation.
+Hierarchy, graphs, source, metrics, documentation, and analysis remain
+independent requests.
 `test/type-panel.test.ts` gates every rendered control binding, type-filter
 keyboard behavior, namespace grouping and selection in the type list,
 active-group and overload selection in the member list, the type heading's
