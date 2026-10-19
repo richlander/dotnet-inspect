@@ -3,6 +3,60 @@ namespace DotnetInspector.Packages;
 /// <summary>Validates package-root path segments shared by package-content stores.</summary>
 public static class PackageEntryPath
 {
+    internal static string GetLibraryPopulationPath(
+        string assetPath,
+        string targetFramework)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assetPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
+        string[] segments = assetPath.Split('/');
+        int populationSegments =
+            segments.Length >= 5
+            && segments[0].Equals(
+                "runtimes",
+                StringComparison.OrdinalIgnoreCase)
+            && segments[2].Equals(
+                "lib",
+                StringComparison.OrdinalIgnoreCase)
+            && segments[3].Equals(
+                targetFramework,
+                StringComparison.OrdinalIgnoreCase)
+                ? 4
+                : segments.Length >= 4
+                && segments[0].Equals(
+                    "tools",
+                    StringComparison.OrdinalIgnoreCase)
+                && segments[1].Equals(
+                    targetFramework,
+                    StringComparison.OrdinalIgnoreCase)
+                && segments[2].Equals(
+                    "any",
+                    StringComparison.OrdinalIgnoreCase)
+                    ? 3
+                    : segments.Length >= 3
+                    && (segments[0].Equals(
+                            "lib",
+                            StringComparison.OrdinalIgnoreCase)
+                        || segments[0].Equals(
+                            "ref",
+                            StringComparison.OrdinalIgnoreCase))
+                    && segments[1].Equals(
+                        targetFramework,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? 2
+                        : segments.Length >= 2
+                        && segments[0].Equals(
+                            "lib",
+                            StringComparison.OrdinalIgnoreCase)
+                        && targetFramework.Equals(
+                            "any",
+                            StringComparison.OrdinalIgnoreCase)
+                            ? 1
+                            : throw new InvalidOperationException(
+                                $"'{assetPath}' is not in a recognized Library population.");
+        return $"{string.Join('/', segments[..populationSegments])}/";
+    }
+
     /// <summary>
     /// Returns the final lexical segment of a package or archive entry.
     /// Both separator forms are recognized independently of the inspecting host.

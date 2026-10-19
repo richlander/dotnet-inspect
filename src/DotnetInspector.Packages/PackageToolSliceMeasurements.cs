@@ -261,6 +261,14 @@ public sealed record PackageToolSliceSelection
 
     public ImmutableArray<string> SelectedEntries { get; }
 
+    /// <summary>The package-relative selected tool-population root.</summary>
+    internal string? PopulationPath =>
+        SelectedEntries.IsEmpty
+            ? null
+            : PackageEntryPath.GetLibraryPopulationPath(
+                SelectedEntries[0],
+                SelectedTargetFramework!);
+
     public string? Detail { get; }
 }
 

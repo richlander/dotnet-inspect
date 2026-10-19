@@ -1140,7 +1140,8 @@ public partial class PackageCommand
                     candidates.Paths,
                     extractPath,
                     packageId,
-                    candidates.Tfm)
+                    candidates.Tfm,
+                    candidates.PopulationPath)
                 : candidates;
         }
         else if (options.NamesakeLibrary)
@@ -1151,7 +1152,8 @@ public partial class PackageCommand
                     extractPath,
                     packageId,
                     requestedLibrary: null,
-                    tfm: candidates.Tfm)
+                    tfm: candidates.Tfm,
+                    populationPath: candidates.PopulationPath)
                 : candidates;
         }
         else
@@ -1165,7 +1167,8 @@ public partial class PackageCommand
                     extractPath,
                     packageId,
                     requestedLibrary,
-                    candidates.Tfm);
+                    candidates.Tfm,
+                    candidates.PopulationPath);
         }
         if (resolution.IsSelected)
             return new PackageLibrarySelection(
@@ -1232,12 +1235,31 @@ public partial class PackageCommand
         else if (resolution.Status == TfmSelector.PackageLibraryResolutionStatus.NoMatchingTargetFramework)
             CommandError.Write($"No library found for TFM '{options.Tfm}' in package '{packageName}'.");
         else if (resolution.Status
+            is TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound
+                or TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeAmbiguous)
+        {
+            string outcome = resolution.Status
+                == TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeNotFound
+                    ? "No namesake library found"
+                    : "Multiple namesake libraries found";
+            CommandError.Write(
+                resolution.PopulationPath is { Length: > 0 } populationPath
+                    ? $"{outcome} in {populationPath}"
+                    : $"{outcome} in the selected Library population");
+        }
+        else if (resolution.Status
             == TfmSelector.PackageLibraryResolutionStatus
                 .NamesakeIdentityUnavailable)
         {
+            string population =
+                resolution.PopulationPath is { Length: > 0 } populationPath
+                    ? populationPath
+                    : "the selected Library population";
             CommandError.Write(
                 $"{(options.FirstLibrary ? "First" : "Namesake")} Library "
-                    + $"identity is unavailable in package "
+                    + $"identity is unavailable in {population} for package "
                     + $"'{packageName}'.");
             foreach (string path in resolution.IdentityFailurePaths ?? [])
             {
@@ -1254,7 +1276,10 @@ public partial class PackageCommand
             is not (
                 TfmSelector.PackageLibraryResolutionStatus.NoAssemblies
                 or TfmSelector.PackageLibraryResolutionStatus
-                    .NamesakeIdentityUnavailable))
+                    .NamesakeIdentityUnavailable
+                or TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound
+                or TfmSelector.PackageLibraryResolutionStatus
+                    .NamesakeAmbiguous))
             WritePackageLibraryCandidates(extractPath, packageName, version, resolution.Tfm ?? options.Tfm, resolution.CandidatePaths.ToList());
     }
 
@@ -1405,7 +1430,8 @@ public partial class PackageCommand
                     selectedPaths,
                     selection.TargetFramework,
                     TfmSelector.PackageLibraryResolutionStatus.Selected,
-                    candidatePaths),
+                    candidatePaths,
+                    PopulationPath: population.PopulationPath),
                 RuntimeIdentifier: null);
         }
         if (population is
@@ -1425,7 +1451,8 @@ public partial class PackageCommand
                     selectedPaths,
                     selected.Universe.TargetFramework,
                     TfmSelector.PackageLibraryResolutionStatus.Selected,
-                    selectedPaths),
+                    selectedPaths,
+                    PopulationPath: population.PopulationPath),
                 selected.Universe.RuntimeIdentifier);
         }
         if (population is
@@ -1443,7 +1470,8 @@ public partial class PackageCommand
                     selectedPaths,
                     tool.ToolSelection.SelectedTargetFramework,
                     TfmSelector.PackageLibraryResolutionStatus.Selected,
-                    selectedPaths),
+                    selectedPaths,
+                    PopulationPath: population.PopulationPath),
                 RuntimeIdentifier: null);
         }
         if (population is
