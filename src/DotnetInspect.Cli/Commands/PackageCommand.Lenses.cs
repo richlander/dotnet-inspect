@@ -136,6 +136,16 @@ public partial class PackageCommand
         }
     }
 
+    private static PackageHouseAssetSelectionKind
+        PackageInfoAssetSelection(
+            InspectionOptions options,
+            PackageHouseTargetContext? targetContext) =>
+        targetContext is not null
+        && (options.AllLibraries
+            || options.PackageLibrary is not null)
+            ? PackageHouseAssetSelectionKind.LibraryPopulation
+            : PackageHouseAssetSelectionKind.Compile;
+
     private static bool RequestsPackageInfoMeasurements(
         InspectionOptions options,
         SectionPipeline<InspectionResult> pipeline)

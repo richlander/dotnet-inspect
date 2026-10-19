@@ -13,6 +13,13 @@ public class ApiDiffAnalyzerTests
         return surface;
     }
 
+    private static ApiSurface ApiAxisSurface(params ApiType[] types)
+    {
+        ApiSurface surface = Surface(types);
+        surface.ExtractionScope = ApiSurfaceExtractionScope.ApiAxis;
+        return surface;
+    }
+
     private static ApiType Type(
         string name,
         string kind = "class",
@@ -687,6 +694,64 @@ public class ApiDiffAnalyzerTests
         var change = Assert.Single(diff.TypeDiffs).Changes
             .Single(c => c.Kind == ChangeKind.VirtualRemoved);
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
+    }
+
+    [Theory]
+    [InlineData(null, "protected", ChangeClassification.Breaking)]
+    [InlineData("protected internal", "protected", ChangeClassification.Breaking)]
+    [InlineData("protected", null, ChangeClassification.Additive)]
+    public void MemberAccessibilityChange_WithinTheApiAxis_IsClassifiedByDirection(
+        string? oldAccessibility,
+        string? newAccessibility,
+        ChangeClassification classification)
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        oldMember.Accessibility = oldAccessibility;
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = newAccessibility;
+
+        var diff = ApiDiffAnalyzer.Compare(
+            ApiAxisSurface(Type("Foo", members: [oldMember])),
+            ApiAxisSurface(Type("Foo", members: [newMember])));
+
+        var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
+        Assert.Equal(ChangeKind.MemberAccessibilityChanged, change.Kind);
+        Assert.Equal(classification, change.Classification);
+    }
+
+    [Fact]
+    public void MemberAccessibilityChange_LeavingTheApiAxis_IsNotAnAccessibilityChange()
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        oldMember.Accessibility = "protected";
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = "internal";
+
+        var diff = ApiDiffAnalyzer.Compare(
+            ApiAxisSurface(Type("Foo", members: [oldMember])),
+            ApiAxisSurface(Type("Foo", members: [newMember])));
+
+        Assert.Empty(diff.TypeDiffs);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    [InlineData(ApiSurfaceExtractionScope.PublicWithNonPublicTypes)]
+    public void MemberAccessibilityChange_OutsideApiAxisSurfaces_IsNotCompared(
+        ApiSurfaceExtractionScope? scope)
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = "protected";
+        ApiSurface oldSurface = Surface(Type("Foo", members: [oldMember]));
+        ApiSurface newSurface = ApiAxisSurface(Type("Foo", members: [newMember]));
+        oldSurface.ExtractionScope = scope;
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
+
+        Assert.Empty(diff.TypeDiffs);
     }
 
     [Fact]

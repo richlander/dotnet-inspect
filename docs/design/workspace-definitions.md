@@ -962,6 +962,47 @@ work from #7542 before changing those owners. The older root-level replay
 proposal #4647 remains historical context; #7555 supersedes only its
 Type-command portion and adds no root `-W` surface or serialized CLI grammar.
 
+#### Member packet-context adoption
+
+[#10184](https://github.com/richlander/dotnet-inspect/issues/10184) adopts
+`member <Type> -m <Member> --workspace <packet>`. Complete Restoration admits
+the complete packet, and the shared selected-context exact-Type operation
+resolves the ordinary Type selector. Navigation focus never selects the search
+scope. Member selection, overload resolution, sections, output and failures
+remain owned by Member. The packet is the sole location source; Package,
+Library, Platform, project, framework and range source selectors conflict.
+
+Share is independent of Workspace input. Ordinary, Workspace-only, Share-only
+and combined invocations all execute the ordinary Member inspection once.
+Appending Share preserves stdout and writes the scalar as the final stderr
+line. An unsupported facet or an unqualified overload group preserves ordinary
+content and refuses Share visibly. A derived scenario preserves the complete
+input environment and uses the selected occurrence's Library, structured Type
+and Member anchor; it does not add a Package or choose an inventory ordinal.
+
+The motivating asset is `System.Text.Json@10.0.0/net10.0` from nuget.org.
+`JsonSerializer` has an overloaded `Serialize` group: `Serialize:1` establishes
+an exact portable anchor, whereas unqualified `Serialize` must retain its
+ordinary multirow output and refuse Share. Durable CLI gates cover those
+neighbors, selected context versus focus, repeated Packages across contexts,
+missing Type/Member, ambiguity, packet validation and unsupported choices.
+`ExactMemberPreservesContentAndCompleteEnvironment` reopens the derived
+schema-4/5 Member through Complete Restoration. The recorded
+[`input`](../examples/workspace-member-context.json) and
+[`derived packet`](../examples/workspace-member-derived.json) use explicit
+schema 4, because schema-3 authoring has no Member subject representation.
+`MemberDerivedPacket_IsCanonicalForTheBrowserCodec` gates Browser codec
+compatibility; the Browser retained-root entry owner currently admits only
+Workspace/Package views, so deep Member activation through that owner is not
+claimed here.
+
+```console
+packet=$(dotnet-inspect workspace packet encode \
+  docs/examples/workspace-member-context.json)
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
+  --workspace "$packet" --json --share packet
+```
+
 #### Package packet-context adoption
 
 The #10211 add-and-activate route composes declaration editing with the #7765
@@ -4249,18 +4290,24 @@ Definition records and product demos (this slice):
   is mandatory; a lone matching overload does not imply portable intent.
   Platform, project, local package, private-feed, tools-only or otherwise
   non-compile package content, non-public, ambiguous assembly-qualified type,
-  section, analysis, source, caller-scope, and other output modes fail visibly
-  before packet emission. The projection runs after exact overload resolution
-  and before documentation, PDB, source, decompiler, or analysis enrichment.
+  section, analysis, source and caller-scope choices refuse Share visibly.
+  Ordinary content is preserved; successful Share is the final stderr line.
+  Presentation modes such as JSON do not change the portable recipe.
+  #10184 adds selected-context Workspace input and complete-environment derived
+  Member scenarios through the same inspection. The projection runs after
+  exact overload resolution and before documentation, PDB, source, decompiler,
+  or analysis enrichment.
   `MemberShare_PacketProjectsExactPackageMember`,
   `MemberShare_UrlWrapsCanonicalPacket`,
   `MemberShare_NeighboringOverloadsHaveDistinctAnchors`,
   `MemberShare_UsesBrowserCompileAssetsInsteadOfRuntimeCopies`,
   `MemberShare_RejectsToolsOnlyPackageSurface`,
-  `MemberShare_RequiresExactMemberBeforeAcquisition`,
+  `MemberShare_GroupRefusalPreservesOrdinaryOutput`,
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
-  `MemberShare_RejectsConflictingModes` gate the production boundary;
+  `MemberShare_UnsupportedChoicesRefuseAfterContent`,
+  `MemberShare_PresentationPreservesPacket`, and `MemberWorkspaceRouteTests`
+  gate the production boundary;
 - the package `dependencies` compatibility token lowers to
   `package.dependencies`; the packet carries the exact package coordinate
   and framework but no graph results, dependency-group indexes, or Browser

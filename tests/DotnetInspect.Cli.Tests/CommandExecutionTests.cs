@@ -1109,15 +1109,14 @@ public partial class CommandExecutionTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
-        string? tfm = null;
+        string tfm = $"net{Environment.Version.Major}.0";
 
         foreach (var assemblyName in assemblyNames)
         {
             var (path, _, _, error) = PlatformResolver.ResolveAssembly(assemblyName);
             Assert.True(error == null && path != null, $"Could not resolve platform assembly '{assemblyName}': {error}");
 
-            tfm ??= Path.GetFileName(Path.GetDirectoryName(path!));
-            var targetDir = Path.Combine(packageRoot, "ref", tfm!);
+            var targetDir = Path.Combine(packageRoot, "ref", tfm);
             Directory.CreateDirectory(targetDir);
             File.Copy(path!, Path.Combine(targetDir, Path.GetFileName(path!)));
         }
@@ -1564,6 +1563,86 @@ public partial class CommandExecutionTests
             File.Copy(
                 systemRuntime,
                 Path.Combine(frameworkDir, "Preferred.dll"));
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalRuntimeOnlyPackage(
+            bool includeSecondRuntimeIdentifier = false)
+    {
+        string packageId =
+            typeof(CommandExecutionTests).Assembly.GetName().Name!;
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string runtimeDir = Path.Combine(
+            packageRoot,
+            "runtimes",
+            "linux-x64",
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(runtimeDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(runtimeDir, "Unexpected.FileName.dll"));
+        var (systemRuntime, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        if (resolveError is not null || systemRuntime is null)
+        {
+            throw new InvalidOperationException(
+                resolveError ?? "System.Runtime was not resolved.");
+        }
+
+        File.Copy(
+            systemRuntime,
+            Path.Combine(runtimeDir, "Neighbor.dll"));
+        string analyzerDir = Path.Combine(
+            packageRoot,
+            "analyzers",
+            "dotnet",
+            "cs");
+        Directory.CreateDirectory(analyzerDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(analyzerDir, "Analyzer.dll"));
+        string buildDir = Path.Combine(
+            packageRoot,
+            "build",
+            "net10.0");
+        Directory.CreateDirectory(buildDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(buildDir, "BuildTask.dll"));
+        string nativeDir = Path.Combine(
+            packageRoot,
+            "runtimes",
+            "linux-x64",
+            "native");
+        Directory.CreateDirectory(nativeDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(nativeDir, "Native.dll"));
+        if (includeSecondRuntimeIdentifier)
+        {
+            string secondRuntimeDir = Path.Combine(
+                packageRoot,
+                "runtimes",
+                "win-x64",
+                "lib",
+                "net10.0");
+            Directory.CreateDirectory(secondRuntimeDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(
+                    secondRuntimeDir,
+                    "Unexpected.FileName.dll"));
         }
 
         string packagePath = Path.Combine(

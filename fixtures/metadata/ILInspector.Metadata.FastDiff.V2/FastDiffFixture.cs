@@ -2,6 +2,7 @@
 // expected API and Body states are asserted by FastDiffTests.
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -149,4 +150,79 @@ public class NullableOuter
 
 public class Added
 {
+}
+
+// A hidden public Member is on the API axis, marked hidden.
+public class HiddenMemberChanged
+{
+    public int Value(int x) => x;
+
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public int Hidden(int after) => after;
+}
+
+// A hidden public Type is on the API axis, marked hidden.
+[EditorBrowsable(EditorBrowsableState.Never)]
+public class HiddenTypeChanged
+{
+    public int Value(int after) => after;
+}
+
+// A protected Member is on the API axis.
+public class ProtectedMemberChanged
+{
+    protected int Value(int after) => after;
+}
+
+// A private protected Member is not on the API axis.
+public class PrivateProtectedMemberAdded
+{
+    public int Value(int x) => x;
+
+    private protected int Added() => 0;
+}
+
+// Accessibility changes within the API axis.
+public class PublicToProtected
+{
+    protected int Value(int x) => x;
+}
+
+public class PublicToProtectedInternal
+{
+    protected internal int Value(int x) => x;
+}
+
+public class ProtectedInternalToProtected
+{
+    protected int Value(int x) => x;
+}
+
+public class ProtectedToProtectedInternal
+{
+    protected internal int Value(int x) => x;
+}
+
+public class ProtectedInternalToPublic
+{
+    public int Value(int x) => x;
+}
+
+public class SetterToProtected
+{
+    public int Value { get; protected set; }
+}
+
+public class NestedPublicToProtected
+{
+    protected class Nested
+    {
+    }
+}
+
+public class NestedProtectedToPublic
+{
+    public class Nested
+    {
+    }
 }

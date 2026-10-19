@@ -405,17 +405,49 @@ Those typed paths plus exact positive project and compiled-assembly ceilings
 own product semantics, so the Analysis facade retains only runtime platform
 hazards that dependency layering cannot distinguish.
 
-### Source facade: 9 exports
+### Source facade: 21 exports
 
+Managed cancellation:
+
+- `CancelMemberBodyDiff`
+- `CancelMemberSourceComparison`
 - `CancelMethodBodyComparison`
 - `CancelSourceQuery`
+- `CancelTypeExplorerQuery`
 - `CancelTypeSourceQuery`
-- `QueryMethodBodyComparison`
-- `QueryMethodBodyComparisonTargets`
-- `QueryMemberAnnotatedSource`
+
+Member and Type Source:
+
 - `QueryMemberSource`
+- `QueryPlatformMemberSource`
+- `QueryPlatformTypeSource`
 - `QueryTypeMemberSource`
 - `QueryTypeSource`
+
+Type Explorer:
+
+- `QueryTypeExplorer`
+
+Annotated Source and Finding census:
+
+- `QueryMemberAnnotatedSource`
+- `QueryMemberFindingCensus`
+- `QueryPlatformMemberFindingCensus`
+
+Source comparison:
+
+- `QueryMemberSourceComparison`
+
+Method-body comparison:
+
+- `QueryMethodBodyComparison`
+- `QueryMethodBodyComparisonTargets`
+- `QueryRetainedMethodBodyComparison`
+- `QueryRetainedMethodBodyComparisonTargets`
+
+Member Body Diff:
+
+- `QueryMemberBodyDiff`
 
 The source cancellation coordinator remains shared consumer infrastructure, but
 its public cancellation operations belong beside the work they cancel.
@@ -445,6 +477,25 @@ does not construct, inspect, or reference
 Metadata, Decompiler, and ILDiff similarly project failure mechanism names at
 their owning boundaries, so Source diagnostics do not inspect the primitive
 Metadata failure enum.
+Web Core owns package, Platform, retained-workspace, exact Member and Type
+resolution, cancellation coordination, and operation lifetime. Queries and
+Sections own member and Type Source, exact documents, and source-pair
+inspection; Services and SourceHouse own PDB/authored-source acquisition;
+CSharp and Decompiler own structured and annotated source; Research Queries
+and Sections own method-body comparison, Finding census, and Member Body Diff
+results; Presentation and Markout own portable diff lowering.
+The facade retains Browser wire projection, managed cancellation, bounded
+worker admission and retained Member Body inventory, and the Type Explorer's
+Browser-specific structural projection. It does not open raw images or
+sessions, invoke SourceLink or low-level source/decompiler producers, compare
+source text, or reconstruct primitive member and MethodDef identities.
+Those typed paths plus the exact positive project and compiled-assembly
+ceilings own product semantics. The Source facade therefore retains the three
+focused projected-identity and failure-value bans in
+`BannedSymbols.Source.txt`, plus only the runtime platform hazards that
+dependency layering cannot distinguish. The DEBUG-only
+`QueryTypeSourceEvidence` diagnostic export is not part of the production
+facade inventory.
 
 ### Call-graph facade: 2 exports
 

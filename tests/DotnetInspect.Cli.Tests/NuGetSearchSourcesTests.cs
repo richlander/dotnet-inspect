@@ -1253,6 +1253,57 @@ public class NuGetSearchSourcesTests
     }
 
     [Fact]
+    public async Task SearchByPrefixPagesAsync_AppliesPackageSourceMapping()
+    {
+        const string indexA = "https://a.example/v3/index.json";
+        const string indexB = "https://b.example/v3/index.json";
+        const string searchA = "https://a.example/v3/query";
+        const string searchB = "https://b.example/v3/query";
+        const string results = """
+            {"data":[
+                {"id":"Contoso.A.Package","version":"1.0.0"},
+                {"id":"Contoso.B.Package","version":"1.0.0"},
+                {"id":"Contoso.Unmapped.Package","version":"1.0.0"}
+            ]}
+            """;
+        using var config = new TempNuGetConfig(
+            [("a", indexA), ("b", indexB)],
+            mappings:
+            [
+                ("a", "Contoso.A.*"),
+                ("b", "Contoso.B.*"),
+            ]);
+        var handler = new RouteHandler
+        {
+            [indexA] = $$"""{"resources":[{"@id":"{{searchA}}","@type":"SearchQueryService"}]}""",
+            [indexB] = $$"""{"resources":[{"@id":"{{searchB}}","@type":"SearchQueryService"}]}""",
+            [searchA] = results,
+            [searchB] = results,
+        };
+        using var client = new HttpClient(handler);
+        var pages = new List<NuGetPrefixSearchPage>();
+
+        await foreach (NuGetPrefixSearchPage page in
+            NuGetSearchService.SearchByPrefixPagesAsync(
+                client,
+                "Contoso.",
+                sourceOptions: new NuGetSourceOptions
+                {
+                    ConfigFile = config.Path,
+                },
+                cancellationToken: TestContext.Current.CancellationToken))
+        {
+            pages.Add(page);
+        }
+
+        Assert.DoesNotContain(pages, page => page.Failure is not null);
+        Assert.Equal(
+            ["Contoso.A.Package", "Contoso.B.Package"],
+            pages.SelectMany(page => page.Results)
+                .Select(result => result.PackageId));
+    }
+
+    [Fact]
     public async Task SearchAsync_ConflictingEligibleAliasCredentialsFail()
     {
         const string index = "https://feed.example/v3/index.json";

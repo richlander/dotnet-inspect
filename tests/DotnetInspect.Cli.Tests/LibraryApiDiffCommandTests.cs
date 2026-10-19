@@ -121,6 +121,33 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(JsonValueKind.Array, document.RootElement.GetProperty("changes").ValueKind);
     }
 
+    [Fact]
+    public async Task IncludeAll_DoesNotReportAccessibilityChanges()
+    {
+        // Accessibility comparison belongs to the API axis surface
+        // (docs/design/api-population-scope.md); --all keeps its base output.
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            ["diff", "--library", $"{pair.OldAssemblyPath()}..{pair.NewAssemblyPath()}", "--all", "--json"]);
+        var (exitCode, output, error) = await ConsoleCapture.RunAsync(async () =>
+            await CommandLineBuilder.CreateRootCommand().Parse(args).InvokeAsync());
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        // JSON carries change kinds as numbers; accessibility rows are
+        // recognizable by their message.
+        Assert.DoesNotContain("accessibility narrowed", output);
+        Assert.DoesNotContain("accessibility widened", output);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement
+            .GetProperty("document")
+            .GetProperty("summary");
+        // The counts the comparer produced before accessibility comparison existed.
+        Assert.Equal(15, summary.GetProperty("breakingCount").GetInt32());
+        Assert.Equal(15, summary.GetProperty("additiveCount").GetInt32());
+        Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
+    }
+
     static Task<(int ExitCode, string Output, string Error)> Run(params string[] options)
     {
         string before = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();

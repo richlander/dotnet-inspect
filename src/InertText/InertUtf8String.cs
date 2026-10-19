@@ -42,6 +42,10 @@ public readonly struct InertUtf8String : IEquatable<InertUtf8String>
     public TextConcern Concerns { get; }
 
     /// <summary>Whether producing this value dropped content to fit a budget.</summary>
+    /// <remarks>
+    /// No operation bounds a UTF-8 value yet, so this is false until a byte budget arrives; it
+    /// already participates in equality and the <see cref="InertString"/> projection.
+    /// </remarks>
     public bool IsTruncated { get; }
 
     /// <summary>Whether the contained value has no bytes.</summary>
@@ -59,13 +63,8 @@ public readonly struct InertUtf8String : IEquatable<InertUtf8String>
     /// <summary>Writes the contained UTF-8 spelling directly to destination-owned storage.</summary>
     public void WriteTo(IBufferWriter<byte> destination)
     {
-        ArgumentNullException.ThrowIfNull(destination);
-        if (_text.IsEmpty)
-            return;
-
-        Span<byte> output = destination.GetSpan(_text.Length);
-        _text.Bytes.CopyTo(output);
-        destination.Advance(_text.Length);
+        // The bytes are already contained, so this is the exact transfer.
+        OpaqueByteRangeEncoder.Encode(_text, destination);
     }
 
     /// <summary>Projects the same contained spelling and evidence to the UTF-16 currency.</summary>
@@ -80,10 +79,13 @@ public readonly struct InertUtf8String : IEquatable<InertUtf8String>
     public override string ToString() => ToInertString().ToString();
 
     /// <inheritdoc />
+    /// <remarks>
+    /// Matches <see cref="InertString.Equals(InertString)"/>: the contained bytes and
+    /// <see cref="IsTruncated"/> participate, and <see cref="Forms"/> and <see cref="Concerns"/>
+    /// do not, because the encoder emits one canonical spelling and both are a function of it.
+    /// </remarks>
     public bool Equals(InertUtf8String other) =>
         _text.Equals(other._text)
-        && Forms == other.Forms
-        && Concerns == other.Concerns
         && IsTruncated == other.IsTruncated;
 
     /// <inheritdoc />
@@ -92,15 +94,15 @@ public readonly struct InertUtf8String : IEquatable<InertUtf8String>
 
     /// <inheritdoc />
     public override int GetHashCode() =>
-        HashCode.Combine(_text, Forms, Concerns, IsTruncated);
+        HashCode.Combine(_text, IsTruncated);
 
-    /// <summary>Tests contained UTF-8 and evidence equality.</summary>
+    /// <summary>Tests contained UTF-8 and truncation equality.</summary>
     public static bool operator ==(
         InertUtf8String left,
         InertUtf8String right) =>
         left.Equals(right);
 
-    /// <summary>Tests contained UTF-8 or evidence inequality.</summary>
+    /// <summary>Tests contained UTF-8 or truncation inequality.</summary>
     public static bool operator !=(
         InertUtf8String left,
         InertUtf8String right) =>

@@ -191,7 +191,13 @@ The checked-in rules provide full gate coverage for these dependency claims:
     retired direct `ILInspector.SourceLink` dependency. Metadata, Decompiler,
     Queries, and Research project logical-member and physical-MethodDef values
     before the facade boundary, so the assembly rule also rejects the retired
-    `ILInspector.MetadataPrimitives` dependency.
+    `ILInspector.MetadataPrimitives` dependency. Owner-issued Queries, Sections,
+    Services, SourceHouse, CSharp, Decompiler, Research, Presentation, and
+    Markout operations supply member and Type Source, Type Explorer documents,
+    source and method-body comparisons, Finding census, and Member Body Diff
+    results. Those typed paths and the exact positive ceilings own product
+    semantics. The facade retains only its three focused projected-identity and
+    failure-value compiler bans plus runtime platform hazards.
 14. Inspect Web Core cannot expand beyond its current fifteen evaluated project
     edges or its current twenty-seven repository and external assembly edges.
     Core composes Browser acquisition, workspace lifetime, cancellation,

@@ -432,7 +432,7 @@
     },
     {
       "id": "inspect-web-source-facade-project-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-9-exports; composition tracker #8779",
+      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-21-exports; composition tracker #8779",
       "graphs": [
         "project"
       ],
@@ -460,7 +460,7 @@
     },
     {
       "id": "inspect-web-source-facade-assembly-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-9-exports; composition tracker #8779",
+      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-21-exports; composition tracker #8779",
       "graphs": [
         "assembly"
       ],

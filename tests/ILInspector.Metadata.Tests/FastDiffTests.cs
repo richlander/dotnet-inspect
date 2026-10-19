@@ -35,6 +35,20 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.InternalBodyOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.Added", FastDiffState.Changed, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.Removed", FastDiffState.Changed, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.HiddenMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.HiddenTypeChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.ProtectedMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.PrivateProtectedMemberAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.PublicToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.PublicToProtectedInternal", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.ProtectedInternalToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.ProtectedToProtectedInternal", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.ProtectedInternalToPublic", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.SetterToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.NestedPublicToProtected", FastDiffState.Unchanged, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.NestedPublicToProtected.Nested", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.NestedProtectedToPublic", FastDiffState.Unchanged, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.NestedProtectedToPublic.Nested", FastDiffState.Changed, FastDiffState.Unchanged)]
     public void TypeStates_SeparateApiAndBodyChanges(
         string fullName,
         FastDiffState api,
@@ -77,8 +91,8 @@ public sealed class FastDiffTests
     public void ApiUnchanged_IsSoundAgainstTheCompletePublicApiComparison(string pairName)
     {
         FixturePair pair = PairOf(pairName);
-        ApiSurface before = Surface(pair.OldAssemblyPath());
-        ApiSurface after = Surface(pair.NewAssemblyPath());
+        ApiSurface before = Surface(pair.OldAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
+        ApiSurface after = Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
         ApiFindingComparison comparison =
             MetadataFindings.CompareApi(
                 before, after, Subject, new ApiDiffOptions(ApiDiffScope.All));
@@ -95,7 +109,25 @@ public sealed class FastDiffTests
                 state is { Api: not FastDiffState.Unchanged },
                 $"{typeName} changes in the complete API comparison but Fast Diff reports {state?.Api}.");
         });
+        Assert.All(
+            result.Types.Where(type => type.Api == FastDiffState.Changed
+                && !KnownApiOverReports.Contains((pairName, type.FullName))),
+            type => Assert.True(
+                changed.Contains(type.FullName),
+                $"Fast Diff reports {type.FullName} API Changed but the complete API comparison does not."));
     }
+
+    /// <summary>
+    /// Types Fast Diff reports API <c>Changed</c> that the complete API axis comparison
+    /// does not, each a known pre-existing divergence filed for follow-up rather than an
+    /// accepted difference.
+    /// </summary>
+    static readonly HashSet<(string Pair, string Type)> KnownApiOverReports =
+    [
+        // A non-enum constant's value: Fast Diff compares the Constant row, while the
+        // complete comparison does not compare ApiMember.ConstantValueLiteral.
+        ("fast-diff", "FastDiffFixture.ConstantValue"),
+    ];
 
     [Theory]
     [InlineData("fast-diff")]
@@ -173,11 +205,207 @@ public sealed class FastDiffTests
         _ => FixtureCatalog.LibraryApiDiffPair,
     };
 
-    static ApiSurface Surface(string path)
+    static ApiSurface Surface(string path, ApiSurfaceExtractionScope scope)
     {
         using var stream = File.OpenRead(path);
         using var reader = new PEReader(stream);
-        return ApiSurfaceExtractor.Extract(reader, ApiSurfaceExtractionScope.Public);
+        return ApiSurfaceExtractor.Extract(reader, scope);
+    }
+
+    static ApiFindingComparison CompareFastDiffPair(ApiSurfaceExtractionScope scope)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        return MetadataFindings.CompareApi(
+            Surface(pair.OldAssemblyPath(), scope),
+            Surface(pair.NewAssemblyPath(), scope),
+            Subject,
+            new ApiDiffOptions(ApiDiffScope.All));
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.HiddenMemberChanged")]
+    [InlineData("FastDiffFixture.HiddenTypeChanged")]
+    [InlineData("FastDiffFixture.ProtectedMemberChanged")]
+    public void ApiAxis_ComparesHiddenAndProtectedMembers(string typeName)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        Assert.Contains(typeName, ChangedTypes(comparison));
+        Assert.Equal(
+            FastDiffState.Changed,
+            Assert.Single(Compare(FixtureCatalog.MetadataFastDiffPair).Types, type => type.FullName == typeName).Api);
+    }
+
+    [Fact]
+    public void ApiAxis_MarksAHiddenMemberHidden()
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FastDiffFixture.HiddenMemberChanged");
+        Assert.NotEmpty(type.Changes);
+        Assert.All(type.Changes, change =>
+        {
+            ApiMember member = (change.Subject?.NewMember ?? change.Subject?.OldMember)!.Member;
+            Assert.Equal("Hidden", member.Name);
+            Assert.True(member.IsHidden);
+        });
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.HiddenMemberChanged")]
+    [InlineData("FastDiffFixture.HiddenTypeChanged")]
+    [InlineData("FastDiffFixture.ProtectedMemberChanged")]
+    public void OrdinaryPresentation_OmitsHiddenAndProtectedMembers(string typeName)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+
+        Assert.DoesNotContain(typeName, ChangedTypes(comparison));
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.PublicToProtected", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FastDiffFixture.PublicToProtectedInternal", "public", "protected internal", ChangeClassification.Breaking)]
+    [InlineData("FastDiffFixture.ProtectedInternalToProtected", "protected internal", "protected", ChangeClassification.Breaking)]
+    [InlineData("FastDiffFixture.ProtectedToProtectedInternal", "protected", "protected internal", ChangeClassification.Additive)]
+    [InlineData("FastDiffFixture.ProtectedInternalToPublic", "protected internal", "public", ChangeClassification.Additive)]
+    public void ApiAxis_ReportsMemberAccessibilityChanges(
+        string typeName,
+        string oldAccessibility,
+        string newAccessibility,
+        ChangeClassification classification)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberAccessibilityChanged, change.Kind);
+        Assert.Equal(classification, change.Classification);
+        Assert.Equal(oldAccessibility, change.OldValue);
+        Assert.Equal(newAccessibility, change.NewValue);
+        Assert.Equal("Value", change.Subject?.NewMember?.Member.Name);
+        Assert.Equal(
+            FastDiffState.Changed,
+            Assert.Single(Compare(FixtureCatalog.MetadataFastDiffPair).Types, state => state.FullName == typeName).Api);
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.NestedPublicToProtected.Nested", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FastDiffFixture.NestedProtectedToPublic.Nested", "protected", "public", ChangeClassification.Additive)]
+    public void ApiAxis_ReportsNestedTypeAccessibilityChanges(
+        string typeName,
+        string oldAccessibility,
+        string newAccessibility,
+        ChangeClassification classification)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.TypeAccessibilityChanged, change.Kind);
+        Assert.Equal(classification, change.Classification);
+        Assert.Equal(oldAccessibility, change.OldValue);
+        Assert.Equal(newAccessibility, change.NewValue);
+    }
+
+    [Fact]
+    public void ApiAxis_ReportsAnAccessorAccessibilityChangeAsASignatureChange()
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FastDiffFixture.SetterToProtected");
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal("int Value { get; set; }", change.OldValue);
+        Assert.Equal("int Value { get; protected set; }", change.NewValue);
+    }
+
+    [Fact]
+    public void OrdinaryPresentation_ReportsAnAccessorAccessibilityChangeAsASignatureChange()
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FastDiffFixture.SetterToProtected");
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal("int Value { get; set; }", change.OldValue);
+        Assert.Equal("int Value { get; protected set; }", change.NewValue);
+    }
+
+    [Fact]
+    public void ApiAxis_MarksAHiddenTypeHidden()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        ApiType type = Assert.Single(
+            Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis).Types,
+            type => type.FullName == "FastDiffFixture.HiddenTypeChanged");
+
+        Assert.True(type.IsHidden);
+    }
+
+    [Fact]
+    public void IncludeAll_DoesNotCompareAccessibility()
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.IncludeAll);
+
+        Assert.DoesNotContain(
+            comparison.ApiDiff.TypeDiffs.SelectMany(type => type.Changes),
+            change => change.Kind is ChangeKind.MemberAccessibilityChanged
+                or ChangeKind.TypeAccessibilityChanged);
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.PublicToProtected", ChangeKind.MemberRemoved)]
+    [InlineData("FastDiffFixture.PublicToProtectedInternal", ChangeKind.MemberRemoved)]
+    [InlineData("FastDiffFixture.ProtectedInternalToPublic", ChangeKind.MemberAdded)]
+    [InlineData("FastDiffFixture.NestedPublicToProtected.Nested", ChangeKind.TypeRemoved)]
+    [InlineData("FastDiffFixture.NestedProtectedToPublic.Nested", ChangeKind.TypeAdded)]
+    public void OrdinaryPresentation_ReportsAccessibilityAcrossThePublicBoundaryAsPopulation(
+        string typeName,
+        ChangeKind kind)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        Assert.Equal(kind, Assert.Single(type.Changes).Kind);
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.ProtectedInternalToProtected")]
+    [InlineData("FastDiffFixture.ProtectedToProtectedInternal")]
+    public void OrdinaryPresentation_OmitsProtectedAccessibilityChanges(string typeName)
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+
+        Assert.DoesNotContain(typeName, ChangedTypes(comparison));
+    }
+
+    [Fact]
+    public void ApiAxis_ExcludesPrivateProtectedMembers()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        ApiSurface after = Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
+        ApiType type = Assert.Single(
+            after.Types,
+            type => type.FullName == "FastDiffFixture.PrivateProtectedMemberAdded");
+
+        Assert.DoesNotContain(type.Members, member => member.Name == "Added");
+        Assert.DoesNotContain(
+            "FastDiffFixture.PrivateProtectedMemberAdded",
+            ChangedTypes(CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis)));
     }
 
     [Fact]
