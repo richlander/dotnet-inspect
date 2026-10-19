@@ -822,12 +822,14 @@ subject-specific identity details and content
 ```
 
 Package Overview starts directly with its identity and content rather than
-reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
+reserving a quiet `Overview` header row. The Package navigation pane lists target
+frameworks first, then
 versions in owner-issued release order, with the active version selected,
 text filtering, and an `Include:` group with independent Prerelease and Unlisted
 checkboxes, both unchecked initially. Listing flags come from the existing
 owner-issued version inventory; the host does not infer them from version text.
-Async inventory refresh preserves both checkbox selections. The list headings identify the pane
+Async inventory refresh preserves both checkbox selections. The list headings
+identify the pane
 without an additional Package Navigation row.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
@@ -869,7 +871,8 @@ failed reads show title unavailability while retaining the document action.
 first H1 `Json.NET` (with an inline logo). `System.Text.Json@10.0.0` motivates
 the untitled fallback: its `PACKAGE.md` has no H1.
 Frameworks
-and versions remain in the master pane for both Overview and Compare. The icon and package name identify the subject without an additional
+and versions remain in the master pane for both Overview and Compare. The icon
+and package name identify the subject without an additional
 Package label. Package Compare uses the same full-width frame, content alignment,
 as Overview, starts directly with Comparison targets without repeating
 the package icon or name, and owns that work area; Library,
@@ -1033,7 +1036,8 @@ zero-dependency case.
 
 Package Dependencies has no bottom context row. Loading, query failure,
 no-dependency, no-exact-group, graph failure, and partial-workspace states retain
-the same header, controls, and scroll owner. Failures remain visibly distinct from successful
+the same header, controls, and scroll owner. Failures remain visibly distinct
+from successful
 empty results.
 
 At narrow widths, the `Types` return control shares the quiet header, controls
@@ -1046,7 +1050,8 @@ Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 Package Vulnerabilities is available for exact nuget.org package coordinates.
 It uses the complete package inspector area with the Package Overview
-Frameworks & versions navigation pane; version changes update the package coordinate, but
+Frameworks & versions navigation pane; version changes update the package
+coordinate, but
 framework selection does not alter vulnerability identity.
 
 ```text
@@ -1115,6 +1120,30 @@ carries both the exact package identity and Library identifier; selecting it
 switches to that package and opens the Library Overview. An absent or ambiguous
 match remains static, and References never guesses a package from an assembly
 display name.
+
+For a uniquely matched Workspace Library, References may show the owning
+ordinary package's icon beside the AssemblyRef row. It uses the admitted
+Library-to-package provenance established by that exact identity match, then
+the package's retained icon or the default icon for a known package source.
+For nuget.org coordinates, the existing exact-coordinate icon query may
+replace the default. Framework/runtime Libraries, absent matches, and ambiguous
+matches have no package icon. A local artifact
+without retained package-icon evidence also remains plain. Icon loading is
+bounded and cannot change the direct AssemblyRef answer or a newer Library
+view. The graph remains an AssemblyRef diagram; icons annotate rows where
+package ownership is known.
+References does not acquire packages to discover external suppliers.
+
+The motivating real asset is
+[`Microsoft.Extensions.AI.OpenAI@10.11.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI/10.11.0)
+at `net10.0`, opened through the shared Library References URL in
+[#10244](https://github.com/richlander/dotnet-inspect/issues/10244). Its
+AssemblyRef names alone do not establish package ownership. The focused
+renderer gate exercises an admitted exact match and an unmatched reference;
+the production browser gate checks that an admitted package icon appears
+without changing Library navigation. A one-package share may have no
+icon-attributable external rows until the supplying Libraries are admitted to
+the Workspace.
 
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows
@@ -1615,7 +1644,8 @@ navigation band. It never scrolls or obscures the Application menu.
 The bottom data bar is one compact 30 CSS-pixel line with three presentations:
 transient inspection feedback, the active inspector's result summary, and
 default product information, in that order of precedence. Its grid row remains
-allocated in every state; long messages scroll horizontally without wrapping or expansion.
+allocated in every state; long messages scroll horizontally without wrapping or
+expansion.
 
 The data bar has two feedback purposes: useful information for the user and
 genuine assertion-style errors that a dotnet-inspect maintainer should fix.
@@ -1634,7 +1664,8 @@ presentation does not clear retained evidence or automatically retry work.
 
 Home retains default product information. Library Compare's Public API Diff
 is the result-summary pilot. On a successful complete comparison it supplies
-the owner-issued Library display, version endpoints, and totals for changed, added, and removed
+the owner-issued Library display, version endpoints, and totals for changed,
+added, and removed
 Types, changed Members, and breaking, additive, and potentially breaking changes.
 Inspection notices remain named. The completed summary moves from the working
 surface into the persistent bar; comparison targets, row-level evidence, and

@@ -21,9 +21,9 @@ should receive a recommendation.
 Implemented, advancing
 [#5307](https://github.com/richlander/dotnet-inspect/issues/5307).
 This document is the normative owner for relationship certificate issuance and
-role dispositions. The exact claim is that classic async identity remains
-resolvable when `SetStateMachine` alone is absent, with that absence carried
-explicitly rather than converted to rejection. The
+role dispositions. The exact claim is that classic async and async iterator
+identity remain resolvable when `SetStateMachine` alone is absent, with that
+absence carried explicitly rather than converted to rejection. The
 [classic async inverse design](classic-async-reconstruction.md#immediate-boundary)
 is a consumer map; #5277 and #5276 own adapter and inverse implementation.
 The focused [#5730](https://github.com/richlander/dotnet-inspect/issues/5730)
@@ -118,7 +118,7 @@ Role requirements are:
 | Claim kind | Must be `Present` | May be `AbsentFromArtifact` |
 | --- | --- | --- |
 | Classic async | `IAsyncStateMachine.MoveNext` | `IAsyncStateMachine.SetStateMachine` |
-| Async iterator | `IAsyncStateMachine.MoveNext`, `IAsyncStateMachine.SetStateMachine`, `IAsyncEnumerator<T>.MoveNextAsync`, `IAsyncDisposable.DisposeAsync` | None |
+| Async iterator | `IAsyncStateMachine.MoveNext`, `IAsyncEnumerator<T>.MoveNextAsync`, `IAsyncDisposable.DisposeAsync` | `IAsyncStateMachine.SetStateMachine` |
 | Synchronous iterator | `IEnumerator.MoveNext`, `IDisposable.Dispose` | None |
 
 For a present role, an exact matching `MethodImpl` declaration wins. Without
@@ -145,9 +145,11 @@ recognition happens before full role validation:
   role name, before its visibility, flags, signature, or body is accepted.
 
 Existing explicit-over-implicit precedence still determines whether a valid
-role resolves. If no valid role resolves, classic `SetStateMachine` receives
-`AbsentFromArtifact` only when the bounded scan found no candidate in either
-tier. Any candidate that fails full validation instead produces `Rejected`.
+role resolves. If no valid role resolves, classic async or async iterator
+`SetStateMachine` receives `AbsentFromArtifact` only when the bounded scan
+found no candidate in either tier. Both claim kinds use the same
+`IAsyncStateMachine.SetStateMachine` role specification, so the candidate,
+rejection, and budget rules below apply to them identically. Any candidate that fails full validation instead produces `Rejected`.
 That includes an explicit declaration with the right interface and role name
 but a wrong signature, even when its body uses an interface-qualified or
 otherwise non-implicit name.
@@ -159,6 +161,15 @@ This narrow rule records what the inspected artifact contains without treating
 post-link incompleteness as missing identity. Extending
 `AbsentFromArtifact` to another claim kind or role requires its own artifact
 evidence and contract change.
+
+The async iterator extension has that evidence. An ordinary full-trim publish
+(`PublishTrimmed=true`, `TrimMode=full`) of a reachable
+`async IAsyncEnumerable<T>` method removes `IAsyncStateMachine.SetStateMachine`
+from its state machine, with neither a MethodDef nor a `MethodImpl` left
+behind, while the direct `IAsyncStateMachine` declaration and body-bearing
+`MoveNext`, `IAsyncEnumerator<T>.MoveNextAsync`, and
+`IAsyncDisposable.DisposeAsync` implementations remain. No other async iterator
+role and no synchronous iterator role has such evidence.
 
 ## Evidence-carrying certificate
 
@@ -186,7 +197,9 @@ dispositions without repeating Metadata matching.
 
 For classic async, `Present(IAsyncStateMachine.MoveNext)` is the certified
 execution identity. `SetStateMachine` is support-role completeness and does not
-participate in that execution identity.
+participate in that execution identity. For async iterators, `SetStateMachine`
+is likewise support-role completeness; `MoveNext`, `MoveNextAsync`, and
+`DisposeAsync` remain must-be-present.
 
 The certificate does not authenticate body semantics. In particular, it does
 not say that the current bodies are original compiler output, that kickoff IL
@@ -209,7 +222,20 @@ Roles:
   SetStateMachine: AbsentFromArtifact
 ```
 
-The role-preserved artifact produces the same certificate with
+The same artifact's reachable async iterator produces:
+
+```text
+Relationship: Resolved(AsyncIterator)
+Kickoff:      StreamAsync
+StateMachine: <StreamAsync>d__2
+Roles:
+  MoveNext:        Present(<StreamAsync>d__2.MoveNext)
+  SetStateMachine: AbsentFromArtifact
+  MoveNextAsync:   Present(<StreamAsync>d__2.System.Collections.Generic.IAsyncEnumerator<System.Int32>.MoveNextAsync)
+  DisposeAsync:    Present(<StreamAsync>d__2.System.IAsyncDisposable.DisposeAsync)
+```
+
+The role-preserved artifact produces the same certificates with
 `SetStateMachine: Present(...)`. The SDK reference artifact also resolves with
 both roles present; its synthesized `ldnull; throw` bodies are outside this
 Metadata certificate and remain a Decompiler decline. The unused trimmed
@@ -240,10 +266,32 @@ Release gates enforce the certificate:
   `ClassicAsyncArtifactMatrixTests.ReferenceArtifact_AuthenticatesRelationshipsOverBodyReplacingIl`
   require both roles to remain `Present` in the role-preserved and SDK
   reference artifacts.
+- `ClassicAsyncArtifactMatrixTests.TrimmedAsyncIteratorWithoutRolePreservation_AuthenticatesAbsentSupport`
+  establishes the same direct declaration and the absence of explicit and
+  implicit `SetStateMachine` candidates for the ordinary full-trim async
+  iterator, then requires `Resolved(AsyncIterator)` with
+  `SetStateMachine: AbsentFromArtifact` and body-bearing `MoveNext`,
+  `MoveNextAsync`, and `DisposeAsync` on the state-machine type.
+  `ClassicAsyncArtifactMatrixTests.UntrimmedAndRolePreservedAsyncIterator_AuthenticateEveryRole`
+  requires all four roles to remain `Present` in the untrimmed and
+  role-preserved artifacts.
 - `StateMachineRelationshipIndex_ResolvesClassicAsyncWithAbsentSupportRole`
   requires one closed disposition for each classic role, retains
   implementation lookup for `MoveNext`, and exposes no support MethodDef
   through `TryGetMethod`.
+  `StateMachineRelationshipIndex_ResolvesAsyncIteratorWithAbsentSupportRole`
+  requires the same for the four async iterator roles, with an all-present
+  control built from the same image.
+- `StateMachineRelationshipIndex_RejectsInvalidAsyncIteratorSupportRole`
+  prevents bodyless, wrong-signature, malformed-interface, or ambiguous async
+  iterator `SetStateMachine` candidates from becoming absence, and
+  `StateMachineRelationshipIndex_ExhaustedBudgetNeverCertifiesAsyncIteratorAbsence`
+  requires every budget below the one that resolves the absent-role image to
+  reject as `BudgetExceeded`.
+- `StateMachineRelationship_AdmitsOnlyContractedAbsentRoles` requires the
+  trusted constructor to accept `AbsentFromArtifact` for exactly the two
+  `SetStateMachine` roles in the role table and to reject it for every other
+  classic async, async iterator, and synchronous iterator role.
 - `StateMachineRelationshipIndex_RejectsInvalidImplementationShapes` requires
   invalid or missing `MoveNext` to reject and prevents malformed, bodyless,
   ambiguous, or contradictory `SetStateMachine` candidates from becoming
@@ -267,7 +315,8 @@ The certificate does not:
 - authenticate classic async when the trusted claim, unique same-module type,
   direct `IAsyncStateMachine` declaration, kickoff body, or execution
   `MoveNext` is unavailable;
-- admit an absent role for async iterators or synchronous iterators;
+- admit an absent role for synchronous iterators, or an absent async iterator
+  role other than `SetStateMachine`;
 - establish kickoff-body correlation, reconstruction eligibility, source
   fidelity, or behavioral equivalence; or
 - acquire a pre-transform assembly or infer a replacement identity from names,
@@ -525,7 +574,8 @@ distinction from keyed-result shape; it must inspect the outer `Relationships`
 result.
 
 Trimming is explicitly **not** evidence for this invariant. An admitted absent
-classic support role now produces a resolved relationship. A trimmed artifact
+classic async or async iterator `SetStateMachine` support role now produces a
+resolved relationship. A trimmed artifact
 can still lose identity evidence or retain a malformed role candidate,
 producing per-claim refusal rather than whole-module failure. Making that
 refusal total does not change which failure path produced it.
@@ -656,6 +706,18 @@ own all policy above it:
 - **Research and queries** own composition and presentation.
 - **Implementation Diff** owns its populations, correspondence policy, budgets,
   and result shapes.
+
+Current consumers build one index per acquisition and reuse it:
+
+- `PdbContext` caches one for kickoff-keyed state-machine member queries;
+- the Decompiler's `MetadataSource` holds one lazily for classic async
+  correlation; and
+- Analysis's `StateMachineSourceResolver` holds one lazily and takes kickoff,
+  state-machine type, and execution `MoveNext` from it for its assembly-wide
+  forward and reverse paths, adding only its own attribute, runtime-async, and
+  generated-code policy. Its targeted generated-expansion lookup does not
+  consult the index, because an exact Method-source request builds no
+  module-wide index.
 
 The shared index does not require those consumers to accept identical
 populations. It gives each consumer the same authenticated physical facts so

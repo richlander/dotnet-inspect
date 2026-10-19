@@ -83,6 +83,15 @@ public static class RouterCommandDefinition
                 return 0;
             }
 
+            if (PackageReferenceAdmission.IsCandidate(tokens[0]))
+            {
+                string[] referenceRoute = CommandLineBuilder.PreprocessArgs(
+                    [PackageCommand.Name, .. tokens], rootCommand);
+                RouterDecisionLog.Record("exact-package-reference", "package");
+                return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                    rootCommand.Parse(referenceRoute), referenceRoute);
+            }
+
             // The router intentionally captures all options as raw tokens so the rewritten
             // command remains the authority on their semantics. Parse a package-shaped probe
             // with the shared option instances to obtain the caller's NuGet scope without
@@ -1042,7 +1051,8 @@ public static class RouterCommandDefinition
             string target = tokens[0];
             string[] tail = tokens[1..];
             if (ContainsOption(tokens, "--all-libraries")
-                || ContainsOption(tokens, "--namesake-library"))
+                || ContainsOption(tokens, "--namesake-library")
+                || ContainsOption(tokens, "--first-library"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;
@@ -1265,6 +1275,7 @@ public static class RouterCommandDefinition
 
             if (ContainsOption(tokens, "--library")
                 || ContainsOption(tokens, "--namesake-library")
+                || ContainsOption(tokens, "--first-library")
                 || ContainsOption(tokens, "--all-libraries"))
             {
                 rewritten = [PackageCommand.Name, .. tokens];

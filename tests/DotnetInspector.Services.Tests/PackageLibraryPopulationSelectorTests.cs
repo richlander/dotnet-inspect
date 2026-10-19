@@ -1,4 +1,5 @@
 using DotnetInspector.Packages;
+using NuGetFetch;
 
 namespace DotnetInspector.Services.Tests;
 
@@ -118,6 +119,89 @@ public sealed class PackageLibraryPopulationSelectorTests
     }
 
     [Fact]
+    public void DeclaredToolPackageSelectsOneToolLibraryPopulation()
+    {
+        var content = ContentWithBytes(
+            ("example.nuspec", ToolNuspec("Example", "1.0.0")),
+            ("tools/net8.0/any/Older.dll", [1]),
+            ("tools/net10.0/any/Tool.dll", [2]),
+            ("tools/net10.0/any/runtimes/win/lib/net10.0/Companion.dll", [3]),
+            ("tools/net10.0/any/runtimes/win/native/Native.dll", [4]),
+            ("tools/net10.0/any/fr/Tool.resources.dll", [5]));
+
+        var selected =
+            Assert.IsType<PackageLibraryPopulationSelection.Tool>(
+                PackageLibraryPopulationSelector.Evaluate(
+                    content,
+                    "Example",
+                    PackageCompileAssetSelectionPolicy.HighestAvailable,
+                    coordinate:
+                        PackageSourceCoordinate.Create(
+                            "Example",
+                            "1.0.0")));
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(
+            selected.RuntimeReceipt.Selection);
+        Assert.Same(
+            content.GenerationIdentity,
+            selected.ToolEvidence.Generation);
+        Assert.Equal(
+            "net10.0",
+            selected.ToolSelection.SelectedTargetFramework);
+        Assert.Equal(
+            [
+                "tools/net10.0/any/Tool.dll",
+                "tools/net10.0/any/runtimes/win/lib/net10.0/Companion.dll",
+            ],
+            selected.ToolSelection.SelectedEntries);
+    }
+
+    [Fact]
+    public void ToolShapeWithoutDeclarationDoesNotFormALibraryPopulation()
+    {
+        var selected =
+            Assert.IsType<PackageLibraryPopulationSelection.NonSuccess>(
+                PackageLibraryPopulationSelector.Evaluate(
+                    Content(
+                        "tools/net10.0/any/Tool.dll"),
+                    "Example",
+                    PackageCompileAssetSelectionPolicy.HighestAvailable,
+                    coordinate:
+                        PackageSourceCoordinate.Create(
+                            "Example",
+                            "1.0.0")));
+
+        Assert.IsType<PackageAssetSelection.NoMatch>(
+            selected.RuntimeReceipt!.Selection);
+        Assert.Null(selected.ToolEvidence);
+        Assert.Null(selected.ToolSelection);
+        Assert.False(selected.ToolDeclarationUnavailable);
+    }
+
+    [Fact]
+    public void CompilePopulationPrecedesDeclaredToolPopulation()
+    {
+        var selected =
+            Assert.IsType<PackageLibraryPopulationSelection.Compile>(
+                PackageLibraryPopulationSelector.Evaluate(
+                    ContentWithBytes(
+                        ("example.nuspec", ToolNuspec("Example", "1.0.0")),
+                        ("lib/net10.0/Compile.dll", [1]),
+                        ("tools/net10.0/any/Tool.dll", [2])),
+                    "Example",
+                    PackageCompileAssetSelectionPolicy.HighestAvailable,
+                    coordinate:
+                        PackageSourceCoordinate.Create(
+                            "Example",
+                            "1.0.0")));
+
+        Assert.Equal(
+            "lib/net10.0/Compile.dll",
+            Assert.Single(
+                selected.CompileReceipt.Selection.Assets).Path);
+    }
+
+    [Fact]
     public void ExistingCompileReceiptRequiresTheSameContentGeneration()
     {
         var content = Content(
@@ -138,4 +222,28 @@ public sealed class PackageLibraryPopulationSelectorTests
             TestPackageArchive.Create(entries),
             fromCache: true,
             "test-source");
+
+    private static InMemoryPackageContent ContentWithBytes(
+        params (string Path, byte[] Content)[] entries) =>
+        new(
+            TestPackageArchive.CreateWithContent(entries),
+            fromCache: true,
+            "test-source");
+
+    private static byte[] ToolNuspec(
+        string packageId,
+        string version) =>
+        System.Text.Encoding.UTF8.GetBytes(
+            $"""
+            <?xml version="1.0"?>
+            <package>
+              <metadata>
+                <id>{packageId}</id>
+                <version>{version}</version>
+                <packageTypes>
+                  <packageType name="DotnetToolRidPackage" />
+                </packageTypes>
+              </metadata>
+            </package>
+            """);
 }

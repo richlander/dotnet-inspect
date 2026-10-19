@@ -137,8 +137,9 @@ operand hits within one decoded string do not split or duplicate that physical
 occurrence; repeated uses of the same full string at different IL coordinates
 remain separate rows. A match such as `https://` does not extract or split URL
 substrings from a larger literal. Package Query JSON serializes the typed
-`RootRequest` as that same opaque token so `workspace --root-request` can
-consume it without reconstructing owner-private fields.
+`RootRequest` as that same opaque token so the
+[CLI Root source entrance](../cli-architecture.md#exact-package-reference-admission)
+can consume it without reconstructing owner-private fields.
 
 The Document also retains one typed semantic assessment for every candidate
 that entered implementation-role evaluation: `Matched`, `NoMatch`,

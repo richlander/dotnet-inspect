@@ -453,8 +453,16 @@ exception regions from one detached body. Allocations, optimization
 opportunities, and final `MethodSignals` composition remain explicitly on the
 old boundary in this mixed slice. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
-[Unsafe member findings](unsafe-member-findings.md#execution) states. `ILOffsetQuery` follows
-only after an owner can bind its prefetched image without reopening by path.
+[Unsafe member findings](unsafe-member-findings.md#execution) states.
+
+[#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
+same exact producer for safety-only IL-coordinate preparation. Direct CLI and
+host-neutral Library Address execution borrow the already-open prefetched image
+and issue one exact MethodDef request for the deduplicated coordinate methods.
+The resulting source receipt records exact breadth, bounded body acquisition,
+and no module lookup. Allocation, cost, and combined coordinate requests remain
+on `LibraryBodyAnalysisService` because their complete result ownership has
+not moved.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first

@@ -109,6 +109,16 @@ the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
 
+The next drain slice moves safety-only IL-coordinate preparation to
+`ExactMethodAnalysisProducer`. CLI and Library Address borrow their existing
+prefetched metadata context, deduplicate the requested MethodDef tokens, and
+execute one owner-issued exact request. `ILOffsetSafetyAnalysisInput` carries
+the safety evidence, unsafe occurrences, diagnostics, source receipt, and work
+receipt independently of the legacy three-result input. Allocation, cost, and
+combined coordinate requests still use this service: allocation requires
+`LibraryAllocationAnalysisResult`, while cost requires the donor-owned public
+direct-call rows.
+
 The CLI session adoption moved both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
