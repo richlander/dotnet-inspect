@@ -12,57 +12,92 @@ observable behavior in the CLI and Inspect Web.
 **Ecosystem Find Index** owns this exact claim:
 
 > For one Ecosystem package-prefix declaration enumerated and pinned to exact
-> package, Library, and assembly coordinates at generation, one checked-in
-> deterministic artifact records the complete default-public Type and Member
-> source facts consumed by Find semantic evaluation, together with complete
-> population and inspection coverage. The same Find evaluator can therefore
-> answer a normalized Type or Member question from those facts without
-> acquiring a package, opening an assembly, or accessing the network, while
-> retaining exact producer identity, source order, completion, and visible
-> staleness.
+> package, Library, assembly, and symbol coordinates at generation, one
+> checked-in deterministic artifact records the actionable Type and Member
+> symbols admitted by that Ecosystem's Integration scanner, together with
+> their Integration evidence and generation coverage. Existing Find semantic
+> evaluation can search those structured symbols as an early prefix layer
+> without acquiring packages, while the live prefix path remains responsible
+> for every other Find match.
 
 This owner defines:
 
-- the artifact identity, source-fact content, coverage, bounds, schema version,
-  and deterministic serialization;
-- validation and projection of the artifact into detached source facts that
-  Find semantic evaluation can consume;
-- equivalence between indexed facts and live facts over the same pinned
-  coordinates;
-- the performance and size goals for indexed prefix evaluation;
+- the artifact identity, indexed-symbol content, generation coverage, schema
+  version, and deterministic serialization;
+- validation and projection of indexed Integration symbols into detached Type
+  and Member facts that Find semantic evaluation can consume;
+- equivalence between each indexed symbol and the Integration scanner
+  observation over the same pinned coordinate;
+- the performance and size goals for the indexed layer;
 - the generation contract and known-answer controls; and
 - how a consumer observes pinned coordinates and coverage.
 
 It does not define:
 
-- Type or Member Find grammar, matching, classification, limits, or reduction,
-  which remain with
+- which symbols are actionable Integration currency, which remains with
+  [Integrations](integrations.md);
+- Type or Member Find grammar, matching, classification, row limits, or
+  reduction, which remain with
   [Find semantic evaluation](find-semantic-evaluation.md);
-- bounded-before-prefix staging, continuation, membership reduction, candidate
-  bounds, or completion, which remain with
+- bounded-before-prefix staging, index-before-live ordering, candidate limits,
+  cross-layer duplicate suppression, membership reduction, or completion,
+  which remain with
   [Ecosystem Find Search](ecosystem-find-search.md);
 - package-prefix enumeration and version selection;
 - package, target-framework, Library, or assembly selection;
-- Metadata decoding, accessibility, hidden-member, or obsolete-member policy;
-- Ecosystem declarations, lineage, or prefix membership;
+- Metadata decoding and symbol identity issuance;
+- Ecosystem declarations, lineage, prefix membership, or scanner binding;
+- host syntax, presentation, activation, refresh gestures, or network policy;
+  or
 - receiver queries, applicability, constraints, or chain navigation, which
   remain with
-  [Ecosystem Receiver Index](ecosystem-receiver-index.md); or
-- host syntax, presentation, activation, refresh gestures, or network policy.
+  [Ecosystem Receiver Index](ecosystem-receiver-index.md).
 
-The owner is intentionally one artifact boundary. CLI adoption, Inspect Web
-adoption, and any change to the live prefix candidate bound remain focused
-consumer efforts.
+The owner is one selective artifact boundary. It does not claim a complete
+Find population and cannot prove that a nonmatching symbol is absent from the
+Ecosystem prefix.
+
+## User-visible operation
+
+The motivating command remains:
+
+```console
+dotnet-inspect find '.AddRedis' --ecosystem aspire --jsonl
+```
+
+Its serial work is:
+
+1. settle the existing bounded/core Ecosystem layers;
+2. when prefix demand and row capacity remain, search the Aspire Integration
+   symbol index and publish matching rows;
+3. stop if the semantic row window is full or cancellation occurs;
+4. otherwise, when the host authorized live prefix work, continue through the
+   existing package-prefix network phase; and
+5. suppress a live row only when its exact source-backed Type or Member
+   identity was already published from the index.
+
+With no semantic row limit, exhausting the index does **not** complete the
+prefix question. Authorized streaming Find continues to the live network phase.
+An index miss likewise continues immediately. When the host did not authorize
+live prefix work, completion remains explicitly partial and names the unsearched
+live prefix; the index never turns selective coverage into complete-empty.
+
+A package represented in the index is still admitted and inspected by the live
+phase. The Integration scanner deliberately selects useful currency rather
+than every Find symbol, so skipping that package could hide unrelated matching
+Types or members. Exact duplicate rows are suppressed after live evaluation;
+package acquisition, candidate accounting, failures, and coverage remain
+visible.
 
 ## Problem and real assets
 
 The live prefix path established by
 [#9891](https://github.com/richlander/dotnet-inspect/pull/9891) is the
-correctness authority and fallback, but acquisition is too expensive as the
-ordinary experience for a shipped Ecosystem.
+correctness authority and fallback, but its first useful Integration results
+arrive behind package discovery and acquisition.
 
-Exact-head NativeAOT measurements for the bounded live path on
-`dotnet-inspect-perf-3` used fresh caches and returned two Aspire prefix rows:
+Exact-head NativeAOT cold measurements for its bounded live path completed with
+two Aspire prefix rows:
 
 | Measure | Observed live path |
 | --- | ---: |
@@ -72,24 +107,25 @@ Exact-head NativeAOT measurements for the bounded live path on
 | Cached packages | 12 |
 | Rows | 2 |
 
-Those runs did not measure time to first row. They characterize total cold
-completion only. Warm `.AddRedis` population TSV and JSONL completed in 2.47
-and 2.54 seconds at 319 and 318 MiB median RSS. The prior unbounded design
-scanned 501 package versions, used 5.9 GB of cache, and took about 20 seconds
-warm. The live candidate bound removes uncontrolled fan-out; it does not make
-cold acquisition an acceptable indexed-Ecosystem lookup.
+Those runs did not measure time to first row. They show only that completing a
+cold live search is too expensive for the earliest high-value results. Warm
+`.AddRedis` population TSV and JSONL completed in 2.47 and 2.54 seconds at 319
+and 318 MiB median RSS.
 
-The known-answer controls are:
+The Integration owner already identifies the useful symbols the index should
+accelerate: public package-owned actionable Types and curated starter APIs,
+with exact structured Type identities or Member anchors. The known-answer
+controls are:
 
-| Ecosystem | Exact package | Find question | Required member |
-| --- | --- | --- | --- |
-| Aspire | `Aspire.Hosting.Redis@13.6.1` | `.AddRedis` | `AddRedis` |
-| Aspire | `Aspire.Hosting.PostgreSQL@13.6.1` | `.AddPostgres` | `AddPostgres` |
-| Aspire | `Aspire.StackExchange.Redis@13.6.1` | `.AddRedisClient` | `AddRedisClient` |
-| Microsoft.Extensions | `Microsoft.Extensions.Http@10.0.12` | `.AddHttpClient` | `AddHttpClient` |
+| Ecosystem | Exact package | Integration symbol |
+| --- | --- | --- |
+| Aspire | `Aspire.Hosting.Redis@13.6.1` | `AddRedis` |
+| Aspire | `Aspire.Hosting.PostgreSQL@13.6.1` | `AddPostgres` |
+| Aspire | `Aspire.StackExchange.Redis@13.6.1` | `AddRedisClient` |
+| Microsoft.Extensions | `Microsoft.Extensions.Http@10.0.12` | `AddHttpClient` |
 
-Generation fails rather than publishing an artifact that omits a control for a
-population containing its exact package coordinate.
+Generation fails rather than publishing an artifact that omits a control when
+its exact package coordinate and scanner concept are in generation scope.
 
 ## Basis and owner map
 
@@ -97,288 +133,261 @@ population containing its exact package coordinate.
 
 | Owner | Contract consumed |
 | --- | --- |
-| [Ecosystem Find Search](ecosystem-find-search.md) | Prefix continuation, ordered package blocks, Ecosystem membership, row and candidate bounds, scoped failures, and completion |
-| [Find semantic evaluation](find-semantic-evaluation.md) | Normalized questions, Type and Member classification, exact source evaluation, population reduction, limits, and source coverage |
-| [Find type-search service](find-search-service.md) | Existing Type matching meaning and compatibility oracle |
-| [Find member-name search service](find-member-search-service.md) | Existing Member matching, declaration filtering, pattern multiplicity, and accepted-row meaning |
-| [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity and ordered package-prefix declarations |
-| [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Live enumeration, source order, paging, and completion used during generation and fallback |
+| [Integrations](integrations.md) | Configured concepts, scanner observations, actionable Type and starter-API admission, exact structured candidate identity, evidence, and row ordering |
+| [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, ordered package-prefix declarations, and the optional Integration scanner binding |
+| [Ecosystem Find Search](ecosystem-find-search.md) | Bounded-before-prefix continuation, indexed-before-live adoption, row and live-candidate bounds, membership, duplicate suppression, scoped failures, and completion |
+| [Find semantic evaluation](find-semantic-evaluation.md) | Normalized Type and Member questions, matching, classification, exact source association, row limits, and source evaluation |
+| [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Live enumeration, source order, paging, cancellation, and completion used by generation and the later live phase |
 | Package and Library selection owners | Exact package version, target framework, selected Library, selected asset, and typed rejection |
-| Metadata | Structured Type and Member facts, admission, declaration order, anchors, and inspection failures |
-| [Ecosystem Receiver Index](ecosystem-receiver-index.md) | Neighboring precedent for pinned population coverage, deterministic generation, containment, embedded/static-asset placement, and drift reporting; no schema or semantic ownership is shared |
-| CLI and Inspect Web owners | Demand, network permission, fallback gesture, presentation, and operation lifetime |
+| Metadata | Structured Type and Member identity, declaration order, scanner observations, and inspection failures |
+| [Ecosystem Receiver Index](ecosystem-receiver-index.md) | Neighboring precedent for pinned population evidence, deterministic generation, containment, embedded/static-asset placement, and drift reporting; no schema or semantic ownership is shared |
+| CLI and Inspect Web owners | Prefix demand, network permission, output, activation, and operation lifetime |
 
 <!-- markdownlint-enable MD013 -->
 
-The conventional basis is a checked-in inverted-search corpus generated from
-immutable versioned inputs, with one deterministic manifest and an explicit
-live oracle. The deliberate repository-specific choice is to store source
-facts rather than query-result rows. Find grammar and classification continue
-to evolve in one semantic owner; a query-result cache would freeze a second
-matcher into the artifact and answer only anticipated questions.
+The conventional basis is a small checked-in search accelerator generated from
+immutable versioned inputs, followed by the authoritative complete search when
+needed. The artifact stores exact scanner-admitted symbols rather than cached
+query results: Find grammar and matching remain reusable, and one symbol can
+answer many questions.
 
-The Receiver Index is a precedent, not a shared artifact. It stores only
-extension members and facts needed by receiver applicability. Treating it as a
-complete Find corpus would turn omitted ordinary Types and members into false
-complete-empty answers. A future implementation may extract a shared
-population-manifest component if both artifact owners can consume it without
-combining their semantic contracts.
+The Receiver Index is a precedent, not a Find input. It stores extension
+members organized by receiver applicability; this index stores only symbols
+that the selected Ecosystem's Integration scanner already admitted as useful
+currency.
 
 ## Artifact unit and identity
 
-There is one artifact per exact Ecosystem package-prefix declaration. An
-artifact identifies:
+There is one artifact per exact Ecosystem package-prefix declaration and
+scanner binding. Its identity includes:
 
-- its schema version and builder algorithm version;
-- the Find source-fact schema version;
+- schema and builder algorithm versions;
+- indexed-symbol projection version;
 - canonical Ecosystem identity;
-- the exact prefix declaration identity and spelling;
-- the prefix enumeration policy and bound used at generation;
-- the version-selection policy identity;
-- the Library-selection policy identity; and
-- the structured-identity format versions used by Type names, assembly
-  identities, and Member anchors.
+- exact prefix declaration and Integration scanner binding identities;
+- prefix enumeration and version-selection policy identities;
+- Library-selection policy identity; and
+- structured Type identity and Member-anchor format versions.
 
-Changing any item that can change admitted sources or facts changes the
-artifact identity or schema version. A consumer validates the whole identity
-before exposing any row. It never partially reads a mismatched artifact.
+Changing any item that can change selected packages, scanner observations, or
+symbol identity changes the artifact identity or schema version. A consumer
+validates the whole identity before exposing any row.
 
 The artifact contains no wall-clock time, machine path, cache path, credentials,
 source URI, or transient request identity. Staleness is visible through exact
 pinned coordinates and policy versions. Checking current versions is a
 separate explicit network-bearing operation.
 
-## Population manifest
+## Recorded symbols
 
-The manifest records enumeration in semantic source order. Each package entry
-retains:
+The artifact records one symbol only when the Integration owner reports it as
+an admitted actionable Type or starter API for the Ecosystem's selected scanner
+binding.
 
-- source ordinal;
-- exact package ID and version, including prerelease identity;
-- selected target framework and each selected Library and assembly asset;
-- the package and Library selection evidence required to reconstruct
-  `FindSourceIdentity`;
-- one disposition: `Indexed`, `IndexedEmpty`, `Rejected`, `Failed`, or
-  `NotEvaluated`;
-- a typed reason for every disposition other than `Indexed`; and
-- fact counts and inspection coverage for each selected assembly.
+Each symbol retains:
 
-The manifest separately records prefix enumeration completion and every bound
-reached. A package with no selected Library is not an empty indexed package. A
-selected assembly with an inspection failure is not a source with zero facts.
+- every canonical Integration concept identity that admitted it;
+- the scanner's candidate kind and owner-issued evidence;
+- exact package ID and version;
+- selected target framework, Library, assembly asset, and assembly identity;
+- source and declaration order needed by Find;
+- for a Type, exact `MetadataTypeDefinitionName`;
+- for a Member, producer-issued `MemberAnchor`, structured declaring Type,
+  Metadata name, kind, signature, and return Type facts already carried by the
+  Integration observation; and
+- contained display text for presentation correspondence.
 
-Source ordinal is owner-issued input to the builder. Canonical serialization
-may sort physical records, but lookup restores semantic source order from that
-ordinal. Permuting asynchronous acquisition or inspection completion therefore
-cannot change bytes or Find order; changing the enumerated candidate order is
-a population change and can.
+One compact Integration row may represent several overload observations. The
+artifact records each exact Member anchor separately so Find can preserve
+overload identity and pattern multiplicity. A symbol admitted by several
+Integration concepts is stored once with every concept association.
 
-## Source facts
+The artifact does **not** record:
 
-The artifact stores the smallest complete default-public fact set needed by
-the existing evaluator. It does not store preclassified matches.
-
-For every admitted Type declaration it records:
-
-- structured `MetadataTypeDefinitionName`;
-- declaration kind and default-public visibility evidence;
-- exact declaration observation or equivalent owner-issued identity;
-- declaration order; and
-- exact package, Library, assembly, and source association.
-
-For every admitted Member declaration it records:
-
-- producer-issued `MemberAnchor`;
-- structured declaring `MetadataTypeDefinitionName`;
-- Metadata member name;
-- declaration and member order;
-- member kind, display signature, and return Type facts used by current Find
-  results; and
-- exact package, Library, assembly, and source association.
-
-It additionally records:
-
-- Type or Member facts whose required structured identity could not be issued,
-  with contained display evidence and refusal reason;
-- Metadata inspection failures and the fact range they may cover; and
-- assembly-level completion for Type and Member fact production.
+- ordinary public Types or members that no Integration concept admitted;
+- inferred symbols based on namespace, package prefix, declaring-Type suffix,
+  or naming convention;
+- external famous Types that supplied evidence but are not actionable
+  package-owned currency;
+- Integration opportunities; or
+- preclassified Find matches.
 
 Names and display text originating in packages use the same construction-time
-containment as live Metadata results under the
+containment as live scanner results under the
 [untrusted-data threat model](untrusted-data-threat-model.md). Display text is
-never identity. The artifact contains no IL bodies, assembly bytes, metadata
-reader state, executable callback, stream, or lease.
+never identity. No assembly bytes, metadata reader state, stream, lease,
+callback, or executable content is retained.
 
-The first schema contains default-public facts only. It cannot answer
-`FindVisibility.All`. A future wider-admission schema is a separate design
-change, not an instruction to guess from default facts.
+## Generation coverage
+
+Generation records enough coverage to explain what the artifact accelerated,
+not to claim complete Find coverage:
+
+- prefix enumeration completion and every bound reached;
+- every enumerated exact package coordinate and source ordinal;
+- package, Library, and assembly selection or typed rejection;
+- scanner availability, completion, failure, and configured concept set;
+- indexed symbol counts and unresolved symbol identities; and
+- known-answer control disposition.
+
+`IndexedEmpty` means the scanner completed and admitted no Integration symbols
+for that source. It does not mean Find would return no rows. A rejected,
+failed, bounded, or unresolved source stays visible but does not prevent useful
+indexed rows from being published.
+
+Source ordinal is owner-issued input to the builder. Canonical serialization
+may sort physical records, but lookup restores source and declaration order
+from recorded ordinals. Permuting asynchronous acquisition or scanner
+completion cannot change bytes or Find order; changing prefix candidate order
+is a population change and can.
 
 ## Determinism and validation
 
-The serialized artifact is a pure function of:
-
-- exact pinned package content;
-- owner-issued enumeration and selection evidence;
-- the builder and fact-schema versions; and
-- the contained source facts and coverage.
-
-Packages, Libraries, assemblies, Types, members, failures, and unresolved facts
-serialize in defined ordinal order. Regeneration from identical inputs
-produces byte-identical output regardless of acquisition or worker completion
-order.
+The artifact is a pure function of exact pinned package content, owner-issued
+enumeration and selection evidence, Integration observations, and schema
+versions. Packages, Libraries, assemblies, concepts, symbols, failures, and
+unresolved identities serialize in defined ordinal order.
 
 Loading validates schema, artifact identity, ordinals, uniqueness, exact
-coordinate associations, bounds, contained text, and coverage closure before
-projecting facts. Validation failure rejects the artifact as one typed
+coordinate associations, contained text, and coverage closure before
+projecting any symbol. Validation failure rejects the artifact as one typed
 outcome. It never drops a malformed record and continues with an apparently
-complete population.
+valid index.
 
-## Indexed evaluation
+## Indexed Find evaluation
 
-An indexed prefix evaluation takes:
+The indexed operation takes:
 
 ```text
-EcosystemFindIndexedRequest
+EcosystemFindIndexedIntegrationRequest
   validated artifact
   normalized FindQuestion
-  requested source window
+  remaining semantic row window
 ```
 
-The request accepts only default-public Type or Member questions. The source
-window is issued by Ecosystem Find Search and preserves its candidate bound and
-remaining row window. This owner does not reinterpret those limits.
+It projects exact indexed symbols into the portable Type or Member facts
+consumed by Find semantic evaluation. The semantic owner performs pattern
+matching, classification, declaring-Type filtering, row limiting, source
+evaluation, and result construction. The artifact introduces no second
+`TypeMatcher`, Member matcher, or query grammar.
 
-The index projects each admitted source into the portable source facts consumed
-by Find semantic evaluation. The semantic owner performs all pattern matching,
-classification, declaring-Type filtering, accepted-row handling, match limits,
-source evaluation, and population reduction. Indexed evaluation introduces no
-second `TypeMatcher`, Member matcher, or ordering rule.
+Lookup processes indexed sources in recorded prefix candidate order and
+declarations in scanner order. It stops when:
 
-The result retains:
+- every indexed symbol was evaluated;
+- the remaining semantic row window is full; or
+- cancellation is observed.
 
-- the semantic owner's ordered source evaluations or block;
-- the artifact identity and exact pinned coordinates;
-- indexed, empty, rejected, failed, unresolved, and unevaluated coverage;
-- whether the requested source window exhausted the artifact; and
-- a typed refusal when the question, visibility, schema, or declaration is not
-  supported.
+Lookup returns matching rows, exact published-symbol identities, indexed
+coverage, and whether it exhausted the artifact. A zero-row exhausted lookup
+means only that no indexed Integration symbol matched.
 
-The result is detached and resource-free. A host lowers it through the existing
-Ecosystem prefix block and presentation contracts.
+Indexed rows consume the shared semantic row window. Indexed sources do not
+consume `MaximumPrefixPackages`: that bound counts packages admitted for live
+settlement. When live search starts, it receives the unchanged remaining live
+candidate budget.
 
-## Continuation and live fallback
+## Live continuation and duplicate suppression
 
-Bounded and core Ecosystem work still settles before prefix work. The Browser
-may still insert admitted Workspace Find before deciding whether to resume.
-Only an owner-issued prefix continuation permits indexed or live prefix
-evaluation.
+The indexed layer runs only after bounded/core settlement and only under the
+same owner-issued prefix demand that can authorize the live phase. This design
+does not make blocking formats search prefixes by default.
 
-For a validated artifact, an indexed adopter reads source facts in recorded
-source order and publishes package-scoped blocks through that continuation.
-For an unsupported request, the index returns a typed refusal before rows.
+After indexed exhaustion:
 
-This owner does not silently choose the live path. A host may use live prefix
-evaluation only when its existing gesture and source policy authorize network
-work. In particular:
+- if no semantic row capacity remains, Ecosystem Find Search completes as
+  `RowLimitReached` without network work;
+- if live prefix work was not authorized, completion names the unsearched live
+  prefix and remains partial;
+- if live work was authorized and capacity remains, existing prefix
+  enumeration and package evaluation start; and
+- with no semantic row limit, authorized live work always follows the index.
 
-- custom package sources and explicit refresh are live operations;
-- `FindVisibility.All` is unsupported by the first artifact and requires an
-  explicit live-capable gesture or a visible refusal;
-- an absent, mismatched, malformed, or incomplete artifact is visible and
-  never becomes complete-empty; and
-- an ordinary indexed lookup never initiates version discovery, acquisition,
-  or cache writes as fallback.
+Live enumeration does not skip a package because it contributed indexed
+symbols. The package consumes one live candidate unit when admitted, and its
+failures and coverage remain visible. After live evaluation, composition
+suppresses only a row whose exact identity and exact producer source equal a
+published indexed row:
 
-The live path over the artifact's exact package coordinates is the equivalence
-oracle. A current package-prefix search is not: its candidate set and selected
-versions may have changed since generation.
+- Type duplicate key: exact source coordinate plus structured Type identity;
+- Member duplicate key: exact source coordinate plus `MemberAnchor`.
 
-## Empty, partial, and stale answers
+Same-spelled symbols from another package, Library, assembly, or declaration
+remain distinct. Duplicate suppression never suppresses source failure,
+coverage, or candidate accounting. The indexed row remains earlier and is
+never retracted.
 
-A zero-row result is complete-empty only when:
-
-- prefix enumeration exhausted under the recorded generation policy;
-- every package in the requested source window is `Indexed` or
-  `IndexedEmpty`;
-- every selected assembly completed the requested Type or Member fact census;
-- no unresolved fact could match the question; and
-- Find semantic evaluation exhausted the question without a row or source
-  limit.
-
-Otherwise zero rows are partial or refused with the exact gap. A nonempty result
-also retains population and source gaps; rows do not prove completeness.
-
-Pinned coordinates are not a freshness claim. Hosts present them as the
-indexed population identity. The scheduled lane reports drift; it does not
-mutate an installed artifact or make ordinary lookup network-bearing.
+Index absence, mismatch, malformed content, or partial generation coverage does
+not silently disable the live path. The host follows its existing prefix
+demand and network authority: authorized live work can proceed beside a
+visible index failure; unauthorized work remains unsearched.
 
 ## Equivalence
 
-Equivalence has two independently gated levels.
+Equivalence is selective and has two levels.
 
-**Fact equivalence** compares every indexed source with live Metadata fact
-production over the same exact package, target framework, Library, and assembly
-coordinates. Structured Type names, anchors, member facts, order, failures, and
-coverage must match.
+**Symbol equivalence** compares every indexed symbol with the Integration
+scanner observation over the same exact package, target framework, Library,
+assembly, scanner binding, and configured concept set. Structured identity,
+concept associations, candidate evidence, order, failures, and coverage match.
 
-**Answer equivalence** runs the same normalized Find question through indexed
-facts and live facts, then compares the semantic owner's typed source
-evaluations and reduced block. The oracle covers Type and Member direct
-questions, globs, namespaces, declaring-Type filters, multiple patterns,
-finite match and accepted-row windows, Count evidence, no-match, and failures.
+**Find projection equivalence** projects one scanner observation and its
+indexed form into the same portable Type or Member fact, then runs the same
+normalized Find question through the semantic owner. Match classification,
+source association, row identity, and display facts match.
 
-CLI text is not the oracle. Presentation can omit semantic facts and can change
-without changing indexed correctness.
+The index is not compared with the complete live Find result because it is
+selective by design. End-to-end gates instead prove ordered union: indexed
+matches first, later non-Integration live matches retained, exact indexed/live
+duplicates suppressed, and live failures preserved.
+
+CLI text is not the oracle. Presentation can omit semantic evidence and can
+change without changing indexed correctness.
 
 ## Performance and size goals
 
 Adoption measures exact NativeAOT production binaries on linux-x64. The
-bounded/core phase is primed and held identical so the indexed prefix phase is
-not confused with unrelated bounded acquisition. Reports also include one
-whole-command scenario.
+bounded/core phase is primed and held identical so indexed latency is not
+confused with unrelated bounded acquisition.
 
 <!-- markdownlint-disable MD013 -->
 
 | Measure | Goal |
 | --- | --- |
-| Prefix-continuation to first indexed row for Aspire `.AddRedis` | 200 ms or less |
-| Prefix-continuation to complete indexed Aspire `.Add*` TSV/JSONL result | 1 s or less, excluding terminal output backpressure |
-| Network bytes and package-cache bytes written by indexed prefix evaluation | 0 |
-| Peak RSS above `dotnet-inspect --version` on the same binary | 64 MiB or less |
-| Aspire plus Microsoft.Extensions artifacts | 16 MiB or less checked in; 4 MiB or less Brotli-compressed |
-| Whole-command time to first and final row | Reported separately; no claim until bounded/core inputs are also prebuilt |
+| Prefix-continuation to first indexed Aspire `.AddRedis` row | 200 ms or less |
+| Complete indexed-symbol scan for Aspire `.Add*` | 500 ms or less, excluding terminal output backpressure |
+| Network bytes and package-cache bytes before indexed exhaustion | 0 |
+| Peak RSS above `dotnet-inspect --version` on the same binary | 32 MiB or less |
+| Aspire plus Microsoft.Extensions artifacts | 2 MiB or less checked in; 500 KiB or less Brotli-compressed |
+| Time from indexed exhaustion to first live network request | Reported to prove phase order; no latency goal |
+| Whole-command first and final row | Reported separately; live completion remains network-dependent |
 | Generation | Reported; no goal beyond the scheduled lane timeout |
 
 <!-- markdownlint-enable MD013 -->
 
-Result cardinality and a stable typed-result digest accompany every timing.
-Time to first row and total completion are separate measures. A step that
-misses a goal stops for operator direction; it does not proceed on a promise of
-later compression or tuning.
+Result cardinality and stable typed-result digests accompany every timing.
+Time to first indexed row, index exhaustion, first live request, first live row,
+and total completion are distinct observations. A step that misses a goal
+stops for operator direction.
 
-The size limit is a feasibility ceiling, not a target. If it is missed, the
-first permitted lever is a lossless compact identity and string-table encoding.
-Dropping facts, coverage, coordinates, or failures and probabilistic sketches
-are not permitted.
+If the size goal is missed, the first permitted lever is a lossless compact
+identity and string-table encoding. Dropping identities, Integration evidence,
+coverage, or failures and probabilistic sketches are not permitted.
 
 ## Generation and placement
 
-One product-owned builder accepts owner-issued pinned population and source
-facts. A thin generator orchestrates explicit network-bearing enumeration,
-acquisition, and Metadata inspection, but does not construct, normalize,
-repair, filter, or reorder artifact content.
+One product-owned builder accepts owner-issued pinned population, scanner
+observations, and coverage. A thin generator orchestrates explicit
+network-bearing enumeration, acquisition, and scanning, but does not classify,
+repair, filter, or reorder Integration content.
 
 The artifact is checked in once. The CLI consumes it as an embedded resource;
 Inspect Web consumes a static asset built from the same file. Ordinary build,
-test, startup, and lookup do not regenerate it.
+test, startup, and indexed lookup do not regenerate it.
 
-Generation fails when:
-
-- any known-answer control is missing;
-- population or inspection coverage is structurally inconsistent;
-- a selected source lacks an exact coordinate;
-- deterministic regeneration differs; or
-- the artifact exceeds the adopted size goal.
+Generation fails when any known-answer control is missing, identity or coverage
+is inconsistent, deterministic regeneration differs, or the artifact exceeds
+the adopted size goal.
 
 ## Evidence and gates
 
@@ -386,75 +395,82 @@ Generation fails when:
 
 | Property | Gate | Lane |
 | --- | --- | --- |
-| Deterministic serialization | Build from fixture facts twice with fixed source ordinals and permuted package, Library, and worker completion order; compare bytes | PR-fast |
-| Identity and coverage closure | Fixtures with duplicate coordinates, bad ordinals, mismatched policy versions, rejected packages, empty Libraries, inspection failures, unresolved facts, and bounded enumeration | PR-fast |
-| Missing is never empty | Each gap fixture runs matching and nonmatching questions; only complete indexed facts may produce complete-empty | PR-fast |
-| Fact equivalence | Fixture assemblies produce live and indexed Type and Member facts compared by typed identity, order, failures, and coverage | PR-fast |
-| Answer equivalence | The same normalized Type and Member questions over fixture live/indexed facts produce equal semantic evaluations and blocks | PR-fast |
-| No second matcher | Non-vacuity tests remove indexed-fact delivery to the semantic evaluator and fail; no artifact-side match classification exists | PR-fast |
-| Known answers | Load each checked-in artifact and reproduce `AddRedis`, `AddPostgres`, `AddRedisClient`, and `AddHttpClient` with exact coordinates | PR-fast |
-| Pinned corpus fact equivalence | Regenerate live facts for every checked-in exact coordinate and compare | Slow, network; daily |
-| Pinned corpus answer equivalence | Representative Type and Member question census over live and indexed facts | Slow, network; daily |
-| Offline lookup | Network guard and fresh package cache prove no requests and no cache writes | Adoption PRs |
-| Performance and size goals | Exact NativeAOT measurements of every goal with cardinality and typed-result digest | Adoption PRs |
-| Both hosts use one artifact | CLI embedded-resource and Inspect Web static-asset gates compare artifact digest and host-neutral result | Host adoption PRs |
+| Deterministic serialization | Build fixture artifacts twice with fixed ordinals and permuted acquisition/scanner completion order; compare bytes | PR-fast |
+| Integration symbols only | Fixture scanner admits actionable and non-actionable observations; only owner-admitted exact Type/Member candidates appear | PR-fast |
+| Identity and overloads | Multi-concept symbol and compact multi-overload row retain every concept and exact underlying Type or Member identity once | PR-fast |
+| Generation gaps stay visible | Rejected package, failed Library, unavailable scanner, unresolved identity, and bounded enumeration remain coverage, never Find absence | PR-fast |
+| Symbol equivalence | Fixture live scanner observations and indexed symbols compare by typed identity, evidence, concept, order, failure, and coverage | PR-fast |
+| Find projection equivalence | Direct, glob, declaring-Type-filtered, multi-pattern, and finite-row questions classify one live/indexed symbol equally | PR-fast |
+| Stopping conditions | Index exhaustion continues authorized live work; full row window, cancellation, and absent live authority start no network work | PR-fast |
+| Indexed packages are reinspected | Indexed package contributes a second non-Integration live match; package is evaluated and only exact duplicate is suppressed | PR-fast |
+| Exact duplicate key | Same-spelled rows from different sources remain; exact source-backed Type and Member duplicates collapse with indexed row first | PR-fast |
+| Bounds | Indexed rows consume row capacity but not live package candidates; reinspected indexed packages consume live candidate units | PR-fast |
+| Known answers | Checked-in artifacts reproduce `AddRedis`, `AddPostgres`, `AddRedisClient`, and `AddHttpClient` with exact coordinates | PR-fast |
+| Pinned corpus equivalence | Regenerate scanner observations for every pinned coordinate and compare | Slow, network; daily |
+| Offline index phase | Debug network guard proves no request and no package-cache write before index exhaustion | Adoption PRs |
+| Performance and size | Exact NativeAOT measurement of every goal with result cardinality and typed digests | Adoption PRs |
+| Both hosts use one artifact | CLI embedded-resource and Inspect Web static-asset gates compare artifact digest and host-neutral indexed result | Host adoption PRs |
 
 <!-- markdownlint-enable MD013 -->
 
 ## Adoption sequence
 
-Five steps lead from design to observable behavior in both hosts:
+Six steps lead from design to observable behavior in both hosts:
 
-1. **Design.** This focused owner and its artifact, equivalence, coverage,
-   fallback, and performance contracts.
-2. **Builder and semantic input.** Product-owned builder, deterministic fixture
-   artifact, and one Find-semantic-evaluation input over portable indexed
-   source facts.
-3. **Artifacts and CLI.** Checked-in Aspire and Microsoft.Extensions artifacts;
-   CLI indexed prefix continuation; exact NativeAOT and offline evidence.
-4. **Inspect Web and Spotlight.** The same artifact and host-neutral indexed
+1. **Design.** This artifact owner and its selective Integration-symbol,
+   coverage, equivalence, and performance contracts.
+2. **Builder.** Product-owned builder and deterministic fixture artifact over
+   owner-issued Integration scanner observations.
+3. **Find projection.** One Find-semantic-evaluation input over portable indexed
+   Type and Member facts.
+4. **Ordered CLI composition.** Ecosystem Find Search inserts indexed results
+   before live prefix work, preserves row and candidate bounds, and suppresses
+   only exact duplicates; checked-in Aspire and Microsoft.Extensions artifacts
+   ship with exact NativeAOT and network-phase evidence.
+5. **Inspect Web and Spotlight.** The same artifact and host-neutral indexed
    evaluation under Browser operation authority.
-5. **Freshness lane.** Scheduled regenerate-and-compare reporting coordinate,
-   coverage, fact, answer, size, and performance drift.
+6. **Freshness lane.** Scheduled regenerate-and-compare reporting coordinate,
+   scanner, symbol, coverage, size, and performance drift.
 
-The implementation tracker must split step 2's semantic-owner adoption from
-this artifact owner if they cannot lock through the one-first-adopter exception
-in [Design scope and composition](../design-scope.md#stage-implementation-after-locking-the-design).
+Steps 3 and 4 are focused adoptions by existing owners, not responsibilities
+absorbed into this artifact design. The implementation tracker keeps them
+separate unless one qualifies for the one-first-adopter exception in
+[Design scope and composition](../design-scope.md#stage-implementation-after-locking-the-design).
 
-The live path is not retired. It remains required for unindexed declarations,
-custom sources, unsupported modes, explicit refresh, equivalence, and
-generation. Removing or changing the live candidate bound is a separate
-Ecosystem Find Search effort; this design preserves it.
+The live path is not retired. It remains the complete search for arbitrary Find
+symbols and is required for custom sources, explicit refresh, generation, and
+unindexed Ecosystems.
 
 ## Non-claims
 
-- Bounded/core Ecosystem populations are not indexed here. Whole-command time
-  can therefore include their realization.
-- The first artifact does not answer include-all visibility.
-- The artifact does not cover packages outside the exact declared prefix
-  population recorded at generation.
+- The index is not a complete Type or Member inventory.
+- Index exhaustion or a miss never proves no Ecosystem Find match.
+- Bounded/core Ecosystem populations are not indexed here.
+- Include-all visibility is not expanded beyond symbols admitted by the
+  Integration owner.
+- The artifact does not cover packages outside the exact generated prefix
+  population.
 - No automatic background refresh, provider cache, Azure Function, or server
   computation exists.
 - No fuzzy, natural-language, receiver-applicability, or chain-navigation
   semantics are added.
-- Indexed lookup does not weaken or bypass semantic row, accepted-row, source,
-  or candidate limits.
-- Artifact presence does not claim current nuget.org freshness.
+- The index does not weaken semantic row limits or the later live package
+  candidate bound.
 
 ## Alternatives not selected
 
-- **Cache rendered query results.** This anticipates spellings, duplicates
-  matching and row selection, cannot answer new grammar, and loses reusable
-  source identity.
-- **Reuse the Receiver Index as complete Find data.** It intentionally omits
-  ordinary Types and members and would make omission indistinguishable from
-  absence.
-- **Ship package archives or metadata images.** Hosts would still pay parsing,
-  admission, and retained-image cost and Browser would need assembly
-  inspection resources.
-- **Use the persistent package cache.** Every fresh machine and Browser session
-  still pays acquisition and inspection.
-- **Silently fall back to live acquisition.** Ordinary indexed lookup would
-  become unexpectedly network-bearing and failures could look like success.
+- **Complete public-symbol corpus.** It is much larger, duplicates broad Find
+  inventory semantics, and is unnecessary for accelerating the Integration
+  APIs users seek first.
+- **Cache rendered query results.** It anticipates spellings, duplicates Find
+  matching, and cannot answer new questions over the same symbol set.
+- **Skip indexed packages during live search.** Selective Integration coverage
+  cannot prove those packages contain no other matches.
+- **Reuse the Receiver Index.** It organizes extension members by receiver
+  applicability rather than Ecosystem Integration admission.
+- **Ship package archives or metadata images.** Hosts still pay parsing,
+  admission, and Browser resource costs.
+- **Silently stop after the index.** A selective accelerator cannot satisfy an
+  authorized complete live prefix question.
 - **Index all of nuget.org.** No declared population, completion boundary, or
   product ownership exists for that scale.
