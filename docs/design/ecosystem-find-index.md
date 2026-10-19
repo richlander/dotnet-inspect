@@ -11,12 +11,12 @@ observable behavior in the CLI and Inspect Web.
 
 **Ecosystem Find Index** owns this exact claim:
 
-> For one Ecosystem package-prefix declaration enumerated and pinned to exact
-> package, Library, assembly, and symbol coordinates at generation, one
-> checked-in deterministic artifact records the actionable Type and Member
-> symbols admitted by that Ecosystem's Integration scanner, together with
-> their Integration evidence and generation coverage. Existing Find semantic
-> evaluation can search those structured symbols as an early prefix layer
+> For one indexed Ecosystem, one checked-in deterministic artifact records the
+> actionable Type and Member symbols admitted by Integration scanning over that
+> Ecosystem's exact ordered package-prefix population, pinned to package,
+> Library, assembly, and symbol coordinates at generation. A consumer admits
+> that artifact only when it admits the Ecosystem. Existing Find semantic
+> evaluation can search the artifact's structured rows as an early prefix layer
 > without acquiring packages, while the live prefix path remains responsible
 > for every other Find match.
 
@@ -46,7 +46,8 @@ It does not define:
 - package-prefix enumeration and version selection;
 - package, target-framework, Library, or assembly selection;
 - Metadata decoding and symbol identity issuance;
-- Ecosystem declarations, lineage, prefix membership, or scanner binding;
+- Ecosystem declarations, lineage, admission, prefix membership, or scanner
+  configuration;
 - host syntax, presentation, activation, refresh gestures, or network policy;
   or
 - receiver queries, applicability, constraints, or chain navigation, which
@@ -68,8 +69,8 @@ dotnet-inspect find '.AddRedis' --ecosystem aspire --jsonl
 Its serial work is:
 
 1. settle the existing bounded/core Ecosystem layers;
-2. when prefix demand and row capacity remain, search the Aspire Integration
-   symbol index and publish matching rows;
+2. when prefix demand and row capacity remain, admit the artifact for each
+   admitted Ecosystem, search its Integration symbol rows, and publish matches;
 3. stop if the semantic row window is full or cancellation occurs;
 4. otherwise, when the host authorized live prefix work, continue through the
    existing package-prefix network phase; and
@@ -134,7 +135,7 @@ its exact package coordinate and scanner concept are in generation scope.
 | Owner | Contract consumed |
 | --- | --- |
 | [Integrations](integrations.md) | Configured concepts, scanner observations, actionable Type and starter-API admission, exact structured candidate identity, evidence, and row ordering |
-| [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, ordered package-prefix declarations, and the optional Integration scanner binding |
+| [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, admission, ordered package-prefix declarations, and the optional Integration scanner binding |
 | [Ecosystem Find Search](ecosystem-find-search.md) | Bounded-before-prefix continuation, indexed-before-live adoption, row and live-candidate bounds, membership, duplicate suppression, scoped failures, and completion |
 | [Find semantic evaluation](find-semantic-evaluation.md) | Normalized Type and Member questions, matching, classification, exact source association, row limits, and source evaluation |
 | [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Live enumeration, source order, paging, cancellation, and completion used by generation and the later live phase |
@@ -153,25 +154,38 @@ answer many questions.
 
 The Receiver Index is a precedent, not a Find input. It stores extension
 members organized by receiver applicability; this index stores only symbols
-that the selected Ecosystem's Integration scanner already admitted as useful
-currency.
+that Integration scanning over the selected Ecosystem population already
+admitted as useful currency.
 
 ## Artifact unit and identity
 
-There is one artifact per exact Ecosystem package-prefix declaration and
-scanner binding. Its identity includes:
+There is one artifact per indexed Ecosystem. It is one serialized table, not
+one artifact per prefix, Integration concept, symbol, or Find hit. The table
+contains the rows generated from that Ecosystem's exact ordered package-prefix
+population. Each row retains the exact prefix source that produced it.
+
+An artifact becomes an eligible Find source only when the CLI or another
+consumer admits its canonical Ecosystem registration. Admission does not infer
+an artifact from a prefix or scanner identity and does not admit an artifact
+belonging to another Ecosystem. For an admitted artifact, indexed evaluation
+uses only rows belonging to prefix sources demanded by that Find operation.
+
+The artifact identity includes:
 
 - schema and builder algorithm versions;
 - indexed-symbol projection version;
 - canonical Ecosystem identity;
-- exact prefix declaration and Integration scanner binding identities;
+- the exact ordered prefix declaration sequence;
+- the exact Integration scanner and configuration identities used for
+  generation;
 - prefix enumeration and version-selection policy identities;
 - Library-selection policy identity; and
 - structured Type identity and Member-anchor format versions.
 
 Changing any item that can change selected packages, scanner observations, or
 symbol identity changes the artifact identity or schema version. A consumer
-validates the whole identity before exposing any row.
+validates the whole identity and canonical Ecosystem association before
+exposing any row.
 
 The artifact contains no wall-clock time, machine path, cache path, credentials,
 source URI, or transient request identity. Staleness is visible through exact
@@ -180,12 +194,13 @@ separate explicit network-bearing operation.
 
 ## Recorded symbols
 
-The artifact records one symbol only when the Integration owner reports it as
-an admitted actionable Type or starter API for the Ecosystem's selected scanner
-binding.
+The artifact records one row only when the Integration owner reports the
+symbol as an admitted actionable Type or starter API while scanning the
+Ecosystem's generated prefix population.
 
 Each symbol retains:
 
+- its exact prefix-source identity;
 - every canonical Integration concept identity that admitted it;
 - the scanner's candidate kind and owner-issued evidence;
 - exact package ID and version;
@@ -260,7 +275,8 @@ The indexed operation takes:
 
 ```text
 EcosystemFindIndexedIntegrationRequest
-  validated artifact
+  ordered admitted Ecosystem artifacts
+  demanded prefix-source identities
   normalized FindQuestion
   remaining semantic row window
 ```
@@ -271,16 +287,17 @@ matching, classification, declaring-Type filtering, row limiting, source
 evaluation, and result construction. The artifact introduces no second
 `TypeMatcher`, Member matcher, or query grammar.
 
-Lookup processes indexed sources in recorded prefix candidate order and
-declarations in scanner order. It stops when:
+Lookup processes artifacts in admitted Ecosystem order, each artifact's sources
+in recorded prefix order, and declarations in scanner order. It stops when:
 
 - every indexed symbol was evaluated;
 - the remaining semantic row window is full; or
 - cancellation is observed.
 
 Lookup returns matching rows, exact published-symbol identities, indexed
-coverage, and whether it exhausted the artifact. A zero-row exhausted lookup
-means only that no indexed Integration symbol matched.
+coverage, and whether it exhausted every demanded source in the admitted
+artifact sequence. A zero-row exhausted lookup means only that no indexed
+Integration symbol matched.
 
 Indexed rows consume the shared semantic row window. Indexed sources do not
 consume `MaximumPrefixPackages`: that bound counts packages admitted for live
@@ -293,7 +310,7 @@ The indexed layer runs only after bounded/core settlement and only under the
 same owner-issued prefix demand that can authorize the live phase. This design
 does not make blocking formats search prefixes by default.
 
-After indexed exhaustion:
+After exhaustion of the admitted artifacts and demanded indexed sources:
 
 - if no semantic row capacity remains, Ecosystem Find Search completes as
   `RowLimitReached` without network work;
@@ -327,9 +344,10 @@ visible index failure; unauthorized work remains unsearched.
 Equivalence is selective and has two levels.
 
 **Symbol equivalence** compares every indexed symbol with the Integration
-scanner observation over the same exact package, target framework, Library,
-assembly, scanner binding, and configured concept set. Structured identity,
-concept associations, candidate evidence, order, failures, and coverage match.
+scanner observation over the same exact Ecosystem, prefix source, package,
+target framework, Library, assembly, scanner configuration, and configured
+concept set. Structured identity, concept associations, candidate evidence,
+order, failures, and coverage match.
 
 **Find projection equivalence** projects one scanner observation and its
 indexed form into the same portable Type or Member fact, then runs the same
@@ -358,7 +376,7 @@ confused with unrelated bounded acquisition.
 | Complete indexed-symbol scan for Aspire `.Add*` | 500 ms or less, excluding terminal output backpressure |
 | Network bytes and package-cache bytes before indexed exhaustion | 0 |
 | Peak RSS above `dotnet-inspect --version` on the same binary | 32 MiB or less |
-| Aspire plus Microsoft.Extensions artifacts | 2 MiB or less checked in; 500 KiB or less Brotli-compressed |
+| Aspire and Microsoft.Extensions Ecosystem artifacts together | 2 MiB or less checked in; 500 KiB or less Brotli-compressed |
 | Time from indexed exhaustion to first live network request | Reported to prove phase order; no latency goal |
 | Whole-command first and final row | Reported separately; live completion remains network-dependent |
 | Generation | Reported; no goal beyond the scheduled lane timeout |
@@ -381,9 +399,9 @@ observations, and coverage. A thin generator orchestrates explicit
 network-bearing enumeration, acquisition, and scanning, but does not classify,
 repair, filter, or reorder Integration content.
 
-The artifact is checked in once. The CLI consumes it as an embedded resource;
-Inspect Web consumes a static asset built from the same file. Ordinary build,
-test, startup, and indexed lookup do not regenerate it.
+Each Ecosystem artifact is checked in once. The CLI consumes it as an embedded
+resource; Inspect Web consumes a static asset built from the same file.
+Ordinary build, test, startup, and indexed lookup do not regenerate it.
 
 Generation fails when any known-answer control is missing, identity or coverage
 is inconsistent, deterministic regeneration differs, or the artifact exceeds
@@ -397,6 +415,8 @@ the adopted size goal.
 | --- | --- | --- |
 | Deterministic serialization | Build fixture artifacts twice with fixed ordinals and permuted acquisition/scanner completion order; compare bytes | PR-fast |
 | Integration symbols only | Fixture scanner admits actionable and non-actionable observations; only owner-admitted exact Type/Member candidates appear | PR-fast |
+| Ecosystem artifact admission | Selecting one of two fixture Ecosystems admits only that Ecosystem's artifact; repeated prefix or scanner identities do not admit the other artifact | PR-fast |
+| Multi-prefix artifact | One fixture Ecosystem with two ordered prefixes produces one artifact whose rows retain their exact prefix source and evaluate in prefix order | PR-fast |
 | Identity and overloads | Multi-concept symbol and compact multi-overload row retain every concept and exact underlying Type or Member identity once | PR-fast |
 | Generation gaps stay visible | Rejected package, failed Library, unavailable scanner, unresolved identity, and bounded enumeration remain coverage, never Find absence | PR-fast |
 | Symbol equivalence | Fixture live scanner observations and indexed symbols compare by typed identity, evidence, concept, order, failure, and coverage | PR-fast |
@@ -409,7 +429,7 @@ the adopted size goal.
 | Pinned corpus equivalence | Regenerate scanner observations for every pinned coordinate and compare | Slow, network; daily |
 | Offline index phase | Debug network guard proves no request and no package-cache write before index exhaustion | Adoption PRs |
 | Performance and size | Exact NativeAOT measurement of every goal with result cardinality and typed digests | Adoption PRs |
-| Both hosts use one artifact | CLI embedded-resource and Inspect Web static-asset gates compare artifact digest and host-neutral indexed result | Host adoption PRs |
+| Both hosts use the same Ecosystem artifacts | CLI embedded-resource and Inspect Web static-asset gates compare each artifact digest and host-neutral indexed result | Host adoption PRs |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -419,16 +439,16 @@ Six steps lead from design to observable behavior in both hosts:
 
 1. **Design.** This artifact owner and its selective Integration-symbol,
    coverage, equivalence, and performance contracts.
-2. **Builder.** Product-owned builder and deterministic fixture artifact over
-   owner-issued Integration scanner observations.
+2. **Builder.** Product-owned builder and deterministic per-Ecosystem fixture
+   artifacts over owner-issued Integration scanner observations.
 3. **Find projection.** One Find-semantic-evaluation input over portable indexed
    Type and Member facts.
 4. **Ordered CLI composition.** Ecosystem Find Search inserts indexed results
    before live prefix work, preserves row and candidate bounds, and suppresses
    only exact duplicates; checked-in Aspire and Microsoft.Extensions artifacts
    ship with exact NativeAOT and network-phase evidence.
-5. **Inspect Web and Spotlight.** The same artifact and host-neutral indexed
-   evaluation under Browser operation authority.
+5. **Inspect Web and Spotlight.** The same per-Ecosystem artifacts and
+   host-neutral indexed evaluation under Browser operation authority.
 6. **Freshness lane.** Scheduled regenerate-and-compare reporting coordinate,
    scanner, symbol, coverage, size, and performance drift.
 
