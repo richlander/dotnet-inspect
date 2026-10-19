@@ -972,12 +972,20 @@ public sealed class InspectionPlanningTests
             result.Error);
     }
 
-    [Fact]
-    public void CommandlessNupkgLibraryGesture_HasOneDeterministicRoute()
+    [Theory]
+    [InlineData("--library", "lib/a.dll")]
+    [InlineData("--namesake-library", null)]
+    [InlineData("--first-library", null)]
+    public void CommandlessNupkgLibraryGesture_HasOneDeterministicRoute(
+        string option,
+        string? value)
     {
+        string[] arguments = value is null
+            ? ["missing.nupkg", option]
+            : ["missing.nupkg", option, value];
         bool classified =
             StructuralViewRegistry.TryClassifyCommandless(
-                ["missing.nupkg", "--library", "lib/a.dll"],
+                arguments,
                 structuralDiscovery: true,
                 hasBareLibraryTarget: false,
                 out CommandlessStructuralRoute? route);

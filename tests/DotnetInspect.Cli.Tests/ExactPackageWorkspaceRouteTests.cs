@@ -41,6 +41,10 @@ public sealed partial class ExactPackageWorkspaceRouteTests
             "--namesake-library",
             result.Output,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "--first-library",
+            result.Output,
+            StringComparison.Ordinal);
         Assert.Empty(result.Error);
     }
 
@@ -257,6 +261,43 @@ public sealed partial class ExactPackageWorkspaceRouteTests
             StringComparison.Ordinal);
         Assert.DoesNotContain(
             $"lib/{Framework}/support.library.dll",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LibraryWorkspaceRouteNarrowsToFirstLibrary()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            FirstLibrary = true,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains(
+            $"# support.library.dll ({Framework})",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            $"# {SelectedPackage}.dll ({Framework})",
             result.Output,
             StringComparison.Ordinal);
     }
