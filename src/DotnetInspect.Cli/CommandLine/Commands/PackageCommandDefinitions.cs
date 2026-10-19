@@ -236,7 +236,7 @@ public static class PackageCommandDefinitions
             libraryOption, namesakeLibraryOption, allLibrariesOption,
             contentOption, frontmatterOption, bodyOption, outOption,
             tfmOption, depthOption, typeFilterOption, detailsOption,
-            versionOption, rootsOption, rootRequestOption);
+            versionOption, rootsOption);
         packageCommand.Validators.Add(result =>
         {
             if (result.GetValue(detailsOption)

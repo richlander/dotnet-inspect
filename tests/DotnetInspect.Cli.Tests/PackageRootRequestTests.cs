@@ -20,6 +20,18 @@ public sealed class PackageRootRequestTests
     static readonly PackageSource OtherSource = new("other", "https://other.invalid/v3/index.json");
 
     [Fact]
+    public async Task EnvelopeRetainsAdmittedPackageChildren()
+    {
+        var (store, token) = await IssueAsync();
+        var result = await ExecuteAsync(store, token, ["--envelope"]);
+        Assert.Equal(0, result.ExitCode);
+        using var json = System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.Contains("Selected.dll", json.RootElement.GetProperty("content").ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Neighbor.dll", result.Output, StringComparison.Ordinal);
+        Assert.Empty(result.Error);
+    }
+
+    [Fact]
     public async Task DefaultPackageChildrenPreserveTheFrozenCompileSelection()
     {
         var (store, token) = await IssueAsync();
