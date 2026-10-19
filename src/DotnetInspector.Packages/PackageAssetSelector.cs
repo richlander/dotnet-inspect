@@ -51,6 +51,14 @@ public sealed record PackageAssetUniverse
     /// metadata is decided by the acquisition owner that opens it.
     /// </summary>
     public IReadOnlyList<PackageAssetEntry> Assets { get; }
+
+    /// <summary>The package-relative selected asset-population root.</summary>
+    internal string? PopulationPath =>
+        Assets.Count == 0
+            ? null
+            : PackageEntryPath.GetLibraryPopulationPath(
+                Assets[0].EntryPath,
+                TargetFramework);
 }
 
 /// <summary>The result of selecting a package's effective asset universe.</summary>

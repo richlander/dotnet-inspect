@@ -30,11 +30,24 @@ public sealed class PackageLibraryPopulationSelectorTests
     }
 
     [Fact]
+    public void CompilePopulationRetainsRootForSoleNestedAsset()
+    {
+        var selected =
+            Assert.IsType<PackageLibraryPopulationSelection.Compile>(
+                PackageLibraryPopulationSelector.Evaluate(
+                    Content("lib/net10.0/nested/Neutral.dll"),
+                    "Example",
+                    PackageCompileAssetSelectionPolicy.HighestAvailable));
+
+        Assert.Equal("lib/net10.0/", selected.PopulationPath);
+    }
+
+    [Fact]
     public void MissingCompilePopulationSelectsOneRuntimePopulation()
     {
         var content = Content(
             "runtimes/linux-x64/lib/net8.0/Older.dll",
-            "runtimes/linux-x64/lib/net10.0/Current.dll");
+            "runtimes/linux-x64/lib/NET10.0/Current.dll");
 
         var selected =
             Assert.IsType<PackageLibraryPopulationSelection.Runtime>(
@@ -51,10 +64,10 @@ public sealed class PackageLibraryPopulationSelectorTests
         Assert.Equal("net10.0", runtime.Universe.TargetFramework);
         Assert.Equal("linux-x64", runtime.Universe.RuntimeIdentifier);
         Assert.Equal(
-            "runtimes/linux-x64/lib/net10.0/Current.dll",
+            "runtimes/linux-x64/lib/NET10.0/Current.dll",
             Assert.Single(runtime.Universe.Assets).EntryPath);
         Assert.Equal(
-            "runtimes/linux-x64/lib/net10.0/",
+            "runtimes/linux-x64/lib/NET10.0/",
             selected.PopulationPath);
     }
 
@@ -128,10 +141,10 @@ public sealed class PackageLibraryPopulationSelectorTests
         var content = ContentWithBytes(
             ("example.nuspec", ToolNuspec("Example", "1.0.0")),
             ("tools/net8.0/any/Older.dll", [1]),
-            ("tools/net10.0/any/Tool.dll", [2]),
-            ("tools/net10.0/any/runtimes/win/lib/net10.0/Companion.dll", [3]),
-            ("tools/net10.0/any/runtimes/win/native/Native.dll", [4]),
-            ("tools/net10.0/any/fr/Tool.resources.dll", [5]));
+            ("tools/NET10.0/any/Tool.dll", [2]),
+            ("tools/NET10.0/any/runtimes/win/lib/net10.0/Companion.dll", [3]),
+            ("tools/NET10.0/any/runtimes/win/native/Native.dll", [4]),
+            ("tools/NET10.0/any/fr/Tool.resources.dll", [5]));
 
         var selected =
             Assert.IsType<PackageLibraryPopulationSelection.Tool>(
@@ -150,15 +163,15 @@ public sealed class PackageLibraryPopulationSelectorTests
             content.GenerationIdentity,
             selected.ToolEvidence.Generation);
         Assert.Equal(
-            "net10.0",
+            "NET10.0",
             selected.ToolSelection.SelectedTargetFramework);
         Assert.Equal(
             [
-                "tools/net10.0/any/Tool.dll",
-                "tools/net10.0/any/runtimes/win/lib/net10.0/Companion.dll",
+                "tools/NET10.0/any/Tool.dll",
+                "tools/NET10.0/any/runtimes/win/lib/net10.0/Companion.dll",
             ],
             selected.ToolSelection.SelectedEntries);
-        Assert.Equal("tools/net10.0/any/", selected.PopulationPath);
+        Assert.Equal("tools/NET10.0/any/", selected.PopulationPath);
     }
 
     [Fact]

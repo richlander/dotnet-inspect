@@ -31,9 +31,7 @@ public abstract record PackageLibraryPopulationSelection
         {
             PackageCompileAsset asset =
                 compileReceipt.Selection.Assets[0];
-            PopulationPath = GetFrameworkPopulationPath(
-                asset.Path,
-                asset.TargetFramework);
+            PopulationPath = asset.PopulationPath;
         }
     }
 
@@ -49,13 +47,7 @@ public abstract record PackageLibraryPopulationSelection
             RuntimeReceipt = runtimeReceipt;
             var selected =
                 (PackageAssetSelection.Selected)runtimeReceipt.Selection;
-            PopulationPath =
-                selected.Universe.RuntimeIdentifier is { Length: > 0 } rid
-                    ? $"runtimes/{rid}/lib/"
-                        + $"{selected.Universe.TargetFramework}/"
-                    : GetFrameworkPopulationPath(
-                        selected.Universe.Assets[0].EntryPath,
-                        selected.Universe.TargetFramework);
+            PopulationPath = selected.Universe.PopulationPath;
         }
 
         public PackageAssetSelectionReceipt RuntimeReceipt { get; }
@@ -88,8 +80,7 @@ public abstract record PackageLibraryPopulationSelection
             RuntimeReceipt = runtimeReceipt;
             ToolEvidence = toolEvidence;
             ToolSelection = toolSelection;
-            PopulationPath =
-                $"tools/{toolSelection.SelectedTargetFramework}/any/";
+            PopulationPath = toolSelection.PopulationPath;
         }
 
         public PackageAssetSelectionReceipt RuntimeReceipt { get; }
@@ -134,21 +125,6 @@ public abstract record PackageLibraryPopulationSelection
         public PackageToolSliceSelection? ToolSelection { get; }
 
         public bool ToolDeclarationUnavailable { get; }
-    }
-
-    private static string GetFrameworkPopulationPath(
-        string assetPath,
-        string targetFramework)
-    {
-        string[] segments = assetPath.Split('/');
-        int populationSegments =
-            segments.Length > 2
-            && segments[1].Equals(
-                targetFramework,
-                StringComparison.OrdinalIgnoreCase)
-                ? 2
-                : 1;
-        return $"{string.Join('/', segments[..populationSegments])}/";
     }
 }
 

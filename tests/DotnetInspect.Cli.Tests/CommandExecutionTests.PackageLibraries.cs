@@ -1340,13 +1340,13 @@ public partial class CommandExecutionTests
 
     [Theory]
     [InlineData(
-        "runtimes/linux-x64/lib/net10.0/System.Runtime.dll",
+        "runtimes/linux-x64/lib/NET10.0/System.Runtime.dll",
         null,
-        "runtimes/linux-x64/lib/net10.0/")]
+        "runtimes/linux-x64/lib/NET10.0/")]
     [InlineData(
-        "tools/net10.0/any/lib/System.Runtime.dll",
+        "tools/NET10.0/any/lib/System.Runtime.dll",
         "DotnetToolRidPackage",
-        "tools/net10.0/any/")]
+        "tools/NET10.0/any/")]
     public async Task
         PackageCommand_NamesakeLibrary_NamesTheSelectedPopulation(
             string assetPath,
