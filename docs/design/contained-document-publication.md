@@ -116,6 +116,20 @@ Containment constructs one `InertString` or `InertUtf8String` for every
 presentation leaf under that leaf's declared policy. It does not sanitize
 structure, rewrite actionable values, or choose whether a leaf is displayed.
 
+The leaf owner's retained representation decides which contained currency is
+authoritative. A typed UTF-8 source constructs `InertUtf8String` and may write
+that contained spelling directly to a byte sink. A string-only lowering
+projects the same value through `InertUtf8String.ToInertString()`; it does not
+independently re-contain or reinterpret the untreated source. An
+already-decoded or parser-generated UTF-16 leaf may construct `InertString`
+directly rather than round-tripping through UTF-8.
+
+Both routes implement one representation-neutral Inert Text contract:
+`TextPolicy`, canonical visual spelling, concern evidence, and form evidence
+cannot vary by currency. Keeping the UTF-8 and UTF-16 emitters aligned, and
+extracting shared spelling mechanics when needed to prevent drift, remains an
+Inert Text responsibility rather than a contained-document responsibility.
+
 The containing operation returns leaf identity with each contained value.
 Before constructing a contained document, composition verifies:
 
@@ -264,6 +278,20 @@ this slice and preserves exact package-document transfer unchanged.
 export. `PackageInspectionTextTests` and `MarkoutRowContainmentTests` gate the
 existing package-metadata and declared-row boundaries.
 
+A future byte-native README presentation remains a leaf-containment path. When
+the source owner retains typed UTF-8 and the sink accepts bytes, its intended
+flow is:
+
+```text
+typed UTF-8 source -> InertUtf8String -> byte sink
+                                      -> InertString only for a string sink
+```
+
+That flow is distinct from exact export. Exact export writes the admitted
+untreated package bytes through the exact-output capability; presentation
+constructs the policy-contained UTF-8 value before writing bytes. Neither path
+requires a document wrapper merely because its storage is byte-native.
+
 A future CLI consumer must adopt this pattern if it parses or sanitizes an
 externally authored document grammar, retains that source's structure, and
 publishes the resulting structure through Markout or another host sink. Merely
@@ -320,7 +348,9 @@ this table.
 4. Assess the CLI/Markout boundary and adopt only an identified externally
    authored structured-document consumer. The #10260 assessment found no
    adopter and preserves the existing exact-transfer and leaf-containment
-   boundaries.
+   boundaries. It records `InertUtf8String` as the authoritative presentation
+   value for a future typed UTF-8 README path, with `InertString` only as its
+   string-sink projection.
 5. Retire the transitional Browser whole-HTML containment operation.
 
 The Browser package README is the first production consumer. Additional
