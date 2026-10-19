@@ -136,7 +136,8 @@ The owner defines:
 - composition of owner-issued package source, version, pruning, payload,
   asset-selection, and dependency capabilities;
 - composition of one Navigation-issued Library-population demand with compile
-  precedence and typed one-RID runtime fallback;
+  precedence, typed one-RID runtime fallback, and declaration-authenticated
+  tool fallback when runtime selection has no match;
 - package-local compile-selection policy and preservation of the complete
   owner-issued inventory beside its selected projection;
 - the House result envelope and terminal outcome;
@@ -158,7 +159,8 @@ It does not define:
 - platform/package pruning inventory or comparison;
 - dependency candidate resolution or graph traversal;
 - package archive admission, content generation, or cache publication;
-- compile, runtime, resource, analyzer, or build asset selection;
+- compile, runtime, tool, resource, analyzer, or build asset selection;
+- tool declaration grammar or tool-slice membership;
 - framework compatibility, compile-slice ranking, asset-role preference,
   empty-group interpretation, or managed-image classification;
 - artifact identity, Workspace admission, revisions, leases, replacement, or
@@ -1540,9 +1542,10 @@ Dependency traversal has adopted one host-issued Package Source operation for
 its sequential candidate and manifest schedule. CLI and Browser/Wasm traversal
 adapters now retain explicit authorization and consume the transferred
 operation instead of retaining a settlement root or
-`DesktopPackageSourceComposition` manifest adapter. Concurrent package-license
-inventory remains a separate successor because one operation lease admits only
-one active source step.
+`DesktopPackageSourceComposition` manifest adapter. Dependency license
+inventory now retains explicit authorization and issues an independent
+operation for every concurrent manifest acquisition under one shared
+inventory deadline; each lease still admits only one active source step.
 
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
@@ -1696,6 +1699,13 @@ counted production-adoption steps:
 11. Move remaining package components from `DotnetInspector.Services`, remove
     direct host bypasses and the desktop composition identity, and close or
     supersede #4653.
+
+Dependency license inventory no longer transfers a compatibility
+`NuGetOperationContext` through `DesktopPackageSourceComposition`. Its
+deterministic eight-way manifest schedule issues independent Package Source
+operations under one inventory deadline, leaving each lease's one-active-step
+contract unchanged. The composition and settlement root no longer expose a
+direct candidate-manifest compatibility operation.
 
 Each step after this design is separately reviewed and leaves a usable
 product. A direct path is retired only after its House replacement is live in

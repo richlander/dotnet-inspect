@@ -805,7 +805,7 @@ internal static class PackageContentAdmission
         }
     }
 
-    static byte[]? ReadBounded(
+    internal static byte[]? ReadBounded(
         Stream source,
         long maxBytes,
         CancellationToken cancellationToken)
