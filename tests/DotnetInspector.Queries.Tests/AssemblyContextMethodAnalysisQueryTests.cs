@@ -211,6 +211,25 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
+    public async Task MethodAnalysis_MissingMethodDefIsAVisibleParticipantFailure()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+
+        var failed = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Failed>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    0x06FF_FFFF,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains("not a MethodDef in", failed.Error.Message);
+    }
+
+    [Fact]
     public async Task MethodAnalysis_BodylessMethodIsAVisibleParticipantFailure()
     {
         byte[] image = File.ReadAllBytes(

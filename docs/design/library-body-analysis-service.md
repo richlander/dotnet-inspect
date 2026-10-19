@@ -1574,6 +1574,9 @@ The initial Release gates are:
 - existing `AssemblyContextMethodAnalysisQueryTests` for exact physical
   method evidence, visible participant failures, resolver use, and
   cancellation;
+- `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` for the first
+  exact-member producer's one-body source receipt and identity, direct-call,
+  safety, diagnostic, and exception-region parity with this donor;
 - existing `AssemblyContextOptimizationOpportunitiesQueryTests` for ranking,
   public-member attribution, participant isolation, resolver use, and visible
   failure; and
@@ -1593,6 +1596,15 @@ The initial Release gates are:
 
 No source-code absence gate enforces service usage. Consumer migration is
 established by the production call sites and focused behavior gates.
+
+`AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
+`ExactMethodAnalysisProducer` owns semantic identity, direct calls,
+same-module caller contracts, safety evidence and occurrences, diagnostics,
+and detached physical exception regions. This service still owns the query's
+final `MethodSignals`, allocation occurrences, and optimization opportunities.
+Those retained products may incidentally perform work that the focused
+producer also needs; #9832 moves result ownership and planning authority but
+does not claim that incidental donor work is retired.
 
 Each result-type migration additionally gates:
 
