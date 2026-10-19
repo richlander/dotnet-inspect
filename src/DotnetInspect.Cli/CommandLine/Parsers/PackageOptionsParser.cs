@@ -177,6 +177,8 @@ public static class PackageOptionsParser
     /// </summary>
     private static string? InvalidPackageReferenceReason(string packageArg)
     {
+        if (PackageReferenceAdmission.IsCandidate(packageArg))
+            return null;
         if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
             || File.Exists(packageArg)
             || Directory.Exists(packageArg))
@@ -243,6 +245,7 @@ public static class PackageOptionsParser
 
         PackageReferenceTarget? selectedTarget =
             packageArgs is [var selectedPackageReference]
+                && !PackageReferenceAdmission.IsCandidate(selectedPackageReference)
                 ? PackageExtractor.ParsePackageTarget(
                     selectedPackageReference)
                 : null;
