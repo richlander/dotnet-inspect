@@ -319,11 +319,17 @@ public static class EcosystemFindIndexJson
             symbol.Member is null ? null : FromEvidence(symbol.Member),
             InertString.FromEncoded(TextPolicy.Field, symbol.Display),
             [
-                .. symbol.Concepts.Select(concept =>
-                    new EcosystemFindIndexConceptAssociation(
-                        concept.ConceptId,
-                        concept.Kind)),
+                .. symbol.Concepts.Select(FromConcept),
             ]);
+    }
+
+    private static EcosystemFindIndexConceptAssociation FromConcept(
+        EcosystemFindIndexConceptDocument concept)
+    {
+        ArgumentNullException.ThrowIfNull(concept);
+        return new(
+            concept.ConceptId,
+            concept.Kind);
     }
 
     private static EcosystemFindIndexGap FromGap(

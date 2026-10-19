@@ -267,6 +267,11 @@ public class EcosystemFindIndexTests
                     StringComparison.Ordinal)),
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
+                    "\"concepts\":[{",
+                    "\"concepts\":[null,{",
+                    StringComparison.Ordinal)),
+            bytes => Encoding.UTF8.GetBytes(
+                Encoding.UTF8.GetString(bytes).Replace(
                     "\"integrationCatalogRevision\":"
                         + IntegrationConceptCatalog.Revision.Number,
                     "\"integrationCatalogRevision\":999999",
