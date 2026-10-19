@@ -430,9 +430,10 @@ account for part of each delta, not all of it.
   also repeated a Library Metrics read and dated one more version, and
   skipped several of the baseline's member probes.
 - **B4 (+1):** a search and read for Array Pool Escapes' scope, and an
-  `explain callers` search that dead-ended. Among other differences, two
-  calls failed on the correctness skill's `library coordinate` guidance and
-  two more read help to recover.
+  `explain callers` search that dead-ended. Among other differences,
+  `library coordinate` and `library address` rejected the skill's
+  `--namesake-library` target form in two calls (#10281), and two more read
+  help to recover.
 
 The E3 and H3 participants were given work directories under the same
 inherited configuration; the logs do not record whether they ran from them.
