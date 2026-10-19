@@ -178,9 +178,11 @@ them in no more calls than the skill.
 
 Efficacy is whether each review reaches the task's predetermined material
 findings with correct evidence classes and qualifications. Efficiency is
-invocations, rounds, tool time, and bytes read. Comparisons hold the product
-revision, tasks, subjects, cache state, and participant configuration fixed, and remain
-descriptive evidence rather than a regression gate.
+invocations, rounds, tool time, and bytes read. Comparisons hold the tasks,
+rubric, subjects, cache state, and participant configuration fixed. Each
+variant runs against its own build, and product changes between builds are
+recorded beside the deltas. Comparisons remain descriptive evidence rather
+than a regression gate.
 
 ## Result validation
 
@@ -421,14 +423,14 @@ account for part of each delta, not all of it.
   The participant also made two Unsafe Members probes. The baseline and
   adopted B1 participants recovered README text the same way.
 - **B2 (0):** no explanation calls. Equal only as a net count: the
-  participant spent five calls recovering from string-literal diff errors and
-  three re-running the literal checks, where the baseline spent calls on a
+  participant spent five calls on failed string-literal diffs and a help read,
+  and three re-running the literal checks, where the baseline spent calls on a
   repeated breaking diff and Unsafe Members probes.
 - **B3 (+4):** one read of Dependency Structure's fields, and one search,
   `explain clones`, which led to three Member Clone Candidates probes on a
   route the skill does not name. Among other differences, the participant
   also repeated a Library Metrics read and dated one more version, and
-  skipped several of the baseline's member probes.
+  skipped several of the baseline's probes, mostly `type` probes.
 - **B4 (+1):** a search and read for Array Pool Escapes' scope, and an
   `explain callers` search that dead-ended. Among other differences,
   `library coordinate` and `library address` rejected the skill's
