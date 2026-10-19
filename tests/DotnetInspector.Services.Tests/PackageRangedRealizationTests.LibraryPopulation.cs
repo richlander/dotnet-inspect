@@ -96,6 +96,54 @@ public sealed partial class PackageRangedRealizationTests
 
     [Fact]
     public async Task
+        LibraryPopulation_CachedCompileSettlesWithoutManifestAcquisition()
+    {
+        const string PackageId = "CachedCompile";
+        const string Version = "1.0.0";
+        byte[] archive = TestPackageArchive.CreateWithContent(
+            ($"{PackageId}.nuspec", OrdinaryNuspec(PackageId, Version)),
+            ("lib/net10.0/CachedCompile.dll", new byte[13]));
+        var store = new InMemoryPackageStore();
+        var server = new RangeFeed(PackageId, Version, archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                store,
+                PackagePayloadAccess.Complete,
+                "net10.0",
+                sizeCut: archive.Length,
+                PackageId,
+                Version,
+                selection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation));
+        int manifestRequests = server.ManifestRequests;
+        server.ManifestDelay = TimeSpan.FromSeconds(1);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                store,
+                PackagePayloadAccess.Ranged,
+                "net10.0",
+                sizeCut: 0,
+                PackageId,
+                Version,
+                selection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation,
+                operationTimeout:
+                    TimeSpan.FromMilliseconds(50)));
+
+        Assert.IsType<PackageHouseResult.Settled>(acquired.Result);
+        var realization = Assert.IsType<
+            PackageHouseRealizationReceipt.LibraryPopulation>(
+                acquired.Result.Evidence.Realization);
+        Assert.IsType<PackageLibraryPopulationSelection.Compile>(
+            realization.Selection);
+        Assert.Equal(manifestRequests, server.ManifestRequests);
+    }
+
+    [Fact]
+    public async Task
         LibraryPopulation_DeclaredToolReadsOnlyTheSelectedToolLibraries()
     {
         const string PackageId = "DeclaredTool";
@@ -113,12 +161,13 @@ public sealed partial class PackageRangedRealizationTests
             ("analyzers/dotnet/cs/Analyzer.dll", new byte[29]),
             ("build/net10.0/Task.dll", new byte[31]));
         var server = new RangeFeed(PackageId, Version, archive);
+        var store = new InMemoryPackageStore();
         await using RangedEnvironment environment =
             RangedEnvironment.Create(server);
 
         var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
             await environment.RealizeAsync(
-                new InMemoryPackageStore(),
+                store,
                 PackagePayloadAccess.Ranged,
                 "net10.0",
                 sizeCut: 0,
@@ -164,6 +213,86 @@ public sealed partial class PackageRangedRealizationTests
                 .Order(StringComparer.Ordinal));
         Assert.Equal(1, server.ManifestRequests);
         Assert.Equal(0, server.FullRequests);
+        PackageTransferReceipt transfer =
+            Transfer(acquired, PackagePayloadOrigin.Ranged);
+        Assert.Equal(
+            server.FullRequests + server.RangedRequests,
+            transfer.RequestCount);
+        int packageRequests =
+            server.FullRequests + server.RangedRequests;
+
+        var cached = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                store,
+                PackagePayloadAccess.Ranged,
+                "net10.0",
+                sizeCut: 0,
+                PackageId,
+                Version,
+                selection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation,
+                libraryHandoff:
+                    PackageHouseLibraryHandoffMode.SelectedLibraries));
+
+        Assert.IsType<PackageHouseResult.Settled>(cached.Result);
+        PackageTransferReceipt cachedTransfer =
+            Transfer(cached, PackagePayloadOrigin.Cache);
+        Assert.Equal(PackageTransferPath.EntryCache, cachedTransfer.Path);
+        Assert.Equal(0, cachedTransfer.RequestCount);
+        Assert.Equal(
+            packageRequests,
+            server.FullRequests + server.RangedRequests);
+    }
+
+    [Fact]
+    public async Task
+        LibraryPopulation_ManifestCannotAuthorizeAnotherAuthorityPayload()
+    {
+        const string PackageId = "CrossSourceTool";
+        const string Version = "1.0.0";
+        byte[] declared = TestPackageArchive.CreateWithContent(
+            ($"{PackageId}.nuspec", ToolNuspec(PackageId, Version)),
+            ("tools/net10.0/any/Declared.dll", new byte[11]));
+        byte[] undeclared = TestPackageArchive.CreateWithContent(
+            ($"{PackageId}.nuspec", OrdinaryNuspec(PackageId, Version)),
+            ("tools/net10.0/any/Undeclared.dll", new byte[13]));
+        var manifestOnly = new RangeFeed(PackageId, Version, declared)
+        {
+            Host = "manifest-only.example",
+            RangedStatus = System.Net.HttpStatusCode.NotFound,
+            FullRequestStatus = System.Net.HttpStatusCode.NotFound,
+        };
+        var payloadOnly = new RangeFeed(PackageId, Version, undeclared)
+        {
+            Host = "payload-only.example",
+        };
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(manifestOnly, payloadOnly);
+
+        var acquired = Assert.IsType<PackageHouseSettlement.Acquired>(
+            await environment.RealizeAsync(
+                new InMemoryPackageStore(),
+                PackagePayloadAccess.Ranged,
+                "net10.0",
+                sizeCut: 0,
+                PackageId,
+                Version,
+                selection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation));
+
+        Assert.IsType<PackageHouseResult.NoMatch>(acquired.Result);
+        var realization = Assert.IsType<
+            PackageHouseRealizationReceipt.LibraryPopulation>(
+                acquired.Result.Evidence.Realization);
+        var population = Assert.IsType<
+            PackageLibraryPopulationSelection.NonSuccess>(
+                realization.Selection);
+        Assert.False(population.ToolDeclarationUnavailable);
+        Assert.Empty(
+            Assert.IsType<RangedPackageContent>(acquired.Payload.Content)
+                .MaterializedEntries);
+        Assert.Equal(0, manifestOnly.ManifestRequests);
+        Assert.Equal(1, payloadOnly.ManifestRequests);
     }
 
     [Fact]

@@ -672,6 +672,19 @@ internal sealed class PackageSourceSettlementGeneration
             operationContext);
     }
 
+    internal Task<ConfiguredPackageManifestResult>
+        AcquireCandidateManifestAsync(
+        PackageAcquisitionCandidate candidate,
+        NuGetOperationContext operationContext,
+        ConfiguredPackageAuthority requiredAuthority)
+    {
+        return _manifestAcquirer.AcquireAsync(
+            candidate,
+            operationContext.CancellationToken,
+            operationContext,
+            requiredAuthority);
+    }
+
     /// <summary>
     /// Acquires one exact admitted retained payload through a candidate issued
     /// by this generation.
@@ -700,6 +713,32 @@ internal sealed class PackageSourceSettlementGeneration
             transferPolicy,
             operationContext,
             rangedRead);
+    }
+
+    internal Task<ConfiguredPackagePayloadResult>
+        AcquireCandidatePayloadAsync(
+        PackageAcquisitionCandidate candidate,
+        Func<
+            ConfiguredPackageAuthority,
+            PackageProducerIdentity,
+            IPackageStore> createStore,
+        NuGetOperationContext operationContext,
+        ConfiguredPackageAuthority requiredAuthority,
+        Action<string>? log = null,
+        PackagePayloadLimits? limits = null,
+        IPackagePayloadTransferPolicy? transferPolicy = null,
+        PackageRangedRead? rangedRead = null)
+    {
+        return _payloadAcquirer.AcquireAsync(
+            candidate,
+            createStore,
+            log,
+            limits,
+            operationContext.CancellationToken,
+            transferPolicy,
+            operationContext,
+            rangedRead,
+            requiredAuthority);
     }
 
     internal Task<ConfiguredPackagePayloadResult>

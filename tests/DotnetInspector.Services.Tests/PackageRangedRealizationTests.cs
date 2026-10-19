@@ -824,7 +824,8 @@ public sealed partial class PackageRangedRealizationTests
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
                 PackageHouseLibraryCompanionDemand.None,
-            IPackagePayloadTransferPolicy? transferPolicy = null)
+            IPackagePayloadTransferPolicy? transferPolicy = null,
+            TimeSpan? operationTimeout = null)
         {
             // The real assets here are small, so the ranged gates set a zero
             // size cut; directory-first cutoff behavior is gated separately.
@@ -839,7 +840,9 @@ public sealed partial class PackageRangedRealizationTests
             var request = new PackageHouseRequest(
                 new PackageHouseDemand.Exact(
                     PackageSourceCoordinate.Create(packageId, version)),
-                PackageHouseOperation.Create(PackageHouseOperationProfile.Realize),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize,
+                    operationTimeout: operationTimeout),
                 PackageHouseTargetContext.Exact(framework),
                 selection,
                 libraryHandoff,
@@ -1026,6 +1029,8 @@ public sealed partial class PackageRangedRealizationTests
 
         public bool ServeManifest { get; init; } = true;
 
+        public TimeSpan ManifestDelay { get; set; }
+
         /// <summary>Answer complete requests without a Content-Length.</summary>
         public bool OmitLength { get; init; }
 
@@ -1081,16 +1086,7 @@ public sealed partial class PackageRangedRealizationTests
                 == $"{FlatUrl}{lower}/{version}/{lower}.nuspec")
             {
                 Interlocked.Increment(ref _manifestRequests);
-                return Task.FromResult(
-                    Respond(
-                        request,
-                        !ServeManifest || _manifest is null
-                            ? HttpStatusCode.NotFound
-                            : HttpStatusCode.OK,
-                        new ByteArrayContent(
-                            ServeManifest
-                                ? _manifest ?? []
-                                : [])));
+                return RespondManifestAsync(request, cancellationToken);
             }
             if (url != $"{FlatUrl}{lower}/{version}/{lower}.{version}.nupkg")
                 return Task.FromResult(Respond(request, HttpStatusCode.NotFound, new ByteArrayContent([])));
@@ -1156,6 +1152,24 @@ public sealed partial class PackageRangedRealizationTests
                 request, HttpStatusCode.PartialContent, content);
             partial.Headers.ETag = new EntityTagHeaderValue("\"pcl\"");
             return Task.FromResult(partial);
+        }
+
+        private async Task<HttpResponseMessage> RespondManifestAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (ManifestDelay > TimeSpan.Zero)
+                await Task.Delay(ManifestDelay, cancellationToken);
+
+            return Respond(
+                request,
+                !ServeManifest || _manifest is null
+                    ? HttpStatusCode.NotFound
+                    : HttpStatusCode.OK,
+                new ByteArrayContent(
+                    ServeManifest
+                        ? _manifest ?? []
+                        : []));
         }
 
         private static byte[]? ReadRootManifest(byte[] package)
