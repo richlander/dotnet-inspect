@@ -322,15 +322,16 @@ public sealed class BrowserMemberDeclarationTests
         JsonElement spellingType = Type(surfaceDocument.RootElement, SpellingType);
         JsonElement pointerFree = Member(spellingType, "PointerFreeUnsafeMethod");
         JsonElement pointerNone = Member(spellingType, "PointerNoneMethod");
+        string singletonGroupJson =
+            await MetadataExports.QueryMemberGroupDocument(
+                PackageId,
+                Version,
+                Framework,
+                AssemblyFileName,
+                SpellingType,
+                "PointerFreeUnsafeMethod");
         BrowserMemberGroupDocumentInspection singletonGroup =
-            MemberGroupDocument(
-                await MetadataExports.QueryMemberGroupDocument(
-                    PackageId,
-                    Version,
-                    Framework,
-                    AssemblyFileName,
-                    SpellingType,
-                    "PointerFreeUnsafeMethod"));
+            MemberGroupDocument(singletonGroupJson);
         Assert.Equal(
             BrowserMemberGroupDocumentOutcome.Available,
             singletonGroup.Outcome);
@@ -347,6 +348,19 @@ public sealed class BrowserMemberDeclarationTests
             "PointerFreeUnsafeMethod",
             singletonRow.DisplaySignature,
             StringComparison.Ordinal);
+        using (JsonDocument singletonGroupWire =
+               JsonDocument.Parse(singletonGroupJson))
+        {
+            JsonElement wireRow = singletonGroupWire.RootElement
+                .GetProperty("document")
+                .GetProperty("rows")[0];
+            Assert.False(wireRow.TryGetProperty(
+                "canonicalSignature",
+                out _));
+            Assert.False(wireRow.TryGetProperty(
+                "fingerprint",
+                out _));
+        }
 
         BrowserMemberDocumentInspection ordinalMember =
             MemberDocument(
@@ -359,6 +373,12 @@ public sealed class BrowserMemberDeclarationTests
                     "PointerFreeUnsafeMethod",
                     singletonRow.BaselineOrdinal,
                     ""));
+        Assert.Equal(
+            BrowserMemberDocumentOutcome.Available,
+            ordinalMember.Outcome);
+        BrowserMemberDocument exactDocument =
+            Assert.IsType<BrowserMemberDocument>(
+                ordinalMember.Document);
         BrowserMemberDocumentInspection fingerprintMember =
             MemberDocument(
                 await MetadataExports.QueryMemberDocument(
@@ -369,13 +389,7 @@ public sealed class BrowserMemberDeclarationTests
                     SpellingType,
                     "PointerFreeUnsafeMethod",
                     0,
-                    singletonRow.Fingerprint));
-        Assert.Equal(
-            BrowserMemberDocumentOutcome.Available,
-            ordinalMember.Outcome);
-        BrowserMemberDocument exactDocument =
-            Assert.IsType<BrowserMemberDocument>(
-                ordinalMember.Document);
+                    exactDocument.Fingerprint));
         Assert.Equal(SpellingType, exactDocument.TypeIdentity);
         Assert.Equal(
             "PointerFreeUnsafeMethod",
@@ -386,9 +400,6 @@ public sealed class BrowserMemberDeclarationTests
         Assert.Equal(
             singletonRow.BaselineOrdinal,
             exactDocument.BaselineOrdinal);
-        Assert.Equal(
-            singletonRow.CanonicalSignature,
-            exactDocument.CanonicalSignature);
         Assert.Equivalent(
             exactDocument,
             Assert.IsType<BrowserMemberDocument>(
