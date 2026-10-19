@@ -839,6 +839,9 @@ rules, this document describes subsystem ownership, and
   bounded-before-prefix scheduling, distinct-source deduplication,
   cross-Ecosystem membership reduction, durable Find blocks, and terminal
   completion for CLI and Browser adoption.
+- [Ecosystem Find Index](design/ecosystem-find-index.md): deterministic
+  scanner-admitted Integration symbols and generation coverage for early
+  Ecosystem prefix Find evaluation before authoritative live search.
 - [Type Find population
   selection](design/type-find-population-selection.md): host-neutral
   first-nonempty Prefix, Substring, and Partial settlement over one complete

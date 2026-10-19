@@ -178,7 +178,11 @@ A location-intent declaration has one of two sources:
   product-triggering Browser gesture captures its intended push, replace, or
   no-write policy before its first asynchronous prerequisite. A returned
   result carries that originating identity; completion cannot mint a newer
-  identity or derive one from then-current UI state.
+  identity or derive one from then-current UI state. One Performance Triage
+  row gesture therefore records only its
+  final Member destination. Type and Member loading presentations rendered
+  while resolving that destination neither publish a URL nor enter history;
+  one Back restores the exact Library Analysis predecessor.
 
 Only the current location-intent identity may publish location. A newer browser
 selection replaces any older unresolved browser selection because the browser
@@ -1151,6 +1155,12 @@ outcomes.
 8. Supersede a Back restoration with Forward, then return a non-posting
    outcome for the current Forward restoration. Confirm that only the newest
    traversal serial may realign the selected entry.
+9. From Library Analysis / Performance Triage, activate one ranked row from
+   the `Microsoft.Extensions.AI.OpenAI` 10.11.0 `net10.0` production witness.
+   Confirm that Type and Member loading presentations do not replace the
+   Analysis address or enter product history, the exact Member/Facts
+   destination is committed once, and one product Back returns directly to
+   Performance Triage.
 
 ### Type Explorer route acceptance
 

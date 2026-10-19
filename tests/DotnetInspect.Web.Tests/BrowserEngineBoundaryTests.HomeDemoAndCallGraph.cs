@@ -865,9 +865,14 @@ public sealed partial class BrowserEngineBoundaryTests
             Kind: null,
             CallTreeStatus.Leaf,
             Children: []);
-        CallGraphProjection projection = CallGraphProjection.FromCallees(tree);
+        AssemblyContextMemberCallGraphDocument document =
+            AssemblyContextMemberCallGraphQuery.Project(
+                new MemberCallGraphView(
+                    CallGraphTier.Callees,
+                    tree,
+                    CallerRoot: null));
 
-        string mermaid = BrowserCallGraphProjection.Mermaid(projection);
+        string mermaid = BrowserCallGraphProjection.Mermaid(document);
 
         Assert.Contains(
             "&#92;u202E&#92;uD800-Caf\u00E9\U0001F600",
@@ -917,7 +922,11 @@ public sealed partial class BrowserEngineBoundaryTests
             new CallTreePerf(0, 0, 1, false));
 
         string mermaid = BrowserCallGraphProjection.Mermaid(
-            CallGraphProjection.FromCallees(root));
+            AssemblyContextMemberCallGraphQuery.Project(
+                new MemberCallGraphView(
+                    CallGraphTier.Callees,
+                    root,
+                    CallerRoot: null)));
 
         Assert.Contains("n0 -- loop --> n1", mermaid);
         Assert.Contains("n0 --> n2", mermaid);
@@ -1610,32 +1619,28 @@ public sealed partial class BrowserEngineBoundaryTests
             ImmutableArray<TypeRef>.Empty,
             returnType,
             MemberKind.Method);
-        CallGraphNode[] nodes =
+        AssemblyContextMemberCallGraphNode[] nodes =
         [
             new(
                 0,
-                GraphNodeIdentity.FromMember(member),
                 member,
                 "focus",
-                CallGraphNodeKind.Focus),
+                AssemblyContextMemberCallGraphNodeKind.Focus),
             new(
                 1,
-                GraphNodeIdentity.FromMember(member),
                 member,
                 "normal",
-                CallGraphNodeKind.Normal),
+                AssemblyContextMemberCallGraphNodeKind.Normal),
             new(
                 2,
-                GraphNodeIdentity.FromMember(member),
                 member,
                 "external",
-                CallGraphNodeKind.External),
+                AssemblyContextMemberCallGraphNodeKind.External),
             new(
                 3,
-                GraphNodeIdentity.FromMember(arrayMember),
                 arrayMember,
                 "array",
-                CallGraphNodeKind.Normal),
+                AssemblyContextMemberCallGraphNodeKind.Normal),
         ];
 
         BrowserCallGraphTargetInfo[] targets = BrowserCallGraphProjection.Targets(
@@ -1690,12 +1695,11 @@ public sealed partial class BrowserEngineBoundaryTests
             [TypeRef.CoreLib("System", "String")],
             TypeRef.CoreLib("System", "Void"),
             MemberKind.Method);
-        var node = new CallGraphNode(
+        var node = new AssemblyContextMemberCallGraphNode(
             0,
-            GraphNodeIdentity.FromMember(member),
             member,
             "TextWriter.WriteLine",
-            CallGraphNodeKind.Normal,
+            AssemblyContextMemberCallGraphNodeKind.Normal,
             DefinitionAssemblyIdentity: definition);
 
         BrowserCallGraphTargetInfo target = Assert.Single(
