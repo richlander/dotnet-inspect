@@ -214,12 +214,11 @@ calls. `ConfigureHost` configures shared `DotnetInspect.Web.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 40 exports
+### Package facade: 39 exports
 
 Package acquisition, content, dependencies, documentation, and ranking:
 
 - `ClassifyPackageGraphIdentities`
-- `ContainPackageDocumentHtml`
 - `GetPackageDocument`
 - `MatchPackageDependencyCoordinate`
 - `PackageCacheStats`
