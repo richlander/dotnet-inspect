@@ -159,6 +159,82 @@ public sealed class ArtifactRootPublicationTests
     }
 
     [Fact]
+    public async Task ContentOnlyPackageAdmission_PreservesSelectionWithoutOpeningDlls()
+    {
+        await using var workspace = new InspectionWorkspace();
+        int opens = 0;
+        PackageRootBinding library = Binding(
+            "Content.Only", malformed: true, onOpen: () => opens++);
+        PackageRootBinding content = library.ForContentInspection();
+        Assert.Same(library.ContentGenerationIdentity, content.ContentGenerationIdentity);
+        Assert.Same(library.SelectionIdentity, content.SelectionIdentity);
+        Assert.Equal(library.Root.AssetSelection.Status, content.Root.AssetSelection.Status);
+        Assert.Equal(library.Root.AssetSelection.Assets, content.Root.AssetSelection.Assets);
+        Assert.NotEqual(
+            workspace.CreatePackageArtifactRootCorrespondence(library),
+            workspace.CreatePackageArtifactRootCorrespondence(content));
+
+        WorkspaceScopeReadResult.Available initial =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync());
+        WorkspaceScopeOperationResult.Committed committed =
+            Assert.IsType<WorkspaceScopeOperationResult.Committed>(
+                await workspace.AddPackagesAsync(
+                    initial.Snapshot.Revision, [content],
+                    DateTimeOffset.UtcNow.AddMinutes(5),
+                    TestContext.Current.CancellationToken));
+        WorkspacePackageOccurrenceDescriptor occurrence = Assert.Single(committed.Snapshot.Packages);
+        var correspondence =
+            Assert.IsType<PackageArtifactRootCorrespondence>(occurrence.Occurrence.Correspondence);
+        var ready = Assert.IsType<ArtifactRootRealizationStatus.Ready>(occurrence.Realization.Status);
+        ArtifactRootResult<int> query = await workspace.ExecutePackageRootQueryAsync(
+            correspondence, ready.Generation,
+            (realization, _) =>
+            {
+                Assert.False(realization.HasAssemblyContexts);
+                return ValueTask.FromResult(
+                    content.Root.UseContent(payload => payload.EnumerateEntries().Count()));
+            }, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.Equal(1, Available(query));
+        Assert.Equal(0, opens);
+        Assert.Throws<InvalidOperationException>(() => content.CreateReacquisitionRequest());
+        Assert.Equal(ArtifactRootFailure.PreparationFailed, Rejected(
+            await workspace.PreparePackageArtifactRootsAsync(
+                Authority(workspace), [library], Options)));
+
+        await workspace.CloseAsync();
+        Assert.IsType<ArtifactRootResult<int>.Rejected>(
+            await workspace.ExecutePackageRootQueryAsync(
+                correspondence, ready.Generation,
+                (_, _) => ValueTask.FromResult(0),
+                cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ContentOnlyPackageAdmission_PreservesUnmatchedFramework()
+    {
+        await using var workspace = new InspectionWorkspace();
+        PackageRootBinding binding = Binding(
+            "Package.WrongTarget", entry: "lib/net10.0/Package.WrongTarget.dll")
+            .ForContentInspection();
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoMatchingTargetFramework,
+            binding.Root.AssetSelection.Status);
+        var scope = new ScopeState(workspace.Identity);
+        ArtifactRootPreparationAuthority authority = Authority(workspace);
+        ArtifactRootPreparationReceipt receipt = await Prepare(workspace, authority, binding);
+        ArtifactRootPublicationOutcome published = await workspace.PublishArtifactRootCompositionAsync(
+            await Plan(workspace, scope, authority, [receipt]));
+        ArtifactRootScopeProjection root = Assert.Single(
+            Assert.IsType<ArtifactRootPublishedComposition>(published.Published).Roots);
+        using InspectionWorkspace.ArtifactRootQueryLease query = Available(
+            await workspace.EnterArtifactRootQueryAsync(
+                workspace.Identity, root.Correspondence, Ready(root),
+                cancellationToken: TestContext.Current.CancellationToken));
+        Assert.False(query.Realization.HasAssemblyContexts);
+    }
+
+    [Fact]
     public async Task PackageArtifactRootPreparation_RejectsUnmatchedSelectionRatherThanDroppingInput()
     {
         await using InspectionWorkspace workspace = new InspectionWorkspace();

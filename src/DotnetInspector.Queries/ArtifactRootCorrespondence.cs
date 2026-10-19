@@ -50,7 +50,8 @@ internal readonly record struct PackageArtifactRootRequest(
     string? SelectionRuntimeIdentifier,
     bool HasSelectedImplementationUniverse,
     bool UsesCompatibleImplementationSelection,
-    bool AllowsCompatibleTargetSelection)
+    bool AllowsCompatibleTargetSelection,
+    bool ContentOnly = false)
 {
     internal static PackageArtifactRootRequest From(
         PackageRootBinding binding)
@@ -67,7 +68,10 @@ internal readonly record struct PackageArtifactRootRequest(
             allowsCompatibleTargetSelection:
                 binding.AllowsCompatibleTargetSelection,
             hasSelectedImplementationUniverse:
-                binding.HasSelectedImplementationUniverse);
+                binding.HasSelectedImplementationUniverse) with
+        {
+            ContentOnly = binding.Root.ContentOnly,
+        };
     }
 
     internal static PackageArtifactRootRequest Create(
