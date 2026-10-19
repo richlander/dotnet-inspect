@@ -358,7 +358,9 @@ build, native, tool, satellite, second-RID, and unrelated framework entries
 do not become probe candidates. The CLI consumes the retained role population
 and no longer uses `TfmSelector` to recover from `NoCompileAssets`. When that
 population is runtime-specific, exact and aggregate inspection retain its
-selected RID in Package provenance.
+selected RID in Package provenance. After an exact probe selects one asset,
+the CLI opens that retained package-relative path directly rather than running
+another archive or target-framework selection.
 
 Direct framework-less `lib/*.dll` packages continue to use their
 framework-agnostic compile population, and a real framework-qualified slice

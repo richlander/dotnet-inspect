@@ -983,29 +983,39 @@ public partial class CommandExecutionTests
     {
         var (packagePath, tempDir) = CreateLocalPackageWithEntries(
             "Test.RuntimeMarker",
-            ("ref/net11.0/_._", null),
+            ("ref/netstandard/_._", null),
             (
-                "runtimes/linux-x64/lib/net11.0/Runtime.Library.dll",
+                "runtimes/unix/lib/netstandard1.0/Runtime.Library.dll",
                 TestAssemblyPath));
         try
         {
-            var result = await RunAppAsync(
+            var aggregate = await RunAppAsync(
                 "library",
                 "--package",
                 packagePath,
-                "--tfm",
-                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Runtime.Library.dll",
+                "--package",
+                packagePath,
                 "-S",
                 "Library Info",
                 "--markdown");
 
-            Assert.Equal(0, result.Exit);
-            Assert.Empty(result.Error);
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Empty(aggregate.Error);
             Assert.Contains(
                 "## Library Info "
-                    + "(runtimes/linux-x64/lib/net11.0/"
+                    + "(runtimes/unix/lib/netstandard1.0/"
                     + "Runtime.Library.dll)",
-                result.Output);
+                aggregate.Output);
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Runtime.Library.dll", exact.Output);
         }
         finally
         {

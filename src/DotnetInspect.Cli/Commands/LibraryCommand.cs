@@ -5222,7 +5222,20 @@ public partial class LibraryCommand
 
             string? matchedAssembly;
             string? matchedTfm;
-            if (population is
+            if (preResolvedPackage is not null
+                && (assemblyName.Contains('/')
+                    || assemblyName.Contains('\\')))
+            {
+                string requestedPath = assemblyName.Replace('\\', '/');
+                matchedAssembly = FindExtractedPackageEntry(
+                    allDlls,
+                    extractPath,
+                    requestedPath);
+                matchedTfm = matchedAssembly is null
+                    ? null
+                    : TfmResolver.ExtractTfmFromPath(requestedPath);
+            }
+            else if (population is
                 PackageLibraryPopulationSelection.Compile compilePopulation)
             {
                 PackageCompileAssetSelection selection =
