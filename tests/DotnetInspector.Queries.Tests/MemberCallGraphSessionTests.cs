@@ -104,6 +104,11 @@ public sealed class MemberCallGraphSessionTests
         Assert.Equal("Run", document.CalleeRoot!.Member.Name);
         Assert.Equal("Run", document.CallerRoot!.Member.Name);
         Assert.Equal(
+            AssemblyContextMemberCallGraphTreeStatus.Expanded,
+            document.CalleeRoot.Status);
+        Assert.False(document.CalleeRoot.InLoop);
+        Assert.NotEmpty(document.CalleeRoot.Member.SelectorKey);
+        Assert.Equal(
             AssemblyContextMemberCallGraphNodeKind.Focus,
             document.Nodes[0].Kind);
         Assert.Contains(
