@@ -3,7 +3,6 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 using NuGetFetch;
-using Analysis = ILInspector.Analysis;
 
 namespace DotnetInspect.Web;
 
@@ -472,21 +471,17 @@ internal static class BrowserPlatformCallGraph
                         + "unambiguous definition participant.");
                 }
 
-                Analysis.CallGraphMemberResolution? member =
-                    TryResolveMember(
-                        current.Scope,
+                AssemblyContextMemberBody member =
+                    current.Scope.UseParticipant(
                         definitions[0],
-                        typeFullName,
-                        memberName,
-                        selectorKey,
-                        metadataToken);
-                if (member is null)
-                {
-                    throw new InvalidOperationException(
-                        $"The resolved implementation of "
-                        + $"'{typeFullName}.{memberName}' does not contain "
-                        + "the selected API body.");
-                }
+                        (group, selected) =>
+                            BrowserMemberResolution.ResolveImplementationMember(
+                                group,
+                                selected,
+                                typeFullName,
+                                memberName,
+                                selectorKey,
+                                metadataToken));
 
                 return new PlatformMemberFocus(
                     definitions[0],
@@ -552,43 +547,27 @@ internal static class BrowserPlatformCallGraph
             + "assembly-count limit.");
     }
 
-    static Analysis.CallGraphMemberResolution? TryResolveMember(
+    static AssemblyContextMemberBody? TryResolveMember(
         BrowserPlatformScope scope,
         WorkspaceContextMember participant,
         string typeFullName,
         string memberName,
         string selectorKey,
-        int metadataToken)
-    {
-        AssemblyContextApiSurfaceResult implementation =
-            scope.UseParticipant(
-                participant,
-                (group, selected) =>
-                    AssemblyContextApiSurfaceQuery.ExecuteBounded(
+        int metadataToken) =>
+        scope.UseParticipant(
+            participant,
+            (group, selected) =>
+                BrowserMemberResolution.RequireSelection(
+                    AssemblyContextMemberSelectionQuery.ExecuteOptionalBody(
                         group,
-                        ApiSurfaceScope.IncludeAll,
-                        BrowserApiSurfacePolicy.Limits,
-                        [selected]));
-        if (implementation.Truncation is { } truncation)
-        {
-            throw new InvalidOperationException(
-                $"The implementation surface for '{typeFullName}' exceeds the "
-                + "browser projection bounds, so the selected body cannot be "
-                + "resolved. "
-                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
-        }
-
-        AssemblyApiSurface surface = BrowserSurfaceProjection.Require(
-            implementation.Assemblies.Assemblies.Single(),
-            $"Implementation surface for '{typeFullName}'");
-        return Analysis.CallGraphMemberResolver
-            .ResolveDefinitionIdentity(
-                surface.Surface,
-                typeFullName,
-                memberName,
-                selectorKey,
-                metadataToken == 0 ? null : metadataToken);
-    }
+                        selected,
+                        new(
+                            typeFullName,
+                            memberName,
+                            selectorKey,
+                            metadataToken == 0 ? null : metadataToken),
+                        BrowserApiSurfacePolicy.Limits),
+                    "Optional implementation member selection"));
 
     static AssemblyReferenceIdentity[] RequiredAssemblies(
         AssemblyContextMemberCallGraphDocument document,
@@ -747,7 +726,7 @@ internal static class BrowserPlatformCallGraph
 
     sealed record PlatformMemberFocus(
         WorkspaceContextMember Participant,
-        Analysis.CallGraphMemberResolution Member);
+        AssemblyContextMemberBody Member);
 
     sealed record AcquisitionHost(
         HttpClient Client,
