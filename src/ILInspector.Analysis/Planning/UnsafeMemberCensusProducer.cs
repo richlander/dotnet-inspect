@@ -132,8 +132,8 @@ public sealed class UnsafeMemberCensusProducer
                 availability == MethodBodyAvailability.Present
                 && view.HasManagedBody
                     ? BodyEvidence(view, identity)
-                    : LibraryBodyAnalysisAccumulator
-                        .CollectUnsafeMemberUseEvidence(
+                    : UnsafeMemberUseRules
+                        .CollectEvidence(
                             identity.CallerUnsafeMode,
                             [],
                             [],
@@ -312,7 +312,7 @@ public sealed class UnsafeMemberCensusProducer
                         view.GetMemorySafetyContract(target.Method))
                     : null;
             UnsafeContractSource? contractSource =
-                LibraryBodyAnalysisAccumulator.ExplicitCallContractSource(
+                UnsafeMemberUseRules.ExplicitCallContractSource(
                     site.Kind,
                     site.Callee,
                     targetMode,
@@ -322,7 +322,7 @@ public sealed class UnsafeMemberCensusProducer
                 explicitCalls.Add((site.ILOffset, site.Callee, contractSource));
         }
 
-        return LibraryBodyAnalysisAccumulator.CollectUnsafeMemberUseEvidence(
+        return UnsafeMemberUseRules.CollectEvidence(
             identity.CallerUnsafeMode,
             unsafety,
             constantDataSpans,
