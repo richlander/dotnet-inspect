@@ -402,6 +402,12 @@ repair, filter, or reorder Integration content.
 `DotnetInspector.Ecosystems` owns the portable construction and codec surface:
 `EcosystemFindIndexBuilder` projects one `EcosystemFindIndexBuildRequest`, and
 `EcosystemFindIndexJson` publishes an artifact only after complete validation.
+`EcosystemFindIndexedIntegration` orders admitted artifacts and demanded
+prefixes, then adapts their exact symbols through the Query-owned
+`TypeFindCandidateEvaluator` or `MemberFindCandidateEvaluator`. It returns
+semantic matches, exact published identities, selective indexed coverage, and
+exhausted, row-limit, or canceled completion without opening an assembly or
+acquiring a package.
 The contract records the product scanner identity, configured Integration
 concept sequence, generation-policy versions, and Type and Member identity
 format versions; callers cannot substitute free-form identities.

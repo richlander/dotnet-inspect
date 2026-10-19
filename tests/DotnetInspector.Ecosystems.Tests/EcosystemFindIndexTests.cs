@@ -9,7 +9,7 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems.Tests;
 
-public class EcosystemFindIndexTests
+public partial class EcosystemFindIndexTests
 {
     [Fact]
     public void Build_IsDeterministicAcrossSourceArrivalAndRoundTrips()
