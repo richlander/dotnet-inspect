@@ -1069,6 +1069,47 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        LibraryCommand_ToolPayloadExactPathStaysInToolPopulation()
+    {
+        var (packagePath, _, tempDir) =
+            CreateLocalToolPackageSet(includeAnalyzer: true);
+        try
+        {
+            var tool = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "tools/net10.0/any/Test.Tool.dll",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var analyzer = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "analyzers/dotnet/cs/Analyzer.dll",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, tool.Exit);
+            Assert.Empty(tool.Error);
+            Assert.Contains("# Test.Tool.dll", tool.Output);
+
+            Assert.Equal(1, analyzer.Exit);
+            Assert.Empty(analyzer.Output);
+            Assert.Contains(
+                "Library 'analyzers/dotnet/cs/Analyzer.dll' not found",
+                analyzer.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         LibraryCommand_RootLibUsesFrameworkAgnosticCompilePopulation()
     {
         var (packagePath, tempDir) = CreateLocalRootLibPackage();

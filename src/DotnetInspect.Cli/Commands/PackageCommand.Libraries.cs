@@ -180,16 +180,18 @@ public partial class PackageCommand
         if (selected == null)
             return 1;
 
+        string selectedPath = Path.GetRelativePath(
+                extractPath,
+                selected.Path)
+            .Replace('\\', '/');
         return await LibraryCommand.ExecuteResolvedPackageAsync(
             CreateLibraryOptions(
-                assemblyName: Path.GetRelativePath(
-                        extractPath,
-                        selected.Path)
-                    .Replace('\\', '/'),
+                assemblyName: selectedPath,
                 packageReference,
                 options,
                 selected.TargetFramework,
-                selected.RuntimeIdentifier),
+                selected.RuntimeIdentifier,
+                selectedPath),
             extraction).ConfigureAwait(false);
     }
 
@@ -946,7 +948,8 @@ public partial class PackageCommand
         string packageReference,
         InspectionOptions options,
         string? selectedTargetFramework,
-        string? selectedRuntimeIdentifier = null)
+        string? selectedRuntimeIdentifier = null,
+        string? selectedPackageLibraryPath = null)
         => new()
         {
             AssemblyName = assemblyName,
@@ -962,6 +965,7 @@ public partial class PackageCommand
             IncludePrerelease = options.IncludePrerelease,
             Tfm = selectedTargetFramework ?? options.Tfm,
             PackageRuntimeIdentifier = selectedRuntimeIdentifier,
+            SelectedPackageLibraryPath = selectedPackageLibraryPath,
             TypeNamespace = options.TypeNamespace,
             IncludeNamespaceChildren =
                 options.IncludeNamespaceChildren,

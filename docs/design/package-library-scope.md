@@ -396,6 +396,9 @@ CLI runtime-role adoption is gated by
 `LibraryCommand_MarkerOnlyCompileGroupUsesRuntimePopulation`,
 `LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries`, and
 `LibraryAddressCommand_PackageNonCompileSelectionsAreRejected`.
+`LibraryCommand_ToolPayloadExactPathStaysInToolPopulation` gates the boundary
+between a retained Package Library path and the separately owned
+settings-issued tool population.
 `ProducerCapabilityPlanSelectsBeforeEnrichment` gates selection before
 per-Library work, while
 `PackageTreeCapabilitiesPreserveHostsAndWorkReduction` gates equivalent

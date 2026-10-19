@@ -104,6 +104,11 @@ public record LibraryOptions : IProjectionOptions
     /// </summary>
     internal string? PackageRuntimeIdentifier { get; init; }
 
+    /// <summary>
+    /// Package-relative Library path selected by the Package population owner.
+    /// </summary>
+    internal string? SelectedPackageLibraryPath { get; init; }
+
     /// <summary>Optional narrowing of ordinary Integration evidence.</summary>
     public IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;
 

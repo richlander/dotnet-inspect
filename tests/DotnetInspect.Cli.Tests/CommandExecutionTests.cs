@@ -1954,7 +1954,8 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static (string PointerPackagePath, string RidPackagePath, string TempDir) CreateLocalToolPackageSet()
+    private static (string PointerPackagePath, string RidPackagePath, string TempDir) CreateLocalToolPackageSet(
+        bool includeAnalyzer = false)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tool-package-test-{Guid.NewGuid():N}");
 
@@ -1977,6 +1978,18 @@ public partial class CommandExecutionTests
         var payloadToolsDir = Path.Combine(payloadRoot, "tools", "net10.0", "any");
         Directory.CreateDirectory(payloadToolsDir);
         File.Copy(TestAssemblyPath, Path.Combine(payloadToolsDir, "Test.Tool.dll"));
+        if (includeAnalyzer)
+        {
+            var analyzerDir = Path.Combine(
+                payloadRoot,
+                "analyzers",
+                "dotnet",
+                "cs");
+            Directory.CreateDirectory(analyzerDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(analyzerDir, "Analyzer.dll"));
+        }
 
         var ridRoot = Path.Combine(tempDir, "rid");
         var ridToolsDir = Path.Combine(ridRoot, "tools", "any", "linux-x64");
