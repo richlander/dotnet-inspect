@@ -2468,6 +2468,42 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task ReferencePackageSuppliers_WithoutRouteEvidenceRemainPlain()
+    {
+        const string packageId = "Reference.Icon.Without.Route";
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                        $"<package><metadata><id>{packageId}</id>"
+                        + "<version>1.0.0</version></metadata></package>")),
+                    ($"lib/net11.0/{packageId}.dll",
+                        File.ReadAllBytes(
+                            typeof(BrowserEngineBoundaryTests).Assembly.Location))),
+                fromCache: false));
+
+        BrowserReferencePackageSupplier[] suppliers =
+            Assert.IsType<BrowserReferencePackageSupplier[]>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryReferencePackageSuppliers(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        $"compile:lib/net11.0/{packageId}.dll"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserReferencePackageSupplierArray));
+
+        Assert.NotEmpty(suppliers);
+        Assert.All(suppliers, supplier =>
+        {
+            Assert.Null(supplier.PackageId);
+            Assert.Null(supplier.PackageVersion);
+        });
+    }
+
+    [Fact]
     public async Task QueryPackage_FirstTransportTruncationReturnsTypedNotice()
     {
         const string packageId = "First.Transport.Truncation";

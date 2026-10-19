@@ -2505,6 +2505,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryReferencePackageSuppliers",
       "queryPackageHierarchy",
       "queryPackageIcon",
       "queryPackageVulnerabilities",
@@ -2638,7 +2639,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 132);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 133);
 
   const state = fixture();
   const groups = [
