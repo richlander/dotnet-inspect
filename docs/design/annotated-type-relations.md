@@ -6,24 +6,26 @@ This document owns **Annotated Type Relations**: the host-neutral document that
 describes how one exact Type relates to subjects outside its owned closure. It
 owns:
 
-- the document's focus, subjects, logical relations, occurrences, annotations,
-  family outcomes, and focus joins;
+- the document's focus, subjects, logical relations, occurrences, annotations
+  used as relation color, family outcomes, and focus joins;
 - preservation of producer-owned logical-relation identity and the separation
   of semantic direction from focus-relative incidence;
-- the boundary between topology, supporting occurrences, and optional
-  annotations;
+- the boundary between topology, supporting occurrences, and independently
+  selected color;
 - the Type-focused relation inventory that the shape must admit;
 - Rows, Count, and Exists over the retained logical relations; and
 - equivalence of table and graph projections over one document.
 
 Its exact claim is:
 
-> For one exact Type and one resolved set of relationship descriptors,
+> For one exact Type and one resolved set of relationship and color
+> descriptors,
 > Annotated Type Relations retains each admitted logical relationship incident
 > to the Type's owned closure and reaching outside it, its semantic direction,
 > its focus-relative incidence, its producer-native occurrences, annotations
 > targeting retained subjects, relations, or occurrences, and the
-> family-specific outcome needed to interpret absence.
+> independently complete family outcomes needed to interpret both uncolored
+> and color-filtered absence.
 
 This owner is tracked by
 [#10283](https://github.com/richlander/dotnet-inspect/issues/10283). It is the
@@ -39,6 +41,9 @@ It consumes and does not redefine:
 | [Annotated Type Map](annotated-type-map.md) and [Fast Diff](fast-diff.md) | Type, Member, accessor, and generated-body ownership |
 | [Scope symmetry](scope-symmetry.md) | Library, Type, and Member targets; Rows, Count, and exact Exists; no rows within rows |
 | [Finding nomenclature](finding-nomenclature.md) and [Finding coordinates](finding-coordinates.md) | Producer-owned findings, descriptors, subjects, evidence, and outcomes used as annotations |
+| [Memory-safety models](memory-safety-models.md) | Independent propagation, unsafe-use, and safe-boundary vocabulary and evidence |
+| [Call-graph characteristics](call-graph-characteristics.md) | Ordinary call topology and the separate Analysis-owned async-sibling opportunity relationship |
+| [Integrations](integrations.md) | Owner-issued Integration concepts and actionable ecosystem currency |
 | [Inspection envelope](inspection-envelope.md) | Completed host boundary carrying Content, Share, and diagnostics |
 
 The query and generation infrastructure, producer registrations, and request
@@ -66,6 +71,14 @@ These questions do not all form a call graph. Some are Type topology, some are
 Member-to-Type evidence, some target owner-issued semantic subjects, and some
 need an incoming candidate population. Their shared shape is an exact relation
 incident to one Type, with evidence and honest completion.
+
+The same topology can answer materially different questions when it carries
+producer-owned color. An agent may ask which callees propagate an unsafe
+obligation, which Members contain unsafe implementation while remaining safe
+boundaries, which async paths reach blocking work with an available async
+alternative, or which referenced Types are actionable currency for an
+Ecosystem. Color explains why a retained relation matters without changing
+what that relation is.
 
 ## Focus and owned closure
 
@@ -110,10 +123,11 @@ AnnotatedTypeRelationsDocument
 ### Focus and selection
 
 `Focus` retains the exact Type and binding context. `Selection` records the
-resolved relationship descriptors, incidence directions, and optional
-annotation descriptors that determined which logical relations are listed.
-The document does not infer selection from populated rows: a selected family
-with zero rows or an unavailable producer remains selected and visible.
+resolved relationship descriptors, incidence directions, color descriptors,
+and any color predicate that determined which logical relations are listed.
+The document does not infer selection from populated rows: a selected
+relationship or color family with zero rows or an unavailable producer remains
+selected and visible.
 
 The shape does not decide how a request spells all applicable relationships,
 an explicit subset, or an authored preset. A portable request preserves that
@@ -168,9 +182,10 @@ construction and derivation.
 
 ### Annotations
 
-An annotation is an optional producer-owned observation targeting one retained
-subject, logical relation, or occurrence. It retains its descriptor, evidence,
-producer identity, outcome, and derivation.
+An annotation is producer-owned **color** targeting one retained subject,
+logical relation, or occurrence. It retains its descriptor, evidence, producer
+identity, outcome, and derivation. Color descriptors are an open owner-issued
+set, not one universal enum or Boolean signal.
 
 Annotations never create, retarget, or change the identity of topology. For
 example, a call to a `RequiresDynamicCode` Member remains a `call` relation;
@@ -180,20 +195,37 @@ One annotation may target several retained hooks only when its owner defines
 that targeting. The document does not duplicate the observation to make each
 hook look independently authored.
 
+Observed color retains its direct evidence. Derived or propagated color also
+retains the source observations and relationship or occurrence receipts that
+support the derivation. A producer defines its own transfer and absorption
+rules; the document never copies color across every neighboring relation.
+
+Color may decorate an otherwise admitted relation or participate in an
+explicit admission predicate. Decoration does not change Rows. A color
+predicate admits only relations with a matching annotation, records that
+predicate in `Selection`, and composes relationship and color completion before
+settling Count or Exists.
+
 ### Family outcomes
 
-Each selected descriptor retains its own:
+Each selected relationship or color descriptor retains its own:
 
 - candidate population identity;
-- supported incidence directions;
+- supported targets and, for relationships, incidence directions;
 - producer availability and completion;
 - work limits and continuation where applicable;
-- failures and diagnostics; and
-- Rows, Count, and Exists outcomes.
+- failures and diagnostics.
+
+Relationship-family outcomes additionally retain Rows, Count, and Exists.
+Color-family outcomes retain coverage of their declared target population. A
+color-filtered empty answer is complete only when both the relationship
+population and every color family used by the predicate settle absence.
 
 A complete neighboring family never hides or upgrades an incomplete one. A
-family with no admitted rows is a complete negative only when its own
-population and evidence are complete for the selected direction.
+relationship family with no admitted rows is a complete negative only when its
+own population and evidence are complete for the selected direction. A color
+family with no annotations is a complete negative only when its declared target
+population and evidence are complete.
 
 ### Focus joins
 
@@ -204,6 +236,63 @@ or both for a self-incident relation.
 
 Incidence never reverses semantic endpoints. A subclass-to-base relation stays
 `subclass -> base` when viewed as incoming from the base.
+
+## Relation color inventory
+
+The inventory below constrains composition without moving producer semantics
+into this owner.
+
+### Memory-safety color
+
+[Memory-safety models](memory-safety-models.md) defines unsafe implementation
+and unsafe propagation as independent dimensions:
+
+- **unsafe implementation** is positive local evidence that a Member
+  established an unsafe context in its declaration or implementation; and
+- **unsafe propagation** is the caller contract that using a Member requires
+  its caller to establish an unsafe context.
+
+A Member may have neither color, either color independently, or both. In
+particular, a safe boundary has unsafe implementation evidence without unsafe
+propagation, while a bodyless Member may propagate unsafe. Neither color may be
+derived from the other.
+
+Path or graph projections retain those colors as separate annotations. A
+separate path color involving a propagator retains the exact call occurrences
+and producer-owned transfer or absorption evidence; it does not manufacture a
+propagation contract on intermediate Members. Merely reaching an unsafe
+implementation does not prove propagation.
+
+### Async-to-blocking color
+
+An ordinary synchronous call from an async source remains a `call` relation.
+The existing `analysis.async-sibling-opportunity` remains a separate derived
+relationship from the authenticated async source to the callable async
+alternative. It does not become a call annotation or replace the synchronous
+call.
+
+A color producer may separately identify that an async Member directly or
+transitively reaches owner-classified blocking work. Direct and transitive
+claims are distinct. A transitive color retains the complete admitted call-path
+receipts; an incomplete path cannot settle absence.
+
+Presentation may color the synchronous call to show that an async alternative
+exists only by deriving from the exact async-sibling opportunity and its cited
+call occurrence. The color is an affordance over two retained relationships,
+not a substitute for either one.
+
+### Ecosystem currency color
+
+An exact CLR reference remains its own relation. The Integration owner may
+color its subject, relation, or occurrence with the exact Ecosystem and concept
+identities that classify the referenced Type or Member as actionable
+Integration currency.
+
+Here, currency means an API or Type that a user can search, call, configure, or
+wire into an application. It is not a wall-clock freshness judgment. The color
+retains the Integration scanner's owner-issued evidence and population
+identity; package membership or an assembly reference alone does not establish
+it.
 
 ## Type-focused relation inventory
 
@@ -300,8 +389,9 @@ The document adopts [Scope symmetry](scope-symmetry.md):
 
 Count equals the admitted Rows and carries an unsettled outcome when additional
 rows may exist. Exists is `true` when an admitted row exists, undecided when
-none exists but any selected family cannot settle absence, and `false` only
-when every selected family is complete and no row exists.
+none exists but any selected relationship or predicate color family cannot
+settle absence, and `false` only when every family participating in admission
+is complete and no row exists.
 
 A Member's row at Member scope equals that row in its Type document. A
 Library-scope ephemeral result never nests each Type's relation Rows.
@@ -318,7 +408,8 @@ Neither projection changes relation identity, semantic direction, focus
 incidence, or completion.
 
 Presentation may omit a repeated relation title or unselected annotation. It
-must not parse labels to recover identity or semantics.
+must not hide the selection or unsettled outcome of a color used for admission,
+or parse labels to recover identity or semantics.
 
 ## First adopter
 
@@ -334,7 +425,7 @@ It uses the general shape as follows:
 - trimming and NativeAOT findings target the callee;
 - Type, Library, Package, and Platform boundaries are characteristics derived
   through owner-issued correspondence; and
-- call resolution and callee-annotation completion remain separate outcomes.
+- call resolution and callee-color completion remain separate outcomes.
 
 This adopter must not introduce a call-specific row, occurrence, annotation,
 or completion shape.
@@ -358,12 +449,23 @@ fixtures in its focused design.
   metadata occurrence endpoint.
 - **Annotations:** annotations on a subject, relation, and occurrence do not
   change topology or each other's identity.
+- **Color independence:** unsafe implementation and unsafe propagation exercise
+  all four present/absent combinations without either color implying the other.
+- **Color derivation:** propagated color retains its source observations,
+  relation receipts, and producer-owned transfer or absorption result.
+- **Colored selection:** an empty color-filtered result is false only when both
+  relationship and predicate-color populations are complete; otherwise Exists
+  is undecided.
+- **Async separation:** the synchronous call, async-sibling opportunity, and
+  optional async-to-blocking color retain distinct identities and evidence.
+- **Ecosystem currency:** Integration color retains exact Ecosystem and concept
+  identity and cannot be inferred from package or assembly membership.
 - **Derivation:** observed, derived, and synthetic relations remain distinct;
   a derived relation retains its source occurrence receipts.
 - **Isolation:** failure or incompleteness in one selected family neither
   erases rows nor strengthens outcomes from another.
-- **Selection:** the document records every selected descriptor, including
-  complete-empty, unavailable, and failed families.
+- **Selection:** the document records every selected relationship and color
+  descriptor, including complete-empty, unavailable, and failed families.
 - **Exact terminals:** Count equals Rows and Exists follows Rows plus selected
   family outcomes at Library, Type, and Member scope.
 - **Symmetry:** a Member's relation answer is identical at Member scope and
@@ -390,10 +492,14 @@ after their focused successor demonstrates parity.
 
 - This owner does not define a universal relationship enum, graph database, or
   producer.
+- It does not define a universal color enum or reinterpret every producer
+  observation as one severity scale.
 - It does not define relationship discovery, producer planning, acquisition,
   caching, or request spelling.
 - It does not redefine Subject Relations rows, Inspection Graph descriptors,
   producer evidence, Findings, or Type and Member ownership.
+- It does not redefine memory-safety roles, async-sibling opportunity
+  selection, blocking classification, or Integration currency.
 - It does not make annotations part of logical-relation identity.
 - It does not claim whole-Workspace incoming completeness without an explicit
   population and receipt.

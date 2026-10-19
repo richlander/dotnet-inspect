@@ -1058,9 +1058,10 @@ rules, this document describes subsystem ownership, and
   of two such maps by the same implementation, with Rows as a projection, at
   Library, Type, and Member scope.
 - [Annotated Type Relations](design/annotated-type-relations.md): one Type's
-  exact external logical relations, producer-native occurrences, optional
-  annotations, focus-relative incidence, and family-specific outcomes, with
-  Rows, Count, and Exists at Library, Type, and Member scope.
+  exact external logical relations, producer-native occurrences,
+  producer-owned relation color, focus-relative incidence, and independently
+  complete relationship and color-family outcomes, with Rows, Count, and
+  Exists at Library, Type, and Member scope.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
