@@ -399,6 +399,13 @@ observations, and coverage. A thin generator orchestrates explicit
 network-bearing enumeration, acquisition, and scanning, but does not classify,
 repair, filter, or reorder Integration content.
 
+`DotnetInspector.Ecosystems` owns the portable construction and codec surface:
+`EcosystemFindIndexBuilder` projects one `EcosystemFindIndexBuildRequest`, and
+`EcosystemFindIndexJson` publishes an artifact only after complete validation.
+The contract records the product scanner identity, configured Integration
+concept sequence, generation-policy versions, and Type and Member identity
+format versions; callers cannot substitute free-form identities.
+
 Each Ecosystem artifact is checked in once. The CLI consumes it as an embedded
 resource; Inspect Web consumes a static asset built from the same file.
 Ordinary build, test, startup, and indexed lookup do not regenerate it.
