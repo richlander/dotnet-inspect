@@ -1,8 +1,10 @@
+using NuGetFetch;
+
 namespace DotnetInspector.Packages;
 
 /// <summary>
-/// One compile or runtime implementation population selected for Package
-/// Library navigation.
+/// One compile, runtime implementation, or declared tool population selected
+/// for Package Library navigation.
 /// </summary>
 public abstract record PackageLibraryPopulationSelection
 {
@@ -40,16 +42,77 @@ public abstract record PackageLibraryPopulationSelection
         public PackageAssetSelectionReceipt RuntimeReceipt { get; }
     }
 
+    public sealed record Tool :
+        PackageLibraryPopulationSelection
+    {
+        internal Tool(
+            PackageCompileAssetSelectionReceipt compileReceipt,
+            PackageAssetSelectionReceipt runtimeReceipt,
+            PackageToolSliceMeasurementEvidence toolEvidence,
+            PackageToolSliceSelection toolSelection)
+            : base(compileReceipt)
+        {
+            ArgumentNullException.ThrowIfNull(runtimeReceipt);
+            ArgumentNullException.ThrowIfNull(toolEvidence);
+            ArgumentNullException.ThrowIfNull(toolSelection);
+            if (runtimeReceipt.Selection
+                    is not PackageAssetSelection.NoMatch
+                || toolSelection.Status
+                    != PackageToolSliceSelectionStatus.Selected
+                || toolSelection.SelectedEntries.IsEmpty)
+            {
+                throw new ArgumentException(
+                    "A tool Library population requires runtime no-match and one non-empty selected tool slice.",
+                    nameof(toolSelection));
+            }
+
+            RuntimeReceipt = runtimeReceipt;
+            ToolEvidence = toolEvidence;
+            ToolSelection = toolSelection;
+        }
+
+        public PackageAssetSelectionReceipt RuntimeReceipt { get; }
+
+        public PackageToolSliceMeasurementEvidence ToolEvidence { get; }
+
+        public PackageToolSliceSelection ToolSelection { get; }
+    }
+
     public sealed record NonSuccess :
         PackageLibraryPopulationSelection
     {
         internal NonSuccess(
             PackageCompileAssetSelectionReceipt compileReceipt,
-            PackageAssetSelectionReceipt? runtimeReceipt)
-            : base(compileReceipt) =>
+            PackageAssetSelectionReceipt? runtimeReceipt,
+            PackageToolSliceMeasurementEvidence? toolEvidence = null,
+            PackageToolSliceSelection? toolSelection = null,
+            bool toolDeclarationUnavailable = false)
+            : base(compileReceipt)
+        {
+            if ((toolEvidence is null) != (toolSelection is null))
+            {
+                throw new ArgumentException(
+                    "Tool evidence and selection must be retained together.");
+            }
+            if (toolDeclarationUnavailable && toolEvidence is not null)
+            {
+                throw new ArgumentException(
+                    "Unavailable tool declaration cannot retain tool evidence.");
+            }
+
             RuntimeReceipt = runtimeReceipt;
+            ToolEvidence = toolEvidence;
+            ToolSelection = toolSelection;
+            ToolDeclarationUnavailable = toolDeclarationUnavailable;
+        }
 
         public PackageAssetSelectionReceipt? RuntimeReceipt { get; }
+
+        public PackageToolSliceMeasurementEvidence? ToolEvidence { get; }
+
+        public PackageToolSliceSelection? ToolSelection { get; }
+
+        public bool ToolDeclarationUnavailable { get; }
     }
 }
 
@@ -64,7 +127,10 @@ public static class PackageLibraryPopulationSelector
         PackageCompileAssetSelectionPolicy policy,
         string? targetFramework = null,
         string? runtimeIdentifier = null,
-        bool includesNestedCompileAssets = true)
+        bool includesNestedCompileAssets = true,
+        PackageSourceCoordinate? coordinate = null,
+        ReadOnlyMemory<byte>? nuspecBytes = null,
+        bool readManifestFromContent = true)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -77,12 +143,20 @@ public static class PackageLibraryPopulationSelector
                 targetFramework,
                 runtimeIdentifier,
                 includesNestedCompileAssets);
-        return Evaluate(content, compileReceipt);
+        return Evaluate(
+            content,
+            compileReceipt,
+            coordinate,
+            nuspecBytes,
+            readManifestFromContent);
     }
 
     public static PackageLibraryPopulationSelection Evaluate(
         IPackageContent content,
-        PackageCompileAssetSelectionReceipt compileReceipt)
+        PackageCompileAssetSelectionReceipt compileReceipt,
+        PackageSourceCoordinate? coordinate = null,
+        ReadOnlyMemory<byte>? nuspecBytes = null,
+        bool readManifestFromContent = true)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(compileReceipt);
@@ -119,13 +193,69 @@ public static class PackageLibraryPopulationSelector
                 content,
                 compileReceipt.RequestedTargetFramework,
                 compileReceipt.RequestedRuntimeIdentifier);
-        return runtimeReceipt.Selection
-            is PackageAssetSelection.Selected
-            ? new PackageLibraryPopulationSelection.Runtime(
-                compileReceipt,
-                runtimeReceipt)
-            : new PackageLibraryPopulationSelection.NonSuccess(
+        if (runtimeReceipt.Selection
+            is PackageAssetSelection.Selected)
+        {
+            return new PackageLibraryPopulationSelection.Runtime(
                 compileReceipt,
                 runtimeReceipt);
+        }
+        if (runtimeReceipt.Selection
+            is not PackageAssetSelection.NoMatch)
+        {
+            return new PackageLibraryPopulationSelection.NonSuccess(
+                compileReceipt,
+                runtimeReceipt);
+        }
+        if (coordinate is null)
+        {
+            return new PackageLibraryPopulationSelection.NonSuccess(
+                compileReceipt,
+                runtimeReceipt,
+                toolDeclarationUnavailable: true);
+        }
+
+        PackageToolDeclarationEvidence? declaration =
+            nuspecBytes is { } suppliedNuspec
+                ? PackageToolDeclarationEvidence.TryCreate(
+                    coordinate,
+                    content,
+                    suppliedNuspec)
+                : readManifestFromContent
+                    ? PackageToolDeclarationEvidence.TryCreate(
+                    coordinate,
+                    content)
+                    : null;
+        if (declaration is null)
+        {
+            return new PackageLibraryPopulationSelection.NonSuccess(
+                compileReceipt,
+                runtimeReceipt,
+                toolDeclarationUnavailable:
+                    nuspecBytes is null
+                    && !readManifestFromContent);
+        }
+
+        PackageToolSliceSelection toolSelection =
+            PackageToolSliceMeasurementProjection.SelectEntries(
+                content.EnumerateEntries(),
+                compileReceipt.RequestedTargetFramework);
+        var toolEvidence = new PackageToolSliceMeasurementEvidence(
+            declaration,
+            compileReceipt.RequestedTargetFramework,
+            toolSelection.AvailableTargetFrameworks);
+        return toolSelection.Status
+                == PackageToolSliceSelectionStatus.Selected
+            && !toolSelection.SelectedEntries.IsEmpty
+                ? new PackageLibraryPopulationSelection.Tool(
+                    compileReceipt,
+                    runtimeReceipt,
+                    toolEvidence,
+                    toolSelection)
+                : new PackageLibraryPopulationSelection.NonSuccess(
+                    compileReceipt,
+                    runtimeReceipt,
+                    toolEvidence,
+                    toolSelection);
     }
 }
