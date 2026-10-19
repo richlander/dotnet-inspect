@@ -284,8 +284,6 @@ public static partial class MetadataExports
                             member.Subject.MetadataToken,
                             member.Subject.BaselineOrdinal,
                             member.DisplaySignature.ToString(),
-                            member.CanonicalSignature.ToString(),
-                            member.Subject.Fingerprint.ToString(),
                             member.Accessibility.ToString(),
                             member.Receiver.ToString())),
                 ]),

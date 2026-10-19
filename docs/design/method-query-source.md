@@ -160,6 +160,7 @@ population, `MethodDefinition`. The implementation is mainly in
 | `MemorySafetyContractSupport.cs` | Memory-safety contract and accessor association support |
 | `SameModuleCallTargetSupport.cs` | `CallTargets` support |
 | `MethodCallMetadataSupport.cs` | `Calls`, local-signature, and field-operand support |
+| `MethodAnalysisSupport.cs` | Allocation and optimization's shared reader-backed judgments and support-work receipt |
 
 Where this source sits among Query Space, Producer Planning, and Assembly
 Analysis Operation is described in
@@ -723,6 +724,97 @@ The first adopter is the
 [unsafe-member census](unsafe-member-findings.md#execution) at Type scope. It
 has no host consumer yet, so this capability makes no production performance
 claim.
+
+### Method analysis support
+
+`MethodAnalysis` is declared, execution-scoped support for the reader-backed
+judgments shared by allocation and optimization analysis, tracked by
+[#10307](https://github.com/richlander/dotnet-inspect/issues/10307). Given one
+admitted module and a producer that explicitly declares the support, Method
+Query Source constructs at most one `MethodAnalysisLookup` in that execution
+group, issues a narrow per-method resolver over the producer-supplied method
+identity and instructions, and receipts the support work performed while that
+resolver is in scope.
+
+The support does not imply `Body`, `Calls`, `SemanticIdentity`, control flow,
+or `ModuleLookup`. A producer declares each current-method prerequisite
+separately and passes the owner-issued identity and instructions to
+`BeginMethodAnalysis`. The support therefore neither acquires the current
+method's body nor widens terminal MethodDef breadth. Exact-method and
+exact-type requests retain their sparse source plans. Compatible
+all-definition lanes in one shared execution group use one lookup and its
+caches; source plans that Query Space keeps in separate groups do not acquire a
+cross-group cache.
+
+The lookup composes the existing Analysis authorities rather than defining a
+second judgment:
+
+- method and type token resolution in the caller's generic scope;
+- signature equivalence and same-image reference correspondence;
+- heap, non-heap, delegate-construction, and allocating-box classification;
+- generic-parameter, stable-receiver, and async-state-machine classification;
+  and
+- same-image reference-type and field-owner resolution.
+
+The issued resolver also exposes the existing per-method reaching-definitions
+adapter required by allocation escape analysis. `ReachingDefinitions` remains
+the semantic owner. The support does not precompute reaching definitions:
+the adapter runs only when the producer asks, over the instructions already
+issued for that method. Allocation discovery, escape classification,
+optimization-opportunity semantics, canonical context construction, and
+result enrichment likewise remain with their existing Analysis owners.
+
+Two support costs may reach beyond the current MethodDef without widening its
+terminal breadth:
+
+- async-state-machine classification lazily scans the module's TypeDef rows
+  once per lookup; and
+- stable-receiver classification may read a same-image getter body, cached by
+  getter MethodDef.
+
+Those reads are supporting probes, not terminal methods. They do not add
+MethodDefs to the producer's visited population or bodies to its terminal body
+coverage.
+
+`MethodAnalysisSupportCoverage` records whether the lookup was constructed,
+the number and exact MethodDefs of scoped queries, and
+`MethodAnalysisSupportWork`:
+
+- method references resolved and their signature work;
+- generic-constraint and stable-receiver queries;
+- available stable-getter bodies read and their encoded IL bytes; and
+- TypeDef rows scanned for async-state-machine classification.
+
+Construction is lazy. Declaring but not querying the support constructs
+nothing. Disposing the query scope records all support work performed by the
+allocation and optimization algorithms that shared its resolver, including
+work completed before a recoverable algorithm failure unwinds the visit. The
+physical group receipt records each cache miss once. Each lane records its own
+query and only the incremental physical support work it caused.
+
+Unreadable metadata follows the existing resolver and producer-failure
+contracts. The source neither converts malformed evidence into a successful
+empty answer nor falls back to `LibraryBodyAnalysisBuilder`.
+
+During migration, `DeclaredSourceAttribution` composes this same
+`MethodAnalysisLookup`, and `LibraryBodyAnalysisBuilder` consumes its existing
+resolver and classifiers through that composition. This preserves the donor's
+current allocation and optimization behavior without copying the private
+resolver. Production exact allocation and optimization adoption remains
+[#10285](https://github.com/richlander/dotnet-inspect/issues/10285). Its
+performance case is
+`System.Text.Json@10.0.0`
+`System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose
+current allocation-hotspot result reports 20 `newobj`, `newarr`, or `box`
+sites in a loop.
+
+The counted retirement sequence is:
+
+1. #10307 owns this declared support, legacy composition, and receipts.
+2. #10285 moves the shared CLI and Browser/Wasm exact allocation and
+   optimization operation onto Method Query Source.
+3. #8965 and #9959 drain the remaining donor consumers and delete the
+   superseded resolver and Library Body Analysis infrastructure.
 
 ### Semantic identity
 

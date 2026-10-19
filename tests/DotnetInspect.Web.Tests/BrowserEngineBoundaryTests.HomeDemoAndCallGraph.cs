@@ -1623,22 +1623,26 @@ public sealed partial class BrowserEngineBoundaryTests
         [
             new(
                 0,
-                member,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    member),
                 "focus",
                 AssemblyContextMemberCallGraphNodeKind.Focus),
             new(
                 1,
-                member,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    member),
                 "normal",
                 AssemblyContextMemberCallGraphNodeKind.Normal),
             new(
                 2,
-                member,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    member),
                 "external",
                 AssemblyContextMemberCallGraphNodeKind.External),
             new(
                 3,
-                arrayMember,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    arrayMember),
                 "array",
                 AssemblyContextMemberCallGraphNodeKind.Normal),
         ];
@@ -1697,7 +1701,7 @@ public sealed partial class BrowserEngineBoundaryTests
             MemberKind.Method);
         var node = new AssemblyContextMemberCallGraphNode(
             0,
-            member,
+            CallGraphMemberNavigationProjection.ProjectOpenSignature(member),
             "TextWriter.WriteLine",
             AssemblyContextMemberCallGraphNodeKind.Normal,
             DefinitionAssemblyIdentity: definition);

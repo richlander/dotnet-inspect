@@ -784,11 +784,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserMemberGroupDocumentRow row =
             Assert.Single(
                 Assert.IsType<BrowserMemberGroupDocument>(group.Document)
-                    .Rows,
-                static candidate =>
-                    candidate.CanonicalSignature.Contains(
-                        "System.Int32",
-                        StringComparison.Ordinal));
+                    .Rows);
 
         BrowserMemberDocumentInspection inspection =
             JsonSerializer.Deserialize(
@@ -1377,7 +1373,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserCallGraphDiagnostics diagnostics =
             BrowserCallGraphWireProjection.Project(
                 BrowserCallGraphProjection.Diagnostics(
-                    new CatalogCallGraphDiagnostics(2, 3, 4),
+                    new AssemblyContextMemberCallGraphDiagnostics(2, 3, 4),
                     hasUnexploredTraversalBoundary: true,
                     hasAnalysisFailureBoundary: true));
 

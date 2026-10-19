@@ -1062,6 +1062,10 @@ rules, this document describes subsystem ownership, and
   producer-owned relation color, focus-relative incidence, and independently
   complete relationship and color-family outcomes, with Rows, Count, and
   Exists at Library, Type, and Member scope.
+- [Annotated Type Relations planning](design/annotated-type-relations-planning.md):
+  exact relationship and color registration, Type-focus and direction
+  admission, terminal-specialized adapter-query binding, and immutable typed
+  query demand without duplicating QuerySpace or inspection query execution.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.
