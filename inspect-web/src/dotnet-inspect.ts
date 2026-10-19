@@ -12771,20 +12771,13 @@ function drillToPerfMember(
   const expectedPopulationKey = typeMemberPopulationKey(targetType);
   const expectedPopulationIntent = typeMemberPopulationIntentGeneration;
   observeAsync(
-    (async () => {
-      try {
-        await selectPerformanceMember(
-          stableSelector,
-          expectedView,
-          expectedPopulationKey,
-          expectedPopulationIntent,
-          publication,
-          resourceMethodToken);
-      } finally {
-        if (completePerformanceMemberNavigationPublication(publication))
-          render();
-      }
-    })(),
+    selectPerformanceMember(
+      stableSelector,
+      expectedView,
+      expectedPopulationKey,
+      expectedPopulationIntent,
+      publication,
+      resourceMethodToken),
     "Loading the ranked Member");
 }
 

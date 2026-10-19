@@ -490,6 +490,37 @@ test("newer Member spelling supersedes deferred Analysis row publication", async
   await expect(subjectTab(page, "member")).toHaveCount(0);
 });
 
+test("rejected ranked population leaves its provisional Type unpublished", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { rejectedPerformanceTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  const analysisUrl = page.url();
+
+  await page.locator(".library-performance-surface .perf-row").first().click();
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspection-error"))
+    .toContainText("The ranked Member population was rejected.");
+  expect(page.url()).toBe(analysisUrl);
+});
+
 test("production Analysis opens a private ranked member through all accessibility", async ({
   page,
 }) => {
