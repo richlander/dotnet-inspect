@@ -1327,6 +1327,27 @@ and reports unsearched ancestors on stderr:
 dotnet-inspect find '.Add*' --ecosystem aspire -n 20
 ```
 
+`--workspace PACKET` searches a registration-only Ecosystem Workspace. It uses
+the declarations stored in the packet, in packet order, without reloading
+catalog definitions by ID or adding ancestors. This lets a Workspace act as a
+reusable search space:
+
+```bash
+base=$(dotnet-inspect workspace --register-ecosystem runtime --share packet)
+dotnet-inspect find JsonSerializer --type JsonSerializer --workspace "$base" -n 1
+```
+
+This first admission accepts one or more Ecosystem registrations with platform,
+core-package or prefix populations. It rejects direct content contexts, exact
+Library registrations (including those inside Ecosystems), independent prefixes,
+portable package-source declarations, empty Workspaces, and mixed platform and
+core-package populations in one Ecosystem. Other source selectors and `--tfm`
+cannot accompany `--workspace`; receiving NuGet source authorization options
+remain available. Saved queries and navigation in the packet are not replayed,
+and Find does not modify the packet. General Workspace content search remains
+staged under [Find Workspace scope](design/find-workspace-scope.md#workspace-packet-admission).
+The same Ecosystem output, row limits, Count and prefix-search rules below apply.
+
 This searches Aspire's core packages first and, when they fill the window,
 does not realize ASP.NET Core or Runtime. TSV and JSONL search the named
 populations first, then progressively discover and search packages under each
