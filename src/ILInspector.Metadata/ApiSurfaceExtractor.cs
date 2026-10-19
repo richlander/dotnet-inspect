@@ -1046,7 +1046,7 @@ public static partial class ApiSurfaceExtractor
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
 
-        var surface = new ApiSurface();
+        var surface = new ApiSurface { ExtractionScope = scope };
         var reader = MetadataFormatAdmission.GetMetadataReader(peReader);
         Guid moduleVersionId = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);

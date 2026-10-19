@@ -13,6 +13,13 @@ public class ApiDiffAnalyzerTests
         return surface;
     }
 
+    private static ApiSurface ApiAxisSurface(params ApiType[] types)
+    {
+        ApiSurface surface = Surface(types);
+        surface.ExtractionScope = ApiSurfaceExtractionScope.ApiAxis;
+        return surface;
+    }
+
     private static ApiType Type(
         string name,
         string kind = "class",
@@ -704,8 +711,8 @@ public class ApiDiffAnalyzerTests
         newMember.Accessibility = newAccessibility;
 
         var diff = ApiDiffAnalyzer.Compare(
-            Surface(Type("Foo", members: [oldMember])),
-            Surface(Type("Foo", members: [newMember])));
+            ApiAxisSurface(Type("Foo", members: [oldMember])),
+            ApiAxisSurface(Type("Foo", members: [newMember])));
 
         var change = Assert.Single(Assert.Single(diff.TypeDiffs).Changes);
         Assert.Equal(ChangeKind.MemberAccessibilityChanged, change.Kind);
@@ -721,8 +728,28 @@ public class ApiDiffAnalyzerTests
         newMember.Accessibility = "internal";
 
         var diff = ApiDiffAnalyzer.Compare(
-            Surface(Type("Foo", members: [oldMember])),
-            Surface(Type("Foo", members: [newMember])));
+            ApiAxisSurface(Type("Foo", members: [oldMember])),
+            ApiAxisSurface(Type("Foo", members: [newMember])));
+
+        Assert.Empty(diff.TypeDiffs);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(ApiSurfaceExtractionScope.Public)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    [InlineData(ApiSurfaceExtractionScope.PublicWithNonPublicTypes)]
+    public void MemberAccessibilityChange_OutsideApiAxisSurfaces_IsNotCompared(
+        ApiSurfaceExtractionScope? scope)
+    {
+        ApiMember oldMember = Method("Bar", "void Bar()");
+        ApiMember newMember = Method("Bar", "void Bar()");
+        newMember.Accessibility = "protected";
+        ApiSurface oldSurface = Surface(Type("Foo", members: [oldMember]));
+        ApiSurface newSurface = ApiAxisSurface(Type("Foo", members: [newMember]));
+        oldSurface.ExtractionScope = scope;
+
+        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface);
 
         Assert.Empty(diff.TypeDiffs);
     }

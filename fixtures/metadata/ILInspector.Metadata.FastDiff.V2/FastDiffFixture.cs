@@ -161,6 +161,13 @@ public class HiddenMemberChanged
     public int Hidden(int after) => after;
 }
 
+// A hidden public Type is on the API axis, marked hidden.
+[EditorBrowsable(EditorBrowsableState.Never)]
+public class HiddenTypeChanged
+{
+    public int Value(int after) => after;
+}
+
 // A protected Member is on the API axis.
 public class ProtectedMemberChanged
 {

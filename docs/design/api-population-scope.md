@@ -328,7 +328,10 @@ analysis reports them and their transitions, as Diff capabilities states. A Type
 of a non-public Type is admitted and a public Member of an internal Type is
 not. Metadata issues this population as the API axis surface
 (`ApiSurfaceExtractionScope.ApiAxis`); Fast Diff's API census admits the same
-declarations.
+declarations. The API comparison reports an accessibility move between API
+axis buckets only when both compared surfaces are API axis surfaces, as each
+surface records its extraction scope; comparisons of other scopes, including
+`--all`, keep their existing output.
 
 The ordinary population, the `public` bucket without hidden declarations, is
 the presentation default for diff output: a host shows it unless the user

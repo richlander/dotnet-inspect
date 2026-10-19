@@ -273,14 +273,18 @@ Fast Diff follows it; the axis never keeps a private exception.
   or `protected internal`, `protected internal` to `protected`) and additive
   when widened; the ordinary Public surface reports a move across the
   `public` boundary as a removal or an addition, and an accessor's
-  accessibility as a signature change;
+  accessibility as a signature change; only a comparison of two API axis
+  surfaces reports accessibility changes, so the include-all surface reports
+  none;
 - presented facts: for every fact kind treated as presented, a fixture case
   in which that fact alone differs, and the complete comparison reports the
   change; a kind without such a case is uncertain;
 - hidden subjects: a difference confined to a hidden Member, such as one
   marked `EditorBrowsable(Never)`, is API `Changed`, and the complete
   comparison of the API axis surface reports it with the Member marked
-  hidden; the ordinary Public surface omits it;
+  hidden; the ordinary Public surface omits it. A changed Member of a hidden
+  Type is the same: API `Changed`, reported against the API axis surface with
+  the Type marked hidden, and omitted from the ordinary Public surface;
 - `private protected`: a `private protected` Member added is not API
   `Changed` and is absent from the API axis surface;
 - Body exactness: every method pair's Body verdict equals canonical IL

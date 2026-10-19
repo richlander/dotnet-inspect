@@ -36,6 +36,7 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.Added", FastDiffState.Changed, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.Removed", FastDiffState.Changed, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.HiddenMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.HiddenTypeChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.ProtectedMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.PrivateProtectedMemberAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.PublicToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
@@ -223,6 +224,7 @@ public sealed class FastDiffTests
 
     [Theory]
     [InlineData("FastDiffFixture.HiddenMemberChanged")]
+    [InlineData("FastDiffFixture.HiddenTypeChanged")]
     [InlineData("FastDiffFixture.ProtectedMemberChanged")]
     public void ApiAxis_ComparesHiddenAndProtectedMembers(string typeName)
     {
@@ -253,6 +255,7 @@ public sealed class FastDiffTests
 
     [Theory]
     [InlineData("FastDiffFixture.HiddenMemberChanged")]
+    [InlineData("FastDiffFixture.HiddenTypeChanged")]
     [InlineData("FastDiffFixture.ProtectedMemberChanged")]
     public void OrdinaryPresentation_OmitsHiddenAndProtectedMembers(string typeName)
     {
@@ -323,6 +326,43 @@ public sealed class FastDiffTests
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
         Assert.Equal("int Value { get; set; }", change.OldValue);
         Assert.Equal("int Value { get; protected set; }", change.NewValue);
+    }
+
+    [Fact]
+    public void OrdinaryPresentation_ReportsAnAccessorAccessibilityChangeAsASignatureChange()
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+
+        TypeDiff type = Assert.Single(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == "FastDiffFixture.SetterToProtected");
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
+        Assert.Equal(ChangeClassification.Breaking, change.Classification);
+        Assert.Equal("int Value { get; set; }", change.OldValue);
+        Assert.Equal("int Value { get; protected set; }", change.NewValue);
+    }
+
+    [Fact]
+    public void ApiAxis_MarksAHiddenTypeHidden()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        ApiType type = Assert.Single(
+            Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis).Types,
+            type => type.FullName == "FastDiffFixture.HiddenTypeChanged");
+
+        Assert.True(type.IsHidden);
+    }
+
+    [Fact]
+    public void IncludeAll_DoesNotCompareAccessibility()
+    {
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.IncludeAll);
+
+        Assert.DoesNotContain(
+            comparison.ApiDiff.TypeDiffs.SelectMany(type => type.Changes),
+            change => change.Kind is ChangeKind.MemberAccessibilityChanged
+                or ChangeKind.TypeAccessibilityChanged);
     }
 
     [Theory]
