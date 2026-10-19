@@ -377,6 +377,48 @@ test("production Analysis rows open the exact ranked member", async ({ page }) =
   await expect(inspectorTab(page, "data-member-section", "overview")).toHaveAttribute("aria-selected", "true");
 });
 
+test("production Analysis row activation returns in one Back", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  await page.locator(".library-performance-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+  expect(new URL(page.url()).searchParams.get("analysis")).toBe("performance");
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "member"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(inspectorTab(page, "data-member-section", "facts"))
+    .toHaveAttribute("aria-selected", "true");
+
+  await page.keyboard.press("Alt+ArrowLeft");
+
+  await expect(subjectTab(page, "library"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(inspectorTab(page, "data-library-lens", "analysis"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-analysis-mode="performance"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".library-performance-surface .perf-row").first())
+    .toBeVisible();
+});
+
 test("production Analysis opens a private ranked member through all accessibility", async ({
   page,
 }) => {
