@@ -419,6 +419,41 @@ test("production Analysis row activation returns in one Back", async ({
     .toBeVisible();
 });
 
+test("newer subject navigation supersedes deferred Analysis row publication", async ({
+  page,
+}) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    { deferTypeMemberPopulation: true },
+  );
+  await openAnalysis(page);
+  await page.locator(".library-performance-surface .perf-row").first().click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-performance-type-member-population-request",
+    /"csharp","all"\]$/,
+  );
+
+  await chooseSubject(page, "package", "Package");
+
+  await expect(subjectTab(page, "package"))
+    .toHaveAttribute("aria-selected", "true");
+  expect(new URL(page.url()).searchParams.get("analysis")).toBeNull();
+
+  await releaseFacade(page, "finish-type-member-population");
+
+  await expect(subjectTab(page, "package"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(subjectTab(page, "member")).toHaveCount(0);
+});
+
 test("production Analysis opens a private ranked member through all accessibility", async ({
   page,
 }) => {

@@ -9456,18 +9456,25 @@ interface RenderOptions {
   synchronizeUrl?: boolean;
 }
 
-let performanceMemberNavigationPublication: number | null = null;
+let performanceMemberNavigationPublication: {
+  id: number;
+  view: string;
+} | null = null;
 let performanceMemberNavigationSequence = 0;
 
 function completePerformanceMemberNavigationPublication(
   publication: number,
 ) {
-  if (performanceMemberNavigationPublication !== publication) return false;
+  if (performanceMemberNavigationPublication?.id !== publication) return false;
   performanceMemberNavigationPublication = null;
   return true;
 }
 
 function render(options: RenderOptions = {}) {
+  if (performanceMemberNavigationPublication !== null
+    && performanceMemberNavigationPublication.view !== viewSignature()) {
+    performanceMemberNavigationPublication = null;
+  }
   const effectiveOptions = performanceMemberNavigationPublication === null
     ? options
     : {
@@ -12740,7 +12747,6 @@ function drillToPerfMember(
   }
   const targetType = retainPerformanceNavigationType(pkg, ranked);
   const publication = ++performanceMemberNavigationSequence;
-  performanceMemberNavigationPublication = publication;
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -12756,6 +12762,10 @@ function drillToPerfMember(
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
+  performanceMemberNavigationPublication = {
+    id: publication,
+    view: viewSignature(),
+  };
   render();
   const expectedView = viewSignature();
   const expectedPopulationKey = typeMemberPopulationKey(targetType);
@@ -12811,7 +12821,6 @@ async function selectPerformanceMember(
       typeId: type.id,
       populationReceipt,
     };
-    render();
     const ranked = state.packagePerformanceKey === packageScopeSignature()
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
           && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
