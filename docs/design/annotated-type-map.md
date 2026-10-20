@@ -109,17 +109,18 @@ Shape facts are Fast Diff's two axes at Member grain:
   side, so a one-sided method without a body that the surface admits is an
   API change only, and a method on both sides with a body on one side only
   is a Body change,
-  as Fast Diff's Body axis states. The Type's own Body facts are the
-  residual's Body facts as Fast Diff's census records them: `beforefieldinit`
-  for any Type with a static constructor, the declaration of a Type the
-  surface admits on neither side, and the IL of each method no Member owns,
-  such as a static constructor, and of generated code with no single owner.
+  as Fast Diff's Body axis states. The Type's own Body facts are every
+  Body fact Fast Diff's census gives the residual under its rule 1, such as
+  `beforefieldinit` for any Type with a static constructor, the declaration
+  of a Type the surface admits on neither side, and, for each row no Member
+  owns, such as a static constructor or generated code with no single owner,
+  its declaration facts and its IL.
 
 Admission follows Fast Diff's partition. A Type public on either side
 partitions its facts as public on both, so a Type's visibility change is an
 API fact only, as [Fast Diff's Axes](fast-diff.md#axes) state; within that,
-each Member's declaration facts are API or Body by its own version's
-admission. Each map therefore records every Member's declaration facts with
+each Member's declaration facts are API or Body by the Member's own
+accessibility on its side, as if the Type were public there. Each map therefore records every Member's declaration facts with
 its version's admission, and the comparison places them.
 
 Those are Fast Diff's [Body axis](fast-diff.md#axes) facts at every
