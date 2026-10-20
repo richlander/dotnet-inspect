@@ -454,13 +454,22 @@ first difference.
 
 > **Claim.** For one Type of one Library image pair, the Type level returns,
 > for every Member declared on either side, an **API** state and a **Body**
-> state, and one **residual** state per axis for the Type's facts that belong
-> to no single Member. The Member states and the residual partition the Type's
+> state, and one **residual** state per axis for the facts left over once
+> every Member has taken its own: the Type's own declaration and any body no
+> Member owns. The Member states and the residual partition the Type's
 > facts, so a Type axis is `Unchanged` at the Library level exactly when that
 > axis is `Unchanged` for every Member and for the residual. A Type present in
 > one image only has the same rows in its **one-sided form**: every fact it
 > has is present on one side, so each owner is `Changed` on each axis where it
 > owns facts, and the residual owns the Type's presence.
+
+A change to the Type's own declaration, such as an interface removed or a
+generic constraint added or removed, is a residual API change, and it is
+reported the same way whether or not any Member changed with it. A Type whose
+only change is in its declaration has a `Changed` residual and Members all
+`Unchanged`; a Type whose declaration and some Members changed has a `Changed`
+residual and those Members `Changed` as well. A consumer reads a declaration
+change from the residual and never infers it from the Members.
 
 A Type present in one image only has no counterpart to compare Members
 against, so its one-sided form compares nothing. The present side's Members
@@ -598,8 +607,10 @@ level per the partition claim, including an added public method, an added
 public property with a private setter, a public Type made internal, an enum
 underlying-type change, a
 `[field:]` attribute on a field-like event, a base Type change on an internal
-Type, and a nested Type whose
-inherited nullable context changed; an added and a removed public Type, the
+Type, an interface removed from a public Type with no Member change, which
+makes the residual API `Changed` and every Member `Unchanged`, and a nested
+Type whose inherited nullable context changed; an added and a removed public
+Type, the
 added one with Members and the removed one with none, are reported whole by
 the Library level and have one-sided Type-level rows whose keys equal the keys
 of the same Type's two-sided rows against itself, in which a public method
