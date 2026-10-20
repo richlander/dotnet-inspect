@@ -472,11 +472,15 @@ private field, or a method with no body, is returned and `Unchanged`. The
 residual owns the Type's presence as the Library level's
 [presence rule](#axes) states it: its Body is `Changed` whether or not any
 body exists, and its API is `Changed` exactly when the API axis surface admits
-the Type. So an added internal enum has Member rows all `Unchanged` and a
-`Changed` residual Body, and the partition claim holds. No IL is read, since a
-body present on one side only is a Body difference without reading it, at
-either level, and no metadata is compared, since nothing is paired. Each row
-is reported by the fingerprint of its present side. A version window compares
+the Type, or `NotCompared` on each axis when only the API axis is asked for,
+as every Body state is then. So an added internal enum has Member rows all
+`Unchanged` and a `Changed` residual Body, and the partition claim holds. A
+malformed one-sided Type follows the rule below for a census that cannot be
+completed: the residual stays `Changed` by presence, and every other owner not
+`Changed` is `Indeterminate`. No IL is read, since a body present on one side
+only is a Body difference without reading it, at either level, and no metadata
+is compared, since nothing is paired. Each row is reported by the fingerprint
+of its present side. A version window compares
 each adjacent pair this way, so a Type added partway through the window has
 Member rows for every pair that contains it on either side
 ([#9920](https://github.com/richlander/dotnet-inspect/issues/9920)), one-sided
@@ -520,7 +524,8 @@ fact describes is read from the fact's structure, never from its spelling:
    Where the Type is hidden on one side, the
    census records only its visibility there, so that change makes the
    residual and every public Member API `Changed`. Every Member of a Type
-   hidden on both sides has a Body state only. A Member or the residual
+   hidden on both sides owns no API facts, so its API state is `Unchanged`
+   and only its Body state can differ. A Member or the residual
    whose facts differ only in uncertain facts is decided as the
    [API axis](#axes) decides a Type, by the API axis surface of that
    Member or of the Type's own declaration.
@@ -593,23 +598,27 @@ public property with a private setter, a public Type made internal, an enum
 underlying-type change, a
 `[field:]` attribute on a field-like event, a base Type change on an internal
 Type, and a nested Type whose
-inherited nullable context changed; an added and a removed public Type, one
-of them with no Members, are reported whole by the Library level and have
-one-sided Type-level rows whose keys equal the keys of the same Type's
-two-sided rows against itself, in which a public method with a body is
-`Changed` on both axes, an internal method with a body is Body `Changed` only,
-a private field and a bodyless `extern` method are `Unchanged`, the residual
-is `Changed` on both axes, and no IL is read; an added internal enum has
-Member rows all `Unchanged`, a residual API `Unchanged` and Body `Changed`;
+inherited nullable context changed; an added and a removed public Type, the
+added one with Members and the removed one with none, are reported whole by
+the Library level and have one-sided Type-level rows whose keys equal the keys
+of the same Type's two-sided rows against itself, in which a public method
+with a body is `Changed` on both axes, an internal method with a body is Body
+`Changed` only, a private field and a bodyless private `extern` method are
+`Unchanged`, the residual is `Changed` on both axes, and no IL is read; an
+added internal enum has Member rows all `Unchanged`, a residual API
+`Unchanged` and Body `Changed`;
 an undefined opcode reached before a difference in one method
 makes that Member Body `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
 name have no Type-level rows; a Member present on both sides carries both
 fingerprints, which differ after a nullable annotation change; an attribute
-added to an internal method changes no state; every Member's API state equals
-whether the complete Public API diff reports it changed; and every owner of a
-body that canonical IL comparison reports changed is Body `Changed` or
-`Indeterminate`, or the change is a residual Body change, and no other owner is
-Body `Changed`. `eng/measure-fast-diff.cs` reports
+added to an internal method changes no state; for every Type present on both
+sides, every Member's API state equals whether the complete Public API diff
+reports it changed, and every owner of a body that canonical IL comparison
+reports changed is Body `Changed` or `Indeterminate`, or the change is a
+residual Body change, and no other owner is Body `Changed`; and for a Type
+present on one side, whose complete Public API diff is one added or removed
+Type with no per-Member change, every owner's state follows from fact
+ownership and presence alone. `eng/measure-fast-diff.cs` reports
 NativeAOT time per Type for the largest changed Types of each measured pair.
 
 ### Member
