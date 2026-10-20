@@ -74,7 +74,8 @@ internal interface IMethodAllocationResolver
     /// Classifies a type defined in the current image as exception-derived.
     /// Null means the type is not defined in the current image.
     /// </summary>
-    bool? IsInAssemblyExceptionType(TypeRef type) => null;
+    bool? IsInAssemblyExceptionType(
+        AllocationOccurrence occurrence) => null;
 
     /// <summary>
     /// The declaring type and name behind a field-store operand, or
@@ -200,7 +201,7 @@ internal sealed class MethodAllocationFacts
                             IsException:
                                 resolver
                                     .IsInAssemblyExceptionType(
-                                        definition));
+                                        occurrence));
                     })
                 .Where(
                     static item =>

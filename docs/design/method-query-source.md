@@ -785,7 +785,13 @@ terminal breadth:
 - async-state-machine classification lazily scans the module's TypeDef rows
   once per lookup; and
 - stable-receiver classification may read a same-image getter body, cached by
-  getter MethodDef.
+  getter MethodDef;
+- exact declared-source identity reuses the execution's receipted
+  memory-safety contract index rather than constructing the legacy
+  unreceipted index; and
+- exact local-allocation exception classification follows the operand's
+  TypeDef or TypeSpec definition and its bounded base chain rather than
+  constructing a module-wide type-name index.
 
 Those reads are supporting probes, not terminal methods. They do not add
 MethodDefs to the producer's visited population or bodies to its terminal body
@@ -798,7 +804,10 @@ the number and exact MethodDefs of scoped queries, and
 - method references resolved and their signature work;
 - generic-constraint and stable-receiver queries;
 - available stable-getter bodies read and their encoded IL bytes; and
-- TypeDef rows scanned for async-state-machine classification.
+- TypeDef rows scanned for async-state-machine classification;
+- declared-source contract construction and query work; and
+- local-exception queries, targeted TypeDef and relationship rows, and
+  TypeSpec signature bytes.
 
 Construction is lazy. Declaring but not querying the support constructs
 nothing. Disposing the query scope records all support work performed by the
@@ -823,11 +832,12 @@ rebuild body, control-flow, allocation-discovery, or escape work. The shared
 CLI and Browser/Wasm method-analysis consumer now sources exact allocations
 and intrinsic opportunities from that operation, applies the existing final
 publication enrichment with retained direct-call provenance, declared-owner
-suppression, and exception classification, and keeps only `MethodEvidence` on
-the donor for public direct-call rows and final `MethodSignals`. A recoverable
-allocation-operand failure retains the classified prefix and publishes its
-exact stopping offset and operation; optimization consumes that same partial
-fact rather than rebuilding or replacing it with successful-empty evidence.
+suppression, and exception classification. Public direct calls and final
+`MethodSignals` come from the same exact producer bundle; the query executes
+no Library Body Analysis donor. A recoverable allocation-operand failure
+retains the classified prefix and publishes its exact stopping offset and
+operation; optimization consumes that same partial fact rather than rebuilding
+or replacing it with successful-empty evidence.
 Its performance case is
 `System.Text.Json@10.0.0`
 `System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose

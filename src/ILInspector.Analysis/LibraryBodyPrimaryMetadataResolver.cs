@@ -37,6 +37,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly Func<DecodedInstruction, bool>
         _isStableReceiverGetter;
     readonly Action? _asyncStateMachineTypesBuilt;
+    readonly Func<MethodDefinitionHandle, CallerUnsafeMode>?
+        _methodIdentityUnsafeMode;
+    readonly bool _exactLocalTypeEvidence;
+    readonly Action? _localExceptionTypeQueried;
+    readonly Action? _localExceptionTypeDefinitionRead;
+    readonly Action? _localExceptionTypeRelationshipRead;
+    readonly Action<int>? _localExceptionTypeSignatureRead;
     readonly Lazy<Dictionary<
         MetadataTypeDefinitionName,
         TypeDefinitionHandle>> _localTypeDefinitions;
@@ -64,7 +71,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             genericParameterCanBeValueType,
         Func<DecodedInstruction, bool>
             isStableReceiverGetter,
-        Action? asyncStateMachineTypesBuilt)
+        Action? asyncStateMachineTypesBuilt,
+        Func<MethodDefinitionHandle, CallerUnsafeMode>?
+            methodIdentityUnsafeMode = null,
+        bool exactLocalTypeEvidence = false,
+        Action? localExceptionTypeQueried = null,
+        Action? localExceptionTypeDefinitionRead = null,
+        Action? localExceptionTypeRelationshipRead = null,
+        Action<int>? localExceptionTypeSignatureRead = null)
     {
         _reader = reader;
         _assemblyName = assemblyName;
@@ -85,6 +99,18 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             isStableReceiverGetter;
         _asyncStateMachineTypesBuilt =
             asyncStateMachineTypesBuilt;
+        _methodIdentityUnsafeMode =
+            methodIdentityUnsafeMode;
+        _exactLocalTypeEvidence =
+            exactLocalTypeEvidence;
+        _localExceptionTypeQueried =
+            localExceptionTypeQueried;
+        _localExceptionTypeDefinitionRead =
+            localExceptionTypeDefinitionRead;
+        _localExceptionTypeRelationshipRead =
+            localExceptionTypeRelationshipRead;
+        _localExceptionTypeSignatureRead =
+            localExceptionTypeSignatureRead;
         _memorySafety = new(
             () => MemorySafetyMetadataIndex.Create(reader),
             LazyThreadSafetyMode.ExecutionAndPublication);
@@ -335,8 +361,9 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 work: null,
                 out _);
         return identity.ToMethodIdentity(
-            CallerUnsafeModeFromContract(
-                _memorySafety.Value.GetMemberContract(methodHandle)));
+            _methodIdentityUnsafeMode?.Invoke(methodHandle)
+                ?? CallerUnsafeModeFromContract(
+                    _memorySafety.Value.GetMemberContract(methodHandle)));
     }
 
     internal MethodIdentity CreatePresenceMethodIdentity(
@@ -643,8 +670,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         public bool IsInAssemblyReferenceType(int typeToken)
             => owner.IsInAssemblyReferenceTypeElement(typeToken);
 
-        public bool? IsInAssemblyExceptionType(TypeRef type)
-            => owner.IsInAssemblyExceptionType(type);
+        public bool? IsInAssemblyExceptionType(
+            AllocationOccurrence occurrence) =>
+            owner._exactLocalTypeEvidence
+                ? owner.IsExactInAssemblyExceptionType(
+                    occurrence)
+                : owner.IsInAssemblyExceptionType(
+                    occurrence.AllocatedType!);
 
         public (TypeRef? DeclaringType, string? Name) ResolveFieldOwner(int fieldToken)
             => owner.ResolveFieldOwner(fieldToken, scope);
@@ -701,6 +733,161 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         foreach (TypeDefinitionHandle visited in path)
             cache[visited] = result;
         return result;
+    }
+
+    bool? IsExactInAssemblyExceptionType(
+        AllocationOccurrence occurrence)
+    {
+        _localExceptionTypeQueried?.Invoke();
+        TypeRef type =
+            occurrence.AllocatedType
+            ?? throw new InvalidOperationException(
+                "An allocation exception query requires an allocated type.");
+        if (!TryResolveExactLocalTypeDefinition(
+                occurrence.OperandToken,
+                out TypeDefinitionHandle handle))
+        {
+            TypeRef definition =
+                type.Kind == TypeRefKind.GenericInstance
+                    ? type.ElementType ?? type
+                    : type;
+            return CanCanonicalizeCurrentModuleReference(definition)
+                ? false
+                : null;
+        }
+
+        Span<TypeDefinitionHandle> visited =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        int count = 0;
+        while (!handle.IsNil)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (visited[i] == handle)
+                    return null;
+            }
+            if (count == visited.Length)
+                return null;
+            visited[count++] = handle;
+            _localExceptionTypeDefinitionRead?.Invoke();
+            TypeDefinition definition =
+                _reader.GetTypeDefinition(handle);
+            _localExceptionTypeRelationshipRead?.Invoke();
+            EntityHandle baseHandle = definition.BaseType;
+            if (baseHandle.IsNil)
+                return false;
+            if (baseHandle.Kind == HandleKind.TypeDefinition)
+            {
+                handle = (TypeDefinitionHandle)baseHandle;
+                continue;
+            }
+            if (baseHandle.Kind != HandleKind.TypeReference)
+                return null;
+
+            TypeRef baseType =
+                TypeRefDecoder.Instance.GetTypeFromReference(
+                    _reader,
+                    (TypeReferenceHandle)baseHandle,
+                    0);
+            return baseType.Name.EndsWith(
+                "Exception",
+                StringComparison.Ordinal);
+        }
+        return false;
+    }
+
+    bool TryResolveExactLocalTypeDefinition(
+        int? operandToken,
+        out TypeDefinitionHandle type)
+    {
+        type = default;
+        if (operandToken is not { } token)
+            return false;
+        EntityHandle handle =
+            MetadataTokens.EntityHandle(token);
+        while (handle.Kind == HandleKind.MethodSpecification)
+        {
+            handle = _reader.GetMethodSpecification(
+                    (MethodSpecificationHandle)handle)
+                .Method;
+        }
+        if (handle.Kind == HandleKind.MethodDefinition)
+        {
+            type = _reader.GetMethodDefinition(
+                    (MethodDefinitionHandle)handle)
+                .GetDeclaringType();
+            return true;
+        }
+        if (handle.Kind == HandleKind.MemberReference)
+        {
+            handle = _reader.GetMemberReference(
+                    (MemberReferenceHandle)handle)
+                .Parent;
+            if (handle.Kind == HandleKind.MethodDefinition)
+            {
+                type = _reader.GetMethodDefinition(
+                        (MethodDefinitionHandle)handle)
+                    .GetDeclaringType();
+                return true;
+            }
+        }
+        if (handle.Kind == HandleKind.TypeDefinition)
+        {
+            type = (TypeDefinitionHandle)handle;
+            return true;
+        }
+        return handle.Kind == HandleKind.TypeSpecification
+            && TryReadTypeSpecificationDefinition(
+                (TypeSpecificationHandle)handle,
+                out type);
+    }
+
+    bool TryReadTypeSpecificationDefinition(
+        TypeSpecificationHandle handle,
+        out TypeDefinitionHandle definition)
+    {
+        definition = default;
+        TypeSpecification specification =
+            _reader.GetTypeSpecification(handle);
+        BlobHandle signature = specification.Signature;
+        int length =
+            _reader.GetBlobReader(signature).Length;
+        _localExceptionTypeSignatureRead?.Invoke(length);
+        if (!SignatureBlobGuard.IsSafeToDecode(
+                _reader,
+                signature,
+                SignatureBlobGuard.Kind.TypeSpecification))
+        {
+            throw new BadImageFormatException(
+                "An allocation type specification exceeds safe "
+                    + "decoding limits.");
+        }
+
+        const byte ElementTypeValueType = 0x11;
+        const byte ElementTypeClass = 0x12;
+        const byte ElementTypeGenericInstance = 0x15;
+        BlobReader blob = _reader.GetBlobReader(signature);
+        if (blob.RemainingBytes == 0)
+            return false;
+        byte code = blob.ReadByte();
+        if (code == ElementTypeGenericInstance)
+        {
+            if (blob.RemainingBytes == 0)
+                return false;
+            code = blob.ReadByte();
+        }
+        if (code is not ElementTypeValueType
+            and not ElementTypeClass)
+        {
+            return false;
+        }
+
+        EntityHandle encoded = blob.ReadTypeHandle();
+        if (encoded.Kind != HandleKind.TypeDefinition)
+            return false;
+        definition = (TypeDefinitionHandle)encoded;
+        return true;
     }
 
     // Metadata-dependent call-site facts for one method. MethodCallAnalysis owns

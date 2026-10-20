@@ -300,6 +300,9 @@ public sealed partial class MethodDefinitionRequestSetTests
         MethodQuerySource_ReceiptsExactDeclaredSourceAttributionProbes()
     {
         string path = typeof(MethodAnalysisSupportFixture).Assembly.Location;
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
         MethodInfo lifted = typeof(MethodAnalysisSupportFixture)
             .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
             .Single(method => method.Name.Contains(
@@ -335,6 +338,89 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.True(
             coverage.MethodAnalysis.QueryWork
                 .DeclaredSourceProbeEncodedIlBytes > 0);
+        MethodAnalysisSupportWork work =
+            coverage.MethodAnalysis.QueryWork;
+        Assert.True(work.DeclaredSourceContractQueries > 0);
+        Assert.Equal(
+            MemorySafetyMetadataWork.Empty,
+            work.DeclaredSourceContractConstructionWork);
+        Assert.Equal(
+            0,
+            work.DeclaredSourceContractQueryWork
+                .IntegrityTypeDefRows);
+        Assert.Equal(
+            reader.TypeDefinitions.Count,
+            coverage.MemorySafetyContracts
+                .ConstructionWork.IntegrityTypeDefRows);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(MethodAnalysisSupportFixture.NamedNonExceptionAllocation),
+        false)]
+    [InlineData(
+        nameof(MethodAnalysisSupportFixture
+            .NamedGenericNonExceptionAllocation),
+        true)]
+    public void
+        MethodQuerySource_ReceiptsTargetedLocalExceptionClassification(
+            string methodName,
+            bool hasTypeSpecification)
+    {
+        string path = typeof(MethodAnalysisSupportFixture).Assembly.Location;
+        int token = typeof(MethodAnalysisSupportFixture)
+            .GetMethod(methodName)!
+            .MetadataToken;
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(
+                token & 0x00FF_FFFF);
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                ExactMethodOptimizationProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method),
+                new(
+                    maximumBodies: 1,
+                    maximumEncodedIlBytes: int.MaxValue));
+
+        MethodDefinitionSourceRequestSetExecution source =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        ExactMethodOptimizationBody actual =
+            Assert.Single(
+                ResultOf<ExactMethodOptimizationProducerResult>(
+                        source,
+                        exact)
+                    .Value!.Bodies);
+        AllocationOccurrence allocation =
+            Assert.Single(actual.Allocation.Allocations);
+        TypeRef allocatedType =
+            allocation.AllocatedType!;
+        TypeRef allocated =
+            allocatedType.Kind == TypeRefKind.GenericInstance
+                ? allocatedType.ElementType ?? allocatedType
+                : allocatedType;
+        Assert.False(
+            actual.Allocation.InAssemblyTypeIsException[
+                (allocated.Namespace, allocated.Name)]);
+
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodAnalysisSupportWork work =
+            source.ResultOf(exact)
+                .SourceReceipt.Coverage
+                .MethodAnalysis.QueryWork;
+        Assert.True(work.LocalExceptionTypeQueries > 0);
+        Assert.InRange(
+            work.LocalExceptionTypeDefinitionRows,
+            1,
+            reader.TypeDefinitions.Count - 1);
+        Assert.Equal(
+            work.LocalExceptionTypeDefinitionRows,
+            work.LocalExceptionTypeRelationshipNodes);
+        Assert.Equal(
+            hasTypeSpecification,
+            work.LocalExceptionTypeSignatureBytes > 0);
     }
 
     [Fact]
@@ -636,6 +722,10 @@ public sealed partial class MethodDefinitionRequestSetTests
 
 public static class MethodAnalysisSupportFixture
 {
+    public sealed class NamedException;
+
+    public sealed class NamedGenericException<T>;
+
     public sealed class Holder
     {
         readonly object _value = new();
@@ -657,4 +747,10 @@ public static class MethodAnalysisSupportFixture
 
         static object Core(Holder value) => value.Value;
     }
+
+    public static object NamedNonExceptionAllocation() =>
+        new NamedException();
+
+    public static object NamedGenericNonExceptionAllocation() =>
+        new NamedGenericException<int>();
 }

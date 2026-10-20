@@ -3,6 +3,7 @@ using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis.Planning;
 using ILInspector.Instructions;
+using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
@@ -27,6 +28,24 @@ public sealed record MethodAnalysisSupportWork(
     public long DeclaredSourceProbeEncodedIlBytes { get; init; }
 
     public int DeclaredSourceRelationshipNodes { get; init; }
+
+    public int DeclaredSourceContractQueries { get; init; }
+
+    public MemorySafetyMetadataWork
+        DeclaredSourceContractConstructionWork { get; init; } =
+            MemorySafetyMetadataWork.Empty;
+
+    public MemorySafetyMetadataWork
+        DeclaredSourceContractQueryWork { get; init; } =
+            MemorySafetyMetadataWork.Empty;
+
+    public int LocalExceptionTypeQueries { get; init; }
+
+    public int LocalExceptionTypeDefinitionRows { get; init; }
+
+    public int LocalExceptionTypeRelationshipNodes { get; init; }
+
+    public long LocalExceptionTypeSignatureBytes { get; init; }
 
     public static MethodAnalysisSupportWork Empty { get; } =
         new(0, 0, 0, 0, 0, 0, 0);
@@ -59,6 +78,27 @@ public sealed record MethodAnalysisSupportWork(
             DeclaredSourceRelationshipNodes =
                 DeclaredSourceRelationshipNodes
                 - before.DeclaredSourceRelationshipNodes,
+            DeclaredSourceContractQueries =
+                DeclaredSourceContractQueries
+                - before.DeclaredSourceContractQueries,
+            DeclaredSourceContractConstructionWork =
+                DeclaredSourceContractConstructionWork.Since(
+                    before.DeclaredSourceContractConstructionWork),
+            DeclaredSourceContractQueryWork =
+                DeclaredSourceContractQueryWork.Since(
+                    before.DeclaredSourceContractQueryWork),
+            LocalExceptionTypeQueries =
+                LocalExceptionTypeQueries
+                - before.LocalExceptionTypeQueries,
+            LocalExceptionTypeDefinitionRows =
+                LocalExceptionTypeDefinitionRows
+                - before.LocalExceptionTypeDefinitionRows,
+            LocalExceptionTypeRelationshipNodes =
+                LocalExceptionTypeRelationshipNodes
+                - before.LocalExceptionTypeRelationshipNodes,
+            LocalExceptionTypeSignatureBytes =
+                LocalExceptionTypeSignatureBytes
+                - before.LocalExceptionTypeSignatureBytes,
         };
 
     public MethodAnalysisSupportWork Plus(MethodAnalysisSupportWork other) =>
@@ -93,6 +133,27 @@ public sealed record MethodAnalysisSupportWork(
             DeclaredSourceRelationshipNodes =
                 checked(DeclaredSourceRelationshipNodes
                     + other.DeclaredSourceRelationshipNodes),
+            DeclaredSourceContractQueries =
+                checked(DeclaredSourceContractQueries
+                    + other.DeclaredSourceContractQueries),
+            DeclaredSourceContractConstructionWork =
+                DeclaredSourceContractConstructionWork.Plus(
+                    other.DeclaredSourceContractConstructionWork),
+            DeclaredSourceContractQueryWork =
+                DeclaredSourceContractQueryWork.Plus(
+                    other.DeclaredSourceContractQueryWork),
+            LocalExceptionTypeQueries =
+                checked(LocalExceptionTypeQueries
+                    + other.LocalExceptionTypeQueries),
+            LocalExceptionTypeDefinitionRows =
+                checked(LocalExceptionTypeDefinitionRows
+                    + other.LocalExceptionTypeDefinitionRows),
+            LocalExceptionTypeRelationshipNodes =
+                checked(LocalExceptionTypeRelationshipNodes
+                    + other.LocalExceptionTypeRelationshipNodes),
+            LocalExceptionTypeSignatureBytes =
+                checked(LocalExceptionTypeSignatureBytes
+                    + other.LocalExceptionTypeSignatureBytes),
         };
 }
 
@@ -137,6 +198,19 @@ internal sealed class MethodAnalysisLookup
     long _stableGetterEncodedIlBytes;
     int _asyncStateMachineTypeRows;
     int _declaredSourceQueries;
+    int _declaredSourceContractQueries;
+    MemorySafetyMetadataWork
+        _declaredSourceContractConstructionWork =
+            MemorySafetyMetadataWork.Empty;
+    MemorySafetyMetadataWork
+        _declaredSourceContractQueryWork =
+            MemorySafetyMetadataWork.Empty;
+    int _localExceptionTypeQueries;
+    int _localExceptionTypeDefinitionRows;
+    int _localExceptionTypeRelationshipNodes;
+    long _localExceptionTypeSignatureBytes;
+    readonly object _supportWorkGate = new();
+    readonly MemorySafetyContractSupport? _memorySafety;
     readonly string _path;
     readonly PEReader _peReader;
     readonly MethodDefinitionGeneratedExpansionWork
@@ -150,7 +224,9 @@ internal sealed class MethodAnalysisLookup
         PEReader peReader,
         Action<MethodDefinitionHandle>? stableReceiverGetterClassified = null,
         Action<MethodDefinitionHandle, int>? methodReferenceResolved = null,
-        Action? asyncStateMachineTypesBuilt = null)
+        Action? asyncStateMachineTypesBuilt = null,
+        MemorySafetyContractSupport? memorySafety = null,
+        bool exactLocalTypeEvidence = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(reader);
@@ -159,6 +235,7 @@ internal sealed class MethodAnalysisLookup
         _path = path;
         _peReader = peReader;
         _reader = reader;
+        _memorySafety = memorySafety;
         AssemblyName = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
             : Path.GetFileNameWithoutExtension(path);
@@ -207,7 +284,25 @@ internal sealed class MethodAnalysisLookup
                         ref _asyncStateMachineTypeRows,
                         _reader.TypeDefinitions.Count);
                     asyncStateMachineTypesBuilt?.Invoke();
-                });
+                },
+                methodIdentityUnsafeMode:
+                    memorySafety is null
+                        ? null
+                        : ResolveMethodIdentityUnsafeMode,
+                exactLocalTypeEvidence,
+                localExceptionTypeQueried: () =>
+                    Interlocked.Increment(
+                        ref _localExceptionTypeQueries),
+                localExceptionTypeDefinitionRead: () =>
+                    Interlocked.Increment(
+                        ref _localExceptionTypeDefinitionRows),
+                localExceptionTypeRelationshipRead: () =>
+                    Interlocked.Increment(
+                        ref _localExceptionTypeRelationshipNodes),
+                localExceptionTypeSignatureRead: bytes =>
+                    Interlocked.Add(
+                        ref _localExceptionTypeSignatureBytes,
+                        bytes));
     }
 
     internal string AssemblyName { get; }
@@ -234,6 +329,15 @@ internal sealed class MethodAnalysisLookup
         {
             MethodDefinitionGeneratedExpansionCoverage declaredSource =
                 _declaredSourceWork.Build();
+            MemorySafetyMetadataWork contractConstruction;
+            MemorySafetyMetadataWork contractQueries;
+            lock (_supportWorkGate)
+            {
+                contractConstruction =
+                    _declaredSourceContractConstructionWork;
+                contractQueries =
+                    _declaredSourceContractQueryWork;
+            }
             return new(
                 Volatile.Read(ref _methodReferencesResolved),
                 Interlocked.Read(ref _methodReferenceSignatureWork),
@@ -253,7 +357,63 @@ internal sealed class MethodAnalysisLookup
                     declaredSource.ProbeEncodedIlBytes,
                 DeclaredSourceRelationshipNodes =
                     declaredSource.RelationshipNodes,
+                DeclaredSourceContractQueries =
+                    Volatile.Read(
+                        ref _declaredSourceContractQueries),
+                DeclaredSourceContractConstructionWork =
+                    contractConstruction,
+                DeclaredSourceContractQueryWork =
+                    contractQueries,
+                LocalExceptionTypeQueries =
+                    Volatile.Read(
+                        ref _localExceptionTypeQueries),
+                LocalExceptionTypeDefinitionRows =
+                    Volatile.Read(
+                        ref _localExceptionTypeDefinitionRows),
+                LocalExceptionTypeRelationshipNodes =
+                    Volatile.Read(
+                        ref _localExceptionTypeRelationshipNodes),
+                LocalExceptionTypeSignatureBytes =
+                    Interlocked.Read(
+                        ref _localExceptionTypeSignatureBytes),
             };
+        }
+    }
+
+    CallerUnsafeMode ResolveMethodIdentityUnsafeMode(
+        MethodDefinitionHandle method)
+    {
+        MemorySafetyContractSupport support =
+            _memorySafety ?? throw new InvalidOperationException(
+                "Exact declared-source identity requires memory-safety "
+                    + "contract support.");
+        MemorySafetyContractLookup lookup =
+            support.Acquire(out bool constructed);
+        MemorySafetyMetadataWork before =
+            lookup.RecordedWork;
+        try
+        {
+            return CallerUnsafeModeFacts.FromContract(
+                lookup.GetMemberContract(method));
+        }
+        finally
+        {
+            MemorySafetyMetadataWork queryWork =
+                lookup.RecordedWork.Since(before);
+            lock (_supportWorkGate)
+            {
+                if (constructed)
+                {
+                    _declaredSourceContractConstructionWork =
+                        _declaredSourceContractConstructionWork.Plus(
+                            lookup.ConstructionWork);
+                }
+                _declaredSourceContractQueryWork =
+                    _declaredSourceContractQueryWork.Plus(
+                        queryWork);
+            }
+            Interlocked.Increment(
+                ref _declaredSourceContractQueries);
         }
     }
 
@@ -358,13 +518,19 @@ internal sealed class MethodAnalysisLookup
 internal sealed class MethodAnalysisSupport(
     string path,
     MetadataReader reader,
-    PEReader peReader)
+    PEReader peReader,
+    MemorySafetyContractSupport? memorySafety = null)
 {
     MethodAnalysisLookup? _lookup;
 
     public MethodAnalysisLookup Acquire(out bool constructed)
     {
         constructed = _lookup is null;
-        return _lookup ??= new(path, reader, peReader);
+        return _lookup ??= new(
+            path,
+            reader,
+            peReader,
+            memorySafety: memorySafety,
+            exactLocalTypeEvidence: memorySafety is not null);
     }
 }

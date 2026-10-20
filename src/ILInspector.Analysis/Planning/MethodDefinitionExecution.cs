@@ -227,7 +227,11 @@ public sealed class MethodDefinitionExecution
                 : null;
         execution._methodAnalysis =
             methodAnalysisDeclared
-                ? new MethodAnalysisSupport(sourceName, reader, peReader)
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    execution._memorySafety)
                 : null;
         if (referenceBindingDeclared && referenceBinding is null)
         {
@@ -571,7 +575,11 @@ public sealed class MethodDefinitionExecution
         MethodAnalysisSupport? methodAnalysis =
             lanes.Any(static lane => lane._states.Any(
                 static state => state.HasMethodAnalysisLayer))
-                ? new MethodAnalysisSupport(sourceName, reader, peReader)
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    memorySafety)
                 : null;
         try
         {

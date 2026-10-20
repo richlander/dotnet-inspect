@@ -461,8 +461,12 @@ selected physical body differs from its declared member, receipted exact
 method-analysis support authenticates the ultimate declared owner without
 expanding terminal breadth or building a module-wide lifted-method census. Its
 finite owner-type candidates, closure relationships, and attribution IL probes
-are reported separately in the support receipt; caller attribution and
-generated-owner suppression consume that result.
+are reported separately in the support receipt. Declared-owner identity reuses
+the execution's receipted memory-safety contract index. Local allocation
+exception classification follows only the operand's definition and bounded
+base chain, with those rows and any TypeSpec bytes reported in the same support
+receipt. Caller attribution and generated-owner suppression consume that
+result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
 `LibraryBodyAnalysisService`. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
