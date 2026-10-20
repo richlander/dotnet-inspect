@@ -109,8 +109,10 @@ Shape facts are Fast Diff's two axes at Member grain:
   side, so a one-sided method without a body that the surface admits is an
   API change only, and a method on both sides with a body on one side only
   is a Body change,
-  as Fast Diff's Body axis states. A Type the surface admits on neither side
-  owns its own declaration facts as Type entries.
+  as Fast Diff's Body axis states. The Type's own Body facts are the
+  residual's Body facts as Fast Diff's census records them: `beforefieldinit`
+  for any Type with a static constructor, and the declaration of a Type the
+  surface admits on neither side.
 
 Those are Fast Diff's [Body axis](fast-diff.md#axes) facts at every
 accessibility. Every Member therefore owns shape facts on at least one axis:
@@ -122,7 +124,8 @@ Body transition on its Type row. The row carries the transition, not the
 fact that differs: the declaration view of
 [Diff capabilities](diff-capabilities.md#axes)
 ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) presents
-that at rung 4.
+that at rung 4. Until that view lands, such a row has no rung-4 view, the
+interim exception Diff capabilities' adoption step 1 records.
 
 Each shape fact is a function of one version, so two retained maps can be
 compared without reopening either image. The map adds no equality. Two API
@@ -212,10 +215,10 @@ added internal enum lists each of its members as Body `Added`, and an added
 public Type lists a public field as API `Added` and a private field as Body
 `Added`.
 
-A paired Member is listed exactly when a shape fact it owns differs. A private
-field whose declaration is the same on both sides, or a bodiless Member the
-surface admits whose API facts are equal, has no shape transition and is not
-listed.
+A paired Member is listed exactly when a shape fact it owns differs or its
+shape comparison is unsettled. A private field whose declaration is the same
+on both sides, or a bodiless Member the surface admits whose API facts are
+equal, has no shape transition and is not listed.
 
 The map diff is not an [Analysis diff](analysis-diff.md): that format is a
 complete partition of both endpoints, and the map diff keeps only what changed.
