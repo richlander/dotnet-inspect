@@ -104,8 +104,9 @@ Every rung answers per **axis**:
   declarations, such as `EditorBrowsable(Never)` ones, admitted into their
   buckets: `--all` narrowed by an `accessibility` term to those two buckets,
   less `private protected` declarations, which no other assembly can reach.
-  A Type is admitted by its own row's bucket, so a public Member of an
-  internal Type is not on the API axis. That is the visibility
+  A Type is admitted when it and every enclosing Type are in those buckets,
+  so neither a public Member of an internal Type nor a public nested Type of
+  one is on the API axis. That is the visibility
   [Fast Diff's API axis](fast-diff.md#axes) admits; `private protected`
   declarations belong to Body. `EditorBrowsable` and `Obsolete` do not decide
   admission: they are the subject of a separate **API status** analysis,

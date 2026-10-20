@@ -138,6 +138,7 @@ public sealed class LibraryApiDiffCommandTests
     [InlineData("FastDiffFixture.PrivateMemberChanged", ChangeKind.MemberSignatureChanged, ChangeClassification.NonBreaking)]
     [InlineData("FastDiffFixture.InternalTypeRemoved", ChangeKind.TypeRemoved, ChangeClassification.NonBreaking)]
     [InlineData("FastDiffFixture.InternalTypeMemberChanged", ChangeKind.MemberSignatureChanged, ChangeClassification.NonBreaking)]
+    [InlineData("FastDiffFixture.InternalOuterNestedMemberChanged+Nested", ChangeKind.MemberSignatureChanged, ChangeClassification.NonBreaking)]
     public async Task IncludeAll_ReportsEveryAccessibilityMoveAndScopesBreakingToTheApiAxis(
         string type,
         ChangeKind kind,
@@ -171,7 +172,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(26, summary.GetProperty("breakingCount").GetInt32());
         Assert.Equal(17, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
-        Assert.Equal(7, summary.GetProperty("nonBreakingCount").GetInt32());
+        Assert.Equal(8, summary.GetProperty("nonBreakingCount").GetInt32());
     }
 
     [Fact]

@@ -282,3 +282,11 @@ internal class InternalTypeMemberChanged
 {
     public int Value(int x) => x;
 }
+
+internal class InternalOuterNestedMemberChanged
+{
+    public class Nested
+    {
+        public int Value(int x) => x;
+    }
+}

@@ -1272,10 +1272,11 @@ public static partial class ApiSurfaceExtractor
             if (!typeDef.IsPublic && scope == ApiSurfaceExtractionScope.Public)
                 continue;
 
-            // The API axis admits a Type by its own row and compares its public
-            // and protected members, hidden ones included and marked.
+            // The API axis admits a Type another assembly can reach through every
+            // enclosing Type and compares its public and protected members, hidden
+            // ones included and marked.
             bool apiAxis = scope == ApiSurfaceExtractionScope.ApiAxis;
-            if (apiAxis && !AdmitsApiAxisType(typeDef))
+            if (apiAxis && !AdmitsApiAxisType(reader, typeDefHandle, typeDef))
                 continue;
 
             // Whether this type's members follow the include-all rules. Every member decision

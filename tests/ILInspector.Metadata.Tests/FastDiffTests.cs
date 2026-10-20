@@ -61,6 +61,7 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.PrivateMemberChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.InternalTypeRemoved", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.InternalTypeMemberChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.InternalOuterNestedMemberChanged.Nested", FastDiffState.Unchanged, FastDiffState.Changed)]
     public void TypeStates_SeparateApiAndBodyChanges(
         string fullName,
         FastDiffState api,
@@ -429,6 +430,7 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.PrivateProtectedMemberAdded", ChangeKind.MemberAdded)]
     [InlineData("FastDiffFixture.InternalTypeRemoved", ChangeKind.TypeRemoved)]
     [InlineData("FastDiffFixture.InternalTypeMemberChanged", ChangeKind.MemberSignatureChanged)]
+    [InlineData("FastDiffFixture.InternalOuterNestedMemberChanged.Nested", ChangeKind.MemberSignatureChanged)]
     public void IncludeAll_ClassifiesAChangeOutsideTheApiAxisAsNonBreaking(
         string typeName,
         ChangeKind kind)
@@ -461,6 +463,21 @@ public sealed class FastDiffTests
         ApiChange change = Assert.Single(type.Changes);
         Assert.Equal(kind, change.Kind);
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
+    }
+
+    [Fact]
+    public void ApiAxis_DoesNotAdmitAPublicNestedTypeOfAnInternalType()
+    {
+        // No other assembly can reach a public nested Type of an internal Type, so
+        // the API axis admits neither it nor its Members
+        // (docs/design/api-population-scope.md).
+        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+
+        Assert.DoesNotContain(
+            comparison.ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName.StartsWith(
+                "FastDiffFixture.InternalOuterNestedMemberChanged",
+                StringComparison.Ordinal));
     }
 
     [Fact]
