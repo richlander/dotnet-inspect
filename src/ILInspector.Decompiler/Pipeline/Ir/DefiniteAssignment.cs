@@ -355,14 +355,29 @@ static class DefiniteAssignment
             bool found = false;
             for (int source = 0; source < blocks.Count; source++)
             {
-                foreach (var node in blocks[source].DescendantsOutsideNestedFunctions)
+                var block = blocks[source];
+                foreach (var node in block.DescendantsOutsideNestedFunctions)
                 {
-                    if (node is ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)
-                        return false;
-                    if (node is not Branch branch)
-                        continue;
+                    // A retained conditional transfer nested inside a structured
+                    // range is a forward goto whose other path falls through; a
+                    // block-terminating conditional is flat control flow.
+                    int targetOffset;
+                    switch (node)
+                    {
+                        case Branch branch:
+                            targetOffset = branch.TargetOffset;
+                            break;
+                        case ConditionalBranch conditional
+                            when !ReferenceEquals(conditional.Parent, block):
+                            targetOffset = conditional.TargetOffset;
+                            break;
+                        case ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
+                            return false;
+                        default:
+                            continue;
+                    }
                     found = true;
-                    if (!targets.TryGetValue(branch.TargetOffset, out int target) || target <= source)
+                    if (!targets.TryGetValue(targetOffset, out int target) || target <= source)
                         return false;
                 }
             }
@@ -375,7 +390,7 @@ static class DefiniteAssignment
             {
                 foreach (var node in block.DescendantsOutsideNestedFunctions)
                 {
-                    if (node is Branch
+                    if (node is Branch or ConditionalBranch
                         && !block.Children.Any(child => ReferenceEquals(child, node)))
                         return true;
                 }
@@ -672,6 +687,18 @@ static class DefiniteAssignment
                         structuredGotoReaching[branch.TargetOffset] = reaching = [];
                     reaching.Add(new HashSet<int>(assigned));
                     return DefiniteFlow.Goto;
+                // A retained conditional transfer: the taken path carries the
+                // current set to its forward target, the other path falls through.
+                case ConditionalBranch conditional
+                    when structuredGotoReaching is not null
+                    && structuredGotoTargetIndices is not null
+                    && structuredGotoTargetIndices.TryGetValue(conditional.TargetOffset, out int conditionalTarget)
+                    && conditionalTarget > structuredGotoSourceIndex:
+                    CheckReads(conditional.Condition, assigned);
+                    if (!structuredGotoReaching.TryGetValue(conditional.TargetOffset, out var conditionalReaching))
+                        structuredGotoReaching[conditional.TargetOffset] = conditionalReaching = [];
+                    conditionalReaching.Add(new HashSet<int>(assigned));
+                    return DefiniteFlow.FallThrough;
                 case Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
                     BailAll();
                     return DefiniteFlow.Bail;

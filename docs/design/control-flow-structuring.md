@@ -792,9 +792,20 @@ only when the post-dominator machinery is proven.
    validation clones it into the guard exactly as the whole-container path
    does. After the ranges are planned, each flat gap before, between, or after
    them is validated on its own against the next range start (or the container
-   end) as its join and built as an ordinary region when it validates; the
-   preceding merge keeps its label through an anchor when the gap's first
-   statement does not own it, and a gap that does not validate stays flat.
+   end) as its join and built as an ordinary region when it validates; a gap
+   whose interior block is still targeted from outside the gap stays flat so
+   that block keeps its own label (a short shared terminator targeted from a
+   planned range is exempt, because that range clones it), and so does a gap
+   that does not validate. Every built range or gap that starts at a transfer
+   target receives a dedicated `LabelAnchor`, as retained loops already did,
+   because a later expression or sugar pass can consume the first statement
+   and with it the only owner of a label that retained gotos still target; the
+   printer binds such an anchor's label to the statement that follows it. A
+   forward range keeps an imported conditional transfer to its retained merge
+   as the `ConditionalBranch` it was, again as retained loops do, so partial
+   structuring creates no output-only transfer identity for the corpus
+   control-flow ledger; the printer's definite-assignment walk treats such a
+   nested conditional as a forward goto whose other path falls through.
    Against exact base `3634ec46b` over the pinned real-world corpus (89,065
    methods), `--structuring-stops` moved from 30,178 to 30,251 structured
    containers, 129 to 210 retained-label regions, and 2,541 to 2,468 flat
@@ -808,9 +819,12 @@ only when the post-dominator machinery is proven.
    `ExitCollapsedSplitStructuresAgainstItsSurvivorMerge`,
    `SharedTerminatorPastRetainedRangeIsClonedIntoItsGuard`,
    `ValidatedPrefixTransferOntoRetainedRegionStartDissolves`,
-   `UnrelatedTailBackEdgeDoesNotRejectForwardRetainedRegion`, and
-   `TailGapThatDoesNotValidateStaysFlatBehindTheRetainedRange` gate the
-   planner.
+   `UnrelatedTailBackEdgeDoesNotRejectForwardRetainedRegion`,
+   `TailGapThatDoesNotValidateStaysFlatBehindTheRetainedRange`, and
+   `GapTargetedFromFlatBlockStaysFlat` gate the planner;
+   `SequentialRetainedMergesStructureFurthestRangeAndTail` and
+   `RetainedGotoParticipatesInDefiniteAssignment` pin the preserved
+   conditional transfer and its definite-assignment reading.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`

@@ -15,16 +15,17 @@ public class RetainedMergeStructuringTests
         Assert.Equal(2, diagnostics.RetainedRegions);
         Assert.Equal(3, function.Body.Blocks.Count);
         Assert.Equal(4, function.Descendants.OfType<StoreLocal>().Count());
-        Assert.Equal(2, function.Descendants.OfType<Branch>().Count());
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 40);
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 80);
-
-        var firstRetained = Assert.Single(
-            function.Descendants.OfType<IfStatement>(),
-            statement => statement.Then.Children.OfType<Branch>().Any(branch => branch.TargetOffset == 40));
-        Assert.IsType<Comparison>(firstRetained.Condition);
+        // The imported conditional transfers to the retained merges keep their
+        // own nodes and identities inside the structured ranges.
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        var retained = function.Descendants.OfType<ConditionalBranch>().ToArray();
+        Assert.Equal(2, retained.Length);
+        Assert.Contains(retained, branch => branch.TargetOffset == 40);
+        Assert.Contains(retained, branch => branch.TargetOffset == 80);
+        Assert.All(retained, branch => Assert.IsType<IfStatement>(branch.Parent?.Parent));
 
         Assert.Equal(40, function.Body.Blocks[1].Children[0].SourceOffset);
+        Assert.IsType<LabelAnchor>(function.Body.Blocks[1].Children[0]);
         string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("if (", output);
         Assert.Contains("goto IL_0028;", output);
@@ -597,7 +598,7 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.Contains("retained-back-edge-region", diagnostics.RetainedDeclines);
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 40);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 40);
         // The tail loop is not a retained range, but the tail validates on its
         // own against the container end, so it is built as an ordinary loop
         // instead of staying flat behind the retained region.
@@ -738,10 +739,10 @@ public class RetainedMergeStructuringTests
 
         Assert.Empty(diagnostics.Stops);
         Assert.Equal(1, diagnostics.RetainedRegions);
-        var branches = function.Descendants.OfType<Branch>().ToArray();
-        Assert.Equal(2, branches.Length);
-        Assert.All(branches, branch => Assert.Equal(32, branch.TargetOffset));
-        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        var retained = function.Descendants.OfType<ConditionalBranch>().ToArray();
+        Assert.Equal(2, retained.Length);
+        Assert.All(retained, branch => Assert.Equal(32, branch.TargetOffset));
+        Assert.Empty(function.Descendants.OfType<Branch>());
         string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("IL_0020:", output);
         Assert.Equal(2, output.Split("goto IL_0020;").Length - 1);
@@ -776,8 +777,9 @@ public class RetainedMergeStructuringTests
         Assert.Empty(diagnostics.Stops);
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.DoesNotContain("retained-transfer-outside-region", diagnostics.RetainedDeclines);
-        var retained = Assert.Single(function.Descendants.OfType<Branch>());
+        var retained = Assert.Single(function.Descendants.OfType<ConditionalBranch>());
         Assert.Equal(40, retained.TargetOffset);
+        Assert.Empty(function.Descendants.OfType<Branch>());
         Assert.Equal(2, function.Descendants.OfType<Throw>().Count());
         string output = DecidedPrint.Print(function).Output!;
         Assert.Contains("goto IL_0028;", output);
@@ -804,8 +806,45 @@ public class RetainedMergeStructuringTests
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.Equal(3, function.Body.Blocks.Count);
         Assert.Equal(40, function.Body.Blocks[1].StartOffset);
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 40);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 40);
         Assert.Single(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 999);
+    }
+
+    [Fact]
+    public void GapTargetedFromFlatBlockStaysFlat()
+    {
+        // The flat prefix jumps into the interior of the tail (IL_0040). The
+        // tail would validate on its own, but building it would move IL_0040
+        // inside a nested region where the prefix's goto could no longer see
+        // its label (CS0159), so the tail stays flat and keeps the label.
+        var blocks = new[]
+        {
+            Term(0, Cond(64)),
+            Term(8, Cond(32)),
+            Term(16, Cond(48)),
+            Block(24, new StoreLocal(0, I32, new Constant(2, I32)), new Branch(40)),
+            Term(32, new StoreLocal(0, I32, new Constant(3, I32))),
+            Term(40, new Branch(48)),
+            Term(48, new StoreLocal(0, I32, new Constant(4, I32))),
+            Term(56, Cond(96)),
+            Term(64, new StoreLocal(0, I32, new Constant(5, I32))),
+            Term(72, new StoreLocal(0, I32, new Constant(6, I32))),
+            Term(80, new StoreLocal(0, I32, new Constant(7, I32))),
+            Term(88, new StoreLocal(0, I32, new Constant(8, I32))),
+            Term(96, new Return(new LoadLocal(0, I32))),
+        };
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        Assert.Equal(9, function.Body.Blocks.Count);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 64);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 48);
+        string output = DecidedPrint.Print(function).Output!;
+        Assert.Contains("goto IL_0040;", output);
+        Assert.Contains("IL_0040:", output);
+        Assert.Contains("goto IL_0030;", output);
+        Assert.Contains("IL_0030:", output);
     }
 
     [Fact]

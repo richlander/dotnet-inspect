@@ -514,14 +514,24 @@ public sealed class StructuringPass : IIrPass
         // mutation so a declined gap never leaves a half-built container.
         var gapContexts = new Dictionary<int, Ctx>();
         {
+            var rangeBlocks = new HashSet<int>();
+            foreach (var range in ranges)
+            {
+                for (int index = range.Start; index < range.Stop; index++)
+                    rangeBlocks.Add(index);
+            }
+
             int gapCursor = 0;
             foreach (var range in ranges.Append(new RetainedRange(clonedBlocks.Count, clonedBlocks.Count, [])))
             {
                 if (gapCursor < range.Start)
                 {
                     var gapCtx = CopyRetainedCtx(template, [], allowRetainedMergeWithinLoop: false);
-                    if (Validate(gapCtx, gapCursor, range.Start, joinIndex: range.Start, breakTarget: null, continueTarget: null))
+                    if (!GapHasExternalEntry(template, rangeBlocks, gapCursor, range.Start)
+                        && Validate(gapCtx, gapCursor, range.Start, joinIndex: range.Start, breakTarget: null, continueTarget: null))
+                    {
                         gapContexts[gapCursor] = gapCtx;
+                    }
                 }
                 gapCursor = range.Stop;
             }
@@ -549,23 +559,9 @@ public sealed class StructuringPass : IIrPass
             // dissolves into fallthrough and leaves nothing to print.
             if (builtGap.Children.Count == 0)
                 return GapBuild.Built;
-            // A built gap that starts at a branch target (the preceding range's
-            // retained merge) keeps that label through a dedicated anchor unless
-            // its first statement already owns it; a flat block carried the label
-            // through its own start offset.
             int gapOffset = clonedBlocks[gapStart].StartOffset;
-            bool firstStatementOwnsLabel = builtGap.Children[0].OwnsSourceLabel
-                && builtGap.Children[0].SourceOffset == gapOffset;
-            if (template.FlowFacts.BranchTargets.Contains(gapOffset) && !firstStatementOwnsLabel)
-            {
-                var anchored = new Block(gapOffset);
-                var anchor = new LabelAnchor();
-                anchor.SetSourceOffset(gapOffset);
-                anchored.Add(anchor);
-                foreach (var statement in builtGap.DetachChildren())
-                    anchored.Add(statement);
-                builtGap = anchored;
-            }
+            if (template.FlowFacts.BranchTargets.Contains(gapOffset))
+                builtGap = AnchorRetainedLabel(builtGap, gapOffset);
             replacement.Add(builtGap);
             return GapBuild.Built;
         }
@@ -613,6 +609,9 @@ public sealed class StructuringPass : IIrPass
                 PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
                 return false;
             }
+            int rangeOffset = clonedBlocks[range.Start].StartOffset;
+            if (template.FlowFacts.BranchTargets.Contains(rangeOffset))
+                built = AnchorRetainedLabel(built, rangeOffset);
             replacement.Add(built);
             cursor = range.Stop;
         }
@@ -719,6 +718,26 @@ public sealed class StructuringPass : IIrPass
 
         foreach (string decline in retainedDeclines)
             diagnostics.RecordRetainedDecline(decline);
+    }
+
+    /// <summary>
+    /// Gives a built region that starts at a transfer target a dedicated label
+    /// owner. The built region's first statement may carry the start offset,
+    /// but a later expression or sugar pass can consume that statement and
+    /// with it the only owner of a label that retained gotos still target; the
+    /// anchor prints nothing by itself and survives those passes. The printer
+    /// emits each label once, so a first statement that also owns the offset
+    /// renders no duplicate.
+    /// </summary>
+    static Block AnchorRetainedLabel(Block built, int offset)
+    {
+        var anchored = new Block(offset);
+        var anchor = new LabelAnchor();
+        anchor.SetSourceOffset(offset);
+        anchored.Add(anchor);
+        foreach (var statement in built.DetachChildren())
+            anchored.Add(statement);
+        return anchored;
     }
 
     static RetainedRange? TryPlanRetainedLoopRange(
@@ -930,6 +949,35 @@ public sealed class StructuringPass : IIrPass
         if (!IsSharedMerge(ctx, candidate.Start, candidate.Merge))
             return "retained-merge-not-shared";
         return null;
+    }
+
+    /// <summary>
+    /// A block strictly inside a gap that a transfer from outside the gap still
+    /// targets must keep its own flat label, so such a gap is not built. The one
+    /// exception is a short shared terminator targeted from a planned range:
+    /// that range's validation clones the terminator into its guard, so the
+    /// transfer never prints and needs no label.
+    /// </summary>
+    static bool GapHasExternalEntry(Ctx ctx, HashSet<int> rangeBlocks, int start, int stop)
+    {
+        for (int source = 0; source < ctx.Blocks.Count; source++)
+        {
+            if (source >= start && source < stop)
+                continue;
+            foreach (int targetOffset in TransferTargets(ctx.Blocks[source]))
+            {
+                if (!ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                    || target <= start
+                    || target >= stop)
+                {
+                    continue;
+                }
+                if (rangeBlocks.Contains(source) && IsInlinableTerminator(ctx, target))
+                    continue;
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool RegionHasExternalEntry(Ctx ctx, int start, int merge)
@@ -3149,7 +3197,15 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (ctx.RetainedMergeIndices.Contains(target))
                     {
-                        if (ctx.AllowRetainedMergeWithinLoop)
+                        // An imported conditional transfer to a retained merge
+                        // keeps its own node and identity instead of becoming an
+                        // IfStatement around a synthesized Branch: partial
+                        // structuring must not create an output-only transfer.
+                        // A synthesized conditional has no imported identity to
+                        // preserve, so outside a retained loop it keeps the
+                        // guard form.
+                        if (ctx.AllowRetainedMergeWithinLoop
+                            || conditional.Origin == ConditionalBranchOrigin.Imported)
                         {
                             if (result.Children.Count == resultStart
                                 && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
