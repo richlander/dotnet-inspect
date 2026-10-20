@@ -1340,6 +1340,12 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         typeDefHandle),
                 Accessibility = MetadataDeclarationQuery.TypeAccessibility(typeDef),
+                EnclosingTypesExternallyReachable =
+                    scope == ApiSurfaceExtractionScope.IncludeAll
+                        ? MetadataVisibility.AreEnclosingTypesExternallyReachable(
+                            reader,
+                            typeDefHandle)
+                        : null,
                 IsHidden = typeIsHidden,
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 Layout = (ApiTypeLayout)(attributes & TypeAttributes.LayoutMask),

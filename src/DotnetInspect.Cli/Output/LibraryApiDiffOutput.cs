@@ -174,6 +174,7 @@ internal static class LibraryApiDiffOutput
                 BreakingChanges = ChangeRows(ChangeClassification.Breaking),
                 PotentiallyBreakingChanges = ChangeRows(ChangeClassification.PotentiallyBreaking),
                 AdditiveChanges = ChangeRows(ChangeClassification.Additive),
+                NonBreakingChanges = ChangeRows(ChangeClassification.NonBreaking),
                 OtherChanges = types.SelectMany(UnclassifiedRows)
                     .Select(row => new DiffChangeRow(row.TypeText, row.DetailText))
                     .ToList() is { Count: > 0 } other ? other : null,
@@ -323,7 +324,8 @@ internal static class LibraryApiDiffOutput
             : DiffOutputFormatter.FormatSummaryCounts(
                 rows.Count(change => change.Classification == ChangeClassification.Breaking),
                 rows.Count(change => change.Classification == ChangeClassification.Additive),
-                rows.Count(change => change.Classification == ChangeClassification.PotentiallyBreaking));
+                rows.Count(change => change.Classification == ChangeClassification.PotentiallyBreaking),
+                rows.Count(change => change.Classification == ChangeClassification.NonBreaking));
     }
 
     static void WriteJson(

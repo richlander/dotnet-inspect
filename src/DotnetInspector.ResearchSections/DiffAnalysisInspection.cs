@@ -145,7 +145,9 @@ public sealed record DiffAnalysisChangesDocument(
     ImmutableArray<DiffAnalysisChangedType> Types,
     int TotalBreaking,
     int TotalAdditive,
-    int TotalPotentiallyBreaking)
+    int TotalPotentiallyBreaking,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    int TotalNonBreaking = 0)
 {
     internal static DiffAnalysisChangesDocument Create(
         ApiDiff diff,
@@ -186,7 +188,8 @@ public sealed record DiffAnalysisChangesDocument(
             ],
             diff.TotalBreaking,
             diff.TotalAdditive,
-            diff.TotalPotentiallyBreaking);
+            diff.TotalPotentiallyBreaking,
+            diff.TotalNonBreaking);
 }
 
 public sealed record DiffAnalysisChangedType(
@@ -414,6 +417,8 @@ public static class DiffAnalysisInspection
             TotalAdditive = filtered.Sum(type => type.AdditiveCount),
             TotalPotentiallyBreaking =
                 filtered.Sum(type => type.PotentiallyBreakingCount),
+            TotalNonBreaking =
+                filtered.Sum(type => type.NonBreakingCount),
         };
     }
 

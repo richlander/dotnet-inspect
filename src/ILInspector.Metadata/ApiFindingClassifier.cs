@@ -50,6 +50,8 @@ public static class ApiFindingClassifier
 
         bool compareAccessibility =
             ApiDiffAnalyzer.ComparesAccessibility(oldSurface, newSurface);
+        bool classifyByApiAxis =
+            ApiDiffAnalyzer.ClassifiesByApiAxis(oldSurface, newSurface);
         ClassifyTypes(typesComplete, options, compareAccessibility, oldIdentityIncomplete, newIdentityIncomplete, changesByType);
         ClassifyMembers(membersComplete, options, compareAccessibility, wholeTypeTransition, changesByType);
 
@@ -57,6 +59,7 @@ public static class ApiFindingClassifier
         int totalBreaking = 0;
         int totalAdditive = 0;
         int totalPotentiallyBreaking = 0;
+        int totalNonBreaking = 0;
 
         foreach (var typeName in changesByType.Keys.Order(StringComparer.Ordinal))
         {
@@ -64,11 +67,14 @@ public static class ApiFindingClassifier
             if (changes.Count == 0)
                 continue;
 
+            if (classifyByApiAxis)
+                ApiDiffAnalyzer.ClassifyOutsideApiAxisAsNonBreaking(changes);
             var diff = new TypeDiff(typeName, changes);
             typeDiffs.Add(diff);
             totalBreaking += diff.BreakingCount;
             totalAdditive += diff.AdditiveCount;
             totalPotentiallyBreaking += diff.PotentiallyBreakingCount;
+            totalNonBreaking += diff.NonBreakingCount;
         }
 
         return new ApiDiff
@@ -78,6 +84,7 @@ public static class ApiFindingClassifier
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,
             TotalPotentiallyBreaking = totalPotentiallyBreaking,
+            TotalNonBreaking = totalNonBreaking,
         };
     }
 

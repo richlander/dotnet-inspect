@@ -273,9 +273,11 @@ Fast Diff follows it; the axis never keeps a private exception.
   or `protected internal`, `protected internal` to `protected`) and additive
   when widened; the ordinary Public surface reports a move across the
   `public` boundary as a removal or an addition, and an accessor's
-  accessibility as a signature change; only a comparison of two API axis
-  surfaces reports accessibility changes, so the include-all surface reports
-  none;
+  accessibility as a signature change; the include-all surface reports every
+  move, including one that leaves or enters the API axis, breaking when
+  external reach narrows, additive when it widens, and non-breaking when it
+  is unchanged (`internal` to `private`), and classifies a change wholly
+  outside the API axis as non-breaking;
 - presented facts: for every fact kind treated as presented, a fixture case
   in which that fact alone differs, and the complete comparison reports the
   change; a kind without such a case is uncertain;

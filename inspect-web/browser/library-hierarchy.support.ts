@@ -1592,11 +1592,11 @@ async function installFacades(
           value: {
             libraryIdentifier: "Example.Core", libraryDisplay: "Example.Core",
             target: endpoint(request.targetVersion), current: endpoint(request.currentVersion),
-            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0 },
+            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0, nonBreakingCount: 0 },
             types: ${JSON.stringify(diagnostics.libraryApiDiffPilot === "empty" ? [] : [{
               documentIdentifier: "Example.Widget", display: "Example.Widget", state: "Diff",
               typeDefinitionChanged: false, changedMemberCount: 3,
-              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0,
+              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0, nonBreakingCount: 0,
               before: { identifier: "before-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
               after: { identifier: "after-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
               members: [], changes: [],
