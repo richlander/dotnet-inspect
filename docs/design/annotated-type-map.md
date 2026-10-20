@@ -108,12 +108,15 @@ Shape facts are Fast Diff's two axes at Member grain:
   Diff's Body axis states.
 
 Fast Diff's [Body axis](fast-diff.md#axes) also compares the declaration facts
-of every Member the API axis surface does not admit. The map's Body facts are
-bodies only until adoption step 1 of
-[Diff capabilities](diff-capabilities.md#adoption) lists non-public
-declarations as Body rows, so a Member whose only Body difference is a
-declaration fact, such as an added private field, has no shape transition
-here while Fast Diff reports it Body `Changed`.
+of every Member the API axis surface does not admit, and the declaration of
+a Type it admits on neither side. The map's Body facts are bodies only until
+adoption step 1 of [Diff capabilities](diff-capabilities.md#adoption) lists
+non-public declarations as Body rows, so a Member whose only Body difference
+is a declaration fact, such as an added private field, has no shape
+transition here while Fast Diff reports it Body `Changed`, and neither does
+the Type row of a non-admitted Type whose own declaration changed. Until
+then, the map's Exists for such a Type is `false` while Fast Diff's
+Library-level Body state is `Changed`.
 
 Each shape fact is a function of one version, so two retained maps can be
 compared without reopening either image. The map adds no equality. Two API
@@ -305,7 +308,8 @@ persistent artifact and is offered only as one. A Member's findings are the
 detail of its row, not a narrower scope.
 
 A Type's Exists in the map diff is the shape comparison stopped at its first
-difference: Fast Diff's Library-level state for that Type. The map runs no
+difference: Fast Diff's Library-level state for that Type where API facts and
+bodies decide it, as [the map](#the-map) states its shape facts. The map runs no
 second walk to answer it.
 
 ## Disclosure ladder
@@ -418,8 +422,9 @@ implementation and, if adopted, of its QuerySpace operators.
   state, and a Member Fast Diff marks Body `Changed` by a declaration fact
   alone, such as `PrivateFieldAdded`'s field, has no transition until adoption
   step 1 of Diff capabilities lists it; a Type's Exists equals Fast Diff's
-  Library-level state, including
-  `Indeterminate` for Fast Diff's fixture with two Type rows of one name.
+  Library-level state where API facts and bodies decide it, including
+  `Indeterminate` for Fast Diff's fixture with two Type rows of one name, and
+  is `false` for `PrivateFieldAdded` until that step.
 - **Findings:** for every listed Member of the fixture Types, and for each
   method it owns on both sides, the admitted non-`Present` transitions of that
   method's annotated source diff equal that method's part of the Member's
