@@ -698,7 +698,7 @@ public class ApiDiffAnalyzerTests
 
     [Theory]
     [InlineData(null, "protected", ChangeClassification.Breaking)]
-    [InlineData("protected internal", "protected", ChangeClassification.Breaking)]
+    [InlineData("protected internal", "protected", ChangeClassification.NonBreaking)]
     [InlineData("protected", null, ChangeClassification.Additive)]
     public void MemberAccessibilityChange_WithinTheApiAxis_IsClassifiedByDirection(
         string? oldAccessibility,
@@ -732,12 +732,12 @@ public class ApiDiffAnalyzerTests
     [InlineData("public", "internal", ChangeClassification.Breaking)]
     [InlineData("public", "private protected", ChangeClassification.Breaking)]
     [InlineData("public", "private", ChangeClassification.Breaking)]
-    [InlineData("protected internal", "protected", ChangeClassification.Breaking)]
+    [InlineData("protected internal", "protected", ChangeClassification.NonBreaking)]
     [InlineData("protected internal", "internal", ChangeClassification.Breaking)]
     [InlineData("protected", "internal", ChangeClassification.Breaking)]
     [InlineData("protected", "private protected", ChangeClassification.Breaking)]
     [InlineData("protected", "private", ChangeClassification.Breaking)]
-    [InlineData("protected", "protected internal", ChangeClassification.Additive)]
+    [InlineData("protected", "protected internal", ChangeClassification.NonBreaking)]
     [InlineData("protected", "public", ChangeClassification.Additive)]
     [InlineData("internal", "protected", ChangeClassification.Additive)]
     [InlineData("internal", "public", ChangeClassification.Additive)]

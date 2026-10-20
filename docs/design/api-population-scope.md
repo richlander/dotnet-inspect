@@ -337,9 +337,12 @@ surface records its extraction scope. Under `--all` (`IncludeAll`), every
 accessibility move between the two sides is a Change, including moves that
 leave or enter the API axis; it is Breaking when external reach narrows,
 Additive when it widens, and NonBreaking when external reach is unchanged.
-Breaking and Additive describe the public contract, the API axis: under
-`--all`, any change wholly outside the API axis on both sides, judged by
-external reach through every enclosing Type, is NonBreaking. Comparisons of
+External reach counts callers in other assemblies that are not friends, so
+`protected internal` and `protected` have the same reach: a move between them
+is NonBreaking on the API axis as well. Breaking and Additive describe the
+public contract, the API axis: under `--all`, any change wholly outside the
+API axis on both sides, judged by external reach through every enclosing
+Type, is NonBreaking. Comparisons of
 other scopes keep their existing output.
 
 The ordinary population, the `public` bucket without hidden declarations, is

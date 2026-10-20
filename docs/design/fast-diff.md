@@ -270,9 +270,9 @@ Fast Diff follows it; the axis never keeps a private exception.
 - accessibility: a Member or nested Type whose accessibility moves between
   API axis buckets is API `Changed`, and the complete comparison of the API
   axis surface reports `MemberAccessibilityChanged` or
-  `TypeAccessibilityChanged`, breaking when narrowed (`public` to `protected`
-  or `protected internal`, `protected internal` to `protected`) and additive
-  when widened; the ordinary Public surface reports a move across the
+  `TypeAccessibilityChanged`, breaking when external reach narrows (`public`
+  to `protected` or `protected internal`), additive when it widens, and
+  non-breaking between `protected internal` and `protected`; the ordinary Public surface reports a move across the
   `public` boundary as a removal or an addition, and an accessor's
   accessibility as a signature change; the include-all surface reports every
   move, including one that leaves or enters the API axis, breaking when

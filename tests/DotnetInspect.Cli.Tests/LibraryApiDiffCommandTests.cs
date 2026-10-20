@@ -169,10 +169,10 @@ public sealed class LibraryApiDiffCommandTests
         JsonElement summary = document.RootElement
             .GetProperty("document")
             .GetProperty("summary");
-        Assert.Equal(26, summary.GetProperty("breakingCount").GetInt32());
-        Assert.Equal(17, summary.GetProperty("additiveCount").GetInt32());
+        Assert.Equal(25, summary.GetProperty("breakingCount").GetInt32());
+        Assert.Equal(16, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
-        Assert.Equal(8, summary.GetProperty("nonBreakingCount").GetInt32());
+        Assert.Equal(10, summary.GetProperty("nonBreakingCount").GetInt32());
     }
 
     [Fact]

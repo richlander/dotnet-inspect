@@ -1122,17 +1122,17 @@ public static class ApiDiffAnalyzer
     }
 
     /// <summary>
-    /// The external reach of an accessibility, widest first: how far beyond its declaring
-    /// assembly a declaration reaches. <c>protected internal</c> reaches every caller
-    /// <c>protected</c> does, and the declaring assembly's friends too; <c>internal</c>,
-    /// <c>private protected</c>, and <c>private</c> reach no other assembly.
+    /// The external reach of an accessibility, widest first: which callers in other
+    /// assemblies, the public contract, a declaration reaches. <c>protected internal</c>
+    /// reaches the same ones <c>protected</c> does; the callers it adds are in its own
+    /// assembly and its friends. <c>internal</c>, <c>private protected</c>, and
+    /// <c>private</c> reach none.
     /// <see langword="null"/> for an unrecognized accessibility.
     /// </summary>
     static int? ExternalReach(string? accessibility) => accessibility switch
     {
-        null or "" or "public" => 3,
-        "protected internal" => 2,
-        "protected" => 1,
+        null or "" or "public" => 2,
+        "protected internal" or "protected" => 1,
         "internal" or "private protected" or "private" => 0,
         _ => null,
     };
