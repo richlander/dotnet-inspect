@@ -105,7 +105,8 @@ Shape facts are Fast Diff's two axes at Member grain:
   instructions with symbolic operands; and, for a Member the API axis surface
   does not admit, its **declaration facts**, the row, signature, flags,
   constants, import, generic parameters, and attributes that Fast Diff's Body
-  census records for it. A method with no body owns no body fact on that
+  census records for it, and, for any Member, the declaration facts of the
+  generated code it owns. A method with no body owns no body fact on that
   side, so a one-sided method without a body that the surface admits is an
   API change only, and a method on both sides with a body on one side only
   is a Body change,
