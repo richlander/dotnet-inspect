@@ -57,6 +57,16 @@ fetched when a Member is opened.
 The same document answers a one-version question, such as which Members of a
 Type use unsafe code: the Type's Members, annotated with their findings.
 
+That fixes the split between the map and the
+[Annotated Source diff document](annotated-source-diff-document.md) by content,
+not only by cost. A request for findings without source, at Library, Type, or
+Member scope, is answered by the map, in its one-version or its diff form. A
+request for source with its findings is answered by the Annotated Source
+document or its diff document, and only for one Member. There is no
+Type-scope source view, and the diff document has no text-free form: the map
+is that form, so a host or an agent that wants a Member's findings without its
+text asks the map for that Member's row.
+
 The two forms only agree if one implementation produces both. A two-version
 form built separately from the one-version form is a second definition of
 "changed", and the two drift, as Fast Diff and the complete diffs did
