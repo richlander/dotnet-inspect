@@ -26,8 +26,8 @@ public enum EcosystemFindIndexGapKind
 public static class EcosystemFindIndexGenerationContract
 {
     public const string ScannerIdentity = "dotnet-inspect.integration-observation";
-    public const int ScannerVersion = 2;
-    public const int SymbolProjectionVersion = 2;
+    public const int ScannerVersion = 3;
+    public const int SymbolProjectionVersion = 3;
     public const int PrefixEnumerationPolicyVersion = 1;
     public const int PackageVersionSelectionPolicyVersion = 1;
     public const int LibrarySelectionPolicyVersion = 1;
@@ -272,8 +272,8 @@ public sealed class EcosystemFindIndexArtifact
 
 public static class EcosystemFindIndexBuilder
 {
-    public const int SchemaVersion = 2;
-    public const int AlgorithmVersion = 2;
+    public const int SchemaVersion = 3;
+    public const int AlgorithmVersion = 3;
 
     public static EcosystemFindIndexArtifact Build(
         EcosystemFindIndexBuildRequest request)

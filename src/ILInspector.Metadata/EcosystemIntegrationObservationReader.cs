@@ -110,7 +110,15 @@ internal static class EcosystemIntegrationObservationReader
                         definitionName,
                         anchor.ExtendedTypeReference,
                         anchor.ReturnTypeReference,
-                        displaySignature.Text);
+                        ApiSurfaceExtractor.ClassifyMethodKind(
+                            name,
+                            isFinalizer: false,
+                            isExplicitInterfaceImplementation: false),
+                        displaySignature.Text,
+                        declaringType.DiscoveryAttributes,
+                        AttributeReader.HasEditorBrowsableNeverAttribute(
+                            reader,
+                            method.GetCustomAttributes()));
                 }
                 catch (BadImageFormatException)
                 {

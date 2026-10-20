@@ -179,6 +179,7 @@ public partial class EcosystemFindIndexTests
                 Assert.NotEqual(
                     symbol.Member.Member.CanonicalSignature,
                     match.Signature);
+                Assert.Equal("method", match.Kind);
                 Assert.Null(match.ReturnType);
             });
         Assert.All(
@@ -188,6 +189,121 @@ public partial class EcosystemFindIndexTests
                 Assert.Null(identity.Type);
                 Assert.NotNull(identity.Member);
             });
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void IndexedMemberProjection_PreservesDiscoveryVisibilityEvidence(
+        bool hideDeclaringType,
+        bool hideMethod)
+    {
+        using MemoryStream stream = BuildFixtureAssembly(
+            hideDeclaringType: hideDeclaringType,
+            hideMethod: hideMethod);
+        using var session = AssemblyInspectionSession.OpenPrefetched(stream);
+        var binding = EcosystemIntegrationScannerBinding.Create(Classify);
+        EcosystemFindIndexArtifact artifact = Artifact(
+            EcosystemPackIds.Aspire,
+            [
+                Source(
+                    prefixOrdinal: 0,
+                    packageOrdinal: 0,
+                    packageId: "Fixture.Core",
+                    assetPath: "lib/net10.0/Fixture.Core.dll",
+                    assemblyName: "Fixture.Core",
+                    session.EcosystemIntegrations(binding)),
+            ]);
+        EcosystemFindIndexSymbol[] members =
+        [
+            .. artifact.Symbols.Where(symbol =>
+                symbol.Kind is EcosystemFindIndexSymbolKind.Member),
+        ];
+        Assert.Equal(2, members.Length);
+        Assert.All(
+            members,
+            member =>
+            {
+                Assert.Equal(
+                    hideDeclaringType,
+                    member.Member!.DeclaringTypeDiscoveryAttributes
+                        .IsEditorBrowsableNever);
+                Assert.Equal(
+                    hideDeclaringType,
+                    member.Member.DeclaringTypeDiscoveryAttributes
+                        .IsObsolete);
+                Assert.Equal(
+                    hideMethod,
+                    member.Member.IsEditorBrowsableNever);
+            });
+
+        MemberFindQuestion publicQuestion = MemberFindQuestion.Create(
+            ["AddIndexedThing"],
+            FindVisibility.Public,
+            declaringTypeFilter:
+                "Microsoft.Extensions.DependencyInjection."
+                    + "TestServiceCollectionExtensions");
+        MemberFindQuestion allQuestion = MemberFindQuestion.Create(
+            ["AddIndexedThing"],
+            FindVisibility.All,
+            declaringTypeFilter:
+                "Microsoft.Extensions.DependencyInjection."
+                    + "TestServiceCollectionExtensions");
+        MemberSearchResult[] livePublic =
+        [
+            .. session.SearchMembers(
+                    "EcosystemFindIndexFixture",
+                    ["AddIndexedThing"],
+                    includeAll: false,
+                    new(1, 100))
+                .Results
+                .Where(row =>
+                    row.DeclaringType
+                    == "Microsoft.Extensions.DependencyInjection."
+                        + "TestServiceCollectionExtensions"),
+        ];
+        MemberSearchResult[] liveAll =
+        [
+            .. session.SearchMembers(
+                    "EcosystemFindIndexFixture",
+                    ["AddIndexedThing"],
+                    includeAll: true,
+                    new(1, 100))
+                .Results
+                .Where(row =>
+                    row.DeclaringType
+                    == "Microsoft.Extensions.DependencyInjection."
+                        + "TestServiceCollectionExtensions"),
+        ];
+        var publicResult =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Member>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [artifact],
+                        [Demand(artifact, prefixOrdinal: 0)],
+                        publicQuestion),
+                    TestContext.Current.CancellationToken));
+        var allResult =
+            Assert.IsType<EcosystemFindIndexedIntegrationResult.Member>(
+                EcosystemFindIndexedIntegration.Evaluate(
+                    Request(
+                        [artifact],
+                        [Demand(artifact, prefixOrdinal: 0)],
+                        allQuestion),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Empty(livePublic);
+        Assert.Empty(publicResult.Matches);
+        Assert.Equal(2, liveAll.Length);
+        Assert.Equal(
+            liveAll.Select(row => (
+                row.Kind,
+                row.Signature,
+                row.ReturnType)),
+            allResult.Matches.Select(match => (
+                match.Kind,
+                match.Signature,
+                match.ReturnType)));
     }
 
     [Fact]

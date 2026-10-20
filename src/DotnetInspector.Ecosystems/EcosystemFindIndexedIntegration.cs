@@ -403,9 +403,13 @@ public static class EcosystemFindIndexedIntegration
                                     symbol.Member.DeclaringType.Namespace)
                                     ? null
                                     : symbol.Member.DeclaringType.Namespace,
-                                Kind: "extension-method",
+                                symbol.Member.DisplayKind,
                                 symbol.Member.DisplaySignature,
-                                ReturnType: null)),
+                                ReturnType: null,
+                                symbol.Member
+                                    .DeclaringTypeDiscoveryAttributes,
+                                symbol.Member
+                                    .IsEditorBrowsableNever)),
                 ];
                 if (question.AcceptedRows is { } acceptedRows)
                 {

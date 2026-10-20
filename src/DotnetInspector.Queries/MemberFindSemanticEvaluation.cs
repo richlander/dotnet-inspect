@@ -281,7 +281,10 @@ public sealed record MemberFindSemanticCandidate(
     string? DeclaringNamespace,
     string Kind,
     string? Signature,
-    string? ReturnType);
+    string? ReturnType,
+    TypeDeclarationDiscoveryAttributes?
+        DeclaringTypeDiscoveryAttributes = null,
+    bool IsEditorBrowsableNever = false);
 
 /// <summary>One pattern's portable Member candidate evaluation.</summary>
 public sealed record MemberFindCandidateEvaluation(
@@ -371,6 +374,8 @@ public static class MemberFindCandidateEvaluator
             }
 
             evaluated.Add(candidate.DeclarationOrder);
+            if (!IsVisible(candidate, question.Visibility))
+                continue;
             if (question.DeclaringTypeFilter is { } typeFilter
                 && !typeFilter.Matches(candidate.DeclaringType))
             {
@@ -412,6 +417,15 @@ public static class MemberFindCandidateEvaluator
             evaluated.DrainToImmutable(),
             FindCandidateEvaluationCompletion.Exhausted);
     }
+
+    private static bool IsVisible(
+        MemberFindSemanticCandidate candidate,
+        FindVisibility visibility) =>
+        visibility is FindVisibility.All
+        || (candidate.DeclaringTypeDiscoveryAttributes
+                is not { IsEditorBrowsableNever: true }
+                and not { IsObsolete: true }
+            && !candidate.IsEditorBrowsableNever);
 }
 
 /// <summary>Evaluation coverage established for one exact Member source.</summary>

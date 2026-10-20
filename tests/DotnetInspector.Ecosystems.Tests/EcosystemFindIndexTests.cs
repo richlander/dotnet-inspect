@@ -101,6 +101,14 @@ public partial class EcosystemFindIndexTests
                 Assert.NotEqual(
                     symbol.Member.Member.CanonicalSignature,
                     symbol.Member.DisplaySignature);
+                Assert.Equal("method", symbol.Member.DisplayKind);
+                Assert.False(
+                    symbol.Member.DeclaringTypeDiscoveryAttributes
+                        .IsEditorBrowsableNever);
+                Assert.False(
+                    symbol.Member.DeclaringTypeDiscoveryAttributes
+                        .IsObsolete);
+                Assert.False(symbol.Member.IsEditorBrowsableNever);
             });
     }
 
@@ -264,13 +272,13 @@ public partial class EcosystemFindIndexTests
         {
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
-                    "{\"schemaVersion\":2,",
-                    "{\"schemaVersion\":2,\"schemaVersion\":2,",
+                    "{\"schemaVersion\":3,",
+                    "{\"schemaVersion\":3,\"schemaVersion\":3,",
                     StringComparison.Ordinal)),
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
-                    "{\"schemaVersion\":2,",
-                    "{\"unexpected\":true,\"schemaVersion\":2,",
+                    "{\"schemaVersion\":3,",
+                    "{\"unexpected\":true,\"schemaVersion\":3,",
                     StringComparison.Ordinal)),
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
@@ -293,7 +301,13 @@ public partial class EcosystemFindIndexTests
                 "typeDiscoveryAttributes"),
             bytes => RemoveFirstProperty(
                 bytes,
+                "displayKind"),
+            bytes => RemoveFirstProperty(
+                bytes,
                 "displaySignature"),
+            bytes => RemoveFirstProperty(
+                bytes,
+                "declaringTypeDiscoveryAttributes"),
         };
 
     private static byte[] RemoveFirstProperty(
@@ -432,9 +446,14 @@ public partial class EcosystemFindIndexTests
             signals);
 
     private static IReadOnlyList<EcosystemIntegrationSignalInfo> ScanFixture(
-        bool hideType = false)
+        bool hideType = false,
+        bool hideDeclaringType = false,
+        bool hideMethod = false)
     {
-        using MemoryStream stream = BuildFixtureAssembly(hideType);
+        using MemoryStream stream = BuildFixtureAssembly(
+            hideType,
+            hideDeclaringType,
+            hideMethod);
         using var session = AssemblyInspectionSession.OpenPrefetched(stream);
         var binding = EcosystemIntegrationScannerBinding.Create(Classify);
         return session.EcosystemIntegrations(binding);
@@ -460,7 +479,10 @@ public partial class EcosystemFindIndexTests
                 }),
         ];
 
-    private static MemoryStream BuildFixtureAssembly(bool hideType = false)
+    private static MemoryStream BuildFixtureAssembly(
+        bool hideType = false,
+        bool hideDeclaringType = false,
+        bool hideMethod = false)
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("EcosystemFindIndexFixture")
@@ -478,14 +500,9 @@ public partial class EcosystemFindIndexTests
         if (hideType)
         {
             serviceCollectionBuilder.SetCustomAttribute(
-                new CustomAttributeBuilder(
-                    typeof(EditorBrowsableAttribute).GetConstructor(
-                        [typeof(EditorBrowsableState)])!,
-                    [EditorBrowsableState.Never]));
+                EditorBrowsableNever());
             serviceCollectionBuilder.SetCustomAttribute(
-                new CustomAttributeBuilder(
-                    typeof(ObsoleteAttribute).GetConstructor(Type.EmptyTypes)!,
-                    []));
+                Obsolete());
         }
         Type serviceCollection = serviceCollectionBuilder.CreateType();
         TypeBuilder extensions = module.DefineType(
@@ -498,6 +515,11 @@ public partial class EcosystemFindIndexTests
             typeof(ExtensionAttribute).GetConstructor(Type.EmptyTypes)!,
             []);
         extensions.SetCustomAttribute(extensionAttribute);
+        if (hideDeclaringType)
+        {
+            extensions.SetCustomAttribute(EditorBrowsableNever());
+            extensions.SetCustomAttribute(Obsolete());
+        }
         AddExtension([serviceCollection]);
         AddExtension([serviceCollection, typeof(string)]);
         extensions.CreateType();
@@ -515,7 +537,20 @@ public partial class EcosystemFindIndexTests
                 typeof(void),
                 parameters);
             method.SetCustomAttribute(extensionAttribute);
+            if (hideMethod)
+                method.SetCustomAttribute(EditorBrowsableNever());
             method.GetILGenerator().Emit(OpCodes.Ret);
         }
+
+        static CustomAttributeBuilder EditorBrowsableNever() =>
+            new(
+                typeof(EditorBrowsableAttribute).GetConstructor(
+                    [typeof(EditorBrowsableState)])!,
+                [EditorBrowsableState.Never]);
+
+        static CustomAttributeBuilder Obsolete() =>
+            new(
+                typeof(ObsoleteAttribute).GetConstructor(Type.EmptyTypes)!,
+                []);
     }
 }

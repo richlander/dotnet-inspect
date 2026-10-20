@@ -214,7 +214,19 @@ public static class EcosystemFindIndexJson
             ReturnType = evidence.ReturnType is null
                 ? null
                 : ToNamedType(evidence.ReturnType),
+            DisplayKind = evidence.DisplayKind,
             DisplaySignature = evidence.DisplaySignature,
+            DeclaringTypeDiscoveryAttributes = new()
+            {
+                IsEditorBrowsableNever =
+                    evidence.DeclaringTypeDiscoveryAttributes
+                        .IsEditorBrowsableNever,
+                IsObsolete =
+                    evidence.DeclaringTypeDiscoveryAttributes
+                        .IsObsolete,
+            },
+            IsEditorBrowsableNever =
+                evidence.IsEditorBrowsableNever,
         };
 
     private static EcosystemFindIndexNamedTypeDocument ToNamedType(
@@ -408,6 +420,8 @@ public static class EcosystemFindIndexJson
         ArgumentNullException.ThrowIfNull(evidence);
         ArgumentNullException.ThrowIfNull(evidence.Member);
         ArgumentNullException.ThrowIfNull(evidence.DeclaringType);
+        ArgumentNullException.ThrowIfNull(
+            evidence.DeclaringTypeDiscoveryAttributes);
         return new(
             new MemberAnchor(
                 evidence.Member.StableSelector,
@@ -418,7 +432,13 @@ public static class EcosystemFindIndexJson
             FromType(evidence.DeclaringType),
             evidence.ReceiverType is null ? null : FromNamedType(evidence.ReceiverType),
             evidence.ReturnType is null ? null : FromNamedType(evidence.ReturnType),
-            evidence.DisplaySignature);
+            evidence.DisplayKind,
+            evidence.DisplaySignature,
+            new(
+                evidence.DeclaringTypeDiscoveryAttributes
+                    .IsEditorBrowsableNever,
+                evidence.DeclaringTypeDiscoveryAttributes.IsObsolete),
+            evidence.IsEditorBrowsableNever);
     }
 
     private static MetadataNamedTypeReference FromNamedType(
@@ -557,7 +577,11 @@ internal sealed record EcosystemFindIndexEvidenceDocument
     public required EcosystemFindIndexTypeDocument DeclaringType { get; init; }
     public EcosystemFindIndexNamedTypeDocument? ReceiverType { get; init; }
     public EcosystemFindIndexNamedTypeDocument? ReturnType { get; init; }
+    public required string DisplayKind { get; init; }
     public required string DisplaySignature { get; init; }
+    public required EcosystemFindIndexTypeDiscoveryDocument
+        DeclaringTypeDiscoveryAttributes { get; init; }
+    public required bool IsEditorBrowsableNever { get; init; }
 }
 
 internal sealed record EcosystemFindIndexNamedTypeDocument

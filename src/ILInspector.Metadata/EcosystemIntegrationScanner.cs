@@ -15,23 +15,36 @@ public sealed record EcosystemIntegrationApiEvidence
         MetadataTypeDefinitionName declaringType,
         MetadataNamedTypeReference? receiverType,
         MetadataNamedTypeReference? returnType,
-        string displaySignature)
+        string displayKind,
+        string displaySignature,
+        TypeDeclarationDiscoveryAttributes declaringTypeDiscoveryAttributes,
+        bool isEditorBrowsableNever)
     {
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayKind);
         ArgumentException.ThrowIfNullOrWhiteSpace(displaySignature);
+        ArgumentNullException.ThrowIfNull(declaringTypeDiscoveryAttributes);
         Member = member;
         DeclaringType = declaringType;
         ReceiverType = receiverType;
         ReturnType = returnType;
+        DisplayKind = displayKind;
         DisplaySignature = displaySignature;
+        DeclaringTypeDiscoveryAttributes =
+            declaringTypeDiscoveryAttributes;
+        IsEditorBrowsableNever = isEditorBrowsableNever;
     }
 
     public MemberAnchor Member { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
     public MetadataNamedTypeReference? ReceiverType { get; }
     public MetadataNamedTypeReference? ReturnType { get; }
+    public string DisplayKind { get; }
     public string DisplaySignature { get; }
+    public TypeDeclarationDiscoveryAttributes
+        DeclaringTypeDiscoveryAttributes { get; }
+    public bool IsEditorBrowsableNever { get; }
 }
 
 public record EcosystemIntegrationSignalInfo(
