@@ -107,6 +107,17 @@ Shape facts are Fast Diff's two axes at Member grain:
   method on both sides with a body on one side only is a Body change, as Fast
   Diff's Body axis states.
 
+Fast Diff's [Body axis](fast-diff.md#axes) also compares the declaration facts
+of every Member the API axis surface does not admit, and the declaration of
+a Type it admits on neither side. The map's Body facts are bodies only until
+adoption step 1 of [Diff capabilities](diff-capabilities.md#adoption) lists
+non-public declarations as Body rows, so a Member whose only Body difference
+is a declaration fact, such as an added private field, has no shape
+transition here while Fast Diff reports it Body `Changed`, and neither does
+the Type row of a non-admitted Type whose own declaration changed. Until
+then, the map's Exists for such a Type is `false` while Fast Diff's
+Library-level Body state is `Changed`.
+
 Each shape fact is a function of one version, so two retained maps can be
 compared without reopening either image. The map adds no equality. Two API
 facts are equal exactly when the complete Public API comparison reports no
@@ -151,7 +162,7 @@ by one rule:
    [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
 2. **Compare each joined key.** A key on one side yields `Added` or `Removed`
    on each axis where the Member owns shape facts, as Fast Diff's Type level
-   does, and for each of its facts. A key on both sides compares its
+   does for the facts the map keeps, and for each of its facts. A key on both sides compares its
    shape facts by Fast Diff's equality, giving an API and a Body transition,
    and, per method, its two whole fact streams by the
    [fact comparison](annotated-source-diff-document.md#fact-comparison), with
@@ -191,12 +202,14 @@ the Type. So a one-sided Type is always listed, even when none of its Members
 owns shape facts, such as an added internal enum. A one-sided Type's map diff
 also lists every Member key of its present side that owns shape facts,
 one-sided, with every fact `Added` or `Removed`, as Fast Diff's
-[one-sided Type level](fast-diff.md#type) states.
+[one-sided Type level](fast-diff.md#type) states for API facts and bodies.
 
 A Member that owns no shape facts, such as a private field, has no axis on
-which to be `Added` or `Removed`, so it has no shape transition and is never
-listed, whether it is on one side or both. That is Fast Diff's contract:
-non-public metadata is not compared.
+which to be `Added` or `Removed`, so it has no shape transition and is not
+listed today, whether it is on one side or both. Fast Diff's
+[Body axis](fast-diff.md#axes) compares that Member's declaration facts;
+listing non-public declarations as Body rows is adoption step 1 of
+[Diff capabilities](diff-capabilities.md#adoption), which changes this rule.
 
 The map diff is not an [Analysis diff](analysis-diff.md): that format is a
 complete partition of both endpoints, and the map diff keeps only what changed.
@@ -217,7 +230,7 @@ Fast Diff's census is a one-version table of shape facts per Type keyed by the
 census key, so the shape comparison is what Fast Diff computes. Until
 [#10227](https://github.com/richlander/dotnet-inspect/issues/10227) decides
 the implementation, the **Agreement** gate below holds the map diff's shape
-transitions equal to Fast Diff's states per Member.
+transitions equal to Fast Diff's states per Member for the facts the map keeps.
 
 ## Admitted findings
 
@@ -295,7 +308,8 @@ persistent artifact and is offered only as one. A Member's findings are the
 detail of its row, not a narrower scope.
 
 A Type's Exists in the map diff is the shape comparison stopped at its first
-difference: Fast Diff's Library-level state for that Type. The map runs no
+difference: Fast Diff's Library-level state for that Type where API facts and
+bodies decide it, as [the map](#the-map) states its shape facts. The map runs no
 second walk to answer it.
 
 ## Disclosure ladder
@@ -403,9 +417,14 @@ implementation and, if adopted, of its QuerySpace operators.
   from two retained maps equals the map diff computed in lockstep, element for
   element and outcome for outcome.
 - **Agreement:** over the Fast Diff fixture pairs and the spike's pairs, each
-  Member's API and Body transitions equal Fast Diff's states for that Member,
-  and a Type's Exists equals Fast Diff's Library-level state, including
-  `Indeterminate` for Fast Diff's fixture with two Type rows of one name.
+  Member's API transition equals Fast Diff's API state for that Member, its
+  Body transition equals Fast Diff's Body state where bodies decide that
+  state, and a Member Fast Diff marks Body `Changed` by a declaration fact
+  alone, such as `PrivateFieldAdded`'s field, has no transition until adoption
+  step 1 of Diff capabilities lists it; a Type's Exists equals Fast Diff's
+  Library-level state where API facts and bodies decide it, including
+  `Indeterminate` for Fast Diff's fixture with two Type rows of one name, and
+  is `false` for `PrivateFieldAdded` until that step.
 - **Findings:** for every listed Member of the fixture Types, and for each
   method it owns on both sides, the admitted non-`Present` transitions of that
   method's annotated source diff equal that method's part of the Member's

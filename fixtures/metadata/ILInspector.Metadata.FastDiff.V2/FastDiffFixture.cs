@@ -62,6 +62,24 @@ public class PrivateMemberAdded
     private int Helper() => 0;
 }
 
+// A private field added: a Body change, not an API change.
+public class PrivateFieldAdded
+{
+    public int Value(int x) => x + 1;
+
+#pragma warning disable CS0169 // The field is the change.
+    private int _added;
+#pragma warning restore CS0169
+}
+
+// A public method whose only change is in the private method it calls.
+public class PrivateCalleeChanged
+{
+    public int Value(int x) => Helper(x);
+
+    private int Helper(int x) => x + 2;
+}
+
 public class PublicMemberAdded
 {
     public int Value(int x) => x + 1;
