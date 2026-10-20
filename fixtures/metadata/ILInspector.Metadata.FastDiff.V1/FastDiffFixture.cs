@@ -60,6 +60,20 @@ public class PrivateMemberAdded
     public int Value(int x) => x + 1;
 }
 
+// A private field added: a Body change, not an API change.
+public class PrivateFieldAdded
+{
+    public int Value(int x) => x + 1;
+}
+
+// A public method whose only change is in the private method it calls.
+public class PrivateCalleeChanged
+{
+    public int Value(int x) => Helper(x);
+
+    private int Helper(int x) => x + 1;
+}
+
 public class PublicMemberAdded
 {
     public int Value(int x) => x + 1;

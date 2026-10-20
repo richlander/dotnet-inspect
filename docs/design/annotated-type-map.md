@@ -194,9 +194,11 @@ one-sided, with every fact `Added` or `Removed`, as Fast Diff's
 [one-sided Type level](fast-diff.md#type) states.
 
 A Member that owns no shape facts, such as a private field, has no axis on
-which to be `Added` or `Removed`, so it has no shape transition and is never
-listed, whether it is on one side or both. That is Fast Diff's contract:
-non-public metadata is not compared.
+which to be `Added` or `Removed`, so it has no shape transition and is not
+listed today, whether it is on one side or both. Fast Diff's
+[Body axis](fast-diff.md#axes) compares that Member's declaration facts;
+listing non-public declarations as Body rows is adoption step 1 of
+[Diff capabilities](diff-capabilities.md#adoption), which changes this rule.
 
 The map diff is not an [Analysis diff](analysis-diff.md): that format is a
 complete partition of both endpoints, and the map diff keeps only what changed.

@@ -18,6 +18,8 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.StringLiteralOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.CatchTypeOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.PrivateMemberAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.PrivateFieldAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.PrivateCalleeChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.PublicMemberAdded", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.MethodConstraint", FastDiffState.Changed, FastDiffState.Unchanged)]
     [InlineData("FastDiffFixture.ConstraintType", FastDiffState.Changed, FastDiffState.Unchanged)]
