@@ -111,8 +111,16 @@ Shape facts are Fast Diff's two axes at Member grain:
   is a Body change,
   as Fast Diff's Body axis states. The Type's own Body facts are the
   residual's Body facts as Fast Diff's census records them: `beforefieldinit`
-  for any Type with a static constructor, and the declaration of a Type the
-  surface admits on neither side.
+  for any Type with a static constructor, the declaration of a Type the
+  surface admits on neither side, and the IL of each method no Member owns,
+  such as a static constructor, and of generated code with no single owner.
+
+Admission follows Fast Diff's partition. A Type public on either side
+partitions its facts as public on both, so a Type's visibility change is an
+API fact only, as [Fast Diff's Axes](fast-diff.md#axes) state; within that,
+each Member's declaration facts are API or Body by its own version's
+admission. Each map therefore records every Member's declaration facts with
+its version's admission, and the comparison places them.
 
 Those are Fast Diff's [Body axis](fast-diff.md#axes) facts at every
 accessibility. Every Member therefore owns shape facts on at least one axis:
@@ -127,8 +135,9 @@ fact that differs: the declaration view of
 that at rung 4. Until that view lands, such a row has no rung-4 view, the
 interim exception Diff capabilities' adoption step 1 records.
 
-Each shape fact is a function of one version, so two retained maps can be
-compared without reopening either image. The map adds no equality. Two API
+Each shape fact is a function of one version, and the axis a declaration
+fact compares on is settled across the pair as above, so two retained maps
+can be compared without reopening either image. The map adds no equality. Two API
 facts are equal exactly when the complete Public API comparison reports no
 change to the Member, which is Fast Diff's API axis, and two Body facts are
 equal exactly when Fast Diff's Body axis would call them equal. Fast Diff's
