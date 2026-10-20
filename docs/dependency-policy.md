@@ -198,18 +198,19 @@ The checked-in rules provide full gate coverage for these dependency claims:
     results. Those typed paths and the exact positive ceilings own product
     semantics. The facade retains only its three focused projected-identity and
     failure-value compiler bans plus runtime platform hazards.
-14. Inspect Web Core cannot expand beyond its current fourteen evaluated project
-    edges or its current twenty-seven repository and external assembly edges.
+14. Inspect Web Core cannot expand beyond its current thirteen evaluated project
+    edges or its current twenty-six repository and external assembly edges.
     Core composes Browser acquisition, workspace lifetime, cancellation,
     navigation policy, and typed host projection over owner-issued product
     APIs. Queries owns assembly-context call-graph session and neutral
     projection production, so both graph rules reject the retired direct
-    `ILInspector.CallGraph` dependency. They also reject the previously retired
-    `CSharpText` and `ILInspector.Research` dependencies and any new project or
-    emitted assembly edge. Core retains the semantic banned-symbol gate because
-    its intentional Metadata and Analysis dependencies must not become
-    authority to open images, run producers, or reconstruct product semantics
-    in the host.
+    `ILInspector.CallGraph` and `ILInspector.Analysis` dependencies. They also
+    reject the previously retired `CSharpText` and `ILInspector.Research`
+    dependencies and any new project or emitted assembly edge. Core retains the
+    semantic banned-symbol gate because its intentional Metadata dependency
+    must not become authority to open images or reconstruct product semantics
+    in the host, and the transitive Analysis ban prevents the retired authority
+    from returning through an admitted owner.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing

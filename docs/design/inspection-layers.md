@@ -1678,10 +1678,11 @@ canaries:
   product producers, or reconstruct identity and correspondence semantics.
 - Queries owns Web Core's assembly-context `MemberCallGraphSession` and
   `CallGraphProjection` execution and returns one
-  `AssemblyContextMemberCallGraphDocument`. Web retains package and Platform
-  scope expansion, Browser rendering, attribution, navigation, diagnostics
-  lowering, and wire projection without a direct `ILInspector.CallGraph`
-  project or emitted assembly edge.
+  `AssemblyContextMemberCallGraphDocument` with detached member-navigation,
+  tree, and diagnostic facts. Web retains package and Platform scope expansion,
+  Browser rendering, attribution, navigation policy, and wire projection
+  without a direct `ILInspector.CallGraph` or `ILInspector.Analysis` project or
+  emitted assembly edge.
 - Platform call-graph resolution selects the implementation participant in Web,
   then delegates exact body matching to
   `AssemblyContextMemberSelectionQuery`. Web retains Platform acquisition,

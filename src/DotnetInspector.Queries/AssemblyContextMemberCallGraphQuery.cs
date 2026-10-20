@@ -22,12 +22,46 @@ public enum AssemblyContextMemberCallGraphNodeKind
 /// </summary>
 public sealed record AssemblyContextMemberCallGraphNode(
     int Id,
-    Analysis.MemberRef Member,
+    CallGraphMemberNavigationDocument Member,
     string DefaultLabel,
     AssemblyContextMemberCallGraphNodeKind Kind,
     AssemblyReferenceIdentity? DefinitionAssemblyIdentity = null,
     AssemblyReferenceIdentity? ResolutionAssemblyIdentity = null,
     AssemblyReferenceIdentity? OccurrenceAssemblyIdentity = null);
+
+public enum AssemblyContextMemberCallGraphTreeStatus
+{
+    Expanded,
+    Leaf,
+    External,
+    AlreadyShown,
+    DepthLimited,
+    Truncated,
+    Bodiless,
+    AnalysisIncomplete,
+}
+
+public enum AssemblyContextMemberCallGraphCallKind
+{
+    Call,
+    CallVirtual,
+    NewObject,
+    LoadFunction,
+    LoadVirtualFunction,
+    CallIndirect,
+}
+
+public sealed record AssemblyContextMemberCallGraphTreeNode(
+    CallGraphMemberNavigationDocument Member,
+    AssemblyContextMemberCallGraphCallKind? Kind,
+    AssemblyContextMemberCallGraphTreeStatus Status,
+    ImmutableArray<AssemblyContextMemberCallGraphTreeNode> Children,
+    bool InLoop);
+
+public sealed record AssemblyContextMemberCallGraphDiagnostics(
+    int IncompleteNodeCount,
+    int IncompleteEdgeCount,
+    int BindingIdentityConflictCount);
 
 /// <summary>
 /// One projected caller-to-callee relationship.
@@ -42,11 +76,11 @@ public readonly record struct AssemblyContextMemberCallGraphEdge(
 /// </summary>
 public sealed record AssemblyContextMemberCallGraphDocument(
     CallGraphTier Tier,
-    Analysis.CallTreeNode? CalleeRoot,
-    Analysis.CallTreeNode? CallerRoot,
+    AssemblyContextMemberCallGraphTreeNode? CalleeRoot,
+    AssemblyContextMemberCallGraphTreeNode? CallerRoot,
     ImmutableArray<AssemblyContextMemberCallGraphNode> Nodes,
     ImmutableArray<AssemblyContextMemberCallGraphEdge> Edges,
-    Analysis.CatalogCallGraphDiagnostics Diagnostics,
+    AssemblyContextMemberCallGraphDiagnostics Diagnostics,
     bool HasUnexploredTraversalBoundary,
     bool HasAnalysisFailureBoundary)
 {
@@ -95,8 +129,8 @@ public static class AssemblyContextMemberCallGraphQuery
             view.CalleeRoot);
         return new AssemblyContextMemberCallGraphDocument(
             view.Tier,
-            view.CalleeRoot,
-            view.CallerRoot,
+            ProjectTree(view.CalleeRoot),
+            ProjectTree(view.CallerRoot),
             [
                 .. projection.Nodes.Select(node =>
                     ProjectNode(node)),
@@ -108,7 +142,10 @@ public static class AssemblyContextMemberCallGraphQuery
                         edge.To,
                         edge.AnyCallInLoop)),
             ],
-            view.Diagnostics,
+            new(
+                view.Diagnostics.IncompleteNodeCount,
+                view.Diagnostics.IncompleteEdgeCount,
+                view.Diagnostics.BindingIdentityConflictCount),
             projection.HasUnexploredTraversalBoundary,
             projection.HasAnalysisFailureBoundary);
     }
@@ -119,13 +156,76 @@ public static class AssemblyContextMemberCallGraphQuery
         ArgumentNullException.ThrowIfNull(node);
         return new(
             node.Id,
-            node.Member,
+            CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                node.Member),
             node.Label,
             NodeKind(node.Kind),
             node.DefinitionAssemblyIdentity,
             node.ResolutionAssemblyIdentity,
             node.OccurrenceAssemblyIdentity);
     }
+
+    static AssemblyContextMemberCallGraphTreeNode? ProjectTree(
+        Analysis.CallTreeNode? node) =>
+        node is null
+            ? null
+            : ProjectTreeNode(node);
+
+    static AssemblyContextMemberCallGraphTreeNode ProjectTreeNode(
+        Analysis.CallTreeNode node) =>
+        new(
+            CallGraphMemberNavigationProjection.ProjectClosedSignature(
+                node.Member),
+            node.Kind is null
+                ? null
+                : CallKind(node.Kind.Value),
+            TreeStatus(node.Status),
+            [.. node.Children.Select(ProjectTreeNode)],
+            node.Perf?.InLoop ?? false);
+
+    static AssemblyContextMemberCallGraphCallKind CallKind(
+        Analysis.CallKind kind) =>
+        kind switch
+        {
+            Analysis.CallKind.Call =>
+                AssemblyContextMemberCallGraphCallKind.Call,
+            Analysis.CallKind.CallVirtual =>
+                AssemblyContextMemberCallGraphCallKind.CallVirtual,
+            Analysis.CallKind.NewObject =>
+                AssemblyContextMemberCallGraphCallKind.NewObject,
+            Analysis.CallKind.LoadFunction =>
+                AssemblyContextMemberCallGraphCallKind.LoadFunction,
+            Analysis.CallKind.LoadVirtualFunction =>
+                AssemblyContextMemberCallGraphCallKind.LoadVirtualFunction,
+            Analysis.CallKind.CallIndirect =>
+                AssemblyContextMemberCallGraphCallKind.CallIndirect,
+            _ => throw new InvalidOperationException(
+                "Unknown call kind."),
+        };
+
+    static AssemblyContextMemberCallGraphTreeStatus TreeStatus(
+        Analysis.CallTreeStatus status) =>
+        status switch
+        {
+            Analysis.CallTreeStatus.Expanded =>
+                AssemblyContextMemberCallGraphTreeStatus.Expanded,
+            Analysis.CallTreeStatus.Leaf =>
+                AssemblyContextMemberCallGraphTreeStatus.Leaf,
+            Analysis.CallTreeStatus.External =>
+                AssemblyContextMemberCallGraphTreeStatus.External,
+            Analysis.CallTreeStatus.AlreadyShown =>
+                AssemblyContextMemberCallGraphTreeStatus.AlreadyShown,
+            Analysis.CallTreeStatus.DepthLimited =>
+                AssemblyContextMemberCallGraphTreeStatus.DepthLimited,
+            Analysis.CallTreeStatus.Truncated =>
+                AssemblyContextMemberCallGraphTreeStatus.Truncated,
+            Analysis.CallTreeStatus.Bodiless =>
+                AssemblyContextMemberCallGraphTreeStatus.Bodiless,
+            Analysis.CallTreeStatus.AnalysisIncomplete =>
+                AssemblyContextMemberCallGraphTreeStatus.AnalysisIncomplete,
+            _ => throw new InvalidOperationException(
+                "Unknown call-tree status."),
+        };
 
     static AssemblyContextMemberCallGraphNodeKind NodeKind(
         CallGraphNodeKind kind) =>
