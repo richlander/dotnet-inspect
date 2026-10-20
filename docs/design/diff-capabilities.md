@@ -109,7 +109,8 @@ Every rung answers per **axis**:
   one is on the API axis. That is the visibility
   [Fast Diff's API axis](fast-diff.md#axes) admits; `private protected`
   declarations belong to Body. `EditorBrowsable` and `Obsolete` do not decide
-  admission: they are the subject of a separate **API status** analysis,
+  admission: they are the subject of a separate
+  [API status analysis](api-status-analysis.md),
   which reports each subject's status and its transitions, such as a Member
   made hidden or obsolete. A host filters by those findings. The ordinary
   population, the `public` bucket without hidden declarations, becomes a

@@ -1764,7 +1764,8 @@ public static partial class ResearchDiff
         => kind is ChangeKind.MemberAdded or ChangeKind.MemberRemoved or ChangeKind.MemberSignatureChanged
             or ChangeKind.VirtualRemoved or ChangeKind.AbstractMemberAdded or ChangeKind.EnumValueChanged
             or ChangeKind.MemberAttributeAdded or ChangeKind.MemberAttributeRemoved
-            or ChangeKind.MemberAccessibilityChanged;
+            or ChangeKind.MemberAccessibilityChanged
+            or ChangeKind.MemberHiddenChanged or ChangeKind.MemberObsoleteChanged;
 
     static ResearchChangeKind Direction(ChangeKind kind)
         => kind switch
@@ -1820,6 +1821,7 @@ public static partial class ResearchDiff
         => category switch
         {
             ApiChangeCategory.Attribute => ResearchChangeCategory.Attribute,
+            ApiChangeCategory.Status => ResearchChangeCategory.Status,
             _ => ResearchChangeCategory.Signature,
         };
 

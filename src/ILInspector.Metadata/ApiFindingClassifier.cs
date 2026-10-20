@@ -48,12 +48,12 @@ public static class ApiFindingClassifier
         bool newIdentityIncomplete =
             ApiDiffAnalyzer.HasIncompleteTypeIdentity(newSurface);
 
-        bool compareAccessibility =
-            ApiDiffAnalyzer.ComparesAccessibility(oldSurface, newSurface);
+        bool compareTransitions =
+            ApiDiffAnalyzer.ComparesTransitions(oldSurface, newSurface);
         bool classifyByApiAxis =
             ApiDiffAnalyzer.ClassifiesByApiAxis(oldSurface, newSurface);
-        ClassifyTypes(typesComplete, options, compareAccessibility, oldIdentityIncomplete, newIdentityIncomplete, changesByType);
-        ClassifyMembers(membersComplete, options, compareAccessibility, wholeTypeTransition, changesByType);
+        ClassifyTypes(typesComplete, options, compareTransitions, oldIdentityIncomplete, newIdentityIncomplete, changesByType);
+        ClassifyMembers(membersComplete, options, compareTransitions, wholeTypeTransition, changesByType);
 
         List<TypeDiff> typeDiffs = [];
         int totalBreaking = 0;
@@ -91,7 +91,7 @@ public static class ApiFindingClassifier
     static void ClassifyTypes(
         FindingComparison<ApiTypeHandle>.Complete types,
         ApiDiffOptions options,
-        bool compareAccessibility,
+        bool compareTransitions,
         bool oldIdentityIncomplete,
         bool newIdentityIncomplete,
         Dictionary<string, List<ApiChange>> changesByType)
@@ -132,12 +132,12 @@ public static class ApiFindingClassifier
 
                 case PairFinding<ApiTypeHandle>.Present present:
                     Bucket(changesByType, present.New.Payload.TypeFullName).AddRange(
-                        ApiDiffAnalyzer.CompareTypeFacetsOnly(present.Old.Payload.Type, present.New.Payload.Type, options, compareAccessibility));
+                        ApiDiffAnalyzer.CompareTypeFacetsOnly(present.Old.Payload.Type, present.New.Payload.Type, options, compareTransitions));
                     break;
 
                 case PairFinding<ApiTypeHandle>.Changed changed:
                     Bucket(changesByType, changed.New.Payload.TypeFullName).AddRange(
-                        ApiDiffAnalyzer.CompareTypeFacetsOnly(changed.Old.Payload.Type, changed.New.Payload.Type, options, compareAccessibility));
+                        ApiDiffAnalyzer.CompareTypeFacetsOnly(changed.Old.Payload.Type, changed.New.Payload.Type, options, compareTransitions));
                     break;
             }
         }
@@ -174,7 +174,7 @@ public static class ApiFindingClassifier
     static void ClassifyMembers(
         FindingComparison<ApiMemberHandle>.Complete members,
         ApiDiffOptions options,
-        bool compareAccessibility,
+        bool compareTransitions,
         WholeTypeTransitionSets wholeTypeTransition,
         Dictionary<string, List<ApiChange>> changesByType)
     {
@@ -242,7 +242,7 @@ public static class ApiFindingClassifier
 
                 case PairFinding<ApiMemberHandle>.Present present:
                     if (!IsCompilerGeneratedMember(present.Old.Payload))
-                        ClassifyMatchedMember(present.Old.Payload, present.New.Payload, options, compareAccessibility, changesByType);
+                        ClassifyMatchedMember(present.Old.Payload, present.New.Payload, options, compareTransitions, changesByType);
                     break;
 
                 case PairFinding<ApiMemberHandle>.Changed changed:
@@ -254,11 +254,11 @@ public static class ApiFindingClassifier
                     {
                         // Matched on the hard (identity-set) tier; the fold-in step
                         // recorded a Detail but classification is unaffected by that.
-                        ClassifyMatchedMember(changed.Old.Payload, changed.New.Payload, options, compareAccessibility, changesByType);
+                        ClassifyMatchedMember(changed.Old.Payload, changed.New.Payload, options, compareTransitions, changesByType);
                     }
                     else if (normalizeProjection)
                     {
-                        ClassifyNormalizedProjection(changed.Old.Payload, changed.New.Payload, options, compareAccessibility, changesByType);
+                        ClassifyNormalizedProjection(changed.Old.Payload, changed.New.Payload, options, compareTransitions, changesByType);
                     }
                     else
                     {
@@ -318,7 +318,7 @@ public static class ApiFindingClassifier
         ApiMemberHandle oldHandle,
         ApiMemberHandle newHandle,
         ApiDiffOptions options,
-        bool compareAccessibility,
+        bool compareTransitions,
         Dictionary<string, List<ApiChange>> changesByType)
     {
         var changes = Bucket(changesByType, newHandle.TypeFullName);
@@ -331,7 +331,7 @@ public static class ApiFindingClassifier
             // itself can't see. Mirrors the legacy analyzer's own (Name, Kind)-fallback
             // MemberSignatureChanged report for this case.
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
-            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareAccessibility);
+            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareTransitions);
             ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
                 oldHandle.Type,
                 newHandle.Type,
@@ -363,14 +363,14 @@ public static class ApiFindingClassifier
         ApiMemberHandle oldHandle,
         ApiMemberHandle newHandle,
         ApiDiffOptions options,
-        bool compareAccessibility,
+        bool compareTransitions,
         Dictionary<string, List<ApiChange>> changesByType)
     {
         var changes = Bucket(changesByType, newHandle.TypeFullName);
         if (ApiDiffAnalyzer.IncludesSignature(options))
         {
             AddSignatureChangeIfDifferent(oldHandle, newHandle, changes);
-            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareAccessibility);
+            ApiDiffAnalyzer.CompareMemberModifiers(oldHandle.Type, newHandle.Type, oldHandle.Member, newHandle.Member, changes, compareTransitions);
             ApiDiffAnalyzer.CompareMemberTypeParameterConstraints(
                 oldHandle.Type,
                 newHandle.Type,
