@@ -106,8 +106,9 @@ Shape facts are Fast Diff's two axes at Member grain:
   does not admit, its **declaration facts**, the row, signature, flags,
   constants, import, generic parameters, and attributes that Fast Diff's Body
   census records for it. A method with no body owns no body fact on that
-  side, so a one-sided public method without a body is an API change only,
-  and a method on both sides with a body on one side only is a Body change,
+  side, so a one-sided method without a body that the surface admits is an
+  API change only, and a method on both sides with a body on one side only
+  is a Body change,
   as Fast Diff's Body axis states. A Type the surface admits on neither side
   owns its own declaration facts as Type entries.
 
@@ -117,11 +118,11 @@ API facts where the surface admits it, Body declaration facts where it does
 not, and a body fact per method with a body. An added private field is a
 Body `Added` row, an attribute added to an internal method is a Body
 `Changed` row, and a non-admitted Type whose own declaration changed has a
-Body transition on its Type row. The map row is the rung-3 view of such a
-transition: it names the declaration fact that differs. The declaration view
-of [Diff capabilities](diff-capabilities.md#axes)
+Body transition on its Type row. The row carries the transition, not the
+fact that differs: the declaration view of
+[Diff capabilities](diff-capabilities.md#axes)
 ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) presents
-it at rung 4.
+that at rung 4.
 
 Each shape fact is a function of one version, so two retained maps can be
 compared without reopening either image. The map adds no equality. Two API
@@ -422,8 +423,10 @@ implementation and, if adopted, of its QuerySpace operators.
   element and outcome for outcome.
 - **Agreement:** over the Fast Diff fixture pairs and the spike's pairs, each
   Member's API and Body transitions equal Fast Diff's states for that Member,
-  including Body `Added` for `PrivateFieldAdded`'s field, and a Type's Exists
-  equals Fast Diff's Library-level state, including `Indeterminate` for Fast
+  where a one-sided key's `Added` or `Removed` is Fast Diff's one-sided
+  `Changed`, including Body `Added` for `PrivateFieldAdded`'s field, and a
+  Type's Exists equals Fast Diff's Library-level state, `true`, `false`, or
+  undecided for `Changed`, `Unchanged`, or `Indeterminate`, including Fast
   Diff's fixture with two Type rows of one name.
 - **Findings:** for every listed Member of the fixture Types, and for each
   method it owns on both sides, the admitted non-`Present` transitions of that
@@ -440,9 +443,8 @@ implementation and, if adopted, of its QuerySpace operators.
   has a shape transition or an unsettled shape comparison; in the one-version
   map, exactly when it has an admitted finding or an unsettled analysis
   outcome. Fixtures show that an added private field is listed as a Body
-  `Added` row naming its declaration facts, an unchanged private field and an
-  unchanged
-  abstract or interface Member are not listed in either form, a caller whose
+  `Added` row, an unchanged private field and an unchanged abstract or
+  interface Member are not listed in either form, a caller whose
   only transition is `alloc.new` after a `class` to `struct` change is not
   listed, a Type with two rows of one name is an unresolved Type row, and a
   one-sided Type is listed by its Type row, including an added internal enum
@@ -450,9 +452,9 @@ implementation and, if adopted, of its QuerySpace operators.
   Member of its present side, its private fields included. Fixtures also show
   that a one-sided method with no body is listed on the axis of its
   declaration, an added member of an internal interface and a private
-  `extern` method as Body `Added` and a public abstract method as API `Added`,
-  and that a return-Type change spells two distinct keys, neither
-  `Indeterminate`.
+  `extern` method as Body `Added` and a public abstract method of a public
+  Type as API `Added`, and that a return-Type change spells two distinct keys,
+  neither `Indeterminate`.
 - **Exactness:** at each scope, Count equals the number of changed rows with
   unresolved rows reported separately, and Exists is `true` with a changed row,
   undecided with only unresolved rows, and `false` with none and a complete
