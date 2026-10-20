@@ -259,9 +259,9 @@ are settled as follows:
   those arguments by symbolic name
   ([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)) would
   make them presented and cheaper, not more exact.
-- **Declaration and implementation facts.** The metadata of non-public
-  Members, the declaration of a Type the API axis surface admits on neither
-  side, and `beforefieldinit` are Body facts. Canonical body comparison does
+- **Declaration and implementation facts.** The declaration facts of Members
+  the API axis surface does not admit, the declaration of a Type it admits on
+  neither side, and `beforefieldinit` are Body facts. Canonical body comparison does
   not show them, so a Body cue decided by one of them alone opens a view with
   no IL change today. That is a known divergence under rule 4 of Diff
   observability until the declaration view of
