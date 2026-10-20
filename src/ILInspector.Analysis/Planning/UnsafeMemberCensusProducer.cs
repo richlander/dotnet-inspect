@@ -8,29 +8,36 @@ using ILInspector.Metadata;
 namespace ILInspector.Analysis.Planning;
 
 /// <summary>
-/// One visited body's detached census fact, with its authenticated owner
-/// named by token until completion joins it to that owner's identity.
+/// One visited body's detached census fact. Its declared-source outcome is
+/// read at completion, where the relation has settled at every breadth, and
+/// joins the body to its authenticated owner's identity.
 /// </summary>
 public readonly struct UnsafeMemberCensusBodyFact
 {
     internal UnsafeMemberCensusBodyFact(
         UnsafeMemberBodyFacts facts,
-        int? declaredOwnerToken)
+        bool requiresOwnerByShape)
     {
         Facts = facts;
-        DeclaredOwnerToken = declaredOwnerToken;
+        RequiresOwnerByShape = requiresOwnerByShape;
     }
 
     internal UnsafeMemberBodyFacts Facts { get; }
 
-    internal int? DeclaredOwnerToken { get; }
+    /// <summary>
+    /// Whether the body needs an authenticated owner whatever its declared
+    /// source: its type is a nested compiler-generated type, or it is an
+    /// unconfirmed extension declaration.
+    /// </summary>
+    internal bool RequiresOwnerByShape { get; }
 }
 
 /// <summary>
 /// The unsafe member census as one focused value producer over an
 /// owner-issued Method Query Source request, as
 /// <c>docs/design/unsafe-member-findings.md#execution</c> defines it. Each
-/// visit emits one physical body's facts; completion folds them through
+/// visit emits one physical body's facts; completion reads each body's
+/// declared source, joins its owner, and folds them through
 /// <see cref="UnsafeMemberCensusBuilder"/> with the image's public roots and
 /// reference-assembly status.
 /// </summary>
@@ -66,7 +73,6 @@ public sealed class UnsafeMemberCensusProducer
         int token = view.Token;
         MetadataReader reader = view.Reader;
         MethodDefinition definition = view.MethodDefinition;
-        MethodDefinitionDeclaredSource source = view.DeclaredSource;
         ExtensionDeclarationShape extensionShape =
             LibraryMethodAnalysisRunner.ClassifyExtensionDeclaration(
                 reader,
@@ -74,13 +80,8 @@ public sealed class UnsafeMemberCensusProducer
                 definition);
         MethodBodyAvailability availability =
             LibraryMethodAnalysisRunner.ClassifyBodyAvailability(definition);
-        int? ownerToken =
-            source is MethodDefinitionDeclaredSource.Generated generated
-                ? MetadataTokens.GetToken(generated.Origin.DeclaredOwner)
-                : null;
-
         MethodIdentity identity;
-        bool requiresOwner;
+        bool requiresOwnerByShape;
         try
         {
             switch (view.SemanticIdentity)
@@ -98,22 +99,8 @@ public sealed class UnsafeMemberCensusProducer
                         "Unknown semantic-identity outcome.");
             }
 
-            // A body needs an authenticated owner when the relation examined
-            // it as generated, when its name is a lifted or state-machine
-            // body, when its type is a nested compiler-generated type, or
-            // when it is an unconfirmed extension declaration. Only the
-            // relation supplies the owner.
-            requiresOwner =
-                source is not MethodDefinitionDeclaredSource.Direct
-                || CompilerGeneratedNames.RequiresDeclaredOwner(
-                    identity,
-                    source is MethodDefinitionDeclaredSource.Generated
-                    {
-                        Origin.Kind:
-                            MethodDefinitionGeneratedExpansionOriginKind
-                                .StateMachineExecutionBody,
-                    })
-                || LibraryMethodAnalysisRunner
+            requiresOwnerByShape =
+                LibraryMethodAnalysisRunner
                     .IsDeclaredInNestedCompilerGeneratedType(
                         reader,
                         view.TypeDefinition)
@@ -148,10 +135,9 @@ public sealed class UnsafeMemberCensusProducer
                     identity,
                     extensionShape,
                     availability,
-                    requiresOwner,
                     failureDetail: Describe(exception),
                     evidence: []),
-                ownerToken);
+                requiresOwnerByShape);
         }
 
         return new(
@@ -160,10 +146,9 @@ public sealed class UnsafeMemberCensusProducer
                 identity,
                 extensionShape,
                 availability,
-                requiresOwner,
                 failureDetail: null,
                 evidence),
-            ownerToken);
+            requiresOwnerByShape);
     }
 
     internal override List<UnsafeMemberCensusBodyFact> Seed() => [];
@@ -192,15 +177,46 @@ public sealed class UnsafeMemberCensusProducer
         var bodies = new List<UnsafeMemberBodyFacts>(accumulator.Count);
         foreach (UnsafeMemberCensusBodyFact fact in accumulator)
         {
+            if (fact.Facts.Body is not { } identity)
+            {
+                bodies.Add(fact.Facts with
+                {
+                    OwnerResolution = DeclaredOwnerResolution.Unresolved,
+                });
+                continue;
+            }
+
+            MethodDefinitionDeclaredSource source =
+                completion.DeclaredSourceOf(
+                    (MethodDefinitionHandle)MetadataTokens.EntityHandle(
+                        fact.Facts.Token));
+
+            // A body needs an authenticated owner when the relation examined
+            // it as generated, when its name is a lifted or state-machine
+            // body, when its type is a nested compiler-generated type, or
+            // when it is an unconfirmed extension declaration. Only the
+            // relation supplies the owner.
+            bool requiresOwner =
+                fact.RequiresOwnerByShape
+                || source is not MethodDefinitionDeclaredSource.Direct
+                || CompilerGeneratedNames.RequiresDeclaredOwner(
+                    identity,
+                    source is MethodDefinitionDeclaredSource.Generated
+                    {
+                        Origin.Kind:
+                            MethodDefinitionGeneratedExpansionOriginKind
+                                .StateMachineExecutionBody,
+                    });
             MethodIdentity? owner =
-                fact.DeclaredOwnerToken is int ownerToken
+                source is MethodDefinitionDeclaredSource.Generated generated
                 && identities.TryGetValue(
-                    ownerToken,
+                    MetadataTokens.GetToken(generated.Origin.DeclaredOwner),
                     out MethodIdentity? found)
                     ? found
                     : null;
             bodies.Add(fact.Facts with
             {
+                RequiresDeclaredOwner = requiresOwner,
                 OwnerResolution = owner is null
                     ? DeclaredOwnerResolution.Unresolved
                     : DeclaredOwnerResolution.Resolved,
@@ -347,7 +363,6 @@ public sealed class UnsafeMemberCensusProducer
         MethodIdentity identity,
         ExtensionDeclarationShape extensionShape,
         MethodBodyAvailability availability,
-        bool requiresOwner,
         string? failureDetail,
         ImmutableArray<UnsafeMemberUseEvidence> evidence) =>
         new(
@@ -358,7 +373,7 @@ public sealed class UnsafeMemberCensusProducer
             availability,
             AnalysisFailed: failureDetail is not null,
             failureDetail,
-            requiresOwner,
+            RequiresDeclaredOwner: false,
             DeclaredOwnerResolution.None,
             OwnerResolutionFailed: false,
             DeclaredOwner: null,
@@ -382,7 +397,7 @@ public sealed class UnsafeMemberCensusProducer
                 OwnerResolutionFailed: false,
                 DeclaredOwner: null,
                 Evidence: []),
-            declaredOwnerToken: null);
+            requiresOwnerByShape: false);
 
     static bool IsRecoverable(Exception exception) =>
         exception is not MethodDefinitionTerminalWorkLimitExceededException
@@ -436,6 +451,28 @@ public static class UnsafeMemberCensusAnalysis
             Description,
             UnsafeMemberCensusProducer.Instance,
             TypeScope(types, limits));
+
+    /// <summary>
+    /// Library-scope breadth: every method definition, with the declared-source
+    /// relation in every role settled over the whole module. Every physical
+    /// body is visited, so a generated body no source member claims is still
+    /// inspected and needs no unauthenticated candidates.
+    /// </summary>
+    public static MethodDefinitionSourceBreadth LibraryScope(
+        MethodDefinitionGeneratedExpansionLimits? limits = null) =>
+        MethodDefinitionSourceBreadth.AllDefinitions
+            .IncludeGeneratedExecutionBodies(
+                limits,
+                MethodDefinitionGeneratedBodyRoles.All);
+
+    /// <summary>The census request over the whole library.</summary>
+    public static MethodDefinitionSourceRequest<UnsafeMemberCensus>
+        ForLibrary(
+            MethodDefinitionGeneratedExpansionLimits? limits = null) =>
+        MethodDefinitionSourceRequest<UnsafeMemberCensus>.Create(
+            Description,
+            UnsafeMemberCensusProducer.Instance,
+            LibraryScope(limits));
 
     /// <summary>Projects one detached census operation with its receipts.</summary>
     public static UnsafeMemberCensusResult Project(

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Fixtures;
+using ILInspector.Analysis.Planning;
 using ILInspector.Analysis.UnsafeMemberFindingFixtures;
 using ILInspector.Metadata;
 using Inspector.Findings;
@@ -13,7 +14,13 @@ public sealed partial class UnsafeMemberFindingsTests
     static readonly FindingSubject Subject = new("library:unsafe-fixture", "unsafe fixture");
 
     static UnsafeMemberCensus OpenCensus(bool legacy) =>
-        BodyAnalysisTestExecution.Open(UnsafeFixturePath(legacy)).Safety.MemberCensus;
+        LibraryCensus(UnsafeFixturePath(legacy));
+
+    // The Library-scope census on Assembly Analysis Operation.
+    internal static UnsafeMemberCensus LibraryCensus(string path) =>
+        Assert.IsType<UnsafeMemberCensusResult.Available>(
+                LibraryScopeCensus(path))
+            .Census;
 
     static string UnsafeFixturePath(bool legacy) =>
         (legacy
@@ -89,9 +96,7 @@ public sealed partial class UnsafeMemberFindingsTests
     [Fact]
     public void ClassicAsyncMoveNextFoldsIntoTheAsyncMethod()
     {
-        UnsafeMemberCensus census = BodyAnalysisTestExecution
-            .Open(typeof(ClassicAsyncUnsafeFixtures).Assembly.Location)
-            .Safety.MemberCensus;
+        UnsafeMemberCensus census = LibraryCensus(AnalysisFixturePath);
 
         UnsafeMemberFinding finding = Single(
             census,
@@ -105,52 +110,51 @@ public sealed partial class UnsafeMemberFindingsTests
         Assert.DoesNotContain(census.Members, member => member.Member.Name == "MoveNext");
     }
 
-    // The attribution owner never associates synchronous iterators, so their
-    // evidence is an unattributed limitation rather than a guessed owner.
+    // The declared-source relation authenticates a synchronous iterator's
+    // state machine through IteratorStateMachineAttribute, so its MoveNext
+    // evidence folds into the iterator method with physical provenance.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void SynchronousIteratorEvidenceIsAnUnattributedLimitation(bool legacy)
+    public void SynchronousIteratorEvidenceFoldsIntoTheIteratorMethod(bool legacy)
     {
         UnsafeMemberCensus census = OpenCensus(legacy);
 
-        Assert.False(census.IsComplete);
-        UnsafeMemberLimitation limitation = Assert.Single(
-            census.Limitations,
-            limitation => limitation.Body?.DeclaringType.Name.Contains(
-                "IteratorDereference",
-                StringComparison.Ordinal) == true);
-        Assert.Equal(UnsafeMemberLimitationReason.UnattributedGeneratedBody, limitation.Reason);
-        Assert.Null(limitation.DeclaredMember);
+        UnsafeMemberFinding iterator =
+            Single(census, "UnsafeFindingAttributionSamples", "IteratorDereference");
         Assert.Contains(
-            limitation.Evidence,
-            evidence => evidence.Kind == UnsafeMemberUseKind.StackAllocation);
+            iterator.Evidence,
+            evidence => evidence.Kind == UnsafeMemberUseKind.StackAllocation
+                && evidence.Body.Name == "MoveNext"
+                && evidence.Body.DeclaringType.Name.Contains(
+                    "<IteratorDereference>d__",
+                    StringComparison.Ordinal));
+        Assert.False(iterator.HasPartialEvidence);
+        Assert.DoesNotContain(census.Members, member => member.Member.Name == "MoveNext");
+    }
+
+    // A lifted iterator helper is neither MoveNext nor a lambda; it is a
+    // method of the authenticated state-machine type, so it folds too.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LiftedIteratorHelperFoldsIntoTheIteratorMethod(bool legacy)
+    {
+        UnsafeMemberCensus census = OpenCensus(legacy);
+
+        UnsafeMemberFinding iterator =
+            Single(census, "UnsafeFindingAttributionSamples", "IteratorFinallyCall");
+        Assert.Contains(
+            iterator.Evidence,
+            evidence => evidence.Kind == UnsafeMemberUseKind.IndirectCall
+                && evidence.Body.Name == "<>m__Finally1");
         Assert.DoesNotContain(
             census.Members,
-            finding => finding.Member.Name == "IteratorDereference");
+            member => member.Member.Name == "<>m__Finally1");
     }
 
-    // A lifted iterator helper is neither MoveNext nor a lambda, but its
-    // compiler-generated nested type still requires an authenticated owner.
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void LiftedIteratorHelperIsAnUnattributedLimitation(bool legacy)
-    {
-        UnsafeMemberCensus census = OpenCensus(legacy);
-
-        UnsafeMemberLimitation limitation = Assert.Single(
-            census.Limitations,
-            limitation => limitation.Body?.Name == "<>m__Finally1");
-        Assert.Equal(UnsafeMemberLimitationReason.UnattributedGeneratedBody, limitation.Reason);
-        Assert.Contains(
-            limitation.Evidence,
-            evidence => evidence.Kind == UnsafeMemberUseKind.IndirectCall);
-    }
-
-    // Only the two synchronous iterator bodies limit these fixtures: abstract,
-    // extern UnsafeAccessor, and other bodiless declarations are no
-    // applicable input.
+    // Abstract, extern UnsafeAccessor, and other bodiless declarations are no
+    // applicable input, so nothing limits these fixtures' census.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -158,12 +162,8 @@ public sealed partial class UnsafeMemberFindingsTests
     {
         UnsafeMemberCensus census = OpenCensus(legacy);
 
-        Assert.Equal(2, census.Limitations.Length);
-        Assert.All(
-            census.Limitations,
-            limitation => Assert.Equal(
-                UnsafeMemberLimitationReason.UnattributedGeneratedBody,
-                limitation.Reason));
+        Assert.Empty(census.Limitations);
+        Assert.True(census.IsComplete);
     }
 
     [Theory]
@@ -211,43 +211,18 @@ public sealed partial class UnsafeMemberFindingsTests
             finding => Assert.False(finding.PropagatesUnsafe));
     }
 
-    // A scoped census covers in-scope bodies only, so an out-of-scope
-    // generated body neither becomes its own finding nor confers its contract.
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ScopedReceiptCoversOnlyInScopeBodies(bool legacy)
-    {
-        MethodIdentity selected =
-            Single(OpenCensus(legacy), "UnsafeFindingAttributionSamples", "PrivateDereference").Member;
-        string path = UnsafeFixturePath(legacy);
-
-        UnsafeMemberCensus scoped = BodyAnalysisTestExecution
-            .Open(path, bodyScope: new HashSet<int> { selected.MetadataToken })
-            .Safety.MemberCensus;
-        Assert.Equal(selected, Assert.Single(scoped.Members).Member);
-        Assert.Equal(
-            UnsafeMemberLimitationReason.ScopedReceipt,
-            Assert.Single(scoped.Limitations).Reason);
-
-        UnsafeMemberCensus empty = BodyAnalysisTestExecution
-            .Open(path, bodyScope: new HashSet<int>())
-            .Safety.MemberCensus;
-        Assert.Empty(empty.Members);
-        UnsafeMemberLimitation receipt = Assert.Single(empty.Limitations);
-        Assert.Equal(UnsafeMemberLimitationReason.ScopedReceipt, receipt.Reason);
-        Assert.Null(receipt.Body);
-    }
-
     [Fact]
     public void InspectionProjectsOneFindingPerMemberAndKeepsIncompleteness()
     {
-        LibraryBodyAnalysisExecution execution =
-            BodyAnalysisTestExecution.Open(UnsafeFixturePath(legacy: false));
+        // The iterator fixture keeps one generated body no source member
+        // claims, so its census is incomplete.
+        UnsafeMemberCensusResult result = LibraryScopeCensus(IteratorFixturePath);
+        UnsafeMemberCensus census =
+            Assert.IsType<UnsafeMemberCensusResult.Available>(result).Census;
 
         var incomplete = Assert.IsType<UnsafeMemberFindingInspection.Incomplete>(
-            AnalysisFindings.InspectUnsafeMembers(execution.Safety, Subject));
-        Assert.Equal(execution.Safety.MemberCensus.Members.Length, incomplete.Inspection.Findings.Length);
+            AnalysisFindings.InspectUnsafeMembers(result, Subject));
+        Assert.Equal(census.Members.Length, incomplete.Inspection.Findings.Length);
         Assert.All(
             incomplete.Inspection.Findings,
             finding => Assert.Equal(AnalysisFindings.UnsafeMemberDescriptor, finding.Descriptor));
@@ -257,27 +232,31 @@ public sealed partial class UnsafeMemberFindingsTests
                 .Select(finding => finding.Key.IdentityKey)
                 .Distinct(StringComparer.Ordinal)
                 .Count());
-        Assert.Equal(execution.Safety.MemberCensus.Limitations, incomplete.Limitations);
+        Assert.Equal(census.Limitations, incomplete.Limitations);
 
         var complete = Assert.IsType<UnsafeMemberFindingInspection.Complete>(
             AnalysisFindings.InspectUnsafeMembers(
-                BodyAnalysisTestExecution
-                    .Open(typeof(ClassicAsyncUnsafeFixtures).Assembly.Location)
-                    .Safety,
+                LibraryScopeCensus(UnsafeFixturePath(legacy: false)),
                 Subject));
         Assert.NotEmpty(complete.Inspection.Findings);
     }
 
+    // A failed census operation is an inspection failure, not an observation.
     [Fact]
-    public void InspectionFailsWhenMethodEvidenceWasNotRequested()
+    public void InspectionFailsWhenTheCensusFailed()
     {
-        LibraryBodyAnalysisExecution execution = LibraryBodyAnalysisService.ExecutePath(
-            typeof(ClassicAsyncUnsafeFixtures).Assembly.Location,
-            LibraryBodyAnalysisRequest.Create(LibraryBodyAnalysisFeatures.None));
+        var available = Assert.IsType<UnsafeMemberCensusResult.Available>(
+            LibraryScopeCensus(AnalysisFixturePath));
+        var failed = new UnsafeMemberCensusResult.Failed(
+            new InvalidDataException("The unsafe member census failed."),
+            ProducerOutcome.Failed,
+            available.SourceReceipt,
+            available.Receipt);
 
-        Assert.IsType<UnsafeMemberFindingInspection.Failed>(
-            AnalysisFindings.InspectUnsafeMembers(execution.Safety, Subject));
-        Assert.Throws<InvalidOperationException>(() => execution.Safety.MemberCensus);
+        UnsafeMemberFindingInspection.Failed inspection =
+            Assert.IsType<UnsafeMemberFindingInspection.Failed>(
+                AnalysisFindings.InspectUnsafeMembers(failed, Subject));
+        Assert.Equal("The unsafe member census failed.", inspection.Error.Reason);
     }
 
     [Fact]

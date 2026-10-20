@@ -20,10 +20,9 @@ public sealed partial class UnsafeMemberFindingsTests
     static string IteratorFixturePath =>
         FixtureCatalog.AnalysisIterators.AssemblyPath();
 
-    // Every finding agrees with the Library Body Analysis census for the
-    // same type, except that a body that census leaves unattributed and the
-    // declared-source relation authenticates now folds into its owner. In
-    // these fixtures those are exactly the synchronous iterator bodies.
+    // Type and Library scope agree on every finding and limitation of the
+    // selected type: both read the same declared-source relation, so a
+    // synchronous iterator's bodies fold into the iterator method at both.
     [Theory]
     [InlineData("new")]
     [InlineData("legacy")]
@@ -38,9 +37,7 @@ public sealed partial class UnsafeMemberFindingsTests
             "analysis" => AnalysisFixturePath,
             _ => IteratorFixturePath,
         };
-        UnsafeMemberCensus library =
-            BodyAnalysisTestExecution.Open(path).Safety.MemberCensus;
-        int folds = 0;
+        UnsafeMemberCensus library = LibraryCensus(path);
 
         foreach ((TypeDefinitionHandle type, ImmutableHashSet<int> methods)
             in SourceTypes(path))
@@ -49,61 +46,32 @@ public sealed partial class UnsafeMemberFindingsTests
                 TypeScopeCensus(path, [type]));
             MethodDefinitionSourceCoverage coverage =
                 scoped.SourceReceipt.Coverage;
-            Dictionary<int, int> owners = coverage.GeneratedExpansion.Origins
-                .Concat(coverage.GeneratedExpansion.AttributedOutsideRoles)
-                .ToDictionary(
-                    static origin => MetadataTokens.GetToken(origin.Method),
-                    static origin => MetadataTokens.GetToken(origin.DeclaredOwner));
             bool Selected(int token) =>
                 coverage.MethodsSelected.Contains(
                     MetadataTokens.MethodDefinitionHandle(token & 0x00FFFFFF));
 
-            var folded = library.Limitations
-                .Where(limitation =>
-                    limitation.Reason
-                        == UnsafeMemberLimitationReason.UnattributedGeneratedBody
-                    && limitation.BodyToken is int body
-                    && Selected(body)
-                    && owners.ContainsKey(body))
-                .ToList();
-            Assert.All(
-                folded,
-                limitation => Assert.Contains(
-                    ">d__",
-                    limitation.Body!.DeclaringType.Name,
-                    StringComparison.Ordinal));
-            folds += folded.Count;
-
-            var expected = library.Members
-                .Where(finding => methods.Contains(finding.Member.MetadataToken))
-                .ToDictionary(static finding => finding.Member.MetadataToken);
-            foreach (UnsafeMemberLimitation limitation in folded)
-            {
-                int owner = owners[limitation.BodyToken!.Value];
-                UnsafeMemberFinding actualOwner = Assert.Single(
-                    scoped.Census.Members,
-                    finding => finding.Member.MetadataToken == owner);
-                expected[owner] = expected.TryGetValue(owner, out UnsafeMemberFinding? prior)
-                    ? prior with { Evidence = [.. prior.Evidence, .. limitation.Evidence] }
-                    : actualOwner with { Evidence = limitation.Evidence };
-            }
-
             Assert.Equal(
-                expected.Values
-                    .OrderBy(static finding => finding.Member.MetadataToken)
+                library.Members
+                    .Where(finding => methods.Contains(finding.Member.MetadataToken))
                     .Select(FindingKey),
                 scoped.Census.Members.Select(FindingKey));
             Assert.Equal(
                 library.Limitations
                     .Where(limitation =>
                         limitation.BodyToken is int body
-                        && Selected(body)
-                        && !folded.Contains(limitation)),
+                        && Selected(body)),
                 scoped.Census.Limitations);
         }
 
         if (fixture is "new" or "legacy" or "iterators")
-            Assert.True(folds > 0, "The fixture must exercise an iterator fold.");
+        {
+            Assert.Contains(
+                library.Members,
+                finding => finding.Evidence.Any(evidence =>
+                    evidence.Body.DeclaringType.Name.Contains(
+                        ">d__",
+                        StringComparison.Ordinal)));
+        }
     }
 
     // Issue #9755: each shape's generated body folds into the member a reader
@@ -176,6 +144,23 @@ public sealed partial class UnsafeMemberFindingsTests
 
         Assert.False(census.IsComplete);
         Assert.Empty(census.Members);
+        UnsafeMemberLimitation limitation = Assert.Single(census.Limitations);
+        Assert.Equal(UnsafeMemberLimitationReason.UnattributedGeneratedBody, limitation.Reason);
+        Assert.Equal("Hidden", limitation.Body?.Name);
+        Assert.Null(limitation.DeclaredMember);
+        Assert.Contains(
+            limitation.Evidence,
+            evidence => evidence.Kind == UnsafeMemberUseKind.ExplicitContractCall);
+    }
+
+    // At Library scope every physical body is visited, so the same unclaimed
+    // body is the census's one unattributed limitation.
+    [Fact]
+    public void LibraryScopeUnclaimedGeneratedBodyIsAnUnattributedLimitation()
+    {
+        UnsafeMemberCensus census = LibraryCensus(IteratorFixturePath);
+
+        Assert.False(census.IsComplete);
         UnsafeMemberLimitation limitation = Assert.Single(census.Limitations);
         Assert.Equal(UnsafeMemberLimitationReason.UnattributedGeneratedBody, limitation.Reason);
         Assert.Equal("Hidden", limitation.Body?.Name);
@@ -574,6 +559,25 @@ public sealed partial class UnsafeMemberFindingsTests
         var operation = AssemblyAnalysisOperation<UnsafeMemberCensus>.Create(
             path,
             UnsafeMemberCensusAnalysis.ForTypes(types, limits));
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(File.ReadAllBytes(path), writable: false));
+        AssemblyAnalysisExecution<UnsafeMemberCensus> execution =
+            Assert.IsType<AssemblyAnalysisServiceResult<UnsafeMemberCensus>.Completed>(
+                    session.SnapshotOperation(
+                        operation,
+                        access => AssemblyAnalysisService.Instance.Execute(
+                            operation,
+                            access)))
+                .Execution;
+        return UnsafeMemberCensusAnalysis.Project(execution);
+    }
+
+    static UnsafeMemberCensusResult LibraryScopeCensus(string path)
+    {
+        var operation = AssemblyAnalysisOperation<UnsafeMemberCensus>.Create(
+            path,
+            UnsafeMemberCensusAnalysis.ForLibrary());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(
                 new MemoryStream(File.ReadAllBytes(path), writable: false));
