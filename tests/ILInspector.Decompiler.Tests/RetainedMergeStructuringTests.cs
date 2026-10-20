@@ -649,8 +649,13 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
-    public void RetainedGotoWithFlatTailBailsDefiniteAssignmentConservatively()
+    public void RetainedGotoIntoStructuredTailLoopKeepsDefiniteAssignmentPrecise()
     {
+        // The tail after the retained merge is a loop; it validates on its own
+        // and is built as an ordinary loop behind the merge's anchor, so the
+        // definite-assignment walk no longer has to bail on a flat tail. The
+        // retained path reaches the final read with V_0 unassigned, which the
+        // walk reports precisely and the printer answers with `= default`.
         var blocks = new[]
         {
             Term(0, Cond(24)),
@@ -667,7 +672,9 @@ public class RetainedMergeStructuringTests
         var facts = CSharpPrinter.CollectDataflowFacts(function);
 
         Assert.Equal(1, diagnostics.RetainedRegions);
-        Assert.True(facts.Bailed);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.False(facts.Bailed);
+        Assert.Contains(0, facts.ReadBeforeAssign);
         Assert.Contains("int V_0 = default;", DecidedPrint.Print(function).Output!);
     }
 
@@ -743,6 +750,7 @@ public class RetainedMergeStructuringTests
         Assert.Equal(2, retained.Length);
         Assert.All(retained, branch => Assert.Equal(32, branch.TargetOffset));
         Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.False(CSharpPrinter.CollectDataflowFacts(function).Bailed);
         string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("IL_0020:", output);
         Assert.Equal(2, output.Split("goto IL_0020;").Length - 1);
@@ -845,6 +853,29 @@ public class RetainedMergeStructuringTests
         Assert.Contains("IL_0040:", output);
         Assert.Contains("goto IL_0030;", output);
         Assert.Contains("IL_0030:", output);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmptyGapAtRetainedMergeKeepsItsLabel(bool gotoNext)
+    {
+        // The first range's retained merge (IL_0028) is a gap that builds to
+        // nothing: an empty landing pad, or a block that only jumps onto the
+        // second range. The retained goto still targets it, so the gap keeps
+        // its label through an anchor-only block.
+        var blocks = SequentialRetainedMerges().ToList();
+        blocks[5] = gotoNext ? Term(40, new Branch(44)) : new Block(40);
+        blocks.Insert(6, Term(44, Cond(64)));
+
+        var (function, diagnostics) = Structure([.. blocks]);
+
+        Assert.Equal(2, diagnostics.RetainedRegions);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 40);
+        Assert.Contains(function.Descendants.OfType<LabelAnchor>(), anchor => anchor.SourceOffset == 40);
+        string output = DecidedPrint.Print(function).Output!;
+        Assert.Contains("goto IL_0028;", output);
+        Assert.Contains("IL_0028:", output);
     }
 
     [Fact]

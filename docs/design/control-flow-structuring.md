@@ -799,13 +799,18 @@ only when the post-dominator machinery is proven.
    that does not validate. Every built range or gap that starts at a transfer
    target receives a dedicated `LabelAnchor`, as retained loops already did,
    because a later expression or sugar pass can consume the first statement
-   and with it the only owner of a label that retained gotos still target; the
-   printer binds such an anchor's label to the statement that follows it. A
+   and with it the only owner of a label that retained gotos still target; a
+   gap that builds to nothing (an empty landing pad, or a merge that only
+   jumps onto the next range) keeps an anchor-only block for the same reason.
+   The printer binds such an anchor's label to the statement that follows it
+   and prints a trailing anchor as a labelled empty statement. A
    forward range keeps an imported conditional transfer to its retained merge
    as the `ConditionalBranch` it was, again as retained loops do, so partial
    structuring creates no output-only transfer identity for the corpus
    control-flow ledger; the printer's definite-assignment walk treats such a
-   nested conditional as a forward goto whose other path falls through.
+   nested conditional, or one at the top of a built range block, as a forward
+   goto whose other path falls through, and does not bail on an arm block that
+   merely starts at an offset whose label a container-level anchor owns.
    Against exact base `3634ec46b` over the pinned real-world corpus (89,065
    methods), `--structuring-stops` moved from 30,178 to 30,251 structured
    containers, 129 to 210 retained-label regions, and 2,541 to 2,468 flat
@@ -820,8 +825,9 @@ only when the post-dominator machinery is proven.
    `SharedTerminatorPastRetainedRangeIsClonedIntoItsGuard`,
    `ValidatedPrefixTransferOntoRetainedRegionStartDissolves`,
    `UnrelatedTailBackEdgeDoesNotRejectForwardRetainedRegion`,
-   `TailGapThatDoesNotValidateStaysFlatBehindTheRetainedRange`, and
-   `GapTargetedFromFlatBlockStaysFlat` gate the planner;
+   `TailGapThatDoesNotValidateStaysFlatBehindTheRetainedRange`,
+   `GapTargetedFromFlatBlockStaysFlat`, and
+   `EmptyGapAtRetainedMergeKeepsItsLabel` gate the planner;
    `SequentialRetainedMergesStructureFurthestRangeAndTail` and
    `RetainedGotoParticipatesInDefiniteAssignment` pin the preserved
    conditional transfer and its definite-assignment reading.

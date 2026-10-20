@@ -555,12 +555,15 @@ public sealed class StructuringPass : IIrPass
             {
                 return GapBuild.Unproven;
             }
-            // A prefix whose only transfer was the goto onto the first range
-            // dissolves into fallthrough and leaves nothing to print.
-            if (builtGap.Children.Count == 0)
-                return GapBuild.Built;
+            // A gap whose only transfer was the goto onto the next range
+            // dissolves into fallthrough. When nothing targets its start it
+            // leaves nothing to print; when a retained goto does, the anchor
+            // alone carries the label (printed as a labelled empty statement).
             int gapOffset = clonedBlocks[gapStart].StartOffset;
-            if (template.FlowFacts.BranchTargets.Contains(gapOffset))
+            bool isTarget = template.FlowFacts.BranchTargets.Contains(gapOffset);
+            if (builtGap.Children.Count == 0 && !isTarget)
+                return GapBuild.Built;
+            if (isTarget)
                 builtGap = AnchorRetainedLabel(builtGap, gapOffset);
             replacement.Add(builtGap);
             return GapBuild.Built;

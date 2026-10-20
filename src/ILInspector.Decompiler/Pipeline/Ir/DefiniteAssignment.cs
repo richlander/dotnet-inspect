@@ -51,6 +51,15 @@ static class DefiniteAssignment
     {
         var readEarly = new HashSet<int>();
         bool bailed = false;
+        // A label whose first printed owner is a dedicated anchor at the top of
+        // a container block binds there; a nested arm block that happens to
+        // start at the same offset hosts no label, so a goto to that offset
+        // never enters the arm.
+        var anchoredLabels = body.Descendants
+            .OfType<LabelAnchor>()
+            .Where(static anchor => anchor.Parent is Block { Parent: BlockContainer })
+            .Select(static anchor => anchor.SourceOffset)
+            .ToHashSet();
         Dictionary<int, List<HashSet<int>>>? structuredGotoReaching = null;
         IReadOnlyDictionary<int, int>? structuredGotoTargetIndices = null;
         int structuredGotoSourceIndex = -1;
@@ -358,9 +367,11 @@ static class DefiniteAssignment
                 var block = blocks[source];
                 foreach (var node in block.DescendantsOutsideNestedFunctions)
                 {
-                    // A retained conditional transfer nested inside a structured
-                    // range is a forward goto whose other path falls through; a
-                    // block-terminating conditional is flat control flow.
+                    // A retained conditional transfer is a forward goto whose
+                    // other path falls through, whether it sits nested inside a
+                    // structured range or at the top of a built range block; a
+                    // block-terminating conditional in a flat container is flat
+                    // control flow.
                     int targetOffset;
                     switch (node)
                     {
@@ -368,7 +379,8 @@ static class DefiniteAssignment
                             targetOffset = branch.TargetOffset;
                             break;
                         case ConditionalBranch conditional
-                            when !ReferenceEquals(conditional.Parent, block):
+                            when container.ContainsRetainedBranches
+                                || !ReferenceEquals(conditional.Parent, block):
                             targetOffset = conditional.TargetOffset;
                             break;
                         case ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter:
@@ -589,7 +601,8 @@ static class DefiniteAssignment
             switch (node)
             {
                 case Block block:
-                    if (labelTargets.Contains(block.StartOffset))
+                    if (labelTargets.Contains(block.StartOffset)
+                        && !anchoredLabels.Contains(block.StartOffset))
                     {
                         BailAll();
                         return DefiniteFlow.Bail;
