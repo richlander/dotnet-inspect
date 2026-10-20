@@ -80,12 +80,14 @@ public sealed partial class BrowserEngineBoundaryTests
         [
             new(
                 0,
-                nestedMember,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    nestedMember),
                 "nested",
                 AssemblyContextMemberCallGraphNodeKind.Normal),
             new(
                 1,
-                literalPlusMember,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    literalPlusMember),
                 "literal",
                 AssemblyContextMemberCallGraphNodeKind.Normal),
         ];
@@ -149,7 +151,8 @@ public sealed partial class BrowserEngineBoundaryTests
         [
             new(
                 0,
-                member,
+                CallGraphMemberNavigationProjection.ProjectOpenSignature(
+                    member),
                 "nested",
                 AssemblyContextMemberCallGraphNodeKind.Normal),
         ];

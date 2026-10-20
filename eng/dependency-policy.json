@@ -88,7 +88,6 @@
         "DotnetInspector.Sections",
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
-        "ILInspector.Analysis",
         "ILInspector.Metadata",
         "NuGetFetch"
       ]
@@ -123,7 +122,6 @@
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
         "DotnetInspector.SourceSelection",
-        "ILInspector.Analysis",
         "ILInspector.Metadata",
         "InertText",
         "Inspector.Artifacts",

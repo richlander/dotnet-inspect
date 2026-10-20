@@ -381,7 +381,8 @@ public static partial class SourceExports
                     BrowserCallGraphTarget target =
                         BrowserSourceWireProjection.Project(
                             BrowserCallGraphProjection.Target(
-                                evidence.Member,
+                                CallGraphMemberNavigationProjection.Project(
+                                    evidence.Member),
                                 participantIdentity,
                                 $"finding-{evidence.FactId}",
                                 surfaceParticipants,

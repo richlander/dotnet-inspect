@@ -125,8 +125,6 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
-    containPackageDocumentHtml: () =>
-      unexpected("containPackageDocumentHtml"),
     containPackageDocumentLeaves: () =>
       unexpected("containPackageDocumentLeaves"),
     queryLibraries: () => unexpected("queryLibraries"),
@@ -2489,7 +2487,6 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
-      "containPackageDocumentHtml",
       "containPackageDocumentLeaves",
       "getPackageDocument",
       "getPlatformCatalog",
@@ -2639,7 +2636,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 133);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 132);
 
   const state = fixture();
   const groups = [

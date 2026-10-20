@@ -997,6 +997,9 @@ public sealed record MethodDefinitionSourceCoverage(
     public MethodSemanticIdentityCoverage SemanticIdentity
     { get; init; } = MethodSemanticIdentityCoverage.Empty;
 
+    public MethodAnalysisSupportCoverage MethodAnalysis
+    { get; init; } = MethodAnalysisSupportCoverage.Empty;
+
     public PublicMethodRootCoverage PublicMethodRoots
     { get; init; } = PublicMethodRootCoverage.Empty;
 
@@ -1573,6 +1576,12 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     int _semanticIdentitiesDecoded;
     int _semanticIdentitiesBounded;
     int _semanticIdentitiesMalformed;
+    readonly MethodDefinitionHandleCoverageBuilder _methodAnalysisMethods =
+        new();
+    bool _methodAnalysisConstructed;
+    MethodAnalysisSupportWork _methodAnalysisWork =
+        MethodAnalysisSupportWork.Empty;
+    int _methodAnalysisQueries;
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
     int _noRetentionSourcesOpened;
@@ -1787,6 +1796,26 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
         }
     }
 
+    public void RecordMethodAnalysisConstruction()
+    {
+        if (_enabled)
+            _methodAnalysisConstructed = true;
+    }
+
+    public void RecordMethodAnalysisQuery(
+        MethodDefinitionHandle handle,
+        MethodAnalysisSupportWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _methodAnalysisMethods.Add(handle);
+        _methodAnalysisWork = _methodAnalysisWork.Plus(work);
+        _methodAnalysisQueries =
+            checked(_methodAnalysisQueries + 1);
+    }
+
     public void RecordGeneratedExpansion(
         MethodDefinitionGeneratedExpansionCoverage coverage)
     {
@@ -1871,6 +1900,15 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                         _semanticIdentitiesBounded,
                         _semanticIdentitiesMalformed)
                     : MethodSemanticIdentityCoverage.Empty,
+            MethodAnalysis =
+                _methodAnalysisConstructed
+                || _methodAnalysisQueries != 0
+                    ? new(
+                        _methodAnalysisConstructed,
+                        _methodAnalysisWork,
+                        _methodAnalysisQueries,
+                        _methodAnalysisMethods.Build())
+                    : MethodAnalysisSupportCoverage.Empty,
             PublicMethodRoots =
                 _publicRootsConstructed || _publicRootReads != 0
                     ? new(

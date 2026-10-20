@@ -266,6 +266,40 @@ public sealed partial class ExactPackageWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task
+        LibraryWorkspaceRouteNamesakeFailureNamesSelectedPopulation()
+    {
+        var store = await LibraryStoreAsync();
+        string packet = EncodePacket(
+            format: 4,
+            tabs: [(SelectedPackage, Version, Framework)],
+            contexts: [[0]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new LibraryOptions
+        {
+            WorkspacePacket = packet,
+            PackagePath = SelectedPackage,
+            NamesakeLibrary = true,
+            Select = ["Library Info"],
+            Verbosity = Verbosity.Minimal,
+        };
+
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(
+                options,
+                LoadOptions(client, store)));
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Equal(
+            $"Error: No namesake library found in lib/{Framework}/"
+                + Environment.NewLine,
+            result.Error);
+    }
+
+    [Fact]
     public async Task LibraryWorkspaceRouteNarrowsToFirstLibrary()
     {
         var store = await LibraryStoreAsync();

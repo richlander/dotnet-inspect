@@ -237,14 +237,15 @@ handling. Applying containment before Markdown parsing remains intentionally
 excluded because Markdown can consume backslash spellings and collapse
 distinct source text.
 
-`PackageDocument_RealWrongTurnReadmeIsContainedForBrowserPublication` retains
-the exact package archive by `PackageDownload` and gates the observed bidi
-shape. `PackageDocumentHtml_ContainsBidiAfterStructuralSanitization` gates
-visual containment, literal-spelling distinction, and scalar JSON transport.
-The document coordinator tests gate the same distinction for separately
-published frontmatter name and version values. These gates describe the safe
-transitional whole-HTML implementation; the contained-document adoption owns
-its eventual replacement.
+`PackageDocument_RealWrongTurnReadmeRetainsBidiUntilBrowserPublication`
+retains the exact package archive by `PackageDownload` and gates that the
+observed bidi shape remains untreated through acquisition. The production
+Browser gate `publishes body and frontmatter through one contained fragment`
+then covers actual controls, literal escape spellings, body text, code, link
+labels, displayed attributes, and frontmatter through the leaf-containment
+boundary. The contained-document unit gates establish exact correspondence and
+structure-preserving publication. No whole-serialized-HTML containment
+operation remains.
 
 ### Package skills entering agent context
 

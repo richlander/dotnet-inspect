@@ -214,12 +214,11 @@ calls. `ConfigureHost` configures shared `DotnetInspect.Web.Core` policy before 
 entry point starts application work. `AsyncLoweringCanary` remains the
 deployment smoke's deterministic awaited operation.
 
-### Package facade: 40 exports
+### Package facade: 39 exports
 
 Package acquisition, content, dependencies, documentation, and ranking:
 
 - `ClassifyPackageGraphIdentities`
-- `ContainPackageDocumentHtml`
 - `GetPackageDocument`
 - `MatchPackageDependencyCoordinate`
 - `PackageCacheStats`
@@ -509,7 +508,8 @@ Web Core consumes `AssemblyContextMemberCallGraphDocument` from Queries rather
 than constructing Analysis sessions or CallGraph projections. It retains
 package and Platform scope expansion, Browser Mermaid and tree rendering,
 target attribution, navigation policy, diagnostics lowering, and wire
-projection.
+projection over detached Queries-owned member, tree, and diagnostic facts; Web
+Core does not reference Analysis types.
 
 ### Catalog facade: 31 exports
 

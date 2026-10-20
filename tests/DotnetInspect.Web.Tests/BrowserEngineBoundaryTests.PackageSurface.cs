@@ -241,33 +241,6 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public void PackageDocumentHtml_ContainsBidiAfterStructuralSanitization()
-    {
-        const string html =
-            "<p>https://api.\u202Etegun\u202C.org</p>"
-            + "<pre>literal \\u202E</pre>";
-
-        BrowserPackageDocumentHtml document =
-            BrowserPackageWireProjection.ProjectDocumentHtml(html);
-        string contained = document.Html.ToString();
-
-        Assert.Equal(
-            "<p>https://api.\\u202Etegun\\u202C.org</p>"
-            + "<pre>literal \\\\u202E</pre>",
-            contained);
-        Assert.DoesNotContain('\u202E', contained);
-        Assert.DoesNotContain('\u202C', contained);
-
-        string json = JsonSerializer.Serialize(
-            document,
-            BrowserPackageJsonContext.Default.BrowserPackageDocumentHtml);
-        using JsonDocument parsed = JsonDocument.Parse(json);
-        JsonElement htmlProperty = parsed.RootElement.GetProperty("html");
-        Assert.Equal(JsonValueKind.String, htmlProperty.ValueKind);
-        Assert.Equal(contained, htmlProperty.GetString());
-    }
-
-    [Fact]
     public void PackageDocumentLeaves_PreserveIdentityPolicyAndInertBrand()
     {
         const string leavesJson =
@@ -811,11 +784,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserMemberGroupDocumentRow row =
             Assert.Single(
                 Assert.IsType<BrowserMemberGroupDocument>(group.Document)
-                    .Rows,
-                static candidate =>
-                    candidate.CanonicalSignature.Contains(
-                        "System.Int32",
-                        StringComparison.Ordinal));
+                    .Rows);
 
         BrowserMemberDocumentInspection inspection =
             JsonSerializer.Deserialize(
@@ -1404,7 +1373,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserCallGraphDiagnostics diagnostics =
             BrowserCallGraphWireProjection.Project(
                 BrowserCallGraphProjection.Diagnostics(
-                    new CatalogCallGraphDiagnostics(2, 3, 4),
+                    new AssemblyContextMemberCallGraphDiagnostics(2, 3, 4),
                     hasUnexploredTraversalBoundary: true,
                     hasAnalysisFailureBoundary: true));
 

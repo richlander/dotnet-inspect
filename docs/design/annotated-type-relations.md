@@ -475,14 +475,16 @@ fixtures in its focused design.
 
 ## Adoption
 
-The complete feature has five independently mergeable steps:
+The complete feature has six independently mergeable steps:
 
 1. lock this document shape;
-2. implement query and generation infrastructure over owner-issued relation
-   descriptors and producer outcomes;
-3. adopt outgoing calls to trimming and NativeAOT-annotated callees;
-4. expose all-applicable and selected-family requests in the CLI; and
-5. expose the same host-neutral requests and document in Inspect Web.
+2. implement exact descriptor registration and selection planning under
+   [Annotated Type Relations planning](annotated-type-relations-planning.md);
+3. implement contribution settlement and document generation over
+   owner-issued relation and color outcomes;
+4. adopt outgoing calls to trimming and NativeAOT-annotated callees;
+5. expose all-applicable and selected-family requests in the CLI; and
+6. expose the same host-neutral requests and document in Inspect Web.
 
 Each additional relation family adopts the locked shape through its own owner.
 Existing Type Relationships and Subject Relations paths retire or compose only

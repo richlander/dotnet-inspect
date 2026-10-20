@@ -485,8 +485,6 @@ export interface BrowserMemberGroupDocumentRow {
   readonly metadataToken: number;
   readonly baselineOrdinal: number;
   readonly displaySignature: string;
-  readonly canonicalSignature: string;
-  readonly fingerprint: string;
   readonly accessibility: string;
   readonly receiver: string;
 }
