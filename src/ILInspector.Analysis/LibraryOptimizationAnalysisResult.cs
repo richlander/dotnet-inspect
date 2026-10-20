@@ -25,7 +25,7 @@ public sealed class LibraryOptimizationAnalysisResult
     private readonly IReadOnlySet<int> _scopeExcludedOpportunityTokens;
     private readonly IReadOnlySet<string> _exceptionTypeNames;
     private readonly ImmutableArray<DirectCall> _physicalDirectCalls;
-    private readonly MethodDefinitionMap _declaredMethodMap;
+    private readonly MethodDefinitionMap? _declaredMethodMap;
     private readonly bool _opportunitiesComputed;
     private readonly bool _allocationOpportunitiesComputed;
     private ImmutableArray<OptimizationOpportunity> _opportunities;
@@ -46,8 +46,6 @@ public sealed class LibraryOptimizationAnalysisResult
         _receipt = receipt;
         _callGraph = callGraph;
         _generatedFrameworkTypes = generatedFrameworkTypes;
-        _physicalDirectCalls = callGraph.PhysicalDirectCalls;
-        _declaredMethodMap = callGraph.DeclaredMethodMap;
         _declaredMethods = analysis.Methods.DeclaredMethods;
         _methods = analysis.Methods.Methods;
         _directCalls = analysis.Methods.DirectCalls;
@@ -281,7 +279,12 @@ public sealed class LibraryOptimizationAnalysisResult
                 LibraryBodyAnalysisFeatures.OptimizationOpportunities);
 
     internal bool HasProjectedPhysicalDirectCalls =>
-        _callGraph?.HasProjectedPhysicalDirectCalls == true;
+        _callGraph?.HasProjectedPhysicalDirectCalls
+            ?? !_physicalDirectCalls.IsDefault;
+
+    internal bool HasProjectedDeclaredMethodMap =>
+        _callGraph?.HasProjectedDeclaredMethodMap
+            ?? _declaredMethodMap is not null;
 
     /// <summary>
     /// Completed source and IL optimization opportunities, enriched with
@@ -502,10 +505,14 @@ public sealed class LibraryOptimizationAnalysisResult
     }
 
     private ImmutableArray<DirectCall> PhysicalDirectCalls
-        => _physicalDirectCalls;
+        => _callGraph?.PhysicalDirectCalls
+            ?? _physicalDirectCalls;
 
     internal MethodDefinitionMap DeclaredMethodMap =>
-        _declaredMethodMap;
+        _callGraph?.DeclaredMethodMap
+            ?? _declaredMethodMap
+            ?? throw new InvalidOperationException(
+                "Optimization analysis has no declared-method map.");
 
     private IReadOnlyDictionary<int, CallerLoopEvidence>
         DirectCallerLoops

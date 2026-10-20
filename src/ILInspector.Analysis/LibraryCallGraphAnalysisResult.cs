@@ -99,6 +99,9 @@ public sealed class LibraryCallGraphAnalysisResult
     internal bool HasProjectedPhysicalDirectCalls =>
         !_physicalDirectCalls.IsDefault;
 
+    internal bool HasProjectedDeclaredMethodMap =>
+        _declaredMethodMap is not null;
+
     internal bool HasProjectedMethodSignals =>
         _signals is not null;
 

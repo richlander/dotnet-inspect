@@ -136,6 +136,15 @@ public sealed class LibraryBodyAnalysisExecutionTests
                     .WithStageParticipation());
         try
         {
+            Assert.False(execution.Optimization.WasRequested);
+            Assert.False(
+                execution.CallGraph.HasProjectedPhysicalDirectCalls);
+            Assert.False(
+                execution.CallGraph.HasProjectedDeclaredMethodMap);
+            Assert.False(
+                execution.Optimization.HasProjectedPhysicalDirectCalls);
+            Assert.False(
+                execution.Optimization.HasProjectedDeclaredMethodMap);
             LibraryBodyAnalysisStageParticipationReceipt participation =
                 Assert.IsType<
                     LibraryBodyAnalysisStageParticipationReceipt>(
