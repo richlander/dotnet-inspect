@@ -200,6 +200,42 @@ internal static class MetadataVisibility
             "A Type definition has no visibility root.");
     }
 
+    /// <summary>
+    /// Whether another assembly can reach every Type enclosing <paramref name="handle"/>:
+    /// each is public, or a nested public, protected, or protected internal Type. A
+    /// top-level Type has no enclosing Type.
+    /// </summary>
+    internal static bool AreEnclosingTypesExternallyReachable(
+        MetadataReader reader,
+        TypeDefinitionHandle handle)
+    {
+        int remaining =
+            reader.GetTableRowCount(TableIndex.TypeDef);
+        TypeDefinitionHandle current =
+            reader.GetTypeDefinition(handle).GetDeclaringType();
+        while (!current.IsNil)
+        {
+            if (remaining-- == 0)
+            {
+                throw new BadImageFormatException(
+                    "The nested type graph contains a cycle.");
+            }
+
+            TypeDefinition definition =
+                reader.GetTypeDefinition(current);
+            if ((definition.Attributes & TypeAttributes.VisibilityMask)
+                is not (TypeAttributes.Public
+                    or TypeAttributes.NestedPublic
+                    or TypeAttributes.NestedFamily
+                    or TypeAttributes.NestedFamORAssem))
+            {
+                return false;
+            }
+            current = definition.GetDeclaringType();
+        }
+        return true;
+    }
+
     internal static MetadataVisibilityClassification Classify(
         MetadataReader reader,
         int maximumTypeDefinitions)

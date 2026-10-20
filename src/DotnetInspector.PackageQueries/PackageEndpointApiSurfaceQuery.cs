@@ -38,6 +38,8 @@ public static class PackageEndpointApiSurfaceQuery
                     {
                         Name = name,
                         Tfm = scope.TargetFramework,
+                        ExtractionScope =
+                            AssemblyContextApiSurfaceQuery.ExtractionScope(apiScope),
                     };
                     foreach (PackageEndpointBoundParticipant participant in participants)
                     {

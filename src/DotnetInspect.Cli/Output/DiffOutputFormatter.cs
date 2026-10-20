@@ -69,12 +69,13 @@ public static class DiffOutputFormatter
         IReadOnlyList<OrderedTableRow>? additionalRows,
         string? summary)
     {
-        int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
+        int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0, totalNonBreaking = 0;
         foreach (var td in typeDiffs)
         {
             totalBreaking += td.BreakingCount;
             totalAdditive += td.AdditiveCount;
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
+            totalNonBreaking += td.NonBreakingCount;
         }
 
         var rows = typeDiffs.Select(td =>
@@ -95,12 +96,12 @@ public static class DiffOutputFormatter
                 else if (td.BreakingCount > 0)
                 {
                     symbol = "x";
-                    detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
+                    detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount, td.NonBreakingCount);
                 }
                 else
                 {
                     symbol = "~";
-                    detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount);
+                    detail = FormatSummaryCounts(td.BreakingCount, td.AdditiveCount, td.PotentiallyBreakingCount, td.NonBreakingCount);
                 }
 
                 return new OrderedTableRow(
@@ -123,7 +124,8 @@ public static class DiffOutputFormatter
                     ?? FormatSummaryCounts(
                         totalBreaking,
                         totalAdditive,
-                        totalPotentiallyBreaking)))
+                        totalPotentiallyBreaking,
+                        totalNonBreaking)))
         {
             Rows = rows.Count > 0 ? rows : null
         };
@@ -146,12 +148,13 @@ public static class DiffOutputFormatter
         IReadOnlyList<OrderedDetailedChangeRow>? additionalRows,
         string? summary)
     {
-        int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
+        int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0, totalNonBreaking = 0;
         foreach (var td in typeDiffs)
         {
             totalBreaking += td.BreakingCount;
             totalAdditive += td.AdditiveCount;
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
+            totalNonBreaking += td.NonBreakingCount;
         }
 
         var rows = typeDiffs
@@ -172,7 +175,8 @@ public static class DiffOutputFormatter
                     ?? FormatSummaryCounts(
                         totalBreaking,
                         totalAdditive,
-                        totalPotentiallyBreaking)))
+                        totalPotentiallyBreaking,
+                        totalNonBreaking)))
         {
             Rows = rows.Count > 0 ? rows : null
         };
@@ -632,20 +636,22 @@ public static class DiffOutputFormatter
             return view;
         }
 
-        int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0;
+        int totalBreaking = 0, totalAdditive = 0, totalPotentiallyBreaking = 0, totalNonBreaking = 0;
         foreach (var td in typeDiffs)
         {
             totalBreaking += td.BreakingCount;
             totalAdditive += td.AdditiveCount;
             totalPotentiallyBreaking += td.PotentiallyBreakingCount;
+            totalNonBreaking += td.NonBreakingCount;
         }
 
         view.SummaryText = DiffViewText.Field(
-            $"**Summary:** {FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking)} across {typeDiffs.Count} types");
+            $"**Summary:** {FormatSummaryCounts(totalBreaking, totalAdditive, totalPotentiallyBreaking, totalNonBreaking)} across {typeDiffs.Count} types");
 
         view.BreakingChanges = BuildChangeRows(ChangeClassification.Breaking, typeDiffs);
         view.PotentiallyBreakingChanges = BuildChangeRows(ChangeClassification.PotentiallyBreaking, typeDiffs);
         view.AdditiveChanges = BuildChangeRows(ChangeClassification.Additive, typeDiffs);
+        view.NonBreakingChanges = BuildChangeRows(ChangeClassification.NonBreaking, typeDiffs);
         if (inspectionFailures.Count > 0)
         {
             view.Status = new Callout(
@@ -1603,12 +1609,13 @@ public static class DiffOutputFormatter
         return writer.Complete().TrimEnd();
     }
 
-    internal static string FormatSummaryCounts(int breaking, int additive, int potentiallyBreaking)
+    internal static string FormatSummaryCounts(int breaking, int additive, int potentiallyBreaking, int nonBreaking)
     {
-        var parts = new List<string>(3);
+        var parts = new List<string>(4);
         if (breaking > 0) parts.Add($"{breaking} breaking");
         if (additive > 0) parts.Add($"{additive} additive");
         if (potentiallyBreaking > 0) parts.Add($"{potentiallyBreaking} potentially breaking");
+        if (nonBreaking > 0) parts.Add($"{nonBreaking} non-breaking");
         return parts.Count > 0 ? string.Join(", ", parts) : "no changes";
     }
 
@@ -1694,6 +1701,7 @@ public static class DiffOutputFormatter
             ChangeClassification.Breaking => "breaking",
             ChangeClassification.Additive => "additive",
             ChangeClassification.PotentiallyBreaking => "potentially-breaking",
+            ChangeClassification.NonBreaking => "non-breaking",
             _ => classification.ToString()
         };
 

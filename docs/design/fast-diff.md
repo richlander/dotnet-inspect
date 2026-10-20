@@ -68,10 +68,11 @@ That is the API axis population of
 [Diff capabilities](diff-capabilities.md#axes): `private protected` Members
 belong to Body, and hidden Types and Members, such as ones marked
 `EditorBrowsable(Never)`, are compared like any other; their status is the
-API status analysis's, not Fast Diff's. A Type is public by its own row (public, nested public,
-protected, or protected internal), matching the API axis surface
-(`ApiSurfaceExtractionScope.ApiAxis`), which admits a public nested Type of a
-non-public Type. Non-public Types have no API facts.
+API status analysis's, not Fast Diff's. A Type is public when its own row and
+every enclosing Type's row is public, nested public, protected, or protected
+internal, matching the API axis surface (`ApiSurfaceExtractionScope.ApiAxis`);
+a public nested Type of a non-public Type is not. Non-public Types have no API
+facts.
 
 These facts are a census, and the census decides `Unchanged` alone: equal
 census facts mean the complete comparison reports no change. Each fact kind is
@@ -269,13 +270,15 @@ Fast Diff follows it; the axis never keeps a private exception.
 - accessibility: a Member or nested Type whose accessibility moves between
   API axis buckets is API `Changed`, and the complete comparison of the API
   axis surface reports `MemberAccessibilityChanged` or
-  `TypeAccessibilityChanged`, breaking when narrowed (`public` to `protected`
-  or `protected internal`, `protected internal` to `protected`) and additive
-  when widened; the ordinary Public surface reports a move across the
+  `TypeAccessibilityChanged`, breaking when external reach narrows (`public`
+  to `protected` or `protected internal`), additive when it widens, and
+  non-breaking between `protected internal` and `protected`; the ordinary Public surface reports a move across the
   `public` boundary as a removal or an addition, and an accessor's
-  accessibility as a signature change; only a comparison of two API axis
-  surfaces reports accessibility changes, so the include-all surface reports
-  none;
+  accessibility as a signature change; the include-all surface reports every
+  move, including one that leaves or enters the API axis, breaking when
+  external reach narrows, additive when it widens, and non-breaking when it
+  is unchanged (`internal` to `private`), and classifies a change wholly
+  outside the API axis as non-breaking;
 - presented facts: for every fact kind treated as presented, a fixture case
   in which that fact alone differs, and the complete comparison reports the
   change; a kind without such a case is uncertain;

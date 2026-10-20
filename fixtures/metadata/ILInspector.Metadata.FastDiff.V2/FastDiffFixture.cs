@@ -226,3 +226,70 @@ public class NestedProtectedToPublic
     {
     }
 }
+
+// Accessibility moves that leave or stay outside the API axis.
+public class PublicToInternal
+{
+    internal int Value(int x) => x;
+}
+
+public class PublicToPrivate
+{
+    private int Value(int x) => x;
+}
+
+public class ProtectedToInternal
+{
+    internal int Value(int x) => x;
+}
+
+public class InternalToPrivate
+{
+    private int Value(int x) => x;
+}
+
+public class ProtectedToPrivateProtected
+{
+    private protected int Value(int x) => x;
+}
+
+internal class PublicTypeToInternal
+{
+}
+
+public class PropertyPublicToProtected
+{
+    protected int Value { get; set; }
+}
+
+// A whole property with a narrower accessor moves; only its accessibility changes.
+public class PropertyWithPrivateSetterPublicToProtected
+{
+    protected int Value { get; private set; }
+}
+
+// Changes wholly outside the API axis.
+public class PrivateMemberRemoved
+{
+    public int Value(int x) => x;
+}
+
+public class PrivateMemberChanged
+{
+    public int Value(int x) => (int)Helper(x);
+
+    private long Helper(int x) => x;
+}
+
+internal class InternalTypeMemberChanged
+{
+    public long Value(int x) => x;
+}
+
+internal class InternalOuterNestedMemberChanged
+{
+    public class Nested
+    {
+        public long Value(int x) => x;
+    }
+}

@@ -161,7 +161,8 @@ internal static class BrowserLibraryApiDiffWireProjection
                     summary.ChangedMemberCount,
                     summary.BreakingCount,
                     summary.AdditiveCount,
-                    summary.PotentiallyBreakingCount),
+                    summary.PotentiallyBreakingCount,
+                    summary.NonBreakingCount),
                 types),
             Unavailable: null,
             Rejected: null,
@@ -432,6 +433,7 @@ internal static class BrowserLibraryApiDiffWireProjection
             type.BreakingCount,
             type.AdditiveCount,
             type.PotentiallyBreakingCount,
+            type.NonBreakingCount,
             type.Before is null ? null : Project(type.Before),
             type.After is null ? null : Project(type.After),
             [
@@ -482,6 +484,8 @@ internal static class BrowserLibraryApiDiffWireProjection
                 ChangeClassification.PotentiallyBreaking =>
                     BrowserLibraryApiDiffChangeClassification
                         .PotentiallyBreaking,
+                ChangeClassification.NonBreaking =>
+                    BrowserLibraryApiDiffChangeClassification.NonBreaking,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(change),
                     change.Classification,

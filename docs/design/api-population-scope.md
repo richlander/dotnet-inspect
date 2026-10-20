@@ -324,14 +324,26 @@ widened population rather than the ordinary one: `--all` narrowed by an
 `private protected` declarations, which no other assembly can reach. Hidden
 declarations stay admitted into their buckets. `EditorBrowsable` and
 `Obsolete` status do not decide what the diff compares; a separate API status
-analysis reports them and their transitions, as Diff capabilities states. A Type is admitted by its own row's bucket, so a public nested Type
-of a non-public Type is admitted and a public Member of an internal Type is
-not. Metadata issues this population as the API axis surface
+analysis reports them and their transitions, as Diff capabilities states. A
+Type is admitted when its own row and every enclosing Type's row is in an API
+axis bucket, so neither a public nested Type of a non-public Type nor a public
+Member of an internal Type is admitted: no other assembly can reach either one.
+Each Type remains its own row; a nested Type does not inherit its enclosing
+Type's changes. Metadata issues this population as the API axis surface
 (`ApiSurfaceExtractionScope.ApiAxis`); Fast Diff's API census admits the same
 declarations. The API comparison reports an accessibility move between API
-axis buckets only when both compared surfaces are API axis surfaces, as each
-surface records its extraction scope; comparisons of other scopes, including
-`--all`, keep their existing output.
+axis buckets when both compared surfaces are API axis surfaces, as each
+surface records its extraction scope. Under `--all` (`IncludeAll`), every
+accessibility move between the two sides is a Change, including moves that
+leave or enter the API axis; it is Breaking when external reach narrows,
+Additive when it widens, and NonBreaking when external reach is unchanged.
+External reach counts callers in other assemblies that are not friends, so
+`protected internal` and `protected` have the same reach: a move between them
+is NonBreaking on the API axis as well. Breaking and Additive describe the
+public contract, the API axis: under `--all`, any change wholly outside the
+API axis on both sides, judged by external reach through every enclosing
+Type, is NonBreaking. Comparisons of
+other scopes keep their existing output.
 
 The ordinary population, the `public` bucket without hidden declarations, is
 the presentation default for diff output: a host shows it unless the user

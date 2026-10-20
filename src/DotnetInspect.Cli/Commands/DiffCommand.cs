@@ -3236,7 +3236,8 @@ public partial class DiffCommand
             InspectionFailures = diff.InspectionFailures,
             TotalBreaking = filtered.Sum(typeDiff => typeDiff.BreakingCount),
             TotalAdditive = filtered.Sum(typeDiff => typeDiff.AdditiveCount),
-            TotalPotentiallyBreaking = filtered.Sum(typeDiff => typeDiff.PotentiallyBreakingCount)
+            TotalPotentiallyBreaking = filtered.Sum(typeDiff => typeDiff.PotentiallyBreakingCount),
+            TotalNonBreaking = filtered.Sum(typeDiff => typeDiff.NonBreakingCount),
         };
     }
 
