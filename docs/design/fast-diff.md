@@ -36,10 +36,11 @@ the cost of reaching the answer differs.
 > [API axis population](diff-capabilities.md#axes) reports a change to the
 > Type or one of its Members. The Body state is `Changed` exactly when the Type is present on
 > one side only, a method of it with a body is present on one side only, a
-> paired method has a body on one side only, or a paired body is not `Exact`
+> paired method has a body on one side only, a paired body is not `Exact`
 > under
 > [canonical IL comparison](il-diff-canonicalization.md#comparison-outcomes)
-> with the [Body policy](#axes). A row or body that cannot be decoded or
+> with the [Body policy](#axes), or a [declaration fact](#axes) on the Body
+> axis differs. A row or body that cannot be decoded or
 > resolved makes the unsettled axes of its Type `Indeterminate`, never
 > `Unchanged`.
 
@@ -515,12 +516,12 @@ facts are Body facts.
 A Type present in one image only has no counterpart to compare Members
 against, so its one-sided form compares nothing. The present side's Members
 are partitioned by the ownership rules below, and every fact an owner holds is
-a fact present on one side only, which rule 2 counts as a difference. Every
-Member is therefore Body `Changed`, since its declaration row is a Body fact
-present on one side only, and API `Changed` exactly where the API axis surface
-admits it on the present side, as a Member declared on one side of a paired
-Type is: a private field, or a method with no body, is returned, Body
-`Changed` and API `Unchanged`. The
+a fact present on one side only, which rule 2 counts as a difference. A Member
+is therefore `Changed` on each axis where it owns facts and `Unchanged` where
+it owns none, exactly as a Member declared on one side of a paired Type is: a
+private field, or a private method with no body, is returned Body `Changed`
+and API `Unchanged`, since the surface does not admit it and its declaration
+facts are Body facts; a public field is API `Changed` and Body `Unchanged`. The
 residual owns the Type's presence as the Library level's
 [presence rule](#axes) states it: its Body is `Changed` whether or not any
 body exists, or `NotCompared` when only the API axis is asked for, as every
@@ -597,12 +598,13 @@ fact describes is read from the fact's structure, never from its spelling:
 
 A Member **owns facts** on an axis when the census records on that axis at
 least one fact whose owner under rule 1 is that Member: API facts exist only
-where the API axis surface admits the Member, and every Member owns Body
-facts, its declaration facts the API axis does not compare and the IL of each
-method it owns that has a body on that side. Member API compares completely,
-so every changed public Member is marked; Member Body is an existence check.
-A Member declared on one side only is therefore Body `Changed`, and API
-`Changed` exactly where the surface admits it.
+where the API axis surface admits the Member, and Body facts are the
+declaration facts of a Member the surface does not admit and the IL of each
+method the Member owns that has a body on that side. Member API compares
+completely, so every changed public Member is marked; Member Body is an
+existence check. A Member declared on one side only is therefore `Changed` on
+each axis where it owns facts: a private field on Body, a public field on
+API, and a public method with a body on both.
 
 An owner is never `Unchanged` by omission. A fact or body that cannot be
 decided, such as IL whose walk reaches an undefined opcode before it decides a
@@ -683,7 +685,9 @@ Type in one rule; for every Type present on both sides, every owner of a body
 that canonical IL comparison reports changed is Body `Changed` or
 `Indeterminate`, or the change is a residual Body change, and every other
 owner Body `Changed` owns a declaration fact that differs; and for a Type
-present on one side, every owner is Body `Changed`.
+present on one side, an owner is Body `Changed` exactly when the API axis
+surface does not admit it, it owns a method with a body, or it is the
+residual.
 `eng/measure-fast-diff.cs` reports
 NativeAOT time per Type for the largest changed Types of each measured pair.
 

@@ -306,7 +306,7 @@ adoption step named:
 | Owner | Rule today | Change | Step |
 | --- | --- | --- | --- |
 | [API population scope](api-population-scope.md) | API Diff keeps its existing visibility behavior | The API axis compares the `public` and `protected` buckets, less `private protected`, with hidden declarations admitted | 1 |
-| [Fast Diff](fast-diff.md#axes) | Non-public metadata and `beforefieldinit` are not compared; hidden subjects make differences uncertain | Body compares declaration and implementation facts; hidden subjects are compared like any other | 1 |
+| [Fast Diff](fast-diff.md#axes) | Body compares non-public declaration facts and `beforefieldinit` ([#10348](https://github.com/richlander/dotnet-inspect/pull/10348)); implementation flags and compiler-emitted attributes of admitted Members are uncertain API facts, and no view presents declaration facts | Those facts move to Body, presented by the declaration view ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 | [Fast Diff](fast-diff.md#type) | The Type level is not run for a one-sided Type | It runs, with each row `Changed` and one-sided | 1 |
 | [Fast Diff](fast-diff.md#axes) | A body that cannot be decoded is `Indeterminate`, never a difference, and the Body exactness gate expects `Indeterminate` for a decode failure | Narrowed to content read before Exists decides, as rule 3 states | 1 |
 | [Annotated Type Map](annotated-type-map.md) | A private field is never listed | Non-public declarations are Body rows | 1 |
@@ -325,7 +325,11 @@ Each step is its own focused effort:
    residual's rung-4 view is composed as stated above. Fast Diff's Type level
    runs for a one-sided Type
    ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)),
-   which also resolves its private-field case.
+   which also resolves its private-field case. Until the declaration view
+   lands ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)),
+   a Body `Changed` that a declaration fact alone decides has no view; Fast
+   Diff records that as its known divergence, an interim exception to the
+   [Exists contract](#the-exists-contract)'s second rule.
 2. **Uncertain kinds.** Promote or present each kind in the order the census
    measured, removing every Exists fallback on the six measured pairs.
 3. **Shared Body Exists.** The complete IL diff takes symbolic identity
