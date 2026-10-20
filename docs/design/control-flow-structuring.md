@@ -804,10 +804,12 @@ only when the post-dominator machinery is proven.
    jumps onto the next range) keeps an anchor-only block for the same reason.
    The printer binds such an anchor's label to the statement that follows it
    and prints a trailing anchor as a labelled empty statement. A
-   forward range keeps an imported conditional transfer to its retained merge
-   as the `ConditionalBranch` it was, again as retained loops do, so partial
-   structuring creates no output-only transfer identity for the corpus
-   control-flow ledger; the printer's definite-assignment walk treats such a
+   forward range keeps a conditional transfer to its retained merge as the
+   `ConditionalBranch` it was, as retained loops do for imported ones, so
+   partial structuring creates no output-only transfer identity for the corpus
+   control-flow ledger (a synthesized conditional inherits the offset of the
+   chain it folded, so it still names the imported transfer it replaced); the
+   printer's definite-assignment walk treats such a
    nested conditional, or one at the top of a built range block, as a forward
    goto whose other path falls through, and does not bail on an arm block that
    merely starts at an offset whose label a container-level anchor owns.

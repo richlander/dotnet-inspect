@@ -3200,39 +3200,27 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (ctx.RetainedMergeIndices.Contains(target))
                     {
-                        // An imported conditional transfer to a retained merge
-                        // keeps its own node and identity instead of becoming an
-                        // IfStatement around a synthesized Branch: partial
-                        // structuring must not create an output-only transfer.
-                        // A synthesized conditional has no imported identity to
-                        // preserve, so outside a retained loop it keeps the
-                        // guard form.
-                        if (ctx.AllowRetainedMergeWithinLoop
-                            || conditional.Origin == ConditionalBranchOrigin.Imported)
+                        // A conditional transfer to a retained merge keeps its
+                        // own node instead of becoming an IfStatement around a
+                        // synthesized Branch: partial structuring must not
+                        // create an output-only transfer identity. A synthesized
+                        // conditional inherits the offset of the chain it folded,
+                        // so it still names the imported transfer it replaced.
+                        if (result.Children.Count == resultStart
+                            && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
+                            && conditional.SourceOffset >= 0
+                            && conditional.SourceOffset != block.StartOffset)
                         {
-                            if (result.Children.Count == resultStart
-                                && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
-                                && conditional.SourceOffset >= 0
-                                && conditional.SourceOffset != block.StartOffset)
-                            {
-                                var anchor = new LabelAnchor();
-                                anchor.SetSourceOffset(block.StartOffset);
-                                result.Add(anchor);
-                            }
-                            var retainedConditional = new ConditionalBranch(
-                                condition,
-                                conditional.TargetOffset,
-                                conditional.Origin);
-                            retainedConditional.InheritSourceOffset(conditional);
-                            result.Add(retainedConditional);
-                            i++;
-                            break;
+                            var anchor = new LabelAnchor();
+                            anchor.SetSourceOffset(block.StartOffset);
+                            result.Add(anchor);
                         }
-                        var gotoArm = new Block(block.StartOffset);
-                        var retainedBranch = new Branch(conditional.TargetOffset);
-                        retainedBranch.InheritSourceOffset(conditional);
-                        gotoArm.Add(retainedBranch);
-                        result.Add(new IfStatement(condition, gotoArm, null));
+                        var retainedConditional = new ConditionalBranch(
+                            condition,
+                            conditional.TargetOffset,
+                            conditional.Origin);
+                        retainedConditional.InheritSourceOffset(conditional);
+                        result.Add(retainedConditional);
                         i++;
                         break;
                     }
