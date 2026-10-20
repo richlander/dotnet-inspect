@@ -271,6 +271,17 @@ public sealed class StructuringPass : IIrPass
         int[] RetainedMerges,
         bool AllowRetainedMergeWithinLoop = false);
 
+    /// <summary>How a flat gap around the planned retained ranges was handled.</summary>
+    enum GapBuild
+    {
+        /// <summary>The gap did not validate on its own; its blocks stay flat.</summary>
+        Flat,
+        /// <summary>The gap was built as an ordinary region (possibly empty).</summary>
+        Built,
+        /// <summary>The built gap failed its ownership proof after mutation; the transaction must decline.</summary>
+        Unproven,
+    }
+
     public void Run(IrFunction function, PassContext context)
     {
         if (!function.Regions.IsEmpty)
@@ -496,14 +507,81 @@ public sealed class StructuringPass : IIrPass
                 range.AllowRetainedMergeWithinLoop))
             .ToList();
 
+        // A flat gap before, between, or after the selected ranges is built as
+        // an ordinary nested region when it validates on its own against the
+        // next range start (or the container end) as its join; otherwise its
+        // blocks stay flat with their labels. Gaps are planned before any
+        // mutation so a declined gap never leaves a half-built container.
+        var gapContexts = new Dictionary<int, Ctx>();
+        {
+            int gapCursor = 0;
+            foreach (var range in ranges.Append(new RetainedRange(clonedBlocks.Count, clonedBlocks.Count, [])))
+            {
+                if (gapCursor < range.Start)
+                {
+                    var gapCtx = CopyRetainedCtx(template, [], allowRetainedMergeWithinLoop: false);
+                    if (Validate(gapCtx, gapCursor, range.Start, joinIndex: range.Start, breakTarget: null, continueTarget: null))
+                        gapContexts[gapCursor] = gapCtx;
+                }
+                gapCursor = range.Stop;
+            }
+        }
+
         var replacement = new BlockContainer
         {
             ContainsRetainedBranches = true,
         };
         int cursor = 0;
+        // Building mutates the gap's cloned blocks, so a gap whose built region
+        // fails the ownership proof cannot fall back to its flat blocks; the
+        // whole transaction declines instead and the source container stays.
+        GapBuild TryBuildGap(int gapStart, int gapStop)
+        {
+            if (!gapContexts.TryGetValue(gapStart, out var gapCtx))
+                return GapBuild.Flat;
+            var builtGap = BuildRegion(gapCtx, gapStart, gapStop, joinIndex: gapStop, breakTarget: null, continueTarget: null);
+            if (gapCtx.CandidateOwnershipUnsafe
+                || HasDanglingInternalLeaveTarget(gapCtx, builtGap, gapStart, gapStop))
+            {
+                return GapBuild.Unproven;
+            }
+            // A prefix whose only transfer was the goto onto the first range
+            // dissolves into fallthrough and leaves nothing to print.
+            if (builtGap.Children.Count == 0)
+                return GapBuild.Built;
+            // A built gap that starts at a branch target (the preceding range's
+            // retained merge) keeps that label through a dedicated anchor unless
+            // its first statement already owns it; a flat block carried the label
+            // through its own start offset.
+            int gapOffset = clonedBlocks[gapStart].StartOffset;
+            bool firstStatementOwnsLabel = builtGap.Children[0].OwnsSourceLabel
+                && builtGap.Children[0].SourceOffset == gapOffset;
+            if (template.FlowFacts.BranchTargets.Contains(gapOffset) && !firstStatementOwnsLabel)
+            {
+                var anchored = new Block(gapOffset);
+                var anchor = new LabelAnchor();
+                anchor.SetSourceOffset(gapOffset);
+                anchored.Add(anchor);
+                foreach (var statement in builtGap.DetachChildren())
+                    anchored.Add(statement);
+                builtGap = anchored;
+            }
+            replacement.Add(builtGap);
+            return GapBuild.Built;
+        }
         for (int rangeIndex = 0; rangeIndex < ranges.Count; rangeIndex++)
         {
             var range = ranges[rangeIndex];
+            switch (TryBuildGap(cursor, range.Start))
+            {
+                case GapBuild.Built:
+                    cursor = range.Start;
+                    break;
+                case GapBuild.Unproven:
+                    pendingRetainedDeclines?.Add("retained-gap-ownership-unproven");
+                    PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
+                    return false;
+            }
             while (cursor < range.Start)
                 replacement.Add(clonedBlocks[cursor++]);
 
@@ -539,6 +617,16 @@ public sealed class StructuringPass : IIrPass
             cursor = range.Stop;
         }
 
+        switch (TryBuildGap(cursor, clonedBlocks.Count))
+        {
+            case GapBuild.Built:
+                cursor = clonedBlocks.Count;
+                break;
+            case GapBuild.Unproven:
+                pendingRetainedDeclines?.Add("retained-gap-ownership-unproven");
+                PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
+                return false;
+        }
         while (cursor < clonedBlocks.Count)
             replacement.Add(clonedBlocks[cursor++]);
 
@@ -829,6 +917,11 @@ public sealed class StructuringPass : IIrPass
                 if ((target < candidate.Start || target >= candidate.Merge)
                     && target != candidate.Merge)
                 {
+                    // A short shared terminator past the region is cloned into
+                    // its guard by validation, exactly as the whole-container
+                    // path does; it never needs a label inside the range.
+                    if (target > source && IsInlinableTerminator(ctx, target))
+                        continue;
                     return "retained-transfer-outside-region";
                 }
             }

@@ -779,6 +779,39 @@ only when the post-dominator machinery is proven.
    to 30,068 (2,677 to 2,655 flat), with zero pass bugs in both
    `--structuring-stops` sweeps.
 
+   *Status: survivor-merge planning slice implemented (2026-10-19, #10192
+   PR 1).* The join plan now names a merge for a split whose ordinary
+   immediate post-dominator is the virtual exit. `StructuringJoinAnalysis`
+   also computes post-dominators over the survivor view of the CFG, in which
+   every block ending in `return` or `throw` is a dead end and a block left
+   without successors is the sink, and takes the nearest block on that chain
+   that two or more surviving paths enter. Such a region is an additional
+   candidate: it may be declined as crossing, but it never re-classifies a
+   region the ordinary view named. Retained candidate validation also admits a
+   transfer to a short shared terminator past the candidate range, because
+   validation clones it into the guard exactly as the whole-container path
+   does. After the ranges are planned, each flat gap before, between, or after
+   them is validated on its own against the next range start (or the container
+   end) as its join and built as an ordinary region when it validates; the
+   preceding merge keeps its label through an anchor when the gap's first
+   statement does not own it, and a gap that does not validate stays flat.
+   Against exact base `3634ec46b` over the pinned real-world corpus (89,065
+   methods), `--structuring-stops` moved from 30,178 to 30,251 structured
+   containers, 129 to 210 retained-label regions, and 2,541 to 2,468 flat
+   containers (`cond-target-past-region` 1,331 → 1,266,
+   `forward-branch-not-region-exit` 808 → 800), with the same four
+   pre-existing pass bugs on both sides. The remaining virtual-exit residue is
+   dominated by lowered switch dispatch whose case bodies return
+   (`JsonReader::ReadAsBytes`); that belongs to switch raising, not to the
+   join planner. `SurvivingPathsNameTheMergeWhenAnArmExitsTheMethod` and
+   `SurvivorMergeRequiresTwoSurvivingPaths` gate the plan;
+   `ExitCollapsedSplitStructuresAgainstItsSurvivorMerge`,
+   `SharedTerminatorPastRetainedRangeIsClonedIntoItsGuard`,
+   `ValidatedPrefixTransferOntoRetainedRegionStartDissolves`,
+   `UnrelatedTailBackEdgeDoesNotRejectForwardRetainedRegion`, and
+   `TailGapThatDoesNotValidateStaysFlatBehindTheRetainedRange` gate the
+   planner.
+
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
    residuals, **691 contain loop back-edges** (recorded here as out of scope
