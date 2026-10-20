@@ -322,8 +322,8 @@ incoming relationship adopts this contract by issuing its declarations, in its
 own focused effort: Schema Query for the structural subject kinds (#10316),
 Inspection Capability Composition for Package Query, Package Files, and
 analyses (#10317), and Product Vocabulary for value vocabularies (#10318).
-The Library address route's coordinate sections must first join the complete
-catalog (#10315). Until every such owner has adopted it, hosts keep their
+The Library address view's coordinate sections joined the complete catalog
+under the one `library` root (#10315). Until every such owner has adopted it, hosts keep their
 current required-operand behavior; bare root admission belongs to the
 [CLI host](../cli-architecture.md) and Browser host adoptions, which consume
 the published root and do not compose one themselves.
