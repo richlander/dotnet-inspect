@@ -924,39 +924,12 @@ public sealed class CSharpDeclarationRepresentabilityTests
     [Fact]
     public void CDR004_ParameterSpellingProducesUniqueIdentifiers()
     {
-        MetadataParameterMarkerEvidence markers =
-            new(
-                IsComplete: true,
-                IsReadOnlyCount: 0,
-                RequiresLocationCount: 0,
-                ParamArrayCount: 0,
-                ParamCollectionCount: 0,
-                ScopedRefCount: 0,
-                UnscopedRefCount: 0);
         ImmutableArray<string> names =
-            CSharpDeclarationRepresentability.SpellParameterNames(
+            CSharpDeclarationRepresentability.SpellRenderedParameterNames(
             [
-                new(
-                    HasRow: true,
-                    Name: new(
-                        InertText.TextPolicy.Field,
-                        "left"),
-                    Attributes: ParameterAttributes.None,
-                    Markers: markers),
-                new(
-                    HasRow: true,
-                    Name: new(
-                        InertText.TextPolicy.Field,
-                        "le\u200Dft"),
-                    Attributes: ParameterAttributes.None,
-                    Markers: markers),
-                new(
-                    HasRow: true,
-                    Name: new(
-                        InertText.TextPolicy.Field,
-                        "arg1"),
-                    Attributes: ParameterAttributes.None,
-                    Markers: markers),
+                "left",
+                @"le\u200Dft",
+                "arg1",
             ]);
 
         Assert.Equal(["left", "_arg1", "arg1"], names);
@@ -965,30 +938,11 @@ public sealed class CSharpDeclarationRepresentabilityTests
     [Fact]
     public void CDR004_FallbackNamesReserveLaterMetadataNames()
     {
-        MetadataParameterMarkerEvidence markers =
-            new(
-                IsComplete: true,
-                IsReadOnlyCount: 0,
-                RequiresLocationCount: 0,
-                ParamArrayCount: 0,
-                ParamCollectionCount: 0,
-                ScopedRefCount: 0,
-                UnscopedRefCount: 0);
         ImmutableArray<string> names =
-            CSharpDeclarationRepresentability.SpellParameterNames(
+            CSharpDeclarationRepresentability.SpellRenderedParameterNames(
             [
-                new(
-                    HasRow: false,
-                    Name: null,
-                    Attributes: ParameterAttributes.None,
-                    Markers: markers),
-                new(
-                    HasRow: true,
-                    Name: new(
-                        InertText.TextPolicy.Field,
-                        "arg0"),
-                    Attributes: ParameterAttributes.None,
-                    Markers: markers),
+                null,
+                "arg0",
             ]);
 
         Assert.Equal(["_arg0", "arg0"], names);

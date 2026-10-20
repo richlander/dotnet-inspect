@@ -346,7 +346,9 @@ internal sealed class ApiQualifiedAnchorIssuer
                 (attributes & ParameterAttributes.Out) != 0));
         }
 
-        string name = Decode(evidence.Name);
+        // Identity decodes the Name exactly as MetadataReader.GetString does; the evidence keeps
+        // its bytes for presentation.
+        string name = MetadataSafetyPolicy.ReadStructuralString(_reader, definition.Name);
         bool isStatic =
             (evidence.Attributes & MethodAttributes.Static) != 0;
         ApiQualifiedMemberDeclaration.Method declaration = new(

@@ -24,7 +24,7 @@ public static class MetadataDeclarationText
         MetadataParameterDeclarationEvidence parameter)
     {
         ArgumentNullException.ThrowIfNull(parameter);
-        return parameter.Name?.ToString();
+        return parameter.Name?.Contain(InertText.TextPolicy.Field).ToString();
     }
 
     public static string RenderPrimitiveName(
