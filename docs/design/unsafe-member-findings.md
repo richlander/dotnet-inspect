@@ -311,14 +311,9 @@ Each scope of the census moves once the rows it needs have landed. The CLI
 section (step 3) ships only after every row has landed, because shipping it
 earlier would land the census's first consumer on the retiring aggregate.
 
-Status: every row except the first has landed. Of the first row, the
-exact-type relation with roles, nested-type reach, unauthenticated
-candidates, and typed retained-prefix bound outcomes has landed; the
-all-definition reverse lowering remains with
-[#9864](https://github.com/richlander/dotnet-inspect/issues/9864). Type scope
-needs only the landed part, so it moves first, and the CLI section stays
-gated on the whole first row. The Type-scope census runs on Assembly Analysis
-Operation:
+Status: every row has landed. The first row's all-definition reverse
+lowering landed after the exact-type relation, so Type scope moved first. The
+Type-scope census runs on Assembly Analysis Operation:
 
 - `UnsafeMemberCensusProducer` declares Body, Calls, memory-safety contract,
   semantic identity, public-root, and reference-assembly support, and
@@ -332,10 +327,10 @@ Operation:
   `UnsafeMemberUseRules`, and the fold, are the ones the accumulator calls.
   The producer derives their inputs from the capabilities, and the agreement
   gates below hold the two paths to the same findings.
-- The Library-scope census still runs on the accumulator, because the
-  all-definition reverse lowering is **unverified**. It moves when
-  [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) lands that
-  lowering, and the accumulator path is deleted then.
+- The Library-scope census still runs on the accumulator. The
+  all-definition relation it needs has landed, and it reads that relation at
+  completion. Moving it to that relation is **unverified**; the accumulator
+  path is deleted when it moves.
 - A reached Type-scope expansion bound keeps the visited prefix's findings
   and adds the image-level `AttributionBounded` limitation, so the census is
   available but incomplete.

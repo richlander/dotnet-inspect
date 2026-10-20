@@ -100,6 +100,21 @@ public sealed record MethodDefinitionGeneratedExpansionLimits
             maximumProbeEncodedIlBytes: 256L * 1024 * 1024,
             maximumRelationshipNodes: 10_000);
 
+    /// <summary>
+    /// The default for the all-definition relation, sized to the metadata
+    /// tables rather than to a selection: a MethodDef table holds at most
+    /// 2^24 rows. Its probes cover only bodies traversal did not record.
+    /// </summary>
+    public static MethodDefinitionGeneratedExpansionLimits AllDefinitions { get; } =
+        new(
+            maximumCandidateDefinitions: MaximumMetadataRows,
+            maximumGeneratedMethods: MaximumMetadataRows,
+            maximumProbeBodies: MaximumMetadataRows,
+            maximumProbeEncodedIlBytes: 256L * 1024 * 1024,
+            maximumRelationshipNodes: 4 * MaximumMetadataRows);
+
+    const int MaximumMetadataRows = 0xFFFFFF;
+
     public int MaximumCandidateDefinitions { get; }
 
     public int MaximumGeneratedMethods { get; }
@@ -338,17 +353,27 @@ public sealed class MethodDefinitionSourceBreadth
     /// <paramref name="includeUnauthenticatedCandidates"/> is set, the reached
     /// methods no edge authenticates join breadth without an owner.
     /// </summary>
+    /// <remarks>
+    /// All-definition breadth already contains every body, so it declares the
+    /// declared-source relation without changing breadth. That relation
+    /// settles at source completion under
+    /// <see cref="MethodDefinitionGeneratedExpansionLimits.AllDefinitions"/>
+    /// by default, and it takes no unauthenticated candidates.
+    /// </remarks>
     public MethodDefinitionSourceBreadth IncludeGeneratedExecutionBodies(
         MethodDefinitionGeneratedExpansionLimits? limits = null,
         MethodDefinitionGeneratedBodyRoles roles =
             MethodDefinitionGeneratedBodyRoles.Execution,
         bool includeUnauthenticatedCandidates = false)
     {
-        if (Kind == MethodDefinitionSourceBreadthKind.AllDefinitions)
+        bool allDefinitions =
+            Kind == MethodDefinitionSourceBreadthKind.AllDefinitions;
+        if (allDefinitions && includeUnauthenticatedCandidates)
         {
-            throw new InvalidOperationException(
-                "All-definition breadth already contains every generated "
-                + "physical MethodDef.");
+            throw new ArgumentException(
+                "All-definition breadth already visits every unauthenticated "
+                + "candidate.",
+                nameof(includeUnauthenticatedCandidates));
         }
         if ((roles & ~MethodDefinitionGeneratedBodyRoles.All) != 0)
         {
@@ -364,7 +389,10 @@ public sealed class MethodDefinitionSourceBreadth
             Types,
             Expansion
                 | MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
-            limits ?? MethodDefinitionGeneratedExpansionLimits.Default,
+            limits
+                ?? (allDefinitions
+                    ? MethodDefinitionGeneratedExpansionLimits.AllDefinitions
+                    : MethodDefinitionGeneratedExpansionLimits.Default),
             roles | MethodDefinitionGeneratedBodyRoles.Execution,
             includeUnauthenticatedCandidates);
     }
@@ -860,8 +888,12 @@ public static class MethodDefinitionSourceRequestSet
                 _associations[0].Request;
             MethodDefinitionSourceRequest request =
                 association.Request;
+            // A shared traversal carries no declared-source relation, so a
+            // request that declares one keeps its own lane.
             if (first.Breadth.Kind
                     != MethodDefinitionSourceBreadthKind.AllDefinitions
+                || first.Breadth.Expansion
+                    != MethodDefinitionSourceExpansion.None
                 || !SameBreadth(first.Breadth, request.Breadth)
                 || first.Work.PassCount != 1
                 || request.Work.PassCount != 1)
@@ -1071,6 +1103,25 @@ public sealed record MethodDefinitionGeneratedExpansionCoverage(
     /// describe the retained prefix only.
     /// </summary>
     public bool IsBounded => ReachedLimit is not null;
+
+    /// <summary>
+    /// Over all-definition breadth, the bodies whose call and function-pointer
+    /// operands the relation scanned during traversal, whether a producer had
+    /// already acquired the body or the relation read it. Exact breadth scans
+    /// none.
+    /// </summary>
+    public int TraversalReferenceBodies { get; init; }
+
+    /// <summary>
+    /// The subset of <see cref="TraversalReferenceBodies"/> the relation read
+    /// itself because no producer had acquired them.
+    /// </summary>
+    public int TraversalReferenceBodiesAcquired { get; init; }
+
+    /// <summary>
+    /// The encoded IL bytes of <see cref="TraversalReferenceBodies"/>.
+    /// </summary>
+    public long TraversalReferenceEncodedIlBytes { get; init; }
 }
 
 /// <summary>Actual physical-body work admitted to terminal producers.</summary>
@@ -1307,13 +1358,11 @@ internal static class MethodQuerySource
         if (breadth.Expansion.HasFlag(
                 MethodDefinitionSourceExpansion
                     .GeneratedExecutionBodies)
-            && (breadth.Kind
-                    == MethodDefinitionSourceBreadthKind.AllDefinitions
-                || breadth.GeneratedExpansionLimits is null))
+            && breadth.GeneratedExpansionLimits is null)
         {
             throw new ProducerContractException(
-                "Generated execution-body expansion requires exact breadth "
-                + "and finite work limits.");
+                "Generated execution-body expansion requires finite work "
+                + "limits.");
         }
 
         return new(
