@@ -190,9 +190,8 @@ declares a body, and API `Added` or `Removed` when the Public API surface admits
 the Type. So a one-sided Type is always listed, even when none of its Members
 owns shape facts, such as an added internal enum. A one-sided Type's map diff
 also lists every Member key of its present side that owns shape facts,
-one-sided, with every fact `Added` or `Removed`, as
-[#10224](https://github.com/richlander/dotnet-inspect/issues/10224) proposes
-for Fast Diff's Type level.
+one-sided, with every fact `Added` or `Removed`, as Fast Diff's
+[one-sided Type level](fast-diff.md#type) states.
 
 A Member that owns no shape facts, such as a private field, has no axis on
 which to be `Added` or `Removed`, so it has no shape transition and is never

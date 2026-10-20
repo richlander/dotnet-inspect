@@ -452,21 +452,36 @@ first difference.
 
 ### Type
 
-> **Claim.** For one Type present in both images of one Library image pair,
-> the Type level returns, for every Member declared on either side, an
-> **API** state and a **Body** state, and one **residual** state per axis for
-> the Type's facts that belong to no single Member. The Member states and the
-> residual partition the Type's facts, so a Type axis is `Unchanged` at the
-> Library level exactly when that axis is `Unchanged` for every Member and for
-> the residual.
+> **Claim.** For one Type of one Library image pair, the Type level returns,
+> for every Member declared on either side, an **API** state and a **Body**
+> state, and one **residual** state per axis for the Type's facts that belong
+> to no single Member. The Member states and the residual partition the Type's
+> facts, so a Type axis is `Unchanged` at the Library level exactly when that
+> axis is `Unchanged` for every Member and for the residual. A Type present in
+> one image only has the same rows in its **one-sided form**: every fact it
+> has is present on one side, so each owner is `Changed` on each axis where it
+> owns facts, and the residual owns the Type's presence.
 
 A Type present in one image only has no counterpart to compare Members
-against. The Library level reports it whole, as its
-[presence rule](#axes) states, and the Type level is not run for it: the
-Type itself was added or removed, so it has no per-Member rows. A version
-window compares each adjacent pair this way, so a Type added partway through
-the window has Member rows only for the pairs that contain it on both sides
-([#9920](https://github.com/richlander/dotnet-inspect/issues/9920)).
+against, so its one-sided form compares nothing. The present side's Members
+are partitioned by the ownership rules below, and every fact an owner holds is
+a fact present on one side only, which rule 2 counts as a difference. A Member
+is therefore `Changed` on each axis where it owns facts and `Unchanged` where
+it owns none, exactly as a Member declared on one side of a paired Type is: a
+private field, or a method with no body, is returned and `Unchanged`. The
+residual owns the Type's presence as the Library level's
+[presence rule](#axes) states it: its Body is `Changed` whether or not any
+body exists, and its API is `Changed` exactly when the API axis surface admits
+the Type. So an added internal enum has Member rows all `Unchanged` and a
+`Changed` residual Body, and the partition claim holds. No IL is read, since a
+body present on one side only is a Body difference without reading it, at
+either level, and no metadata is compared, since nothing is paired. Each row
+is reported by the fingerprint of its present side. A version window compares
+each adjacent pair this way, so a Type added partway through the window has
+Member rows for every pair that contains it on either side
+([#9920](https://github.com/richlander/dotnet-inspect/issues/9920)), one-sided
+for the pair that added it
+([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)).
 
 The partition is defined by ownership of the Library level's own census
 facts, not by a separate list, so the two levels cannot disagree. Every fact
@@ -499,7 +514,10 @@ fact describes is read from the fact's structure, never from its spelling:
    decides visibility, which includes explicit interface implementations,
    and partitions a Type public on either side as public on both. A public
    Member of such a Type has API facts; a non-public Member has none, and
-   its metadata is not compared. Where the Type is hidden on one side, the
+   its metadata is not compared. Every row is still seen and keyed: a Member
+   that owns no facts on an axis is `Unchanged` there, never omitted, and a
+   consumer that wants only the public view filters the rows it is given.
+   Where the Type is hidden on one side, the
    census records only its visibility there, so that change makes the
    residual and every public Member API `Changed`. Every Member of a Type
    hidden on both sides has a Body state only. A Member or the residual
@@ -513,9 +531,13 @@ fact describes is read from the fact's structure, never from its spelling:
    with a body on one side only, makes its owner's Body `Changed`, at either
    level, without reading its IL.
 
-Member API compares completely, so every changed public Member is marked;
-Member Body is an existence check. A Member declared on one side only is
-therefore `Changed` on each axis where it owns facts.
+A Member **owns facts** on an axis when the census records on that axis at
+least one fact whose owner under rule 1 is that Member: API facts exist only
+where the API axis surface admits the Member, and a Body fact exists for each
+method the Member owns that has a body on that side. Member API compares
+completely, so every changed public Member is marked; Member Body is an
+existence check. A Member declared on one side only is therefore `Changed` on
+each axis where it owns facts.
 
 An owner is never `Unchanged` by omission. A fact or body that cannot be
 decided, such as IL whose walk reaches an undefined opcode before it decides a
@@ -572,8 +594,14 @@ underlying-type change, a
 `[field:]` attribute on a field-like event, a base Type change on an internal
 Type, and a nested Type whose
 inherited nullable context changed; an added and a removed public Type, one
-of them with no Members, are reported whole by the Library level and have no
-Type-level rows; an undefined opcode reached before a difference in one method
+of them with no Members, are reported whole by the Library level and have
+one-sided Type-level rows whose keys equal the keys of the same Type's
+two-sided rows against itself, in which a public method with a body is
+`Changed` on both axes, an internal method with a body is Body `Changed` only,
+a private field and a bodyless `extern` method are `Unchanged`, the residual
+is `Changed` on both axes, and no IL is read; an added internal enum has
+Member rows all `Unchanged`, a residual API `Unchanged` and Body `Changed`;
+an undefined opcode reached before a difference in one method
 makes that Member Body `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
 name have no Type-level rows; a Member present on both sides carries both
 fingerprints, which differ after a nullable annotation change; an attribute
@@ -612,7 +640,9 @@ Member Body inventory, which remains Library Compare's view.
 6. **Caching:** retain results per exact endpoint pair in the Worker and in
    persistent storage keyed by the build commit, per
    [#9793](https://github.com/richlander/dotnet-inspect/issues/9793).
-7. **Type level:** per-Member states and the residual for one Type, with
+7. **Type level:** per-Member states and the residual for one Type,
+   including its one-sided form
+   ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)), with
    NativeAOT numbers, through a Worker export. Member cues for the Type on
    screen then come from it: the API Member glyph, the implementation Member
    glyph, or the change glyph for both. This replaces the Type-surface
