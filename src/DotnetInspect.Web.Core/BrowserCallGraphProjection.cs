@@ -160,7 +160,7 @@ internal static class BrowserCallGraphProjection
         InspectionGraphDocument graph = document.Graph;
         CallGraphMemberNavigationDocument[] members =
         [
-            .. CallGraphMemberNavigationProjection.Project(graph),
+            .. CallGraphMemberNavigationProjection.ProjectGraph(graph),
         ];
         if (graph.Nodes.Length == 0)
         {
