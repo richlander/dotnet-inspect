@@ -156,18 +156,25 @@ internal sealed class DeclaredSourceResolver(
         MethodIdentity method,
         bool typeSourceGenerated,
         out AuthenticatedSourceOwner? immediateOwner,
-        out AuthenticatedSourceOwner? ultimateOwner)
+        out AuthenticatedSourceOwner? ultimateOwner,
+        bool exactAttribution = false)
     {
         immediateOwner = null;
         LiftedSourceOwnerResolution liftedResolution =
-            _liftedSourceOwnerResolver.Resolve(
-                methodHandle,
-                methodDefinition,
-                method,
-                out AuthenticatedSourceOwner liftedOwner,
-                ownerMethodScope: null,
-                ownerTypeScope: null,
-                directlySelectedBody: false);
+            exactAttribution
+                ? _liftedSourceOwnerResolver.ResolveExact(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    out AuthenticatedSourceOwner liftedOwner)
+                : _liftedSourceOwnerResolver.Resolve(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    out liftedOwner,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    directlySelectedBody: false);
         if (liftedResolution
             == LiftedSourceOwnerResolution.Resolved)
         {
@@ -175,7 +182,8 @@ internal sealed class DeclaredSourceResolver(
             DeclaredOwnerResolution resolution =
                 ResolveUltimateLiftedOwner(
                 liftedOwner,
-                out AuthenticatedSourceOwner resolvedOwner);
+                out AuthenticatedSourceOwner resolvedOwner,
+                exactAttribution);
             ultimateOwner =
                 resolution == DeclaredOwnerResolution.Resolved
                     ? resolvedOwner
@@ -235,7 +243,8 @@ internal sealed class DeclaredSourceResolver(
             DeclaredOwnerResolution resolution =
                 ResolveUltimateLiftedOwner(
                     asyncSourceOwner,
-                    out AuthenticatedSourceOwner resolvedOwner);
+                    out AuthenticatedSourceOwner resolvedOwner,
+                    exactAttribution);
             ultimateOwner =
                 resolution == DeclaredOwnerResolution.Resolved
                     ? resolvedOwner
@@ -524,7 +533,8 @@ internal sealed class DeclaredSourceResolver(
 
     DeclaredOwnerResolution ResolveUltimateLiftedOwner(
         AuthenticatedSourceOwner source,
-        out AuthenticatedSourceOwner ultimateOwner)
+        out AuthenticatedSourceOwner ultimateOwner,
+        bool exactAttribution = false)
     {
         AuthenticatedSourceOwner current = source;
         Span<int> visited =
@@ -564,14 +574,20 @@ internal sealed class DeclaredSourceResolver(
                 _reader.GetMethodDefinition(
                     (MethodDefinitionHandle)currentHandle);
             LiftedSourceOwnerResolution resolution =
-                _liftedSourceOwnerResolver.Resolve(
-                    (MethodDefinitionHandle)currentHandle,
-                    currentDefinition,
-                    current.Method,
-                    out AuthenticatedSourceOwner sourceOwner,
-                    ownerMethodScope: null,
-                    ownerTypeScope: null,
-                    directlySelectedBody: false);
+                exactAttribution
+                    ? _liftedSourceOwnerResolver.ResolveExact(
+                        (MethodDefinitionHandle)currentHandle,
+                        currentDefinition,
+                        current.Method,
+                        out AuthenticatedSourceOwner sourceOwner)
+                    : _liftedSourceOwnerResolver.Resolve(
+                        (MethodDefinitionHandle)currentHandle,
+                        currentDefinition,
+                        current.Method,
+                        out sourceOwner,
+                        ownerMethodScope: null,
+                        ownerTypeScope: null,
+                        directlySelectedBody: false);
             if (resolution != LiftedSourceOwnerResolution.Resolved)
             {
                 ultimateOwner = default;

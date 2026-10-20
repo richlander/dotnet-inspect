@@ -13,10 +13,49 @@ public sealed record MethodCallSite(
     int ILOffset,
     int ReturnAddress,
     int OperandToken,
-    int DefinitionToken,
     CallKind Kind,
     MemberRef Callee,
-    MethodCallTarget Target);
+    MethodCallTarget Target)
+{
+    public MethodCallSite(
+        int ilOffset,
+        int returnAddress,
+        int operandToken,
+        int definitionToken,
+        CallKind kind,
+        MemberRef callee,
+        MethodCallTarget target)
+        : this(
+            ilOffset,
+            returnAddress,
+            operandToken,
+            kind,
+            callee,
+            target)
+    {
+        DefinitionToken = definitionToken;
+    }
+
+    public int DefinitionToken { get; init; } = OperandToken;
+
+    public void Deconstruct(
+        out int ilOffset,
+        out int returnAddress,
+        out int operandToken,
+        out int definitionToken,
+        out CallKind kind,
+        out MemberRef callee,
+        out MethodCallTarget target)
+    {
+        ilOffset = ILOffset;
+        returnAddress = ReturnAddress;
+        operandToken = OperandToken;
+        definitionToken = DefinitionToken;
+        kind = Kind;
+        callee = Callee;
+        target = Target;
+    }
+}
 
 /// <summary>IL-ordered resolved calls from one physical MethodDef body.</summary>
 public sealed record MethodCallSites(

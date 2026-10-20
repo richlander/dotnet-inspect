@@ -184,6 +184,53 @@ internal sealed class LiftedSourceOwnerResolver
             cacheScopedGroup: true)
             == LiftedSourceOwnerResolution.Resolved;
 
+    internal LiftedSourceOwnerResolution ResolveExact(
+        MethodDefinitionHandle liftedHandle,
+        MethodDefinition liftedMethod,
+        MethodIdentity liftedIdentity,
+        out AuthenticatedSourceOwner sourceOwner)
+    {
+        sourceOwner = default;
+        if (!TryGetTargetedLiftedOwnerGroup(
+                liftedMethod,
+                out LiftedOwnerGroupKey group,
+                out bool rejected))
+        {
+            return rejected
+                ? LiftedSourceOwnerResolution.Rejected
+                : LiftedSourceOwnerResolution.None;
+        }
+
+        var ownerMethodScope = new HashSet<int>();
+        TypeDefinition ownerType =
+            _reader.GetTypeDefinition(group.OwnerType);
+        foreach (MethodDefinitionHandle handle in ownerType.GetMethods())
+        {
+            _generatedExpansionWork?.RecordCandidateDefinition(handle);
+            MethodDefinition candidate =
+                _reader.GetMethodDefinition(handle);
+            if (_reader.StringComparer.Equals(
+                    candidate.Name,
+                    group.OwnerName))
+            {
+                ownerMethodScope.Add(
+                    MetadataTokens.GetToken(handle));
+            }
+        }
+        if (ownerMethodScope.Count == 0)
+            return LiftedSourceOwnerResolution.None;
+
+        return Resolve(
+            liftedHandle,
+            liftedMethod,
+            liftedIdentity,
+            out sourceOwner,
+            ownerMethodScope,
+            ownerTypeScope: null,
+            directlySelectedBody: false,
+            cacheScopedGroup: true);
+    }
+
     internal LiftedSourceOwnerResolution Resolve(
         MethodDefinitionHandle liftedHandle,
         MethodDefinition liftedMethod,

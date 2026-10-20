@@ -328,6 +328,9 @@ public sealed partial class MethodDefinitionRequestSetTests
             coverage.GeneratedExpansion.ProbeBodiesAttempted.Count);
         Assert.True(
             coverage.MethodAnalysis.QueryWork
+                .DeclaredSourceCandidateDefinitions > 0);
+        Assert.True(
+            coverage.MethodAnalysis.QueryWork
                 .DeclaredSourceProbeBodies > 0);
         Assert.True(
             coverage.MethodAnalysis.QueryWork

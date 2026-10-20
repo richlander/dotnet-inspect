@@ -289,16 +289,26 @@ internal sealed class MethodAnalysisLookup
             attribution.GeneratedProvenanceClassifier
                 .IsSourceGeneratedTypeOrEnclosing(
                     methodDefinition.GetDeclaringType());
-        DeclaredOwnerResolution resolution =
-            attribution.DeclaredSourceResolver
-                .ResolveUltimateDeclaredMethod(
-                    methodHandle,
-                    methodDefinition,
-                    method,
-                    typeSourceGenerated,
-                    out _,
-                    out AuthenticatedSourceOwner?
-                        ultimateOwner);
+        DeclaredOwnerResolution resolution;
+        AuthenticatedSourceOwner? ultimateOwner;
+        try
+        {
+            resolution =
+                attribution.DeclaredSourceResolver
+                    .ResolveUltimateDeclaredMethod(
+                        methodHandle,
+                        methodDefinition,
+                        method,
+                        typeSourceGenerated,
+                        out _,
+                        out ultimateOwner,
+                        exactAttribution: true);
+        }
+        catch (MethodDefinitionGeneratedExpansionBoundException)
+        {
+            _declaredSourceWork.Settle();
+            throw;
+        }
         return resolution switch
         {
             DeclaredOwnerResolution.Resolved
