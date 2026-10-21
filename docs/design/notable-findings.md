@@ -88,7 +88,9 @@ list, and nothing about how the map is produced.
 ## Terms
 
 - **Mark**: a binary glyph in a symbol list row, at most one per slot. A
-  mark carries no count, intensity, or color scale.
+  mark carries no count, intensity, or color scale. The one exception is the
+  typed **undecided treatment** for a row whose outcome the map cannot
+  decide, defined in [Marks are projections](#marks-are-projections).
 - **Current mark**: the slot that says the row has notable findings in the
   one-version map.
 - **Changes mark**: the slot that says the row is listed in the map diff.
@@ -124,13 +126,22 @@ A finding is notable when any one of four criteria holds:
 | --- | --- | --- |
 | **Hidden** | A fact the C# text does not show | The descriptor: box, closure, state machine, delegate, enumerator |
 | **Amplified** | A fact a loop multiplies | Path context `LoopBody`, multiplicity `Loop`, or conditionality `PerIteration` |
-| **Contract** | A caller obligation or a safety boundary | The descriptor: every `unsafe.*` and `lifetime.*` fact, unsafe propagation and unsafe implementation color |
+| **Contract** | A caller obligation or a safety boundary | The descriptor: every `unsafe.*` and `lifetime.*` fact the map admits |
 | **Expectation** | A fact that contradicts the Library's compilation profile | The profile and the Member's metadata classification |
 
 The criteria read attributes the producers already emit. The allocation
 producer carries path context, escape, multiplicity, and frequency on every
 occurrence, and the annotation carries conditionality. No new analysis is
 needed to apply the preset; it is a filter over the existing detail.
+
+Every criterion reads a finding the map admits, so every notable finding has
+a map row to join to. Unsafe propagation and unsafe implementation are
+relation colors owned by
+[Annotated Type Relations](annotated-type-relations.md#memory-safety-color):
+a bodyless Member may propagate unsafe, and such a Member has no map row.
+That color therefore does not drive a Current mark; Relations presents it.
+When the map admits a Member-header descriptor for the contract, the
+Contract criterion reads it like any other admitted descriptor.
 
 ### Demotions
 
@@ -306,8 +317,8 @@ A symbol list row reserves three fixed slots, in this order:
 
 1. the **Current mark**: the row has at least one notable finding in the
    one-version map;
-2. the **Changes mark**: the row is listed in the map diff against the
-   settled Package Diff baseline; and
+2. the **Changes mark**: the row is a changed row of the map diff against
+   the settled Package Diff baseline; and
 3. the **structure mark**: foundation or peak at the row's scope, issued by
    the structure owners as [Structure marks](#structure-marks) states.
 
@@ -317,9 +328,8 @@ to three slots, and nothing reflows when a new descriptor family lands. The
 first two slots are the findings marks this section governs; the third is
 outside the projection contract.
 
-The two findings marks are the map's Exists terminal made visible. The
-Current mark is Exists over the row's notable findings; the Changes mark is
-Exists over its shape transitions, which Fast Diff answers per Type today.
+The Changes mark is the map diff's Exists made visible: Fast Diff answers it
+per Type today, and the map diff's changed rows answer it per Member.
 [Scope symmetry](scope-symmetry.md#lean-roots-heavy-leaves) says a host
 enters a scope with the cheapest exact answer about its children and spends
 Rows on traversal; the rail is the leanest root in the product, and the
@@ -328,11 +338,41 @@ a partial Rows answer squeezed into one glyph, with the reader unable to tell
 what lost the contest. That is why the categories live in the tooltip, the
 chips, and the Findings columns, not in the gutter.
 
-A Type row's Current mark is the map's notable Exists for that Type, and its
-Changes mark is Fast Diff's Exists. A Member row's marks read its own row. An
-overload-family row is marked when any overload in its represented
-population would be. The Changes mark is absent while the baseline is
-pending or unavailable, and never derived from another baseline.
+The Current mark reads the notable subset of the map's findings, which is
+narrower than the map's own Exists: a method whose only finding is a
+straight-line `alloc.new` has an admitted finding and a `true` Exists, and no
+Current mark. The map defines Exists over its admitted rows and no filtered
+terminal, so the Current mark is answered at two scopes in two ways:
+
+- **Member rows** read the opened Type's map Rows. The host requests that map
+  when the Type is opened and may
+  [retain it](annotated-type-map.md#retention) while the Type is open, and
+  Type is the scope where Rows are cheap, so no lean-root claim is made or
+  needed here.
+- **Type rows** in the Library inventory need Exists over the notable
+  predicate at Library scope. That is a filtered terminal the map does not
+  define, and it is a named adoption for the map owner: predicate pushdown
+  into its Library-scope one-version producer, gated exact against Rows and
+  measured against the unfiltered census. Until it lands, Type rows carry no
+  Current mark. Materializing Library Rows and filtering them in the Browser
+  is not an interim: it is the rows-within-rows shape the pattern forbids.
+
+A Type row's Changes mark is Fast Diff's Exists when it is `true`. A Member
+row's marks read its own row. An overload-family row is marked when any
+overload in its represented population would be. The Changes mark is absent
+while the baseline is pending or unavailable, and never derived from another
+baseline.
+
+An **unresolved** row is one whose outcome the map cannot decide: an
+`Indeterminate` shape comparison in the map diff, or a Failed or Unavailable
+analysis outcome in either form. Its Exists is undecided, not `true`, and the
+mark never says otherwise. The slot renders the **undecided treatment**: the
+same glyph outlined rather than filled, with the accessible description
+naming the typed outcome. It is never rendered as changed or notable, and the
+slot is never left empty, because an empty slot reads as unchanged or clean.
+The undecided treatment is a typed outcome, not a count or a scale, and it is
+the only state a slot has beyond present and absent. A Type row whose Fast
+Diff state is `Indeterminate` takes the same treatment in its Changes slot.
 
 Findings marks come from the map and from nothing else. The Browser never
 computes a finding, a count, or a change from display text, signatures, or row order,
@@ -423,7 +463,8 @@ reader sees the Type's notable count without leaving API.
 
 Loading, failure, unavailable, and successful-empty states keep Compare's
 frame. A successful empty Current view says the Type has no findings for
-the admitted analyses; an unresolved row stays visible and marked.
+the admitted analyses; an unresolved row stays visible with its typed
+outcome, never presented as changed, notable, or clean.
 
 ## Hosts
 
@@ -456,10 +497,15 @@ chips, and the profile line, each as a separately staged slice below.
   step 1 has landed, with the complete census gated after that step.
 - **Projection:** for every fixture Type, each Member row's Current mark
   equals whether its map row has a notable finding, its Changes mark equals
-  whether the map diff lists it, and each Type row's findings marks equal the
-  map's notable Exists and Fast Diff's Exists; no findings mark exists for a
-  key the map does not list, and no mark of any slot carries a count,
-  intensity, or color scale.
+  whether the map diff lists it as changed, and an unresolved row in either
+  form renders the undecided treatment and never the changed or notable
+  state; each Type row's Changes mark equals Fast Diff's `true` Exists and
+  its undecided treatment equals Fast Diff's `Indeterminate`; a Type row's
+  Current mark equals the Library census's notable Exists once that
+  adoption lands and is absent before it, and is never computed by filtering
+  materialized Library Rows; no findings mark exists for a key the map does
+  not list, and no mark of any slot carries a count, intensity, or color
+  scale.
 - **Baseline:** with the Package Diff baseline pending, unavailable, or
   failed, no row of any scope shows a Changes mark, and a result settled for
   a different baseline is not used; the Changes marks appear only after the
@@ -487,6 +533,12 @@ chips, and the profile line, each as a separately staged slice below.
 - **Hosts:** CLI Facts with `--focus` and no argument equals the Browser's
   notable set for the same Member, and `-v:d` prints each admitted finding's
   guidance line and link.
+- **Guidance delivery:** for a fixture Member with one admitted finding, the
+  Findings row, the Annotated Source finding inspector, and the mark's
+  tooltip each render that finding's catalog line and link, and the Markout
+  JSON and TSV lowerings of CLI Facts at `-v:d` carry the same URL as a
+  field; a descriptor without an entry renders no guidance and no
+  placeholder at each of those boundaries.
 - **Profile:** Library Overview for a Debug, a runtime-async, and an unsafe
   fixture states each profile fact on one line.
 
@@ -501,59 +553,68 @@ owner:
    classification and the catalog entry sit beside each descriptor the
    annotation model declares, and the slow link test lands. Prerequisite:
    step 1.
-3. **CLI Facts presentation.** Owner: the CLI host
+3. **Profile and Expectation facts.** Owner: Metadata classification
+   (`MethodClassificationScanner` and the Debuggable attribute's
+   arguments). A whole-population runtime-async and state-machine presence
+   fact and the Debug fact are issued for the preset, the Library-explained
+   rule, the Findings row's explanation, and the profile line. Prerequisite:
+   step 2. Every host slice below that presents the preset depends on this
+   step, because the preset's Expectation criterion and its Library-explained
+   demotion read these facts.
+4. **CLI Facts presentation.** Owner: the CLI host
    ([CLI host architecture](../cli-architecture.md)). `--focus` with no
    argument selects the notable set, Facts gains the notable column, and
-   `-v:d` prints the guidance line. Prerequisite: step 2.
-4. **Findings inspector.** Owner:
+   `-v:d` prints the guidance line and carries the link through Markout.
+   Prerequisites: steps 2 and 3.
+5. **Findings inspector.** Owner:
    [Inspect Web Compare Experience](inspect-web-compare-experience.md).
    Compare is renamed Findings; Current presents the one-version Type map
-   and Changes the map diff, with the structure and throw columns reading
-   their existing owner-issued data. Prerequisite: Annotated Type Map
-   adoption steps 4 and 5 for the Type-scope documents.
-5. **Findings marks and click-through.** Owner:
+   and Changes the map diff, unresolved rows keep their typed outcome, and
+   the structure and throw columns read their existing owner-issued data.
+   Prerequisites: steps 2 and 3, and Annotated Type Map adoption steps 4 and
+   5 for the Type-scope documents.
+6. **Findings marks and click-through.** Owner:
    [Inspect Web Surface Composition](inspect-web-surface-composition.md),
-   which composes the Type and Member navigation panes. The Current and
-   Changes marks, their tooltips, and the Members header tally derive from
-   the Type map; the Changes mark replaces Compare's navigation diff cue.
-   Prerequisites: steps 2 and 4.
-6. **Chips.** Owner:
+   which composes the Type and Member navigation panes. The Member rows'
+   Current and Changes marks, the undecided treatment, their tooltips, and
+   the Members header tally derive from the opened Type's map; the Changes
+   mark replaces Compare's navigation diff cue. Prerequisites: steps 2, 3,
+   and 5.
+7. **Chips.** Owner:
    [Inspect Web presentation language](inspect-web-presentation-language.md),
    which owns filter disclosure. The findings facet and its chips derive
-   from the scope's map. Prerequisite: step 5.
-7. **Library census.** Owner: [Annotated Type Map](annotated-type-map.md),
-   as its own adoption step 4 for the Library-scope one-version producer.
-   The whole-Library body decode that Type leverage already runs after the
-   first paint is the cost budget this census shares.
-8. **Type-row marks.** Owner: Inspect Web Surface Composition. Type rows
-   take the Current mark from the Library census's Exists. Prerequisites:
-   steps 5 and 7.
-9. **Compilation profile line.** Owner: Inspect Web Surface Composition,
-   which composes Library Overview. The line reads the profile facts over
-   every method. Prerequisite: step 12 for the runtime-async and Debug
-   facts.
-10. **Family structure.** Owner:
+   from the scope's map. Prerequisite: step 6.
+8. **Library census with the notable predicate.** Owner:
+   [Annotated Type Map](annotated-type-map.md), as its own adoption step 4
+   for the Library-scope one-version producer, extended with Exists and
+   Count over a descriptor-and-attribute predicate, gated exact against Rows
+   and measured against the unfiltered census. The whole-Library body decode
+   that Type leverage already runs after the first paint is the cost budget
+   this census shares.
+9. **Type-row marks.** Owner: Inspect Web Surface Composition. Type rows
+   take the Current mark from the Library census's notable Exists.
+   Prerequisites: steps 6 and 8.
+10. **Compilation profile line.** Owner: Inspect Web Surface Composition,
+    which composes Library Overview. The line reads the profile facts over
+    every method. Prerequisite: step 3.
+11. **Family structure.** Owner:
     [Inspect Web implementation profiles](inspect-web-implementation-profiles.md).
     Tint and size retire; hub and forwarder present as family foundation
-    and peak; family sizes become a Findings column. Prerequisite: step 4
+    and peak; family sizes become a Findings column. Prerequisite: step 5
     for the column.
-11. **Library structure.** Owner:
+12. **Library structure.** Owner:
     [Inspect Web Type leverage](inspect-web-type-leverage.md). Poles
     present as Library foundation and peak with the shared glyphs.
-12. **Expectation facts.** Owner: Metadata classification
-    (`MethodClassificationScanner` and the Debuggable attribute's
-    arguments). A whole-population runtime-async and state-machine presence
-    fact and the Debug fact are issued for the preset and the profile line.
-    Prerequisite: step 2.
 13. **Type structure.** Owner:
     [Inspect Web method-leverage achievements](inspect-web-method-leverage-achievements.md).
     Top Leverage presents as Type foundation with the shared glyph until
     Annotated Type Relations supplies caller degree, when the designation
     query retires under that owner.
 
-Steps 4 and 5 need no new analysis and remove most of the explanation
-burden; they go first after step 2 lands. Steps 10, 11, and 13 are
-independent of each other and of the findings marks.
+Steps 5 and 6 need no new analysis beyond the facts step 3 issues and
+remove most of the explanation burden; they go first after steps 2 and 3
+land. Steps 11, 12, and 13 are independent of each other and of the
+findings marks.
 
 ## Non-claims
 
@@ -567,6 +628,13 @@ independent of each other and of the findings marks.
   Annotated Type Relations.
 - It does not make structure a finding, add it to the map, or claim the
   structure mark is a projection; the structure owners issue it and gate it.
+- It does not present unsafe propagation or unsafe implementation color as
+  a mark; a bodyless propagating Member has no map row, and that color
+  belongs to Annotated Type Relations until the map admits a Member-header
+  descriptor for the contract.
+- It does not define a filtered Exists or Count terminal for the map; the
+  notable predicate at Library scope is the map owner's adoption, and until
+  it lands Type rows carry no Current mark.
 - It does not move implementation flags between Fast Diff's axes; that is
   Diff capabilities adoption step 1.
 - It does not decide Clone's long-term home.
