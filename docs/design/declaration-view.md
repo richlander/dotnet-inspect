@@ -105,27 +105,38 @@ value:
 
 The key pairs a fact across versions exactly, so two facts are `Present`
 here exactly when the census calls them equal; the view adds no equality and
-no normalization. The kind and the row together are the fact's one soft
-identity: a fact whose key is on one side only but whose kind and row are on
-both sides is one `Changed` pair, as the [two-version form](#two-versions)
-states. The kind is part of the soft identity so that facts of one row never
-pair across kinds: the visibility marker, the Type row, and the nullable
-context of one Type, or a method row and its import, each pair only with
-their own kind. The identity, soft identity, and variant strings are a
-lossless encoding of the key's bytes, never the key's diagnostic rendering,
-so the matcher compares exactly what the census compares. A fact whose key
-is equal on both sides is `Present` even when the census places it on
-different axes there, as an attribute of a Member whose accessibility changed
-is; the row's own flag fact changes with it, since a field's or method's
-accessibility is in its row flags and a property's or event's is in its
-accessors' flags, which rule 1 gives the property or event; a method the
-surface admits only as an explicit interface implementation carries that in
-its flags too in Roslyn output. Each side's axis is recorded on the fact. A kind with no row of its own, such
-as an attribute, moves only as `Added` or `Removed`: two attributes of one
-constructor that swap places leave the census equal and are `Present`, and a
-changed argument is one `Removed` and one `Added`. An attribute's spelling
-decodes its bytes where `AttributeReader` can and shows them as bytes where it
-cannot, marked as an uncertain kind. Promoting such a kind is Diff
+no normalization. Pairing then has four outcomes for a fact:
+
+- `Present` when its key is on both sides;
+- `Changed` when its key is on one side only and the same row on the other
+  side has exactly one fact of the same kind whose key is also on that side
+  only: the two facts are one pair, as the [two-version form](#two-versions)
+  states, and the kind and the row together are that pair's soft identity;
+- `Added` or `Removed` when its key is on one side only and the row on the
+  other side has no such fact, or has more than one; and
+- `Added` or `Removed` for every fact of a row that is on one side only.
+
+The kind is part of the soft identity so that facts of one row never pair
+across kinds: the visibility marker, the Type row, and the nullable context
+of one Type, or a method row and its import, each pair only with their own
+kind. The identity, soft identity, and variant strings are a lossless
+encoding of the key's bytes, never the key's diagnostic rendering, so the
+matcher compares exactly what the census compares.
+
+A fact whose key is equal on both sides is `Present` even when the census
+counts it as an API fact on one side and a Body fact on the other, as it does
+for an attribute of a Member whose accessibility changed. The accessibility
+change itself is a `Changed` row fact: a field's or method's accessibility is
+in its row flags, and a property's or event's is in its accessors' flags,
+which rule 1 gives the property or event; a method the surface admits only as
+an explicit interface implementation carries that in its flags too in Roslyn
+output. Each side's axis is recorded on the fact, so the document shows the
+move. A kind with no row of its own, such as an attribute, is never
+`Changed`: two attributes of one constructor that swap places leave the
+census equal and are `Present`, and a changed argument is one `Removed` and
+one `Added`. An attribute's spelling decodes its bytes where
+`AttributeReader` can and shows them as bytes where it cannot, marked as an
+uncertain kind. Promoting such a kind is Diff
 capabilities' adoption step 2, and the view follows the census when it does.
 
 The spelling is presentation over the fact's bytes, never a second
