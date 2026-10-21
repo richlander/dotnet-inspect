@@ -156,9 +156,8 @@ export interface AppPackage {
   assembly: string;
   assemblyId: string;
   assemblyAsset: string;
-  // The selected compile library identity when the surface projected no assembly
-  // descriptor for it (a truncated surface). Navigation still treats the package as
-  // having no default assembly; engine queries scoped to the selected library use this.
+  // The selected compile Library identity when its broad surface projected no assembly
+  // descriptor. Exact Library navigation can still use the owner-issued Package child.
   selectedCompileAssetId?: string;
   source:
     | { kind: "file" }
@@ -649,32 +648,43 @@ export function createNuGetPackageModel(
       : undefined;
   const packageChildren =
     rootPackageChildren ?? settledPackageChildren;
-  const rootOnly = result.compileLibrary.status === "NoCompileAssets"
+  const declaredDefaultLibrary = packageChildren?.content.libraries.find(
+    library => library.assetId === result.defaultAssemblyId);
+  const compileRootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
     || result.compileLibrary.status === "NoMatchingTargetFramework";
-  if (result.compileLibrary.status !== "Selected" && !rootOnly) {
+  const rootOnly = compileRootOnly && !declaredDefaultLibrary;
+  if (result.compileLibrary.status !== "Selected"
+    && !compileRootOnly) {
     throw new Error(
       result.compileLibrary.message
       || `The package Root has no selected compile library (${result.compileLibrary.status}).`);
   }
   const inspectionErrors = surfaceInspectionErrors(result);
-  // A selected compile library can still project no assembly: the engine abandons a
-  // participant whose surface exceeds the browser extraction or transport bound and
-  // reports only the truncation notice (`BrowserPackageSurfaceProjection` throws for any
-  // other empty selected surface). Load that package without a default assembly so its
-  // notice stays visible, as a root-only package does. An unmatched identity beside
-  // projected assemblies, or an empty surface without a notice, remains a contract failure.
+  const assembly = selectedAssembly(result);
   const truncatedToNoAssembly = !rootOnly
+    && !assembly
     && (result.assemblies ?? []).length === 0
     && inspectionErrors.length > 0;
-  const selectedCompileAssetId = truncatedToNoAssembly
+  const declaredToolLibraryWithoutSurface = !assembly
+    && declaredDefaultLibrary !== undefined
+    && (declaredDefaultLibrary.role === "ToolEntryPoint"
+      || declaredDefaultLibrary.role === "ToolLibrary");
+  const failedDefaultLibrarySurface = !assembly
+    && declaredDefaultLibrary !== undefined
+    && inspectionErrors.length > 0;
+  const retainedDefaultWithoutSurface = truncatedToNoAssembly
+    || declaredToolLibraryWithoutSurface
+    || failedDefaultLibrarySurface;
+  if (!rootOnly && !assembly && !retainedDefaultWithoutSurface) {
+    throw new Error(
+      "The package query did not return its selected assembly descriptor.");
+  }
+  const selectedCompileAssetId = retainedDefaultWithoutSurface
     ? requireAssemblyIdentity(
       result,
       "The package query did not return its selected assembly descriptor.")
     : undefined;
-  const assembly = rootOnly || truncatedToNoAssembly ? null : defaultAssembly(
-      result,
-      "The package query did not return its selected assembly descriptor.");
   if (rootOnly) {
     inspectionErrors.push(result.compileLibrary.message
       || `No compile Library is available (${result.compileLibrary.status}).`);
@@ -689,9 +699,9 @@ export function createNuGetPackageModel(
     version: result.version,
     frameworks: [...(result.frameworks ?? [])],
     activeFramework: result.activeFramework,
-    assembly: assembly?.name ?? "",
-    assemblyId: assembly?.id ?? "",
-    assemblyAsset: assembly?.asset ?? "",
+    assembly: assembly?.name ?? declaredDefaultLibrary?.assemblyName ?? "",
+    assemblyId: assembly?.id ?? declaredDefaultLibrary?.assetId ?? "",
+    assemblyAsset: assembly?.asset ?? declaredDefaultLibrary?.assetPath ?? "",
     ...(selectedCompileAssetId ? { selectedCompileAssetId } : {}),
     source: { kind: "nuget.org" },
     producerLabel: "NuGet.org",

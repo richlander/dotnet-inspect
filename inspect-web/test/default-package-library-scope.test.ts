@@ -8,6 +8,9 @@ import { functionDeclaration, sourceText } from "./composition-root-test-fixture
 const selectDefault = stripTypeScriptTypes(
   sourceText(functionDeclaration("selectDefaultPackageSubject")),
 );
+const selectLens = stripTypeScriptTypes(
+  sourceText(functionDeclaration("selectLibraryLens")),
+);
 
 type PackageChildren =
   Parameters<typeof createNuGetPackageSummaryModel>[0];
@@ -135,7 +138,7 @@ test("summary model follows the declared default even when it is not the first L
   assert.equal(packageLibrariesForModel(model).length, 2);
 });
 
-test("a tool-only summary with no product compile default stays at Package", () => {
+test("a tool-only summary selects the owner-issued First Library", () => {
   const assetId = "tools/net11.0/any/Tool.Payload.dll";
   const children = packageChildren("Tool.Payload", [
     {
@@ -145,18 +148,45 @@ test("a tool-only summary with no product compile default stays at Package", () 
       role: "ToolEntryPoint",
     },
   ]);
-  const model = createNuGetPackageSummaryModel(children, [], undefined, undefined, null);
+  const model = createNuGetPackageSummaryModel(
+    children,
+    [],
+    undefined,
+    undefined,
+    assetId,
+  );
   const state = { libraryScope: new Set(["previous"]), atLibraryRoot: true, atPackageRoot: false };
   runInNewContext(`${selectDefault}\nselectDefaultPackageSubject(pkg);`, {
     state,
     packageLibrariesForModel,
     pkg: model,
   });
-  assert.equal(model.assemblyId, "");
-  assert.equal(state.atLibraryRoot, false);
-  assert.equal(state.atPackageRoot, true);
-  assert.equal(state.libraryScope, null);
+  assert.equal(model.assemblyId, assetId);
+  assert.equal(state.atLibraryRoot, true);
+  assert.equal(state.atPackageRoot, false);
+  assert.deepEqual(Array.from(state.libraryScope ?? []), [assetId]);
   assert.deepEqual(packageLibrariesForModel(model).map(library => library.id), [assetId]);
+});
+
+test("an exact-only Library lens consumes the owner-issued First Library", () => {
+  const selected: string[] = [];
+  const state = {
+    libraryLens: "overview",
+    package: { assemblyId: "owner-first" },
+  };
+  runInNewContext(`${selectLens}\nselectLibraryLens("api");`, {
+    state,
+    libraryLensRequiresExactLibrary: () => true,
+    aggregateLibrarySubjectIsActive: () => true,
+    packageLibraries: () => [
+      { id: "host-preferred" },
+      { id: "owner-first" },
+    ],
+    selectLibrarySubject: (id: string) => selected.push(id),
+    render: () => {},
+  });
+  assert.deepEqual(selected, ["owner-first"]);
+  assert.equal(state.libraryLens, "api");
 });
 
 test("summary construction without a default field preserves its legacy fallback", () => {

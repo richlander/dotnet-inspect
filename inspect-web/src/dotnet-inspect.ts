@@ -215,7 +215,6 @@ import {
   alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
-  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "./library-subject-nav.ts";
 import {
@@ -7713,12 +7712,11 @@ function selectLibraryLens(lens: LibraryLens) {
   if (state.libraryLens === lens) return;
   if (libraryLensRequiresExactLibrary(lens)
     && aggregateLibrarySubjectIsActive()) {
-    const preferredLibraryId = preferredLibrarySubjectId(
-      packageLibraries(),
-      state.package?.id ?? "");
-    if (preferredLibraryId) {
+    const firstLibraryId = state.package?.assemblyId ?? "";
+    if (firstLibraryId
+      && packageLibraries().some(library => library.id === firstLibraryId)) {
       selectLibrarySubject(
-        preferredLibraryId,
+        firstLibraryId,
         { preserveLens: true });
     }
   }

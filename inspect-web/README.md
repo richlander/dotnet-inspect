@@ -10,10 +10,17 @@ Inspect Web is the Library-first, keyboard-driven browser experience for
 > or a retained image descriptor.
 
 Opening a package without an explicit destination starts at Library Overview
-using the product-selected default Library. Package remains available one level
-up with its complete Library inventory. Explicit links and restored workspace
-history keep their selected subjects and inspectors; packages with no compile
-Libraries remain at Package with the reason visible.
+using the product-selected First Library. `All libraries` is an explicit
+opt-in; Package remains available one level up with its complete Library
+inventory. The initial package Summary reads directory inventory, and Library
+Overview then requests only that exact Library, so ranged acquisition need not
+fetch sibling Library bodies. A later `All libraries` or Package-wide Type
+gesture may explicitly request the broad surface.
+
+Explicit links and restored workspace history keep their selected subjects and
+inspectors. A failed First Library remains selected with its failure visible
+rather than silently selecting a sibling. Packages with no admitted Libraries
+remain at Package with the reason visible.
 Selecting an explicitly empty compile framework opens Package Overview and
 limits the inspector choices to Overview, including when replacing a Library
 selection. Frameworks remain selectable. The motivating asset is
