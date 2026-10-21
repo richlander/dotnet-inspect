@@ -228,19 +228,24 @@ linked operation or expand every reverse match.
 Status: **partially implemented**. The design slice is
 [#10312](https://github.com/richlander/dotnet-inspect/issues/10312). Shared
 root projection, declaration validation, and the reachability report are
-implemented, with Schema Query as the first adopter
-([#10316](https://github.com/richlander/dotnet-inspect/issues/10316)) and
-Inspection Capability Composition as the second
-([#10317](https://github.com/richlander/dotnet-inspect/issues/10317)). The
-CLI composes its root over its complete catalog and withholds it, because the
-value vocabularies are not yet reachable
-([#10318](https://github.com/richlander/dotnet-inspect/issues/10318)). Three parts
-arrive later:
+implemented. Every owner of a resource family the CLI composes has adopted:
+
+- Schema Query
+  ([#10316](https://github.com/richlander/dotnet-inspect/issues/10316));
+- Inspection Capability Composition
+  ([#10317](https://github.com/richlander/dotnet-inspect/issues/10317)); and
+- Product Vocabulary
+  ([#10318](https://github.com/richlander/dotnet-inspect/issues/10318)).
+
+The CLI's root over its complete catalog now satisfies the reachability
+invariant. The CLI still does not publish it: publication is the
+[CLI host adoption](https://github.com/richlander/dotnet-inspect/issues/10139).
+Three parts arrive later:
 
 - collection-level member hints;
 - the HAL reading of the root;
-- the root's public address, which comes with the
-  [CLI host adoption](https://github.com/richlander/dotnet-inspect/issues/10139).
+- the root's public address and bare entry, which come with the CLI host
+  adoption.
 
 The root's entries are projections of **routing declarations**. An owner issues
 one routing declaration for each subject kind, operation, or reference

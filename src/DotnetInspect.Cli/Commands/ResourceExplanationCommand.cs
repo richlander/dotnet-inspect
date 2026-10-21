@@ -378,6 +378,7 @@ public static class ResourceExplanationCommand
                 [
                     .. StructuralRoutingDeclarations.Create(),
                     .. CapabilityRoutingDeclarations.Create(),
+                    .. VocabularyRoutingDeclarations.Create(),
                 ])
             : null;
 
