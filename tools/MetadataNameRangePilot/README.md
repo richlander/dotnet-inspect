@@ -70,3 +70,60 @@ perf-guard artifacts/metadata-name-range-pilot/metadata-name-range-pilot \
 SPC ratios are candidate divided by `EagerInert`. Values below `1` favor the
 byte-native strategy, values above `1` favor eager containment, and a win or
 loss requires the full paired control interval to clear `1`.
+
+## Accepted evidence
+
+Source candidate `dc6cbcee3c42bc3d3cf4d0ee225c4dca92e5ce19` published
+as linux-x64 NativeAOT with binary SHA-256
+`b78c3007c17b78dd8a7d61766dcba9d18f1eab1e2e68612f0e5c805d64faa4ac`.
+It ran on `dotnet-inspect-perf` under one `perf-guard` lease that began at
+99.55 percent CPU idle.
+
+Thirty rotated rounds measured at least 50,000 Names per asset:
+
+```text
+perf-guard ./metadata-name-range-pilot measure \
+  --rounds 30 --target-names 50000 --tsv samples.tsv \
+  System.Private.CoreLib.dll \
+  System.Text.Json.dll \
+  Microsoft.Extensions.Configuration.dll
+```
+
+The inputs were .NET 11 RC1 `System.Private.CoreLib.dll` (`9573ebab...`),
+`System.Text.Json` 10.0.9 (`21bf5768...`), and
+`Microsoft.Extensions.Configuration` 10.0.10 (`82e24fb2...`). Their censuses
+contained 142,677, 12,982, and 797 Names. Every strategy produced the same
+roles, match cardinality, contained display, and stable display hash.
+
+Ratios below are candidate divided by eager `InertString`; ranges span the
+three assets:
+
+| Observation | Ratio | Assessment |
+| --- | ---: | --- |
+| Per-name opaque build retained memory | 1.140x-1.192x | Loss |
+| Population build allocation | 0.557x-0.562x | Win |
+| Population retained memory | 0.449x-0.452x | Win |
+| Population match-only elapsed time | 0.513x-0.554x | Win |
+| Population sparse-display elapsed time | 0.568x-0.604x | Win |
+| Byte-budget population build elapsed time | 0.161x-0.269x | Win |
+| Population display-all elapsed time | 3.357x-3.786x | Loss |
+| Population display-all allocation | 2.477x-2.669x | Loss |
+
+The current per-name `OpaqueByteRange.Copy` shape is therefore not a memory
+optimization: one array and one owner object per Name outweigh the UTF-8
+payload reduction on all three assets. One population backing changes the
+result, retaining about 45 percent of eager memory while making closed matching
+45 to 49 percent faster and sparse display 40 to 43 percent faster.
+
+The retained UTF-16 budget scan consumes much of the remaining construction
+opportunity. Population build time with that scan was a win only for
+System.Text.Json and inconclusive for CoreLib and Configuration; charging exact
+stored bytes instead made construction 73 to 84 percent faster on every asset.
+That result motivates a separately owned budget-unit decision rather than
+silently changing product semantics in this pilot.
+
+`DisplayAll` is the intentional control. Eager storage already owns the final
+UTF-16 values, while byte-native storage must project every Name, so complete
+display is 3.4x to 3.8x slower and allocates 2.5x to 2.7x as much. Byte-native
+adoption therefore targets matching and sparse presentation; it is not a
+universal replacement for eagerly displayed inventories.
