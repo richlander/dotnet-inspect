@@ -13,7 +13,7 @@ namespace ILInspector.Metadata.Tests;
 /// </summary>
 public sealed class FindingDiffAnyMetadataSafetyTests
 {
-    const string WorkerVariable = "DOTNET_INSPECT_FAST_DIFF_METADATA_SAFETY_WORKER";
+    const string WorkerVariable = "DOTNET_INSPECT_FINDING_DIFF_ANY_METADATA_SAFETY_WORKER";
     const int DeepGraphLength = 100_000;
 
     [Fact]

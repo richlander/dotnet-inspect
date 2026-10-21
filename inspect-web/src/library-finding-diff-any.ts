@@ -22,7 +22,7 @@ import type {
   OperationId,
 } from "./operation-authority.ts";
 
-const LIBRARY_FAST_DIFF_SCHEMA_VERSION = 2;
+const LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION = 2;
 
 export interface LibraryFindingDiffAnyBaseline {
   readonly packageId: string;
@@ -112,7 +112,7 @@ type Outcome =
 
 function readResult(result: unknown, request: BrowserLibraryFindingDiffAnyRequest): Outcome {
   const record = requireRecord(result, "Library Finding Diff Any result");
-  if (record.schemaVersion !== LIBRARY_FAST_DIFF_SCHEMA_VERSION)
+  if (record.schemaVersion !== LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION)
     throw new Error("Unsupported Library Finding Diff Any result schema.");
   switch (record.kind) {
     case "Succeeded": {
@@ -164,12 +164,12 @@ export function createLibraryFindingDiffAny(
     order: "library-baseline",
     key: libraryFindingDiffAnyKey,
     query: (operationId, baseline) => dependencies.query(operationId, {
-      schemaVersion: LIBRARY_FAST_DIFF_SCHEMA_VERSION,
+      schemaVersion: LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION,
       ...baseline,
     }),
     read: (result, baseline) => {
       const outcome = readResult(result, {
-        schemaVersion: LIBRARY_FAST_DIFF_SCHEMA_VERSION,
+        schemaVersion: LIBRARY_FINDING_DIFF_ANY_SCHEMA_VERSION,
         ...baseline,
       });
       return outcome.kind === "ready"
