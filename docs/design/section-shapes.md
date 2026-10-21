@@ -491,9 +491,12 @@ lowerings decide only whether the request is admissible. An inadmissible pair
 fails before acquisition and names the shape and the formats it supports. The
 host never substitutes a different lowering or a different section.
 
-**Composition formats carry every shape.** Markdown and JSON can present any
-selection of sections. Row-stream formats require either one section or a
-family whose members lower to one homogeneous row schema; the
+**Document composition can carry every semantic shape.** JSON requires an
+offered Document representation for each selected section. A Table-only
+section therefore rejects `--json`; the host does not manufacture an unoffered
+Document. Markdown uses the offered Document or its declared Table/Hierarchy
+fallbacks. Row-stream formats require either one section or a family whose
+members lower to one homogeneous row schema; the
 [section model](section-model.md#output-shapes) owns that heterogeneity rule
 and this document adds only that a Text's fact row counts as its row
 schema for the purpose.
