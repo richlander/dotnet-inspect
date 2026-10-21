@@ -1053,6 +1053,60 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
+    // The CLI's root gate: Schema Query's declarations reach every structural
+    // catalog resource, and the root stays withheld while the families whose
+    // owners have not adopted routing declarations remain unreachable.
+    [Fact]
+    public void ExplanationRoot_ReachesStructuralCatalogs_AndReportsFamiliesAwaitingAdoption()
+    {
+        ResourceExplanationRootComposition composition =
+            ResourceExplanationCommand.CreateRootComposition()!;
+
+        Assert.False(composition.IsPublishable);
+        Assert.Equal(
+            ["analyses", "package-files", "package-query", "vocabularies"],
+            composition.Unreachable
+                .Select(static path => path.Value.Split('/')[0])
+                .Distinct()
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["library", "member", "package", "type"],
+            Targets(composition.Catalog, "root/subject-kinds", "collection-routing-entry")
+                .Select(static path => path.Split('/')[^1])
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["library", "type"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/library",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            ["member-overload", "member-detail"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/member",
+                "routing-destination-catalog"));
+
+        static IEnumerable<string> Targets(
+            ResourceExplanationCatalog catalog,
+            string path,
+            string relationship)
+        {
+            var source = Assert.IsType<ResourcePathResolution.Resolved>(
+                catalog.Resolve(path));
+            var paths = catalog.Resources.ToDictionary(
+                static resource => resource.Key,
+                static resource => resource.Path!.Value);
+            return catalog.Relationships
+                .Where(candidate =>
+                    candidate.Source == source.Key
+                    && candidate.Relationship.Value == relationship)
+                .SelectMany(static candidate => candidate.Targets)
+                .Select(target => paths[target.Resource])
+                .ToArray();
+        }
+    }
+
     // Search reads the structural projections without building their
     // explanation graphs, so this witnesses the wiring: every admitted path
     // resolves in the exact catalog to its section or category, and every
