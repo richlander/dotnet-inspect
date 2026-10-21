@@ -6,7 +6,6 @@ using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
-using UntrustedDocuments;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -40,10 +39,9 @@ public static class EcosystemFindIndexJson
     {
         try
         {
-            using JsonDocument parsed = HardenedJson.Parse(utf8Json);
             EcosystemFindIndexDocument document =
                 JsonSerializer.Deserialize(
-                    parsed.RootElement,
+                    utf8Json.Span,
                     EcosystemFindIndexJsonContext.Default.EcosystemFindIndexDocument)
                 ?? throw new JsonException(
                     "The Ecosystem Find Index document is null.");
@@ -596,6 +594,7 @@ internal sealed record EcosystemFindIndexNamedTypeDocument
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     UseStringEnumConverter = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    AllowDuplicateProperties = false,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(EcosystemFindIndexDocument))]
 internal sealed partial class EcosystemFindIndexJsonContext

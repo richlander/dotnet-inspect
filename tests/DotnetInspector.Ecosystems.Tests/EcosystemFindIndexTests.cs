@@ -222,6 +222,20 @@ public partial class EcosystemFindIndexTests
     }
 
     [Fact]
+    public void Load_RejectsDuplicateProperties()
+    {
+        byte[] valid = EcosystemFindIndexJson.Serialize(
+            EcosystemFindIndexBuilder.Build(Request([])));
+        string duplicate = Encoding.UTF8.GetString(valid).Replace(
+            "{\"schemaVersion\":3",
+            "{\"schemaVersion\":3,\"schemaVersion\":3",
+            StringComparison.Ordinal);
+
+        Assert.IsType<EcosystemFindIndexLoadResult.Invalid>(
+            EcosystemFindIndexJson.Load(Encoding.UTF8.GetBytes(duplicate)));
+    }
+
+    [Fact]
     public void Build_RejectsDuplicateOrdinalsAndUnconfiguredConcepts()
     {
         EcosystemFindIndexSourceInput source = Source(
