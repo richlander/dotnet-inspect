@@ -13,6 +13,8 @@ internal enum PilotScenario
     SparseDisplay,
     DisplayAll,
     Utf8OutputAll,
+    BuildAndDisplayAll,
+    BuildAndUtf8OutputAll,
 }
 
 internal sealed class PilotPayload(
@@ -56,6 +58,12 @@ internal sealed class PilotPayload(
                 HashDisplay(
                     _display = _store.ProjectAll()),
             PilotScenario.Utf8OutputAll =>
+                HashUtf8(
+                    _utf8Output = _store.WriteAllUtf8()),
+            PilotScenario.BuildAndDisplayAll =>
+                HashDisplay(
+                    _display = _store.ProjectAll()),
+            PilotScenario.BuildAndUtf8OutputAll =>
                 HashUtf8(
                     _utf8Output = _store.WriteAllUtf8()),
             _ => throw new ArgumentOutOfRangeException(),
@@ -293,7 +301,7 @@ internal static class NamePilot
         int order)
     {
         PilotPayload? prepared =
-            cell.Scenario == PilotScenario.Build
+            IncludesBuild(cell.Scenario)
                 ? null
                 : BuildPayload(asset, cell, copies);
         long allocatedBefore =
@@ -320,6 +328,12 @@ internal static class NamePilot
             RetainedBytes: 0,
             checksum);
     }
+
+    static bool IncludesBuild(PilotScenario scenario) =>
+        scenario is
+            PilotScenario.Build
+            or PilotScenario.BuildAndDisplayAll
+            or PilotScenario.BuildAndUtf8OutputAll;
 
     static long MeasureRetained(
         NameAsset asset,

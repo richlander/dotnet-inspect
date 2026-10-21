@@ -34,11 +34,13 @@ than overstating the baseline with discarded encoded strings.
 | `SparseDisplay` | Query every Name and project only matching Names to `InertString` | Store plus selected output |
 | `DisplayAll` | Project every Name to `InertString` | Store plus complete output |
 | `Utf8OutputAll` | Contain every Name and write it directly to a destination-owned UTF-8 buffer | Store plus complete UTF-8 output |
+| `BuildAndDisplayAll` | Build the store, then project every Name to `InertString` | Store plus complete output |
+| `BuildAndUtf8OutputAll` | Build the store, then write every Name to a destination-owned UTF-8 buffer | Store plus complete UTF-8 output |
 
 `Build` measures construction. Every other scenario starts with a completed
-store and measures only its terminal operation. A terminal ratio therefore
-answers how representations behave when reused; it is not an end-to-end
-build-plus-terminal ratio.
+store and measures only its terminal operation, except the two `BuildAnd...`
+scenarios, which measure one-shot end-to-end work. A terminal-only ratio
+answers how representations behave when reused.
 
 The query is selected outside measurement from the least frequent non-empty
 stored Name and encoded once. Every strategy must return the same match count,
