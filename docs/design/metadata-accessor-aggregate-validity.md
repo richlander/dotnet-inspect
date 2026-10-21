@@ -74,8 +74,8 @@ The construction input is:
 
 A posted aggregate contains:
 
-- root address, declaring TypeDef, inert name, raw attributes, and exact root
-  signature or event type;
+- root address, declaring TypeDef, exact root name, raw attributes, and exact
+  root signature or event type;
 - every physical MethodSemantics occurrence in physical order, including raw
   semantics bits and exact MethodDef evidence;
 - explicit per-occurrence ordinary-callable, role-correspondence, and
@@ -90,6 +90,15 @@ external type hierarchy. Negative or unavailable statuses remain first-class
 facts.
 
 No failure publishes a partial aggregate.
+
+The root name is a `MetadataUtf8Name`: the exact `#Strings` bytes, detached
+rather than decoded with `GetString`, so two ill-formed names that would both
+decode to U+FFFD stay distinct. A consumer contains the name when it presents
+it; each ill-formed byte is then spelled as its `\uDCNN` surrogate escape.
+`RetainedText` is charged the contained UTF-16 length of that spelling,
+measured from the bytes, so the dimension keeps one unit across Metadata
+operations. API qualified anchor identity decodes the row as `GetString` does
+and does not read the retained bytes.
 
 ## Three validation layers
 
@@ -240,7 +249,9 @@ The implementation issues own Release gates for:
 - malformed headers, trailing bytes, illegal recursive type positions,
   invalid array/generic/function-pointer shapes, and cyclic scopes;
 - exact-limit and over-limit signature, node, relationship, and text budgets;
-  and
+- ill-formed property and event root names that keep their exact bytes, spell
+  each ill-formed byte as its surrogate escape when contained, and charge
+  `RetainedText` that contained length; and
 - detached use after session retirement.
 
 Until #8836 and #8837 land, these product properties are **unverified**. The
