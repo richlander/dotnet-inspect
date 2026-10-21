@@ -36,10 +36,11 @@ the cost of reaching the answer differs.
 > [API axis population](diff-capabilities.md#axes) reports a change to the
 > Type or one of its Members. The Body state is `Changed` exactly when the Type is present on
 > one side only, a method of it with a body is present on one side only, a
-> paired method has a body on one side only, or a paired body is not `Exact`
+> paired method has a body on one side only, a paired body is not `Exact`
 > under
 > [canonical IL comparison](il-diff-canonicalization.md#comparison-outcomes)
-> with the [Body policy](#axes). A row or body that cannot be decoded or
+> with the [Body policy](#axes), or a [declaration fact](#axes) on the Body
+> axis differs. A row or body that cannot be decoded or
 > resolved makes the unsettled axes of its Type `Indeterminate`, never
 > `Unchanged`.
 
@@ -53,7 +54,9 @@ and the metadata backtick arity.
 
 ### Axes
 
-The **API** axis compares the Public API facts of a Type and its members:
+The **API** axis is decided on the public, protected, and protected internal
+Members of a public Type. It compares the Public API facts of a Type and its
+members:
 
 - Type flags (except `beforefieldinit`), base Type, interfaces, generic
   parameters and constraints, custom attributes, layout, and the effective
@@ -68,10 +71,11 @@ That is the API axis population of
 [Diff capabilities](diff-capabilities.md#axes): `private protected` Members
 belong to Body, and hidden Types and Members, such as ones marked
 `EditorBrowsable(Never)`, are compared like any other; their status is the
-API status analysis's, not Fast Diff's. A Type is public by its own row (public, nested public,
-protected, or protected internal), matching the API axis surface
-(`ApiSurfaceExtractionScope.ApiAxis`), which admits a public nested Type of a
-non-public Type. Non-public Types have no API facts.
+API status analysis's, not Fast Diff's. A Type is public when its own row and
+every enclosing Type's row is public, nested public, protected, or protected
+internal, matching the API axis surface (`ApiSurfaceExtractionScope.ApiAxis`);
+a public nested Type of a non-public Type is not. Non-public Types have no API
+facts.
 
 These facts are a census, and the census decides `Unchanged` alone: equal
 census facts mean the complete comparison reports no change. Each fact kind is
@@ -94,8 +98,9 @@ decided like any other API fact, not made uncertain. A fact kind is
 presented only when a gate shows it (see [Gates](#gates)); every other kind
 is uncertain, which costs time, never correctness.
 
-The **Body** axis compares the IL of every method, public or not, with the
-equality of canonical IL comparison under one named policy, the **Body
+The **Body** axis is decided at every accessibility. It compares the IL of
+every method, public or not, with the equality of canonical IL comparison
+under one named policy, the **Body
 policy**: `IlBodyDiffNormalization.NormalizeAssemblyScope`
 ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)), so
 every Type and member operand compares by name and signature without its
@@ -105,6 +110,24 @@ change: a Library rebuilt only because a dependency's version moved is Body
 the Body diffs of those dependencies find those two methods and the app's
 finds nothing. Package and Library versions are compared as candidates in
 their own right, not as Type changes.
+
+Beside IL, the Body axis compares **declaration facts**: the row, signature,
+flags, constants, import, generic parameters, and attributes of every Member
+the API axis surface does not admit, at every accessibility, and the
+declaration of a Type the surface admits on neither side. A public Type's
+private, internal, and `private protected` Members are compared this way, so
+an added private field is a Body change, as is an attribute added to an
+internal method. That is the Body axis of
+[Diff capabilities](diff-capabilities.md#axes): every subject at every
+accessibility. A Body decided on public Members alone would report a public
+method `Unchanged` while the private method it calls changed, which would be
+false; the Body axis compares every body and every declaration instead, and a
+consumer that wants a narrower view filters what it is given. Declaration
+facts compare raw: a kind the complete comparison does not present is an
+uncertain Body fact, and the uncertain-kind census of Diff capabilities
+settles each kind in its adoption step 2. `beforefieldinit` is a Body fact;
+the implementation flags and compiler-emitted attributes of a Member the
+surface admits are uncertain API facts until that step moves them to Body.
 
 Under that policy, `ldc.i4` forms and short branches fold to one family,
 branch and switch targets compare by aligned instruction, metadata tokens
@@ -211,8 +234,8 @@ their content-named members still compares those names.
 
 Fast Diff adopts [Diff observability](diff-observability.md). The API axis
 targets the semantic level of the Public API diff, and the Body axis targets
-the symbolic IL level of the body diff, so `Changed` should point to something
-a user can see. IL operand and signature keys never compare token numbers or
+the symbolic IL level of the body diff for IL and the declaration view's level
+for declaration facts, so `Changed` should point to something a user can see. IL operand and signature keys never compare token numbers or
 assembly identity, so a renumbered token or a dependency version change is not
 a Body change. Today the IL view of Member Body Diff compares with no
 normalization and shows a dependency version change on every call into that
@@ -236,9 +259,16 @@ are settled as follows:
   those arguments by symbolic name
   ([#9802](https://github.com/richlander/dotnet-inspect/issues/9802)) would
   make them presented and cheaper, not more exact.
-- **Non-IL implementation facts.** The metadata of non-public Members and
-  `beforefieldinit` are not Body facts. Canonical body comparison does not
-  show them, so a Body cue for them would open a view with no change.
+- **Declaration and implementation facts.** The declaration facts of Members
+  the API axis surface does not admit, the declaration of a Type it admits on
+  neither side, and `beforefieldinit` are Body facts. Canonical body comparison does
+  not show them, so a Body cue decided by one of them alone opens a view with
+  no IL change today. That is a known divergence under rule 4 of Diff
+  observability until the declaration view of
+  [Diff capabilities](diff-capabilities.md#axes) presents them
+  ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347));
+  the Body axis keeps comparing them, since an `Unchanged` that omitted them
+  would be false.
 
 A renumbered compiler-generated name, such as a closure or state machine
 renumbered by a new member earlier in the Type, remains a reported Body
@@ -269,13 +299,15 @@ Fast Diff follows it; the axis never keeps a private exception.
 - accessibility: a Member or nested Type whose accessibility moves between
   API axis buckets is API `Changed`, and the complete comparison of the API
   axis surface reports `MemberAccessibilityChanged` or
-  `TypeAccessibilityChanged`, breaking when narrowed (`public` to `protected`
-  or `protected internal`, `protected internal` to `protected`) and additive
-  when widened; the ordinary Public surface reports a move across the
+  `TypeAccessibilityChanged`, breaking when external reach narrows (`public`
+  to `protected` or `protected internal`), additive when it widens, and
+  non-breaking between `protected internal` and `protected`; the ordinary Public surface reports a move across the
   `public` boundary as a removal or an addition, and an accessor's
-  accessibility as a signature change; only a comparison of two API axis
-  surfaces reports accessibility changes, so the include-all surface reports
-  none;
+  accessibility as a signature change; the include-all surface reports every
+  move, including one that leaves or enters the API axis, breaking when
+  external reach narrows, additive when it widens, and non-breaking when it
+  is unchanged (`internal` to `private`), and classifies a change wholly
+  outside the API axis as non-breaking;
 - presented facts: for every fact kind treated as presented, a fixture case
   in which that fact alone differs, and the complete comparison reports the
   change; a kind without such a case is uncertain;
@@ -287,6 +319,10 @@ Fast Diff follows it; the axis never keeps a private exception.
   the Type marked hidden, and omitted from the ordinary Public surface;
 - `private protected`: a `private protected` Member added is not API
   `Changed` and is absent from the API axis surface;
+- every accessibility on Body: a private field added, a private method
+  added, a `private protected` Member added, and a private method whose body
+  alone changed under an unchanged public caller each make their Type Body
+  `Changed` and API `Unchanged`;
 - Body exactness: every method pair's Body verdict equals canonical IL
   comparison's endpoint verdict under the Body policy over the same fixture
   pairs: `Exact` is `Unchanged`, a body on one side only or any other verdict
@@ -473,8 +509,9 @@ Members `Changed` as well. A consumer reads a declaration change from the
 residual and never infers it from the Members. Rule 2 owns the exceptions: a
 visibility change that hides the Type on one side also marks every public
 Member, and a declaration that differs only in uncertain facts is decided by
-the Type's API axis surface. A declaration change on a Type the surface does
-not admit is neither an API fact nor a Body fact, so it changes no state.
+the Type's API axis surface. A declaration change on a Type the surface admits
+on neither side is a residual Body change, since that Type's declaration
+facts are Body facts.
 
 A Type present in one image only has no counterpart to compare Members
 against, so its one-sided form compares nothing. The present side's Members
@@ -482,13 +519,15 @@ are partitioned by the ownership rules below, and every fact an owner holds is
 a fact present on one side only, which rule 2 counts as a difference. A Member
 is therefore `Changed` on each axis where it owns facts and `Unchanged` where
 it owns none, exactly as a Member declared on one side of a paired Type is: a
-private field, or a method with no body, is returned and `Unchanged`. The
+private field, or a private method with no body, is returned Body `Changed`
+and API `Unchanged`, since the surface does not admit it and its declaration
+facts are Body facts; a public field is API `Changed` and Body `Unchanged`. The
 residual owns the Type's presence as the Library level's
 [presence rule](#axes) states it: its Body is `Changed` whether or not any
 body exists, or `NotCompared` when only the API axis is asked for, as every
 Body state is then, and its API is `Changed` exactly when the API axis surface
-admits the Type. So an added internal enum has Member rows all `Unchanged` and
-a `Changed` residual Body, and the partition claim holds. A malformed
+admits the Type. So an added internal enum has Member rows all Body `Changed`
+and API `Unchanged`, a `Changed` residual Body, and the partition claim holds. A malformed
 one-sided Type follows the rule below for a census that cannot be completed:
 the residual stays `Changed` on each axis where presence makes it `Changed`,
 and every owner not `Changed` on an axis, the residual included, is
@@ -529,18 +568,24 @@ fact describes is read from the fact's structure, never from its spelling:
    method no Member owns, such as a static constructor.
 2. **A fact keeps the axis the census gives it.** A Member's or the
    residual's state on an axis is `Changed` when any fact it owns on that
-   axis differs, including a fact present on one side only. The census
-   decides visibility, which includes explicit interface implementations,
-   and partitions a Type public on either side as public on both. A public
-   Member of such a Type has API facts; a non-public Member has none, and
-   its metadata is not compared. Every row is still seen and keyed: a Member
-   that owns no facts on an axis is `Unchanged` there, never omitted, and a
+   axis differs, including a fact present on one side only. The API axis is
+   decided on the public, protected, and protected internal Members of a
+   public Type: the census decides that visibility, which includes explicit
+   interface implementations, and partitions a Type public on either side as
+   public on both. A public Member of such a Type has API facts. The Body
+   axis is decided at every accessibility: every Member's declaration facts
+   that are not API facts, and the IL of every method it owns, are its Body
+   facts, so a private, internal, or `private protected` Member's row,
+   signature, flags, constants, import, and attributes are Body facts, and an
+   added private field is Body `Changed`. Every row is seen and keyed: a
+   Member that owns no API facts is API `Unchanged`, never omitted, and a
    consumer that wants only the public view filters the rows it is given.
    Where the Type is hidden on one side, the
    census records only its visibility there, so that change makes the
    residual and every public Member API `Changed`. Every Member of a Type
    hidden on both sides owns no API facts, so its API state is `Unchanged`
-   and only its Body state can differ. A Member or the residual
+   and only its Body state can differ; the Type's own declaration is then a
+   residual Body fact. A Member or the residual
    whose facts differ only in uncertain facts is decided as the
    [API axis](#axes) decides a Type, by the API axis surface of that
    Member or of the Type's own declaration.
@@ -553,11 +598,13 @@ fact describes is read from the fact's structure, never from its spelling:
 
 A Member **owns facts** on an axis when the census records on that axis at
 least one fact whose owner under rule 1 is that Member: API facts exist only
-where the API axis surface admits the Member, and a Body fact exists for each
+where the API axis surface admits the Member, and Body facts are the
+declaration facts of a Member the surface does not admit and the IL of each
 method the Member owns that has a body on that side. Member API compares
 completely, so every changed public Member is marked; Member Body is an
 existence check. A Member declared on one side only is therefore `Changed` on
-each axis where it owns facts.
+each axis where it owns facts: a private field on Body, a public field on
+API, and a public method with a body on both.
 
 An owner is never `Unchanged` by omission. A fact or body that cannot be
 decided, such as IL whose walk reaches an undefined opcode before it decides a
@@ -619,25 +666,28 @@ Type, the
 added one with Members and the removed one with none, are reported whole by
 the Library level and have one-sided Type-level rows whose keys equal the keys
 of the same Type's two-sided rows against itself, in which a public method
-with a body is `Changed` on both axes, an internal method with a body is Body
-`Changed` only, a private field and a bodyless private `extern` method are
-`Unchanged`, the residual is `Changed` on both axes, and no IL is read; an
-added internal enum has Member rows all `Unchanged`, a residual API
-`Unchanged` and Body `Changed`;
+with a body is `Changed` on both axes, an internal method with a body, a
+private field, and a bodyless private `extern` method are Body `Changed`
+only, the residual is `Changed` on both axes, and no IL is read; an added
+internal enum has Member rows all Body `Changed` and API `Unchanged`, and a
+residual API `Unchanged` and Body `Changed`;
 an undefined opcode reached before a difference in one method
 makes that Member Body `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
 name have no Type-level rows; a Member present on both sides carries both
 fingerprints, which differ after a nullable annotation change; an attribute
-added to an internal method changes no state; a Member is API `Changed`
+added to an internal method and a private field added to a public Type are
+each Body `Changed` for that Member and no API change; a Member is API `Changed`
 exactly when the complete Public API diff reports it changed, or reports its
 Type added or removed and the API axis surface admits the Member on the side
 where it admits the Type, and every other Member is API `Unchanged`, which
 covers a paired Type, a Type made internal, and a one-sided public or internal
 Type in one rule; for every Type present on both sides, every owner of a body
 that canonical IL comparison reports changed is Body `Changed` or
-`Indeterminate`, or the change is a residual Body change, and no other owner
-is Body `Changed`; and for a Type present on one side, an owner is Body
-`Changed` exactly when it owns a method with a body or is the residual.
+`Indeterminate`, or the change is a residual Body change, and every other
+owner Body `Changed` owns a declaration fact that differs; and for a Type
+present on one side, an owner is Body `Changed` exactly when the API axis
+surface does not admit it, it owns a method with a body, or it is the
+residual.
 `eng/measure-fast-diff.cs` reports
 NativeAOT time per Type for the largest changed Types of each measured pair.
 
@@ -685,9 +735,10 @@ Member Body inventory, which remains Library Compare's view.
 Two slices adopt the shared equality before step 7, which builds on both:
 
 - **Shared Body equality:** the Body axis walks IL with canonical equality
-  under the Body policy and compares no non-IL facts, gated per method against
-  canonical IL comparison and by the canonical encodings and dependency
-  versions pairs. It depends on the policy's normalization
+  under the Body policy and keeps the declaration census beside the walk,
+  gated per method against canonical IL comparison and by the canonical
+  encodings and dependency versions pairs. It depends on the policy's
+  normalization
   ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)), and
   in the same slice Member Body Diff's IL comparison requests the Body policy,
   gated by the dependency versions pair showing no IL row there either.
@@ -712,8 +763,8 @@ selection belong to the background analysis design that adopts this export.
 
 - Fast Diff does not define API semantics, canonical IL, or correspondence; it
   answers with the equality their owners define.
-- It does not report changes to the metadata of non-public Members or to
-  `beforefieldinit`; no Body view presents them.
+- It does not present the declaration facts it compares; the declaration
+  view of [Diff capabilities](diff-capabilities.md#axes) does.
 - It does not report referenced assembly or package version changes as Type
   changes; those versions are compared as candidates in their own right.
 - It does not report which change was found, counts, classifications, or text;

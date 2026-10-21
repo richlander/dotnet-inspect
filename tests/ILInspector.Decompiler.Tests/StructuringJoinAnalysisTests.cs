@@ -189,6 +189,55 @@ public class StructuringJoinAnalysisTests
         Assert.Empty(unrootedPlan.VirtualExitDecisions);
     }
 
+    [Fact]
+    public void SurvivingPathsNameTheMergeWhenAnArmExitsTheMethod()
+    {
+        // if (a) goto R; if (b) goto M; if (c) goto M; R: return; M: x = 1; return
+        // The ordinary post-dominator of every split is the method exit, but
+        // the paths that do not exit all rejoin at M.
+        var blocks = new List<Block>
+        {
+            Term(0, Cond(3)),
+            Term(1, Cond(4)),
+            Term(2, Cond(4)),
+            Term(3, new Return(null)),
+            Term(4, new StoreLocal(0, I32, new Constant(1, I32))),
+            Term(5, new Return(null)),
+        };
+
+        var plan = StructuringJoinAnalysis.Analyze(blocks);
+
+        Assert.Empty(plan.VirtualExitDecisions);
+        Assert.Empty(plan.UnrootedDecisions);
+        Assert.Equal(3, plan.ForwardRegions.Length);
+        Assert.All(plan.ForwardRegions, region =>
+        {
+            Assert.True(region.IsSurvivorMerge);
+            Assert.True(region.IsNonCrossing);
+            Assert.Equal(4, region.Merge);
+        });
+        Assert.Equal([2, 1, 0], plan.ForwardRegions.Select(region => region.Start));
+    }
+
+    [Fact]
+    public void SurvivorMergeRequiresTwoSurvivingPaths()
+    {
+        // if (a) return; x = 1; if (b) return; return — nothing rejoins.
+        var blocks = new List<Block>
+        {
+            Term(0, Cond(3)),
+            Term(1, new StoreLocal(0, I32, new Constant(1, I32))),
+            Term(2, Cond(4)),
+            Term(3, new Return(null)),
+            Term(4, new Return(null)),
+        };
+
+        var plan = StructuringJoinAnalysis.Analyze(blocks);
+
+        Assert.Empty(plan.ForwardRegions);
+        Assert.Equal([0, 2], plan.VirtualExitDecisions);
+    }
+
     static Block Term(int offset, IrNode terminator)
     {
         var block = new Block(offset);

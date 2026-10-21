@@ -1444,6 +1444,9 @@ test("production References shows an admitted package icon and opens its exact L
     "src", `data:image/svg+xml;base64,${icon}`);
   await expect(page.locator(
     ".reference-graph-section .graph-viewport")).toBeVisible();
+  await expect(page.locator(
+    '.reference-graph-section g.node[id*="-flowchart-r1-"] image[data-reference-package-icon]'))
+    .toHaveAttribute("href", `data:image/svg+xml;base64,${icon}`);
   await page.screenshot({ path: testInfo.outputPath("reference-package-icon.png") });
 
   await page.getByRole(
@@ -1457,6 +1460,24 @@ test("production References shows an admitted package icon and opens its exact L
     "true");
   await expect(page.locator(".library-overview-surface h1"))
     .toHaveText("Reference.Target");
+});
+
+test("external supplier icon arrives after direct References and updates its graph node", async ({ page }, testInfo) => {
+  await installFacades(page, surface, [], "external-supplier");
+  await openReferences(page);
+  const references = page.locator(".library-references-surface");
+  await expect(references.locator(".dep-list li")).toHaveCount(1);
+  await expect(references.locator(".graph-viewport")).toBeVisible();
+  await expect(references.locator("[data-library-reference-icon]")).toHaveCount(0);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reference-supplier-request", /Example.Package/);
+
+  await releaseFacade(page, "fixture-reference-suppliers-ready");
+  await expect(references.locator("[data-library-reference-icon]")).toHaveCount(1);
+  await expect(references.locator(
+    'g.node[id*="-flowchart-r1-"] image[data-reference-package-icon]'))
+    .toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath("external-reference-package-icon.png") });
 });
 
 test("Library navigation exposes the complete long Library name on hover", async ({ page }) => {

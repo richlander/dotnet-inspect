@@ -1050,6 +1050,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     breakingCount: 0,
     additiveCount: 0,
     potentiallyBreakingCount: 0,
+    nonBreakingCount: 0,
     before: {
       identifier,
       namespace: "Example",
@@ -1102,6 +1103,7 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
         breakingCount: 0,
         additiveCount: 0,
         potentiallyBreakingCount: 0,
+        nonBreakingCount: 0,
       },
       types: [type("Example.A\rB"), type("Example.A\nB")],
     },

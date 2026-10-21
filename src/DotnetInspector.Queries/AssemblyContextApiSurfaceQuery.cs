@@ -642,7 +642,8 @@ public static class AssemblyContextApiSurfaceQuery
                 "Unknown assembly context participant outcome."),
         };
 
-    static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
+    /// <summary>The extraction scope that projects <paramref name="scope"/>.</summary>
+    public static ApiSurfaceExtractionScope ExtractionScope(ApiSurfaceScope scope) => scope switch
     {
         ApiSurfaceScope.IncludeAll => ApiSurfaceExtractionScope.IncludeAll,
         ApiSurfaceScope.PublicWithNonPublicTypes =>

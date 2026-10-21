@@ -60,6 +60,20 @@ public class PrivateMemberAdded
     public int Value(int x) => x + 1;
 }
 
+// A private field added: a Body change, not an API change.
+public class PrivateFieldAdded
+{
+    public int Value(int x) => x + 1;
+}
+
+// A public method whose only change is in the private method it calls.
+public class PrivateCalleeChanged
+{
+    public int Value(int x) => Helper(x);
+
+    private int Helper(int x) => x + 1;
+}
+
 public class PublicMemberAdded
 {
     public int Value(int x) => x + 1;
@@ -215,5 +229,78 @@ public class NestedProtectedToPublic
 {
     protected class Nested
     {
+    }
+}
+
+// Accessibility moves that leave or stay outside the API axis.
+public class PublicToInternal
+{
+    public int Value(int x) => x;
+}
+
+public class PublicToPrivate
+{
+    public int Value(int x) => x;
+}
+
+public class ProtectedToInternal
+{
+    protected int Value(int x) => x;
+}
+
+public class InternalToPrivate
+{
+    internal int Value(int x) => x;
+}
+
+public class ProtectedToPrivateProtected
+{
+    protected int Value(int x) => x;
+}
+
+public class PublicTypeToInternal
+{
+}
+
+public class PropertyPublicToProtected
+{
+    public int Value { get; set; }
+}
+
+// A whole property with a narrower accessor moves; only its accessibility changes.
+public class PropertyWithPrivateSetterPublicToProtected
+{
+    public int Value { get; private set; }
+}
+
+// Changes wholly outside the API axis.
+public class PrivateMemberRemoved
+{
+    public int Value(int x) => x;
+
+    private int Helper() => 0;
+}
+
+public class PrivateMemberChanged
+{
+    public int Value(int x) => Helper(x);
+
+    private int Helper(int x) => x;
+}
+
+internal class InternalTypeRemoved
+{
+}
+
+internal class InternalTypeMemberChanged
+{
+    public int Value(int x) => x;
+}
+
+internal class InternalOuterNestedMemberChanged
+{
+    public class Nested
+    {
+        public int Value(int x) => x;
     }
 }

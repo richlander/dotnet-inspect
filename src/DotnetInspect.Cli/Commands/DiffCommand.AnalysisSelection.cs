@@ -1157,13 +1157,16 @@ public partial class DiffCommand
         int additive = classified.Sum(type => type.AdditiveCount);
         int potentiallyBreaking =
             classified.Sum(type => type.PotentiallyBreakingCount);
+        int nonBreaking = classified.Sum(type => type.NonBreakingCount);
         string counts =
             breaking == 0 && additive == 0 && potentiallyBreaking == 0
+                && nonBreaking == 0
                 ? "unclassified API changes"
                 : DiffOutputFormatter.FormatSummaryCounts(
                     breaking,
                     additive,
-                    potentiallyBreaking);
+                    potentiallyBreaking,
+                    nonBreaking);
         return $"{counts} across {typeCount} types";
     }
 

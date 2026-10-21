@@ -115,6 +115,7 @@ function context(
     breakingCount: 1,
     additiveCount: 0,
     potentiallyBreakingCount: 0,
+    nonBreakingCount: 0,
     before: {
       identifier: "Example.Widget",
       namespace: "Example",
@@ -153,6 +154,7 @@ function context(
       breakingCount: 1,
       additiveCount: 0,
       potentiallyBreakingCount: 0,
+      nonBreakingCount: 0,
     },
     types: [type],
   };

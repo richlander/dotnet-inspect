@@ -271,6 +271,17 @@ public sealed class StructuringPass : IIrPass
         int[] RetainedMerges,
         bool AllowRetainedMergeWithinLoop = false);
 
+    /// <summary>How a flat gap around the planned retained ranges was handled.</summary>
+    enum GapBuild
+    {
+        /// <summary>The gap did not validate on its own; its blocks stay flat.</summary>
+        Flat,
+        /// <summary>The gap was built as an ordinary region (possibly empty).</summary>
+        Built,
+        /// <summary>The built gap failed its ownership proof after mutation; the transaction must decline.</summary>
+        Unproven,
+    }
+
     public void Run(IrFunction function, PassContext context)
     {
         if (!function.Regions.IsEmpty)
@@ -496,14 +507,80 @@ public sealed class StructuringPass : IIrPass
                 range.AllowRetainedMergeWithinLoop))
             .ToList();
 
+        // A flat gap before, between, or after the selected ranges is built as
+        // an ordinary nested region when it validates on its own against the
+        // next range start (or the container end) as its join; otherwise its
+        // blocks stay flat with their labels. Gaps are planned before any
+        // mutation so a declined gap never leaves a half-built container.
+        var gapContexts = new Dictionary<int, Ctx>();
+        {
+            var rangeBlocks = new HashSet<int>();
+            foreach (var range in ranges)
+            {
+                for (int index = range.Start; index < range.Stop; index++)
+                    rangeBlocks.Add(index);
+            }
+
+            int gapCursor = 0;
+            foreach (var range in ranges.Append(new RetainedRange(clonedBlocks.Count, clonedBlocks.Count, [])))
+            {
+                if (gapCursor < range.Start)
+                {
+                    var gapCtx = CopyRetainedCtx(template, [], allowRetainedMergeWithinLoop: false);
+                    if (!GapHasExternalEntry(template, rangeBlocks, gapCursor, range.Start)
+                        && Validate(gapCtx, gapCursor, range.Start, joinIndex: range.Start, breakTarget: null, continueTarget: null))
+                    {
+                        gapContexts[gapCursor] = gapCtx;
+                    }
+                }
+                gapCursor = range.Stop;
+            }
+        }
+
         var replacement = new BlockContainer
         {
             ContainsRetainedBranches = true,
         };
         int cursor = 0;
+        // Building mutates the gap's cloned blocks, so a gap whose built region
+        // fails the ownership proof cannot fall back to its flat blocks; the
+        // whole transaction declines instead and the source container stays.
+        GapBuild TryBuildGap(int gapStart, int gapStop)
+        {
+            if (!gapContexts.TryGetValue(gapStart, out var gapCtx))
+                return GapBuild.Flat;
+            var builtGap = BuildRegion(gapCtx, gapStart, gapStop, joinIndex: gapStop, breakTarget: null, continueTarget: null);
+            if (gapCtx.CandidateOwnershipUnsafe
+                || HasDanglingInternalLeaveTarget(gapCtx, builtGap, gapStart, gapStop))
+            {
+                return GapBuild.Unproven;
+            }
+            // A gap whose only transfer was the goto onto the next range
+            // dissolves into fallthrough. When nothing targets its start it
+            // leaves nothing to print; when a retained goto does, the anchor
+            // alone carries the label (printed as a labelled empty statement).
+            int gapOffset = clonedBlocks[gapStart].StartOffset;
+            bool isTarget = template.FlowFacts.BranchTargets.Contains(gapOffset);
+            if (builtGap.Children.Count == 0 && !isTarget)
+                return GapBuild.Built;
+            if (isTarget)
+                builtGap = AnchorRetainedLabel(builtGap, gapOffset);
+            replacement.Add(builtGap);
+            return GapBuild.Built;
+        }
         for (int rangeIndex = 0; rangeIndex < ranges.Count; rangeIndex++)
         {
             var range = ranges[rangeIndex];
+            switch (TryBuildGap(cursor, range.Start))
+            {
+                case GapBuild.Built:
+                    cursor = range.Start;
+                    break;
+                case GapBuild.Unproven:
+                    pendingRetainedDeclines?.Add("retained-gap-ownership-unproven");
+                    PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
+                    return false;
+            }
             while (cursor < range.Start)
                 replacement.Add(clonedBlocks[cursor++]);
 
@@ -535,10 +612,23 @@ public sealed class StructuringPass : IIrPass
                 PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
                 return false;
             }
+            int rangeOffset = clonedBlocks[range.Start].StartOffset;
+            if (template.FlowFacts.BranchTargets.Contains(rangeOffset))
+                built = AnchorRetainedLabel(built, rangeOffset);
             replacement.Add(built);
             cursor = range.Stop;
         }
 
+        switch (TryBuildGap(cursor, clonedBlocks.Count))
+        {
+            case GapBuild.Built:
+                cursor = clonedBlocks.Count;
+                break;
+            case GapBuild.Unproven:
+                pendingRetainedDeclines?.Add("retained-gap-ownership-unproven");
+                PublishRetainedDeclines(context.StructuringDiagnostics, pendingRetainedDeclines);
+                return false;
+        }
         while (cursor < clonedBlocks.Count)
             replacement.Add(clonedBlocks[cursor++]);
 
@@ -631,6 +721,26 @@ public sealed class StructuringPass : IIrPass
 
         foreach (string decline in retainedDeclines)
             diagnostics.RecordRetainedDecline(decline);
+    }
+
+    /// <summary>
+    /// Gives a built region that starts at a transfer target a dedicated label
+    /// owner. The built region's first statement may carry the start offset,
+    /// but a later expression or sugar pass can consume that statement and
+    /// with it the only owner of a label that retained gotos still target; the
+    /// anchor prints nothing by itself and survives those passes. The printer
+    /// emits each label once, so a first statement that also owns the offset
+    /// renders no duplicate.
+    /// </summary>
+    static Block AnchorRetainedLabel(Block built, int offset)
+    {
+        var anchored = new Block(offset);
+        var anchor = new LabelAnchor();
+        anchor.SetSourceOffset(offset);
+        anchored.Add(anchor);
+        foreach (var statement in built.DetachChildren())
+            anchored.Add(statement);
+        return anchored;
     }
 
     static RetainedRange? TryPlanRetainedLoopRange(
@@ -829,6 +939,11 @@ public sealed class StructuringPass : IIrPass
                 if ((target < candidate.Start || target >= candidate.Merge)
                     && target != candidate.Merge)
                 {
+                    // A short shared terminator past the region is cloned into
+                    // its guard by validation, exactly as the whole-container
+                    // path does; it never needs a label inside the range.
+                    if (target > source && IsInlinableTerminator(ctx, target))
+                        continue;
                     return "retained-transfer-outside-region";
                 }
             }
@@ -837,6 +952,35 @@ public sealed class StructuringPass : IIrPass
         if (!IsSharedMerge(ctx, candidate.Start, candidate.Merge))
             return "retained-merge-not-shared";
         return null;
+    }
+
+    /// <summary>
+    /// A block strictly inside a gap that a transfer from outside the gap still
+    /// targets must keep its own flat label, so such a gap is not built. The one
+    /// exception is a short shared terminator targeted from a planned range:
+    /// that range's validation clones the terminator into its guard, so the
+    /// transfer never prints and needs no label.
+    /// </summary>
+    static bool GapHasExternalEntry(Ctx ctx, HashSet<int> rangeBlocks, int start, int stop)
+    {
+        for (int source = 0; source < ctx.Blocks.Count; source++)
+        {
+            if (source >= start && source < stop)
+                continue;
+            foreach (int targetOffset in TransferTargets(ctx.Blocks[source]))
+            {
+                if (!ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
+                    || target <= start
+                    || target >= stop)
+                {
+                    continue;
+                }
+                if (rangeBlocks.Contains(source) && IsInlinableTerminator(ctx, target))
+                    continue;
+                return true;
+            }
+        }
+        return false;
     }
 
     static bool RegionHasExternalEntry(Ctx ctx, int start, int merge)
@@ -3056,31 +3200,27 @@ public sealed class StructuringPass : IIrPass
                     }
                     if (ctx.RetainedMergeIndices.Contains(target))
                     {
-                        if (ctx.AllowRetainedMergeWithinLoop)
+                        // A conditional transfer to a retained merge keeps its
+                        // own node instead of becoming an IfStatement around a
+                        // synthesized Branch: partial structuring must not
+                        // create an output-only transfer identity. A synthesized
+                        // conditional inherits the offset of the chain it folded,
+                        // so it still names the imported transfer it replaced.
+                        if (result.Children.Count == resultStart
+                            && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
+                            && conditional.SourceOffset >= 0
+                            && conditional.SourceOffset != block.StartOffset)
                         {
-                            if (result.Children.Count == resultStart
-                                && ctx.FlowFacts.BranchTargets.Contains(block.StartOffset)
-                                && conditional.SourceOffset >= 0
-                                && conditional.SourceOffset != block.StartOffset)
-                            {
-                                var anchor = new LabelAnchor();
-                                anchor.SetSourceOffset(block.StartOffset);
-                                result.Add(anchor);
-                            }
-                            var retainedConditional = new ConditionalBranch(
-                                condition,
-                                conditional.TargetOffset,
-                                conditional.Origin);
-                            retainedConditional.InheritSourceOffset(conditional);
-                            result.Add(retainedConditional);
-                            i++;
-                            break;
+                            var anchor = new LabelAnchor();
+                            anchor.SetSourceOffset(block.StartOffset);
+                            result.Add(anchor);
                         }
-                        var gotoArm = new Block(block.StartOffset);
-                        var retainedBranch = new Branch(conditional.TargetOffset);
-                        retainedBranch.InheritSourceOffset(conditional);
-                        gotoArm.Add(retainedBranch);
-                        result.Add(new IfStatement(condition, gotoArm, null));
+                        var retainedConditional = new ConditionalBranch(
+                            condition,
+                            conditional.TargetOffset,
+                            conditional.Origin);
+                        retainedConditional.InheritSourceOffset(conditional);
+                        result.Add(retainedConditional);
                         i++;
                         break;
                     }

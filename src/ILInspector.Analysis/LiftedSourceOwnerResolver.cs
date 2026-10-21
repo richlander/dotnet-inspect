@@ -1325,6 +1325,35 @@ internal sealed class LiftedSourceOwnerResolver
                 () => BuildMethodBodyReferences(handle),
                 LazyThreadSafetyMode.ExecutionAndPublication)).Value;
 
+    /// <summary>
+    /// Records the call and function-pointer operands of a body the source
+    /// already acquired during traversal, so the relation reads them without
+    /// probing that body again. A body whose operands cannot be read keeps
+    /// that failure for the relation to observe.
+    /// </summary>
+    internal void RecordTraversedBodyReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body)
+    {
+        var references = new Lazy<MethodBodyReferenceEvidence>(
+            () => body is null
+                ? EmptyMethodBodyReferences()
+                : ReadMethodBodyReferences(methodHandle, method, body),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        if (!_methodBodyReferences.TryAdd(methodHandle, references))
+            return;
+        try
+        {
+            _ = references.Value;
+        }
+        catch (Exception ex)
+            when (AnalysisMethodFailures.IsRecoverable(ex))
+        {
+            // The cached failure replays when the relation reads this body.
+        }
+    }
+
     MethodBodyReferenceEvidence BuildMethodBodyReferences(
         MethodDefinitionHandle methodHandle)
     {
@@ -1332,15 +1361,7 @@ internal sealed class LiftedSourceOwnerResolver
         MethodDefinition method =
             _reader.GetMethodDefinition(methodHandle);
         if (method.RelativeVirtualAddress == 0)
-        {
-            return new(
-                new HashSet<int>(),
-                new HashSet<int>(),
-                new HashSet<MethodReferenceKey>(
-                    MethodReferenceKeyComparer.Instance),
-                null,
-                null);
-        }
+            return EmptyMethodBodyReferences();
 
         int methodToken = MetadataTokens.GetToken(methodHandle);
         using ImplementationMetricExecutionRecorder.StageAttempt?
@@ -1361,6 +1382,26 @@ internal sealed class LiftedSourceOwnerResolver
         _generatedExpansionWork?.RecordProbeEncodedIlBytes(
             methodHandle,
             encodedIlBytes);
+        MethodBodyReferenceEvidence references =
+            ReadMethodBodyReferences(methodHandle, method, body);
+        attributionProbe?.Complete();
+        return references;
+    }
+
+    static MethodBodyReferenceEvidence EmptyMethodBodyReferences() =>
+        new(
+            new HashSet<int>(),
+            new HashSet<int>(),
+            new HashSet<MethodReferenceKey>(
+                MethodReferenceKeyComparer.Instance),
+            null,
+            null);
+
+    MethodBodyReferenceEvidence ReadMethodBodyReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock body)
+    {
         var calledDefinitions = new HashSet<int>();
         var referencedDefinitions = new HashSet<int>();
         var referencedMembers = new HashSet<MethodReferenceKey>(
@@ -1453,7 +1494,6 @@ internal sealed class LiftedSourceOwnerResolver
             }
             return true;
         });
-        attributionProbe?.Complete();
         return new(
             calledDefinitions,
             referencedDefinitions,

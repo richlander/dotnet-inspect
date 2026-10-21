@@ -48,7 +48,9 @@ settled lane keeps its result when a later lane aborts or encounters source
 failure, and source failure reaches only active lanes whose type scope required
 the failed enumeration. Sparse breadth and incompatible requests remain
 separate groups. Exact-method and exact-type requests may opt into bounded
-generated execution-body expansion. The source uses targeted nested metadata
+generated execution-body expansion, and an all-definition request may declare
+the [declared-source relation](#declared-source-relation), which settles at
+source completion in its own lane. The source uses targeted nested metadata
 for state-machine bodies and the existing lifted ownership authority for
 bounded body-dependent discovery; its receipt separates candidate definitions,
 probe bodies and bytes, relationship nodes, and
@@ -324,7 +326,9 @@ completion, never successful exhaustion.
 ### Declared-source relation
 
 Status: exact breadth implements roles, nested-type reach, unauthenticated
-candidates, and retained-prefix bounds.
+candidates, and retained-prefix bounds. All-definition breadth implements the
+reverse lowering described below, with its own operand scan of each acquired
+body.
 
 - `IncludeGeneratedExecutionBodies` takes the requested
   `MethodDefinitionGeneratedBodyRoles`, defaulting to Execution, and
@@ -345,11 +349,18 @@ candidates, and retained-prefix bounds.
   relation's work and outcomes stay in the expansion receipt. A breadth that
   declares no expansion carries no relation, and reading it throws
   `ProducerContractException`.
+- Over all-definition breadth, `IncludeGeneratedExecutionBodies` declares the
+  relation and leaves breadth unchanged. It takes no unauthenticated
+  candidates, because every body is already visited. Its default bounds,
+  `MethodDefinitionGeneratedExpansionLimits.AllDefinitions`, are sized to the
+  metadata tables. A producer reads each unit's outcome at completion through
+  `MethodDefinitionCompletionView.DeclaredSourceOf`; reading it during a visit
+  throws `ProducerContractException`.
+- A request that declares the all-definition relation keeps its own lane,
+  because a shared traversal carries no relation. Its module lookup composes
+  its own attribution, so no unit visit charges the pending relation's work.
 
-The all-definition reverse lowering is the target design for
-[#9864](https://github.com/richlander/dotnet-inspect/issues/9864) and is
-**unverified**. Today expansion applies only to exact breadth. A reached
-bound keeps the retained prefix, as
+A reached bound keeps the retained prefix, as
 [Completion, failure, bounds, and cancellation](#completion-failure-bounds-and-cancellation)
 describes.
 
@@ -427,19 +438,42 @@ other's cost class:
   State-machine edges come from one declaration-depth scan of state-machine
   attributes. Lifted edges come from the call and function-pointer operands
   recorded during the same forward traversal, and the owner closure settles
-  at source completion. A producer that already decodes instructions adds no
-  second body pass. A request whose producers do not need instructions
-  declares that operand demand itself, and the receipt records it as relation
-  work.
+  at source completion. The settled closure is the sparse forward walk from
+  every user type's methods, where a user type is neither compiler-generated
+  nor nested in one, reading the recorded operands instead of probing bodies.
+  A body a producer already acquired is not read again. A body no producer
+  acquired, as when the producers need no instructions, is read by the
+  relation itself. The receipt records both as relation work:
+  `TraversalReferenceBodies`, `TraversalReferenceBodiesAcquired`, and
+  `TraversalReferenceEncodedIlBytes`. Settling probes only bodies traversal
+  did not record, such as those after an early stop. The relation still scans
+  operands itself. Sharing a producer's instruction decode, so that a
+  producer that already decodes instructions adds no second operand pass, is
+  **unverified**.
 
 Over all-definition breadth the relation is therefore a source-completion
-fact. A producer reads it in `Complete`, not during a unit visit, and a
-request that reads it runs to exhaustion rather than settling early. Over
-exact breadth it is also available during the visit.
+fact. A producer reads it in `Complete`, not during a unit visit. A producer
+whose visits stop early at a settled terminal still reads the whole-module
+relation: settling probes the bodies traversal left unvisited, and a bound
+or failure at settle reaches that producer too, so it completes
+`SourceBounded` or fails with the source. Over exact breadth the relation is
+also available during the visit.
 
 Both lowerings publish the same origins for the same declared owners. That
 equivalence is a required gate, the first gate of
-[#9864](https://github.com/richlander/dotnet-inspect/issues/9864). A host that retains a session may keep the
+[#9864](https://github.com/richlander/dotnet-inspect/issues/9864):
+`AllDefinitionRelationEqualsTheExactTypeUnion` compares the all-definition
+origins, attributed methods outside the requested roles, and unauthenticated
+candidates with the union of the exact-type expansions over every user type.
+It runs over the unsafe fixtures, the Analysis test assembly, the iterator
+fixture, and System.Text.Json. `AllDefinitionRelationReadsTraversalOperandsWithoutProbes`,
+`AllDefinitionRelationScansTheBodyAProducerAcquired`,
+`AllDefinitionRelationIsNotReadableDuringAVisit`,
+`AllDefinitionRelationBoundReachesAProducerThatStoppedEarly`,
+`AllDefinitionRelationDeclaresNoCandidatesAndModuleBounds`, and
+`Plan_KeepsAllDefinitionRelationRequestsInTheirOwnLanes` gate the receipts,
+the completion-only read, a bound reaching an early-stopped producer, the
+declaration, and the lane rule. A host that retains a session may keep the
 reverse relation as a typed prepared resource only when measured repeat
 requests amortize its preparation.
 

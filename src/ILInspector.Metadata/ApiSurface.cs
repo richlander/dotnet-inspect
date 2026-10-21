@@ -305,6 +305,17 @@ public class ApiSurface
     }
 
     /// <summary>
+    /// Keeps this merged surface's <see cref="ExtractionScope"/>, the scope its merge
+    /// requested, only while each contributor was extracted with that same scope; a
+    /// contributor of another scope leaves the merged surface with none.
+    /// </summary>
+    public void MergeExtractionScope(ApiSurfaceExtractionScope? contributorScope)
+    {
+        if (ExtractionScope != contributorScope)
+            ExtractionScope = null;
+    }
+
+    /// <summary>
     /// Adds one assembly's surface to this merged surface: its Types, type
     /// forwarders, inspection failures, and counts. The caller orders the
     /// merged Types once every assembly is added.
@@ -312,6 +323,7 @@ public class ApiSurface
     public void MergeAssemblySurface(ApiSurface surface)
     {
         ArgumentNullException.ThrowIfNull(surface);
+        MergeExtractionScope(surface.ExtractionScope);
         Types.AddRange(surface.Types);
         TypeForwarders.AddRange(surface.TypeForwarders);
         IsTypeForwardingAssembly |= surface.IsTypeForwardingAssembly;
@@ -894,6 +906,14 @@ public class ApiType
     /// serialized surfaces; C# rendering preserves that compatibility fallback.
     /// </summary>
     public string? Accessibility { get; set; }
+
+    /// <summary>
+    /// Whether another assembly can reach every Type enclosing this one: each is public, or a
+    /// nested public, protected, or protected internal Type. True for a top-level Type. Null
+    /// when not recorded; only an include-all extraction records it.
+    /// </summary>
+    [JsonIgnore]
+    public bool? EnclosingTypesExternallyReachable { get; set; }
 
     [JsonIgnore]
     public bool IsHidden { get; set; }

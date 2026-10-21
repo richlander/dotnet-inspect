@@ -1455,6 +1455,14 @@ public sealed record BrowserAssemblyReference(
     string? Culture,
     string? PublicKeyToken);
 
+public sealed record BrowserReferencePackageSupplier(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken,
+    string? PackageId,
+    string? PackageVersion);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserDependencyCoordinateProvenance>))]
 public enum BrowserDependencyCoordinateProvenance
 {
@@ -1528,6 +1536,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserReferencePackageSupplier[]))]
 [JsonSerializable(typeof(BrowserPackageHierarchy))]
 [JsonSerializable(typeof(BrowserLibraryQueryInspection))]
 [JsonSerializable(typeof(BrowserPackageVulnerabilityResult))]

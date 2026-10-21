@@ -172,6 +172,34 @@ internal sealed class DeclaredSourceAttribution
     }
 
     /// <summary>
+    /// Records a traversed body's call and function-pointer operands for the
+    /// all-definition relation, which settles at source completion.
+    /// </summary>
+    internal void RecordTraversedBodyReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body,
+        bool acquiredByRelation)
+    {
+        if (GeneratedExpansionWork is null)
+        {
+            throw new InvalidOperationException(
+                "Generated expansion work was not configured.");
+        }
+
+        if (body is not null)
+        {
+            GeneratedExpansionWork.RecordTraversalReferenceBody(
+                body.GetILReader().Length,
+                acquiredByRelation);
+        }
+        LiftedSourceOwnerResolver.RecordTraversedBodyReferences(
+            methodHandle,
+            method,
+            body);
+    }
+
+    /// <summary>
     /// The module's TypeDefs by full metadata name, built once; a name defined
     /// more than once maps to a nil handle.
     /// </summary>

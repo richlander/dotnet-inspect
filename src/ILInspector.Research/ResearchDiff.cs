@@ -1489,7 +1489,12 @@ public static partial class ResearchDiff
             return null;
 
         var assemblies = new List<ResolvedAssemblyReference>();
-        var merged = new ApiSurface();
+        var merged = new ApiSurface
+        {
+            ExtractionScope = includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
+        };
         foreach (string path in input.AssemblyPaths)
         {
             try
@@ -1586,6 +1591,7 @@ public static partial class ResearchDiff
         ApiSurface destination,
         ApiSurface source)
     {
+        destination.MergeExtractionScope(source.ExtractionScope);
         destination.Types.AddRange(source.Types);
         destination.MergeInspectionFailuresFrom(source);
     }

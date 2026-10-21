@@ -40,6 +40,14 @@ public sealed class MethodDefinitionExecution
     MethodDefinitionDeclaredSources? _declaredSources;
 
     /// <summary>
+    /// The attribution that records traversed bodies' operands while an
+    /// all-definition relation is pending; null once it settles or when the
+    /// breadth declares none.
+    /// </summary>
+    DeclaredSourceAttribution? _pendingRelation;
+    MethodDefinitionGeneratedExpansionWork? _pendingRelationWork;
+
+    /// <summary>
     /// The physical group's receipt when this execution is one lane of a
     /// shared traversal; otherwise this execution's own receipt.
     /// </summary>
@@ -94,11 +102,19 @@ public sealed class MethodDefinitionExecution
     internal MethodBodyAnalyzerPlan? InstructionPlan => _instructionPlan;
 
     /// <summary>
-    /// The declared-source outcome of each unit, present exactly when the
-    /// breadth declared generated-body expansion.
+    /// The declared-source outcome of each unit, present when the breadth
+    /// declared generated-body expansion and the relation has settled: before
+    /// traversal over exact breadth, and at source completion over
+    /// all-definition breadth.
     /// </summary>
     internal MethodDefinitionDeclaredSources? DeclaredSources =>
         _declaredSources;
+
+    /// <summary>
+    /// Whether the breadth declared a relation that settles at source
+    /// completion and has not settled yet.
+    /// </summary>
+    internal bool DeclaredSourcesPending => _pendingRelation is not null;
 
     internal int CurrentOrdinal { get; private set; } = -1;
 
@@ -252,7 +268,12 @@ public sealed class MethodDefinitionExecution
                 : null;
         // Expansion needs only declared-source attribution. The module lookup
         // still runs on the legacy builder, which then shares the same
-        // attribution and its caches.
+        // attribution and its caches over exact breadth, where the relation
+        // settles first. A pending all-definition relation keeps its work
+        // apart from the lookup's, so no unit visit charges it.
+        bool relationPending =
+            generatedExpansion
+            && breadth.Kind == MethodDefinitionSourceBreadthKind.AllDefinitions;
         DeclaredSourceAttribution? attribution =
             generatedExpansion
                 ? new DeclaredSourceAttribution(
@@ -269,7 +290,7 @@ public sealed class MethodDefinitionExecution
                 peReader,
                 bindingPolicy: referenceBinding?.Policy,
                 rootAssembly: referenceBinding?.Subject,
-                attribution: attribution)
+                attribution: relationPending ? null : attribution)
             : null;
         execution._lookup =
             lookupDeclared
@@ -279,7 +300,15 @@ public sealed class MethodDefinitionExecution
         LibraryMethodAnalysisRunner? lookup = execution.Lookup;
         int unitsVisited = 0;
 
-        if (generatedExpansion)
+        if (relationPending)
+        {
+            // Every body is already in breadth, so the relation adds none. It
+            // reads the operands traversal records and settles at source
+            // completion.
+            execution._pendingRelation = attribution;
+            execution._pendingRelationWork = expansionWork;
+        }
+        else if (generatedExpansion)
         {
             try
             {
@@ -302,7 +331,7 @@ public sealed class MethodDefinitionExecution
                     MethodDefinitionSourceBreadth.ExactMethods(
                         expansion.Methods);
                 if (expansion.Bound is { } bound)
-                    execution.BoundActiveSource(bound);
+                    execution.BoundRelationReaders(bound);
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
@@ -349,6 +378,7 @@ public sealed class MethodDefinitionExecution
                 if (visiting.Length != 1
                     || breadth.Kind
                         != MethodDefinitionSourceBreadthKind.AllDefinitions
+                    || execution._pendingRelation is not null
                     || visiting[0].HasDependencies
                     || visiting[0].RetainsFacts
                     || !visiting[0].TryRunKernel(
@@ -368,6 +398,8 @@ public sealed class MethodDefinitionExecution
                 unitsVisited = Math.Max(unitsVisited, passUnits);
             }
 
+            if (execution._pendingRelation is not null)
+                execution.SettleAllDefinitionRelation(reader);
             foreach (int completion in pass.Completions)
                 execution.CompleteProducer(execution._states[completion]);
         }
@@ -956,11 +988,20 @@ public sealed class MethodDefinitionExecution
     }
 
     /// <summary>
-    /// Marks every active producer as running over the retained prefix of a
-    /// bounded expansion. The producers still visit that prefix and complete;
-    /// their outcome becomes <see cref="ProducerOutcome.SourceBounded"/>.
+    /// Whether the producer will still complete and so reads the relation:
+    /// it is active, or its visits stopped at a settled terminal.
     /// </summary>
-    void BoundActiveSource(
+    static bool ReadsRelation(ProducerState state) =>
+        state.IsActive || state.Outcome is ProducerOutcome.Stopped;
+
+    /// <summary>
+    /// Marks every producer that reads the relation as running over the
+    /// retained prefix of a bounded expansion. The producers still visit that
+    /// prefix and complete; their outcome becomes
+    /// <see cref="ProducerOutcome.SourceBounded"/>, including a producer that
+    /// stopped early, because it answered only over the prefix.
+    /// </summary>
+    void BoundRelationReaders(
         MethodDefinitionGeneratedExpansionBoundException bound)
     {
         // The bound is source work, not a unit; its subject token stays in
@@ -969,7 +1010,7 @@ public sealed class MethodDefinitionExecution
         string message = ProducerFailure.Describe(bound);
         foreach (ProducerState state in _states)
         {
-            if (!state.IsActive)
+            if (!ReadsRelation(state))
                 continue;
 
             state.SourceBounded = true;
@@ -1386,11 +1427,110 @@ public sealed class MethodDefinitionExecution
             SelectRequest(ref unit, methodHandle);
             visited++;
             PassUnitsVisited = visited;
-            if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
+            bool anyActive =
+                VisitPreparedUnit(visiting, ref unit, methodHandle);
+            if (_pendingRelation is not null)
+                RecordRelationReferences(ref unit);
+            if (!anyActive)
                 return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Records the visited unit's call and function-pointer operands for the
+    /// pending relation, from the body a producer already acquired or, when
+    /// none did, from the relation's own read of it.
+    /// </summary>
+    void RecordRelationReferences(ref MethodDefinitionUnit unit)
+    {
+        try
+        {
+            MethodDefinition method = unit.MethodDefinition;
+            MethodBodyBlock? body = null;
+            bool acquiredByRelation = false;
+            if (method.RelativeVirtualAddress != 0)
+            {
+                body = unit.AcquiredBody;
+                if (body is null)
+                {
+                    body = unit.AcquireRelationBody();
+                    acquiredByRelation = true;
+                }
+            }
+            _pendingRelation!.RecordTraversedBodyReferences(
+                unit.MethodHandle,
+                method,
+                body,
+                acquiredByRelation);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // An unreadable body stays unrecorded; settling probes it, and
+            // that probe observes the same failure.
+        }
+    }
+
+    /// <summary>
+    /// Settles the all-definition relation at source completion: the sparse
+    /// expansion from every user type's methods, reading the operands
+    /// traversal recorded. A reached bound keeps the retained prefix.
+    /// </summary>
+    void SettleAllDefinitionRelation(MetadataReader reader)
+    {
+        DeclaredSourceAttribution attribution = _pendingRelation!;
+        MethodDefinitionGeneratedExpansionWork work = _pendingRelationWork!;
+        _pendingRelation = null;
+        _pendingRelationWork = null;
+        try
+        {
+            var userTypes =
+                ImmutableArray.CreateBuilder<TypeDefinitionHandle>();
+            var userMethods =
+                ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+            foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+            {
+                if (attribution.PrimaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(typeHandle))
+                {
+                    continue;
+                }
+                userTypes.Add(typeHandle);
+                userMethods.AddRange(
+                    reader.GetTypeDefinition(typeHandle).GetMethods());
+            }
+
+            MethodDefinitionGeneratedExpansionResult relation =
+                attribution.ExpandGeneratedExecutionBodies(
+                    userMethods.ToImmutable(),
+                    _breadth.GeneratedRoles,
+                    userTypes.ToImmutable());
+            _sourceCoverage.RecordGeneratedExpansion(relation.Coverage);
+            _declaredSources =
+                new MethodDefinitionDeclaredSources(relation.Coverage);
+            if (relation.Bound is { } bound)
+                BoundRelationReaders(bound);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            work.Settle();
+            _sourceCoverage.RecordGeneratedExpansion(work.Build());
+            _declaredSources =
+                new MethodDefinitionDeclaredSources(
+                    MethodDefinitionGeneratedExpansionCoverage.Empty);
+            // A producer that stopped early still reads the relation at
+            // completion, so the failure is its source failure too.
+            foreach (ProducerState state in _states)
+            {
+                if (ReadsRelation(state))
+                    FailSource(state, 0, GeneratedExpansionLabel, ex);
+            }
+        }
     }
 
     void SelectRequest(

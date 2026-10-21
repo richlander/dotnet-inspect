@@ -665,15 +665,24 @@ public readonly ref struct MethodDefinitionView
 
     /// <summary>
     /// The unit's outcome in the declared-source relation, settled before
-    /// traversal. Only a breadth that declares generated-body expansion
-    /// carries the relation.
+    /// traversal over exact breadth. Only a breadth that declares generated-body
+    /// expansion carries the relation; over all-definition breadth it settles
+    /// at source completion, so a visit cannot read it.
     /// </summary>
     internal MethodDefinitionDeclaredSource DeclaredSource
     {
         get
         {
+            MethodDefinitionExecution execution = Producer.Execution;
+            if (execution.DeclaredSourcesPending)
+            {
+                throw new ProducerContractException(
+                    $"Producer '{_owner}' read the declared-source relation "
+                    + "during a visit, but over all-definition breadth it "
+                    + "settles at source completion.");
+            }
             MethodDefinitionDeclaredSources sources =
-                Producer.Execution.DeclaredSources
+                execution.DeclaredSources
                 ?? throw new ProducerContractException(
                     $"Producer '{_owner}' read the declared-source "
                     + "relation, but its breadth declares no generated-body "
@@ -1188,10 +1197,28 @@ public readonly ref struct MethodDefinitionCompletionView
     }
 
     /// <summary>
-    /// Whether the producer visited only the retained prefix of a bounded
-    /// generated-body expansion. Reading it does no source work.
+    /// Whether a declared bound stopped the relation before it settled: over
+    /// exact breadth the producer visited only the retained prefix, and over
+    /// all-definition breadth the outcomes are that prefix. Reading it does
+    /// no source work.
     /// </summary>
     internal bool IsSourceBounded => _producer.SourceBounded;
+
+    /// <summary>
+    /// A visited unit's outcome in the settled declared-source relation.
+    /// Reading it does no source work.
+    /// </summary>
+    internal MethodDefinitionDeclaredSource DeclaredSourceOf(
+        MethodDefinitionHandle method)
+    {
+        MethodDefinitionDeclaredSources sources =
+            _producer.Execution.DeclaredSources
+            ?? throw new ProducerContractException(
+                $"Producer '{_producer.Producer.Identity}' read the "
+                + "declared-source relation, but its breadth declares no "
+                + "generated-body expansion.");
+        return sources.Of(method);
+    }
 }
 
 /// <summary>
@@ -1420,6 +1447,17 @@ internal struct MethodDefinitionUnit(
                 methodDefinition);
         }
     }
+
+    /// <summary>The body a producer already acquired for this unit, if any.</summary>
+    public readonly MethodBodyBlock? AcquiredBody => _body;
+
+    /// <summary>
+    /// Reads the unit's body for the declared-source relation alone. It is
+    /// relation work, receipted with the relation, not terminal admission.
+    /// </summary>
+    public MethodBodyBlock AcquireRelationBody() =>
+        _body ??= _peReader.GetMethodBody(
+            MethodDefinition.RelativeVirtualAddress);
 
     public MethodBodyBlock GetBody()
     {

@@ -14,7 +14,12 @@ public enum ChangeClassification
     /// <summary>Change that will break existing consumers.</summary>
     Breaking,
     /// <summary>Change that may break some consumers depending on usage.</summary>
-    PotentiallyBreaking
+    PotentiallyBreaking,
+    /// <summary>
+    /// Change that leaves the public contract (the API axis) as it was: an accessibility
+    /// move that keeps external reach, or a change wholly outside the API axis.
+    /// </summary>
+    NonBreaking,
 }
 
 /// <summary>
@@ -52,8 +57,8 @@ public enum ChangeKind
     MemberAttributeAdded,
     MemberAttributeRemoved,
 
-    // Accessibility within the API axis (public, protected internal, protected):
-    // narrowing is breaking, widening is additive.
+    // Accessibility: narrowing external reach is breaking, widening is additive,
+    // and a move that keeps it is non-breaking.
     TypeAccessibilityChanged,
     MemberAccessibilityChanged,
 }
@@ -268,6 +273,7 @@ public record TypeDiff(string TypeFullName, IReadOnlyList<ApiChange> Changes)
     public int BreakingCount => CountByClassification(ChangeClassification.Breaking);
     public int AdditiveCount => CountByClassification(ChangeClassification.Additive);
     public int PotentiallyBreakingCount => CountByClassification(ChangeClassification.PotentiallyBreaking);
+    public int NonBreakingCount => CountByClassification(ChangeClassification.NonBreaking);
 
     public bool IsAdded => Changes.Count == 1 && Changes[0].Kind == ChangeKind.TypeAdded;
     public bool IsRemoved => Changes.Count == 1 && Changes[0].Kind == ChangeKind.TypeRemoved;
@@ -294,6 +300,7 @@ public class ApiDiff
     public int TotalBreaking { get; init; }
     public int TotalAdditive { get; init; }
     public int TotalPotentiallyBreaking { get; init; }
+    public int TotalNonBreaking { get; init; }
     public bool IsEmpty => TypeDiffs.Count == 0 && InspectionFailures.Count == 0;
 }
 
@@ -340,11 +347,14 @@ public static class ApiDiffAnalyzer
             HasIncompleteTypeIdentity(newSurface);
         bool compareAccessibility =
             ComparesAccessibility(oldSurface, newSurface);
+        bool classifyByApiAxis =
+            ClassifiesByApiAxis(oldSurface, newSurface);
 
         List<TypeDiff> typeDiffs = [];
         int totalBreaking = 0;
         int totalAdditive = 0;
         int totalPotentiallyBreaking = 0;
+        int totalNonBreaking = 0;
 
         foreach (TypeMatch match in typeMatches)
         {
@@ -381,11 +391,14 @@ public static class ApiDiffAnalyzer
 
             if (changes.Count > 0)
             {
+                if (classifyByApiAxis)
+                    ClassifyOutsideApiAxisAsNonBreaking(changes);
                 var diff = new TypeDiff(typeName, changes);
                 typeDiffs.Add(diff);
                 totalBreaking += diff.BreakingCount;
                 totalAdditive += diff.AdditiveCount;
                 totalPotentiallyBreaking += diff.PotentiallyBreakingCount;
+                totalNonBreaking += diff.NonBreakingCount;
             }
         }
 
@@ -398,7 +411,8 @@ public static class ApiDiffAnalyzer
                     newSurface),
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,
-            TotalPotentiallyBreaking = totalPotentiallyBreaking
+            TotalPotentiallyBreaking = totalPotentiallyBreaking,
+            TotalNonBreaking = totalNonBreaking,
         };
     }
 
@@ -585,14 +599,72 @@ public static class ApiDiffAnalyzer
     }
 
     /// <summary>
-    /// Whether accessibility changes between API axis buckets are compared: only when
-    /// both surfaces were extracted with <see cref="ApiSurfaceExtractionScope.ApiAxis"/>.
-    /// Other scopes keep their existing comparison; the include-all contract for
-    /// accessibility moves is separate work.
+    /// Whether accessibility moves are compared (docs/design/api-population-scope.md): only
+    /// when both surfaces were extracted with the same scope, and that scope is
+    /// <see cref="ApiSurfaceExtractionScope.ApiAxis"/> or
+    /// <see cref="ApiSurfaceExtractionScope.IncludeAll"/>. A surface whose scope is
+    /// <see langword="null"/> (merged from disagreeing scopes, or deserialized) compares none.
     /// </summary>
     internal static bool ComparesAccessibility(ApiSurface oldSurface, ApiSurface newSurface)
         => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.ApiAxis
-            && newSurface.ExtractionScope is ApiSurfaceExtractionScope.ApiAxis;
+                or ApiSurfaceExtractionScope.IncludeAll
+            && oldSurface.ExtractionScope == newSurface.ExtractionScope;
+
+    /// <summary>
+    /// Whether Breaking and Additive are scoped to the API axis, the public contract
+    /// (docs/design/api-population-scope.md): only between two include-all surfaces, the one
+    /// scope that admits subjects outside the API axis. There, a change whose subject is
+    /// outside the API axis on both sides is <see cref="ChangeClassification.NonBreaking"/>.
+    /// </summary>
+    internal static bool ClassifiesByApiAxis(ApiSurface oldSurface, ApiSurface newSurface)
+        => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.IncludeAll
+            && newSurface.ExtractionScope is ApiSurfaceExtractionScope.IncludeAll;
+
+    /// <summary>
+    /// Reclassifies each change whose subject no other assembly can reach on either side as
+    /// <see cref="ChangeClassification.NonBreaking"/>: Breaking and Additive describe the
+    /// public contract. A subject's reach is its effective external reach
+    /// (<see cref="EffectiveReach(ApiType)"/>); a side where the subject is absent has none.
+    /// </summary>
+    internal static void ClassifyOutsideApiAxisAsNonBreaking(List<ApiChange> changes)
+    {
+        for (int index = 0; index < changes.Count; index++)
+        {
+            ApiChange change = changes[index];
+            if (change.Classification != ChangeClassification.NonBreaking
+                && change.Subject is { } subject
+                && IsOutsideApiAxis(subject))
+            {
+                changes[index] = change with { Classification = ChangeClassification.NonBreaking };
+            }
+        }
+    }
+
+    static bool IsOutsideApiAxis(ApiChangeSubject subject)
+        => subject.Kind == ApiChangeSubjectKind.Type
+            ? EffectiveReach(subject.OldType?.Type) == 0
+                && EffectiveReach(subject.NewType?.Type) == 0
+            : EffectiveReach(subject.OldMember) == 0
+                && EffectiveReach(subject.NewMember) == 0;
+
+    /// <summary>
+    /// A Type's external reach: its own accessibility's reach, or none when an enclosing Type
+    /// cannot be reached from another assembly. An absent Type has none; a Type whose enclosing
+    /// reach was not recorded, or whose accessibility is unrecognized, is treated as reachable.
+    /// </summary>
+    static int EffectiveReach(ApiType? type)
+        => type is null || type.EnclosingTypesExternallyReachable is false
+            ? 0
+            : ExternalReach(type.Accessibility) ?? int.MaxValue;
+
+    /// <summary>
+    /// A Member's external reach: its own accessibility's reach within a reachable declaring
+    /// Type, and none within an unreachable one, as for a public method of an internal Type.
+    /// </summary>
+    static int EffectiveReach(ApiMemberHandle? member)
+        => member is null || EffectiveReach(member.Type) == 0
+            ? 0
+            : ExternalReach(member.Member.Accessibility) ?? int.MaxValue;
 
     private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareAccessibility)
     {
@@ -1011,13 +1083,13 @@ public static class ApiDiffAnalyzer
     }
 
     /// <summary>
-    /// Reports an accessibility change between two API axis buckets
-    /// (docs/design/diff-capabilities.md#axes). Narrowing removes the subject from
-    /// some callers, so it is breaking, as public to internal is; widening is
-    /// additive. A change that leaves the axis on either side is a population
-    /// difference, which surfaces as a removal or an addition instead, so the
-    /// ordinary public presentation, where both sides are public, never reports one.
-    /// Runs only between API axis surfaces (<see cref="ComparesAccessibility"/>).
+    /// Reports an accessibility move (docs/design/api-population-scope.md): every move between
+    /// two known accessibilities is a change, Breaking when external reach narrows, Additive
+    /// when it widens, and NonBreaking when it is unchanged, as <c>internal</c> to
+    /// <c>private</c> is. On the API axis a move that leaves the axis is a population
+    /// difference, which surfaces as a removal or an addition instead; under include-all both
+    /// sides are admitted, so <c>public</c> to <c>internal</c> is a Breaking move. Runs only
+    /// where <see cref="ComparesAccessibility"/> holds.
     /// </summary>
     static void CompareAccessibility(
         string? oldAccessibility,
@@ -1027,35 +1099,41 @@ public static class ApiDiffAnalyzer
         ApiChangeSubject subject,
         List<ApiChange> changes)
     {
-        if (ApiAxisAccessRank(oldAccessibility) is not { } oldRank
-            || ApiAxisAccessRank(newAccessibility) is not { } newRank
-            || oldRank == newRank)
+        string oldText = string.IsNullOrEmpty(oldAccessibility) ? "public" : oldAccessibility;
+        string newText = string.IsNullOrEmpty(newAccessibility) ? "public" : newAccessibility;
+        if (ExternalReach(oldAccessibility) is not { } oldReach
+            || ExternalReach(newAccessibility) is not { } newReach
+            || string.Equals(oldText, newText, StringComparison.Ordinal))
         {
             return;
         }
 
-        string oldText = string.IsNullOrEmpty(oldAccessibility) ? "public" : oldAccessibility;
-        string newText = string.IsNullOrEmpty(newAccessibility) ? "public" : newAccessibility;
-        bool narrowed = newRank < oldRank;
+        (ChangeClassification classification, string verb) =
+            newReach < oldReach ? (ChangeClassification.Breaking, "narrowed")
+            : newReach > oldReach ? (ChangeClassification.Additive, "widened")
+            : (ChangeClassification.NonBreaking, "changed");
         changes.Add(new ApiChange(
             kind,
-            narrowed ? ChangeClassification.Breaking : ChangeClassification.Additive,
-            $"{subjectText} accessibility {(narrowed ? "narrowed" : "widened")} from '{oldText}' to '{newText}'",
+            classification,
+            $"{subjectText} accessibility {verb} from '{oldText}' to '{newText}'",
             oldText,
             newText,
             Subject: subject));
     }
 
     /// <summary>
-    /// The reach of an API axis accessibility, widest first; <see langword="null"/>
-    /// outside the axis. <c>protected internal</c> reaches every caller
-    /// <c>protected</c> does, and the declaring assembly's friends too.
+    /// The external reach of an accessibility, widest first: which callers in other
+    /// assemblies, the public contract, a declaration reaches. <c>protected internal</c>
+    /// reaches the same ones <c>protected</c> does; the callers it adds are in its own
+    /// assembly and its friends. <c>internal</c>, <c>private protected</c>, and
+    /// <c>private</c> reach none.
+    /// <see langword="null"/> for an unrecognized accessibility.
     /// </summary>
-    static int? ApiAxisAccessRank(string? accessibility) => accessibility switch
+    static int? ExternalReach(string? accessibility) => accessibility switch
     {
-        null or "" or "public" => 3,
-        "protected internal" => 2,
-        "protected" => 1,
+        null or "" or "public" => 2,
+        "protected internal" or "protected" => 1,
+        "internal" or "private protected" or "private" => 0,
         _ => null,
     };
 

@@ -33,17 +33,22 @@ public static partial class ApiSurfaceExtractor
         => access is MethodAttributes.Family or MethodAttributes.FamORAssem;
 
     /// <summary>
-    /// The API axis admits a Type by its own row, as Fast Diff does: public,
-    /// nested public, nested protected, or nested protected internal. A public
-    /// nested Type of a non-public Type is admitted; a nested
-    /// <c>private protected</c> Type is not.
+    /// The API axis admits a Type, as Fast Diff does, when its own row and
+    /// every enclosing Type's row is public, nested public, nested protected,
+    /// or nested protected internal. A public nested Type of a non-public Type
+    /// is not admitted: no other assembly can reach it. A nested
+    /// <c>private protected</c> Type is not admitted either.
     /// </summary>
-    static bool AdmitsApiAxisType(TypeDefinition typeDef)
+    static bool AdmitsApiAxisType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        TypeDefinition typeDef)
         => (typeDef.Attributes & TypeAttributes.VisibilityMask)
             is TypeAttributes.Public
             or TypeAttributes.NestedPublic
             or TypeAttributes.NestedFamily
-            or TypeAttributes.NestedFamORAssem;
+            or TypeAttributes.NestedFamORAssem
+            && MetadataVisibility.AreEnclosingTypesExternallyReachable(reader, handle);
 
     internal static MetadataMethodAccessibilityFilter AccessibilityBucket(
         MethodAttributes access) =>

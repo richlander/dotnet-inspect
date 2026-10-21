@@ -360,7 +360,11 @@ the Package Info tool-measurement owner. Eligible nested managed runtime DLLs
 remain ordinary members of that selected tool slice. Analyzer, build, native,
 satellite, second-RID, and unrelated framework entries do not become probe
 candidates. The CLI consumes the retained role population and no longer uses
-`TfmSelector` to recover from `NoCompileAssets`.
+`TfmSelector` to recover from `NoCompileAssets`. When that population is
+runtime-specific, exact and aggregate inspection retain its selected RID in
+Package provenance. After an exact probe selects one asset, the CLI opens that
+retained package-relative path directly rather than running another archive or
+target-framework selection.
 
 Direct framework-less `lib/*.dll` packages continue to use their
 framework-agnostic compile population, and a real framework-qualified slice
@@ -393,6 +397,16 @@ settings status and case-insensitive entry-point correspondence, while
 `QueryPackage_ToolPayloadPublishesExactManagedLibraries` and
 `QueryPackage_DeclaredToolWithoutSettingsRemainsUnavailable` gate Browser
 adoption.
+
+CLI runtime-role adoption is gated by
+`LibraryCommand_RuntimeOnlyPackageSelectsHighestAndExplicitTarget`,
+`LibraryCommand_MarkerOnlyCompileGroupUsesRuntimePopulation`,
+`LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries`, and
+`LibraryAddressCommand_PackageNonCompileSelectionsAreRejected`.
+`LibraryCommand_ToolPayloadExactPathStaysInToolPopulation` gates the boundary
+between a retained Package Library path and the declaration-authenticated tool
+population, including terminal non-success when the requested target cannot
+issue one tool slice.
 `ProducerCapabilityPlanSelectsBeforeEnrichment` gates selection before
 per-Library work, while
 `PackageTreeCapabilitiesPreserveHostsAndWorkReduction` gates equivalent
