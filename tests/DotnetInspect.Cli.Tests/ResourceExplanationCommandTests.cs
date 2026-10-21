@@ -1098,6 +1098,12 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 "root/operations/package-query",
                 "routing-destination-document"));
         Assert.Equal(
+            ["package-files"],
+            Targets(
+                composition.Catalog,
+                "root/operations/package-files",
+                "routing-destination-document"));
+        Assert.Equal(
             ["analyses"],
             Targets(
                 composition.Catalog,

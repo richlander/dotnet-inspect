@@ -85,14 +85,17 @@ internal static class CapabilityRoutingDeclarations
                 "Which string literals did this library add or remove?",
             ],
             [ResourceExplanationCatalog.AnalysesCollectionKey],
-            grain: "One finding per changed library, type, or member.",
+            grain: "One finding per changed occurrence at each analysis's own "
+                + "grain, such as an API member, IL operation, C# line, or "
+                + "allocation, within the compared library, type, or member.",
             scope: "The two compared versions.",
             acceptedSubjectKinds: CompareSubjectKinds()),
     ];
 
     /// <summary>
-    /// The subject kinds the registered analyses compare, in Schema Query
-    /// order. Root and Workspace surfaces have no subject-kind declaration.
+    /// The subject kinds the registered analyses compare, in product order:
+    /// Library, Type, Member. Root and Workspace surfaces have no subject-kind
+    /// declaration.
     /// </summary>
     private static ImmutableArray<string> CompareSubjectKinds()
     {
