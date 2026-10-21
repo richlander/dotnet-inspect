@@ -84,51 +84,63 @@ public partial class PackageCommand
             targets.Add(target);
         }
 
-        var results = new List<InspectionResult>();
-        foreach (var target in targets)
-        {
-            using var packageRequestScope = RequestTelemetry.Scope(
-                target.Version.Length > 0 ? $"package {target.PackageName}@{target.Version}" : $"package {target.PackageName}",
-                "package inspect");
-            var result = await InspectPackageAsync(
-                target,
-                options,
-                producerOptions,
-                context,
-                wantsFilesSection,
-                sectionCatalog,
-                sourceQueryPlan);
-            if (result == null)
-                return 1;
-            results.Add(result);
-        }
+        await using DesktopPackageSourceComposition composition =
+            context.CreatePackageSourceComposition();
+        using var stores = new SearchPackageStores("inspect-packages");
+        var workspaces = new List<InspectionWorkspace>();
+        return await WorkspacePacketRestorationLifetime.ExecuteAsync(
+            workspaces,
+            async () =>
+            {
+                var results = new List<InspectionResult>();
+                foreach (var target in targets)
+                {
+                    using var packageRequestScope = RequestTelemetry.Scope(
+                        target.Version.Length > 0 ? $"package {target.PackageName}@{target.Version}" : $"package {target.PackageName}",
+                        "package inspect");
+                    var result = await InspectPackageAsync(
+                        target,
+                        options,
+                        producerOptions,
+                        context,
+                        wantsFilesSection,
+                        sectionCatalog,
+                        sourceQueryPlan,
+                        composition,
+                        stores,
+                        workspaces);
+                    if (result == null)
+                        return 1;
+                    results.Add(result);
+                }
 
-        if (options.Count)
-            return WriteMultiPackageCount(results, options, pipeline);
+                if (options.Count)
+                    return WriteMultiPackageCount(results, options, pipeline);
 
-        if (options.JsonOutput)
-        {
-            if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
-                return 1;
+                if (options.JsonOutput)
+                {
+                    if (ProjectionAudit.RejectUnloweredJson(options, options.JsonOutput))
+                        return 1;
 
-            Console.WriteLine(JsonSerializer.Serialize(
-                results.Select(static result =>
-                    PackageInspectionJson.Create(result)).ToArray(),
-                PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
-            return PackageIntegrityExitCode([.. results]);
-        }
+                    Console.WriteLine(JsonSerializer.Serialize(
+                        results.Select(static result =>
+                            PackageInspectionJson.Create(result)).ToArray(),
+                        PackageInspectionJsonContext.Default.PackageInspectionJsonArray));
+                    return PackageIntegrityExitCode([.. results]);
+                }
 
-        try
-        {
-            WriteMultiPackageTable(results, rowSection!, options);
-            return PackageIntegrityExitCode([.. results]);
-        }
-        catch (InvalidOperationException ex) when (
-            IsUnmatchedColumnProjection(options, ex))
-        {
-            CommandError.Write(ex.Message);
-            return 1;
-        }
+                try
+                {
+                    WriteMultiPackageTable(results, rowSection!, options);
+                    return PackageIntegrityExitCode([.. results]);
+                }
+                catch (InvalidOperationException ex) when (
+                    IsUnmatchedColumnProjection(options, ex))
+                {
+                    CommandError.Write(ex.Message);
+                    return 1;
+                }
+            }).ConfigureAwait(false);
     }
 
     internal static int PackageIntegrityExitCode(params InspectionResult[] results)

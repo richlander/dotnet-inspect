@@ -172,6 +172,60 @@ internal static class WorkspacePacketRestorationLifetime
         "DotnetInspect.Cli.WorkspaceCleanupFailure";
 
     internal static async Task<TResult> ExecuteAsync<TResult>(
+        IReadOnlyList<InspectionWorkspace> workspaces,
+        Func<Task<TResult>> operation)
+    {
+        ArgumentNullException.ThrowIfNull(workspaces);
+        ArgumentNullException.ThrowIfNull(operation);
+
+        TResult result;
+        try
+        {
+            result = await operation().ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            try
+            {
+                await CloseAllAsync(workspaces).ConfigureAwait(false);
+            }
+            catch (Exception cleanupFailure)
+            {
+                failure.Data[CleanupFailureKey] = cleanupFailure;
+            }
+            throw;
+        }
+
+        await CloseAllAsync(workspaces).ConfigureAwait(false);
+        return result;
+    }
+
+    static async Task CloseAllAsync(
+        IReadOnlyList<InspectionWorkspace> workspaces)
+    {
+        List<Exception>? failures = null;
+        for (int index = workspaces.Count - 1; index >= 0; index--)
+        {
+            try
+            {
+                await ExecuteAsync(
+                    workspaces[index],
+                    () => Task.FromResult(0)).ConfigureAwait(false);
+            }
+            catch (Exception failure)
+            {
+                (failures ??= []).Add(failure);
+            }
+        }
+        if (failures is not null)
+        {
+            throw new AggregateException(
+                "The package Workspaces could not release every participant.",
+                failures);
+        }
+    }
+
+    internal static async Task<TResult> ExecuteAsync<TResult>(
         InspectionWorkspace workspace,
         Func<Task<TResult>> operation)
     {

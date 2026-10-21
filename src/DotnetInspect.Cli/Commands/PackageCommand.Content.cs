@@ -712,11 +712,13 @@ public partial class PackageCommand
         CommandContext context,
         bool wantsFilesSection,
         SectionCatalog<InspectionResult> sectionCatalog,
-        PackageSourceQueryPlan sourceQueryPlan)
+        PackageSourceQueryPlan sourceQueryPlan,
+        DesktopPackageSourceComposition composition,
+        SearchPackageStores stores,
+        List<InspectionWorkspace> workspaces)
     {
         SectionPipeline<InspectionResult> pipeline = sectionCatalog.Pipeline;
         var logger = context.Logger;
-        string? extractPath = null;
         PackageExtractionResult? resolution = null;
         string version = target.Version;
 
@@ -747,6 +749,33 @@ public partial class PackageCommand
                 FilterResultForOutput(inventoryResult, options);
             return inventoryAttempt.Result;
         }
+
+        WorkspacePackageInspectionContent? onlineInspection =
+            await TryInspectOnlinePackageAsync(
+                target,
+                options,
+                context,
+                packageInfoTargetContext,
+                composition,
+                stores,
+                workspaces,
+                async (_, acquisition) =>
+                {
+                    InspectionResult inspection =
+                        await InspectAcquiredPackageAsync(
+                            target,
+                            options,
+                            producerOptions,
+                            context,
+                            wantsFilesSection,
+                            sectionCatalog,
+                            sourceQueryPlan,
+                            PackageExtractionResult.FromAcquisition(acquisition))
+                            .ConfigureAwait(false);
+                    return new(inspection, 0);
+                }).ConfigureAwait(false);
+        if (onlineInspection is not null)
+            return onlineInspection.Inspection;
 
         try
         {
@@ -812,123 +841,15 @@ public partial class PackageCommand
             }
 
             resolution = outcome.Result!;
-            extractPath = resolution.ExtractPath;
-            version = resolution.Version ?? version;
-            string resolvedPackageName =
-                resolution.PackageName ?? target.PackageName;
-
-            bool wantsEcosystemDependencies =
-                RequestsPackageEcosystemDependencies(
-                    producerOptions,
-                    pipeline);
-            NuspecData? nuspec = FindPackageNuspecForInspection(
-                extractPath,
-                resolution,
-                wantsEcosystemDependencies);
-
-            long? packageSize = null;
-            if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
-                packageSize = new FileInfo(resolution.NupkgPath).Length;
-
-            bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+            return await InspectAcquiredPackageAsync(
+                target,
+                options,
                 producerOptions,
-                PackageSections.Signals,
-                pipeline);
-            bool wantsRidPackageAvailability =
-                RequestsRidPackageAvailability(
-                    producerOptions,
-                    target.IsLocalFile,
-                    pipeline);
-            bool wantsIdentifierMetadata =
-                RequiresIdentifierMetadata(producerOptions, pipeline);
-            bool wantsPackageMetadata =
-                RequiresPackageMetadata(producerOptions, pipeline);
-            var result = await PackageInspector.InspectAsync(
-                resolution,
-                resolvedPackageName,
-                version,
-                target.IsLocalFile,
-                target.IsLocalFile ? target.OriginalArgument : null,
-                nuspec,
-                context.HttpClient,
-                logger,
-                options.ForceLatest,
-                producerOptions.Verbosity,
-                fetchMetadata: wantsPackageMetadata,
-                requireIdentifierMetadata: wantsIdentifierMetadata,
-                verifyRidPackageAvailability: wantsRidPackageAvailability,
-                sourceOptions: options.SourceOptions);
-
-            await ApplyPackageInfoMeasurementsAsync(
-                result,
-                resolution,
-                packageSize,
-                options.Tfm,
-                logger.Log);
-            if (wantsEcosystemDependencies)
-            {
-                await ApplyPackageEcosystemDependenciesAsync(
-                    result,
-                    resolution,
-                    RequiresPackageEcosystemDiagnosticDisclosure(
-                        producerOptions),
-                    logger.Log);
-            }
-
-            await PopulatePackageSignatureAsync(
-                result,
-                resolution.NupkgPath,
-                ShouldVerifyPackageSignature(options, wantsSignals),
-                logger.Log);
-
-            result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
-
-            if (wantsFilesSection)
-                PopulatePackageFileSectionsLegacy(
-                    result,
-                    extractPath,
-                    options);
-
-            if (ShouldPopulatePackageContentAudit(
-                    producerOptions,
-                    pipeline))
-            {
-                if (result.PackageFiles is null)
-                {
-                    PopulatePackageFileSectionsLegacy(
-                        result,
-                        extractPath,
-                        options);
-                }
-                PopulatePackageContentAudit(result, extractPath);
-            }
-
-            if (ShouldPopulatePackageSourceFiles(producerOptions)
-                || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
-            {
-                await PopulatePackageSourceLinkAsync(
-                    result,
-                    extractPath,
-                    resolvedPackageName,
-                    version,
-                    producerOptions,
-                    context,
-                    logger,
-                    sourceQueryPlan);
-            }
-
-            FilterResultForOutput(result, options);
-
-            if (wantsSignals)
-            {
-                result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
-                    extractPath, resolvedPackageName, version, context.HttpClient, logger,
-                    acquirePdb: true, options.SourceOptions);
-                await AuditSignalBuilder.PopulatePackageAuditAsync(
-                    result, context.HttpClient, logger, options.SourceOptions);
-            }
-
-            return result;
+                context,
+                wantsFilesSection,
+                sectionCatalog,
+                sourceQueryPlan,
+                resolution).ConfigureAwait(false);
         }
         finally
         {
@@ -944,6 +865,137 @@ public partial class PackageCommand
                 }
             }
         }
+    }
+
+    private static async Task<InspectionResult> InspectAcquiredPackageAsync(
+        PackageReferenceTarget target,
+        InspectionOptions options,
+        InspectionOptions producerOptions,
+        CommandContext context,
+        bool wantsFilesSection,
+        SectionCatalog<InspectionResult> sectionCatalog,
+        PackageSourceQueryPlan sourceQueryPlan,
+        PackageExtractionResult resolution)
+    {
+        SectionPipeline<InspectionResult> pipeline = sectionCatalog.Pipeline;
+        var logger = context.Logger;
+        string extractPath = resolution.ExtractPath;
+        string version = resolution.Version ?? target.Version;
+        string resolvedPackageName =
+            resolution.PackageName ?? target.PackageName;
+
+        bool wantsEcosystemDependencies =
+            RequestsPackageEcosystemDependencies(
+                producerOptions,
+                pipeline);
+        NuspecData? nuspec = FindPackageNuspecForInspection(
+            extractPath,
+            resolution,
+            wantsEcosystemDependencies);
+
+        long? packageSize = null;
+        if (resolution.NupkgPath != null && File.Exists(resolution.NupkgPath))
+            packageSize = new FileInfo(resolution.NupkgPath).Length;
+
+        bool wantsSignals = RequestsSelectedOrDiscoveredSection(
+            producerOptions,
+            PackageSections.Signals,
+            pipeline);
+        bool wantsRidPackageAvailability =
+            RequestsRidPackageAvailability(
+                producerOptions,
+                target.IsLocalFile,
+                pipeline);
+        bool wantsIdentifierMetadata =
+            RequiresIdentifierMetadata(producerOptions, pipeline);
+        bool wantsPackageMetadata =
+            RequiresPackageMetadata(producerOptions, pipeline);
+        var result = await PackageInspector.InspectAsync(
+            resolution,
+            resolvedPackageName,
+            version,
+            target.IsLocalFile,
+            target.IsLocalFile ? target.OriginalArgument : null,
+            nuspec,
+            context.HttpClient,
+            logger,
+            options.ForceLatest,
+            producerOptions.Verbosity,
+            fetchMetadata: wantsPackageMetadata,
+            requireIdentifierMetadata: wantsIdentifierMetadata,
+            verifyRidPackageAvailability: wantsRidPackageAvailability,
+            sourceOptions: options.SourceOptions);
+
+        await ApplyPackageInfoMeasurementsAsync(
+            result,
+            resolution,
+            packageSize,
+            options.Tfm,
+            logger.Log);
+        if (wantsEcosystemDependencies)
+        {
+            await ApplyPackageEcosystemDependenciesAsync(
+                result,
+                resolution,
+                RequiresPackageEcosystemDiagnosticDisclosure(
+                    producerOptions),
+                logger.Log);
+        }
+
+        await PopulatePackageSignatureAsync(
+            result,
+            resolution.NupkgPath,
+            ShouldVerifyPackageSignature(options, wantsSignals),
+            logger.Log);
+
+        result.Source = target.IsLocalFile ? SourceKind.File : SourceKind.NuGet;
+
+        if (wantsFilesSection)
+            PopulatePackageFileSectionsLegacy(
+                result,
+                extractPath,
+                options);
+
+        if (ShouldPopulatePackageContentAudit(
+                producerOptions,
+                pipeline))
+        {
+            if (result.PackageFiles is null)
+            {
+                PopulatePackageFileSectionsLegacy(
+                    result,
+                    extractPath,
+                    options);
+            }
+            PopulatePackageContentAudit(result, extractPath);
+        }
+
+        if (ShouldPopulatePackageSourceFiles(producerOptions)
+            || !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+        {
+            await PopulatePackageSourceLinkAsync(
+                result,
+                extractPath,
+                resolvedPackageName,
+                version,
+                producerOptions,
+                context,
+                logger,
+                sourceQueryPlan);
+        }
+
+        FilterResultForOutput(result, options);
+
+        if (wantsSignals)
+        {
+            result.BinarySignals = await PackageInspector.ScanBinarySignalsAsync(
+                extractPath, resolvedPackageName, version, context.HttpClient, logger,
+                acquirePdb: true, options.SourceOptions);
+            await AuditSignalBuilder.PopulatePackageAuditAsync(
+                result, context.HttpClient, logger, options.SourceOptions);
+        }
+
+        return result;
     }
 
     private static async Task PopulatePackageSignalsAsync(

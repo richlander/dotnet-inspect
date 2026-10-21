@@ -48,8 +48,61 @@ public sealed class WorkspacePacketRestorationLifetimeTests
             failure.Data["DotnetInspect.Cli.WorkspaceCleanupReport"]);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ExecuteAsync_MultipleWorkspacesReleaseEveryParticipant(
+        bool operationFails)
+    {
+        bool firstReleased = false;
+        bool secondReleased = false;
+        InspectionWorkspace[] workspaces =
+        [
+            await CreateCleanupFailingWorkspaceAsync(
+                () => firstReleased = true),
+            await CreateCleanupFailingWorkspaceAsync(
+                () => secondReleased = true),
+        ];
+        var primary = new InvalidOperationException("Survey output failed.");
+
+        Task<int> operation = WorkspacePacketRestorationLifetime.ExecuteAsync(
+            workspaces,
+            () =>
+            {
+                Assert.False(firstReleased);
+                Assert.False(secondReleased);
+                return operationFails
+                    ? Task.FromException<int>(primary)
+                    : Task.FromResult(42);
+            });
+        AggregateException cleanup;
+        if (operationFails)
+        {
+            var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => operation);
+            Assert.Same(primary, failure);
+            cleanup = Assert.IsType<AggregateException>(
+                failure.Data["DotnetInspect.Cli.WorkspaceCleanupFailure"]);
+        }
+        else
+        {
+            cleanup = await Assert.ThrowsAsync<AggregateException>(
+                () => operation);
+        }
+        Assert.True(firstReleased);
+        Assert.True(secondReleased);
+        Assert.Equal(2, cleanup.InnerExceptions.Count);
+        Assert.All(cleanup.InnerExceptions, failure =>
+        {
+            var report = Assert.IsType<InspectionWorkspaceCloseReport>(
+                failure.Data["DotnetInspect.Cli.WorkspaceCleanupReport"]);
+            Assert.IsType<IOException>(
+                Assert.Single(report.ArtifactSessionCleanupFailures));
+        });
+    }
+
     static async Task<InspectionWorkspace>
-        CreateCleanupFailingWorkspaceAsync()
+        CreateCleanupFailingWorkspaceAsync(Action? onDispose = null)
     {
         byte[] bytes =
             await File.ReadAllBytesAsync(
@@ -68,7 +121,7 @@ public sealed class WorkspacePacketRestorationLifetimeTests
                 return ValueTask.FromResult<ArtifactAcquisitionOutcome>(
                     new ArtifactAcquisitionOutcome.Acquired(
                         [contribution],
-                        new FailingAcquisitionLease()));
+                        new FailingAcquisitionLease(onDispose)));
             },
             cancellationToken:
                 TestContext.Current.CancellationToken);
@@ -127,11 +180,15 @@ public sealed class WorkspacePacketRestorationLifetimeTests
 
     sealed record TestArtifactProvenance : IArtifactProvenance;
 
-    sealed class FailingAcquisitionLease : IArtifactAcquisitionLease
+    sealed class FailingAcquisitionLease(Action? onDispose = null)
+        : IArtifactAcquisitionLease
     {
-        public ValueTask DisposeAsync() =>
-            ValueTask.FromException(
+        public ValueTask DisposeAsync()
+        {
+            onDispose?.Invoke();
+            return ValueTask.FromException(
                 new IOException(
                     "Synthetic restored Workspace cleanup failure."));
+        }
     }
 }

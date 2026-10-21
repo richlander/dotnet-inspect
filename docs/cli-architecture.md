@@ -78,6 +78,22 @@ Deterministic configured-source tests gate admitted inspection with unusable
 DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
 offline, and Library tests remain neighboring controls.
 
+Ordinary online multi-Package full inspection uses the same admission protocol,
+with one independent one-Root Workspace per input, including repeated inputs.
+The CLI retains those Workspaces through global row selection and rendering,
+then closes them before releasing the source stores. Naming packages together
+does not let them bind to or satisfy one another. Existing specialized
+inventory/content routes and local/offline, Library, and wrapper compatibility
+paths remain separate.
+
+The motivating real survey is nuget.org `Newtonsoft.Json` 13.0.4 together with
+`Microsoft.NETCore.App.Ref` 10.0.0: `package Newtonsoft.Json@13.0.4
+Microsoft.NETCore.App.Ref@10.0.0 --tfm net9.0 -S "Package Info" --json`.
+Each input must retain its own package facts and target-selection outcome.
+Deterministic configured-source evidence covers independent and repeated
+inputs, unmatched frameworks, global output selection, and terminal failure
+without partial output.
+
 ### Exact Package reference admission
 
 An owner-issued exact Package reference is accepted as positional `package`
