@@ -360,6 +360,50 @@ public sealed class PackageDependencyCandidateQueryTests
             Assert.Single(resolved.Candidate.Authorities).Observation);
     }
 
+    [Fact]
+    public async Task CandidateResolution_SharedDependencyDiscoveryStillSelectsEachRange()
+    {
+        var authorization = new UniformPackageSourceAuthorization(
+            [new PackageSource("gallery", "https://api.nuget.org/v3/index.json")]);
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        var observedContexts = new List<NuGetOperationContext?>();
+        using IPackageSourceClient client = CreateVersionSourceClient(
+            authority,
+            hasAuthoritativeListingState: true,
+            PackageListingState.Listed,
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            observedContexts.Add,
+            "1.0.0", "2.0.0", "3.0.0");
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(TestContext.Current.CancellationToken);
+
+        PackageDependencyCandidateResult first =
+            await PackageDependencyCandidateQuery.ExecuteAsync(
+                new PackageDependencyCandidateRequest.Declared(
+                    Declaration("[1.0.0, 2.0.0)")),
+                authorization,
+                operation);
+        PackageDependencyCandidateResult second =
+            await PackageDependencyCandidateQuery.ExecuteAsync(
+                new PackageDependencyCandidateRequest.Declared(
+                    Declaration("[2.0.0, 3.0.0)")),
+                authorization,
+                operation);
+
+        Assert.Equal(
+            "1.0.0",
+            Assert.IsType<PackageDependencyCandidateResult.Resolved>(first)
+                .Candidate.Coordinate.Version);
+        Assert.Equal(
+            "2.0.0",
+            Assert.IsType<PackageDependencyCandidateResult.Resolved>(second)
+                .Candidate.Coordinate.Version);
+        Assert.Single(observedContexts);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -15,6 +15,8 @@ public sealed class PackageSourceOperationLease : IDisposable
     private readonly object _gate = new();
     private readonly PackageSourceSettlementGeneration _generation;
     private readonly NuGetOperationContext _context;
+    private readonly PackageSourceDependencyVersionObservations
+        _dependencyVersions = new();
     private ActiveWorkRegistration? _work;
     private bool _disposed;
 
@@ -209,7 +211,8 @@ public sealed class PackageSourceOperationLease : IDisposable
             packageId,
             sourceAuthorization,
             PackageVersionDiscoveryContract.DependencyRangeResolution,
-            log);
+            log,
+            _dependencyVersions);
     }
 
     public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
@@ -231,10 +234,18 @@ public sealed class PackageSourceOperationLease : IDisposable
 
     public Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
         string packageId,
-        PackageSourceAuthorization authorization) =>
-        DiscoverVersionsAsync(
-            packageId, authorization,
-            PackageVersionDiscoveryContract.DependencyRangeResolution);
+        PackageSourceAuthorization authorization)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(authorization);
+        return DiscoverCoreAsync(
+            StartWork(),
+            packageId,
+            authorization,
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            log: null,
+            _dependencyVersions);
+    }
 
     public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
         string packageId,
@@ -365,6 +376,7 @@ public sealed class PackageSourceOperationLease : IDisposable
             }
             finally
             {
+                _dependencyVersions.Clear();
                 _generation.ReleaseOperation();
             }
         }
@@ -484,7 +496,8 @@ public sealed class PackageSourceOperationLease : IDisposable
         string packageId,
         IPackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract,
-        Action<string>? log)
+        Action<string>? log,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         using (work)
             return await work.Generation.DiscoverVersionsAsync(
@@ -492,17 +505,20 @@ public sealed class PackageSourceOperationLease : IDisposable
                 authorization,
                 contract,
                 operationContext: work.Context,
-                log).ConfigureAwait(false);
+                log,
+                observations).ConfigureAwait(false);
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverCoreAsync(
         ActiveWorkRegistration work, string packageId, PackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract,
-        Action<string>? log)
+        Action<string>? log,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         using (work)
             return await work.Generation.DiscoverVersionsAsync(
-                packageId, authorization, contract, operationContext: work.Context, log).ConfigureAwait(false);
+                packageId, authorization, contract, operationContext: work.Context, log,
+                observations).ConfigureAwait(false);
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverBoundedCoreAsync(
