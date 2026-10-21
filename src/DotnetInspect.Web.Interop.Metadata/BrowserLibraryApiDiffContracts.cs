@@ -6,7 +6,7 @@ namespace DotnetInspect.Web.Interop.Metadata;
 
 internal static class BrowserLibraryApiDiffSchema
 {
-    internal const int Version = 3;
+    internal const int Version = 4;
 }
 
 public sealed record BrowserLibraryApiDiffRequest(
@@ -147,7 +147,8 @@ public sealed record BrowserLibraryApiDiffAggregate(
     int BreakingCount,
     int AdditiveCount,
     int PotentiallyBreakingCount,
-    int NonBreakingCount);
+    int NonBreakingCount,
+    int OutsideOrdinaryRowCount);
 
 public sealed record BrowserLibraryApiDiffType(
     string DocumentIdentifier,
@@ -168,7 +169,8 @@ public sealed record BrowserLibraryApiDiffTypeIdentity(
     string Identifier,
     string Namespace,
     string[] Segments,
-    string Display);
+    string Display,
+    bool IsObsolete);
 
 public sealed record BrowserLibraryApiDiffMember(
     string DocumentIdentifier,
@@ -198,6 +200,7 @@ public sealed record BrowserLibraryApiDiffChange(
     BrowserLibraryApiDiffChangeKind Kind,
     BrowserLibraryApiDiffChangeClassification Classification,
     BrowserLibraryApiDiffChangeCategory Category,
+    BrowserLibraryApiDiffChangeState State,
     string Message,
     string? OldValue,
     string? NewValue);
@@ -209,7 +212,8 @@ public sealed record BrowserLibraryApiDiffMemberIdentity(
     string Fingerprint,
     string TypeFullName,
     string MemberName,
-    string Display);
+    string Display,
+    bool IsObsolete);
 
 public sealed record BrowserLibraryApiDiffMemberExploreDestination(
     BrowserLibraryApiDiffExploreDestinationKind Kind,
@@ -316,6 +320,7 @@ public enum BrowserLibraryApiDiffSurfaceScope
     Public,
     IncludeAll,
     PublicWithNonPublicTypes,
+    ApiAxis,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffEndpointIssueKind>))]
@@ -416,6 +421,21 @@ public enum BrowserLibraryApiDiffChangeClassification
     Breaking,
     PotentiallyBreaking,
     NonBreaking,
+}
+
+/// <summary>
+/// The presentation-owned state of one change row
+/// (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffChangeState>))]
+public enum BrowserLibraryApiDiffChangeState
+{
+    Changed,
+    Added,
+    Removed,
+    Hidden,
+    Unhidden,
+    Obsoleted,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffChangeCategory>))]

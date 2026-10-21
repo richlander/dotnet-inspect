@@ -36,6 +36,8 @@ export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" 
 
 export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | "TypeAccessibilityChanged" | "MemberAccessibilityChanged" | "TypeHiddenChanged" | "MemberHiddenChanged" | "TypeObsoleteChanged" | "MemberObsoleteChanged" | number;
 
+export type BrowserLibraryApiDiffChangeState = "Changed" | "Added" | "Removed" | "Hidden" | "Unhidden" | "Obsoleted" | number;
+
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 
 export type BrowserLibraryApiDiffExploreDestinationKind = "member-diff" | number;
@@ -58,7 +60,7 @@ export type BrowserLibraryApiDiffRejectionKind = "LogicalLibraryMismatch" | "Fin
 
 export type BrowserLibraryApiDiffResultKind = "Succeeded" | "Unavailable" | "Rejected" | "Failed" | "Canceled" | number;
 
-export type BrowserLibraryApiDiffSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | number;
+export type BrowserLibraryApiDiffSurfaceScope = "Public" | "IncludeAll" | "PublicWithNonPublicTypes" | "ApiAxis" | number;
 
 export type BrowserLibraryApiDiffTypeState = "Diff" | "Addition" | "Deletion" | number;
 
@@ -207,6 +209,7 @@ export interface BrowserLibraryApiDiffAggregate {
   readonly additiveCount: number;
   readonly potentiallyBreakingCount: number;
   readonly nonBreakingCount: number;
+  readonly outsideOrdinaryRowCount: number;
 }
 
 export interface BrowserLibraryApiDiffAssemblyIdentity {
@@ -225,6 +228,7 @@ export interface BrowserLibraryApiDiffChange {
   readonly kind: BrowserLibraryApiDiffChangeKind;
   readonly classification: BrowserLibraryApiDiffChangeClassification;
   readonly category: BrowserLibraryApiDiffChangeCategory;
+  readonly state: BrowserLibraryApiDiffChangeState;
   readonly message: string;
   readonly oldValue: string | null;
   readonly newValue: string | null;
@@ -306,6 +310,7 @@ export interface BrowserLibraryApiDiffMemberIdentity {
   readonly typeFullName: string;
   readonly memberName: string;
   readonly display: string;
+  readonly isObsolete: boolean;
 }
 
 export interface BrowserLibraryApiDiffProjectionTruncation {
@@ -388,6 +393,7 @@ export interface BrowserLibraryApiDiffTypeIdentity {
   readonly namespace: string;
   readonly segments: ReadonlyArray<string>;
   readonly display: string;
+  readonly isObsolete: boolean;
 }
 
 export interface BrowserLibraryApiDiffUnavailable {

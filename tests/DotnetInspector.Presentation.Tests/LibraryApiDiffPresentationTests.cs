@@ -718,6 +718,120 @@ public sealed class LibraryApiDiffPresentationTests
         Assert.Equal(ApiSurfaceScope.IncludeAll, available.Document.After.Scope);
     }
 
+    [Theory]
+    [InlineData("FastDiffFixture.Added", LibraryApiChangeState.Added)]
+    [InlineData("FastDiffFixture.Removed", LibraryApiChangeState.Removed)]
+    [InlineData("FastDiffFixture.MemberBecomesHidden", LibraryApiChangeState.Hidden)]
+    [InlineData("FastDiffFixture.TypeBecomesHidden", LibraryApiChangeState.Hidden)]
+    [InlineData("FastDiffFixture.MemberBecomesVisible", LibraryApiChangeState.Unhidden)]
+    [InlineData("FastDiffFixture.MemberBecomesObsolete", LibraryApiChangeState.Obsoleted)]
+    [InlineData("FastDiffFixture.ObsoleteMessageChanged", LibraryApiChangeState.Obsoleted)]
+    [InlineData("FastDiffFixture.PublicToProtected", LibraryApiChangeState.Changed)]
+    public async Task Create_DerivesEachRowStateFromKindAndStatus(
+        string type,
+        LibraryApiChangeState state)
+    {
+        LibraryApiCompatibilityChange change = Assert.Single(
+            Subject(await ApiAxisFastDiff(), type).Comparison.CompatibilityChanges);
+
+        Assert.Equal(state, change.State);
+        Assert.True(change.IsOrdinary);
+    }
+
+    [Theory]
+    // A public Member made protected keeps its ordinary Before side.
+    [InlineData("FastDiffFixture.PublicToProtected", true, false)]
+    // A protected Member made public gains an ordinary After side.
+    [InlineData("FastDiffFixture.ProtectedInternalToPublic", false, true)]
+    [InlineData("FastDiffFixture.MemberBecomesHidden", true, false)]
+    [InlineData("FastDiffFixture.MemberBecomesVisible", false, true)]
+    [InlineData("FastDiffFixture.ProtectedMemberChanged", false, false)]
+    [InlineData("FastDiffFixture.HiddenMemberChanged", false, false)]
+    // A public Member of a hidden Type, and of a public nested Type of one, is not ordinary.
+    [InlineData("FastDiffFixture.HiddenTypeChanged", false, false)]
+    [InlineData("FastDiffFixture.HiddenOuter+Inner", false, false)]
+    // Obsolete does not remove a declaration from the ordinary population.
+    [InlineData("FastDiffFixture.ObsoleteMemberChanged", true, true)]
+    public async Task Create_CarriesEachSidesOrdinaryFact(
+        string type,
+        bool beforeOrdinary,
+        bool afterOrdinary)
+    {
+        LibraryApiCompatibilityChange change = Assert.Single(
+            Subject(await ApiAxisFastDiff(), type).Comparison.CompatibilityChanges);
+
+        Assert.Equal(beforeOrdinary, change.BeforeStatus!.IsOrdinary);
+        Assert.Equal(afterOrdinary, change.AfterStatus!.IsOrdinary);
+        Assert.Equal(beforeOrdinary || afterOrdinary, change.IsOrdinary);
+    }
+
+    [Fact]
+    public async Task Create_CarriesTypeStatusOnEveryOccupiedSide()
+    {
+        LibraryApiDiffDocument document = await ApiAxisFastDiff();
+
+        LibraryApiTypeDiff obsolete =
+            Subject(document, "FastDiffFixture.TypeBecomesObsolete").Comparison;
+        Assert.False(obsolete.Before!.Status.IsObsolete);
+        Assert.True(obsolete.After!.Status.IsObsolete);
+        Assert.True(obsolete.After.Status.IsOrdinary);
+
+        LibraryApiTypeDiff nested =
+            Subject(document, "FastDiffFixture.NestedPublicToProtected+Nested").Comparison;
+        Assert.True(nested.Before!.Status.IsOrdinary);
+        Assert.False(nested.After!.Status.IsOrdinary);
+        Assert.True(nested.IsOrdinary);
+
+        LibraryApiTypeDiff inner = Subject(document, "FastDiffFixture.HiddenOuter+Inner").Comparison;
+        Assert.False(inner.Before!.Status.IsHidden);
+        Assert.False(inner.Before.Status.IsOrdinary);
+        Assert.False(inner.IsOrdinary);
+        LibraryApiMemberDiff member = Assert.Single(inner.Members);
+        Assert.False(member.Relation.IsOrdinary);
+        Assert.Equal(inner.Before, member.Relation.Before!.DeclaringType);
+    }
+
+    [Fact]
+    public async Task OrdinaryPresentation_CountsRowsOutsideItOnlyForTheApiAxis()
+    {
+        LibraryApiDiffDocument apiAxis = await ApiAxisFastDiff();
+        Assert.True(apiAxis.PresentsOrdinaryPopulation);
+        Assert.Equal(8, LibraryApiOrdinaryPresentation.OutsideRowCount(apiAxis));
+        Assert.False(
+            LibraryApiOrdinaryPresentation.HasOrdinaryRow(
+                Subject(apiAxis, "FastDiffFixture.ProtectedMemberChanged").Comparison));
+        Assert.True(
+            LibraryApiOrdinaryPresentation.HasOrdinaryRow(
+                Subject(apiAxis, "FastDiffFixture.PublicToProtected").Comparison));
+
+        foreach (ApiSurfaceScope scope in new[] { ApiSurfaceScope.Public, ApiSurfaceScope.IncludeAll })
+        {
+            LibraryApiDiffDocument document = Assert.IsType<LibraryApiDiffOutcome.Available>(
+                LibraryApiDiffPresentationAdapter.Create(
+                    await Compare(
+                        FixtureCatalog.MetadataFastDiffPair.OldAssemblyPath(),
+                        FixtureCatalog.MetadataFastDiffPair.NewAssemblyPath(),
+                        scope: scope))).Document;
+            Assert.False(document.PresentsOrdinaryPopulation);
+            Assert.Equal(0, LibraryApiOrdinaryPresentation.OutsideRowCount(document));
+        }
+    }
+
+    static async Task<LibraryApiDiffDocument> ApiAxisFastDiff()
+        => Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(
+                await Compare(
+                    FixtureCatalog.MetadataFastDiffPair.OldAssemblyPath(),
+                    FixtureCatalog.MetadataFastDiffPair.NewAssemblyPath(),
+                    scope: ApiSurfaceScope.ApiAxis))).Document;
+
+    static ComparisonSubject<LibraryApiTypeDiff> Subject(
+        LibraryApiDiffDocument document,
+        string identifier)
+        => Assert.Single(
+            document.Comparison.Subjects,
+            subject => subject.Identifier == identifier);
+
     static async Task<AssemblyContextApiComparisonResult> Compare(
         string beforePath,
         string afterPath,
