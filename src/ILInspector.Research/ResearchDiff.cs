@@ -15,19 +15,21 @@ using ILInspector.ILDiff;
 
 namespace ILInspector.Research;
 
-/// <param name="IlNormalization">
-/// The normalization the IL body comparison and its Finding census run
-/// under; a consumer's named policy, such as Fast Diff's Body policy, or none.
-/// </param>
 public sealed record ResearchDiffOptions(
     ResearchChangeMechanism Mechanisms = ResearchChangeMechanism.AllAvailable,
     bool IncludeAllApi = false,
     ApiDiffScope ApiScope = ApiDiffScope.Signature,
-    IReadOnlySet<string>? TypeFilters = null,
-    IlBodyDiffNormalization IlNormalization = IlBodyDiffNormalization.None)
+    IReadOnlySet<string>? TypeFilters = null)
 {
     public ImmutableHashSet<string> RetainedComparisonDescriptorIds { get; init; } =
         ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The normalization the IL body comparison and its Finding census run
+    /// under; a consumer's named policy, such as Fast Diff's Body policy, or
+    /// none.
+    /// </summary>
+    public IlBodyDiffNormalization IlNormalization { get; init; } = IlBodyDiffNormalization.None;
 }
 
 public sealed record ResearchDiffInput(

@@ -284,11 +284,11 @@ public static partial class ImplementationDiff
             newInput,
             new ResearchDiffOptions(
                 ToResearchMechanisms(options.Mechanisms),
-                TypeFilters: options.TypeFilters,
-                IlNormalization: options.IlNormalization)
+                TypeFilters: options.TypeFilters)
             {
                 RetainedComparisonDescriptorIds =
                     RetainedComparisonDescriptorIds(options.Mechanisms),
+                IlNormalization = options.IlNormalization,
             });
         return FromResearchComparison(research, options);
     }
