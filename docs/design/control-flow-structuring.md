@@ -838,7 +838,14 @@ only when the post-dominator machinery is proven.
    have any number of back-edges as long as each is its block's terminator; the
    last one is the latch (an unconditional goto is the implicit loop edge, a
    conditional one is the loop's bottom test and raises to `if (!c) break;`),
-   and every earlier back-edge is a `continue` statement. A rotated `while`
+   and every earlier back-edge is a `continue` statement. The loop body must
+   be entered only at its head: csc retargets a preceding protected region's
+   leaves straight onto a following rotated loop's bottom test
+   (`MetricConfiguration..ctor`, `EhStructuringPass::BuildContainer`), and a
+   `while (true)` over that region would strand them as gotos into its
+   braces, so the shape proves no outside transfer enters `(head, latch]`
+   (`LeaveOntoRotatedLoopBottomTestDoesNotRaiseWhileTrue` on `FillThenPad`).
+   A rotated `while`
    body receives its own condition block as its continue target, so a nested
    loop never reads an enclosing loop's transfer as its own: a branch to an
    outer head from inside an inner loop stays a goto and declines the
@@ -847,16 +854,26 @@ only when the post-dominator machinery is proven.
    `continue;` or `if (c) continue;` from any nesting depth; at a rotated
    loop's top level the condition is also the body's join, and the merge-exit
    guard reading keeps csc's `if (c) { ... }` tail shape instead. Such a
-   `Continue` carries `ContinueOrigin.LoopBodyBranch`: csc lowers `continue`
-   to the same `br`/`brtrue` to the same block, so it is opcode-exact and
-   raises no `DEC0013` remark; the fidelity gate proves it on
-   `WhileTrueWithArmContinue`, `WhileTrueWithArmContinueAndBottomTest`, and
-   `WhileWithNestedContinue`. The merge-exit guard (`if (c) goto JOIN` raised
-   as a guard over the rest of the region) now proves, like every other arm,
-   that no outside transfer enters the region it swallows: the deeper walk
-   this slice enables reached a flattened switch section behind such a guard
-   in `CustomDebugInfoReader::GetCSharpGroupedImportStrings`, and
-   `EarlyExitGuardDoesNotSwallowFlattenedSwitchTargets` pins the decline.
+   `Continue` carries `ContinueOrigin.LoopBodyBranch`, as does a retry
+   `leave` to a structuring-raised loop's continue target: csc lowers
+   `continue` to the same `br`/`brtrue`/`leave` to the same block, so it is
+   opcode-exact and raises no `DEC0013` remark; the fidelity gate proves it
+   on `WhileTrueWithArmContinue`, `WhileTrueWithArmContinueAndBottomTest`,
+   `WhileWithNestedContinue`, and `RetryContinueInsideTry` (the older
+   `TryFinallyRetryLoop` and `NestedOuterRetryLoop` fixtures now import at
+   Full too and are docketed for their pre-existing result-temp spill of a
+   `return` inside the protected region, which is not the continue). The
+   merge-exit
+   guard (`if (c) goto JOIN` raised as a guard over the rest of the region)
+   now proves, like every other arm, that no outside transfer enters the
+   region it swallows: the deeper walk this slice enables reached a flattened
+   switch section behind such a guard in
+   `CustomDebugInfoReader::GetCSharpGroupedImportStrings`, and the same gap
+   had already nested switch section labels inside if-arms on `main`
+   (`StackOptimizerPass1::VisitLocal`,
+   `TypeSourceComposer.<CollectNamespaces>g__Add`), which now render flat
+   and legal; `EarlyExitGuardDoesNotSwallowFlattenedSwitchTargets` pins the
+   decline.
    `GuardedWhileNestedContinue_RaisesContinue`,
    `WhileTrueWithArmContinue_RaisesContinuesAtDepth`,
    `WhileTrueWithArmContinueAndBottomTest_RaisesBreakAtBottom`, and
@@ -864,10 +881,10 @@ only when the post-dominator machinery is proven.
    decline whose body merge is the loop condition, so the shape is now a plain
    `continue`) gate the raise. Against exact base `795c3bd79` over the pinned
    real-world corpus (89,065 methods), `--structuring-stops` moved from 30,251
-   to 30,391 structured containers and 2,468 to 2,328 flat
+   to 30,388 structured containers and 2,468 to 2,331 flat
    containers (`cond-target-past-region` 1,266 → 1,214,
    `forward-branch-not-region-exit` 800 → 746, `cond-backward-branch`
-   74 → 31), with the same four pre-existing pass bugs on both sides.
+   74 → 36), with the same four pre-existing pass bugs on both sides.
    Multi-way dispatch whose arms are not terminators (a comparison tree or
    lowered switch whose arms rejoin or `continue`, as in
    `JsonTextReader::ParseConstructor` and `JPath::ParsePath`) is the next

@@ -910,6 +910,56 @@ public class CfgSampleClass
         return total;
     }
 
+    // csc retargets the foreach's `break` leave and its normal exit leave
+    // straight onto the following rotated loop's bottom test, so that loop's
+    // head follows the try/finally with a conditional back-edge from the test.
+    // The infinite-loop shape must not claim the region: the leaves enter it
+    // past its head, and `while (true) { ...; IL_xxxx: if (...) break; }`
+    // would strand them as gotos into the loop's braces.
+    public static int FillThenPad(IEnumerable<int> values, int[] slots)
+    {
+        int count = 0;
+        int last = 0;
+        foreach (int value in values)
+        {
+            last = value;
+            slots[count++] = value;
+            if (count >= slots.Length)
+                break;
+        }
+        while (count < slots.Length)
+        {
+            slots[count++] = last;
+        }
+        return count;
+    }
+
+    // `continue` inside a try block lowers to `leave HEAD`, the same leave the
+    // original retry loop carries. The structuring pass raises it to `continue`
+    // with the proven LoopBodyBranch origin; this fixture is the compile-back
+    // proof: every exit is a `continue` or a bare `return`, so no result temp
+    // is spilled inside the protected region.
+    public static void RetryContinueInsideTry(int n)
+    {
+        int attempts = 0;
+        while (true)
+        {
+            try
+            {
+                attempts++;
+                if (attempts % 2 == 0)
+                    continue;
+                if (attempts >= n)
+                    return;
+                LastValue = attempts;
+            }
+            finally
+            {
+                Noop();
+            }
+        }
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;

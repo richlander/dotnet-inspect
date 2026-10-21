@@ -824,10 +824,12 @@ public enum ContinueOrigin
     ProtectedRegionLeaveToForIncrement,
 
     /// <summary>
-    /// A branch inside a structuring-raised <c>while</c> body to that loop's
-    /// continue target (the head of a <c>while (true)</c>, or the condition of
-    /// a rotated <c>while</c>). csc lowers <c>continue</c> to the same
-    /// <c>br</c>/<c>brtrue</c> to the same block, so the spelling is opcode-exact.
+    /// A branch, conditional branch, or protected-region leave inside a
+    /// structuring-raised <c>while</c> body to that loop's continue target (the
+    /// head of a <c>while (true)</c>, or the condition of a rotated
+    /// <c>while</c>). csc lowers <c>continue</c> to the same
+    /// <c>br</c>/<c>brtrue</c>/<c>leave</c> to the same block, so the spelling
+    /// is opcode-exact.
     /// </summary>
     LoopBodyBranch,
 }

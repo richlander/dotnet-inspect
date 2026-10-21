@@ -1862,7 +1862,15 @@ public sealed class StructuringPass : IIrPass
                 latch = j;
             }
         }
-        return latch == -1 ? null : latch;
+        if (latch == -1)
+            return null;
+        // The body must be entered only at its head: a transfer from outside
+        // the loop into (head, latch] (a leave from a preceding protected
+        // region onto a bottom test, a switch section) would print as a goto
+        // into the loop's braces.
+        if (RegionExternallyEntered(ctx, head + 1, latch + 1))
+            return null;
+        return latch;
     }
 
     static int? FindLeaveRetryLoopShape(Ctx ctx, int head, int stop)
@@ -3029,7 +3037,7 @@ public sealed class StructuringPass : IIrPass
                     && continueTarget == leaveTarget
                     && CanRaiseRetryLeave(ctx, leave):
                 {
-                    var next = new Continue();
+                    var next = new Continue(ContinueOrigin.LoopBodyBranch);
                     next.InheritSourceOffset(leave);
                     ctx.GeneratedLoopTransfers.Add(next);
                     result.Add(next);
@@ -3413,7 +3421,7 @@ public sealed class StructuringPass : IIrPass
                      targetOffset,
                      replacementIsContinue: true))
         {
-            var next = new Continue();
+            var next = new Continue(ContinueOrigin.LoopBodyBranch);
             next.InheritSourceOffset(leave);
             leave.ReplaceWith(next);
         }

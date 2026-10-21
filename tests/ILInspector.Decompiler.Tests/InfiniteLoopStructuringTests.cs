@@ -126,7 +126,8 @@ public class InfiniteLoopStructuringTests
         var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
         Assert.True(IsWhileTrue(loop));
         Assert.Single(loop.Body.Descendants.OfType<TryFinally>());
-        Assert.Single(loop.Body.Descendants.OfType<Continue>());
+        var next = Assert.Single(loop.Body.Descendants.OfType<Continue>());
+        Assert.Equal(ContinueOrigin.LoopBodyBranch, next.Origin);
         Assert.Empty(function.Descendants.OfType<Leave>());
 
         var output = DecidedPrint.Print(function).Output!;
@@ -326,6 +327,41 @@ public class InfiniteLoopStructuringTests
         Assert.DoesNotContain("goto", output);
         Assert.Contains("continue;", output);
         Assert.Contains("break;", output);
+    }
+
+    [Fact]
+    public void RetryContinueInsideTry_RaisesProvenContinue()
+    {
+        // The compile-back proof for a retry leave raised to `continue`: the
+        // fixture has no return inside the protected region, so the fidelity
+        // gate compares exactly the leave csc emits for `continue`.
+        var function = Raised(nameof(CfgSampleClass.RetryContinueInsideTry));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(IsWhileTrue(loop));
+        Assert.Single(loop.Body.Descendants.OfType<TryFinally>());
+        // The explicit `continue` and the try body's trailing leave to the head.
+        var continues = function.Descendants.OfType<Continue>().ToList();
+        Assert.Equal(2, continues.Count);
+        Assert.All(continues, next => Assert.Equal(ContinueOrigin.LoopBodyBranch, next.Origin));
+        Assert.Empty(function.Descendants.OfType<Leave>());
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.DoesNotContain("goto", DecidedPrint.Print(function).Output!);
+    }
+
+    [Fact]
+    public void LeaveOntoRotatedLoopBottomTestDoesNotRaiseWhileTrue()
+    {
+        // The foreach's leaves land on the following loop's bottom test, past
+        // that loop's head. A `while (true)` over [head, test] would nest the
+        // leave target inside the loop's braces (CS0159), so the loop declines
+        // and the region keeps its labels.
+        var function = Raised(nameof(CfgSampleClass.FillThenPad));
+
+        Assert.DoesNotContain(function.Descendants.OfType<WhileLoop>(), IsWhileTrue);
+        var output = DecidedPrint.Print(function).Output!;
+        foreach (var leave in function.Descendants.OfType<Leave>())
+            Assert.Contains($"IL_{leave.TargetOffset:X4}:", output);
     }
 
     [Fact]
