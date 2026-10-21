@@ -729,7 +729,7 @@ test("typed package inspection owns package-root request coordination", () => {
   assert.match(appSource, /packageInspection\.loadMetadata\(/);
   assert.match(
     packageInspectionSource,
-    /async loadDependencies\(packageModel, signature\)[\s\S]*packageDependenciesStateKey\(current\) === signature[\s\S]*state\.packageDependencies\.request === request/);
+    /async loadDependencies\(packageModel, signature\)[\s\S]*packageInspectionRequestStateKey\(current\) === signature[\s\S]*state\.packageDependencies\.request === request/);
   assert.doesNotMatch(dependenciesLoader, /state\.packageDependencies/);
 });
 

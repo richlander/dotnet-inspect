@@ -185,16 +185,8 @@ import {
 } from "./platform-forwarders.ts";
 import {
   createPackageInspectionCoordinator,
-  normalizePackageDependenciesSnapshot,
-  normalizePackageIntegrationsSnapshot,
-  normalizePackageMetadataSnapshot,
-  normalizePackageOpportunitiesSnapshot,
-  normalizePackageVulnerabilitySnapshot,
-  packageDependenciesStateKey,
-  packageIntegrationsStateKey,
-  packageMetadataStateKey,
-  packageOpportunitiesStateKey,
-  packageVulnerabilityStateKey,
+  normalizePackageInspectionRequestSnapshot,
+  packageInspectionRequestStateKey,
   projectPackagePerformanceType,
   resolvePackagePerformanceType,
   workspaceDependencyKey,
@@ -2086,18 +2078,18 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.memberAnnotatedLoading = false;
   snapshotState.typeMetadataLoading = false;
   snapshotState.packageDependencies =
-    normalizePackageDependenciesSnapshot(snapshotState.packageDependencies);
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageDependencies);
   snapshotState.packageVulnerabilities =
-    normalizePackageVulnerabilitySnapshot(
+    normalizePackageInspectionRequestSnapshot(
       snapshotState.packageVulnerabilities);
   snapshotState.packageIntegrations =
-    normalizePackageIntegrationsSnapshot(snapshotState.packageIntegrations);
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageIntegrations);
   snapshotState.packageOpportunities =
-    normalizePackageOpportunitiesSnapshot(snapshotState.packageOpportunities);
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
   snapshotState.packageMetadata =
-    normalizePackageMetadataSnapshot(snapshotState.packageMetadata);
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageMetadata);
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
   snapshotState.directUseClusterLoading = false;
@@ -11209,7 +11201,7 @@ function packageLensBody() {
     case "vulnerabilities": {
       const pkg = currentPackage();
       const vulnerabilityState = state.packageVulnerabilities;
-      const fresh = packageVulnerabilityStateKey(vulnerabilityState)
+      const fresh = packageInspectionRequestStateKey(vulnerabilityState)
         === packageVulnerabilitiesSignature();
       return renderPackageVulnerabilities({
         packageId: pkg.id,
@@ -11364,7 +11356,7 @@ function packageVulnerabilitiesSignature() {
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
   const dependenciesState = state.packageDependencies;
-  const fresh = packageDependenciesStateKey(dependenciesState) === current;
+  const fresh = packageInspectionRequestStateKey(dependenciesState) === current;
   if (dependenciesState.status === "loading" && fresh) {
     return renderPackageDependenciesSurface(
       `<section data-dependency-graph-surface class="document-section package-dependencies-state source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest.</p></section>`,
@@ -11516,7 +11508,7 @@ function libraryReferencePackageIcon(pkg: AppPackage | null | undefined): string
 function renderLibraryReferences() {
   const current = packageDependenciesSignature();
   const dependenciesState = state.packageDependencies;
-  const fresh = packageDependenciesStateKey(dependenciesState) === current;
+  const fresh = packageInspectionRequestStateKey(dependenciesState) === current;
   const data = fresh && dependenciesState.status === "ready"
     ? dependenciesState.result
     : null;
@@ -12059,7 +12051,7 @@ function maybeAutoLoadPackageDependencies() {
   if (!packageDependencies && !libraryReferences) return;
   if (libraryReferences && aggregateLibrarySubjectIsActive()) return;
   const dependenciesState = state.packageDependencies;
-  if (packageDependenciesStateKey(dependenciesState)
+  if (packageInspectionRequestStateKey(dependenciesState)
     === packageDependenciesSignature()) {
     if (packageDependencies && dependenciesState.status === "ready") {
       observeAsync(renderPackageDependencyList(), "Matching dependency packages");
@@ -12115,7 +12107,7 @@ function maybeAutoLoadPackageVulnerabilities() {
     || state.packageLens !== "vulnerabilities"
     || state.package?.source.kind !== "nuget.org") return;
   const signature = packageVulnerabilitiesSignature();
-  if (packageVulnerabilityStateKey(state.packageVulnerabilities)
+  if (packageInspectionRequestStateKey(state.packageVulnerabilities)
     === signature) return;
   observeAsync(
     packageInspection.loadVulnerabilities(
@@ -12160,7 +12152,7 @@ function renderPackageIntegrations() {
   const current = packageIntegrationsSignature();
   const integrationsState = state.packageIntegrations;
   const opportunitiesState = state.packageOpportunities;
-  const fresh = packageIntegrationsStateKey(integrationsState) === current;
+  const fresh = packageInspectionRequestStateKey(integrationsState) === current;
   return renderLibraryIntegrationsSurface({
     libraryName: library?.name ?? "",
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
@@ -12179,7 +12171,7 @@ function renderPackageIntegrations() {
       ? integrationsState.result
       : null,
     suggestionsFresh:
-      packageOpportunitiesStateKey(opportunitiesState) === current,
+      packageInspectionRequestStateKey(opportunitiesState) === current,
     suggestionsLoading: opportunitiesState.status === "loading",
     suggestionsError: opportunitiesState.status === "failed"
       ? opportunitiesState.error
@@ -12196,8 +12188,8 @@ async function loadPackageIntegrations() {
   const scopedLib = selectedLibraryRequest() || null;
   const signature = packageIntegrationsSignature();
   if (startingPackageIntegrations
-    || (packageIntegrationsStateKey(state.packageIntegrations) === signature
-      && packageOpportunitiesStateKey(state.packageOpportunities)
+    || (packageInspectionRequestStateKey(state.packageIntegrations) === signature
+      && packageInspectionRequestStateKey(state.packageOpportunities)
         === signature)) return;
   let integrationsLoad: Promise<void>;
   let suggestionsLoad: Promise<void>;
@@ -12219,8 +12211,8 @@ function maybeAutoLoadPackageIntegrations() {
   if (state.analysisMode !== "integrations") return;
   const signature = packageIntegrationsSignature();
   if (startingPackageIntegrations) return;
-  if (packageIntegrationsStateKey(state.packageIntegrations) === signature
-    && packageOpportunitiesStateKey(state.packageOpportunities)
+  if (packageInspectionRequestStateKey(state.packageIntegrations) === signature
+    && packageInspectionRequestStateKey(state.packageOpportunities)
       === signature) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
@@ -12447,7 +12439,7 @@ function renderPackageMetadata() {
   const isPlatform = pkg.isRuntimePack;
   const metadataState = state.packageMetadata;
   const fresh =
-    packageMetadataStateKey(metadataState) === packageScopeSignature();
+    packageInspectionRequestStateKey(metadataState) === packageScopeSignature();
   const scopedLibrary = selectedLibraryName();
   const platformMetadataSelect = isPlatform && state.rootKind !== "platform"
     ? platformLibrarySelectHtml({
@@ -12500,7 +12492,7 @@ function maybeAutoLoadPackageMetadata() {
   if (!state.atLibraryRoot || state.libraryLens !== "metadata") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (packageMetadataStateKey(state.packageMetadata)
+  if (packageInspectionRequestStateKey(state.packageMetadata)
       === packageScopeSignature()) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
@@ -24434,7 +24426,7 @@ function dependencyGraphAvailable() {
     return state.packageHierarchyKey === packageHierarchySignature()
       && !state.packageHierarchyLoading && !state.packageHierarchyError
       && Boolean(state.packageHierarchy?.rows.length);
-  return packageDependenciesStateKey(state.packageDependencies)
+  return packageInspectionRequestStateKey(state.packageDependencies)
     === packageDependenciesSignature()
     && Boolean(packageDependenciesData()?.dependencyGroups.length);
 }

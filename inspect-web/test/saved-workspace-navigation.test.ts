@@ -43,11 +43,7 @@ import {
 } from "../src/retained-workspaces.ts";
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import {
-  normalizePackageDependenciesSnapshot,
-  normalizePackageIntegrationsSnapshot,
-  normalizePackageMetadataSnapshot,
-  normalizePackageOpportunitiesSnapshot,
-  normalizePackageVulnerabilitySnapshot,
+  normalizePackageInspectionRequestSnapshot,
   workspaceDependencyKey,
   type PackageDependenciesState,
   type PackageIntegrationsState,
@@ -683,11 +679,7 @@ function harness() {
     normalizeDocumentViewerSnapshot,
     normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
-    normalizePackageDependenciesSnapshot,
-    normalizePackageIntegrationsSnapshot,
-    normalizePackageMetadataSnapshot,
-    normalizePackageOpportunitiesSnapshot,
-    normalizePackageVulnerabilitySnapshot,
+    normalizePackageInspectionRequestSnapshot,
     normalizeSourceResultSnapshot,
     retainedWorkspaces: {
       get activeWorkspaceId() {

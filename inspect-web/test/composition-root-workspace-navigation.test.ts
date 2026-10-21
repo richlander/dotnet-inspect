@@ -1140,7 +1140,7 @@ test("package Metadata retries remain explicit rather than render-driven", () =>
     ?? "";
   assert.match(
     autoLoad,
-    /packageMetadataStateKey\(state\.packageMetadata\)[\s\S]*=== packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+    /packageInspectionRequestStateKey\(state\.packageMetadata\)[\s\S]*=== packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
   assert.doesNotMatch(autoLoad, /status === "failed"/);
 });
 

@@ -38,155 +38,46 @@ export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
 
+export type PackageInspectionRequestState<TResult> =
+  | { readonly status: "idle" }
+  | {
+    readonly status: "loading";
+    readonly request: { readonly key: string };
+  }
+  | {
+    readonly status: "ready";
+    readonly key: string;
+    readonly result: TResult;
+  }
+  | {
+    readonly status: "failed";
+    readonly key: string;
+    readonly error: string;
+  };
+
+export function packageInspectionRequestStateKey<TResult>(
+  state: PackageInspectionRequestState<TResult>,
+): string | null {
+  if (state.status === "idle") return null;
+  return state.status === "loading" ? state.request.key : state.key;
+}
+
+export function normalizePackageInspectionRequestSnapshot<TResult>(
+  state: PackageInspectionRequestState<TResult>,
+): PackageInspectionRequestState<TResult> {
+  return state.status === "loading" ? { status: "idle" } : state;
+}
+
 export type PackageDependenciesState =
-  | { readonly status: "idle" }
-  | {
-    readonly status: "loading";
-    readonly request: { readonly key: string };
-  }
-  | {
-    readonly status: "ready";
-    readonly key: string;
-    readonly result: BrowserPackageDependencies;
-  }
-  | {
-    readonly status: "failed";
-    readonly key: string;
-    readonly error: string;
-  };
-
-export function packageDependenciesStateKey(
-  state: PackageDependenciesState,
-): string | null {
-  if (state.status === "idle") return null;
-  return state.status === "loading" ? state.request.key : state.key;
-}
-
-export function normalizePackageDependenciesSnapshot(
-  state: PackageDependenciesState,
-): PackageDependenciesState {
-  return state.status === "loading" ? { status: "idle" } : state;
-}
-
+  PackageInspectionRequestState<BrowserPackageDependencies>;
 export type PackageVulnerabilityState =
-  | { readonly status: "idle" }
-  | {
-    readonly status: "loading";
-    readonly request: { readonly key: string };
-  }
-  | {
-    readonly status: "ready";
-    readonly key: string;
-    readonly result: BrowserPackageVulnerabilityResult;
-  }
-  | {
-    readonly status: "failed";
-    readonly key: string;
-    readonly error: string;
-  };
-
-export function packageVulnerabilityStateKey(
-  state: PackageVulnerabilityState,
-): string | null {
-  if (state.status === "idle") return null;
-  return state.status === "loading" ? state.request.key : state.key;
-}
-
-export function normalizePackageVulnerabilitySnapshot(
-  state: PackageVulnerabilityState,
-): PackageVulnerabilityState {
-  return state.status === "loading" ? { status: "idle" } : state;
-}
-
+  PackageInspectionRequestState<BrowserPackageVulnerabilityResult>;
 export type PackageIntegrationsState =
-  | { readonly status: "idle" }
-  | {
-    readonly status: "loading";
-    readonly request: { readonly key: string };
-  }
-  | {
-    readonly status: "ready";
-    readonly key: string;
-    readonly result: BrowserPackageIntegrations;
-  }
-  | {
-    readonly status: "failed";
-    readonly key: string;
-    readonly error: string;
-  };
-
-export function packageIntegrationsStateKey(
-  state: PackageIntegrationsState,
-): string | null {
-  if (state.status === "idle") return null;
-  return state.status === "loading" ? state.request.key : state.key;
-}
-
-export function normalizePackageIntegrationsSnapshot(
-  state: PackageIntegrationsState,
-): PackageIntegrationsState {
-  return state.status === "loading" ? { status: "idle" } : state;
-}
-
+  PackageInspectionRequestState<BrowserPackageIntegrations>;
 export type PackageOpportunitiesState =
-  | { readonly status: "idle" }
-  | {
-    readonly status: "loading";
-    readonly request: { readonly key: string };
-  }
-  | {
-    readonly status: "ready";
-    readonly key: string;
-    readonly result: BrowserPackageOpportunities;
-  }
-  | {
-    readonly status: "failed";
-    readonly key: string;
-    readonly error: string;
-  };
-
-export function packageOpportunitiesStateKey(
-  state: PackageOpportunitiesState,
-): string | null {
-  if (state.status === "idle") return null;
-  return state.status === "loading" ? state.request.key : state.key;
-}
-
-export function normalizePackageOpportunitiesSnapshot(
-  state: PackageOpportunitiesState,
-): PackageOpportunitiesState {
-  return state.status === "loading" ? { status: "idle" } : state;
-}
-
+  PackageInspectionRequestState<BrowserPackageOpportunities>;
 export type PackageMetadataState =
-  | { readonly status: "idle" }
-  | {
-    readonly status: "loading";
-    readonly request: { readonly key: string };
-  }
-  | {
-    readonly status: "ready";
-    readonly key: string;
-    readonly result: PackageMetadata;
-  }
-  | {
-    readonly status: "failed";
-    readonly key: string;
-    readonly error: string;
-  };
-
-export function packageMetadataStateKey(
-  state: PackageMetadataState,
-): string | null {
-  if (state.status === "idle") return null;
-  return state.status === "loading" ? state.request.key : state.key;
-}
-
-export function normalizePackageMetadataSnapshot(
-  state: PackageMetadataState,
-): PackageMetadataState {
-  return state.status === "loading" ? { status: "idle" } : state;
-}
+  PackageInspectionRequestState<PackageMetadata>;
 
 export interface ResolvedPackagePerformanceMember {
   type: AppTypeSurface;
@@ -540,7 +431,7 @@ export function createPackageInspectionCoordinator(
     async loadDependencies(packageModel, signature) {
       const current = state.packageDependencies;
       if (current.status !== "idle"
-        && packageDependenciesStateKey(current) === signature) {
+        && packageInspectionRequestStateKey(current) === signature) {
         dependencies.render();
         return;
       }
