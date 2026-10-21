@@ -77,9 +77,9 @@ Thirty rotated NativeAOT rounds on the three accepted assets found:
 
 | Asset | Checked slot / retained range | Trusted slot / retained range |
 | --- | ---: | ---: |
-| CoreLib | 0.9956x, inconclusive | 0.7330x, win |
-| System.Text.Json | 0.9973x, inconclusive | 0.6997x, win |
-| Configuration | 0.9956x, inconclusive | 0.6836x, win |
+| CoreLib | approximately 0.99x, inconclusive | approximately 0.73x, win |
+| System.Text.Json | approximately 1.00x, inconclusive | approximately 0.70x, win |
+| Configuration | approximately 1.00x, inconclusive | approximately 0.69x, win |
 
 The checked 8-byte descriptor therefore preserves the 16-byte descriptor's
 match latency. NativeAOT disassembly shows that it does not do so through

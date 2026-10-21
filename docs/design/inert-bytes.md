@@ -244,8 +244,8 @@ retained range for every comparison.
 A follow-up descriptor pilot isolated that operation with one shared byte
 population. An owner-fused checked operation over an 8-byte `[offset, length]`
 slot matched the latency of a 16-byte `[array, offset, length]` retained range
-on all three assets: median ratios were `0.9956x`, `0.9973x`, and `0.9956x`.
-NativeAOT code inspection showed that the compiler retained the
+on all three assets, with median ratios from `0.99x` to `1.00x`. NativeAOT code
+inspection showed that the compiler retained the
 `offset + length <= array.Length` branch in both checked kernels. A
 trusted-coordinate diagnostic that omitted the branch ran at `0.68x` to
 `0.73x`, proving both that the check was not eliminated and that the safe
