@@ -277,12 +277,90 @@ public sealed class CapabilityCatalogStructuralSearchTests
                 document,
                 paths,
                 new("test/library-catalog", "library", "library"),
-                new(
-                    "test/library-sections",
-                    "test CLI",
-                    InspectionConsumerKind.Cli,
+                [
+                    Binding(
+                        "library -S",
+                        [Audit, UnsafeMembers, LibraryMetrics, Undeclared],
+                        root: "package"),
+                ]));
+    }
+
+    [Fact]
+    public void StructuralResource_CarriesOnlyTheBindingsThatAddressIt()
+    {
+        // A catalog two command views project admits one binding per view;
+        // a section only the second view selects carries only its binding.
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+        CapabilityCatalogSearchStructuralCatalog catalog = new(
+            document,
+            paths,
+            new("test/library-catalog", "library", "library"),
+            [
+                Binding(
                     "library -S",
-                    "package")));
+                    [Audit, UnsafeMembers, LibraryMetrics, Undeclared]),
+                Binding(
+                    "library address -S",
+                    [UnsafeMembers],
+                    identity: "test/library-address-sections"),
+            ]);
+
+        CapabilityCatalogSearchResult unsafeMembers =
+            Search(catalog, "unsafe").Results[0];
+        Assert.Equal(
+            ["library -S", "library address -S"],
+            unsafeMembers.ProductionBindings.Select(
+                static binding => binding.Gesture));
+        CapabilityCatalogSearchResult metrics =
+            Search(catalog, "metrics").Results[0];
+        Assert.Equal(
+            "library -S",
+            Assert.Single(metrics.ProductionBindings).Gesture);
+    }
+
+    [Fact]
+    public void StructuralResourceWithNoBinding_IsRejected()
+    {
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+        CapabilityCatalogSearchStructuralCatalog catalog = new(
+            document,
+            paths,
+            new("test/library-catalog", "library", "library"),
+            [Binding("library -S", [Audit, UnsafeMembers, LibraryMetrics])]);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            Search(catalog, "unsafe"));
+        Assert.Contains("has no binding", exception.Message);
+    }
+
+    [Fact]
+    public void BindingOverAnUnadmittedResource_IsRejected()
+    {
+        (DiscoveryDocument document,
+            StructuralResourcePathRegistration[] paths) = Structural();
+        CapabilityCatalogSearchStructuralCatalog catalog = new(
+            document,
+            paths,
+            new("test/library-catalog", "library", "library"),
+            [
+                Binding(
+                    "library -S",
+                    [
+                        Audit,
+                        UnsafeMembers,
+                        LibraryMetrics,
+                        Undeclared,
+                        new DiscoveryResourceIdentity(
+                            DiscoveryResourceKind.Section,
+                            "Absent"),
+                    ]),
+            ]);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() =>
+            Search(catalog, "unsafe"));
+        Assert.Contains("does not admit", exception.Message);
     }
 
     private static CapabilityCatalogSearchDocument Search(string text)
@@ -322,12 +400,26 @@ public sealed class CapabilityCatalogStructuralSearchTests
             document,
             paths,
             new($"test/{root}-catalog", root, root),
+            [
+                Binding(
+                    "library -S",
+                    [Audit, UnsafeMembers, LibraryMetrics, Undeclared],
+                    root),
+            ]);
+
+    private static CapabilityCatalogSearchStructuralBinding Binding(
+        string gesture,
+        IEnumerable<DiscoveryResourceIdentity> resources,
+        string root = "library",
+        string? identity = null) =>
+        new(
             new(
-                $"test/{root}-sections",
+                identity ?? $"test/{root}-sections",
                 "test CLI",
                 InspectionConsumerKind.Cli,
-                "library -S",
-                root));
+                gesture,
+                root),
+            resources);
 
     // The fixture's Discovery projection and its path registrations: the
     // inputs a host creates its structural explanation catalog from.
