@@ -47,6 +47,8 @@ both transitions would be silent without these rows. The fixture cases under
 - **Hidden**: `ApiType.IsHidden` and `ApiMember.IsHidden` record
   `EditorBrowsable(Never)` only. A property or event accessor records its own
   (`GetterIsHidden`, `SetterIsHidden`, `AdderIsHidden`, `RemoverIsHidden`).
+  An explicit interface implementation records no hidden fact, as the
+  extractor's admission rules exempt it, so it has no hidden row.
 - **Obsolete**: `IsObsolete`, `ObsoleteMessage`, and `ObsoleteIsError` on
   `ApiType` and `ApiMember`. The Type facts are not serialized, as
   `ApiType.IsHidden` is not, so existing Type JSON is unchanged. `[Obsolete]`'s
@@ -120,10 +122,15 @@ is not reported. Recording it is a separate change to the status facts.
 
 Fast Diff's API census records each admitted subject's custom attributes as
 API facts, `EditorBrowsable` and `Obsolete` among them, so a status-only
-change makes the Type API `Changed` with Body `Unchanged`. With these rows the
-API axis comparison reports that change, which keeps the
-[Fast Diff](fast-diff.md#contract) Exists contract: `Changed` opens a
-non-empty complete diff.
+change makes the Type API `Changed` with Body `Unchanged`. For a change to a
+recorded status fact (a Type's or Member's hidden fact, or `[Obsolete]`'s
+presence, message, or error flag), the API axis comparison now reports a row,
+which keeps the [Fast Diff](fast-diff.md#contract) Exists contract:
+`Changed` opens a non-empty complete diff. A change only to an unrecorded part
+of a status attribute, such as `[Obsolete]`'s `DiagnosticId` or `UrlFormat`,
+or to an accessor's hidden fact, is not covered by this owner; whether Fast
+Diff treats it as `Changed` with an empty complete diff is tracked by
+[#10354](https://github.com/richlander/dotnet-inspect/issues/10354).
 
 ## Hosts
 
