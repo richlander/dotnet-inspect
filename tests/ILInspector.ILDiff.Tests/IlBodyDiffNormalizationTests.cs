@@ -298,6 +298,71 @@ public class IlBodyDiffNormalizationTests
         Assert.Equal(0, result.ChangedBodyCount);
     }
 
+    /// <summary>
+    /// The #10205 gate: a pair whose only difference is the version of a non-platform
+    /// referenced assembly is <c>Exact</c> under the whole-scope mechanic and not
+    /// without it, including under both narrower scope mechanics together.
+    /// </summary>
+    [Fact]
+    public void NormalizeAssemblyScope_ToleratesNonPlatformReferenceVersionChanges()
+    {
+        var oldImage = BuildCallImage("Old", "Library.One", referenceVersion: new Version(8, 0, 0, 0));
+        var newImage = BuildCallImage("New", "Library.One", referenceVersion: new Version(9, 0, 0, 0));
+
+        Assert.False(CompareImages(oldImage, newImage).IsExact);
+        Assert.False(CompareImages(
+            oldImage,
+            newImage,
+            IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+                | IlBodyDiffNormalization.NormalizePlatformAssemblyScope).IsExact);
+        Assert.True(CompareImages(
+            oldImage,
+            newImage,
+            IlBodyDiffNormalization.NormalizeAssemblyScope).IsExact);
+    }
+
+    [Fact]
+    public void NormalizeAssemblyScope_ComparesReferencesByNameAlone()
+    {
+        Assert.False(CompareCallImages(
+            "Library.One",
+            "Library.Two",
+            IlBodyDiffNormalization.NormalizePlatformAssemblyScope).IsExact);
+        Assert.True(CompareCallImages(
+            "Library.One",
+            "Library.Two",
+            IlBodyDiffNormalization.NormalizeAssemblyScope).IsExact);
+    }
+
+    [Fact]
+    public void NormalizeAssemblyScope_SubsumesCurrentAndPlatformScopes()
+    {
+        const IlBodyDiffNormalization Whole = IlBodyDiffNormalization.NormalizeAssemblyScope;
+
+        Assert.True(CompareCallImages("System.Runtime", "System.Private.CoreLib", Whole).IsExact);
+        Assert.True(CompareImages(
+            BuildCallImage("System.Old"),
+            BuildCallImage("System.New"),
+            Whole).IsExact);
+        Assert.True(CompareImages(
+            BuildCallImage("System.Runtime"),
+            BuildCallImage("System.Runtime", "System.Runtime"),
+            Whole).IsExact);
+    }
+
+    [Fact]
+    public void NormalizeAssemblyScope_PreservesStringLiteralsAndMemberNames()
+    {
+        Assert.False(CompareImages(
+            BuildStringImage("Old", "[Library.One]"),
+            BuildStringImage("New", "[Library.Two]"),
+            IlBodyDiffNormalization.NormalizeAssemblyScope).IsExact);
+        Assert.False(CompareImages(
+            BuildCallImage("Old", "Library", memberName: "Alpha"),
+            BuildCallImage("New", "Library", memberName: "Beta"),
+            IlBodyDiffNormalization.NormalizeAssemblyScope).IsExact);
+    }
+
     [Fact]
     public void NormalizePlatformAssemblyScope_PreservesNonPlatformReferenceIdentity()
     {
@@ -472,7 +537,8 @@ public class IlBodyDiffNormalizationTests
         byte[]? targetSignature = null,
         byte[]? methodSignature = null,
         byte[][]? typeSpecifications = null,
-        bool emitCall = true)
+        bool emitCall = true,
+        Version? referenceVersion = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -503,7 +569,7 @@ public class IlBodyDiffNormalizationTests
             bool selfReference = referenceAssemblyName == assemblyName;
             var reference = metadata.AddAssemblyReference(
                 metadata.GetOrAddString(referenceAssemblyName),
-                new Version(1, 0, 0, 0),
+                referenceVersion ?? new Version(1, 0, 0, 0),
                 default,
                 default,
                 default,
