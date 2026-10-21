@@ -146,23 +146,17 @@ public static partial class SearchExports
 ```
 
 `SearchOperations.RunAsync` represents application-owned network, storage, or
-other naturally asynchronous work; it is not a generator hook. The two raw
-runtime operations are approximately:
+other naturally asynchronous work; it is not a generator hook.
 
-```ts
-type NormalizeQueryRaw = (query: string) => string;
-type SearchRaw = (requestJson: string) => Promise<string>;
-```
+The SDK runtime exposes each operation through `getAssemblyExports()`.
+**Runtime shape** below describes the values crossing that SDK-owned boundary;
+it is not the name of a generated type. The actual runtime aggregate also uses
+the managed declaring-type path and an opaque dispatch key.
 
-The generated public operations are:
-
-```ts
-export function normalizeQuery(query: string): string;
-
-export function search(
-  requestJson: SearchRequest,
-): Promise<SearchResult>;
-```
+| Managed export | SDK runtime value shape | Generated public facade |
+| --- | --- | --- |
+| `NormalizeQuery` | `(query: string) => string` | `normalizeQuery(query: string): string` |
+| `Search` | `(requestJson: string) => Promise<string>` | `search(requestJson: SearchRequest): Promise<SearchResult>` |
 
 The synchronous export remains synchronous. The asynchronous export remains
 asynchronous because its application work is genuinely asynchronous, not
