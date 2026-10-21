@@ -1466,11 +1466,31 @@ dotnet-inspect -w "$packet" --json
 dotnet-inspect "$packet" --count
 ```
 
-A Workspace landing returns exhaustive live inventory across all packet
-contexts, using the same formats, semantic row selection and Count as
-`workspace --packet "$packet" --inventory`. Activation does not persist a
-current Workspace for later commands. Ordinary `--workspace` supplies context
-to the new query selected by that command instead.
+Packet activation selects a single subject and its view. The CLI prints that
+view using its ordinary default presentation: a Hierarchy, Table, or Document.
+Supported output options can select another format.
+
+The currently supported subject is Workspace. Its default presentation is an
+inventory Table with Kind, Location, and State columns, listing Packages and
+registrations across the packet's contexts. For the Runtime packet above,
+without an output option, the CLI prints:
+
+```markdown
+# Workspace
+
+| Kind | Location | State |
+| ---- | -------- | ----- |
+| Ecosystem | ecosystem.runtime | Registered |
+```
+
+This is the Workspace subject's view. A saved Package, Type, or Member view
+must print its own result when its execution binding is supported. Restoring
+the packet's contexts does not select additional subjects to print. Workspace
+inventory retains the formats, semantic row selection and Count of
+`workspace --packet "$packet" --inventory`.
+
+Activation does not persist a current Workspace for later commands. Ordinary
+`--workspace` supplies context to the new query selected by that command instead.
 
 Saved inspection facets/queries currently fail explicitly before acquisition;
 exact saved-subject execution is tracked in #10408 and CLI binding in #4647.

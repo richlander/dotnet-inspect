@@ -354,6 +354,18 @@ an unsupported terminal is refused before realization when knowable.
 
 #### Landing and output
 
+Activation resolves one selected subject and its lens/view. The CLI prints
+that view using the inspection's ordinary default presentation: a Hierarchy,
+Table, or Document, unless a supported output option selects another format.
+Restoring multiple contexts supplies the inspection environment; it does not
+select one output subject per context.
+
+A Workspace landing selects the Workspace subject. Its currently admitted
+default is the inventory Table: Kind, Location, and State columns containing
+Package and registration entries across those contexts. Saved Package, Type,
+and Member subjects retain their own view's default presentation when their
+execution bindings are admitted.
+
 | Selected portable intent | CLI result |
 | --- | --- |
 | Workspace landing without an inspection | Existing exhaustive Workspace top-level inventory |
