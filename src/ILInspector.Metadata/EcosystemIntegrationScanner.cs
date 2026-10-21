@@ -14,20 +14,37 @@ public sealed record EcosystemIntegrationApiEvidence
         MemberAnchor member,
         MetadataTypeDefinitionName declaringType,
         MetadataNamedTypeReference? receiverType,
-        MetadataNamedTypeReference? returnType)
+        MetadataNamedTypeReference? returnType,
+        string displayKind,
+        string displaySignature,
+        TypeDeclarationDiscoveryAttributes declaringTypeDiscoveryAttributes,
+        bool isEditorBrowsableNever)
     {
         ArgumentNullException.ThrowIfNull(member);
         ArgumentNullException.ThrowIfNull(declaringType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displayKind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(displaySignature);
+        ArgumentNullException.ThrowIfNull(declaringTypeDiscoveryAttributes);
         Member = member;
         DeclaringType = declaringType;
         ReceiverType = receiverType;
         ReturnType = returnType;
+        DisplayKind = displayKind;
+        DisplaySignature = displaySignature;
+        DeclaringTypeDiscoveryAttributes =
+            declaringTypeDiscoveryAttributes;
+        IsEditorBrowsableNever = isEditorBrowsableNever;
     }
 
     public MemberAnchor Member { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
     public MetadataNamedTypeReference? ReceiverType { get; }
     public MetadataNamedTypeReference? ReturnType { get; }
+    public string DisplayKind { get; }
+    public string DisplaySignature { get; }
+    public TypeDeclarationDiscoveryAttributes
+        DeclaringTypeDiscoveryAttributes { get; }
+    public bool IsEditorBrowsableNever { get; }
 }
 
 public record EcosystemIntegrationSignalInfo(
@@ -66,6 +83,8 @@ public record EcosystemIntegrationSignalInfo(
         { get; init; } = [];
     internal bool ApiEvidenceUnavailable { get; init; }
     internal MetadataTypeDefinitionName? TypeDefinition { get; init; }
+    internal TypeDeclarationDiscoveryAttributes? TypeDiscoveryAttributes
+        { get; init; }
 
     public EcosystemIntegrationApiEvidence? GetApiEvidence() =>
         ApiEvidence.IsEmpty ? null : ApiEvidence[0];
@@ -77,6 +96,10 @@ public record EcosystemIntegrationSignalInfo(
 
     public MetadataTypeDefinitionName? GetTypeDefinition() =>
         TypeDefinition;
+
+    public TypeDeclarationDiscoveryAttributes?
+        GetTypeDiscoveryAttributes() =>
+        TypeDiscoveryAttributes;
 
     public IntegrationConceptDescriptor? GetConcept() => _concept;
 

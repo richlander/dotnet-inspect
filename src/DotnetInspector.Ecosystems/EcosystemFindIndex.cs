@@ -26,8 +26,8 @@ public enum EcosystemFindIndexGapKind
 public static class EcosystemFindIndexGenerationContract
 {
     public const string ScannerIdentity = "dotnet-inspect.integration-observation";
-    public const int ScannerVersion = 1;
-    public const int SymbolProjectionVersion = 1;
+    public const int ScannerVersion = 3;
+    public const int SymbolProjectionVersion = 3;
     public const int PrefixEnumerationPolicyVersion = 1;
     public const int PackageVersionSelectionPolicyVersion = 1;
     public const int LibrarySelectionPolicyVersion = 1;
@@ -185,6 +185,7 @@ public sealed class EcosystemFindIndexSymbol
         int symbolOrdinal,
         EcosystemFindIndexSymbolKind kind,
         MetadataTypeDefinitionName? type,
+        TypeDeclarationDiscoveryAttributes? typeDiscoveryAttributes,
         EcosystemIntegrationApiEvidence? member,
         InertString display,
         ImmutableArray<EcosystemFindIndexConceptAssociation> concepts)
@@ -193,6 +194,7 @@ public sealed class EcosystemFindIndexSymbol
         SymbolOrdinal = symbolOrdinal;
         Kind = kind;
         Type = type;
+        TypeDiscoveryAttributes = typeDiscoveryAttributes;
         Member = member;
         Display = display;
         Concepts = concepts;
@@ -202,6 +204,8 @@ public sealed class EcosystemFindIndexSymbol
     public int SymbolOrdinal { get; }
     public EcosystemFindIndexSymbolKind Kind { get; }
     public MetadataTypeDefinitionName? Type { get; }
+    public TypeDeclarationDiscoveryAttributes? TypeDiscoveryAttributes
+        { get; }
     public EcosystemIntegrationApiEvidence? Member { get; }
     public InertString Display { get; }
     public ImmutableArray<EcosystemFindIndexConceptAssociation> Concepts { get; }
@@ -268,8 +272,8 @@ public sealed class EcosystemFindIndexArtifact
 
 public static class EcosystemFindIndexBuilder
 {
-    public const int SchemaVersion = 1;
-    public const int AlgorithmVersion = 1;
+    public const int SchemaVersion = 3;
+    public const int AlgorithmVersion = 3;
 
     public static EcosystemFindIndexArtifact Build(
         EcosystemFindIndexBuildRequest request)
@@ -581,10 +585,16 @@ public static class EcosystemFindIndexBuilder
                 }
                 if (!typeSymbols.TryGetValue((sourceIndex, type), out MutableSymbol? symbol))
                 {
+                    TypeDeclarationDiscoveryAttributes attributes =
+                        signal.GetTypeDiscoveryAttributes()
+                        ?? throw new ArgumentException(
+                            "Type discovery attributes are unavailable.",
+                            nameof(input));
                     symbol = MutableSymbol.CreateType(
                         sourceIndex,
                         nextSymbolOrdinal++,
                         type,
+                        attributes,
                         display);
                     typeSymbols.Add((sourceIndex, type), symbol);
                     symbols.Add(symbol);
@@ -734,6 +744,7 @@ public static class EcosystemFindIndexBuilder
             int symbolOrdinal,
             EcosystemFindIndexSymbolKind kind,
             MetadataTypeDefinitionName? type,
+            TypeDeclarationDiscoveryAttributes? typeDiscoveryAttributes,
             EcosystemIntegrationApiEvidence? member,
             InertString display)
         {
@@ -741,6 +752,7 @@ public static class EcosystemFindIndexBuilder
             SymbolOrdinal = symbolOrdinal;
             Kind = kind;
             Type = type;
+            TypeDiscoveryAttributes = typeDiscoveryAttributes;
             Member = member;
             Display = display;
         }
@@ -749,6 +761,8 @@ public static class EcosystemFindIndexBuilder
         public int SymbolOrdinal { get; }
         public EcosystemFindIndexSymbolKind Kind { get; }
         public MetadataTypeDefinitionName? Type { get; }
+        public TypeDeclarationDiscoveryAttributes? TypeDiscoveryAttributes
+            { get; }
         public EcosystemIntegrationApiEvidence? Member { get; }
         public InertString Display { get; }
 
@@ -756,12 +770,14 @@ public static class EcosystemFindIndexBuilder
             int sourceIndex,
             int symbolOrdinal,
             MetadataTypeDefinitionName type,
+            TypeDeclarationDiscoveryAttributes typeDiscoveryAttributes,
             InertString display) =>
             new(
                 sourceIndex,
                 symbolOrdinal,
                 EcosystemFindIndexSymbolKind.Type,
                 type,
+                typeDiscoveryAttributes,
                 null,
                 display);
 
@@ -774,6 +790,7 @@ public static class EcosystemFindIndexBuilder
                 sourceIndex,
                 symbolOrdinal,
                 EcosystemFindIndexSymbolKind.Member,
+                null,
                 null,
                 member,
                 display);
@@ -797,6 +814,7 @@ public static class EcosystemFindIndexBuilder
                 SymbolOrdinal,
                 Kind,
                 Type,
+                TypeDiscoveryAttributes,
                 Member,
                 Display,
                 [
@@ -995,10 +1013,14 @@ internal static class EcosystemFindIndexValidation
             object identity = symbol.Kind switch
             {
                 EcosystemFindIndexSymbolKind.Type
-                    when symbol.Type is not null && symbol.Member is null =>
+                    when symbol.Type is not null
+                        && symbol.TypeDiscoveryAttributes is not null
+                        && symbol.Member is null =>
                     symbol.Type,
                 EcosystemFindIndexSymbolKind.Member
-                    when symbol.Member is not null && symbol.Type is null =>
+                    when symbol.Member is not null
+                        && symbol.Type is null
+                        && symbol.TypeDiscoveryAttributes is null =>
                     symbol.Member.Member,
                 _ => throw new ArgumentException(
                     "An artifact symbol has an inconsistent identity shape."),
