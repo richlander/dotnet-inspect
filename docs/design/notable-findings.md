@@ -81,10 +81,13 @@ how the map is produced.
 
 ## Terms
 
-- **Mark**: a glyph in a symbol list row, at most one per slot.
-- **Findings mark**: the slot that follows the active Findings mode.
+- **Mark**: a binary glyph in a symbol list row, at most one per slot. A
+  mark carries no count, intensity, or color scale.
+- **Current mark**: the slot that says the row has notable findings in the
+  one-version map.
+- **Changes mark**: the slot that says the row is listed in the map diff.
 - **Structure mark**: the slot that follows the row's scope.
-- **Notable**: admitted to a findings mark by the notable set. It is a
+- **Notable**: counted toward the Current mark by the notable set. It is a
   presentation preset, not a severity. A finding that is not notable is still
   a finding and is still in the map.
 - **Tally**: the map's count of a row's elements by descriptor, as
@@ -145,10 +148,10 @@ which means a class state machine: Release async methods use struct state
 machines and never reach that path, so in a Release Library the fact is
 rare and honestly Hidden. In a Debug build every async method carries one.
 
-When the profile explains a fact, the Member marks for that descriptor are
-suppressed and one Library-level mark names the profile instead. The Member
-rows keep the finding in their tallies and in the Findings view; only the
-sparse mark moves. The Findings view says why on the row.
+When the profile explains a fact, that descriptor stops counting toward the
+Members' Current marks and one Library-level mark names the profile instead.
+The Member rows keep the finding in their tallies and in the Findings view;
+only the sparse mark moves. The Findings view says why on the row.
 
 Iterators and async iterators are not explained by the profile. Their state
 machines are classes in every build, allocated on every call, and they stay
@@ -261,21 +264,34 @@ below makes an admitted descriptor without an entry a failure.
 
 ## Marks are projections
 
-A symbol list row reserves two slots:
+A symbol list row reserves three fixed slots, in this order:
 
-1. the **findings mark**, which follows the active Findings mode; and
-2. the **structure mark**, which follows the row's scope.
+1. the **Current mark**: the row has at least one notable finding in the
+   one-version map;
+2. the **Changes mark**: the row is listed in the map diff against the
+   settled Package Diff baseline; and
+3. the **structure mark**: foundation or peak at the row's scope.
 
-In **Current** mode, the findings mark shows the notable category with the
-largest tally among the row's admitted findings: one of hidden allocation,
-amplified allocation, unsafe, lifetime, or expectation. In **Changes** mode,
-it shows the map diff's change glyph for a listed row. The two modes never
-show at once; a reader who wants both opens the Findings view. The mode is
-the Findings view's mode, so a mark and its row always agree.
+Each slot is binary. The gutter has three glyphs to learn, and they mean the
+same thing on a Type row, a Member row, and an overload row. A row fills zero
+to three slots, and nothing reflows when a new descriptor family lands.
 
-A Type row's findings mark is the map's Exists for that Type at the active
-mode. A Member row's is its row's tally. An overload-family row is marked
-when any overload in its represented population is listed.
+The two findings marks are the map's Exists terminal made visible. The
+Current mark is Exists over the row's notable findings; the Changes mark is
+Exists over its shape transitions, which Fast Diff answers per Type today.
+[Scope symmetry](scope-symmetry.md#lean-roots-heavy-leaves) says a host
+enters a scope with the cheapest exact answer about its children and spends
+Rows on traversal; the rail is the leanest root in the product, and the
+Findings view is its Rows. A mark that tried to say *which* finding would be
+a partial Rows answer squeezed into one glyph, with the reader unable to tell
+what lost the contest. That is why the categories live in the tooltip, the
+chips, and the Findings columns, not in the gutter.
+
+A Type row's Current mark is the map's notable Exists for that Type, and its
+Changes mark is Fast Diff's Exists. A Member row's marks read its own row. An
+overload-family row is marked when any overload in its represented
+population would be. The Changes mark is absent while the baseline is
+pending or unavailable, and never derived from another baseline.
 
 Marks come from the map and from nothing else. The Browser never computes a
 finding, a count, or a change from display text, signatures, or row order,
@@ -284,13 +300,28 @@ out of view, as
 [method leverage](inspect-web-method-leverage-achievements.md#icon-only-presentation)
 already requires.
 
+### Learn more
+
+A mark answers at three distances, each cheaper than the next:
+
+- **Hover.** The tooltip and accessible description are the row's notable
+  tally with the catalog's one-line guidance per descriptor, for example
+  `2 notable: unsafe dereference; array allocated in a loop`. For the Changes
+  mark it is the transition kinds. No navigation.
+- **Click.** The atomic subject-plus-lens activation to the Findings view at
+  that mark's mode, with the row focused, as [Click-through](#click-through)
+  states.
+- **Chips.** The categories the glyph does not show live in the filter chips
+  beside the list, with their counts.
+
 ### Click-through
 
 A mark is a navigation target. Activating it performs the atomic
 subject-plus-lens activation that Compare drill-down already uses, with the
 Findings lens and the row's key, and lands on that row in the Findings view
-at the same mode. From the Findings view, activating a row navigates to the
-subject with its recommended lens. The join is the Member key both ways.
+in the mark's mode: Current for the Current mark, Changes for the Changes
+mark. From the Findings view, activating a row navigates to the subject with
+its recommended lens. The join is the Member key both ways.
 
 ### Chips
 
@@ -368,13 +399,18 @@ chips, and the profile line, each as a separately staged slice below.
   async iterator marks the iterator and nothing else; the same Library
   without runtime async marks nothing; Changes between them lists the
   methods whose implementation flag changed.
-- **Projection:** for every fixture Type, each Member row's mark equals the
-  category with the largest tally of its map row in Current mode and the
-  map diff's listing in Changes mode, and each Type row's mark equals the
-  map's Exists; no mark exists for a key the map does not list.
-- **Join:** activating any mark lands on the row with the same key in the
-  Findings view at the same mode, and activating that row returns to the
-  subject; a filtered-out marked Member is not replaced by a visible one.
+- **Projection:** for every fixture Type, each Member row's Current mark
+  equals whether its map row has a notable finding, its Changes mark equals
+  whether the map diff lists it, and each Type row's marks equal the map's
+  notable Exists and Fast Diff's Exists; no mark exists for a key the map
+  does not list, and no mark carries a count, intensity, or color scale.
+- **Join:** activating a Current or Changes mark lands on the row with the
+  same key in the Findings view in that mark's mode, and activating that row
+  returns to the subject; a filtered-out marked Member is not replaced by a
+  visible one.
+- **Tooltip:** a marked row's accessible description names each notable
+  descriptor with its tally and catalog line, and a Changes mark names its
+  transition kinds.
 - **Chips:** the chip set equals the descriptors with non-zero tally in the
   scope's map, and selecting a chip keeps exactly the rows whose tally
   includes it.
@@ -405,8 +441,9 @@ owner:
    Findings, adds Current over the one-version Type map (Annotated Type Map
    adoption step 4), and presents Changes over the map diff (its step 7).
 4. **Member marks and chips.** Member filtering and presentation language
-   derive the findings mark, the chips, and the Members header tally from the
-   Type map, and wire the mark's click-through.
+   derive the Current and Changes marks, their tooltips, the chips, and the
+   Members header tally from the Type map, and wire the marks'
+   click-through.
 5. **Library census and profile line.** The Annotated Type Map's
    Library-scope one-version producer lands; Type rows take Exists from it;
    Library Overview states the compilation profile. The whole-Library body
