@@ -72,6 +72,17 @@ Browser responsibilities and may spell the typed roots and members differently
 from the CLI. This handoff removes Web Core's direct `ILInspector.CallGraph` and
 `ILInspector.Analysis` dependencies without moving host rendering into Queries.
 
+The same handoff governs selection of a Platform graph's root member when type
+forwarding may require another assembly. Queries owns one closed-world
+`AssemblyContextTypeResolutionQuery.ExecuteDecision` attempt over the already
+realized group. Its companion parser issues the exact type identity once;
+the decision resolves it, associates a successful definition with exactly one
+participant, and projects non-success into a detached failure, identity
+conflict, or exact assembly continuation demand. Browser owns authorizing and
+fulfilling that demand, replacing the bounded Platform scope, and retrying the
+operation. The decision never acquires outside the group and never returns a
+Metadata resolution object or opened image.
+
 ## What the projection owns
 
 `CallGraphProjection.Create(callerRoot, calleeRoot)` produces one node/edge graph
