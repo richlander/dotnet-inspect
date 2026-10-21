@@ -39,6 +39,7 @@ internal sealed class NameAsset : IDisposable
 
     NameAsset(
         string path,
+        NameScope scope,
         FileStream stream,
         PEReader image,
         MetadataReader reader,
@@ -55,7 +56,8 @@ internal sealed class NameAsset : IDisposable
         Guid mvid = reader.GetGuid(
             reader.GetModuleDefinition().Mvid);
         Name =
-            $"{Path.GetFileName(path)}@{version}+{mvid:N}";
+            $"{Path.GetFileName(path)}@{version}+{mvid:N}"
+            + $"[{ScopeName(scope)}]";
 
         var occurrences = new Dictionary<string, (int Count, int Index)>(
             StringComparer.Ordinal);
@@ -130,7 +132,9 @@ internal sealed class NameAsset : IDisposable
                 reader.Length));
     }
 
-    internal static NameAsset Open(string path)
+    internal static NameAsset Open(
+        string path,
+        NameScope scope)
     {
         var stream = new FileStream(
             path,
@@ -149,77 +153,20 @@ internal sealed class NameAsset : IDisposable
             MetadataReader reader = image.GetMetadataReader(
                 MetadataReaderOptions.None);
             var entries = ImmutableArray.CreateBuilder<NameEntry>();
-            foreach (TypeDefinitionHandle handle
-                in reader.TypeDefinitions)
+            if (scope == NameScope.All)
             {
-                TypeDefinition row = reader.GetTypeDefinition(handle);
-                entries.Add(new(NameRole.TypeNamespace, row.Namespace));
-                entries.Add(new(NameRole.TypeName, row.Name));
+                AddAllEntries(reader, entries);
             }
-            foreach (TypeReferenceHandle handle
-                in reader.TypeReferences)
+            else
             {
-                TypeReference row = reader.GetTypeReference(handle);
-                entries.Add(new(
-                    NameRole.TypeReferenceNamespace,
-                    row.Namespace));
-                entries.Add(new(
-                    NameRole.TypeReferenceName,
-                    row.Name));
-            }
-            foreach (MethodDefinitionHandle handle
-                in reader.MethodDefinitions)
-            {
-                entries.Add(new(
-                    NameRole.MethodName,
-                    reader.GetMethodDefinition(handle).Name));
-            }
-            int parameterRows =
-                reader.GetTableRowCount(TableIndex.Param);
-            for (int row = 1; row <= parameterRows; row++)
-            {
-                ParameterHandle handle =
-                    MetadataTokens.ParameterHandle(row);
-                entries.Add(new(
-                    NameRole.ParameterName,
-                    reader.GetParameter(handle).Name));
-            }
-            int genericRows =
-                reader.GetTableRowCount(TableIndex.GenericParam);
-            for (int row = 1; row <= genericRows; row++)
-            {
-                GenericParameterHandle handle =
-                    MetadataTokens.GenericParameterHandle(row);
-                entries.Add(new(
-                    NameRole.GenericParameterName,
-                    reader.GetGenericParameter(handle).Name));
-            }
-            foreach (PropertyDefinitionHandle handle
-                in reader.PropertyDefinitions)
-            {
-                entries.Add(new(
-                    NameRole.PropertyName,
-                    reader.GetPropertyDefinition(handle).Name));
-            }
-            foreach (EventDefinitionHandle handle
-                in reader.EventDefinitions)
-            {
-                entries.Add(new(
-                    NameRole.EventName,
-                    reader.GetEventDefinition(handle).Name));
-            }
-            foreach (FieldDefinitionHandle handle
-                in reader.FieldDefinitions)
-            {
-                entries.Add(new(
-                    NameRole.FieldName,
-                    reader.GetFieldDefinition(handle).Name));
+                AddMethodProductionEntries(reader, entries);
             }
             if (entries.Count == 0)
                 throw new InvalidOperationException("The asset has no names.");
 
             return new(
                 path,
+                scope,
                 stream,
                 image,
                 reader,
@@ -231,6 +178,123 @@ internal sealed class NameAsset : IDisposable
             throw;
         }
     }
+
+    static void AddAllEntries(
+        MetadataReader reader,
+        ImmutableArray<NameEntry>.Builder entries)
+    {
+        foreach (TypeDefinitionHandle handle
+            in reader.TypeDefinitions)
+        {
+            TypeDefinition row = reader.GetTypeDefinition(handle);
+            entries.Add(new(NameRole.TypeNamespace, row.Namespace));
+            entries.Add(new(NameRole.TypeName, row.Name));
+        }
+        foreach (TypeReferenceHandle handle
+            in reader.TypeReferences)
+        {
+            TypeReference row = reader.GetTypeReference(handle);
+            entries.Add(new(
+                NameRole.TypeReferenceNamespace,
+                row.Namespace));
+            entries.Add(new(
+                NameRole.TypeReferenceName,
+                row.Name));
+        }
+        foreach (MethodDefinitionHandle handle
+            in reader.MethodDefinitions)
+        {
+            entries.Add(new(
+                NameRole.MethodName,
+                reader.GetMethodDefinition(handle).Name));
+        }
+        int parameterRows =
+            reader.GetTableRowCount(TableIndex.Param);
+        for (int row = 1; row <= parameterRows; row++)
+        {
+            ParameterHandle handle =
+                MetadataTokens.ParameterHandle(row);
+            entries.Add(new(
+                NameRole.ParameterName,
+                reader.GetParameter(handle).Name));
+        }
+        int genericRows =
+            reader.GetTableRowCount(TableIndex.GenericParam);
+        for (int row = 1; row <= genericRows; row++)
+        {
+            GenericParameterHandle handle =
+                MetadataTokens.GenericParameterHandle(row);
+            entries.Add(new(
+                NameRole.GenericParameterName,
+                reader.GetGenericParameter(handle).Name));
+        }
+        foreach (PropertyDefinitionHandle handle
+            in reader.PropertyDefinitions)
+        {
+            entries.Add(new(
+                NameRole.PropertyName,
+                reader.GetPropertyDefinition(handle).Name));
+        }
+        foreach (EventDefinitionHandle handle
+            in reader.EventDefinitions)
+        {
+            entries.Add(new(
+                NameRole.EventName,
+                reader.GetEventDefinition(handle).Name));
+        }
+        foreach (FieldDefinitionHandle handle
+            in reader.FieldDefinitions)
+        {
+            entries.Add(new(
+                NameRole.FieldName,
+                reader.GetFieldDefinition(handle).Name));
+        }
+    }
+
+    static void AddMethodProductionEntries(
+        MetadataReader reader,
+        ImmutableArray<NameEntry>.Builder entries)
+    {
+        foreach (MethodDefinitionHandle handle
+            in reader.MethodDefinitions)
+        {
+            MethodDefinition method =
+                reader.GetMethodDefinition(handle);
+            entries.Add(new(NameRole.MethodName, method.Name));
+            foreach (ParameterHandle parameterHandle
+                in method.GetParameters())
+            {
+                entries.Add(new(
+                    NameRole.ParameterName,
+                    reader.GetParameter(parameterHandle).Name));
+            }
+
+            TypeDefinition type = reader.GetTypeDefinition(
+                method.GetDeclaringType());
+            foreach (GenericParameterHandle genericHandle
+                in type.GetGenericParameters())
+            {
+                entries.Add(new(
+                    NameRole.GenericParameterName,
+                    reader.GetGenericParameter(genericHandle).Name));
+            }
+            foreach (GenericParameterHandle genericHandle
+                in method.GetGenericParameters())
+            {
+                entries.Add(new(
+                    NameRole.GenericParameterName,
+                    reader.GetGenericParameter(genericHandle).Name));
+            }
+        }
+    }
+
+    static string ScopeName(NameScope scope) =>
+        scope switch
+        {
+            NameScope.All => "all",
+            NameScope.MethodProduction => "method-production",
+            _ => throw new ArgumentOutOfRangeException(nameof(scope)),
+        };
 
     internal NameCheck Check()
     {
@@ -256,7 +320,9 @@ internal sealed class NameAsset : IDisposable
                 throw new InvalidOperationException(
                     $"{strategy} query count differs from the asset census.");
             }
-            if (strategy is not NameStrategy.PopulationOpaqueBytes
+            if (strategy is not (
+                    NameStrategy.PopulationOpaqueBytes
+                    or NameStrategy.PopulationSlotBytes)
                 && actual.Budget != eager.Budget)
             {
                 throw new InvalidOperationException(

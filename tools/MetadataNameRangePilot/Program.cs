@@ -12,7 +12,7 @@ var assets = new List<NameAsset>();
 try
 {
     foreach (string path in options!.Paths)
-        assets.Add(NameAsset.Open(path));
+        assets.Add(NameAsset.Open(path, options.Scope));
 
     if (options.Command == PilotCommand.Check)
     {

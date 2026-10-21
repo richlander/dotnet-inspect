@@ -14,6 +14,8 @@ the migration tracked by
 | `PerNameOpaqueMeasured` | One `OpaqueByteRange.Copy` backing per Name | One UTF-8 scan measuring the contained UTF-16 length, matching #10344 |
 | `PopulationOpaqueMeasured` | One immutable backing with one range per Name | The same UTF-8 contained-length scan |
 | `PopulationOpaqueBytes` | One immutable backing with one range per Name | Exact stored byte count only |
+| `PopulationSlotMeasured` | One immutable backing with one population-local slot per Name | The same UTF-8 contained-length scan |
+| `PopulationSlotBytes` | One immutable backing with one population-local slot per Name | Exact stored byte count only |
 
 The eager baseline deliberately constructs `InertString` twice over the same
 decoded string. For ordinary names, both constructions retain that original
@@ -40,6 +42,17 @@ This is kernel evidence. It does not establish an end-to-end `find`, inventory,
 anchor, or declaration performance claim, and it does not change the product's
 retained-text budget semantics.
 
+## Scopes
+
+The default `all` scope reads each TypeDef namespace/name, TypeRef
+namespace/name, MethodDef, Param, GenericParam, Property, Event, and Field Name
+once.
+
+The `method-production` scope models the names retained by
+`MetadataMethodDeclarationEvidence`: each method name and Param row appears
+once, each method generic name appears once, and each declaring type's generic
+names repeat for every method on that type.
+
 ## Run
 
 Use the repository development SDK. Verify exact identity and presentation
@@ -48,13 +61,16 @@ parity first:
 ```bash
 dotnet run --project tools/MetadataNameRangePilot -c Release -- \
   check <assembly>...
+dotnet run --project tools/MetadataNameRangePilot -c Release -- \
+  check --scope method-production <assembly>...
 ```
 
 Run a local harness smoke test:
 
 ```bash
 dotnet run --project tools/MetadataNameRangePilot -c Release -- \
-  measure --rounds 3 --target-names 5000 <assembly>...
+  measure --scope method-production --rounds 3 \
+  --target-names 5000 <assembly>...
 ```
 
 Accepted timing evidence uses a NativeAOT publication on an approved
@@ -64,7 +80,8 @@ performance host:
 dotnet publish tools/MetadataNameRangePilot -c Release -r linux-x64 \
   -o artifacts/metadata-name-range-pilot
 perf-guard artifacts/metadata-name-range-pilot/metadata-name-range-pilot \
-  measure --rounds 30 --target-names 50000 --tsv results.tsv <assembly>...
+  measure --scope method-production --rounds 30 \
+  --target-names 50000 --tsv results.tsv <assembly>...
 ```
 
 SPC ratios are candidate divided by `EagerInert`. Values below `1` favor the
@@ -73,7 +90,7 @@ loss requires the full paired control interval to clear `1`.
 
 ## Accepted evidence
 
-The pilot published as linux-x64 NativeAOT and ran on `dotnet-inspect-perf`
+The pilot published as linux-x64 NativeAOT and ran on `dotnet-inspect-perf-2`
 under one `perf-guard` lease. The PR evidence records the exact candidate and
 binary identities without making this document self-referential.
 
@@ -81,7 +98,8 @@ Thirty rotated rounds measured at least 50,000 Names per asset:
 
 ```text
 perf-guard ./metadata-name-range-pilot measure \
-  --rounds 30 --target-names 50000 --tsv samples.tsv \
+  --scope method-production --rounds 30 \
+  --target-names 50000 --tsv samples.tsv \
   System.Private.CoreLib.dll \
   System.Text.Json.dll \
   Microsoft.Extensions.Configuration.dll
@@ -89,29 +107,42 @@ perf-guard ./metadata-name-range-pilot measure \
 
 The inputs were .NET 11 RC1 `System.Private.CoreLib.dll` (`9573ebab...`),
 `System.Text.Json` 10.0.9 (`21bf5768...`), and
-`Microsoft.Extensions.Configuration` 10.0.10 (`82e24fb2...`). Their censuses
-contained 142,677, 12,982, and 797 Names. Every strategy produced the same
-roles, match cardinality, contained display, and stable display hash.
+`Microsoft.Extensions.Configuration` 10.0.10 (`82e24fb2...`). Their
+production-shaped censuses contained about 128,000, 10,000, and 400 Names.
+Every strategy produced the same roles, match cardinality, contained display,
+and stable display hash.
 
 Ratios below are candidate divided by eager `InertString`; ranges span the
 three assets:
 
 | Observation | Ratio | Assessment |
 | --- | ---: | --- |
-| Per-name opaque build retained memory | 1.14x-1.20x | Loss |
-| Population build allocation | 0.55x-0.57x | Win |
-| Population retained memory | 0.44x-0.46x | Win |
-| Population match-only elapsed time | 0.51x-0.56x | Win |
-| Population sparse-display elapsed time | 0.56x-0.61x | Win |
-| Byte-budget population build elapsed time | 0.1x-0.3x | Win |
-| Population display-all elapsed time | 3.3x-3.9x | Loss |
-| Population display-all allocation | 2.4x-2.7x | Loss |
+| Per-name build retained memory | 1.17x-1.22x | Loss |
+| Shared-range build retained memory | 0.44x-0.46x | Win |
+| Shared-slot build retained memory | 0.25x-0.27x | Win |
+| Shared-range match-only elapsed time | 0.50x-0.61x | Win |
+| Shared-slot match-only elapsed time | 3.1x-3.6x | Loss |
+| Shared-range sparse-display elapsed time | 0.57x-0.73x | Win |
+| Shared-slot sparse-display elapsed time | 3.0x-3.4x | Loss |
+| Shared-range display-all retained memory | 1.02x-1.05x | Loss |
+| Shared-slot display-all retained memory | 0.88x-0.91x | Win |
+| Byte-budget shared-slot build elapsed time | 0.1x-0.2x | Win |
 
 The current per-name `OpaqueByteRange.Copy` shape is therefore not a memory
-optimization: one array and one owner object per Name outweigh the UTF-8
-payload reduction on all three assets. One population backing changes the
-result, retaining about 45 percent of eager memory while making closed matching
-44 to 49 percent faster and sparse display 39 to 44 percent faster.
+optimization: one byte array and one owner object per Name outweigh the UTF-8
+payload reduction on all three assets. Retaining one range per Name over one
+population backing changes the result, retaining about 45 percent of eager
+memory while making closed matching 39 to 50 percent faster and sparse display
+27 to 43 percent faster.
+
+Retaining slots instead of ranges removes the repeated owner reference and
+cuts the stored graph to about 25 percent of eager memory. It is not currently
+a usable match representation: resolving and validating an
+`OpaqueByteRange` through `Slice(slot)` for every candidate makes matching and
+sparse selection about three times slower than eager strings. A future
+owner-level population API must provide closed operations over slots before a
+production adoption can claim both the slot-space result and the range-time
+result.
 
 The retained UTF-16 budget scan consumes much of the remaining construction
 opportunity. Population build time with that scan was a win only for
@@ -121,7 +152,9 @@ That result motivates a separately owned budget-unit decision rather than
 silently changing product semantics in this pilot.
 
 `DisplayAll` is the intentional control. Eager storage already owns the final
-UTF-16 values, while byte-native storage must project every Name, so complete
-display is 3.3x to 3.9x slower and allocates 2.4x to 2.7x as much. Byte-native
-adoption therefore targets matching and sparse presentation; it is not a
-universal replacement for eagerly displayed inventories.
+UTF-16 values, while byte-native storage must project every Name. Retaining
+ranges leaves the combined byte-plus-UTF-16 graph 2 to 5 percent larger than
+eager; retaining slots leaves it 9 to 12 percent smaller, but both still pay
+the projection time and transient allocation. Byte-native adoption therefore
+targets matching and sparse presentation; complete-display inventories need
+an explicit representation decision.

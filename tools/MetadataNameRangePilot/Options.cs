@@ -9,8 +9,15 @@ internal enum PilotCommand
     Measure,
 }
 
+internal enum NameScope
+{
+    All,
+    MethodProduction,
+}
+
 internal sealed record Options(
     PilotCommand Command,
+    NameScope Scope,
     int Rounds,
     int? Copies,
     int TargetNames,
@@ -18,7 +25,8 @@ internal sealed record Options(
     ImmutableArray<string> Paths)
 {
     const string Usage =
-        "usage: check <assembly>... | measure [--rounds N] "
+        "usage: check [--scope all|method-production] <assembly>... "
+        + "| measure [--scope all|method-production] [--rounds N] "
         + "[--copies N | --target-names N] [--tsv path] <assembly>...";
 
     internal static bool TryParse(
@@ -38,6 +46,7 @@ internal sealed record Options(
         PilotCommand command = args[0] == "check"
             ? PilotCommand.Check
             : PilotCommand.Measure;
+        NameScope scope = NameScope.All;
         int rounds = 30;
         int? copies = null;
         int targetNames = 50_000;
@@ -49,6 +58,22 @@ internal sealed record Options(
             string arg = args[index];
             switch (arg)
             {
+                case "--scope" when index + 1 < args.Length:
+                    string scopeName = args[++index];
+                    scope = scopeName switch
+                    {
+                        "all" => NameScope.All,
+                        "method-production" =>
+                            NameScope.MethodProduction,
+                        _ => default,
+                    };
+                    if (scopeName is not ("all" or "method-production"))
+                    {
+                        error =
+                            "--scope requires all or method-production.";
+                        return false;
+                    }
+                    break;
                 case "--rounds":
                     if (!TryReadPositive(args, ref index, out rounds)
                         || rounds < 2)
@@ -126,6 +151,7 @@ internal sealed record Options(
 
         options = new(
             command,
+            scope,
             rounds,
             copies,
             targetNames,
