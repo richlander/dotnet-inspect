@@ -107,9 +107,11 @@ The key pairs a fact across versions exactly, so two facts are `Present`
 here exactly when the census calls them equal; the view adds no equality and
 no normalization. A row's facts have one slot per kind: the Row field
 above gives a row at most one fact of each kind on a side, so a kind and a
-row together name one slot, and that name is the fact's soft identity.
-Pairing compares slot by slot, never by count, with these outcomes for a
-fact:
+row together name one slot, and that name is the fact's soft identity. The
+row here is the fact's own Row value, not the document's row: a Member's
+document holds a slot for each of its parameters and each of its generated
+method rows. Pairing compares slot by slot, never by count, with these
+outcomes for a fact:
 
 - `Present` when its key is on both sides;
 - `Changed` when its key is on one side only and the other side's fact in
@@ -120,10 +122,12 @@ fact:
 - `Added` or `Removed` for every fact of a row that is on one side only.
 
 A row with a dozen differing slots is a dozen `Changed` pairs, and a row
-whose only difference is one more parameter is one `Added` fact beside
-`Present` ones. Facts that repeat within a row, such as a body's
-instructions, are implementation facts and are not paired here; the IL
-level is their view, as [below](#two-versions) states.
+whose only difference is one more attribute is one `Added` fact beside
+`Present` ones, since attributes pair by exact key with no slot. A row
+whose only difference is one more parameter is not an `Added` parameter:
+the parameter is in the method's signature key, so Fast Diff lists two rows,
+as [below](#two-versions) states. A body's instructions are not census
+facts; the IL level is their view.
 
 The kind is part of the soft identity so that facts of one row never pair
 across kinds: the visibility marker, the Type row, and the nullable context
