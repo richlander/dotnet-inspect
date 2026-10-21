@@ -1204,7 +1204,7 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
 
     // Detaches the exact Name bytes. The budget is charged the contained UTF-16 length, as for
     // every other retained text; containment itself waits until a sink asks for it.
-    unsafe MetadataUtf8Name RetainName(
+    MetadataUtf8Name RetainName(
         StringHandle handle,
         MetadataMethodDeclarationSite site,
         out ReadOnlySpan<byte> bytes)
@@ -1214,14 +1214,12 @@ internal sealed class MetadataMethodDeclarationEvidenceOperation
             throw Refuse(site, MetadataMethodDeclarationFailureReason.BudgetExceeded,
                 "A declaration name exceeds the structural string limit.");
         Charge(site, MetadataOperationDimension.StructuredNodes, reader.Length);
-        bytes = new ReadOnlySpan<byte>(reader.StartPointer, reader.Length);
-        OpaqueByteRange range = OpaqueByteRange.Copy(bytes);
+        bytes = MetadataUtf8Name.ReadExactBytes(reader);
+        MetadataUtf8Name name = MetadataUtf8Name.Detach(bytes, out int containedLength);
         Charge(site with { Mechanism = MetadataMethodDeclarationMechanism.TextRetention },
             MetadataOperationDimension.RetainedText,
-            Utf8VisualEncoder.MeasureInertStringLength(
-                TextPolicy.Field,
-                Utf8RangeClassification.Read(range)));
-        return new(range);
+            containedLength);
+        return name;
     }
 
     InertString Retain(string value, MetadataMethodDeclarationSite site)
