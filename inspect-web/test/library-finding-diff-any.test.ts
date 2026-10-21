@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createBackgroundAnalysisQueue } from "../src/background-analysis.ts";
 import type {
-  BrowserFastDiffType,
-  BrowserLibraryFastDiffRequest,
+  BrowserFindingDiffAnyType,
+  BrowserLibraryFindingDiffAnyRequest,
 } from "../src/facades/inspect-web-metadata.d.ts";
 import {
-  createLibraryFastDiff,
-  libraryFastDiffAchievement,
-  renderLibraryFastDiffStatus,
-  type LibraryFastDiffBaseline,
-} from "../src/library-fast-diff.ts";
+  createLibraryFindingDiffAny,
+  libraryFindingDiffAnyAchievement,
+  renderLibraryFindingDiffAnyStatus,
+  type LibraryFindingDiffAnyBaseline,
+} from "../src/library-finding-diff-any.ts";
 import { createOperationAuthorityPage } from "../src/operation-authority.ts";
 
-const baseline: LibraryFastDiffBaseline = {
+const baseline: LibraryFindingDiffAnyBaseline = {
   packageId: "Fixture",
   currentVersion: "2.0.1",
   targetVersion: "2.0.0",
@@ -27,13 +27,13 @@ const escape = (value: unknown) => String(value);
 
 function type(
   identifier: string,
-  api: BrowserFastDiffType["api"],
-  body: BrowserFastDiffType["body"],
-): BrowserFastDiffType {
+  api: BrowserFindingDiffAnyType["api"],
+  body: BrowserFindingDiffAnyType["body"],
+): BrowserFindingDiffAnyType {
   return { identifier, fullName: identifier.replaceAll("+", "."), api, body };
 }
 
-function succeeded(request: BrowserLibraryFastDiffRequest, types: BrowserFastDiffType[]) {
+function succeeded(request: BrowserLibraryFindingDiffAnyRequest, types: BrowserFindingDiffAnyType[]) {
   return {
     schemaVersion: 2,
     request,
@@ -50,8 +50,8 @@ function succeeded(request: BrowserLibraryFastDiffRequest, types: BrowserFastDif
   };
 }
 
-function fixture(respond: (request: BrowserLibraryFastDiffRequest) => unknown) {
-  const requests: BrowserLibraryFastDiffRequest[] = [];
+function fixture(respond: (request: BrowserLibraryFindingDiffAnyRequest) => unknown) {
+  const requests: BrowserLibraryFindingDiffAnyRequest[] = [];
   const canceled: string[] = [];
   const diagnostics: string[] = [];
   let renders = 0;
@@ -59,7 +59,7 @@ function fixture(respond: (request: BrowserLibraryFastDiffRequest) => unknown) {
     whenForegroundIdle: () => Promise.resolve(),
     reportError: error => { throw error; },
   });
-  const fastDiff = createLibraryFastDiff({
+  const findingDiffAny = createLibraryFindingDiffAny({
     queue,
     operationAuthority: createOperationAuthorityPage(),
     query: (_operationId, request) => {
@@ -74,28 +74,28 @@ function fixture(respond: (request: BrowserLibraryFastDiffRequest) => unknown) {
     },
     render: () => { renders++; },
   });
-  return { fastDiff, requests, canceled, diagnostics, renders: () => renders };
+  return { findingDiffAny, requests, canceled, diagnostics, renders: () => renders };
 }
 
 test("cues name the changed axis and the baseline version", () => {
-  assert.equal(libraryFastDiffAchievement(undefined, "2.0.0"), null);
+  assert.equal(libraryFindingDiffAnyAchievement(undefined, "2.0.0"), null);
   assert.equal(
-    libraryFastDiffAchievement(type("A", "Unchanged", "Unchanged"), "2.0.0"),
+    libraryFindingDiffAnyAchievement(type("A", "Unchanged", "Unchanged"), "2.0.0"),
     null);
   assert.equal(
-    libraryFastDiffAchievement(type("A", "Unchanged", "NotCompared"), "2.0.0"),
+    libraryFindingDiffAnyAchievement(type("A", "Unchanged", "NotCompared"), "2.0.0"),
     null);
   assert.deepEqual(
-    libraryFastDiffAchievement(type("A", "Changed", "Unchanged"), "2.0.0"),
+    libraryFindingDiffAnyAchievement(type("A", "Changed", "Unchanged"), "2.0.0"),
     { kind: "diff", description: "API changed since 2.0.0" });
   assert.deepEqual(
-    libraryFastDiffAchievement(type("A", "Unchanged", "Changed"), "2.0.0"),
+    libraryFindingDiffAnyAchievement(type("A", "Unchanged", "Changed"), "2.0.0"),
     { kind: "diff", description: "Implementation changed since 2.0.0" });
   assert.deepEqual(
-    libraryFastDiffAchievement(type("A", "Changed", "Changed"), "2.0.0"),
+    libraryFindingDiffAnyAchievement(type("A", "Changed", "Changed"), "2.0.0"),
     { kind: "diff", description: "API changed, implementation changed since 2.0.0" });
   assert.deepEqual(
-    libraryFastDiffAchievement(type("A", "Unchanged", "Indeterminate"), "2.0.0"),
+    libraryFindingDiffAnyAchievement(type("A", "Unchanged", "Indeterminate"), "2.0.0"),
     { kind: "diff", description: "Implementation undecided since 2.0.0" });
 });
 
@@ -104,19 +104,19 @@ test("a baseline result is held per exact request and keyed by identifier", asyn
     type("Fixture.Outer+Inner", "Unchanged", "Changed"),
   ]));
 
-  state.fastDiff.ensure(baseline, () => true);
+  state.findingDiffAny.ensure(baseline, () => true);
   await settle();
-  state.fastDiff.ensure(baseline, () => true);
+  state.findingDiffAny.ensure(baseline, () => true);
   await settle();
 
   assert.equal(state.requests.length, 1);
   assert.deepEqual(state.requests[0], { schemaVersion: 2, ...baseline });
-  const entry = state.fastDiff.entry(baseline);
+  const entry = state.findingDiffAny.entry(baseline);
   assert.equal(entry?.status, "ready");
   assert.equal(
     entry?.status === "ready" ? entry.value.get("Fixture.Outer+Inner")?.body : null,
     "Changed");
-  assert.equal(state.fastDiff.entry({ ...baseline, axes: "Api" }), null);
+  assert.equal(state.findingDiffAny.entry({ ...baseline, axes: "Api" }), null);
   assert.ok(state.renders() > 0);
   assert.deepEqual(state.diagnostics, []);
 });
@@ -135,26 +135,26 @@ test("a rejected baseline is a visible failure that retry queues again", async (
       }
     : succeeded(request, []));
 
-  state.fastDiff.ensure(baseline, () => true);
+  state.findingDiffAny.ensure(baseline, () => true);
   await settle();
-  const failed = state.fastDiff.entry(baseline);
+  const failed = state.findingDiffAny.entry(baseline);
   assert.equal(failed?.status, "failed");
   assert.match(
-    renderLibraryFastDiffStatus(failed, baseline.targetVersion, escape),
-    /role="alert">Changes since 2\.0\.0 unavailable: The target package has no matching Library\.[\s\S]*data-library-fast-diff-retry/);
+    renderLibraryFindingDiffAnyStatus(failed, baseline.targetVersion, escape),
+    /role="alert">Changes since 2\.0\.0 unavailable: The target package has no matching Library\.[\s\S]*data-library-finding-diff-any-retry/);
   assert.equal(
-    renderLibraryFastDiffStatus({ status: "loading" }, baseline.targetVersion, escape),
+    renderLibraryFindingDiffAnyStatus({ status: "loading" }, baseline.targetVersion, escape),
     "");
 
-  state.fastDiff.ensure(baseline, () => true);
+  state.findingDiffAny.ensure(baseline, () => true);
   await settle();
   assert.equal(state.requests.length, 1);
 
   reject = false;
-  state.fastDiff.retry(baseline, () => true);
+  state.findingDiffAny.retry(baseline, () => true);
   await settle();
   assert.equal(state.requests.length, 2);
-  assert.equal(state.fastDiff.entry(baseline)?.status, "ready");
+  assert.equal(state.findingDiffAny.entry(baseline)?.status, "ready");
 });
 
 test("a canceled baseline is not held", async () => {
@@ -168,19 +168,19 @@ test("a canceled baseline is not held", async () => {
     reason: "superseded",
   }));
 
-  state.fastDiff.ensure(baseline, () => true);
+  state.findingDiffAny.ensure(baseline, () => true);
   await settle();
 
-  assert.equal(state.fastDiff.entry(baseline), null);
+  assert.equal(state.findingDiffAny.entry(baseline), null);
 });
 
 test("a malformed result is a visible failure", async () => {
   const state = fixture(() => ({ schemaVersion: 1, kind: "Succeeded" }));
 
-  state.fastDiff.ensure(baseline, () => true);
+  state.findingDiffAny.ensure(baseline, () => true);
   await settle();
 
-  const entry = state.fastDiff.entry(baseline);
+  const entry = state.findingDiffAny.entry(baseline);
   assert.equal(entry?.status, "failed");
   assert.deepEqual(state.diagnostics, ["producer-contract"]);
 });

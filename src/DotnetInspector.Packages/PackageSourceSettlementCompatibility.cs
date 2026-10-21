@@ -6,14 +6,6 @@ namespace DotnetInspector.Packages;
 // context branch is not PackageHouse ownership adoption (#6622).
 internal static class PackageSourceSettlementCompatibility
 {
-    internal static TResult Run<TResult>(
-        PackageSourceSettlementLease root,
-        Func<PackageSourceSettlementGeneration, TResult> action)
-    {
-        using var work = new OperationRegistration(root);
-        return action(work.Generation);
-    }
-
     internal static Task<TResult> RunAsync<TResult>(
         PackageSourceSettlementLease root,
         CancellationToken cancellationToken,
@@ -75,61 +67,6 @@ internal static class PackageSourceSettlementCompatibility
 
 public sealed partial class PackageSourceSettlementLease
 {
-    public PackageAcquisitionCandidateResult ResolvePinnedCandidate(
-        PackageSourceAuthorization authorization,
-        PackageSourceCoordinate coordinate) =>
-        PackageSourceSettlementCompatibility.Run(
-            this,
-            generation => generation.ResolvePinnedCandidate(authorization, coordinate));
-
-    public ValueTask<PackageAcquisitionCandidateResult>
-        ResolvePinnedCandidateAsync(
-        IPackageSourceAuthorization sourceAuthorization,
-        PackageSourceCoordinate coordinate,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        new(PackageSourceSettlementCompatibility.RunAsync(
-            this,
-            cancellationToken,
-            operationContext,
-            (generation, context) =>
-                generation.ResolvePinnedCandidateAsync(
-                    sourceAuthorization,
-                    coordinate,
-                    context).AsTask()));
-
-    public Task<PackageVersionDiscoveryResult>
-        DiscoverDependencyVersionsAsync(
-        string packageId,
-        IPackageSourceAuthorization sourceAuthorization,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        PackageSourceSettlementCompatibility.RunAsync(
-            this,
-            cancellationToken,
-            operationContext,
-            (generation, context) =>
-                generation.DiscoverDependencyVersionsAsync(
-                    packageId,
-                    sourceAuthorization,
-                    context));
-
-    public Task<PackageVersionDiscoveryResult>
-        DiscoverDependencyVersionsAsync(
-        string packageId,
-        PackageSourceAuthorization authorization,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        PackageSourceSettlementCompatibility.RunAsync(
-            this,
-            cancellationToken,
-            operationContext,
-            (generation, context) =>
-                generation.DiscoverDependencyVersionsAsync(
-                    packageId,
-                    authorization,
-                    context));
-
     internal Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
         string packageId,
         PackageSourceAuthorization authorization,

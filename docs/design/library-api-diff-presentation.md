@@ -604,8 +604,8 @@ transitions; the complete JSON grows from 5.6 MB to 6.8 MB.
   ordinary fact (a public to protected move, hidden and protected Members, a
   public nested Type of a hidden Type, and an obsolete Member), Type status on
   both sides, a nested Type's ordinary fact under a Type selection, and the
-  outside count for each scope. `FastDiffTests` gate the recorded enclosing
-  fact under public, protected, and hidden enclosing Types.
+  outside count for each scope. `FindingDiffAnyTests` gate the recorded
+  enclosing fact under public, protected, and hidden enclosing Types.
 - `LibraryApiDiffCommandTests` gate `-t` naming a nested Type, by simple and
   `Outer+Nested` name, and a public Type nested in a hidden Type under `-t`.
 - `LibraryApiDiffCommandTests` gate the default text for each state, a public

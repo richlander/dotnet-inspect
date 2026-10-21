@@ -33,6 +33,27 @@ public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
     /// <summary>The number of exact metadata Name bytes.</summary>
     public int Length => _range.Length;
 
+    /// <summary>
+    /// Views the exact bytes of one bounded #Strings entry without decoding them.
+    /// </summary>
+    internal static unsafe ReadOnlySpan<byte> ReadExactBytes(BlobReader reader) =>
+        new(reader.StartPointer, reader.Length);
+
+    /// <summary>
+    /// Detaches exact Name bytes and measures their contained Field spelling, which is the
+    /// UTF-16 length a producer charges to <see cref="MetadataOperationDimension.RetainedText"/>.
+    /// </summary>
+    internal static MetadataUtf8Name Detach(
+        ReadOnlySpan<byte> bytes,
+        out int containedLength)
+    {
+        OpaqueByteRange range = OpaqueByteRange.Copy(bytes);
+        containedLength = Utf8VisualEncoder.MeasureInertStringLength(
+            TextPolicy.Field,
+            Utf8RangeClassification.Read(range));
+        return new(range);
+    }
+
     /// <summary>Compares exact Name bytes.</summary>
     public bool Equals(MetadataUtf8Name other) => _range.Equals(other._range);
 
@@ -40,6 +61,7 @@ public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
         obj is MetadataUtf8Name other && Equals(other);
 
     public override int GetHashCode() => _range.GetHashCode();
+
 
     public static bool operator ==(MetadataUtf8Name left, MetadataUtf8Name right) =>
         left.Equals(right);

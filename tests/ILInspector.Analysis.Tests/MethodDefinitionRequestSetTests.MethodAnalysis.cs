@@ -259,6 +259,16 @@ public sealed partial class MethodDefinitionRequestSetTests
             coverage.MethodAnalysis.QueryWork
                 .DeclaredSourceQueries);
         Assert.Equal(
+            0,
+            coverage.MethodAnalysis.QueryWork
+                .DeclaredSourceCandidateDefinitions);
+        Assert.True(
+            coverage.MethodAnalysis.QueryWork
+                .DeclaredSourceTypeDefinitionRows > 0);
+        Assert.True(
+            coverage.MethodAnalysis.QueryWork
+                .DeclaredSourceRelationshipNodes > 0);
+        Assert.Equal(
             1,
             coverage.MethodAnalysis.QueryWork
                 .OptimizationSuppressionQueries);
@@ -338,6 +348,12 @@ public sealed partial class MethodDefinitionRequestSetTests
                             .Nested.Target))!);
 
         Assert.True(actual.SuppressesDerivedOpportunities);
+        Assert.True(
+            work.DeclaredSourceTypeDefinitionRows >= 2);
+        Assert.True(
+            work.DeclaredSourceTypeAttributeRows > 0);
+        Assert.True(
+            work.DeclaredSourceRelationshipNodes > 0);
         Assert.Equal(1, work.OptimizationSuppressionQueries);
         Assert.True(
             work.OptimizationSuppressionTypeDefinitionRows >= 2);
@@ -392,6 +408,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                 .DeclaredSourceProbeEncodedIlBytes > 0);
         MethodAnalysisSupportWork work =
             coverage.MethodAnalysis.QueryWork;
+        Assert.True(work.DeclaredSourceTypeDefinitionRows > 0);
+        Assert.True(work.DeclaredSourceRelationshipNodes > 0);
         Assert.True(work.DeclaredSourceContractQueries > 0);
         Assert.Equal(
             MemorySafetyMetadataWork.Empty,

@@ -5,7 +5,7 @@
 Proposed focused design for
 [#9918](https://github.com/richlander/dotnet-inspect/issues/9918). Its
 representation pilot is complete, while the shared Symbol Key described here
-remains unimplemented beyond the Fast Diff-private `SymbolKey` that
+remains unimplemented beyond the Finding Diff Any-private `SymbolKey` that
 [#9898](https://github.com/richlander/dotnet-inspect/pull/9898) introduced.
 The parent byte primitives first adopt a bounded exact-Type result path; the
 adoption sequence below is the counted path from that baseline to shared Symbol
@@ -47,22 +47,22 @@ It does not define:
   exceptional exact-byte transfer, which remain with
   [Opaque Byte Ranges and Inert UTF-8](inert-bytes.md);
 - any domain's marker vocabulary or what its keys identify, which remain with
-  each consuming owner (for example, the [Identity](fast-diff.md#identity)
-  section of Fast Diff);
+  each consuming owner (for example, the
+  [Identity](finding-diff-any.md#identity) section of Finding Diff Any);
 - display text for names, which uses `InertUtf8String` and remains governed by
   [Inert Text](inert-text.md);
 - structured API identity, which remains with
   [API Qualified Anchor](api-qualified-anchor.md); or
 - work budgets for building keys over untrusted images, which remain with
-  each producer, as Fast Diff's do.
+  each producer, as Finding Diff Any's do.
 
 ## Why
 
-Fast Diff's keys proved the domain grammar. Making keys injective by
-construction, rather than by escaping, made Fast Diff 20% to 30% faster on
-NativeAOT across its six pinned pairs, and keeping names as stored bytes fixed
-a U+FFFD collision. The key, its builder, and its `#Strings` name reader are
-`internal` to Fast Diff.
+Finding Diff Any's keys proved the domain grammar. Making keys injective by
+construction, rather than by escaping, made Finding Diff Any 20% to 30% faster
+on NativeAOT across its six pinned pairs, and keeping names as stored bytes
+fixed a U+FFFD collision. The key, its builder, and its `#Strings` name reader
+are `internal` to Finding Diff Any.
 
 The parent owner generalizes the representation evidence: one immutable backing
 supplies cheap `OpaqueByteRange` snapshots, generic byte operations, STJ-style
@@ -79,7 +79,7 @@ private copy:
 | --- | --- |
 | [API Qualified Anchor](api-qualified-anchor.md) ([#9907](https://github.com/richlander/dotnet-inspect/issues/9907)) | An encoded type or member identity, with typed records as a view; byte-exact name equality |
 | [Ecosystem Receiver Index](ecosystem-receiver-index.md) | Persisted receiver and member keys in a checked-in artifact; the named lever if the artifact misses its [size goal](ecosystem-receiver-index.md#performance-goals) |
-| Fast Diff step 5 | One interning table shared by both sides of a comparison |
+| Finding Diff Any step 5 | One interning table shared by both sides of a comparison |
 | The C#/TypeScript boundary | An opaque key that TypeScript stores, compares, and passes back without decoding |
 
 ## Part grammar
@@ -147,10 +147,10 @@ both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A later domain may replace repeated
 embedded keys with `Ref` parts when it adopts interning.
 
-Fast Diff adoption stages its census and lookup keys, freezes their population,
-and only then exposes the final dictionaries and sequences. One-off nested
-keys use inline construction. Reused independent keys use slots while staging
-and resolve to views after the same freeze.
+Finding Diff Any adoption stages its census and lookup keys, freezes their
+population, and only then exposes the final dictionaries and sequences. One-off
+nested keys use inline construction. Reused independent keys use slots while
+staging and resolve to views after the same freeze.
 
 Names enter through three sources:
 
@@ -279,9 +279,9 @@ proves the stronger invariant.
 
 ### In-process
 
-The in-process profile is the default. Its keys are valid within one process
-and one build. A domain may change its markers between builds, and keys may
-contain `Ref` parts from an interning table. Fast Diff's keys are in-process.
+The in-process profile is the default. Its keys are valid within one process and
+one build. A domain may change its markers between builds, and keys may contain
+`Ref` parts from an interning table. Finding Diff Any's keys are in-process.
 
 ### Persisted
 
@@ -386,8 +386,8 @@ or presented as product identity.
 
 ## Hosts
 
-The primitive is pure managed code over System.Reflection.Metadata, so it
-runs unchanged under NativeAOT and Browser/Wasm. Fast Diff already runs its
+The primitive is pure managed code over System.Reflection.Metadata, so it runs
+unchanged under NativeAOT and Browser/Wasm. Finding Diff Any already runs its
 keys in both hosts through its Browser export. Persisted keys and their text
 form are the exchange currency between the hosts and checked-in artifacts.
 
@@ -411,7 +411,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
 | Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Representation pilot | SPC comparison of current private Symbol Key and the proposed range-backed representation measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; identity answers agree | Pilot before implementation |
-| Fast Diff unchanged | Fast Diff's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
+| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
 
 ## Adoption sequence
 
@@ -431,12 +431,12 @@ Eight steps, tracked by
    lands the shared primitives with one uniquely matched Type identity, then
    measures the separately reviewable host-input exact-match optimization
    against that merged baseline.
-5. **Shared implementation, Fast Diff adopts.** Move the key, builder, and
-   `#Strings` reader into `ILInspector.MetadataPrimitives` with the domain
-   split and the UTF-8 and UTF-16 name sources. Fast Diff's `SymbolPart`
+5. **Shared implementation, Finding Diff Any adopts.** Move the key, builder,
+   and `#Strings` reader into `ILInspector.MetadataPrimitives` with the domain
+   split and the UTF-8 and UTF-16 name sources. Finding Diff Any's `SymbolPart`
    becomes its domain. Stage each consumer-chosen population, freeze before
-   exposing its final dictionaries and sequences, and build one-off nested
-   keys inline. Add the opaque-range dependency; Fast Diff's private storage
+   exposing its final dictionaries and sequences, and build one-off nested keys
+   inline. Add the opaque-range dependency; Finding Diff Any's private storage
    and key copy are deleted in the same step only when the pilot supports that
    adoption, with NativeAOT parity measured.
 6. **Persisted profile and text form.** Header, registry, validation,
@@ -446,18 +446,18 @@ Eight steps, tracked by
    receiver index artifact
    ([#9889](https://github.com/richlander/dotnet-inspect/issues/9889) step 3)
    lands first; that adoption PR registers its domain.
-7. **Interning.** The range-keyed table and `Ref` part, adopted by Fast Diff
-   step 5.
+7. **Interning.** The range-keyed table and `Ref` part, adopted by Finding
+   Diff Any step 5.
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
 
-The Fast Diff-private implementation is retired in step 4. No other private
-copy exists.
+The Finding Diff Any-private implementation is retired in step 4. No other
+private copy exists.
 
 ## Non-claims
 
 - **Name well-formedness.** A key never decides whether a name is valid. A
-  consumer that needs a decodable name, as Fast Diff does for Types,
+  consumer that needs a decodable name, as Finding Diff Any does for Types,
   checks it under its own contract.
 - **Cross-domain meaning.** Two domains' keys are never comparable, even when
   their bytes are equal.
@@ -476,8 +476,9 @@ copy exists.
 
 - **Escaped strings.** #9860 made keys injective by escaping separators. It
   was correct but 3.4% to 7.2% slower, and it decoded names to UTF-16 first.
-- **Keep it private to Fast Diff.** Each consumer would copy the grammar and
-  the `#Strings` reader, and their injectivity and validation would drift.
+- **Keep it private to Finding Diff Any.** Each consumer would copy the
+  grammar and the `#Strings` reader, and their injectivity and validation would
+  drift.
 - **A general serializer, such as MessagePack or CBOR.** A self-describing
   format admits several encodings of one value unless canonicalized, needs a
   dependency on the product path, and decodes names to strings. The key needs

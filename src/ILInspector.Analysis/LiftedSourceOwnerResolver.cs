@@ -56,6 +56,8 @@ internal sealed class LiftedSourceOwnerResolver
     readonly PEReader _peReader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver;
+    readonly Func<TypeDefinitionHandle, bool>
+        _isCompilerGeneratedTypeOrEnclosing;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
     readonly StateMachineSourceResolver
@@ -106,6 +108,8 @@ internal sealed class LiftedSourceOwnerResolver
         MetadataReader reader,
         PEReader peReader,
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
+        Func<TypeDefinitionHandle, bool>
+            isCompilerGeneratedTypeOrEnclosing,
         LibraryBodyMethodReferenceResolver methodReferenceResolver,
         StateMachineSourceResolver asyncSourceResolver,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
@@ -120,6 +124,8 @@ internal sealed class LiftedSourceOwnerResolver
         _reader = reader;
         _peReader = peReader;
         _primaryMetadataResolver = primaryMetadataResolver;
+        _isCompilerGeneratedTypeOrEnclosing =
+            isCompilerGeneratedTypeOrEnclosing;
         _methodReferenceResolver = methodReferenceResolver;
         _asyncSourceResolver = asyncSourceResolver;
         _methodBodyReferenceIndexed = methodBodyReferenceIndexed;
@@ -342,8 +348,7 @@ internal sealed class LiftedSourceOwnerResolver
             _primaryMetadataResolver
                 .HasCompilerGeneratedAttribute(
                     attributes)
-                || _primaryMetadataResolver
-                .IsCompilerGeneratedTypeOrEnclosing(
+                || _isCompilerGeneratedTypeOrEnclosing(
                     ownerType),
             ownerIsTopLevelEntryPoint);
         return LiftedSourceOwnerResolution.Resolved;
@@ -420,9 +425,8 @@ internal sealed class LiftedSourceOwnerResolver
                     _primaryMetadataResolver
                         .HasCompilerGeneratedAttribute(
                             attributes)
-                        || _primaryMetadataResolver
-                            .IsCompilerGeneratedTypeOrEnclosing(
-                                group.OwnerType),
+                        || _isCompilerGeneratedTypeOrEnclosing(
+                            group.OwnerType),
                     IsAuthenticatedTopLevelEntryPoint: false);
                 if (owner.HasMalformedGeneratedLiftedName)
                     return true;

@@ -1082,12 +1082,12 @@ rules, this document describes subsystem ownership, and
   direct trimming and NativeAOT compatibility color on external callees, and
   producer-native terminal settlement over independently qualified topology
   and color evidence.
-- [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
-  Library image pair, sound for the facts each axis compares, without building
-  either complete diff.
+- [Finding Diff Any](design/finding-diff-any.md): per-Type API and Body change
+  states for a Library image pair, sound for the facts each axis compares,
+  without building either complete diff.
 - [Inspect-web background analysis](design/inspect-web-background-analysis.md):
   the page-side queue for analysis the website starts on its own, its
-  foreground-first order, and the default Fast Diff baselines.
+  foreground-first order, and the default Finding Diff Any baselines.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.

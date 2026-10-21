@@ -15,7 +15,7 @@ namespace ILInspector.Metadata.Tests;
 /// <c>Indeterminate</c>. Every verdict is checked against canonical comparison
 /// over the same two bodies.
 /// </summary>
-public sealed class FastDiffBodyTests
+public sealed class FindingDiffAnyBodyTests
 {
     const string Namespace = "Cases";
 
@@ -50,10 +50,10 @@ public sealed class FastDiffBodyTests
     public void CanonicalEncodings_DecideAsCanonicalComparisonDoes(string name, bool equal)
     {
         (byte[] before, byte[] after) = EncodingImages.Value;
-        FastDiffTypeState state = Single(CompareImages(before, after), $"{Namespace}.{name}");
+        FindingDiffAnyTypeState state = Single(CompareImages(before, after), $"{Namespace}.{name}");
 
-        Assert.Equal(FastDiffState.Unchanged, state.Api);
-        Assert.Equal(equal ? FastDiffState.Unchanged : FastDiffState.Changed, state.Body);
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(equal ? FindingDiffAnyState.Unchanged : FindingDiffAnyState.Changed, state.Body);
     }
 
     [Fact]
@@ -75,10 +75,10 @@ public sealed class FastDiffBodyTests
         byte[] before = DependencyImage(new Version(8, 0, 0, 0));
         byte[] after = DependencyImage(new Version(9, 0, 0, 0));
 
-        FastDiffResult result = CompareImages(before, after);
+        FindingDiffAnyResult result = CompareImages(before, after);
         Assert.NotEmpty(result.Types);
         Assert.All(result.Types, type =>
-            Assert.Equal((FastDiffState.Unchanged, FastDiffState.Unchanged), (type.Api, type.Body)));
+            Assert.Equal((FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged), (type.Api, type.Body)));
         AssertPerMethodAgreement(before, after, decided: true);
 
         using var beforeReader = new PEReader(new MemoryStream(before, writable: false));
@@ -141,8 +141,8 @@ public sealed class FastDiffBodyTests
     [Fact]
     public void TrailingInstruction_IsChanged()
     {
-        FastDiffResult result = CompareRaw([0x2A], [0x2A, 0x00]); // ret vs ret; nop
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Body);
+        FindingDiffAnyResult result = CompareRaw([0x2A], [0x2A, 0x00]); // ret vs ret; nop
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Body);
         AssertPerMethodAgreement(RawImage([0x2A]), RawImage([0x2A, 0x00]), decided: true);
     }
 
@@ -155,10 +155,10 @@ public sealed class FastDiffBodyTests
     public void VarargCallSiteWithAMethodParent_IsIndeterminate()
     {
         byte[] image = VarargImage();
-        FastDiffTypeState state = Single(CompareImages(image, image), "N.C");
-        Assert.Equal(FastDiffState.Unchanged, state.Api);
-        Assert.Equal(FastDiffState.Indeterminate, state.Body);
-        Assert.Equal(FastDiffState.Unchanged, Single(CompareImages(image, image), "N.V").Body);
+        FindingDiffAnyTypeState state = Single(CompareImages(image, image), "N.C");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
+        Assert.Equal(FindingDiffAnyState.Unchanged, Single(CompareImages(image, image), "N.V").Body);
         AssertPerMethodAgreement(image, image, decided: false);
     }
 
@@ -207,10 +207,10 @@ public sealed class FastDiffBodyTests
         Assert.SkipWhen(path is null, "No runtime assembly without a #US stream.");
         byte[] image = File.ReadAllBytes(path!);
 
-        FastDiffResult result = CompareImages(image, image);
+        FindingDiffAnyResult result = CompareImages(image, image);
         Assert.NotEmpty(result.Types);
         Assert.All(result.Types, type =>
-            Assert.Equal((FastDiffState.Unchanged, FastDiffState.Unchanged), (type.Api, type.Body)));
+            Assert.Equal((FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged), (type.Api, type.Body)));
     }
 
     [Fact]
@@ -224,10 +224,10 @@ public sealed class FastDiffBodyTests
 
     static void AssertUndecidable(byte[] before, byte[] after)
     {
-        FastDiffResult result = CompareRaw(before, after);
-        FastDiffTypeState state = Single(result, "N.C");
-        Assert.Equal(FastDiffState.Unchanged, state.Api);
-        Assert.Equal(FastDiffState.Indeterminate, state.Body);
+        FindingDiffAnyResult result = CompareRaw(before, after);
+        FindingDiffAnyTypeState state = Single(result, "N.C");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
         AssertPerMethodAgreement(RawImage(before), RawImage(after), decided: false);
     }
 
@@ -239,19 +239,19 @@ public sealed class FastDiffBodyTests
     {
         using var beforeReader = new PEReader(new MemoryStream(before, writable: false));
         using var afterReader = new PEReader(new MemoryStream(after, writable: false));
-        List<FastDiff.BodyVerdict> verdicts = FastDiff.BodyVerdicts(beforeReader, afterReader);
+        List<FindingDiffAny.BodyVerdict> verdicts = FindingDiffAny.BodyVerdicts(beforeReader, afterReader);
         Assert.NotEmpty(verdicts);
         Assert.All(verdicts, verdict =>
         {
-            FastDiffState canonical = FastDiffTests.CanonicalBodyVerdict(beforeReader, afterReader, verdict);
+            FindingDiffAnyState canonical = FindingDiffAnyTests.CanonicalBodyVerdict(beforeReader, afterReader, verdict);
             Assert.True(
                 canonical == verdict.Body,
-                $"{verdict.Type} {verdict.Method}: canonical {canonical}, Fast Diff {verdict.Body}.");
+                $"{verdict.Type} {verdict.Method}: canonical {canonical}, Finding Diff Any {verdict.Body}.");
             if (decided)
-                Assert.NotEqual(FastDiffState.Indeterminate, verdict.Body);
+                Assert.NotEqual(FindingDiffAnyState.Indeterminate, verdict.Body);
         });
         if (!decided)
-            Assert.Contains(verdicts, verdict => verdict.Body == FastDiffState.Indeterminate);
+            Assert.Contains(verdicts, verdict => verdict.Body == FindingDiffAnyState.Indeterminate);
     }
 
     static IlMemberEndpointComparison CompareMemberEndpoints(
@@ -269,20 +269,20 @@ public sealed class FastDiffBodyTests
     static MethodDefinitionHandle FirstMethod(PEReader pe)
         => pe.GetMetadataReader().MethodDefinitions.First();
 
-    static FastDiffTypeState Single(FastDiffResult result, string fullName)
+    static FindingDiffAnyTypeState Single(FindingDiffAnyResult result, string fullName)
         => Assert.Single(result.Types, type => type.FullName == fullName);
 
-    static FastDiffResult CompareRaw(byte[] before, byte[] after)
+    static FindingDiffAnyResult CompareRaw(byte[] before, byte[] after)
         => CompareImages(RawImage(before), RawImage(after));
 
     /// <summary>Whole and stepped comparisons agree; the whole result is returned.</summary>
-    static FastDiffResult CompareImages(byte[] beforeImage, byte[] afterImage)
+    static FindingDiffAnyResult CompareImages(byte[] beforeImage, byte[] afterImage)
     {
         using var beforeReader = new PEReader(new MemoryStream(beforeImage, writable: false));
         using var afterReader = new PEReader(new MemoryStream(afterImage, writable: false));
-        FastDiffResult whole = FastDiff.Compare(beforeReader, afterReader);
+        FindingDiffAnyResult whole = FindingDiffAny.Compare(beforeReader, afterReader);
 
-        var stepped = new FastDiffComparison();
+        var stepped = new FindingDiffAnyComparison();
         bool complete = false;
         while (!complete)
         {

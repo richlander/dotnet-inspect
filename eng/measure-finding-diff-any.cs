@@ -1,9 +1,9 @@
 #:project ../src/ILInspector.Metadata/ILInspector.Metadata.csproj
 #:project ../src/ILInspector.ILDiff/ILInspector.ILDiff.csproj
 
-// Measures FastDiff over one Library image pair and checks it against the
+// Measures FindingDiffAny over one Library image pair and checks it against the
 // complete API comparison and canonical IL comparison.
-// Usage: measure-fast-diff <before.dll> <after.dll> [iterations]
+// Usage: measure-finding-diff-any <before.dll> <after.dll> [iterations]
 // Also reports the API axis alone and bounded steps over retained readers.
 
 using System.Diagnostics;
@@ -14,7 +14,7 @@ using Inspector.Findings;
 
 if (args.Length is < 2 or > 3)
 {
-    Console.Error.WriteLine("Usage: measure-fast-diff <before.dll> <after.dll> [iterations]");
+    Console.Error.WriteLine("Usage: measure-finding-diff-any <before.dll> <after.dll> [iterations]");
     return 2;
 }
 
@@ -24,14 +24,14 @@ int iterations = args.Length > 2 ? int.Parse(args[2]) : 20;
 byte[] beforeBytes = File.ReadAllBytes(beforePath);
 byte[] afterBytes = File.ReadAllBytes(afterPath);
 
-FastDiffResult Run()
+FindingDiffAnyResult Run()
 {
     using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
     using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
-    return FastDiff.Compare(before, after);
+    return FindingDiffAny.Compare(before, after);
 }
 
-FastDiffResult result = Run();
+FindingDiffAnyResult result = Run();
 for (int i = 0; i < 3; i++)
     Run();
 var samples = new List<double>(iterations);
@@ -60,7 +60,7 @@ double Timed(Action action)
 using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false)))
 using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
 {
-    double apiOnly = Median(() => Timed(() => FastDiff.Compare(before, after, FastDiffAxes.Api)));
+    double apiOnly = Median(() => Timed(() => FindingDiffAny.Compare(before, after, FindingDiffAnyAxes.Api)));
     Console.WriteLine($"api-only\tmedian={apiOnly:F2}");
     foreach (double budgetMs in new[] { 0.5, 1.0 })
     {
@@ -68,7 +68,7 @@ using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
         double maxStep = 0;
         double stepped = Median(() =>
         {
-            var comparison = new FastDiffComparison();
+            var comparison = new FindingDiffAnyComparison();
             steps = 0;
             maxStep = 0;
             double total = 0;
@@ -128,25 +128,25 @@ var bodyChanged = new HashSet<string>(StringComparer.Ordinal);
 foreach (IlAssemblyDiffExample example in il.Examples)
     bodyChanged.Add(DeclaredOwner(example.Method));
 
-Dictionary<string, FastDiffTypeState> byName = [];
-foreach (FastDiffTypeState state in result.Types)
+Dictionary<string, FindingDiffAnyTypeState> byName = [];
+foreach (FindingDiffAnyTypeState state in result.Types)
     byName[state.FullName] = state;
 
-int apiMissed = apiChanged.Count(name => byName.TryGetValue(name, out var s) && s.Api == FastDiffState.Unchanged);
+int apiMissed = apiChanged.Count(name => byName.TryGetValue(name, out var s) && s.Api == FindingDiffAnyState.Unchanged);
 int apiUnmatched = apiChanged.Count(name => !byName.ContainsKey(name));
-int apiOverReported = result.Types.Count(s => s.Api == FastDiffState.Changed && !apiChanged.Contains(s.FullName));
-int bodyMissed = bodyChanged.Count(name => byName.TryGetValue(name, out var s) && s.Body == FastDiffState.Unchanged);
+int apiOverReported = result.Types.Count(s => s.Api == FindingDiffAnyState.Changed && !apiChanged.Contains(s.FullName));
+int bodyMissed = bodyChanged.Count(name => byName.TryGetValue(name, out var s) && s.Body == FindingDiffAnyState.Unchanged);
 int bodyUnmatched = bodyChanged.Count(name => !byName.ContainsKey(name));
 // A Body Changed with no changed IL owner is decided by a declaration fact,
 // which canonical IL comparison does not show; EXPLAIN=1 names the fact.
-int bodyOverReported = result.Types.Count(s => s.Body == FastDiffState.Changed && !bodyChanged.Contains(s.FullName));
+int bodyOverReported = result.Types.Count(s => s.Body == FindingDiffAnyState.Changed && !bodyChanged.Contains(s.FullName));
 
 Console.WriteLine($"pair\t{Path.GetFileName(beforePath)}");
 Console.WriteLine(
-    $"types\t{result.Types.Length}\tapiChanged={result.Types.Count(s => s.Api == FastDiffState.Changed)}"
-        + $"\tbodyChanged={result.Types.Count(s => s.Body == FastDiffState.Changed)}"
-        + $"\tanyChanged={result.Types.Count(s => s.Api == FastDiffState.Changed || s.Body == FastDiffState.Changed)}"
-        + $"\tindeterminate={result.Types.Count(s => s.Api == FastDiffState.Indeterminate || s.Body == FastDiffState.Indeterminate)}");
+    $"types\t{result.Types.Length}\tapiChanged={result.Types.Count(s => s.Api == FindingDiffAnyState.Changed)}"
+        + $"\tbodyChanged={result.Types.Count(s => s.Body == FindingDiffAnyState.Changed)}"
+        + $"\tanyChanged={result.Types.Count(s => s.Api == FindingDiffAnyState.Changed || s.Body == FindingDiffAnyState.Changed)}"
+        + $"\tindeterminate={result.Types.Count(s => s.Api == FindingDiffAnyState.Indeterminate || s.Body == FindingDiffAnyState.Indeterminate)}");
 Console.WriteLine($"work\tbodies={result.Receipt.BodiesCompared}\tilBytes={result.Receipt.IlBytesCompared}");
 Console.WriteLine(
     $"ms\tmedian={samples[samples.Count / 2]:F2}\tp95={samples[(int)(samples.Count * 0.95)]:F2}"
@@ -156,9 +156,9 @@ Console.WriteLine(
 Console.WriteLine(
     $"body-oracle\tchangedOwners={bodyChanged.Count}\tmissed={bodyMissed}\tunmatched={bodyUnmatched}"
         + $"\tdeclarationOnly={bodyOverReported}\tilFailures={il.FailureCount}");
-foreach (string name in apiChanged.Where(n => byName.TryGetValue(n, out var s) && s.Api == FastDiffState.Unchanged).Take(20))
+foreach (string name in apiChanged.Where(n => byName.TryGetValue(n, out var s) && s.Api == FindingDiffAnyState.Unchanged).Take(20))
     Console.WriteLine($"  api-missed\t{name}");
-foreach (string name in bodyChanged.Where(n => byName.TryGetValue(n, out var s) && s.Body == FastDiffState.Unchanged).Take(20))
+foreach (string name in bodyChanged.Where(n => byName.TryGetValue(n, out var s) && s.Body == FindingDiffAnyState.Unchanged).Take(20))
 {
     Console.WriteLine($"  body-missed\t{name}");
     IlAssemblyDiffExample example = il.Examples.First(e => DeclaredOwner(e.Method) == name);
@@ -168,21 +168,21 @@ foreach (string name in bodyChanged.Where(n => byName.TryGetValue(n, out var s) 
 }
 if (Environment.GetEnvironmentVariable("LIST") == "1")
 {
-    foreach (FastDiffTypeState state in result.Types.Where(s => s.Api != FastDiffState.Unchanged || s.Body != FastDiffState.Unchanged))
+    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Api != FindingDiffAnyState.Unchanged || s.Body != FindingDiffAnyState.Unchanged))
         Console.WriteLine($"  changed\t{state.FullName}\tapi={state.Api}\tbody={state.Body}");
 }
 if (Environment.GetEnvironmentVariable("EXPLAIN") == "1")
 {
     using var explainBefore = new PEReader(new MemoryStream(beforeBytes, writable: false));
     using var explainAfter = new PEReader(new MemoryStream(afterBytes, writable: false));
-    foreach (FastDiffTypeState state in result.Types.Where(s => s.Api == FastDiffState.Changed && !apiChanged.Contains(s.FullName)).Take(40))
+    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Api == FindingDiffAnyState.Changed && !apiChanged.Contains(s.FullName)).Take(40))
     {
-        var (api, _) = FastDiff.Explain(explainBefore, explainAfter, state.FullName);
+        var (api, _) = FindingDiffAny.Explain(explainBefore, explainAfter, state.FullName);
         Console.WriteLine($"  api-over\t{state.FullName}\n{api}");
     }
-    foreach (FastDiffTypeState state in result.Types.Where(s => s.Body == FastDiffState.Changed && !bodyChanged.Contains(s.FullName)).Take(40))
+    foreach (FindingDiffAnyTypeState state in result.Types.Where(s => s.Body == FindingDiffAnyState.Changed && !bodyChanged.Contains(s.FullName)).Take(40))
     {
-        var (_, body) = FastDiff.Explain(explainBefore, explainAfter, state.FullName);
+        var (_, body) = FindingDiffAny.Explain(explainBefore, explainAfter, state.FullName);
         Console.WriteLine($"  body-over\t{state.FullName}\n{body}");
     }
 }

@@ -813,7 +813,7 @@ issued for that method. Allocation discovery, escape classification,
 optimization-opportunity semantics, canonical context construction, and
 result enrichment likewise remain with their existing Analysis owners.
 
-Two support costs may reach beyond the current MethodDef without widening its
+Support costs may reach beyond the current MethodDef without widening its
 terminal breadth:
 
 - async-state-machine classification lazily scans the module's TypeDef rows
@@ -822,7 +822,10 @@ terminal breadth:
   getter MethodDef;
 - exact declared-source identity reuses the execution's receipted
   memory-safety contract index rather than constructing the legacy
-  unreceipted index; and
+  unreceipted index, resolves state-machine ownership from the selected
+  execution type and its targeted source candidates rather than constructing
+  the whole-module state-machine certificate, and receipts generated-provenance
+  TypeDef, attribute, and enclosing-relationship reads; and
 - exact local-allocation exception classification follows the operand's
   TypeDef or TypeSpec definition and its bounded base chain rather than
   constructing a module-wide type-name index.
@@ -839,7 +842,10 @@ the number and exact MethodDefs of scoped queries, and
 - generic-constraint and stable-receiver queries;
 - available stable-getter bodies read and their encoded IL bytes; and
 - TypeDef rows scanned for async-state-machine classification;
-- declared-source contract construction and query work; and
+- declared-source targeted candidates and relationships, generated-provenance
+  TypeDef and attribute rows for source-generated and compiler-generated owner
+  classification, state-machine interface implementations, and contract
+  construction and query work;
 - local-exception queries, targeted TypeDef and relationship rows, and
   TypeSpec signature bytes; and
 - optimization-suppression queries, method and enclosing-type attribute rows,

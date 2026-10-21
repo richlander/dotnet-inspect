@@ -37,8 +37,22 @@ public sealed partial class PackageSourceSettlementLease : IAsyncDisposable
     public PackageSourceOperationLease IssueOperationLease(
         CancellationToken cancellationToken = default,
         TimeSpan? requestTimeout = null,
-        TimeSpan? operationTimeout = null)
+        TimeSpan? operationTimeout = null) =>
+        IssueOperationLease(
+            cancellationToken, requestTimeout, operationTimeout,
+            maximumConcurrentSteps: 1);
+
+    /// <summary>
+    /// Registers one operation with an explicit positive active-step capacity.
+    /// All admitted steps must settle before the returned lease is released.
+    /// </summary>
+    public PackageSourceOperationLease IssueOperationLease(
+        CancellationToken cancellationToken,
+        TimeSpan? requestTimeout,
+        TimeSpan? operationTimeout,
+        int maximumConcurrentSteps)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumConcurrentSteps);
         _generation.RegisterOperation();
         NuGetOperationContext? context = null;
         bool transferred = false;
@@ -50,7 +64,8 @@ public sealed partial class PackageSourceSettlementLease : IAsyncDisposable
                 cancellationToken);
             var operation = new PackageSourceOperationLease(
                 _generation,
-                context);
+                context,
+                maximumConcurrentSteps);
             transferred = true;
             return operation;
         }
