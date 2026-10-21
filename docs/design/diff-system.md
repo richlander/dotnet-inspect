@@ -462,7 +462,8 @@ The two execution modes:
 The modes are how a step reads its images. How far it reads is the other
 axis, **Exists** to the first difference or **Exhaustive** to the end, which
 [Finding census](finding-census.md) owns per row over one streamed census, so
-that a paired step and a per-point census decide one equality.
+that a paired step and a per-point census decide one equality where both
+decide, with a per-point `Failed` read as `Indeterminate`.
 
 An exact pair is a request with two points and one step. Diff History's
 existing methodology, including adaptive bisection, surveys and next actions,

@@ -87,7 +87,7 @@ lockstep is the paired step over two of them.
 
 | | Paired steps | Per-point census |
 | --- | --- | --- |
-| **Exists** | Lockstep over two cursors to the first difference; Fast Diff's walk is its provision once Shared Body equality lands | Lockstep over two censuses the per-point mode already sealed, to the first difference; Exists seals nothing itself |
+| **Exists** | Lockstep over two cursors to the first difference; Fast Diff's walk is its provision once Shared Body equality lands | Lockstep over two censuses the per-point mode already sealed, to the first difference, with a `Failed` drain read as `Indeterminate`; Exists seals nothing itself |
 | **Exhaustive** | Not a scenario of the census; a pair-dependent native algorithm such as `IlBodyDiff`'s hunk alignment keeps its own result beside the census, as Finding nomenclature allows | Two sealed censuses through `FindingMatcher` in the kind's mode, folded to `PairFinding<T>` by the kind's fold |
 
 ## The cursor
@@ -136,15 +136,15 @@ small, and the order is what Exists needs.
 composes from the kind owner's mechanics, as Fast Diff composes the Body
 policy from IL diff canonicalization's, and its atoms' bytes and projected
 keys follow that policy. The Body axis reads IL under the Body policy,
-which compares every operand by name and signature without its assembly, so
-an IL operand's
-`SymbolKey` under it carries no assembly identity, as Fast Diff's Identity
+which compares every operand by name and signature without its assembly,
+so an IL operand's `SymbolKey` under it carries no assembly identity, as Fast Diff's Identity
 states; IL diff canonicalization's default policy, no normalization, keeps
 the assembly, and a view under it reads a dependency-version bump as a
-difference the Body axis does not. Two cursors are read together only under
-one policy, and the producer records the policy beside the sealed census in
-its result, where Finding instance census leaves a census's placement to
-the producer.
+difference the Body axis does not. The policy is one argument of the call
+that creates the cursors, Exists or Exhaustive, so both cursors of one call
+are under one policy and a mismatch is unrepresentable within it; a
+per-point host passes the same policy at every point of one request. No
+census records the policy.
 
 **Atoms compare as bytes.** An atom's **canonical bytes** are its whole
 content as the kind's owner defines it under the policy, and they are what
@@ -243,6 +243,16 @@ nomenclature's topology: an `abstract` method made `virtual` is
 `NoApplicableInput` against `Complete([])`, a difference, as Fast Diff's Body
 axis reports it today.
 
+Per-point Exists reads two drains the per-point mode already sealed, not
+two cursors, so it sees the atoms and the terminal and nothing of a
+`Failed`'s stage or position, which draining lowers into the
+`InspectionError`'s reason. It therefore reads any `Failed` drain as
+`Indeterminate`, including the two cases paired lockstep decides `Changed`,
+a failure after an absence is proven and a difference before a failure. That
+is a named difference of the execution modes, not of the equality: where
+per-point Exists decides, it decides as lockstep does, and where it does
+not, it says so, never the other answer.
+
 Exists builds nothing. It seals no census, forms no string, and runs no
 matcher. It reads at most one atom past the last equal position on each side,
 and for an unchanged row it reads every atom once, which is the cost of
@@ -308,9 +318,8 @@ ordered matcher aligns operations by their projected keys, each matched
 branch or switch is `Present` only when its targets' indexes map to each
 other under the alignment, and otherwise is `Changed`, keeping any move
 difference, which is `IlFindings.Compare` today and is why a retargeted
-branch is a difference while a branch over an insertion is not. That step is
-pair
-dependent, and it runs over census atoms, so it is Exhaustive's. A native
+branch is a difference while a branch over an insertion is not. That step
+is pair dependent, and it runs over census atoms, so it is Exhaustive's. A native
 algorithm that is not over census atoms, such as `IlBodyDiff`'s hunk and
 row production, may run beside the census comparison when both sides are
 `Complete`, as Finding nomenclature's inspection topology allows. It is not
@@ -360,15 +369,16 @@ test class gates its cursor:
   through the kind's canonicalization under one policy, including `Absent`
   kinds and the position of a `Failed`, an IL offset for the IL kind and
   position zero for a sorted kind; and, from adoption step 1, the kind's
-  `Inspect` returns that drain; and the policy the producer records beside
-  the census is the policy the cursor was created under, and lockstep over
-  two cursors of different policies is refused.
+  `Inspect` returns that drain; and both cursors of one Exists or
+  Exhaustive call are created under the call's one policy.
 - **Canonical order:** draining a cursor twice yields equal atoms; draining
   cursors over an image pair that differs only in token numbers, row order,
   or a non-platform dependency version yields equal atoms, as Fast Diff's
   dependency-versions and canonical-encodings pairs require.
 - **Exists agreement:** over the same fixture pairs, Exists per row and kind
-  equals byte equality of the two drains with the topology rule, and for
+  equals byte equality of the two drains with the topology rule; per-point
+  Exists over the sealed drains equals lockstep wherever both drains are
+  non-`Failed` and is `Indeterminate` otherwise; and for
   every row Exists reports `Changed` the Exhaustive comparison has a pair
   other than `Present` with no difference or cannot run, with a body whose
   only change is a relocated run among the cases; Exists on the IL kind per
