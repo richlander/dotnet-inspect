@@ -2076,11 +2076,17 @@ public static class LibraryApiDiffPresentationAdapter
             if (statuses.TryGetValue(name, out LibraryApiDeclarationStatus? known))
                 return known;
 
-            // A Type is ordinary when it is public and not hidden, and its enclosing Type, if
-            // any, is ordinary on the same endpoint. An enclosing Type the surface does not
-            // hold, as for a public nested Type of an internal one, is not ordinary.
+            // A Type is ordinary when it is public and not hidden, and its enclosing Types
+            // are. Extraction records that enclosing fact from metadata, so it holds when a
+            // Type selection did not project the enclosing Type. A surface without the fact
+            // asks the enclosing Type on the same endpoint; one the surface does not hold, as
+            // for a public nested Type of an internal one, is not ordinary.
             bool enclosingOrdinary = true;
-            if (name.Segments.Length > 1)
+            if (type.EnclosingTypesOrdinary is { } recorded)
+            {
+                enclosingOrdinary = recorded;
+            }
+            else if (name.Segments.Length > 1)
             {
                 enclosingOrdinary =
                     MetadataTypeDefinitionName.Create(name.Namespace, name.Segments[..^1])

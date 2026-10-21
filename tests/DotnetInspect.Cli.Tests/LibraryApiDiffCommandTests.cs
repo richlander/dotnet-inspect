@@ -364,6 +364,40 @@ public sealed class LibraryApiDiffCommandTests
         Assert.True(obsolete.GetProperty("isOrdinary").GetBoolean());
     }
 
+    // A Type filter projects a nested Type without its enclosing Type, so whether the
+    // enclosing Types are ordinary comes from metadata, not from the projected Types.
+    [Theory]
+    [InlineData("Nested")]
+    [InlineData("NestedPublicToProtected+Nested")]
+    public async Task TypeFilter_NestedType_ShowsItsOrdinaryRows(string filter)
+    {
+        var (exitCode, output, error) = await RunFastDiff("-t", filter);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains("NestedPublicToProtected", output);
+        Assert.DoesNotContain("No API changes detected", output);
+        Assert.Contains("from 'public' to 'protected'", output);
+        if (filter == "Nested")
+            Assert.Contains("NestedProtectedToPublic", output);
+    }
+
+    [Theory]
+    [InlineData("Inner")]
+    [InlineData("HiddenOuter+Inner")]
+    public async Task TypeFilter_PublicTypeNestedInAHiddenType_StaysOutsideTheOrdinaryPopulation(
+        string filter)
+    {
+        var (exitCode, output, error) = await RunFastDiff("-t", filter);
+
+        Assert.Equal(0, exitCode);
+        Assert.DoesNotContain("HiddenOuter", output);
+        Assert.Equal(
+            "Note: 1 API change row is outside the ordinary population (protected or hidden "
+                + "declarations) and not shown; unprojected --json reports the complete comparison.",
+            error.Trim());
+    }
+
     static JsonElement Subject(JsonDocument document, string type)
         => Assert.Single(
             document.RootElement

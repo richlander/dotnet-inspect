@@ -817,6 +817,43 @@ public sealed class LibraryApiDiffPresentationTests
         }
     }
 
+    // A Type selection projects a nested Type without its enclosing Type. Its ordinary fact
+    // comes from metadata, so it matches the complete comparison: ordinary under a public
+    // Type, and not ordinary under a hidden one.
+    [Theory]
+    [InlineData(ApiSurfaceScope.ApiAxis, "FastDiffFixture.NestedPublicToProtected+Nested", true, false)]
+    [InlineData(ApiSurfaceScope.ApiAxis, "FastDiffFixture.NestedProtectedToPublic+Nested", false, true)]
+    [InlineData(ApiSurfaceScope.ApiAxis, "FastDiffFixture.HiddenOuter+Inner", false, false)]
+    [InlineData(ApiSurfaceScope.IncludeAll, "FastDiffFixture.NestedPublicToProtected+Nested", true, false)]
+    [InlineData(ApiSurfaceScope.IncludeAll, "FastDiffFixture.HiddenOuter+Inner", false, false)]
+    public async Task Create_TypeSelectionOfANestedType_KeepsItsOrdinaryFact(
+        ApiSurfaceScope scope,
+        string identifier,
+        bool beforeOrdinary,
+        bool afterOrdinary)
+    {
+        string leaf = identifier[(identifier.LastIndexOf('+') + 1)..];
+        LibraryApiDiffDocument selected = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(
+                await Compare(
+                    FixtureCatalog.MetadataFastDiffPair.OldAssemblyPath(),
+                    FixtureCatalog.MetadataFastDiffPair.NewAssemblyPath(),
+                    scope: scope,
+                    typeSelection: new ApiTypeSelection(
+                        name => TypeMatcher.MatchesTypeFilter(name, leaf))))).Document;
+
+        LibraryApiTypeDiff nested = Subject(selected, identifier).Comparison;
+        Assert.Equal(beforeOrdinary, nested.Before!.Status.IsOrdinary);
+        Assert.Equal(afterOrdinary, nested.After!.Status.IsOrdinary);
+        LibraryApiDiffDocument complete = Assert.IsType<LibraryApiDiffOutcome.Available>(
+            LibraryApiDiffPresentationAdapter.Create(
+                await Compare(
+                    FixtureCatalog.MetadataFastDiffPair.OldAssemblyPath(),
+                    FixtureCatalog.MetadataFastDiffPair.NewAssemblyPath(),
+                    scope: scope))).Document;
+        Assert.Equal(Subject(complete, identifier).Comparison, nested);
+    }
+
     static async Task<LibraryApiDiffDocument> ApiAxisFastDiff()
         => Assert.IsType<LibraryApiDiffOutcome.Available>(
             LibraryApiDiffPresentationAdapter.Create(
@@ -836,7 +873,8 @@ public sealed class LibraryApiDiffPresentationTests
         string beforePath,
         string afterPath,
         ApiSurfaceProjectionLimits? limits = null,
-        ApiSurfaceScope scope = ApiSurfaceScope.Public)
+        ApiSurfaceScope scope = ApiSurfaceScope.Public,
+        ApiTypeSelection? typeSelection = null)
     {
         var policy = new TestBindingPolicy();
         await using var workspace = new InspectionWorkspace();
@@ -850,7 +888,8 @@ public sealed class LibraryApiDiffPresentationTests
             afterGroup,
             Assert.Single(afterGroup.Participants),
             scope,
-            limits ?? GenerousLimits);
+            limits ?? GenerousLimits,
+            typeSelection);
     }
 
     static async Task<AssemblyContextApiComparisonResult> Compare(
