@@ -258,18 +258,18 @@ The representation recommendation depends on the terminal:
 
 The added direct-output evidence explains why the contained UTF-8 layer is not
 interchangeable with untreated ranges. Repeatedly containing raw ranges before
-writing was 3.3x to 3.5x slower than re-encoding eager strings. Retained
-`InertUtf8String` made direct byte output 36% to 61% faster on the two assets
+writing was 3.3x to 4.2x slower than re-encoding eager strings. Retained
+`InertUtf8String` made direct byte output 35% to 61% faster on the two assets
 with conclusive timing and retained about 69% to 70% of the eager
 store-plus-output graph. One-shot build-plus-byte-output time was inconclusive
 for every byte-native representation, while allocation and retained memory
 were substantial wins.
 
 Measuring the contained UTF-16 length while building a compact population left
-substantial construction work. Charging contained UTF-8 bytes instead made
-contained-UTF-8 construction 28% to 34% faster on all three assets. That is
-evidence for a separately owned retained-text budget decision; the pilot does
-not change the existing unit.
+substantial construction work. Charging contained UTF-8 bytes instead produced
+medians 25% to 38% below eager, though the final control intervals established
+a win only on Configuration. That is evidence for a separately owned
+retained-text budget decision; the pilot does not change the existing unit.
 
 ## Representation
 

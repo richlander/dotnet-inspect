@@ -134,10 +134,10 @@ three assets:
 
 | Reused-store terminal time | Shared ranges | Shared slots | Contained UTF-8 |
 | --- | ---: | ---: | ---: |
-| Match every Name | 0.506x-0.585x | 3.21x-3.54x | 0.91x-0.99x |
-| Match all, display selected | 0.571x-0.715x | 3.00x-3.24x | 1.02x-1.08x |
-| Write every Name as UTF-8 | 3.31x-3.43x | 3.39x-3.51x | 0.39x-0.64x |
-| Project every Name to UTF-16 | 2.44x-3.98x | 2.48x-5.12x | 1.54x-2.44x |
+| Match every Name | 0.50x-0.60x | 3.2x-3.6x | 0.89x-1.03x |
+| Match all, display selected | 0.57x-0.72x | 3.0x-3.3x | 1.00x-1.13x |
+| Write every Name as UTF-8 | 3.3x-3.9x | 3.4x-4.2x | 0.39x-0.75x |
+| Project every Name to UTF-16 | 2.4x-4.0x | 2.4x-5.3x | 1.3x-2.5x |
 
 The contained UTF-8 match and sparse medians were near eager, but their
 control intervals did not establish a general time win. Direct contained
@@ -173,16 +173,16 @@ result.
 Retaining `InertUtf8String` pays visual containment once and keeps the
 contained bytes bound to their owner. It uses about 65 percent of eager
 storage: more than raw ranges, but it makes repeated complete UTF-8 output
-36 to 61 percent faster on the two assets with conclusive timing while
+35 to 61 percent faster on the two assets with conclusive timing while
 retaining only about 70 percent of eager's store-plus-output graph. Raw ranges
-and slots save more space, but repeated byte output is 3.3 to 3.5 times slower
+and slots save more space, but repeated byte output is 3.3 to 4.2 times slower
 because every write repeats containment.
 
 The retained UTF-16 budget scan consumes much of the remaining construction
-opportunity. Charging contained UTF-8 bytes instead made contained-UTF-8
-construction 28 to 34 percent faster than eager on all three assets. That
-result motivates a separately owned budget-unit decision rather than silently
-changing product semantics in this pilot.
+opportunity. Charging contained UTF-8 bytes instead produced medians 25 to
+38 percent below eager, but the final control intervals established a win only
+on Configuration. That signal motivates a separately owned budget-unit
+decision rather than silently changing product semantics in this pilot.
 
 `DisplayAll` is the intentional control. Eager storage already owns the final
 UTF-16 values, while byte-native storage must project every Name. Retaining
