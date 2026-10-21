@@ -2264,6 +2264,11 @@ public sealed partial class PackageHouse
                 || contentQuery.LibraryInventoryTerminal is not null
                 || contentQuery.CompileLibrariesTerminal is not null)
             {
+                IReadOnlyList<string> selectedExactFiles =
+                    contentQuery.FilesTerminal?.Resolve(
+                        contentNarrowing.EntryPaths)
+                        .SelectedEntries
+                    ?? [];
                 libraryInventory = ResolveLibraryInventory(
                     contentNarrowing,
                     SnapshotEntries(directory));
@@ -2287,6 +2292,7 @@ public sealed partial class PackageHouse
                             .Select(static row =>
                                 row.CompileEntry.Path)
                             .Concat(implementationEntries)
+                            .Concat(selectedExactFiles)
                             .Distinct(StringComparer.Ordinal),
                     ]);
                 }
@@ -2301,6 +2307,8 @@ public sealed partial class PackageHouse
                                 .Path,
                         ]
                         : []);
+                if (contentQuery.CompileLibrariesTerminal is not null)
+                    return new PackageRangedSelection(selectedExactFiles);
                 return contentQuery.NuspecTerminal is not null
                     ? AddRootManifest(selectedLibraryEntries, directory)
                     : selectedLibraryEntries;
