@@ -803,7 +803,7 @@ public static class InspectionCommandDefinitions
                 }
                 else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
                 {
-                    // Platform-preferred routing for System.*/Microsoft.* bare names
+                    // Platform-preferred routing for supported platform name families
                     bool verbose = parseResult.GetValue(opts.Verbose);
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
                     var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(

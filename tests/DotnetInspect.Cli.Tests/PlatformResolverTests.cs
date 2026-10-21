@@ -752,9 +752,9 @@ public class PlatformResolverTests
     }
 
     /// <summary>
-    /// Scans all assemblies in installed ref packs and verifies every one passes IsPlatformCandidate.
-    /// If this test fails, a new platform assembly name needs to be added to the candidate check.
-    /// This caught WindowsBase, mscorlib, netstandard, and System (bare) as special cases.
+    /// Scans all assemblies in installed ref packs and verifies every one passes
+    /// IsPlatformCandidate. If this test fails, the supported platform name
+    /// families need to admit the new assembly.
     /// </summary>
     [Fact]
     public void IsPlatformCandidate_CoversAllRefPackAssemblies()

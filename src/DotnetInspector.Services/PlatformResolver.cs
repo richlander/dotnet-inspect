@@ -17,15 +17,26 @@ namespace DotnetInspector.Services;
 public static class PlatformResolver
 {
     /// <summary>
-    /// Returns true if the name looks like a platform assembly.
+    /// Returns true if the name belongs to a supported platform name family.
     /// </summary>
     public static bool IsPlatformCandidate(string name)
-        => name.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
-           name.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase) ||
-           name.Equals("System", StringComparison.OrdinalIgnoreCase) ||
+        => IsNameFamily(name, "System") ||
+           IsNameFamily(name, "Microsoft.AspNetCore") ||
+           IsNameFamily(name, "Microsoft.CSharp") ||
+           IsNameFamily(name, "Microsoft.Extensions") ||
+           IsNameFamily(name, "Microsoft.JSInterop") ||
+           IsNameFamily(name, "Microsoft.Net.Http.Headers") ||
+           IsNameFamily(name, "Microsoft.VisualBasic") ||
+           IsNameFamily(name, "Microsoft.Win32") ||
            name.Equals("mscorlib", StringComparison.OrdinalIgnoreCase) ||
            name.Equals("netstandard", StringComparison.OrdinalIgnoreCase) ||
            name.Equals("WindowsBase", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsNameFamily(string name, string root)
+        => name.Equals(root, StringComparison.OrdinalIgnoreCase)
+           || name.Length > root.Length
+           && name[root.Length] == '.'
+           && name.StartsWith(root, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Tries to parse a fully qualified type name (e.g., "System.Text.Json.JsonSerializer")

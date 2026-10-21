@@ -11,6 +11,14 @@ areas: [routing, resolution, platform]
 > name overlaps with the .NET platform. An unversioned overlapping name such as
 > `System.Text.Json` defaults to **platform**. An explicit package version
 > selects NuGet, as does the `package` command.
+>
+> Platform overlap uses the closed name families present in the supported
+> reference populations: `System`, `Microsoft.AspNetCore`,
+> `Microsoft.Extensions`, `Microsoft.CSharp`, `Microsoft.JSInterop`,
+> `Microsoft.Net.Http.Headers`, `Microsoft.VisualBasic`, and `Microsoft.Win32`,
+> plus the legacy facade names. Other `Microsoft.*` names, such as
+> `Microsoft.Azure.SignalR`, are ordinary NuGet candidates and do not start
+> Platform discovery.
 
 ## Preconditions
 

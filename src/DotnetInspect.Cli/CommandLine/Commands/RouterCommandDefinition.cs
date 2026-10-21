@@ -1350,6 +1350,14 @@ public static class RouterCommandDefinition
                 return true;
             }
 
+            if (!structuralSchema
+                && target.Contains('.')
+                && !PlatformResolver.IsPlatformCandidate(target))
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
+                return true;
+            }
+
             return false;
         }
 
