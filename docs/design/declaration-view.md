@@ -105,16 +105,25 @@ value:
 
 The key pairs a fact across versions exactly, so two facts are `Present`
 here exactly when the census calls them equal; the view adds no equality and
-no normalization. Pairing then has four outcomes for a fact:
+no normalization. A row's facts have one slot per kind: the Row field
+above gives a row at most one fact of each kind on a side, so a kind and a
+row together name one slot, and that name is the fact's soft identity.
+Pairing compares slot by slot, never by count, with these outcomes for a
+fact:
 
 - `Present` when its key is on both sides;
-- `Changed` when its key is on one side only and the same row on the other
-  side has exactly one fact of the same kind whose key is also on that side
-  only: the two facts are one pair, as the [two-version form](#two-versions)
-  states, and the kind and the row together are that pair's soft identity;
-- `Added` or `Removed` when its key is on one side only and the row on the
-  other side has no such fact, or has more than one; and
+- `Changed` when its key is on one side only and the other side's fact in
+  the same slot has a different key: the two facts are one pair, as the
+  [two-version form](#two-versions) states;
+- `Added` or `Removed` when its key is on one side only and the other side
+  has no fact in that slot, or its kind has no row and so no slot; and
 - `Added` or `Removed` for every fact of a row that is on one side only.
+
+A row with a dozen differing slots is a dozen `Changed` pairs, and a row
+whose only difference is one more parameter is one `Added` fact beside
+`Present` ones. Facts that repeat within a row, such as a body's
+instructions, are implementation facts and are not paired here; the IL
+level is their view, as [below](#two-versions) states.
 
 The kind is part of the soft identity so that facts of one row never pair
 across kinds: the visibility marker, the Type row, and the nullable context
@@ -193,11 +202,11 @@ the pair compares. The comparison is:
   key;
 - each pair a `PairFinding`: `Present` for a matched key, `Added` or
   `Removed` for a key on one side only, and `Changed` for an accepted soft
-  candidate, a row on both sides whose keys differ, which the view accepts
+  candidate, a slot on both sides whose keys differ, which the view accepts
   at its row tier and which retains that tier through its match provenance,
   as [Finding nomenclature](finding-nomenclature.md) folds soft candidates;
-  a row with more than one unmatched fact per side on a tier is left as
-  `Added` and `Removed`, as the matcher's degree-one rule requires; and
+  the matcher's degree-one rule is met by construction, since a slot names
+  one fact per side; and
 - for a row present on one side only, every fact `Added` or `Removed`, and
   the row's presence recorded on the document.
 
