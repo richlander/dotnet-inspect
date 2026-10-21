@@ -7,7 +7,7 @@ namespace InertText.Tests;
 
 /// <summary>
 /// Gates that <see cref="Utf8VisualEncoder"/> and <see cref="VisualEncoder"/> spell the same text
-/// the same way, with the same evidence.
+/// the same way, with the same evidence and the same measured length.
 /// </summary>
 /// <remarks>
 /// The two encoders keep separate writers, so parity is checked on output rather than assumed.
@@ -211,10 +211,14 @@ public sealed class SpellingParityTests
             return;
 
         InertString utf16 = VisualEncoder.Encode(policy, utf16Source);
+        OpaqueByteRange range = OpaqueByteRange.Copy(utf8Source);
         InertUtf8String utf8 = Utf8VisualEncoder.Encode(
             policy,
-            Utf8RangeClassification.Read(OpaqueByteRange.Copy(utf8Source)));
+            Utf8RangeClassification.Read(range));
         string projected = utf8.ToInertString().ToString();
+        int measured = Utf8VisualEncoder.MeasureInertStringLength(
+            policy,
+            Utf8RangeClassification.Read(range));
 
         if (projected != utf16.ToString()
             || utf8.Forms != utf16.Forms
@@ -223,6 +227,15 @@ public sealed class SpellingParityTests
             mismatches.Add(
                 $"{policy} {label}: UTF-8 '{projected}' {utf8.Forms}/{utf8.Concerns}, "
                 + $"UTF-16 '{utf16}' {utf16.Forms}/{utf16.Concerns}");
+        }
+
+        // A byte producer charges this measure in place of the UTF-16 preflight.
+        int expectedLength = VisualEncoder.MeasureEncodedLength(policy, utf16Source);
+        if (measured != projected.Length || measured != expectedLength)
+        {
+            mismatches.Add(
+                $"{policy} {label}: UTF-8 measure {measured}, contained length "
+                + $"{projected.Length}, UTF-16 measure {expectedLength}");
         }
     }
 

@@ -383,6 +383,13 @@ strings must produce identical spelling, forms, and concerns from both
 encoders. Both encoders take escape length and form from one internal table and
 keep separate writers.
 
+`Utf8VisualEncoder.MeasureInertStringLength` returns the UTF-16 length of the
+spelling `Encode` would produce, without producing it. It shares `Encode`'s
+first pass, and the parity gate requires it to equal both the projected
+`InertString` length and the UTF-16 encoder's measure for every input. A
+producer that retains a name as bytes uses it to charge a budget counted in
+contained UTF-16 characters while leaving containment to the sink.
+
 Equality follows `InertString`: the contained bytes and truncation participate,
 while forms and concerns do not, because the encoder emits one canonical
 spelling from which both follow. No operation bounds a UTF-8 value yet, so its
