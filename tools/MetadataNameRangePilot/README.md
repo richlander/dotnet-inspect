@@ -121,23 +121,38 @@ The inputs were .NET 11 RC1 `System.Private.CoreLib.dll` (`9573ebab...`),
 `Microsoft.Extensions.Configuration` 10.0.10 (`82e24fb2...`). Their
 production-shaped censuses contained about 128,000, 10,000, and 400 Names.
 Every strategy produced the same roles, match cardinality, contained display,
-and stable display hash.
+stable display hash, and direct UTF-8 output.
 
 Ratios below are candidate divided by eager `InertString`; ranges span the
 three assets:
 
-| Observation | Ratio | Assessment |
-| --- | ---: | --- |
-| Per-name build retained memory | 1.17x-1.22x | Loss |
-| Shared-range build retained memory | 0.44x-0.46x | Win |
-| Shared-slot build retained memory | 0.25x-0.27x | Win |
-| Shared-range match-only elapsed time | 0.50x-0.61x | Win |
-| Shared-slot match-only elapsed time | 3.1x-3.6x | Loss |
-| Shared-range sparse-display elapsed time | 0.57x-0.73x | Win |
-| Shared-slot sparse-display elapsed time | 3.0x-3.4x | Loss |
-| Shared-range display-all retained memory | 1.02x-1.05x | Loss |
-| Shared-slot display-all retained memory | 0.88x-0.91x | Win |
-| Byte-budget shared-slot build elapsed time | 0.1x-0.2x | Win |
+| Retained graph | Shared ranges | Shared slots | Contained UTF-8 |
+| --- | ---: | ---: | ---: |
+| Built store | 0.447x-0.450x | 0.251x-0.265x | 0.647x-0.656x |
+| Store plus complete UTF-8 output | 0.512x-0.523x | 0.339x-0.364x | 0.694x-0.697x |
+| Store plus complete UTF-16 output | 1.020x-1.040x | 0.882x-0.908x | 1.168x-1.182x |
+
+| Reused-store terminal time | Shared ranges | Shared slots | Contained UTF-8 |
+| --- | ---: | ---: | ---: |
+| Match every Name | 0.506x-0.585x | 3.21x-3.54x | 0.91x-0.99x |
+| Match all, display selected | 0.571x-0.715x | 3.00x-3.24x | 1.02x-1.08x |
+| Write every Name as UTF-8 | 3.31x-3.43x | 3.39x-3.51x | 0.39x-0.64x |
+| Project every Name to UTF-16 | 2.44x-3.98x | 2.48x-5.12x | 1.54x-2.44x |
+
+The contained UTF-8 match and sparse medians were near eager, but their
+control intervals did not establish a general time win. Direct contained
+UTF-8 output was a time win on CoreLib and System.Text.Json and inconclusive
+on the smaller Configuration asset. All retained-space differences above
+were wins or losses as shown.
+
+The one-shot `BuildAnd...` scenarios changed the interpretation:
+
+- build plus complete UTF-8 output was time-inconclusive for every byte-native
+  representation, while allocating 34% to 80% as much and retaining 34% to
+  70% as much as eager;
+- build plus complete UTF-16 projection was also time-inconclusive, while
+  shared ranges allocated 10% to 12% more, slots allocated 9% to 12% less,
+  and contained UTF-8 allocated about 25% more.
 
 The current per-name `OpaqueByteRange.Copy` shape is therefore not a memory
 optimization: one byte array and one owner object per Name outweigh the UTF-8
@@ -155,17 +170,36 @@ owner-level population API must provide closed operations over slots before a
 production adoption can claim both the slot-space result and the range-time
 result.
 
+Retaining `InertUtf8String` pays visual containment once and keeps the
+contained bytes bound to their owner. It uses about 65 percent of eager
+storage: more than raw ranges, but it makes repeated complete UTF-8 output
+36 to 61 percent faster on the two assets with conclusive timing while
+retaining only about 70 percent of eager's store-plus-output graph. Raw ranges
+and slots save more space, but repeated byte output is 3.3 to 3.5 times slower
+because every write repeats containment.
+
 The retained UTF-16 budget scan consumes much of the remaining construction
-opportunity. Population build time with that scan was a win only for
-System.Text.Json and inconclusive for CoreLib and Configuration; charging exact
-stored bytes instead made construction 70 to 90 percent faster on every asset.
-That result motivates a separately owned budget-unit decision rather than
-silently changing product semantics in this pilot.
+opportunity. Charging contained UTF-8 bytes instead made contained-UTF-8
+construction 28 to 34 percent faster than eager on all three assets. That
+result motivates a separately owned budget-unit decision rather than silently
+changing product semantics in this pilot.
 
 `DisplayAll` is the intentional control. Eager storage already owns the final
 UTF-16 values, while byte-native storage must project every Name. Retaining
-ranges leaves the combined byte-plus-UTF-16 graph 2 to 5 percent larger than
+ranges leaves the combined byte-plus-UTF-16 graph 2 to 4 percent larger than
 eager; retaining slots leaves it 9 to 12 percent smaller, but both still pay
-the projection time and transient allocation. Byte-native adoption therefore
-targets matching and sparse presentation; complete-display inventories need
-an explicit representation decision.
+the projection time and transient allocation. The one-shot end-to-end time was
+inconclusive rather than a demonstrated loss.
+
+## Recommendations
+
+| Product scenario | Recommended retained representation | Reason |
+| --- | --- | --- |
+| Match-heavy analysis or match-all/project-few | Shared `OpaqueByteRange` values | Best established time result with about 55% less retained memory |
+| Repeated output to a UTF-8-capable sink | Shared `InertUtf8String` values | Containment is paid once; later writes copy contained bytes without UTF-16 |
+| One-shot output to a UTF-8-capable sink | Shared ranges when lower allocation and peak memory matter | End-to-end time was inconclusive, but allocation and retained memory were substantially lower |
+| Inventory that always retains every UTF-16 value | Eager `InertString` | No byte-native end-to-end time win was established; eager storage is already the sink representation |
+| Maximum compactness | Slots only after owner-level closed operations exist | Best space result, but current checked `Slice(slot)` composition loses reusable terminal time |
+
+These recommendations select a representation for the terminal rather than
+claiming that one representation should replace every other one.

@@ -243,9 +243,31 @@ retained range for every comparison. Until that separately reviewed
 capability exists, retained ranges are the usable match-heavy representation
 and slots are a space lower bound, not an adoption recommendation.
 
+The representation recommendation depends on the terminal:
+
+- match-heavy and sparse-presentation paths should retain shared
+  `OpaqueByteRange` values;
+- populations written repeatedly to UTF-8 sinks should retain
+  `InertUtf8String`, paying containment once and writing contained bytes
+  directly;
+- one-shot UTF-8 output may use shared ranges to reduce allocation and peak
+  memory, but the pilot established no end-to-end time win;
+- inventories that always retain every UTF-16 value should remain eager
+  `InertString`; and
+- slots remain a compactness target pending owner-level closed operations.
+
+The added direct-output evidence explains why the contained UTF-8 layer is not
+interchangeable with untreated ranges. Repeatedly containing raw ranges before
+writing was 3.3x to 3.5x slower than re-encoding eager strings. Retained
+`InertUtf8String` made direct byte output 36% to 61% faster on the two assets
+with conclusive timing and retained about 69% to 70% of the eager
+store-plus-output graph. One-shot build-plus-byte-output time was inconclusive
+for every byte-native representation, while allocation and retained memory
+were substantial wins.
+
 Measuring the contained UTF-16 length while building a compact population left
-substantial construction work. Charging exact stored bytes instead made
-slot-backed construction 80% to 90% faster on all three assets. That is
+substantial construction work. Charging contained UTF-8 bytes instead made
+contained-UTF-8 construction 28% to 34% faster on all three assets. That is
 evidence for a separately owned retained-text budget decision; the pilot does
 not change the existing unit.
 
