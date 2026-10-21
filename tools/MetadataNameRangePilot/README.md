@@ -74,9 +74,8 @@ loss requires the full paired control interval to clear `1`.
 ## Accepted evidence
 
 The pilot published as linux-x64 NativeAOT and ran on `dotnet-inspect-perf`
-under one `perf-guard` lease that began at 99.55 percent CPU idle. The PR
-evidence records the exact candidate and binary identities without making this
-document self-referential.
+under one `perf-guard` lease. The PR evidence records the exact candidate and
+binary identities without making this document self-referential.
 
 Thirty rotated rounds measured at least 50,000 Names per asset:
 
