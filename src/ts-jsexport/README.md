@@ -89,7 +89,7 @@ plausible-looking but weaker declaration. The complete contract and rejection
 boundaries are owned by
 [`docs/design/ts-jsexport.md`](../../docs/design/ts-jsexport.md).
 
-## A minimal producer
+## A minimal producer boundary
 
 The producer remains an ordinary Browser/Wasm assembly with static
 `[JSExport]` methods and source-generated JSON metadata:
@@ -124,6 +124,10 @@ internal sealed partial class SearchJsonContext : JsonSerializerContext;
 public static partial class SearchExports
 {
     [JSExport]
+    public static string NormalizeQuery(string query) =>
+        query.Trim();
+
+    [JSExport]
     public static async Task<string> Search(string requestJson)
     {
         SearchRequest request = JsonSerializer.Deserialize(
@@ -131,31 +135,41 @@ public static partial class SearchExports
             SearchJsonContext.Default.SearchRequest)
             ?? throw new ArgumentException("A search request is required.");
 
-        await Task.Yield();
+        SearchResult result =
+            await SearchOperations.RunAsync(request);
 
         return JsonSerializer.Serialize(
-            new SearchResult(request.Query, 1),
+            result,
             SearchJsonContext.Default.SearchResult);
     }
 }
 ```
 
-The raw runtime operation is still approximately:
+`SearchOperations.RunAsync` represents application-owned network, storage, or
+other naturally asynchronous work; it is not a generator hook. The two raw
+runtime operations are approximately:
 
 ```ts
-(requestJson: string) => Promise<string>
+type NormalizeQueryRaw = (query: string) => string;
+type SearchRaw = (requestJson: string) => Promise<string>;
 ```
 
-The generated public operation is:
+The generated public operations are:
 
 ```ts
+export function normalizeQuery(query: string): string;
+
 export function search(
   requestJson: SearchRequest,
 ): Promise<SearchResult>;
 ```
 
-The wrapper serializes `SearchRequest`, invokes the exact runtime export, parses
-the returned JSON, and exposes readonly producer-owned DTO declarations.
+The synchronous export remains synchronous. The asynchronous export remains
+asynchronous because its application work is genuinely asynchronous, not
+because facade generation requires a `Promise`. Its wrapper serializes
+`SearchRequest`, invokes the exact runtime export, parses the returned JSON,
+and exposes readonly producer-owned DTO declarations.
+
 `JsExportJsonInput` and `JsExportJsonOutput` declare associations the raw
 signature cannot express. Direct serializer flow can also be inferred when it
 is complete and positionable; explicit declarations let parsing or
