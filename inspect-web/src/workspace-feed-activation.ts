@@ -1143,7 +1143,8 @@ export async function loadRetainedWorkspaceModels(
     contextIndex: inventory.contextIndex,
     consumerPackageSubjectId: inventory.consumerPackageSubjectId,
     packageModel: workspacePackageModel(
-      await loadPackageSurface(client, posting, inventory)),
+      await loadPackageSurface(client, posting, inventory),
+      inventory),
   })));
   const platforms = await Promise.all(
     posting.platforms.map(async inventory => ({
@@ -1161,9 +1162,15 @@ export async function loadRetainedWorkspaceModels(
   return { packages, platforms };
 }
 
-function workspacePackageModel(surface: BrowserPackageSurface): AppPackage {
+function workspacePackageModel(
+  surface: BrowserPackageSurface,
+  inventory: BrowserRetainedWorkspacePackageInventory,
+): AppPackage {
+  const packageModel = inventory.defaultLibrary === null
+    ? createNuGetPackageModel(surface)
+    : createNuGetPackageModel(surface, inventory.defaultLibrary);
   return {
-    ...createNuGetPackageModel(surface),
+    ...packageModel,
     source: { kind: "unknown" },
     producerLabel: "NuGet",
   };

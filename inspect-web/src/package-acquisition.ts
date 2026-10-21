@@ -317,20 +317,44 @@ export function packageLibrariesForModel(
       };
     });
   }
-  return packageModel.assemblies.map(descriptor => ({
-    id: descriptor.id,
-    name: descriptor.name,
-    asset: descriptor.asset,
-    version: descriptor.version,
-    culture: descriptor.culture,
-    publicKeyToken: descriptor.publicKeyToken,
-    types: descriptor.publicTypes,
-    members: descriptor.publicMembers,
-    platformPack: descriptor.platformPack,
-    surfaceAvailable: true,
-    countsPending: false,
-    unavailableDetail: null,
-  }));
+  const selectedLibraryWithoutSurface =
+    packageModel.selectedCompileAssetId
+    && packageModel.assemblyId === packageModel.selectedCompileAssetId
+    && packageModel.assembly.length > 0
+    && packageModel.assemblyAsset.length > 0
+    && !descriptors.has(packageModel.selectedCompileAssetId)
+      ? [{
+        id: packageModel.selectedCompileAssetId,
+        name: packageModel.assembly,
+        asset: packageModel.assemblyAsset,
+        version: "",
+        culture: null,
+        publicKeyToken: null,
+        types: null,
+        members: null,
+        platformPack: null,
+        surfaceAvailable: false,
+        countsPending: false,
+        unavailableDetail: "Library surface details are unavailable.",
+      }]
+      : [];
+  return [
+    ...selectedLibraryWithoutSurface,
+    ...packageModel.assemblies.map(descriptor => ({
+      id: descriptor.id,
+      name: descriptor.name,
+      asset: descriptor.asset,
+      version: descriptor.version,
+      culture: descriptor.culture,
+      publicKeyToken: descriptor.publicKeyToken,
+      types: descriptor.publicTypes,
+      members: descriptor.publicMembers,
+      platformPack: descriptor.platformPack,
+      surfaceAvailable: true,
+      countsPending: false,
+      unavailableDetail: null,
+    })),
+  ];
 }
 
 export interface WorkspaceTypeOccurrenceCoordinate {
@@ -589,6 +613,23 @@ export function packageQueryAssemblyId(
   return packageModel.assemblyId || packageModel.selectedCompileAssetId || "";
 }
 
+export interface PackageDefaultLibraryIdentity {
+  readonly assetId: string;
+  readonly assetPath: string;
+  readonly assemblyName: string;
+  readonly role?: string;
+}
+
+function isPackageDefaultLibraryIdentity(
+  value: unknown,
+): value is PackageDefaultLibraryIdentity {
+  return typeof value === "object"
+    && value !== null
+    && "assetId" in value
+    && "assetPath" in value
+    && "assemblyName" in value;
+}
+
 function isPackageChildrenInspection(
   value: unknown,
 ): value is BrowserPackageChildrenInspection {
@@ -621,6 +662,10 @@ export function createNuGetPackageModel(
 ): AppPackage;
 export function createNuGetPackageModel(
   result: InspectedPackageSurface,
+  defaultLibrary: PackageDefaultLibraryIdentity,
+): AppPackage;
+export function createNuGetPackageModel(
+  result: InspectedPackageSurface,
   versionSettlement: BrowserPackageVersionSettlementInspection,
   packageInfo: BrowserPackageInfoMeasurementInspection,
 ): AppPackage;
@@ -634,10 +679,15 @@ export function createNuGetPackageModel(
   result: InspectedPackageSurface,
   versionSettlementOrChildren?:
     BrowserPackageVersionSettlementInspection
-    | BrowserPackageChildrenInspection,
+    | BrowserPackageChildrenInspection
+    | PackageDefaultLibraryIdentity,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
   settledPackageChildren?: BrowserPackageChildrenInspection,
 ): AppPackage {
+  const directDefaultLibrary =
+    isPackageDefaultLibraryIdentity(versionSettlementOrChildren)
+      ? versionSettlementOrChildren
+      : undefined;
   const rootPackageChildren =
     isPackageChildrenInspection(versionSettlementOrChildren)
       ? versionSettlementOrChildren
@@ -648,8 +698,9 @@ export function createNuGetPackageModel(
       : undefined;
   const packageChildren =
     rootPackageChildren ?? settledPackageChildren;
-  const declaredDefaultLibrary = packageChildren?.content.libraries.find(
-    library => library.assetId === result.defaultAssemblyId);
+  const declaredDefaultLibrary = directDefaultLibrary
+    ?? packageChildren?.content.libraries.find(
+      library => library.assetId === result.defaultAssemblyId);
   const compileRootOnly = result.compileLibrary.status === "NoCompileAssets"
     || result.compileLibrary.status === "EmptyCompileGroup"
     || result.compileLibrary.status === "NoMatchingTargetFramework";
