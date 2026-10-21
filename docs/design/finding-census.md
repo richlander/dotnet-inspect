@@ -137,8 +137,9 @@ composes from the kind owner's mechanics, as Fast Diff composes the Body
 policy from IL diff canonicalization's, and its atoms' bytes and projected
 keys follow that policy. The Body axis reads IL under the Body policy,
 which compares every operand by name and signature without its assembly,
-so an IL operand's `SymbolKey` under it carries no assembly identity, as Fast Diff's Identity
-states; IL diff canonicalization's default policy, no normalization, keeps
+so an IL operand's `SymbolKey` under it carries no assembly identity, as
+Fast Diff's Identity states; IL diff canonicalization's default policy, no
+normalization, keeps
 the assembly, and a view under it reads a dependency-version bump as a
 difference the Body axis does not. The policy is one argument of the call
 that creates the cursors, Exists or Exhaustive, so both cursors of one call
@@ -319,8 +320,9 @@ branch or switch is `Present` only when its targets' indexes map to each
 other under the alignment, and otherwise is `Changed`, keeping any move
 difference, which is `IlFindings.Compare` today and is why a retargeted
 branch is a difference while a branch over an insertion is not. That step
-is pair dependent, and it runs over census atoms, so it is Exhaustive's. A native
-algorithm that is not over census atoms, such as `IlBodyDiff`'s hunk and
+is pair dependent, and it runs over census atoms, so it is Exhaustive's. A
+native algorithm that is not over census atoms, such as `IlBodyDiff`'s hunk
+and
 row production, may run beside the census comparison when both sides are
 `Complete`, as Finding nomenclature's inspection topology allows. It is not
 a scenario of the census, it must not be the source of Exists, and a view
