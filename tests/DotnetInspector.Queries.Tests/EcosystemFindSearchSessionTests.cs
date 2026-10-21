@@ -49,7 +49,7 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
-    public async Task IndexedPhaseRunsAfterBoundedAndBeforeLiveWithoutConsumingCandidates()
+    public async Task IndexedPhaseRunsBeforeBoundedAndLiveWithoutConsumingCandidates()
     {
         var layer = Layer("first", "First.Core", "Contoso.");
         List<string> observations = [];
@@ -92,10 +92,10 @@ public class EcosystemFindSearchSessionTests
 
         Assert.Equal(
             [
+                "index:4",
+                "publish:indexed",
                 "bounded",
                 "publish:bounded",
-                "index:3",
-                "publish:indexed",
                 "enumerate",
                 "candidate:Contoso.Widget",
                 "publish:live",
@@ -107,14 +107,19 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
-    public async Task IndexedPhaseCanFillWindowWithoutStartingLiveWork()
+    public async Task IndexedPhaseCanFillWindowWithoutStartingLaterWork()
     {
         var layer = Layer("first", "First.Core", "Contoso.");
+        int boundedEvaluations = 0;
         int enumerations = 0;
         using var session = new EcosystemFindSearchSession<int>(
-            Request([layer], maximumRows: 2),
-            (_, _) => Task.FromResult(
-                new EcosystemFindBlock<int>(1, 1)),
+            Request([layer], maximumRows: 1),
+            (_, _) =>
+            {
+                boundedEvaluations++;
+                return Task.FromResult(
+                    new EcosystemFindBlock<int>(1, 1));
+            },
             (_, _, token) =>
             {
                 enumerations++;
@@ -132,11 +137,14 @@ public class EcosystemFindSearchSessionTests
             await session.ExecuteAsync(
                 TestContext.Current.CancellationToken);
 
+        Assert.Equal(0, boundedEvaluations);
         Assert.Equal(0, enumerations);
         Assert.Equal(
             EcosystemFindCompletion.RowLimitReached,
             result.Completion);
-        Assert.Equal(["Contoso."], result.Unsearched);
+        Assert.Equal(
+            ["ecosystem.first", "Contoso."],
+            result.Unsearched);
         Assert.Single(result.IndexedBlocks);
         Assert.Empty(result.PrefixBlocks);
     }
@@ -207,7 +215,7 @@ public class EcosystemFindSearchSessionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             session.ExecuteAsync(cancellation.Token));
 
-        Assert.Equal([0], published);
+        Assert.Empty(published);
     }
 
     [Fact]

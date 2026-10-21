@@ -39,7 +39,7 @@ It does not define:
 - Type or Member Find grammar, matching, classification, row limits, or
   reduction, which remain with
   [Find semantic evaluation](find-semantic-evaluation.md);
-- bounded-before-prefix staging, index-before-live ordering, candidate limits,
+- index-before-bounded-before-live staging, candidate limits,
   cross-layer duplicate suppression, membership reduction, or completion,
   which remain with
   [Ecosystem Find Search](ecosystem-find-search.md);
@@ -136,7 +136,7 @@ its exact package coordinate and scanner concept are in generation scope.
 | --- | --- |
 | [Integrations](integrations.md) | Configured concepts, scanner observations, actionable Type and starter-API admission, exact structured candidate identity, evidence, and row ordering |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, admission, ordered package-prefix declarations, and the optional Integration scanner binding |
-| [Ecosystem Find Search](ecosystem-find-search.md) | Bounded-before-prefix continuation, indexed-before-live adoption, row and live-candidate bounds, membership, duplicate suppression, scoped failures, and completion |
+| [Ecosystem Find Search](ecosystem-find-search.md) | Index-before-bounded-before-live staging and continuation, row and live-candidate bounds, membership, duplicate suppression, scoped failures, and completion |
 | [Find semantic evaluation](find-semantic-evaluation.md) | Normalized Type and Member questions, matching, classification, exact source association, row limits, and source evaluation |
 | [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Live enumeration, source order, paging, cancellation, and completion used by generation and the later live phase |
 | Package and Library selection owners | Exact package version, target framework, selected Library, selected asset, and typed rejection |
@@ -306,9 +306,9 @@ candidate budget.
 
 ## Live continuation and duplicate suppression
 
-The indexed layer runs only after bounded/core settlement and only under the
-same owner-issued prefix demand that can authorize the live phase. This design
-does not make blocking formats search prefixes by default.
+The indexed layer runs before bounded/core settlement and only under the same
+owner-issued prefix demand that can authorize the live phase. This design does
+not make blocking formats search prefixes by default.
 
 After exhaustion of the admitted artifacts and demanded indexed sources:
 
@@ -364,16 +364,17 @@ change without changing indexed correctness.
 
 ## Performance and size goals
 
-Adoption measures exact NativeAOT production binaries on linux-x64. The
-bounded/core phase is primed and held identical so indexed latency is not
-confused with unrelated bounded acquisition.
+Adoption measures exact NativeAOT production binaries on linux-x64. Index-hit
+latency and the added miss-path cost before a bounded result are reported
+separately so unrelated bounded acquisition is not attributed to the index.
 
 <!-- markdownlint-disable MD013 -->
 
 | Measure | Goal |
 | --- | --- |
-| Prefix-continuation to first indexed Aspire `.AddRedis` row | 200 ms or less |
+| Indexed-evaluation start to first Aspire `.AddRedis` row | 200 ms or less |
 | Complete indexed-symbol scan for Aspire `.Add*` | 500 ms or less, excluding terminal output backpressure |
+| Index miss before an otherwise identical bounded result | Reported as exact NativeAOT base/head latency; no goal until the first adoption establishes a baseline |
 | Network bytes and package-cache bytes before indexed exhaustion | 0 |
 | Peak RSS above `dotnet-inspect --version` on the same binary | 32 MiB or less |
 | Aspire and Microsoft.Extensions Ecosystem artifacts together | 2 MiB or less checked in; 500 KiB or less Brotli-compressed |

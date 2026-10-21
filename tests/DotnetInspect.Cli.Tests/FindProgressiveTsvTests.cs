@@ -85,7 +85,7 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
-    public async Task OfflineIndexedFindingFillsWindowBeforeLivePrefixWork()
+    public async Task OfflineIndexedFindingFillsWindowBeforeSourceWork()
     {
         var result = await Run(
             "--offline",
@@ -101,7 +101,15 @@ public class FindProgressiveTsvTests
             lines[1],
             StringComparison.Ordinal);
         Assert.Contains(
-            "Stopped before unsearched work: Aspire.",
+            "Stopped before unsearched work: ecosystem.aspire",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Bounded source",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "cannot resolve its latest version",
             result.Error,
             StringComparison.Ordinal);
     }

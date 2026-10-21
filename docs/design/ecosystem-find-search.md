@@ -8,11 +8,11 @@ Implemented for CLI composition; Browser adoption remains planned under
 **Ecosystem Find Search** owns one host-neutral operation:
 
 > Given one normalized Find question and an ordered selection of exact
-> Ecosystem registrations, evaluate every selected Ecosystem's bounded
-> populations in order before any package-prefix population (stopping only
-> when a finite row window fills at a layer boundary), issue one exact prefix
-> continuation when demanded work remains, evaluate each admitted Ecosystem
-> Find Index before live package-prefix enumeration, evaluate each distinct
+> Ecosystem registrations, evaluate each admitted Ecosystem Find Index first,
+> then evaluate every selected Ecosystem's bounded populations in order
+> (stopping when a finite row window fills at a phase or layer boundary), issue
+> one exact prefix continuation when demanded live work remains, evaluate each
+> distinct
 > concrete live source's settlement, inventory, and source-local matches at
 > most once, and return ordered durable Find blocks that retain every admitting
 > Ecosystem membership, scoped failure, and completion fact.
@@ -41,14 +41,13 @@ The first CLI production scenario is:
 dotnet-inspect find '.Add*' --ecosystem aspire --jsonl
 ```
 
-The Aspire bounded block ranks first, by its layer ordinal, from
-`Aspire.Hosting` and `Aspire.Hosting.Testing`, including `AddProject`, `AddContainer`, and
-`AddParameter`. The ASP.NET Core, Microsoft.Extensions, and .NET Runtime
-lineage layers follow with later ordinals. Indexed Integration symbols for
-the demanded prefixes then produce package-scoped rows such as `AddRedis` from
-`Aspire.Hosting.Redis` and `AddPostgres` from
-`Aspire.Hosting.PostgreSQL`. Authorized live prefix work follows when row
-capacity remains and reinspects those packages for non-indexed matches.
+Indexed Integration symbols for demanded prefixes rank first, producing
+package-scoped rows such as `AddRedis` from `Aspire.Hosting.Redis` and
+`AddPostgres` from `Aspire.Hosting.PostgreSQL`. When capacity remains, bounded
+blocks follow from `Aspire.Hosting`, `Aspire.Hosting.Testing`, ASP.NET Core,
+Microsoft.Extensions, and .NET Runtime in layer order. Authorized live prefix
+work follows those blocks and reinspects indexed packages for non-indexed
+matches.
 
 The all-Ecosystem form is:
 
@@ -62,13 +61,13 @@ Shared sources are evaluated once, while each result retains all selected
 Ecosystem memberships that admit it.
 
 The corresponding Browser scenario starts with no visible Ecosystem hit
-groups. Bounded blocks reveal Ecosystems as they settle. Opening the
-Ecosystems category can list the complete catalog independently of hits.
-Selecting Aspire starts a replacement session with Aspire prefix demand; it
-does not mutate the running session. When bounded Ecosystem blocks leave room,
-the Browser may search its admitted Workspace Libraries before deciding
-whether to resume the exact prefix continuation. If those Libraries fill the
-row window, no `Aspire.*` package enumeration starts.
+groups. Bounded blocks reveal Ecosystems as they settle. Opening the Ecosystems
+category can list the complete catalog independently of hits. Selecting Aspire
+starts a replacement session that evaluates its admitted index before bounded
+sources. When those phases leave room, the Browser may search its admitted
+Workspace Libraries before deciding whether to resume the exact live-prefix
+continuation. If those Libraries fill the row window, no `Aspire.*` package
+enumeration starts.
 
 ## Basis and owner map
 
@@ -81,7 +80,7 @@ row window, no `Aspire.*` package enumeration starts.
 | [Find semantic evaluation](find-semantic-evaluation.md) | Normalized Type and Member questions, reusable source evaluations, semantic blocks, exact source/declaration associations, source coverage, and result limits |
 | [Find type-search service](find-search-service.md) and [Find member-name search service](find-member-search-service.md) | Existing CLI source authorization, compatibility behavior, diagnostics, and presentation during shared-evaluator adoption |
 | [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Pull-driven package candidates, source order, paging, cancellation, and source completion |
-| [Ecosystem Find Index](ecosystem-find-index.md) | Admitted per-Ecosystem artifacts, indexed semantic matches, exact published identities, selective coverage, and index-before-live continuation |
+| [Ecosystem Find Index](ecosystem-find-index.md) | Admitted per-Ecosystem artifacts, indexed semantic matches, exact published identities, selective coverage, and index-first evaluation |
 | PlatformHouse and PackageHouse | Exact source settlement, realization, provenance, and visible failure |
 | [Engine-to-browser async event streams](engine-browser-async-event-stream.md) | Progress, durable item, item failure, and completed event categories |
 | [Inspection Envelope](inspection-envelope.md) | Completed host-neutral Content, Share, and diagnostics |
@@ -178,24 +177,25 @@ has an exact owner-issued identity and this state machine:
 
 ```text
 Created
-  -> Bounded running
+  -> Indexed running, when an artifact is admitted
+  -> Bounded running, when indexed exhaustion leaves capacity
   -> Bounded complete
        -> Completed, when no prefix demand or the bounded row window filled
        -> PrefixContinuation
-            -> Indexed running, when resumed with remaining capacity
-                 -> Prefix running, when indexed exhaustion leaves capacity
+            -> Prefix running, when resumed with remaining capacity
             -> Completed as RowLimitReached, when resumed with zero capacity
             -> Canceled
   -> Canceled
 ```
 
-`RunBoundedAsync` settles the bounded phase once. When demanded prefix work
-remains, its outcome carries one opaque `EcosystemFindPrefixContinuation`.
+`RunBoundedAsync` evaluates admitted indexes, then settles the bounded phase
+once when capacity remains. When demanded live prefix work remains, its outcome
+carries one opaque `EcosystemFindPrefixContinuation`.
 The continuation retains the exact session and request identity, normalized
 Find question, ordered registrations, demanded prefix declarations,
-settled-bounded receipt, prefix-package work bound, and maximum remaining row
-window. It is an in-process capability, not serializable inspection content,
-display identity, or cache key.
+settled indexed and bounded receipts, prefix-package work bound, and maximum
+remaining row window. It is an in-process capability, not serializable
+inspection content, display identity, or cache key.
 
 The caller completes a continuation exactly once:
 
@@ -212,9 +212,9 @@ continuation with another session. A caller that needs different semantics
 starts a replacement session.
 
 `ExecuteAsync` is the convenience composition for hosts with no intervening
-phase. It runs bounded work and immediately resumes any continuation with its
-maximum remaining window. It does not implement a second scheduler or result
-contract.
+phase. It runs indexed and bounded work and immediately resumes any continuation
+with its maximum remaining window. It does not implement a second scheduler or
+result contract.
 
 The request is rejected before source work when:
 
@@ -272,24 +272,26 @@ The session has a global three-phase barrier and an explicit continuation
 point:
 
 ```text
-Bounded
+Indexed
+  -> every admitted index evaluates before bounded source acquisition
+  -> Bounded, only after indexed exhaustion with remaining capacity
   -> every selected Ecosystem bounded block settles
   -> PrefixContinuation, when demand exists
-  -> Indexed, only after continuation with remaining capacity
-  -> Prefix, only after indexed exhaustion with remaining capacity
+  -> Prefix, only after continuation with remaining capacity
   -> Completed
 
-Bounded, finite row window
-  -> layers settle in array order until the window fills at a layer boundary
-  -> Completed as RowLimitReached; later layers and Prefix do not start
+Finite row window
+  -> phases and bounded layers settle in order until the window fills
+  -> Completed as RowLimitReached; later phases and layers do not start
 ```
 
 Cancellation may terminate any active phase or retire an unconsumed
-continuation. No indexed evaluation, prefix search, package settlement, or
-package evaluation starts before all bounded blocks settle and the continuation
-is resumed. Indexed rows consume the remaining semantic row window but no live
-package-candidate units. An indexed failure remains visible and does not revoke
-authorized live continuation.
+continuation. No bounded or live source work starts before indexed evaluation
+exhausts with remaining capacity. Live prefix search, package settlement, and
+package evaluation start only after all bounded blocks settle and the
+continuation is resumed. Indexed rows consume the semantic row window but no
+live package-candidate units. An indexed failure remains visible and does not
+revoke authorized bounded or live continuation.
 
 ### Bounded phase
 
@@ -466,8 +468,8 @@ Execution policy is host-neutral within declared bounds:
   identities.
 
 Concurrency changes settlement latency, not source identity, membership,
-candidate ordinal, completed-Document order, the bounded-before-prefix
-barrier, or continuation identity.
+candidate ordinal, completed-Document order, the index-before-bounded-before-
+live barriers, or continuation identity.
 
 The cancellation token crosses prefix enumeration, exact settlement,
 realization, inventory, Find evaluation, and event publication boundaries.
@@ -565,15 +567,14 @@ The authentic first assets are:
 
 Release gates for an implementation must establish:
 
-1. every bounded block settles before indexed or live prefix work starts;
-2. bounded rows that fill the window complete without issuing a continuation;
-3. bounded rows that leave capacity issue one exact continuation without
-   starting indexed evaluation or prefix enumeration;
+1. every admitted index evaluates before bounded or live source work starts;
+2. indexed rows that fill the window start no bounded or live source work;
+3. indexed exhaustion with capacity starts bounded work, whose rows can fill
+   the window without issuing a continuation;
 4. zero-capacity finalization starts no prefix work, reports
    `RowLimitReached`, and names unsearched prefix sources;
-5. positive-capacity resume evaluates only admitted artifacts for demanded
-   prefixes before live enumeration, respects the smaller window, and does not
-   repeat bounded settlement;
+5. positive-capacity resume starts live enumeration within the smaller window
+   and does not repeat indexed or bounded settlement;
 6. a continuation cannot resume twice, cross a replacement-session boundary,
    increase its maximum window, or survive cancellation;
 7. CLI immediate resume preserves the existing event and completed-Document
@@ -594,13 +595,14 @@ Release gates for an implementation must establish:
 16. CLI and Browser equivalent fully resumed requests produce equal completed
     Content; and
 17. the pathological cases retain an early useful block when a later source is
-    blocked, failed, canceled, or deliberately not started after an inserted
-    bounded phase fills the remaining row window, without claiming exhaustion.
+    blocked, failed, canceled, or deliberately not started after an earlier
+    phase fills the remaining row window, without claiming exhaustion.
 
 NativeAOT evidence is required for every CLI terminal adopted by the
-implementation. Browser/Wasm evidence must include a cold all-Ecosystem
-bounded pass and one demanded indexed-plus-live prefix phase. Fixed indexed
-latency, allocation, network, and size goals remain owned by
+implementation, including the miss-path cost before a bounded result.
+Browser/Wasm evidence must include a cold all-Ecosystem indexed and bounded
+pass and one demanded indexed-plus-live prefix phase. Fixed indexed latency,
+allocation, network, and size goals remain owned by
 [Ecosystem Find Index](ecosystem-find-index.md#performance-and-size-goals).
 
 ## Non-claims
@@ -618,8 +620,7 @@ This design does not:
 - define CLI flags, columns, stderr wording, exit status, or default format;
 - define Spotlight scopes, grouping, batch size, focus, or activation;
 - serialize, persist, render, or cache the prefix continuation;
-- let a host add prefix demand or increase work bounds after bounded
-  settlement;
+- let a host add prefix demand or increase work bounds after session start;
 - define cache storage, persistence, refresh, or eviction;
 - search every prefix without explicit host-lowered demand; or
 - treat acquisition origin as producer or Ecosystem identity.
