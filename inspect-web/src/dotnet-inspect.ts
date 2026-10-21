@@ -873,6 +873,7 @@ import type {
   BrowserPackageHierarchy,
   BrowserPackageDependencyGroup,
   BrowserPackageIconInspection,
+  BrowserReferencePackageSupplier,
   BrowserPlatformForwarderRow,
   BrowserPlatformForwarderView,
   BrowserExactLibraryApiInspection,
@@ -957,6 +958,8 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectReferencePackageSuppliers:
+  EngineClient["package"]["queryReferencePackageSuppliers"];
 let inspectPackageHierarchy:
   EngineClient["package"]["queryPackageHierarchy"];
 let inspectPackageIcon: EngineClient["package"]["queryPackageIcon"];
@@ -1195,6 +1198,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
+      queryReferencePackageSuppliers: inspectReferencePackageSuppliers,
       queryPackageHierarchy: inspectPackageHierarchy,
       queryPackageIcon: inspectPackageIcon,
       queryPackageVulnerabilities: inspectPackageVulnerabilities,
@@ -11540,12 +11544,16 @@ function renderLibraryReferences() {
   });
 }
 
+const referenceSupplierRequests = new WeakMap<
+  BrowserPackageDependencies,
+  Promise<ReadonlyArray<BrowserReferencePackageSupplier>>>();
+
 async function renderLibraryReferenceIcons() {
   const container = document.querySelector<HTMLElement>(
     ".library-references-surface .reference-list-section");
   const data = state.packageDependencies;
   const references = data?.assemblyReferences;
-  if (!container || !references || typeof references === "string") return;
+  if (!container || !data || !references || typeof references === "string") return;
   const candidates = state.packages.flatMap(candidatePackage =>
     createWorkspaceLibraryReferenceCandidates(
       packageIdentityKey(candidatePackage),
@@ -11590,13 +11598,107 @@ async function renderLibraryReferenceIcons() {
           || result.status !== "Available"
           || !result.icon) continue;
         image.src = `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+        updateLibraryReferenceGraphIcon(index, image.src);
       } catch {
         // Keep the default package icon when the optional icon read fails.
       }
     }
   };
-  await Promise.all(Array.from(
+  const admittedIcons = Promise.all(Array.from(
     { length: Math.min(4, destinations.length) }, loadNext));
+
+  if (!isCurrent()
+    || !destinations.some(destination => !destination)
+    || currentPackage().source.kind !== "nuget.org") {
+    await admittedIcons;
+    return;
+  }
+  const currentLibrary = selectedLibrary();
+  if (!currentLibrary) {
+    await admittedIcons;
+    return;
+  }
+  const pkg = currentPackage();
+  try {
+    let request = referenceSupplierRequests.get(data);
+    if (!request) {
+      request = inspectReferencePackageSuppliers(
+        pkg.id,
+        pkg.version,
+        pkg.activeFramework,
+        currentLibrary.id);
+      referenceSupplierRequests.set(data, request);
+    }
+    const suppliers = await request;
+    if (!isCurrent()
+      || suppliers.length !== references.references.length) return;
+    const rows = [...container.querySelectorAll<HTMLLIElement>(
+      ".dep-list > li")];
+    const exact = (value: string | null | undefined) =>
+      (value || "").toLowerCase();
+    const culture = (value: string | null | undefined) => {
+      const normalized = exact(value);
+      return normalized === "neutral" ? "" : normalized;
+    };
+    const external = suppliers.flatMap((supplier, index) => {
+      const reference = references.references[index];
+      const row = rows[index];
+      if (!supplier.packageId || !supplier.packageVersion
+        || !reference || !row || destinations[index]
+        || exact(supplier.name) !== exact(reference.name)
+        || supplier.version !== reference.version
+        || culture(supplier.culture) !== culture(reference.culture)
+        || exact(supplier.publicKeyToken)
+          !== exact(reference.publicKeyToken)) return [];
+      const label = row.querySelector(".library-reference-name");
+      if (!label) return [];
+      const image = document.createElement("img");
+      image.className = "dep-icon";
+      image.src = NUGET_DEFAULT_PACKAGE_ICON;
+      image.alt = "";
+      image.dataset.packageIcon = "";
+      image.dataset.libraryReferenceIcon = String(index);
+      row.insertBefore(image, label);
+      updateLibraryReferenceGraphIcon(index, image.src);
+      return [{ image, id: supplier.packageId,
+        version: supplier.packageVersion }];
+    });
+    bindPackageIconFallbacks(container);
+    let externalNext = 0;
+    const loadExternal = async () => {
+      while (isCurrent()) {
+        const candidate = external[externalNext++];
+        if (!candidate) return;
+        try {
+          const key = `${candidate.id.toLowerCase()}@${candidate.version}`;
+          let iconRequest = requests.get(key);
+          if (!iconRequest) {
+            iconRequest = inspectPackageIcon(candidate.id, candidate.version);
+            requests.set(key, iconRequest);
+          }
+          const result = await iconRequest;
+          if (isCurrent()
+            && result.packageId === candidate.id
+            && result.packageVersion === candidate.version
+            && result.status === "Available"
+            && result.icon) {
+            candidate.image.src =
+              `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+            updateLibraryReferenceGraphIcon(
+              Number(candidate.image.dataset.libraryReferenceIcon),
+              candidate.image.src);
+          }
+        } catch {
+          // Optional icon reads retain the default package icon.
+        }
+      }
+    };
+    await Promise.all(Array.from(
+      { length: Math.min(4, external.length) }, loadExternal));
+  } catch {
+    // Supplier association is optional presentation; direct references remain.
+  }
+  await admittedIcons;
 }
 
 async function uniqueCompatiblePackage(
@@ -23565,6 +23667,55 @@ async function renderPackageHierarchyGraph() {
   }
 }
 
+function updateLibraryReferenceGraphIcon(index: number, source: string) {
+  const svg = document.querySelector<SVGSVGElement>(
+    "#library-reference-graph-diagram .graph-viewport svg");
+  if (!svg) return;
+  const node = svg.querySelector<SVGGElement>(
+    `g.node[id*="-flowchart-r${index + 1}-"]`);
+  const shape = node?.querySelector<SVGRectElement>("rect");
+  if (!node || !shape) return;
+  let icon = node.querySelector<SVGImageElement>(
+    "image[data-reference-package-icon]");
+  if (!icon) {
+    const bounds = shape.getBBox();
+    shape.setAttribute("x", String(bounds.x - 32));
+    shape.setAttribute("width", String(bounds.width + 32));
+    icon = document.createElementNS(
+      "http://www.w3.org/2000/svg", "image");
+    icon.setAttribute("x", String(bounds.x - 24));
+    icon.setAttribute("y", String(bounds.y + (bounds.height - 16) / 2));
+    icon.setAttribute("width", "16");
+    icon.setAttribute("height", "16");
+    icon.setAttribute("data-reference-package-icon", "");
+    icon.style.pointerEvents = "none";
+    icon.addEventListener("error", () => {
+      if (icon?.getAttribute("href") !== NUGET_DEFAULT_PACKAGE_ICON)
+        icon?.setAttribute("href", NUGET_DEFAULT_PACKAGE_ICON);
+    });
+    node.appendChild(icon);
+  }
+  icon.setAttribute("href", source);
+  if (!svg.dataset.referenceIconsPadded) {
+    const viewBox = svg.viewBox.baseVal;
+    svg.setAttribute("viewBox",
+      `${viewBox.x - 36} ${viewBox.y} ${viewBox.width + 72} ${viewBox.height}`);
+    svg.dataset.referenceIconsPadded = "true";
+  }
+}
+
+function applyLibraryReferenceGraphIcons() {
+  const root = libraryReferencePackageIcon(currentPackage());
+  if (root) updateLibraryReferenceGraphIcon(-1, root);
+  document.querySelectorAll<HTMLImageElement>(
+    ".library-references-surface [data-library-reference-icon]")
+    .forEach(image => {
+      const index = Number(image.dataset.libraryReferenceIcon);
+      if (Number.isInteger(index) && index >= 0)
+        updateLibraryReferenceGraphIcon(index, image.src);
+    });
+}
+
 async function renderLibraryReferenceGraph() {
   const container =
     document.querySelector<HTMLElement>("#library-reference-graph-diagram");
@@ -23623,6 +23774,7 @@ async function renderLibraryReferenceGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
+    applyLibraryReferenceGraphIcons();
     container.dataset.graphDef = signature;
     bindGraphPanZoom(container, viewport, { keybindings });
   } catch (error) {
