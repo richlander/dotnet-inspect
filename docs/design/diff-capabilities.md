@@ -117,7 +117,10 @@ Every rung answers per **axis**:
   population, the `public` bucket without hidden declarations, becomes a
   presentation default. This changes that owner's rule
   that API Diff keeps its existing visibility behavior; adoption step 1 makes
-  the change there.
+  the change there. The CLI and Inspect Web Library API Diff compare the API
+  axis and present that default, as
+  [Library API diff presentation](library-api-diff-presentation.md#ordinary-presentation)
+  owns.
 - **Body**: every subject at every accessibility: the IL of every method; the
   **declaration facts** of every subject the API axis does not compare, such
   as a non-public Member's signature, attributes, and flags; and every
