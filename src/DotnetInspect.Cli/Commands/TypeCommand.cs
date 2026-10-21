@@ -1438,7 +1438,7 @@ public static partial class TypeCommand
                 HttpClientFactory.Shared.Timeout);
         using var stores = new SearchPackageStores("inspect-type");
         PackageHouse house = composition.CreateRealizationHouse(
-            new PackagePayloadAcquisitionPlan(
+            PackagePayloadAcquisitionPlan.ForContentQueries(
                 stores.GetLegacyCompatibleStore,
                 PackagePayloadLimits.Default,
                 log: options.Verbose ? logger.Log : null),

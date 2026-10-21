@@ -941,6 +941,9 @@ public sealed partial class PackageHouse
                                 is not null
                             || request.ContentQuery
                                 .LibraryInventoryTerminal
+                                is not null
+                            || request.ContentQuery
+                                .CompileLibrariesTerminal
                                 is not null)
                         {
                             libraryInventoryResolution =
@@ -1021,6 +1024,37 @@ public sealed partial class PackageHouse
                                 .Path,
                         ];
                     }
+                    if (libraryInventoryResolution is
+                            {
+                                Completion:
+                                    PackageHouseContentNarrowingCompletion
+                                        .Settled,
+                                SelectionFailure: null,
+                            } compileLibraries
+                        && request.ContentQuery
+                            .CompileLibrariesTerminal
+                            is { } librariesTerminal)
+                    {
+                        IEnumerable<string> implementationEntries =
+                            librariesTerminal.AssetDemand
+                                == PackageAssetDemand
+                                    .SurfaceAndImplementation
+                                ? compileLibraries.Rows
+                                    .Select(static row =>
+                                        row.ImplementationEntry?.Path)
+                                    .OfType<string>()
+                                : [];
+                        selectedSemanticEntries =
+                        [
+                            .. selectedSemanticEntries
+                                .Concat(
+                                    compileLibraries.Rows.Select(
+                                        static row =>
+                                            row.CompileEntry.Path))
+                                .Concat(implementationEntries)
+                                .Distinct(StringComparer.Ordinal),
+                        ];
+                    }
                     if (nuspecEntryPath is not null)
                     {
                         if (!selectedSemanticEntries.Contains(
@@ -1085,8 +1119,11 @@ public sealed partial class PackageHouse
                         : null;
                 PackageHouseLibraryInventory? libraryInventory =
                     libraryAndInventory?.Inventory
-                    ?? (request.ContentQuery?.LibraryInventoryTerminal
+                    ?? ((request.ContentQuery?.LibraryInventoryTerminal
                                 is not null
+                            || request.ContentQuery
+                                ?.CompileLibrariesTerminal
+                                is not null)
                             && libraryInventoryResolution is
                             {
                                 Completion:
@@ -2224,11 +2261,35 @@ public sealed partial class PackageHouse
                 return AddRootManifest(new PackageRangedSelection(settings), directory);
             }
             if (contentQuery.LibraryAndInventoryTerminal is not null
-                || contentQuery.LibraryInventoryTerminal is not null)
+                || contentQuery.LibraryInventoryTerminal is not null
+                || contentQuery.CompileLibrariesTerminal is not null)
             {
                 libraryInventory = ResolveLibraryInventory(
                     contentNarrowing,
                     SnapshotEntries(directory));
+                if (contentQuery.CompileLibrariesTerminal
+                        is { } compileLibraries
+                    && libraryInventory.Completion
+                        == PackageHouseContentNarrowingCompletion.Settled)
+                {
+                    IEnumerable<string> implementationEntries =
+                        compileLibraries.AssetDemand
+                            == PackageAssetDemand
+                                .SurfaceAndImplementation
+                            ? libraryInventory.Rows
+                                .Select(static row =>
+                                    row.ImplementationEntry?.Path)
+                                .OfType<string>()
+                            : [];
+                    return new PackageRangedSelection(
+                    [
+                        .. libraryInventory.Rows
+                            .Select(static row =>
+                                row.CompileEntry.Path)
+                            .Concat(implementationEntries)
+                            .Distinct(StringComparer.Ordinal),
+                    ]);
+                }
                 PackageRangedSelection selectedLibraryEntries = new(
                     contentQuery.LibraryAndInventoryTerminal is not null
                     && libraryInventory.Completion
@@ -2352,6 +2413,10 @@ public sealed partial class PackageHouse
             or
             {
                 LibraryInventoryTerminal: not null
+            }
+            or
+            {
+                CompileLibrariesTerminal: not null
             }
             or
             {
