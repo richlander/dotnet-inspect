@@ -38,6 +38,36 @@ export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
 
+export type PackageDependenciesState =
+  | { readonly status: "idle" }
+  | {
+    readonly status: "loading";
+    readonly request: { readonly key: string };
+  }
+  | {
+    readonly status: "ready";
+    readonly key: string;
+    readonly result: BrowserPackageDependencies;
+  }
+  | {
+    readonly status: "failed";
+    readonly key: string;
+    readonly error: string;
+  };
+
+export function packageDependenciesStateKey(
+  state: PackageDependenciesState,
+): string | null {
+  if (state.status === "idle") return null;
+  return state.status === "loading" ? state.request.key : state.key;
+}
+
+export function normalizePackageDependenciesSnapshot(
+  state: PackageDependenciesState,
+): PackageDependenciesState {
+  return state.status === "loading" ? { status: "idle" } : state;
+}
+
 export type PackageVulnerabilityState =
   | { readonly status: "idle" }
   | {
@@ -223,10 +253,7 @@ export interface PackageInspectionState {
   atLibraryRoot: boolean;
   packageLens: PackageLens;
   libraryLens: LibraryLens;
-  packageDependencies: BrowserPackageDependencies | null;
-  packageDependenciesLoading: boolean;
-  packageDependenciesError: string;
-  packageDependenciesKey: string;
+  packageDependencies: PackageDependenciesState;
   packageVulnerabilities: PackageVulnerabilityState;
   workspaceDependencies: Record<string, DependencyGroupData>;
   workspaceDependencyErrors: Record<string, string>;
@@ -485,10 +512,7 @@ export function createPackageInspectionCoordinator(
     invalidatePackageResults() {
       packageResultGeneration++;
       state.workspaceDependencyLoads.clear();
-      state.packageDependencies = null;
-      state.packageDependenciesLoading = false;
-      state.packageDependenciesError = "";
-      state.packageDependenciesKey = "";
+      state.packageDependencies = { status: "idle" };
       state.packageVulnerabilities = { status: "idle" };
       state.packageIntegrations = { status: "idle" };
       state.packageOpportunities = { status: "idle" };
@@ -514,19 +538,19 @@ export function createPackageInspectionCoordinator(
     },
 
     async loadDependencies(packageModel, signature) {
-      if (state.packageDependenciesKey === signature
-        && (state.packageDependencies || state.packageDependenciesError)) {
+      const current = state.packageDependencies;
+      if (current.status !== "idle"
+        && packageDependenciesStateKey(current) === signature) {
         dependencies.render();
         return;
       }
+      const request = { key: signature };
       const generation = packageResultGeneration;
       const ownsRequest = () =>
-        state.packageDependenciesKey === signature
+        state.packageDependencies.status === "loading"
+        && state.packageDependencies.request === request
         && generation === packageResultGeneration;
-      state.packageDependenciesKey = signature;
-      state.packageDependencies = null;
-      state.packageDependenciesError = "";
-      state.packageDependenciesLoading = true;
+      state.packageDependencies = { status: "loading", request };
       dependencies.render();
       const packageRequest = {
         id: packageModel.id,
@@ -541,7 +565,11 @@ export function createPackageInspectionCoordinator(
       try {
         const result = await dependencies.queryDependencies(packageRequest);
         if (ownsRequest()) {
-          state.packageDependencies = result;
+          state.packageDependencies = {
+            status: "ready",
+            key: signature,
+            result,
+          };
         }
         if (result?.dependencyGroups
           && generation === packageResultGeneration
@@ -559,12 +587,16 @@ export function createPackageInspectionCoordinator(
         }
       } catch (error) {
         if (ownsRequest()) {
-          state.packageDependenciesError = dependencies.describeError(error);
+          const diagnostic = dependencies.describeError(error);
+          state.packageDependencies = {
+            status: "failed",
+            key: signature,
+            error: diagnostic.trim()
+              ? diagnostic
+              : "Dependency query failed.",
+          };
         }
       } finally {
-        if (ownsRequest()) {
-          state.packageDependenciesLoading = false;
-        }
         if (generation === packageResultGeneration) {
           dependencies.refreshPackageStats();
           dependencies.render();

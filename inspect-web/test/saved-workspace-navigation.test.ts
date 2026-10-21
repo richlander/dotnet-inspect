@@ -22,6 +22,7 @@ import type {
   BrowserWorkspaceShareState,
 } from "../src/facades/inspect-web-catalog.d.ts";
 import type {
+  BrowserPackageDependencies,
   BrowserPackageLoadResult,
   BrowserPackageSurface,
   BrowserPackageVersionSettlementInspection,
@@ -42,11 +43,13 @@ import {
 } from "../src/retained-workspaces.ts";
 import { retainDiagnosticDetail } from "../src/failure-detail.ts";
 import {
+  normalizePackageDependenciesSnapshot,
   normalizePackageIntegrationsSnapshot,
   normalizePackageMetadataSnapshot,
   normalizePackageOpportunitiesSnapshot,
   normalizePackageVulnerabilitySnapshot,
   workspaceDependencyKey,
+  type PackageDependenciesState,
   type PackageIntegrationsState,
   type PackageMetadataState,
   type PackageOpportunitiesState,
@@ -212,6 +215,30 @@ const sourcePackage: Package = {
   id: "Source", version: "1.2.3", activeFramework: "net10.0", types: [],
   source: { kind: "nuget.org" },
 };
+
+function packageDependenciesResult(
+  dependencyGroups: BrowserPackageDependencies["dependencyGroups"],
+): BrowserPackageDependencies {
+  return {
+    package: "Source",
+    version: "1.2.3",
+    activeFramework: "net10.0",
+    assembly: "Source.dll",
+    dependencyGroups,
+    platformReferences: [],
+    defaultPlatformReference: null,
+    declarationFailures: [],
+    assemblyReferences: { references: [] },
+    dependencyGroupError: null,
+    platformReferenceError: null,
+    compileLibrary: {
+      status: "Selected",
+      targetFramework: "net10.0",
+      message: null,
+    },
+  };
+}
+
 const packet = "opaque+/packet?name=ignored&x=1#fragment";
 const saved = Object.freeze({
   name: "My Workspace",
@@ -408,12 +435,9 @@ function harness() {
     workspaceDependencyErrors: {} as Record<string, string>,
     workspaceDependencyLoads: new Set<string>(),
     workspaceFeedUrl: null as string | null,
-    packageDependencies: null as {
-      dependencyGroups: {
-        index: number;
-        isActive: boolean;
-      }[];
-    } | null,
+    packageDependencies: {
+      status: "idle",
+    } as PackageDependenciesState,
     packageVulnerabilities: {
       status: "idle",
     } as PackageVulnerabilityState,
@@ -659,6 +683,7 @@ function harness() {
     normalizeDocumentViewerSnapshot,
     normalizeSpotlightCapabilitySearchSnapshot,
     normalizeSpotlightPackageSearchSnapshot,
+    normalizePackageDependenciesSnapshot,
     normalizePackageIntegrationsSnapshot,
     normalizePackageMetadataSnapshot,
     normalizePackageOpportunitiesSnapshot,
@@ -999,10 +1024,24 @@ test("capture refuses a non-active package dependency group", () => {
   h.state.atPackageRoot = true;
   h.state.packageLens = "dependencies";
   h.state.packageDependencies = {
-    dependencyGroups: [
-      { index: 0, isActive: true },
-      { index: 1, isActive: false },
-    ],
+    status: "ready",
+    key: "current",
+    result: packageDependenciesResult([
+      {
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: [],
+      },
+      {
+        index: 1,
+        framework: "net9.0",
+        isActive: false,
+        isComplete: true,
+        dependencies: [],
+      },
+    ]),
   };
   h.state.dependenciesGroupIndex = 1;
 
@@ -1017,10 +1056,24 @@ test("Share copies canonical package Dependencies and refuses a non-active group
   h.state.atPackageRoot = true;
   h.state.packageLens = "dependencies";
   h.state.packageDependencies = {
-    dependencyGroups: [
-      { index: 0, isActive: true },
-      { index: 1, isActive: false },
-    ],
+    status: "ready",
+    key: "current",
+    result: packageDependenciesResult([
+      {
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: [],
+      },
+      {
+        index: 1,
+        framework: "net9.0",
+        isActive: false,
+        isComplete: true,
+        dependencies: [],
+      },
+    ]),
   };
   h.state.dependenciesGroupIndex = 1;
 
@@ -1090,6 +1143,10 @@ test("capture settles a loading document viewer without claiming ready content",
     status: "loading",
     request: { key: "package-metadata" },
   };
+  h.state.packageDependencies = {
+    status: "loading",
+    request: { key: "package-dependencies" },
+  };
   h.state.typeSource = {
     status: "failed",
     signature: "type",
@@ -1108,6 +1165,7 @@ test("capture settles a loading document viewer without claiming ready content",
     && "memberSource" in snapshotState
     && "memberGroupDocumentLoading" in snapshotState
     && "memberGroupDocumentKey" in snapshotState
+    && "packageDependencies" in snapshotState
     && "packageIntegrations" in snapshotState
     && "packageMetadata" in snapshotState
     && "packageOpportunities" in snapshotState
@@ -1122,6 +1180,10 @@ test("capture settles a loading document viewer without claiming ready content",
   assert.deepEqual(snapshotState.memberSource, { status: "idle" });
   assert.equal(snapshotState.memberGroupDocumentLoading, false);
   assert.equal(snapshotState.memberGroupDocumentKey, "");
+  assert.ok(snapshotState.packageDependencies !== null
+    && typeof snapshotState.packageDependencies === "object"
+    && "status" in snapshotState.packageDependencies);
+  assert.equal(snapshotState.packageDependencies.status, "idle");
   assert.ok(snapshotState.packageVulnerabilities !== null
     && typeof snapshotState.packageVulnerabilities === "object"
     && "status" in snapshotState.packageVulnerabilities);
@@ -1169,7 +1231,18 @@ test("capture settles a loading document viewer without claiming ready content",
   if (h.state.packageMetadata.status === "loading") {
     assert.equal(h.state.packageMetadata.request.key, "package-metadata");
   }
+  assert.equal(h.state.packageDependencies.status, "loading");
+  if (h.state.packageDependencies.status === "loading") {
+    assert.equal(
+      h.state.packageDependencies.request.key,
+      "package-dependencies");
+  }
 
+  h.state.packageDependencies = {
+    status: "failed",
+    key: "package-dependencies",
+    error: "dependency query unavailable",
+  };
   h.state.packageVulnerabilities = {
     status: "failed",
     key: "package-vulnerabilities",
@@ -1198,10 +1271,22 @@ test("capture settles a loading document viewer without claiming ready content",
     && "state" in terminalSnapshot);
   const terminalState = terminalSnapshot.state;
   assert.ok(terminalState !== null && typeof terminalState === "object"
+    && "packageDependencies" in terminalState
     && "packageIntegrations" in terminalState
     && "packageMetadata" in terminalState
     && "packageOpportunities" in terminalState
     && "packageVulnerabilities" in terminalState);
+  const terminalDependencies = terminalState.packageDependencies;
+  assert.ok(terminalDependencies !== null
+    && typeof terminalDependencies === "object"
+    && "status" in terminalDependencies);
+  assert.equal(terminalDependencies.status, "failed");
+  assert.ok("key" in terminalDependencies);
+  assert.equal(terminalDependencies.key, "package-dependencies");
+  assert.ok("error" in terminalDependencies);
+  assert.equal(
+    terminalDependencies.error,
+    "dependency query unavailable");
   const terminalVulnerabilities = terminalState.packageVulnerabilities;
   assert.ok(terminalVulnerabilities !== null
     && typeof terminalVulnerabilities === "object"
@@ -1263,6 +1348,12 @@ test("capture settles a loading document viewer without claiming ready content",
     key: "package-opportunities",
     result: opportunityResult,
   };
+  const dependencyResult = packageDependenciesResult([]);
+  h.state.packageDependencies = {
+    status: "ready",
+    key: "package-dependencies",
+    result: dependencyResult,
+  };
   const metadataResult = {
     assemblies: [{ assembly: "Source.dll" }],
     inspectionError: "one metadata image could not be read",
@@ -1280,8 +1371,16 @@ test("capture settles a loading document viewer without claiming ready content",
     && "state" in readySnapshot);
   const readyState = readySnapshot.state;
   assert.ok(readyState !== null && typeof readyState === "object"
+    && "packageDependencies" in readyState
     && "packageMetadata" in readyState
     && "packageOpportunities" in readyState);
+  const readyDependencies = readyState.packageDependencies;
+  assert.ok(readyDependencies !== null
+    && typeof readyDependencies === "object"
+    && "status" in readyDependencies);
+  assert.equal(readyDependencies.status, "ready");
+  assert.ok("result" in readyDependencies);
+  assert.deepEqual(readyDependencies.result, dependencyResult);
   const readyOpportunities = readyState.packageOpportunities;
   assert.ok(readyOpportunities !== null
     && typeof readyOpportunities === "object"
