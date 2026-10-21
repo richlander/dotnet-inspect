@@ -378,13 +378,18 @@ environment=$(dotnet-inspect workspace --register-ecosystem runtime)
 dotnet-inspect -w "$environment" --json   # Workspace inventory
 
 package_workspace=$(dotnet-inspect workspace \
-  --package System.Text.Json@10.0.0 --tfm net10.0)
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
 dotnet-inspect type System.Text.Json.JsonSerializer \
   --workspace "$package_workspace" --share packet \
   > type-content.md 2> type-handoff.txt
 scenario=$(tail -n 1 type-handoff.txt)     # Final Share scalar, after diagnostics
 dotnet-inspect "$scenario" --json        # Saved Type inspection result
 ```
+
+The explicit public source is retained in the format-5 environment. Type
+Share currently requires format 4 or 5; the source-free format-3 authoring
+result supports inspection but refuses this derived scenario projection.
 
 For each admitted CLI binding, gate both root entrances with the same packet,
 plus its website activation through the production Browser facade. Compare
