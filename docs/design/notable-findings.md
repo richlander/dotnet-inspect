@@ -128,16 +128,18 @@ A finding is notable when any one of four criteria holds:
 | **Hidden** | A fact the C# text does not show | The descriptor: box, closure, state machine, delegate, enumerator |
 | **Amplified** | A fact a loop multiplies | Path context `LoopBody`, multiplicity `Loop`, or conditionality `PerIteration` |
 | **Contract** | A caller obligation or a safety boundary | The descriptor: every `unsafe.*` and `lifetime.*` fact the map admits |
-| **Expectation** | A fact that contradicts the Library's compilation profile | The profile and the Member's metadata classification |
+| **Expectation** | A fact that contradicts the Library's compilation profile | The profile and an admitted descriptor for the Member's metadata classification; see [Expectation](#expectation) for what is presented before that descriptor exists |
 
 The criteria read attributes the producers already emit. The allocation
 producer carries path context, escape, multiplicity, and frequency on every
 occurrence, and the annotation carries conditionality. No new analysis is
 needed to apply the preset; it is a filter over the existing detail.
 
-Every criterion reads a finding the map admits, so every notable finding has
-a map row to join to. Unsafe propagation and unsafe implementation are
-relation colors owned by
+Every criterion that drives a Current mark reads a finding the map admits,
+so every notable finding has a map row to join to. A fact the map does not
+admit cannot drive a mark, however informative: it is presented another way
+until a descriptor for it is admitted. Unsafe propagation and unsafe
+implementation are relation colors owned by
 [Annotated Type Relations](annotated-type-relations.md#memory-safety-color):
 a bodyless Member may propagate unsafe, and such a Member has no map row.
 That color therefore does not drive a Current mark; Relations presents it.
@@ -205,6 +207,22 @@ fact: they summarize public non-accessor methods only, and a Library whose
 only runtime-async methods are non-public would report none. The Expectation
 adopter supplies the whole-population presence fact through the existing
 per-method classification; it adds no second scanner.
+
+The classification is metadata, not an admitted finding. A Release `async
+void` method or async iterator has a struct state machine, which the
+allocation producer never reports because it recognizes a state machine only
+on `newobj`, so such a Member has no map row unless some other finding lists
+it. A Current mark it cannot join to is forbidden by the projection claim.
+Expectation therefore drives a Member mark only after two adoptions land: the
+[provenance owner](annotated-source-finding-provenance.md#classification-contract)
+adds a Member-header descriptor for the Member's async classification, and
+the map admits Member-header descriptors whose fact is the Member's own
+declaration. Until then Expectation is presented in two places that need no
+row: the compilation profile line counts the state-machine async methods in a
+runtime-async Library and links the catalog entry, and the member list's
+trait filter gains a state-machine async trait beside the existing async
+traits, so a reader can list them. Neither is a mark, and no gate below
+claims an Expectation mark before those steps.
 
 Expectation also makes Changes mode informative for a migration. The
 implementation flag is a declaration fact Fast Diff compares, and a package
@@ -364,16 +382,23 @@ overload in its represented population would be. The Changes mark is absent
 while the baseline is pending or unavailable, and never derived from another
 baseline.
 
-An **unresolved** row is one whose outcome the map cannot decide: an
-`Indeterminate` shape comparison in the map diff, or a Failed or Unavailable
-analysis outcome in either form. Its Exists is undecided, not `true`, and the
-mark never says otherwise. The slot renders the **undecided treatment**: the
-same glyph outlined rather than filled, with the accessible description
-naming the typed outcome. It is never rendered as changed or notable, and the
-slot is never left empty, because an empty slot reads as unchanged or clean.
-The undecided treatment is a typed outcome, not a count or a scale, and it is
-the only state a slot has beyond present and absent. A Type row whose Fast
-Diff state is `Indeterminate` takes the same treatment in its Changes slot.
+The map lists two kinds of row, and the slot follows the map's own
+[distinction](annotated-type-map.md#scopes-and-terminals). A **changed** row
+has a listing element: an admitted finding in the one-version map, a shape
+transition in the map diff. Its Exists is `true` even when another requested
+analysis Failed or its Body comparison is `Indeterminate` beside a settled
+API transition; the map keeps the settled evidence and carries the partial
+outcome on the row. Such a row renders its mark, and the accessible
+description names the partial outcome, so a known finding or change is never
+hidden by an unrelated failure. An **unresolved** row has no listing element
+and an unsettled outcome. Its Exists is undecided, not `true`, and the mark
+never says otherwise. The slot renders the **undecided treatment**: the same
+glyph outlined rather than filled, with the accessible description naming the
+typed outcome. It is never rendered as changed or notable, and the slot is
+never left empty, because an empty slot reads as unchanged or clean. The
+undecided treatment is a typed outcome, not a count or a scale, and it is the
+only state a slot has beyond present and absent. A Type row whose Fast Diff
+state is `Indeterminate` takes the same treatment in its Changes slot.
 
 Findings marks come from the map and from nothing else. The Browser never
 computes a finding, a count, or a change from display text, signatures, or row order,
@@ -421,8 +446,10 @@ notable set, so a reader can widen to every allocation when they choose.
 
 Library Overview states the profile on one line: optimized or Debug, runtime
 async or state-machine async or neither, unsafe present or absent. The
-Library-level marks from the Library-explained rule sit on that line. A
-reader meets the expectations before the marks that are read against them.
+Library-level marks from the Library-explained rule sit on that line, and so
+does the Expectation count: in a runtime-async Library, the number of
+state-machine async methods, with the catalog entry's link. A reader meets
+the expectations before the marks that are read against them.
 
 ## Findings view
 
@@ -430,7 +457,9 @@ The Compare inspector becomes **Findings** at Library, Type, and Member,
 keeping Compare's one-inspector frame, drill-down, and Member result
 boundary. Its modes are:
 
-- **Current**: the one-version map;
+- **Current**: the one-version map. At Library scope it needs the map's
+  Library-scope one-version producer, and until that adoption lands the
+  view shows a typed unavailable state naming it, not an empty result;
 - **Changes**: the map diff against the Package Diff baseline; and
 - **Clone**: retained as Compare's existing Clone mode until it has a better
   home, and not redefined here.
@@ -489,18 +518,27 @@ chips, and the profile line, each as a separately staged slice below.
   its iterator keeps a Member mark; the Release build of the same fixture
   issues no Library mark and marks only the iterator.
 - **Expectation:** a fixture Library with runtime async methods and one
-  async iterator marks the iterator and nothing else; the same Library
-  without runtime async marks nothing; a Library whose only runtime-async
-  method is internal still marks its public async iterator, so the profile
-  reads every accessibility; Changes between the two builds lists each
-  non-admitted method whose implementation flag changed, and lists an
-  admitted method only when its body changed or Diff capabilities adoption
-  step 1 has landed, with the complete census gated after that step.
+  async iterator counts the iterator on the profile line and selects it
+  with the state-machine async trait, and no Member carries an Expectation
+  mark before the descriptor adoptions; the same Library without runtime
+  async counts nothing and the profile line says so; a Library whose only
+  runtime-async method is internal still counts its public async iterator,
+  so the profile reads every accessibility; once the descriptor is admitted,
+  the iterator carries the Current mark and nothing else does, and a Release
+  `async void` method with no other finding carries it too because it now
+  has a row; Changes between the two builds lists each non-admitted method
+  whose implementation flag changed, and lists an admitted method only when
+  its body changed or Diff capabilities adoption step 1 has landed, with the
+  complete census gated after that step.
 - **Projection:** for every fixture Type, each Member row's Current mark
   equals whether its map row has a notable finding, its Changes mark equals
   whether the map diff lists it as changed, and an unresolved row in either
   form renders the undecided treatment and never the changed or notable
-  state; each Type row's Changes mark equals Fast Diff's `true` Exists and
+  state; a row with a listing element and a Failed, Unavailable, or
+  `Indeterminate` outcome beside it renders its mark and names the partial
+  outcome in its description, so an `alloc.box` beside a failed analysis
+  and an API transition beside an `Indeterminate` Body comparison are both
+  marked; each Type row's Changes mark equals Fast Diff's `true` Exists and
   its undecided treatment equals Fast Diff's `Indeterminate`; a Type row's
   Current mark equals the Library census's notable Exists once that
   adoption lands and is absent before it, and is never computed by filtering
@@ -569,11 +607,13 @@ owner:
    Prerequisites: steps 2 and 3.
 5. **Findings inspector.** Owner:
    [Inspect Web Compare Experience](inspect-web-compare-experience.md).
-   Compare is renamed Findings; Current presents the one-version Type map
-   and Changes the map diff, unresolved rows keep their typed outcome, and
-   the structure and throw columns read their existing owner-issued data.
-   Prerequisites: steps 2 and 3, and Annotated Type Map adoption steps 4 and
-   5 for the Type-scope documents.
+   Compare is renamed Findings; Current presents the one-version map at Type
+   and Member scope and Changes presents the map diff at every scope,
+   unresolved rows keep their typed outcome, and the structure and throw
+   columns read their existing owner-issued data. Library Current shows a
+   typed unavailable state naming the Library census until step 9 enables
+   it. Prerequisites: steps 2 and 3, and Annotated Type Map adoption steps 4
+   and 5 for the Type-scope documents.
 6. **Findings marks and click-through.** Owner:
    [Inspect Web Surface Composition](inspect-web-surface-composition.md),
    which composes the Type and Member navigation panes. The Member rows'
@@ -592,9 +632,11 @@ owner:
    and measured against the unfiltered census. The whole-Library body decode
    that Type leverage already runs after the first paint is the cost budget
    this census shares.
-9. **Type-row marks.** Owner: Inspect Web Surface Composition. Type rows
-   take the Current mark from the Library census's notable Exists.
-   Prerequisites: steps 6 and 8.
+9. **Type-row marks and Library Current.** Owner: Inspect Web Surface
+   Composition. Type rows take the Current mark from the Library census's
+   notable Exists, and the Findings inspector's Library Current view replaces
+   its unavailable state with the census's Rows. Prerequisites: steps 6
+   and 8.
 10. **Compilation profile line.** Owner: Inspect Web Surface Composition,
     which composes Library Overview. The line reads the profile facts over
     every method. Prerequisite: step 3.
@@ -611,11 +653,23 @@ owner:
     Top Leverage presents as Type foundation with the shared glyph until
     Annotated Type Relations supplies caller degree, when the designation
     query retires under that owner.
+14. **Async classification descriptor.** Owner:
+    [Annotated Source Finding provenance](annotated-source-finding-provenance.md).
+    A Member-header descriptor for the Member's runtime-async or
+    state-machine async classification enters the provenance matrix.
+    Prerequisite: step 3.
+15. **Member-header admission.** Owner:
+    [Annotated Type Map](annotated-type-map.md). The map admits
+    Member-header descriptors whose fact is the Member's own declaration,
+    under its own adoption and gates. Only after this step does Expectation
+    drive a Current mark; steps 3, 4, 6, and 10 present it as a profile-line
+    count and trait filter before it. Prerequisite: step 14.
 
 Steps 5 and 6 need no new analysis beyond the facts step 3 issues and
 remove most of the explanation burden; they go first after steps 2 and 3
 land. Steps 11, 12, and 13 are independent of each other and of the
-findings marks.
+findings marks. Steps 14 and 15 are the Expectation mark's own path and
+block nothing else.
 
 ## Non-claims
 
@@ -635,7 +689,12 @@ findings marks.
   descriptor for the contract.
 - It does not define a filtered Exists or Count terminal for the map; the
   notable predicate at Library scope is the map owner's adoption, and until
-  it lands Type rows carry no Current mark.
+  it lands Type rows carry no Current mark and Library Current is
+  unavailable.
+- It does not add an async classification descriptor or admit Member-header
+  descriptors to the map; those are the provenance and map owners'
+  adoptions, and until they land Expectation is a profile count and a trait
+  filter, not a mark.
 - It does not move implementation flags between Fast Diff's axes; that is
   Diff capabilities adoption step 1.
 - It does not decide Clone's long-term home.
