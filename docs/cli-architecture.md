@@ -289,9 +289,20 @@ reusable owners produce the facts.
 
 ### Planned Workspace packet activation
 
+The first runtime adoption, [#10407](https://github.com/richlander/dotnet-inspect/issues/10407),
+admits the root entrances below for Workspace inventory landings. Saved
+inspection facets and queries are explicitly refused before acquisition.
+[#10408](https://github.com/richlander/dotnet-inspect/issues/10408) supplies the
+missing exact-subject execution/correspondence boundary: restored Navigation
+uses Package Root surface registrations, while the selected declaration context
+retains different acquisition registrations. The existing selected-context
+Type executor cannot accept the saved Navigation registration unchanged.
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) remains the
+subsequent CLI saved-inspection adoption. The full target contract follows.
+
 This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
-not an implemented route. The CLI owns command admission, the one-shot landing
-choice, terminal output, and exit behavior. It consumes
+partially implemented as described above. The CLI owns command admission,
+the one-shot landing choice, terminal output, and exit behavior. It consumes
 [Workspace Definitions](design/workspace-definitions.md)' canonical codec and
 complete-restoration contracts; inspection operations retain their existing
 selection, query, execution and result contracts. Browser activation remains
@@ -342,6 +353,18 @@ acquire. Only the selected operation's admitted result terminals are available;
 an unsupported terminal is refused before realization when knowable.
 
 #### Landing and output
+
+Activation resolves one selected subject and its lens/view. The CLI prints
+that view using the inspection's ordinary default presentation: a Hierarchy,
+Table, or Document, unless a supported output option selects another format.
+Restoring multiple contexts supplies the inspection environment; it does not
+select one output subject per context.
+
+A Workspace landing selects the Workspace subject. Its currently admitted
+default is the inventory Table: Kind, Location, and State columns containing
+Package and registration entries across those contexts. Saved Package, Type,
+and Member subjects retain their own view's default presentation when their
+execution bindings are admitted.
 
 | Selected portable intent | CLI result |
 | --- | --- |
@@ -401,7 +424,7 @@ packets through `workspace`; obtain scenario packets through the ordinary
 inspection command's admitted `--share packet` projection. The packet is the
 complete emitted value, not a shortened `ey...` sample.
 
-Target walkthrough (the two root activation commands remain proposed):
+Target walkthrough (saved Type execution remains staged under #4647):
 
 ```bash
 environment=$(dotnet-inspect workspace --register-ecosystem runtime)
@@ -429,8 +452,11 @@ Member cases with a different focused tab and all-context membership. Gate
 Workspace-only zero/one/multiple-Package inventory, row selection and Count;
 preserve non-packet routing, option-value ownership, help and local policy.
 Recognized invalid, unsupported and limit failures must not trigger fallback
-acquisition or publish partial results. Gates for these targets do not exist
-yet; these are adoption requirements, not current validation claims.
+acquisition or publish partial results. `WorkspacePacketActivationTests` gates
+the admitted inventory entrances,
+ordinary output/row parity and early refusals. Saved-inspection execution and
+its cross-host parity remain adoption requirements, not current validation
+claims.
 
 [#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
 production path: this focused CLI contract, owner-issued packet recognition,
