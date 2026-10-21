@@ -755,8 +755,8 @@ Library Body Analysis uses the same local-signature decoder during migration,
 but new producers do not use its lookup or aggregate result.
 
 The first adopter is the
-[unsafe-member census](unsafe-member-findings.md#execution) at Type scope. It
-has no host consumer yet, so this capability makes no production performance
+[unsafe-member census](unsafe-member-findings.md#execution) at Type and
+Library scope. It has no host consumer yet, so this capability makes no production performance
 claim.
 
 ### Method analysis support
@@ -943,9 +943,7 @@ reference assembly makes the census incomplete under the
 A producer reads them only at completion, through its completion view. They
 acquire no body, do not imply `ModuleLookup`, and do not widen breadth. A
 producer that did not declare one cannot obtain it. Semantics stay with their
-owners. This support only issues and receipts them, and the Library Body
-Analysis census reads the same two supports, so the paths cannot classify
-differently while both exist:
+owners. This support only issues and receipts them:
 
 - **Public MethodDef roots** come from `PublicMethodRootInventoryReader.Read`,
   with the image's own TypeDef and MethodDef row counts as limits. The result is the inventory, complete or
