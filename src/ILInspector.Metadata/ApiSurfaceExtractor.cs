@@ -1369,6 +1369,13 @@ public static partial class ApiSurfaceExtractor
                             reader,
                             typeDefHandle)
                         : null,
+                EnclosingTypesOrdinary =
+                    apiAxis || scope == ApiSurfaceExtractionScope.IncludeAll
+                        ? AreEnclosingTypesOrdinary(
+                            reader,
+                            typeDefHandle,
+                            observeDecodeWork)
+                        : null,
                 IsHidden = typeIsHidden,
                 IsObsolete = typeIsObsolete,
                 ObsoleteMessage = typeObsoleteMessage,

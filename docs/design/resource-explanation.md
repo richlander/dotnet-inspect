@@ -229,9 +229,12 @@ Status: **partially implemented**. The design slice is
 [#10312](https://github.com/richlander/dotnet-inspect/issues/10312). Shared
 root projection, declaration validation, and the reachability report are
 implemented, with Schema Query as the first adopter
-([#10316](https://github.com/richlander/dotnet-inspect/issues/10316)). The
-CLI composes its root over its complete catalog and withholds it, because
-the families of the remaining adopters are not yet reachable. Three parts
+([#10316](https://github.com/richlander/dotnet-inspect/issues/10316)) and
+Inspection Capability Composition as the second
+([#10317](https://github.com/richlander/dotnet-inspect/issues/10317)). The
+CLI composes its root over its complete catalog and withholds it, because the
+value vocabularies are not yet reachable
+([#10318](https://github.com/richlander/dotnet-inspect/issues/10318)). Three parts
 arrive later:
 
 - collection-level member hints;
@@ -313,7 +316,8 @@ the catalog is not published, when:
 The root schema declares one destination relationship per routable resource
 type. Each adopting owner adds the relationship for its destination type, so
 a destination of any other type is rejected rather than projected untyped.
-Schema Query's structural catalogs are the first routable type.
+The routable types are structural catalogs, inspection documents, and
+navigation collections.
 
 Reachability is separate: it decides whether the host may publish its root,
 not whether its catalog is valid. The root's reachability invariant holds when

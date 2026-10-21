@@ -298,7 +298,7 @@ export function createLibraryApiDiffRequest(
 ): BrowserLibraryApiDiffRequest {
   const query = effectiveInputQuery(input);
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     packageId: input.packageId,
     currentVersion: input.currentVersion,
     targetVersion: input.targetVersion,
@@ -524,6 +524,7 @@ function validateEndpoint(
     "Public",
     "IncludeAll",
     "PublicWithNonPublicTypes",
+    "ApiAxis",
   ]);
   if (typeof endpoint.isComplete !== "boolean")
     throw new Error(`${description}.isComplete must be a boolean.`);
@@ -538,6 +539,8 @@ function validateTypeIdentity(value: unknown, description: string): void {
   requireString(identity.identifier, `${description}.identifier`);
   requireString(identity.namespace, `${description}.namespace`);
   requireString(identity.display, `${description}.display`);
+  if (typeof identity.isObsolete !== "boolean")
+    throw new Error(`${description}.isObsolete must be a boolean.`);
   if (!Array.isArray(identity.segments)
     || !identity.segments.every(segment => typeof segment === "string")) {
     throw new Error(`${description}.segments must be a string array.`);
@@ -577,6 +580,17 @@ const changeKinds = [
   "MemberObsoleteChanged",
 ] as const;
 
+// Presentation-owned row states, derived from the change kind and the sides'
+// structured status (docs/design/library-api-diff-presentation.md).
+const changeStates = [
+  "Changed",
+  "Added",
+  "Removed",
+  "Hidden",
+  "Unhidden",
+  "Obsoleted",
+] as const;
+
 function validateChanges(value: unknown, description: string): void {
   if (!Array.isArray(value))
     throw new Error(`${description} must be an array.`);
@@ -593,6 +607,7 @@ function validateChanges(value: unknown, description: string): void {
       "Attribute",
       "Status",
     ]);
+    requireEnum(change.state, `${description}[${index}].state`, changeStates);
     requireString(change.message, `${description}[${index}].message`);
     requireNullableString(
       change.oldValue,
@@ -621,6 +636,8 @@ function validateMemberIdentity(
   ]) {
     requireString(identity[property], `${description}.${property}`);
   }
+  if (typeof identity.isObsolete !== "boolean")
+    throw new Error(`${description}.isObsolete must be a boolean.`);
 }
 
 function validateMembers(
@@ -762,7 +779,8 @@ function sameMemberIdentity(
       && left.fingerprint === right.fingerprint
       && left.typeFullName === right.typeFullName
       && left.memberName === right.memberName
-      && left.display === right.display);
+      && left.display === right.display
+      && left.isObsolete === right.isObsolete);
 }
 
 function validateSucceeded(value: unknown): void {
@@ -792,6 +810,7 @@ function validateSucceeded(value: unknown): void {
     "additiveCount",
     "potentiallyBreakingCount",
     "nonBreakingCount",
+    "outsideOrdinaryRowCount",
   ]) {
     requireInteger(
       aggregate[property],
@@ -980,14 +999,14 @@ export function validateLibraryApiDiffResult(
   input: LibraryApiDiffOperationInput,
 ): asserts result is BrowserLibraryApiDiffResult {
   const record = requireRecord(result, "Library API Diff result");
-  if (record.schemaVersion !== 3)
+  if (record.schemaVersion !== 4)
     throw new Error("Unsupported Library API Diff result schema.");
   const request = requireRecord(
     record.request,
     "Library API Diff result request",
   );
   const query = effectiveInputQuery(input);
-  if (request.schemaVersion !== 3
+  if (request.schemaVersion !== 4
     || request.packageId !== input.packageId
     || request.currentVersion !== input.currentVersion
     || request.targetVersion !== input.targetVersion
@@ -1474,6 +1493,46 @@ export interface LibraryApiDiffRenderOptions {
   readonly memberDiffSection?: string;
 }
 
+// A status row names the row's state: a Type or Member that changed only in
+// place shows Hidden, Unhidden, or Obsoleted from its typed change state, and
+// an added or removed one keeps its topology state.
+const statusStates = ["Hidden", "Unhidden", "Obsoleted"] as const;
+
+function statusState(
+  changes: readonly BrowserLibraryApiDiffChange[],
+): string | null {
+  for (const state of statusStates) {
+    if (changes.some(change => change.state === state)) return state;
+  }
+  return null;
+}
+
+function typeStateLabel(type: BrowserLibraryApiDiffType): string {
+  return type.state === "Diff"
+    ? statusState(type.changes) ?? type.state
+    : String(type.state);
+}
+
+function obsoleteMarker(
+  identity: { readonly isObsolete: boolean } | null,
+): string {
+  return identity?.isObsolete === true
+    ? '<span class="library-api-diff-obsolete">[Obsolete]</span>'
+    : "";
+}
+
+function outsideOrdinaryNote(
+  value: BrowserLibraryApiDiffSucceeded,
+  escapeHtml: (value: unknown) => string,
+): string {
+  const count = value.aggregate.outsideOrdinaryRowCount;
+  return count === 0
+    ? ""
+    : `<p class="library-api-diff-note library-api-diff-outside">${escapeHtml(
+      `${count.toLocaleString()} API change ${count === 1 ? "row is" : "rows are"} outside the ordinary population (protected or hidden declarations) and not shown; the complete comparison retains ${count === 1 ? "it" : "them"}.`,
+    )}</p>`;
+}
+
 function renderTypeRow(
   type: BrowserLibraryApiDiffType,
   escapeHtml: (value: unknown) => string,
@@ -1494,12 +1553,13 @@ function renderTypeRow(
       ? ""
       : "Not joined to a loaded Type";
   const copy = `<span class="library-api-diff-type-copy">
-      <strong>${escapeHtml(type.display)}</strong>
+      <strong>${escapeHtml(type.display)}</strong>${obsoleteMarker(type.after ?? type.before)}
       <span>${escapeHtml(typeMetrics(type))}</span>
       ${definition}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
-  const state = `<span class="library-api-diff-state library-api-diff-state-${String(type.state).toLowerCase()}">${escapeHtml(type.state)}</span>`;
+  const label = typeStateLabel(type);
+  const state = `<span class="library-api-diff-state library-api-diff-state-${label.toLowerCase()}">${escapeHtml(label)}</span>`;
   return `<li class="library-api-diff-type${activatable ? "" : " library-api-diff-type-inert"}" data-before-type-id="${beforeAttribute}" data-after-type-id="${afterAttribute}">${
     activatable
       ? `<button type="button" class="library-api-diff-row" data-compare-type-id="${afterAttribute}" aria-label="Open ${escapeHtml(type.display)} Compare">${state}${copy}</button>`
@@ -1571,7 +1631,7 @@ export function libraryApiDiffMemberStateLabel(
   member: BrowserLibraryApiDiffMember,
 ): string {
   switch (member.pairKind) {
-    case "Changed": return "Changed";
+    case "Changed": return statusState(member.changes) ?? "Changed";
     case "Added": return "Added";
     case "Removed": return "Removed";
     default: return String(member.pairKind);
@@ -1637,13 +1697,14 @@ function renderMemberRow(
     ? `<span class="library-api-diff-signature-change"><code>${escapeHtml(member.before.canonicalSignature)}</code> → <code>${escapeHtml(member.after.canonicalSignature)}</code></span>`
     : "";
   const copy = `<span class="library-api-diff-type-copy">
-      <strong>${escapeHtml(display)}</strong>
+      <strong>${escapeHtml(display)}</strong>${obsoleteMarker(member.after ?? member.before)}
       ${renderLibraryApiDiffChangeChips(member.changes, escapeHtml)}
       ${movedFrom}
       ${signatures}
       ${inertReason ? `<span class="library-api-diff-inert">${escapeHtml(inertReason)}</span>` : ""}
     </span>`;
-  const state = `<span class="library-api-diff-state library-api-diff-state-${String(member.pairKind).toLowerCase()}">${escapeHtml(libraryApiDiffMemberStateLabel(member))}</span>`;
+  const memberLabel = libraryApiDiffMemberStateLabel(member);
+  const state = `<span class="library-api-diff-state library-api-diff-state-${memberLabel.toLowerCase()}">${escapeHtml(memberLabel)}</span>`;
   // The counterpart action is a sibling of the inert row, not a child of it,
   // so the row's disabled state never disables the one live control.
   return `<li class="library-api-diff-member${activatable ? "" : " library-api-diff-member-inert"}" data-member-fingerprint="${attributeText(fingerprint, escapeHtml)}" data-member-before-fingerprint="${attributeText(member.before?.fingerprint ?? "", escapeHtml)}">${
@@ -1960,14 +2021,24 @@ function renderLibrarySubject(
     compactCount(aggregate.potentiallyBreakingCount, "potentially breaking"),
     compactCount(aggregate.nonBreakingCount, "non-breaking"),
   ].filter(Boolean);
+  const outside = outsideOrdinaryNote(value, escapeHtml);
   if (value.types.length === 0) {
+    // Rows outside the ordinary population may still differ, so the empty
+    // state claims no change only when none was left out.
+    const leftOut = aggregate.outsideOrdinaryRowCount > 0;
     return {
-      status: options.resultSummaryInDataBar ? "" : "Comparison complete. No changed Types.",
-      content: renderCompareEmpty(
-        "No public API changes",
-        "The selected Library is unchanged between these versions.",
+      status: options.resultSummaryInDataBar
+        ? ""
+        : leftOut
+          ? "Comparison complete. No changed Types in the ordinary API."
+          : "Comparison complete. No changed Types.",
+      content: `${renderCompareEmpty(
+        leftOut ? "No changes in the ordinary API" : "No public API changes",
+        leftOut
+          ? "The selected Library has no ordinary API changes between these versions."
+          : "The selected Library is unchanged between these versions.",
         escapeHtml,
-      ),
+      )}${outside}`,
     };
   }
   return {
@@ -1977,7 +2048,7 @@ function renderLibrarySubject(
       : `<div class="library-api-diff-metrics">${metrics.map(metric =>
         `<span>${escapeHtml(metric)}</span>`).join("")}</div>`}
       <ol class="library-api-diff-types" aria-label="Changed Types">${value.types.map(type =>
-        renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>`,
+        renderTypeRow(type, escapeHtml, options.activatableTypes)).join("")}</ol>${outside}`,
   };
 }
 

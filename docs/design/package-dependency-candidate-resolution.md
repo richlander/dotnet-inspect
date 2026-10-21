@@ -285,10 +285,12 @@ and candidate correspondence.
 `IPackageSourceAuthorization` and caller-owned `IPackageSourceClient` values.
 It is directly usable by Browser/Wasm with credential-free clients and by any
 other host whose source authorization is already explicit.
-`DesktopPackageDependencyCandidateSource` instead binds the same interface to
+The former `DesktopPackageDependencyCandidateSource` bound that interface to
 `DesktopPackageSourceComposition`, source options, credential-provider-aware
-clients, and optional logging. Neither host implements range selection,
-authority adoption, discovery completeness, or candidate correspondence.
+clients, and optional logging. It was removed after Workspace, its final
+production consumer, adopted the explicit authorization and transferred
+operation overload. Hosts do not implement range selection, authority
+adoption, discovery completeness, or candidate correspondence.
 
 `PackageDependencyTraversalCandidateAdapter` does not retain either
 compatibility source. It binds explicit `IPackageSourceAuthorization` to the

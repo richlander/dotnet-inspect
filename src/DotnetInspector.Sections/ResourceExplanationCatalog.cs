@@ -1060,10 +1060,7 @@ public sealed partial class ResourceExplanationCatalog
         }
 
         var collectionPath = new ResourcePath(AnalysesCollectionSegment);
-        ExplanationResourceKey collectionKey =
-            ResourceExplanationVocabulary.Key(
-                ResourceExplanationVocabulary.NavigationCollectionType,
-                Pack("analysis-collection"));
+        ExplanationResourceKey collectionKey = AnalysesCollectionKey;
         var analysisKeys = catalog.Analyses.ToDictionary(
             static registration => registration,
             registration => ResourceExplanationVocabulary.Key(
