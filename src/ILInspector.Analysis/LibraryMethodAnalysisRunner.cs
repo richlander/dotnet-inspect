@@ -248,6 +248,7 @@ internal sealed class LibraryMethodAnalysisResult
     public MethodBodyImplementationMetrics? ImplementationProfile;
     public AnalysisDiagnostic? Diagnostic;
     public MethodIdentity? DeclaredSource;
+    public bool DeclaredSourceSuppressesOpportunities;
     public MethodBodyAnalysisContext? ResourceOccurrenceContext;
 }
 
@@ -936,6 +937,7 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                         : DeclaredOwnerResolution.Resolved;
                 bool needsUltimateResolution =
                     includeOpportunities
+                    || requiresDeclaredOwner
                     || declaredMethod is not null
                         && CompilerGeneratedNames
                             .IsLocalFunctionOrLambda(
@@ -959,6 +961,12 @@ internal sealed partial class LibraryMethodAnalysisRunner(
                 {
                     result.DeclaredMethod = ultimateOwner;
                     result.DeclaredSource = ultimateOwner;
+                    result.DeclaredSourceSuppressesOpportunities =
+                        ultimateOwnerEvidence
+                            ?.SuppressesOpportunities
+                        ?? immediateOwnerEvidence
+                            ?.SuppressesOpportunities
+                        ?? false;
                 }
                 else if (ownerResolution
                     is DeclaredOwnerResolution.Unresolved
@@ -1188,30 +1196,26 @@ internal sealed partial class LibraryMethodAnalysisRunner(
             }
             MethodAllocationFacts allocationFacts;
             ILibraryMethodAnalysisResolver methodAnalysisResolver;
-            using (LibraryBodyAnalysisStageRecorder.StageAttempt?
-                allocationStage = StartStage(
-                    LibraryBodyAnalysisStage.AllocationAnalysis))
+            methodAnalysisResolver =
+                _infrastructure.CreateMethodAnalysisResolver(
+                    scope,
+                    caller,
+                    methodInstructions);
+            // MethodEvidence still uses allocation's context indexes for call
+            // multiplicity, but allocation discovery and escape analysis run
+            // only for an allocation-owning request.
+            allocationFacts =
+                MethodAllocationFacts.Create(context);
+            if (includeAllocations)
             {
-                methodAnalysisResolver =
-                    _infrastructure.CreateMethodAnalysisResolver(
-                        scope,
-                        caller,
-                        methodInstructions);
-                // Build allocation's Layer-1 indexes before other topic
-                // producers, then keep every result and query bound to this
-                // exact context.
-                allocationFacts =
-                    MethodAllocationFacts.Create(context);
-                // Discover and classify allocation occurrences once.
-                // Performance Triage consumes the allocation owner's
-                // lifetime verdict rather than running a parallel escape
-                // analysis.
-                if (includeAllocations)
-                    allocationFacts.Collect(methodAnalysisResolver);
-                result.Allocations =
-                    allocationFacts.ClassifiedOccurrences;
+                using LibraryBodyAnalysisStageRecorder.StageAttempt?
+                    allocationStage = StartStage(
+                        LibraryBodyAnalysisStage.AllocationAnalysis);
+                allocationFacts.Collect(methodAnalysisResolver);
                 allocationStage?.Complete();
             }
+            result.Allocations =
+                allocationFacts.ClassifiedOccurrences;
             bool hasUnsafeLocals;
             using (LibraryBodyAnalysisStageRecorder.StageAttempt?
                 safetyStage = StartStage(

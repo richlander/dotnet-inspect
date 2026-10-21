@@ -219,7 +219,9 @@ public sealed class MethodDefinitionExecution
             referenceBindingDeclared |= state.HasReferenceBindingLayer;
             memorySafetyDeclared |= state.HasMemorySafetyLayer;
             callTargetsDeclared |= state.HasCallTargetLayer;
-            methodCallsDeclared |= state.HasCallsLayer;
+            methodCallsDeclared |=
+                state.HasCallsLayer
+                || state.HasLocalSignatureLayer;
             semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
             methodAnalysisDeclared |= state.HasMethodAnalysisLayer;
         }
@@ -241,7 +243,11 @@ public sealed class MethodDefinitionExecution
                 : null;
         execution._methodAnalysis =
             methodAnalysisDeclared
-                ? new MethodAnalysisSupport(sourceName, reader, peReader)
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    execution._memorySafety)
                 : null;
         if (referenceBindingDeclared && referenceBinding is null)
         {
@@ -588,7 +594,9 @@ public sealed class MethodDefinitionExecution
                 : null;
         MethodCallMetadataSupport? methodCalls =
             lanes.Any(static lane => lane._states.Any(
-                static state => state.HasCallsLayer))
+                static state =>
+                    state.HasCallsLayer
+                    || state.HasLocalSignatureLayer))
                 ? new MethodCallMetadataSupport(reader)
                 : null;
         MethodSemanticIdentitySupport? semanticIdentity =
@@ -599,7 +607,11 @@ public sealed class MethodDefinitionExecution
         MethodAnalysisSupport? methodAnalysis =
             lanes.Any(static lane => lane._states.Any(
                 static state => state.HasMethodAnalysisLayer))
-                ? new MethodAnalysisSupport(sourceName, reader, peReader)
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    memorySafety)
                 : null;
         try
         {
@@ -628,7 +640,9 @@ public sealed class MethodDefinitionExecution
                     lane._callTargets = callTargets;
                 }
                 if (lane._states.Any(
-                        static state => state.HasCallsLayer))
+                        static state =>
+                            state.HasCallsLayer
+                            || state.HasLocalSignatureLayer))
                 {
                     lane._methodCalls = methodCalls;
                 }
@@ -2159,6 +2173,13 @@ public sealed class MethodDefinitionExecution
                     state.CallsUses));
             }
 
+            if (state.HasLocalSignatureLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.LocalSignature),
+                    state.LocalSignatureUses));
+            }
+
             if (state.HasMethodAnalysisLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
@@ -2360,6 +2381,9 @@ public sealed class MethodDefinitionExecution
         public bool HasCallsLayer { get; } =
             (layers & MethodDefinitionLayers.Calls) != 0;
 
+        public bool HasLocalSignatureLayer { get; } =
+            (layers & MethodDefinitionLayers.LocalSignature) != 0;
+
         public bool HasMethodAnalysisLayer { get; } =
             (layers & MethodDefinitionLayers.MethodAnalysis) != 0;
 
@@ -2423,6 +2447,11 @@ public sealed class MethodDefinitionExecution
         public int CallsUses;
 
         public int LastCallsUnit;
+
+        /// <summary>Units whose local-signature support was read.</summary>
+        public int LocalSignatureUses;
+
+        public int LastLocalSignatureUnit;
 
         /// <summary>Units in which method-analysis support was queried.</summary>
         public int MethodAnalysisUses;

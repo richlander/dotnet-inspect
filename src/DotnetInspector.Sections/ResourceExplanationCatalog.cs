@@ -9,7 +9,7 @@ using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
 
-public sealed class ResourceExplanationCatalog
+public sealed partial class ResourceExplanationCatalog
 {
     private readonly ImmutableArray<ExplanationSchema> _schemas;
     private readonly ImmutableArray<CatalogResource> _catalogResources;

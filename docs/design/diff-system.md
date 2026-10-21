@@ -459,6 +459,12 @@ The two execution modes:
 | **Paired steps** | For each step, the operation holds both cells open and runs each pairwise producer on the step's two images. | Fast Diff, API diff, implementation diff, string literals, source pairs |
 | **Per-point census** | The operation evaluates each point on its own, then compares adjacent results. Each point resolves the focus within that version, with History's absent and ambiguous outcomes. | Today's Diff History Finding producers |
 
+The modes are how a step reads its images. How far it reads is the other
+axis, **Exists** to the first difference or **Exhaustive** to the end, which
+[Finding census](finding-census.md) owns per row over one streamed census, so
+that a paired step and a per-point census decide one equality where both
+decide, with a per-point `Failed` read as `Indeterminate`.
+
 An exact pair is a request with two points and one step. Diff History's
 existing methodology, including adaptive bisection, surveys and next actions,
 becomes the per-point mode. Library-scope History over Fast Diff is the paired

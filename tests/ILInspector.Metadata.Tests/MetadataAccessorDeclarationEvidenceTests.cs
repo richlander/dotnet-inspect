@@ -252,14 +252,14 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         Assert.Equal(
             "get_Property",
             propertyAccessors[MetadataAccessorSemanticsRole.Getter]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Empty(
             propertyAccessors[MetadataAccessorSemanticsRole.Getter]
                 .Signature.ParameterTypes);
         Assert.Equal(
             "set_Property",
             propertyAccessors[MetadataAccessorSemanticsRole.Setter]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Single(
             propertyAccessors[MetadataAccessorSemanticsRole.Setter]
                 .Signature.ParameterTypes);
@@ -272,11 +272,11 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         Assert.Equal(
             "add_CustomEvent",
             eventAccessors[MetadataAccessorSemanticsRole.AddOn]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Equal(
             "remove_CustomEvent",
             eventAccessors[MetadataAccessorSemanticsRole.RemoveOn]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.All(
             propertyAccessors.Values.Concat(eventAccessors.Values),
             accessor =>

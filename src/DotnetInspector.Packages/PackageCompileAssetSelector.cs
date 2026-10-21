@@ -751,10 +751,22 @@ public static class PackageCompileAssetSelector
             };
         }
 
-        PackageCompileAsset defaultAsset = selected.FirstOrDefault(
-            asset => asset.AssemblySimpleName
-                .Equals(packageId, StringComparison.OrdinalIgnoreCase))
-            ?? selected[0];
+        PackageLibraryIdentity[] identities =
+        [
+            .. selected.Select(
+                static asset => new PackageLibraryIdentity(
+                    asset.Path,
+                    asset.AssemblySimpleName)),
+        ];
+        var first = (FirstPackageLibrarySelection.Selected)
+            PackageLibraryOrder.SelectFirst(identities, [], packageId);
+        PackageCompileAsset defaultAsset = selected.First(
+            asset => asset.Path.Equals(
+                    first.Library.AssetPath,
+                    StringComparison.Ordinal)
+                && asset.AssemblySimpleName.Equals(
+                    first.Library.AssemblySimpleName,
+                    StringComparison.Ordinal));
         return new PackageCompileAssetSelection(
             PackageCompileAssetSelectionStatus.Selected,
             selectedFramework,

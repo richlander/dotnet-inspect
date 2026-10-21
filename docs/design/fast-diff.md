@@ -24,7 +24,10 @@ changed axis at its first difference.
 A second definition of "changed" drifts from the complete diffs and points to
 views that show nothing. Fast Diff therefore has no equality of its own: each
 axis answers with its complete diff's equality, read as **Exists**, and only
-the cost of reaching the answer differs.
+the cost of reaching the answer differs. The reading of one row to its first
+difference, and its agreement with the exhaustive reading the complete diffs
+make, is owned by [Finding census](finding-census.md); this document owns the
+axes, the partition, and the folds above the row.
 
 ## Contract
 

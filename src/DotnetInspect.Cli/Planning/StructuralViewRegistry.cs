@@ -860,7 +860,41 @@ public static class StructuralViewRegistry
     public static StructuralSchemaProjection Project(
         StructuralRoute route,
         StructuralOutputShape outputShape =
-            StructuralOutputShape.Document)
+            StructuralOutputShape.Document) =>
+        Project(route, outputShape, [route]);
+
+    /// <summary>
+    /// Projects one catalog across every route that addresses it: a section
+    /// stays when at least one route can supply its inputs, so the catalog
+    /// describes each section once whichever command view selects it. The
+    /// first route supplies the projection's route.
+    /// </summary>
+    public static StructuralSchemaProjection ProjectCatalog(
+        IReadOnlyList<StructuralRoute> routes)
+    {
+        if (routes is not [StructuralRoute first, ..])
+        {
+            throw new ArgumentException(
+                "A catalog projection needs at least one route.",
+                nameof(routes));
+        }
+        if (routes.Any(route => route.Catalog != first.Catalog))
+        {
+            throw new ArgumentException(
+                "A catalog projection's routes share one catalog.",
+                nameof(routes));
+        }
+
+        return Project(
+            first,
+            StructuralOutputShape.Document,
+            routes);
+    }
+
+    private static StructuralSchemaProjection Project(
+        StructuralRoute route,
+        StructuralOutputShape outputShape,
+        IReadOnlyList<StructuralRoute> addressingRoutes)
     {
         DocumentSchema schema;
         IReadOnlyList<string> selectableSections;
@@ -1030,16 +1064,19 @@ public static class StructuralViewRegistry
 
         ImmutableDictionary<string, StructuralSectionInput> inputs =
             CreateSectionInputs(route, schema);
-        StructuralSectionInput availableInputs =
-            GetAvailableInputs(route.View.ParserCapabilities);
-        if (inputs.Any(pair =>
-                (pair.Value & ~availableInputs) != 0))
+        StructuralSectionInput[] availableInputs =
+        [
+            .. addressingRoutes.Select(static addressing =>
+                GetAvailableInputs(addressing.View.ParserCapabilities)),
+        ];
+        bool IsAddressable(StructuralSectionInput input) =>
+            availableInputs.Any(available => (input & ~available) == 0);
+        if (inputs.Any(pair => !IsAddressable(pair.Value)))
         {
             schema = FilterSchema(
                 schema,
                 inputs
-                    .Where(pair =>
-                        (pair.Value & ~availableInputs) == 0)
+                    .Where(pair => IsAddressable(pair.Value))
                     .Select(pair => pair.Key)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase));
             inputs = inputs
@@ -1089,6 +1126,29 @@ public static class StructuralViewRegistry
             outputCapabilities,
             sectionShapes,
             sectionDescriptions);
+    }
+
+    /// <summary>
+    /// The sections a projection's view selects on its own. A coordinate view
+    /// requires a section that consumes its coordinate, so it selects only
+    /// those; the rest of its schema is selectable only alongside one.
+    /// </summary>
+    public static IReadOnlySet<string> StandaloneSelectableSections(
+        StructuralSchemaProjection projection)
+    {
+        const StructuralSectionInput coordinateInputs =
+            StructuralSectionInput.IlCoordinate
+            | StructuralSectionInput.HeapCoordinate;
+        bool coordinateView =
+            projection.Route.View.ParserCapabilities.HasFlag(
+                StructuralParserCapabilities.Coordinates);
+        return projection.Schema.SectionNames
+            .Where(section => !coordinateView
+                || projection.SectionInputs.TryGetValue(
+                    section,
+                    out StructuralSectionInput input)
+                && (input & coordinateInputs) != 0)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>

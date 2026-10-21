@@ -61,6 +61,17 @@ public enum IlBodyDiffNormalization
     /// two-sided.
     /// </remarks>
     NormalizeCompilerGeneratedOrdinals = 1 << 4,
+
+    /// <summary>
+    /// Give every type and member reference, including those defined by either
+    /// compared assembly, one shared <c>&lt;assembly&gt;</c> scope, so operands
+    /// compare by namespace, name, and signature alone, without their defining or
+    /// referenced assembly or its version. Subsumes
+    /// <see cref="NormalizeCurrentAssemblyScope"/> and
+    /// <see cref="NormalizePlatformAssemblyScope"/>. String literals are not
+    /// rewritten. The mechanic Fast Diff's Body policy composes (#10205).
+    /// </summary>
+    NormalizeAssemblyScope = 1 << 5,
 }
 
 public enum IlBodyDiffOutcome
@@ -146,7 +157,8 @@ public static partial class IlBodyDiff
         IlBodyDiffNormalization.NormalizeVariableLayout
         | IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
         | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
-        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals;
+        | IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals
+        | IlBodyDiffNormalization.NormalizeAssemblyScope;
 
     public static IlBodyDiffResult Compare(MethodInstructions oldBody, MethodInstructions newBody)
         => Compare(oldBody, newBody, oldResolver: null, newResolver: null, IlBodyDiffNormalization.None);

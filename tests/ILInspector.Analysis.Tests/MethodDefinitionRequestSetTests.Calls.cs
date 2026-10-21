@@ -16,6 +16,55 @@ public sealed partial class MethodDefinitionRequestSetTests
     public static TheoryData<string> CallsParitySubjects() =>
         CallTargetParitySubjects();
 
+    [Fact]
+    public void MethodCallSite_PreservesPositionalCompatibility()
+    {
+        MemberRef callee = MemberRef.Unsupported("test");
+        MethodCallTarget target =
+            new MethodCallTarget.Unresolved(
+                DirectCallTargetUnresolvedReason.Unmatched);
+        var compatible = new MethodCallSite(
+            1,
+            2,
+            3,
+            CallKind.Call,
+            callee,
+            target);
+        (
+            int offset,
+            int returnAddress,
+            int operand,
+            CallKind kind,
+            MemberRef deconstructedCallee,
+            MethodCallTarget deconstructedTarget) = compatible;
+
+        Assert.Equal(1, offset);
+        Assert.Equal(2, returnAddress);
+        Assert.Equal(3, operand);
+        Assert.Equal(3, compatible.DefinitionToken);
+        Assert.Equal(CallKind.Call, kind);
+        Assert.Same(callee, deconstructedCallee);
+        Assert.Same(target, deconstructedTarget);
+
+        var complete = new MethodCallSite(
+            1,
+            2,
+            3,
+            4,
+            CallKind.Call,
+            callee,
+            target);
+        (
+            _,
+            _,
+            _,
+            int definition,
+            _,
+            _,
+            _) = complete;
+        Assert.Equal(4, definition);
+    }
+
     [Theory]
     [MemberData(nameof(CallsParitySubjects))]
     public void MethodQuerySource_CallsMatchLibraryBodyAnalysis(

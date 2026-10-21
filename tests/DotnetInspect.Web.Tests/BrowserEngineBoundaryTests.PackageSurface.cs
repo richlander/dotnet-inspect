@@ -1936,6 +1936,7 @@ public sealed partial class BrowserEngineBoundaryTests
             "DotnetInspect.Web.Interop.Package",
             library.AssemblyName);
         Assert.Equal("ToolEntryPoint", library.Role);
+        Assert.Equal(asset, load.DefaultLibraryId);
         Assert.Empty(children.RuntimeIdentifierPackages);
         Assert.Null(load.Surface);
 
@@ -1999,7 +2000,63 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal($"compile:{asset}", library.AssetId);
         Assert.Equal(asset, library.AssetPath);
         Assert.Equal("Invalid.Library.dll", library.AssemblyName);
+        Assert.Equal($"compile:{asset}", load.DefaultLibraryId);
         Assert.Null(load.Surface);
+    }
+
+    [Fact]
+    public async Task QueryPackage_FirstLibraryFailureDoesNotSelectSiblingSurface()
+    {
+        const string packageId = "Package.First.Library";
+        const string firstAsset =
+            "lib/net11.0/Package.First.Library.dll";
+        const string siblingAsset = "lib/net11.0/Sibling.dll";
+        byte[] package = PackageEntries(
+            ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                """
+                <?xml version="1.0" encoding="utf-8"?>
+                <package>
+                  <metadata>
+                    <id>Package.First.Library</id>
+                    <version>1.0.0</version>
+                  </metadata>
+                </package>
+                """)),
+            (firstAsset, [0x00, 0x01, 0x02, 0x03]),
+            (siblingAsset,
+                File.ReadAllBytes(
+                    typeof(DotnetInspect.Web.Interop.Package
+                        .PackageExports).Assembly.Location)));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                package,
+                fromCache: false));
+
+        BrowserPackageLoadResult load =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package
+                        .PackageExports.QueryPackage(
+                            packageId,
+                            "1.0.0",
+                            "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        string firstLibraryId = $"compile:{firstAsset}";
+        BrowserPackageSurface surface =
+            Assert.IsType<BrowserPackageSurface>(load.Surface);
+        Assert.Equal(firstLibraryId, load.DefaultLibraryId);
+        Assert.Equal(firstLibraryId, surface.DefaultAssemblyId);
+        Assert.DoesNotContain(
+            surface.Assemblies,
+            assembly => assembly.Id == firstLibraryId);
+        Assert.Contains(
+            surface.Assemblies,
+            assembly => assembly.Id == $"compile:{siblingAsset}");
+        Assert.NotEmpty(surface.InspectionErrors);
     }
 
     [Fact]

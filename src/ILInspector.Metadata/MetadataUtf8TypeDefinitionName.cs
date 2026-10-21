@@ -13,7 +13,7 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// One metadata Name range whose UTF-8 meaning is established by the Metadata grammar.
 /// </summary>
-public readonly struct MetadataUtf8Name
+public readonly struct MetadataUtf8Name : IEquatable<MetadataUtf8Name>
 {
     private readonly OpaqueByteRange _range;
 
@@ -32,6 +32,20 @@ public readonly struct MetadataUtf8Name
 
     /// <summary>The number of exact metadata Name bytes.</summary>
     public int Length => _range.Length;
+
+    /// <summary>Compares exact Name bytes.</summary>
+    public bool Equals(MetadataUtf8Name other) => _range.Equals(other._range);
+
+    public override bool Equals(object? obj) =>
+        obj is MetadataUtf8Name other && Equals(other);
+
+    public override int GetHashCode() => _range.GetHashCode();
+
+    public static bool operator ==(MetadataUtf8Name left, MetadataUtf8Name right) =>
+        left.Equals(right);
+
+    public static bool operator !=(MetadataUtf8Name left, MetadataUtf8Name right) =>
+        !left.Equals(right);
 }
 
 /// <summary>

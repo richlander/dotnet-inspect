@@ -378,7 +378,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     [InlineData("metadata-image", "table", "scalar")]
     [InlineData("metadata-type-def", "table", "inventory")]
     [InlineData("reference-hierarchy", "hierarchy", "inventory")]
-    // Coordinate sections resolve through the Library address route.
+    // Coordinate sections, which only the Library address view selects.
     [InlineData("context-member", "table", "inventory")]
     [InlineData("context-exception", "table", "inventory")]
     [InlineData("metadata-heap", "table", "inventory")]
@@ -912,6 +912,64 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Theory]
+    [InlineData("context member", "library/sections/context-member")]
+    [InlineData("metadata heap", "library/sections/metadata-heap")]
+    public async Task CoordinateSection_SearchesTheLibraryCatalogThroughTheAddressBinding(
+        string text,
+        string path)
+    {
+        // The Library address view's coordinate sections join the one
+        // Library catalog, and search binds them only to the view that can
+        // select them.
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement result = document.RootElement
+            .GetProperty("results")
+            .EnumerateArray()
+            .First();
+        Assert.Equal(path, result.GetProperty("resource_path").GetString());
+        Assert.Equal(
+            "library",
+            result.GetProperty("structural_identity")
+                .GetProperty("catalog")
+                .GetString());
+        JsonElement binding =
+            Assert.Single(
+                result.GetProperty("production_bindings")
+                    .EnumerateArray());
+        Assert.Equal(
+            "library address -S",
+            binding.GetProperty("gesture").GetString());
+        Assert.Equal(
+            "dotnet-inspect.cli/library-address-sections",
+            binding.GetProperty("identity").GetString());
+    }
+
+    [Fact]
+    public async Task LibraryCatalog_ReachesTheCoordinateSections()
+    {
+        var catalog = await RunAsync("explain", "library");
+
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.Contains("library/categories/context", catalog.Output);
+
+        var context = await RunAsync("explain", "library/categories/context");
+
+        Assert.Equal(0, context.ExitCode);
+        Assert.Contains("library/sections/context-member", context.Output);
+
+        var metadata = await RunAsync(
+            "explain",
+            "library/categories/metadata");
+
+        Assert.Equal(0, metadata.ExitCode);
+        Assert.Contains("library/sections/metadata-heap", metadata.Output);
+    }
+
+    [Theory]
     [InlineData("unsafe", "library/sections/unsafe-members")]
     [InlineData("metrics", "library/sections/library-metrics")]
     [InlineData("leverage", "library/sections/top-leverage")]
@@ -993,6 +1051,60 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             result.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());
+    }
+
+    // The CLI's root gate: Schema Query's declarations reach every structural
+    // catalog resource, and the root stays withheld while the families whose
+    // owners have not adopted routing declarations remain unreachable.
+    [Fact]
+    public void ExplanationRoot_ReachesStructuralCatalogs_AndReportsFamiliesAwaitingAdoption()
+    {
+        ResourceExplanationRootComposition composition =
+            ResourceExplanationCommand.CreateRootComposition()!;
+
+        Assert.False(composition.IsPublishable);
+        Assert.Equal(
+            ["analyses", "package-files", "package-query", "vocabularies"],
+            composition.Unreachable
+                .Select(static path => path.Value.Split('/')[0])
+                .Distinct()
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["library", "member", "package", "type"],
+            Targets(composition.Catalog, "root/subject-kinds", "collection-routing-entry")
+                .Select(static path => path.Split('/')[^1])
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["library", "type"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/library",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            ["member-overload", "member-detail"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/member",
+                "routing-destination-catalog"));
+
+        static IEnumerable<string> Targets(
+            ResourceExplanationCatalog catalog,
+            string path,
+            string relationship)
+        {
+            var source = Assert.IsType<ResourcePathResolution.Resolved>(
+                catalog.Resolve(path));
+            var paths = catalog.Resources.ToDictionary(
+                static resource => resource.Key,
+                static resource => resource.Path!.Value);
+            return catalog.Relationships
+                .Where(candidate =>
+                    candidate.Source == source.Key
+                    && candidate.Relationship.Value == relationship)
+                .SelectMany(static candidate => candidate.Targets)
+                .Select(target => paths[target.Resource])
+                .ToArray();
+        }
     }
 
     // Search reads the structural projections without building their

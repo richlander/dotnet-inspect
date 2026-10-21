@@ -73,6 +73,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var scopeExcludedOpportunityTokens =
             new HashSet<int>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
+        var declaredSourceSuppressedMethodTokens =
+            new HashSet<int>();
         var implementationMetrics =
             ImmutableArray
                 .CreateBuilder<MethodImplementationMetricEvidence>();
@@ -274,7 +276,14 @@ internal sealed class LibraryBodyAnalysisAccumulator
             if (r.Diagnostic is not null)
                 diagnostics.Add(r.Diagnostic);
             if (r.DeclaredSource is { } declaredSource)
+            {
                 declaredSources[r.Token] = declaredSource;
+                if (r.DeclaredSourceSuppressesOpportunities)
+                {
+                    declaredSourceSuppressedMethodTokens.Add(
+                        r.Token);
+                }
+            }
         }
 
         var methodArray = methods.ToImmutable();
@@ -290,12 +299,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                             State: MemorySafetyRulesState.Updated,
                         })
                 : [];
-        UnsafeMemberCensus? unsafeMemberCensus =
-            _includeMethodEvidence
-                ? BuildUnsafeMemberCensus(
-                    results,
-                    unsafeMemberUses)
-                : null;
         bool fieldAccessCensusComplete =
             results.All(result =>
                 !result.RequiresCompleteFieldAccessCensus
@@ -343,6 +346,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 NonHeapNewObjOperandTokens:
                     nonHeapNewObjOperandTokens,
                 DeclaredSources: declaredSources,
+                DeclaredSourceSuppressedMethodTokens:
+                    declaredSourceSuppressedMethodTokens,
                 LocalThrows: localThrows.ToImmutable()),
             Safety: new(
                 Evidence: unsafeEvidence.ToImmutable(),
@@ -354,8 +359,7 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     expl,
                     unavailable),
                 Occurrences: unsafetyOccurrences,
-                MemberUses: unsafeMemberUses,
-                MemberCensus: unsafeMemberCensus),
+                MemberUses: unsafeMemberUses),
             Allocations: new(allocationOccurrences),
             Optimizations: new(
                 Opportunities: optimizationOpportunities.ToImmutable(),
@@ -367,60 +371,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 ExceptionTypeNames: _exceptionTypeNames),
             Diagnostics: diagnostics.ToImmutable());
     }
-
-    UnsafeMemberCensus BuildUnsafeMemberCensus(
-        IReadOnlyList<LibraryMethodAnalysisResult> results,
-        ImmutableArray<UnsafeMemberUse> memberUses)
-    {
-        var evidenceByToken = memberUses.ToDictionary(
-            static use => use.Method.MetadataToken,
-            static use => use.Evidence);
-        var bodies = new List<UnsafeMemberBodyFacts>(results.Count);
-        foreach (LibraryMethodAnalysisResult result in results)
-        {
-            bodies.Add(new UnsafeMemberBodyFacts(
-                result.Token,
-                result.HasCaller ? result.Caller : null,
-                result.InScope,
-                result.IsExtensionDeclarationSkeleton,
-                result.BodyAvailability,
-                AnalysisFailed: result.Diagnostic is not null,
-                FailureDetail: result.Diagnostic?.Message,
-                result.RequiresDeclaredOwner,
-                result.OwnerResolution,
-                result.OwnerResolutionFailed,
-                result.DeclaredMethod,
-                result.HasCaller
-                    && evidenceByToken.TryGetValue(
-                        result.Token,
-                        out ImmutableArray<UnsafeMemberUseEvidence> evidence)
-                    ? evidence
-                    : []));
-        }
-
-        return UnsafeMemberCensusBuilder.Build(
-            bodies,
-            hasFullMethodEvidenceScope: !_isScoped,
-            ClassifyReferenceAssembly(),
-            ReadPublicRoots());
-    }
-
-    // The same issued facts Method Query Source publishes to declaring
-    // producers, so the two census paths cannot classify differently.
-    ReferenceAssemblyState ClassifyReferenceAssembly() =>
-        new Planning.ReferenceAssemblyStatusSupport(_reader).Acquire(out _);
-
-    UnsafeMemberRootSet ReadPublicRoots() =>
-        new Planning.PublicMethodRootSupport(_reader).Acquire(out _) switch
-        {
-            Planning.PublicMethodRootsResult.Read read => new UnsafeMemberRootSet(
-                read.Inventory.Roots
-                    .Select(static root => root.Token)
-                    .ToHashSet(),
-                read.Inventory.IsComplete,
-                Failed: false),
-            _ => UnsafeMemberRootSet.Unavailable,
-        };
 
     static ImmutableArray<UnsafeMemberUse> BuildUnsafeMemberUses(
         IReadOnlyList<LibraryMethodAnalysisResult> results,

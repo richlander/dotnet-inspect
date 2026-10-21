@@ -159,11 +159,6 @@ export interface BrowserEcosystemPackageWorkspaceAdmissionResult {
   readonly message: string | null;
 }
 
-export interface BrowserExceptionSurface {
-  readonly type: string;
-  readonly description: string;
-}
-
 export interface BrowserHomeDemoCatalog {
   readonly demos: ReadonlyArray<BrowserHomeDemoCatalogEntry>;
 }
@@ -256,9 +251,6 @@ export interface BrowserMemberSurface {
   readonly returnType: string | null;
   readonly parameters: ReadonlyArray<BrowserParameterSurface>;
   readonly documentationId: string | null;
-  readonly summary: string | null;
-  readonly returns: string | null;
-  readonly exceptions: ReadonlyArray<BrowserExceptionSurface>;
   readonly stableSelector: string;
   readonly anchorDigest: string;
   readonly canonicalSignature: string;
@@ -305,7 +297,6 @@ export interface BrowserParameterSurface {
   readonly modifier: string | null;
   readonly hasDefault: boolean;
   readonly defaultValue: string | null;
-  readonly description: string | null;
 }
 
 export interface BrowserRetainedNavigationAction {
@@ -586,6 +577,13 @@ export interface BrowserRetainedWorkspacePackageInventory {
   readonly contextIndex: number;
   readonly consumerPackageSubjectId: string;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
+  readonly defaultLibrary: BrowserRetainedWorkspacePackageLibraryIdentity | null;
+}
+
+export interface BrowserRetainedWorkspacePackageLibraryIdentity {
+  readonly assetId: string;
+  readonly assetPath: string;
+  readonly assemblyName: string;
 }
 
 export interface BrowserRetainedWorkspacePackageSourceCredential {

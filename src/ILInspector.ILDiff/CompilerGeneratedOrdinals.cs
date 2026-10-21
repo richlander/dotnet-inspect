@@ -144,12 +144,13 @@ namespace ILInspector.ILDiff;
 /// <b>Scope equivalence follows the comparison.</b> A key's signature encodes every
 /// assembly-reference scope it mentions. Built through
 /// <see cref="Build(MetadataReader, MetadataReader, IlBodyDiffNormalization)"/>, those
-/// scopes are spelled by the same current- and platform-assembly rule the comparison
-/// applies to operands (<c>IlBodyDiff.AssemblyScopeToken</c>), so the key never separates
-/// two references the operand renders identically. Compile-back needs this: its recompile
-/// resolves platform types against the running framework, not the original's reference
-/// assemblies (#9586). References outside that rule keep their full identity, and a module
-/// reader keeps every identity exact on both paths. Gated by
+/// scopes are spelled by the same current-, platform-, and whole-assembly-scope rule the
+/// comparison applies to operands (<c>IlBodyDiff.AssemblyScopeToken</c>), so the key never
+/// separates two references the operand renders identically. Compile-back needs this: its
+/// recompile resolves platform types against the running framework, not the original's
+/// reference assemblies (#9586). References outside that rule keep their full identity,
+/// and under the current and platform mechanics a module reader keeps every identity
+/// exact on both paths. Gated by
 /// <c>PlatformScopeNormalization_FoldsAcrossReferenceVersions</c>,
 /// <c>NonPlatformReferenceVersion_StillDoesNotFold</c>,
 /// <c>CurrentScopeNormalization_FoldsAcrossSelfReferenceVersions</c>,
@@ -282,8 +283,9 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
     /// <summary>
     /// Builds the correspondence with keys that encode assembly-reference scopes under
-    /// the same <see cref="IlBodyDiffNormalization.NormalizeCurrentAssemblyScope"/> and
-    /// <see cref="IlBodyDiffNormalization.NormalizePlatformAssemblyScope"/> rule the
+    /// the same <see cref="IlBodyDiffNormalization.NormalizeCurrentAssemblyScope"/>,
+    /// <see cref="IlBodyDiffNormalization.NormalizePlatformAssemblyScope"/>, and
+    /// <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/> rule the
     /// comparison applies to operands. Other flags in <paramref name="normalization"/>
     /// are ignored.
     /// </summary>
@@ -315,7 +317,8 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         var scope = normalization
             & (IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-                | IlBodyDiffNormalization.NormalizePlatformAssemblyScope);
+                | IlBodyDiffNormalization.NormalizePlatformAssemblyScope
+                | IlBodyDiffNormalization.NormalizeAssemblyScope);
         var oldIndex = SideIndex.For(oldReader, scope);
         var newIndex = SideIndex.For(newReader, scope);
         if (oldIndex.IsEmpty || newIndex.IsEmpty)
@@ -745,10 +748,11 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
 
         public static SideIndex For(MetadataReader reader, IlBodyDiffNormalization scope)
         {
-            var slots = s_cache.GetValue(reader, static _ => new SideIndex?[4]);
+            var slots = s_cache.GetValue(reader, static _ => new SideIndex?[8]);
             int slot =
                 ((scope & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0 ? 1 : 0)
-                | ((scope & IlBodyDiffNormalization.NormalizePlatformAssemblyScope) != 0 ? 2 : 0);
+                | ((scope & IlBodyDiffNormalization.NormalizePlatformAssemblyScope) != 0 ? 2 : 0)
+                | ((scope & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0 ? 4 : 0);
             if (Volatile.Read(ref slots[slot]) is { } cached)
                 return cached;
             var created = Create(reader, scope);
@@ -893,10 +897,13 @@ public sealed class CompilerGeneratedOrdinalCorrespondence
                     reader,
                     reader.GetAssemblyDefinition().Name)
                 : null;
-            // Operand rendering keeps exact identities for a module reader, so the key
-            // does too: the canonicalizer exists only where the operand rule applies.
+            // Operand rendering keeps exact identities for a module reader under the
+            // current and platform mechanics, so the key does too: the canonicalizer
+            // exists only where the operand rule applies. The whole-scope mechanic needs
+            // no current name, so it applies to a module reader as well.
+            bool wholeScope = (scope & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0;
             Func<string, string?>? assemblyScope =
-                scope == IlBodyDiffNormalization.None || currentAssembly is null
+                scope == IlBodyDiffNormalization.None || (currentAssembly is null && !wholeScope)
                     ? null
                     : name => IlBodyDiff.AssemblyScopeToken(name, currentAssembly, scope);
             var structuralKeys =

@@ -8,7 +8,7 @@ import type {
   BrowserWorkspacePackageSourceRequirement,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
-  createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   createRuntimePackageModel,
   type AppPackage,
 } from "./package-acquisition.ts";
@@ -1143,7 +1143,8 @@ export async function loadRetainedWorkspaceModels(
     contextIndex: inventory.contextIndex,
     consumerPackageSubjectId: inventory.consumerPackageSubjectId,
     packageModel: workspacePackageModel(
-      await loadPackageSurface(client, posting, inventory)),
+      await loadPackageSurface(client, posting, inventory),
+      inventory),
   })));
   const platforms = await Promise.all(
     posting.platforms.map(async inventory => ({
@@ -1161,9 +1162,15 @@ export async function loadRetainedWorkspaceModels(
   return { packages, platforms };
 }
 
-function workspacePackageModel(surface: BrowserPackageSurface): AppPackage {
+function workspacePackageModel(
+  surface: BrowserPackageSurface,
+  inventory: BrowserRetainedWorkspacePackageInventory,
+): AppPackage {
+  const packageModel = createNuGetPackageModelWithDefaultLibrary(
+    surface,
+    inventory.defaultLibrary);
   return {
-    ...createNuGetPackageModel(surface),
+    ...packageModel,
     source: { kind: "unknown" },
     producerLabel: "NuGet",
   };

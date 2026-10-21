@@ -98,8 +98,7 @@ inspected unattributed body without evidence hides nothing. Display names and
 `CompilerGeneratedNames` grammar alone never establish an owner.
 
 On [Assembly Analysis Operation](#execution), synchronous iterators attribute
-like async methods; the current accumulator path still reports their bodies
-as unattributed limitations until it is deleted. The declared iterator
+like async methods. The declared iterator
 names its state machine through `IteratorStateMachineAttribute`; the
 authenticated resolution associates every method of that state-machine type,
 its `MoveNext` and helpers such as `<>m__Finally1`, with the iterator method.
@@ -234,23 +233,27 @@ no census consumer adopts that aggregate. It reads no Library Body Analysis
 plan, runner, lookup, or aggregate result, including the transitional module
 lookup that the method view exposes through that infrastructure; every
 module-wide input arrives through the capabilities below. The census rules it
-shares with the accumulator live in `UnsafeMemberUseRules` beside the fold.
+shares with the accumulator's legacy member-use rows live in
+`UnsafeMemberUseRules` beside the fold.
 The stateless metadata classifiers it shares, namely body availability, the
 extension-declaration shape, the nested compiler-generated-type check, and
 the recoverable-failure gate, still carry Library Body Analysis type names
 and move under
 [#9959](https://github.com/richlander/dotnet-inspect/issues/9959), as the
 [declared-source relation](method-query-source.md#declared-source-relation)
-records for its own classifiers. The accumulator path that builds the census
-today is deleted with that infrastructure, not kept beside the producer.
+records for its own classifiers. The Library Body Analysis accumulator no
+longer builds a census; it was deleted when Library scope moved, not kept
+beside the producer.
 
 The producer visits each physical body once and emits a detached per-body
 fact: availability, body roles, explicit-contract calls with their contract
 source, and the lowering exclusions. Its accumulator folds those facts into
 the census in `Complete` through the existing `UnsafeMemberCensusBuilder`
 fold, which already takes detached per-body facts, where attribution,
-exposure, and the image-level limitations are joined. It keeps no state across units outside the
-accumulator.
+exposure, and the image-level limitations are joined. Completion reads each
+body's declared-source outcome, because over all-definition breadth the
+relation settles only at source completion; both scopes read it there. It
+keeps no state across units outside the accumulator.
 
 Attribution of every generated-shaped visited body, whether it entered breadth
 directly or through expansion, comes from the declared-source relation, never
@@ -311,47 +314,48 @@ Each scope of the census moves once the rows it needs have landed. The CLI
 section (step 3) ships only after every row has landed, because shipping it
 earlier would land the census's first consumer on the retiring aggregate.
 
-Status: every row has landed. The first row's all-definition reverse
-lowering landed after the exact-type relation, so Type scope moved first. The
-Type-scope census runs on Assembly Analysis Operation:
+Status: every row has landed, and both scopes run on Assembly Analysis
+Operation. The first row's all-definition reverse lowering landed after the
+exact-type relation, so Type scope moved first:
 
 - `UnsafeMemberCensusProducer` declares Body, Calls, memory-safety contract,
   semantic identity, public-root, and reference-assembly support, and
-  `UnsafeMemberCensusAnalysis.ForTypes` requests it over the Type-scope
-  breadth above.
-- Each visit reads its unit's declared-source outcome from the
-  [relation](method-query-source.md#declared-source-relation). Completion
-  joins each authenticated owner to its visited identity, so an owner the
-  source did not visit leaves its body unattributed.
+  `UnsafeMemberCensusAnalysis.ForTypes` and `ForLibrary` request it over the
+  Type-scope and Library-scope breadths above.
+- Completion reads each visited body's declared-source outcome from the
+  [relation](method-query-source.md#declared-source-relation) and joins each
+  authenticated owner to its visited identity, so an owner the source did not
+  visit leaves its body unattributed.
 - The per-body evidence rule and the call contract-source rule in
-  `UnsafeMemberUseRules`, and the fold, are the ones the accumulator calls.
-  The producer derives their inputs from the capabilities, and the agreement
-  gates below hold the two paths to the same findings.
-- The Library-scope census still runs on the accumulator. The
-  all-definition relation it needs has landed, and it reads that relation at
-  completion. Moving it to that relation is **unverified**; the accumulator
-  path is deleted when it moves.
+  `UnsafeMemberUseRules`, and the fold, are the ones the accumulator's census
+  called. Before that census was deleted, the Library-scope census matched
+  it on every finding and limitation over the census fixtures,
+  System.Text.Json, and System.Private.CoreLib. The one difference was that
+  each synchronous iterator body it left unattributed now folds into its
+  iterator method.
 - A reached Type-scope expansion bound keeps the visited prefix's findings
   and adds the image-level `AttributionBounded` limitation, so the census is
   available but incomplete.
 - No host consumes the census yet. The CLI section adopts both scopes
   together, so a member gets one row shape at every scope.
 
-The landed gates in `UnsafeMemberFindingsTests` compare the Type scope with
-the accumulator's census for every source type of the census fixtures, fold
-the #9755 shapes and the iterator bodies, report an unclaimed nested
-generated body as a limitation, keep the retained prefix at a reached bound,
-and keep breadth and terminal work within the selected type and its
-expansion.
+The landed gates in `UnsafeMemberFindingsTests` cover the following:
 
-Focused gates for the move:
+- **Library scope:** the `UnsafeMemberFindingsTests` and platform-contract
+  cases run against the producer at Library scope with the accumulator's
+  former outcomes, except that iterator state-machine evidence folds into
+  the iterator method.
+- **Scoped receipts:** the token-scoped receipt case is replaced by the
+  Type-scope and bound gates below, since a scoped receipt now means the
+  source covered less than the requested scope.
+- **Scope agreement:** the Type scope agrees with the Library scope for every
+  source type of the census fixtures.
+- **Folds and limitations:** the #9755 shapes and the iterator bodies fold,
+  and an unclaimed nested generated body is a limitation at both scopes.
+- **Bounds and work:** a reached bound keeps the retained prefix, and breadth
+  and terminal work stay within the selected type and its expansion.
 
-- the `UnsafeMemberFindingsTests` and platform-contract cases run against the
-  new producer at Library scope with today's outcomes, except that iterator
-  state-machine evidence now folds into the iterator method, and the
-  token-scoped receipt case is replaced by the Type-scope and bound gates
-  below, since a scoped receipt now means the source covered less than the
-  requested scope;
+The gates for each scope:
 - Type and Library scope agree on every finding for types whose generated
   bodies all authenticate, including the
   [#9755](https://github.com/richlander/dotnet-inspect/issues/9755) shapes;
@@ -421,12 +425,10 @@ Focused Release gates in `UnsafeMemberFindingsTests` cover:
   `ClassicAsyncMoveNextFoldsIntoTheAsyncMethod`: lambda, local-function, and
   classic async evidence fold into the declared member with physical
   provenance, in both legacy and updated-model fixtures;
-- `SynchronousIteratorEvidenceIsAnUnattributedLimitation` and
-  `LiftedIteratorHelperIsAnUnattributedLimitation`: an iterator `MoveNext` or
-  lifted `finally` helper with evidence is a limitation, not a guessed owner
-  or its own finding. [Execution](#execution) replaces these with fold gates
-  when the census moves, because the authenticated resolution now associates
-  iterators;
+- `SynchronousIteratorEvidenceFoldsIntoTheIteratorMethod` and
+  `LiftedIteratorHelperFoldsIntoTheIteratorMethod`: an iterator `MoveNext` or
+  lifted `finally` helper with evidence folds into the iterator method that
+  the authenticated resolution associates, never becoming its own finding;
 - `BodilessDeclarationsDoNotLimitTheCensus`: abstract and `extern`
   `UnsafeAccessor` declarations are no applicable input;
 - `ExtensionMemberIsOneFindingOnItsImplementation`: an extension-block member
@@ -439,9 +441,8 @@ Focused Release gates in `UnsafeMemberFindingsTests` cover:
   declaring member;
 - `IdentityIgnoresModuleTokenAndContractButSeparatesOverloads`: identity
   through the shared fragment;
-- `ScopedReceiptCoversOnlyInScopeBodies`,
-  `InspectionProjectsOneFindingPerMemberAndKeepsIncompleteness`, and
-  `InspectionFailsWhenMethodEvidenceWasNotRequested`: the three outcomes; and
+- `InspectionProjectsOneFindingPerMemberAndKeepsIncompleteness` and
+  `InspectionFailsWhenTheCensusFailed`: the three outcomes; and
 - the `CensusRules` cases over synthetic per-body facts: a bodyless
   declaration keeps its contract and a complete census; a failed attributed
   body marks its owner partial, or names a member without a finding; an

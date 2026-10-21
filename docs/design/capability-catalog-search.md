@@ -262,19 +262,30 @@ CapabilityCatalogSearchStructuralCatalog
   Document            structural Discovery projection
   Paths               structural resource path registrations
   Route               identity, name, and catalog root ResourcePath
-  Binding             identity, name, consumer kind, and gesture
+  Bindings            one or more of:
+    Binding           identity, name, consumer kind, and gesture
+    Resources         the Sections and Categories the binding selects
 ```
 
-Each entry is admissible only when all three hold:
+A structural catalog is projected across every registered view that selects
+its sections. A section stays in the projection when at least one of those
+views can supply its inputs, so the catalog explains each section once
+whichever command selects it.
+
+Each entry is admissible only when all four hold:
 
 1. its Document and Paths are the Discovery projection and path registrations
-   of one registered structural route, the same inputs the host creates that
-   route's structural Resource Explanation catalog from for exact
-   explanation;
-2. its Route is that registered route, and its ResourcePath is the
-   catalog root path that Resource Explanation issues for that catalog; and
-3. its Binding is the host's production gesture that selects a section or
-   category of that catalog by its owner-issued name.
+   of one structural catalog across its registered views, the same inputs
+   the host creates that catalog's structural Resource Explanation catalog
+   from for exact explanation;
+2. its Route is that registered catalog, and its ResourcePath is the
+   catalog root path that Resource Explanation issues for that catalog;
+3. each Binding is the production gesture of one of those views that selects
+   a section or category of that catalog by its owner-issued name, and its
+   Resources are the Sections that view selects on its own and the
+   Categories that contain one; and
+4. every admitted Section and Category has at least one Binding, and no
+   Binding names a resource the entry does not admit.
 
 The host owns the Route and Binding values and spells the Binding gesture
 from its own command grammar, for example `library -S` in the CLI. Search
@@ -309,6 +320,7 @@ under one root. The CLI admits the six structural catalogs its combined
 | Catalog root | Structural view | Binding gesture |
 | --- | --- | --- |
 | `library` | `DirectLibrary` | `library -S` |
+| `library` | `LibraryAddress` | `library address -S` |
 | `package` | `Package` | `package -S` |
 | `type` | `Type` | `type -S` |
 | `member` | `MemberType` | `member -S` |
@@ -317,10 +329,12 @@ under one root. The CLI admits the six structural catalogs its combined
 
 <!-- markdownlint-enable MD013 -->
 
-It does not admit the Library address route. That route's coordinate-scoped
-`Context:` and `Metadata: Heap` sections share the `library` root with the
-Direct Library catalog, so its paths cannot resolve under a root of their
-own. Those sections remain reachable by exact path.
+The two Library views project one `library` catalog. The `LibraryAddress`
+view requires a section that consumes its coordinate and selects the rest of
+its schema only alongside one, so its binding covers the coordinate-scoped
+`Context:` sections, `Metadata: Heap`, and the `@Context` and `@Metadata`
+categories that contain them. Every other Library section and category
+carries only the `library -S` binding, and `@Metadata` carries both.
 
 A search over both families evaluates the complete union.
 `CandidateResourceCount` counts every admitted capability and structural
@@ -487,10 +501,10 @@ Exactly one of `ResourceIdentity` and `StructuralIdentity` is present.
 A capability-family result carries its composed
 `InspectionCapabilityResourceIdentity`. A structural result carries its
 catalog name and its typed Discovery resource identity, with `ResourceKind`
-`Section` or `Category`. A structural result has one owning route and one
-production binding: the Route and Binding its host admitted. Their
-`ResourcePath` values are the catalog root path. No structural resource is
-represented by a fabricated capability identity.
+`Section` or `Category`. A structural result has one owning route, the Route
+its host admitted, and the admitted Bindings whose Resources contain it, in
+admission order. Their `ResourcePath` values are the catalog root path. No
+structural resource is represented by a fabricated capability identity.
 
 `CanonicalKeys` retains owner-issued keys applicable to the resource, including
 `library-literal` for the production witness. It is empty for a structural
@@ -763,6 +777,7 @@ publish a partially ranked prefix as complete.
 | A structural section's Summary participates and its Basis, Empty, Boundary, and columns do not | Implemented: host-neutral term-provenance tests |
 | Every structural result path resolves to the same Discovery resource in the exact-explanation catalog | Implemented: a CLI wiring test resolves every admitted path in the complete `explain` catalog to its Section or Category type, a host-neutral test resolves every candidate in the structural catalog created from the same inputs, and host-neutral rejection tests cover the entry checks |
 | The structural population covers every Section and Category of each admitted catalog and no item, root, or collection | Implemented: host-neutral candidate-count test over a catalog with a column item |
+| A structural result carries only the Bindings whose view selects it on its own, and an entry with an unbound resource or a binding over an unadmitted one is rejected | Implemented: host-neutral binding-scope and rejection tests, and CLI theories that find `Context: Member` and `Metadata: Heap` under `library` with only the `library address -S` binding |
 | Structural search acquires nothing and runs no producer | Implemented: the CLI acquisition seam test runs a structural match |
 
 <!-- markdownlint-enable MD013 -->

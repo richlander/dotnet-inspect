@@ -31,6 +31,10 @@ public static class CallGraphMemberNavigationProjection
 {
     public static ImmutableArray<CallGraphMemberNavigationDocument> Project(
         InspectionGraphDocument document)
+        => ProjectGraph(document);
+
+    public static ImmutableArray<CallGraphMemberNavigationDocument> ProjectGraph(
+        InspectionGraphDocument document)
     {
         ArgumentNullException.ThrowIfNull(document);
         return [.. document.Nodes.Select(Project)];

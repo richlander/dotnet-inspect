@@ -196,7 +196,7 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             result.Evidence.Type);
         Assert.Equal(MetadataMethodAddress.Create(reader, method),
             result.Evidence.Method);
-        Assert.Equal("ToString", result.Evidence.Name.ToString());
+        Assert.Equal("ToString", result.Evidence.Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Equal(reader.GetMethodDefinition(method).Attributes,
             result.Evidence.Attributes);
         Assert.Equal(reader.GetMethodDefinition(method).ImplAttributes,
@@ -239,7 +239,7 @@ public sealed class MetadataMethodDeclarationEvidenceTests
 
         Assert.EndsWith(
             ".op_Addition",
-            posted.Evidence.Name.ToString(),
+            posted.Evidence.Name.Contain(InertText.TextPolicy.Field).ToString(),
             StringComparison.Ordinal);
         Assert.False(posted.Evidence.Attributes.HasFlag(
             MethodAttributes.SpecialName));
@@ -310,8 +310,8 @@ public sealed class MetadataMethodDeclarationEvidenceTests
         var evidence = posted.Evidence;
         var typeParameter = Assert.Single(evidence.TypeParameters);
         var methodParameter = Assert.Single(evidence.MethodParameters);
-        Assert.Equal("T", typeParameter.Name.ToString());
-        Assert.Equal("U", methodParameter.Name.ToString());
+        Assert.Equal("T", typeParameter.Name.Contain(InertText.TextPolicy.Field).ToString());
+        Assert.Equal("U", methodParameter.Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.True(methodParameter.IsMethodParameter);
         Assert.Equal(0, methodParameter.Index);
         Assert.Equal(GenericParameterAttributes.ReferenceTypeConstraint,
@@ -332,8 +332,8 @@ public sealed class MetadataMethodDeclarationEvidenceTests
         Assert.Equal(1, evidence.Parameters[0].Markers.ParamCollectionCount);
         Assert.Equal(1, evidence.Parameters[0].Markers.UnscopedRefCount);
         Assert.True(evidence.ReturnParameter.Markers.IsComplete);
-        Assert.Equal("arg", evidence.Parameters[0].Name?.ToString());
-        Assert.Equal("ret", evidence.ReturnParameter.Name?.ToString());
+        Assert.Equal("arg", evidence.Parameters[0].Name?.Contain(InertText.TextPolicy.Field).ToString());
+        Assert.Equal("ret", evidence.ReturnParameter.Name?.Contain(InertText.TextPolicy.Field).ToString());
         Assert.IsType<MetadataTypeIdentity.GenericParameter>(
             evidence.Signature.ReturnType);
         Assert.IsType<MetadataTypeIdentity.GenericParameter>(
@@ -906,6 +906,39 @@ public sealed class MetadataMethodDeclarationEvidenceTests
                 TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public void IllFormedNames_AreRetainedAsBytesAndContainedOnRead()
+    {
+        // Both names decode to U+FFFD under MetadataReader.GetString; their bytes differ.
+        using var fixture = Fixture.Create(
+            name: "QQName", sequences: [1], illFormedNames: true);
+        var posted = Assert.IsType<MetadataMethodDeclarationResult.Posted>(
+            Run(fixture));
+
+        MetadataMethodDeclarationEvidence evidence = posted.Evidence;
+        Assert.Equal(6, evidence.Name.Length);
+        Assert.Equal(
+            @"\uDCFF\uDCFEName",
+            evidence.Name.Contain(InertText.TextPolicy.Field).ToString());
+        MetadataUtf8Name parameter =
+            Assert.NotNull(evidence.Parameters[0].Name);
+        Assert.Equal(
+            @"\uDCFFrg",
+            parameter.Contain(InertText.TextPolicy.Field).ToString());
+        Assert.Equal(
+            @"\uDCFFrg",
+            MetadataDeclarationText.RenderParameterName(evidence.Parameters[0]));
+
+        // The budget is charged the contained UTF-16 length, not the byte length: the patched
+        // names keep their byte lengths but spell 10 and 5 characters longer.
+        using var control = Fixture.Create(name: "QQName", sequences: [1]);
+        var clean = Assert.IsType<MetadataMethodDeclarationResult.Posted>(
+            Run(control));
+        Assert.Equal(
+            clean.Counters.RetainedText + 15,
+            posted.Counters.RetainedText);
+    }
+
     static MetadataMethodDeclarationResult Run(Fixture fixture,
         MetadataOperationPolicy? policy = null) =>
         Run(fixture.Path, fixture.Type.Definition.Value,
@@ -963,7 +996,8 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             bool unsortedConstraints = false,
             bool longReturnTypeName = false,
             bool nestedMarkerAlias = false,
-            bool corruptMarkerName = false)
+            bool corruptMarkerName = false,
+            bool illFormedNames = false)
         {
             var metadata = new MetadataBuilder();
             Guid mvid = Guid.NewGuid();
@@ -1167,6 +1201,12 @@ public sealed class MetadataMethodDeclarationEvidenceTests
                 new MetadataRootBuilder(metadata, suppressValidation: true),
                 new BlobBuilder(), flags: CorFlags.ILOnly).Serialize(image);
             byte[] imageBytes = image.ToArray();
+            if (illFormedNames)
+            {
+                // MetadataBuilder writes well-formed UTF-8, so the ill-formed bytes are patched in.
+                PatchUnique(imageBytes, "\0QQName\0"u8, [0xFF, 0xFE]);
+                PatchUnique(imageBytes, "\0arg\0"u8, [0xFF]);
+            }
             if (highBitMethodRva)
             {
                 using var probe = new PEReader(
@@ -1328,6 +1368,14 @@ public sealed class MetadataMethodDeclarationEvidenceTests
             BinaryPrimitives.WriteUInt32LittleEndian(
                 image.AsSpan(offset, sizeof(uint)),
                 uint.MaxValue);
+        }
+
+        // Overwrites the first bytes of a uniquely occurring, null-delimited #Strings entry.
+        static void PatchUnique(byte[] image, ReadOnlySpan<byte> entry, byte[] replacement)
+        {
+            int index = image.AsSpan().IndexOf(entry);
+            Assert.True(index >= 0 && image.AsSpan(index + 1).IndexOf(entry) < 0);
+            replacement.CopyTo(image, index + 1);
         }
 
         static void AddMarker(MetadataBuilder metadata, EntityHandle parent,

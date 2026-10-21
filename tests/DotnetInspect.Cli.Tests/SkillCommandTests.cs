@@ -331,7 +331,7 @@ public class SkillCommandTests
         Assert.Contains("-S \"Performance:*\"", output);
         Assert.Contains("-S \"Resource Triage\"", output);
         Assert.Contains("--namesake-library", output);
-        Assert.Contains("--first-library", output);
+        Assert.Contains("`<target>` is `--package Id@v --namesake-library`", output);
         Assert.Contains("## Command conventions", output);
         Assert.Contains("pooled-resource coverage as unverified", output);
         Assert.Contains("skill relationships", output);

@@ -88,17 +88,16 @@ public static class ResourceExplanationCommand
         if (canonicalPath is not null)
         {
             string root = RootSegment(canonicalPath);
-            ResourceExplanationCatalog? rootCatalog = null;
             foreach ((
-                         StructuralViewIdentity view,
-                         InspectionCatalogIdentity identity)
-                     in ExactExplanationRoutes)
+                         InspectionCatalogIdentity identity,
+                         StructuralViewIdentity[] views)
+                     in ExplainableStructuralCatalogs)
             {
                 if (StructuralViewRegistry.CatalogPathName(identity) != root)
                     continue;
 
                 ResourceExplanationCatalog? structuralCatalog =
-                    CreateStructuralCatalog(view, identity);
+                    CreateStructuralCatalog(identity, views);
                 if (structuralCatalog is null)
                 {
                     CommandError.Write(
@@ -107,28 +106,8 @@ public static class ResourceExplanationCommand
                     return 1;
                 }
 
-                // A later route under the same root publishes the sections
-                // the first cannot address, so a path the first route does
-                // not resolve is tried there before it fails.
-                rootCatalog ??= structuralCatalog;
-                if (!structuralCatalog.TryResolveExact(canonicalPath, out _))
-                    continue;
-
                 return ExplainFromCatalog(
                     structuralCatalog,
-                    canonicalPath,
-                    depth,
-                    maximumResults,
-                    format,
-                    envelopeOutput,
-                    outputPath,
-                    contract, selection, valueIds: valueIds);
-            }
-
-            if (rootCatalog is not null)
-            {
-                return ExplainFromCatalog(
-                    rootCatalog,
                     canonicalPath,
                     depth,
                     maximumResults,
@@ -222,24 +201,32 @@ public static class ResourceExplanationCommand
     }
 
     private static ResourceExplanationCatalog? CreateStructuralCatalog(
-        StructuralViewIdentity view,
-        InspectionCatalogIdentity catalogIdentity) =>
-        CreateStructuralProjection(view, catalogIdentity) is { } structural
+        InspectionCatalogIdentity catalogIdentity,
+        StructuralViewIdentity[] views) =>
+        CreateStructuralProjection(catalogIdentity, views) is { } structural
             ? ResourceExplanationCatalog.CreateStructural(
                 structural.Document,
                 structural.ResourcePaths)
             : null;
 
+    /// <summary>
+    /// One structural catalog across every view that selects its sections,
+    /// so a section any of those commands can address is explained once
+    /// under the catalog root.
+    /// </summary>
     private static DiscoveryDocumentFactory.Projection?
         CreateStructuralProjection(
-            StructuralViewIdentity view,
-            InspectionCatalogIdentity catalogIdentity)
+            InspectionCatalogIdentity catalogIdentity,
+            StructuralViewIdentity[] views) =>
+        CreateDiscoveryProjection(
+            StructuralViewRegistry.ProjectCatalog(
+                Routes(catalogIdentity, views)));
+
+    private static DiscoveryDocumentFactory.Projection?
+        CreateDiscoveryProjection(StructuralSchemaProjection projection)
     {
-        StructuralSchemaProjection projection =
-            StructuralViewRegistry.Project(
-                StructuralViewRegistry.Route(view, catalogIdentity));
         string catalog =
-            StructuralViewRegistry.CatalogPathName(catalogIdentity);
+            StructuralViewRegistry.CatalogPathName(projection.Route.Catalog);
         return DiscoveryDocumentFactory.CreateProjection(
             catalog,
             discover: null,
@@ -258,10 +245,18 @@ public static class ResourceExplanationCommand
             sectionDescriptions: projection.SectionDescriptions);
     }
 
+    private static StructuralRoute[] Routes(
+        InspectionCatalogIdentity catalogIdentity,
+        StructuralViewIdentity[] views) =>
+        [
+            .. views.Select(view =>
+                StructuralViewRegistry.Route(view, catalogIdentity)),
+        ];
+
     /// <summary>
     /// The structural catalogs search admits: every explainable structural
-    /// route, from the same projection its explanation catalog is created
-    /// from.
+    /// catalog, from the same projection its explanation catalog is created
+    /// from, with one section-selection binding per view.
     /// </summary>
     internal static ImmutableArray<CapabilityCatalogSearchStructuralCatalog>?
         CreateStructuralSearchCatalogs()
@@ -270,16 +265,37 @@ public static class ResourceExplanationCommand
             ImmutableArray.CreateBuilder<
                 CapabilityCatalogSearchStructuralCatalog>();
         foreach ((
-                     StructuralViewIdentity view,
-                     InspectionCatalogIdentity identity)
-                 in ExplainableStructuralRoutes)
+                     InspectionCatalogIdentity identity,
+                     StructuralViewIdentity[] views)
+                 in ExplainableStructuralCatalogs)
         {
-            if (CreateStructuralProjection(view, identity)
+            if (CreateStructuralProjection(identity, views)
                 is not { } structural)
             {
                 return null;
             }
-            catalogs.Add(StructuralSearchCatalog(identity, structural));
+            var bindings =
+                new List<CapabilityCatalogSearchStructuralBinding>();
+            foreach (StructuralRoute route in Routes(identity, views))
+            {
+                StructuralSchemaProjection routeProjection =
+                    StructuralViewRegistry.Project(route);
+                if (CreateDiscoveryProjection(routeProjection)
+                    is not { } routeDiscovery)
+                {
+                    return null;
+                }
+                bindings.Add(
+                    StructuralSearchBinding(
+                        route,
+                        isFirst: bindings.Count == 0,
+                        routeProjection,
+                        routeDiscovery.Document));
+            }
+            catalogs.Add(StructuralSearchCatalog(
+                identity,
+                structural,
+                bindings));
         }
         return catalogs.ToImmutable();
     }
@@ -347,16 +363,33 @@ public static class ResourceExplanationCommand
                 PackageFileInventoryCommandCapability.Module,
             ]);
 
+    /// <summary>
+    /// The CLI's explanation root over its complete catalog, from the
+    /// routing declarations of the owners the CLI admits. The CLI withholds
+    /// the root while any resource is unreachable from it; until the CLI
+    /// host adoption assigns its public address (#10139), the root's path is
+    /// provisional and the root is composed only for that gate.
+    /// </summary>
+    internal static ResourceExplanationRootComposition? CreateRootComposition() =>
+        CreateCompleteCatalog() is { } complete
+            ? ResourceExplanationCatalog.ComposeRoot(
+                complete,
+                new ResourcePath(ProvisionalRootSegment),
+                [.. StructuralRoutingDeclarations.Create()])
+            : null;
+
+    private const string ProvisionalRootSegment = "root";
+
     internal static ResourceExplanationCatalog? CreateCompleteCatalog()
     {
         var structuralCatalogs = new List<ResourceExplanationCatalog>();
         foreach ((
-                     StructuralViewIdentity view,
-                     InspectionCatalogIdentity identity)
-                 in ExplainableStructuralRoutes)
+                     InspectionCatalogIdentity identity,
+                     StructuralViewIdentity[] views)
+                 in ExplainableStructuralCatalogs)
         {
             ResourceExplanationCatalog? catalog =
-                CreateStructuralCatalog(view, identity);
+                CreateStructuralCatalog(identity, views);
             if (catalog is null)
                 return null;
             structuralCatalogs.Add(catalog);
@@ -615,30 +648,18 @@ public static class ResourceExplanationCommand
 
     /// <summary>
     /// Admits one explained structural catalog to capability search: its
-    /// catalog root as the owning route, and the command's <c>-S</c> section
-    /// selection as its CLI binding. The section or category name stays a
-    /// separate result value; search composes no command line.
+    /// catalog root as the owning route, and each view's <c>-S</c> section
+    /// selection as a CLI binding over the sections that view addresses. The
+    /// section or category name stays a separate result value; search
+    /// composes no command line.
     /// </summary>
     private static CapabilityCatalogSearchStructuralCatalog
         StructuralSearchCatalog(
             InspectionCatalogIdentity identity,
-            DiscoveryDocumentFactory.Projection structural)
+            DiscoveryDocumentFactory.Projection structural,
+            IEnumerable<CapabilityCatalogSearchStructuralBinding> bindings)
     {
         string root = StructuralViewRegistry.CatalogPathName(identity);
-        string command = identity switch
-        {
-            InspectionCatalogIdentity.Library => "library",
-            InspectionCatalogIdentity.Package => "package",
-            InspectionCatalogIdentity.ApiType => "type",
-            InspectionCatalogIdentity.ApiMember
-                or InspectionCatalogIdentity.ApiMemberOverload
-                or InspectionCatalogIdentity.ApiMemberDetail => "member",
-            _ => throw new ArgumentOutOfRangeException(
-                nameof(identity),
-                identity,
-                "No section-selection command is registered for this "
-                + "structural catalog."),
-        };
         return new(
             structural.Document,
             structural.ResourcePaths,
@@ -646,43 +667,66 @@ public static class ResourceExplanationCommand
                 $"dotnet-inspect.cli/{root}-catalog",
                 root,
                 root),
-            new CapabilityCatalogSearchBinding(
-                $"dotnet-inspect.cli/{root}-sections",
-                "dotnet-inspect CLI",
-                InspectionConsumerKind.Cli,
-                $"{command} -S",
-                root));
+            bindings);
     }
 
     /// <summary>
-    /// The structural routes whose section catalogs <c>explain</c> publishes:
-    /// library, package, the type listing, and the three member catalogs under
-    /// the names <see cref="StructuralViewRegistry.CatalogPathName"/> issues.
+    /// One view's section-selection binding over the Sections it selects on
+    /// its own and the Categories that contain one. A catalog's first view
+    /// keeps the catalog's binding identity; a later view adds its view mode,
+    /// as in <c>library-address-sections</c>.
     /// </summary>
-    private static readonly
-        (StructuralViewIdentity View, InspectionCatalogIdentity Catalog)[]
-        ExplainableStructuralRoutes =
-    [
-        (StructuralViewIdentity.DirectLibrary, InspectionCatalogIdentity.Library),
-        (StructuralViewIdentity.Package, InspectionCatalogIdentity.Package),
-        (StructuralViewIdentity.Type, InspectionCatalogIdentity.ApiType),
-        (StructuralViewIdentity.MemberType, InspectionCatalogIdentity.ApiMember),
-        (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberOverload),
-        (StructuralViewIdentity.MemberTarget, InspectionCatalogIdentity.ApiMemberDetail),
-    ];
+    private static CapabilityCatalogSearchStructuralBinding
+        StructuralSearchBinding(
+            StructuralRoute route,
+            bool isFirst,
+            StructuralSchemaProjection projection,
+            DiscoveryDocument addressed)
+    {
+        string root = StructuralViewRegistry.CatalogPathName(route.Catalog);
+        string name = isFirst ? root : $"{root}-{route.View.ViewMode}";
+        IReadOnlySet<string> standalone =
+            StructuralViewRegistry.StandaloneSelectableSections(projection);
+        return new(
+            new CapabilityCatalogSearchBinding(
+                $"dotnet-inspect.cli/{name}-sections",
+                "dotnet-inspect CLI",
+                InspectionConsumerKind.Cli,
+                $"{route.View.DestinationCommand} -S",
+                root),
+            addressed.Resources
+                .Select(static resource => resource.Identity)
+                .Where(resource => resource.Kind switch
+                {
+                    DiscoveryResourceKind.Section =>
+                        standalone.Contains(resource.Name),
+                    DiscoveryResourceKind.Category =>
+                        projection.SectionCategories.TryGetValue(
+                            resource.Name,
+                            out string[]? sections)
+                        && sections.Any(standalone.Contains),
+                    _ => false,
+                }));
+    }
 
     /// <summary>
-    /// The routes an exact <c>explain</c> path resolves against: the
-    /// explainable routes, then the Library address route, whose coordinate
-    /// sections (the <c>Context:</c> records and <c>Metadata: Heap</c>) the
-    /// direct-Library route cannot address. The address route shares the
-    /// <c>library</c> root, so it stays out of the combined search catalog.
+    /// The structural catalogs <c>explain</c> publishes, each with the views
+    /// that select its sections: library (direct and by address), package,
+    /// the type listing, and the three member catalogs under the names
+    /// <see cref="StructuralViewRegistry.CatalogPathName"/> issues. A
+    /// catalog's first view supplies its projection's route.
     /// </summary>
     private static readonly
-        (StructuralViewIdentity View, InspectionCatalogIdentity Catalog)[]
-        ExactExplanationRoutes =
+        (InspectionCatalogIdentity Catalog, StructuralViewIdentity[] Views)[]
+        ExplainableStructuralCatalogs =
     [
-        .. ExplainableStructuralRoutes,
-        (StructuralViewIdentity.LibraryAddress, InspectionCatalogIdentity.Library),
+        (
+            InspectionCatalogIdentity.Library,
+            [StructuralViewIdentity.DirectLibrary, StructuralViewIdentity.LibraryAddress]),
+        (InspectionCatalogIdentity.Package, [StructuralViewIdentity.Package]),
+        (InspectionCatalogIdentity.ApiType, [StructuralViewIdentity.Type]),
+        (InspectionCatalogIdentity.ApiMember, [StructuralViewIdentity.MemberType]),
+        (InspectionCatalogIdentity.ApiMemberOverload, [StructuralViewIdentity.MemberTarget]),
+        (InspectionCatalogIdentity.ApiMemberDetail, [StructuralViewIdentity.MemberTarget]),
     ];
 }
