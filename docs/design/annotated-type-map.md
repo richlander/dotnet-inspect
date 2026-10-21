@@ -147,8 +147,7 @@ not, and a body fact per method with a body. An added private field is a
 Body `Added` row, an attribute added to an internal method is a Body
 `Changed` row, and a non-admitted Type whose own declaration changed has a
 Body transition on its Type row. The row carries the transition, not the
-fact that differs: the declaration view of
-[Diff capabilities](diff-capabilities.md#axes)
+fact that differs: the [declaration view](declaration-view.md)
 ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) presents
 that at rung 4. Until that view lands, such a row has no rung-4 view, the
 interim exception Diff capabilities' adoption step 1 records.
@@ -355,7 +354,7 @@ A host spends cost as the user narrows:
 | --- | --- | --- |
 | Exists per Type | which Types changed | Fast Diff: 0.01–0.8 ms per Type |
 | A Type's map diff | which Members, and what kind of change each | see [Evidence](#evidence) |
-| A Member's annotated source diff, or its declaration view for a declaration fact | the change itself, in C# and IL, or the declaration that differs | its own owner; [#10347](https://github.com/richlander/dotnet-inspect/issues/10347) |
+| A Member's annotated source diff, or its [declaration view](declaration-view.md) for a declaration fact | the change itself, in C# and IL, or the declaration that differs | its own owner; [#10347](https://github.com/richlander/dotnet-inspect/issues/10347) |
 
 The ladder works like a bond. A bond pays its holder small, regular coupon
 payments and returns the large principal only once, at the end. The map is the

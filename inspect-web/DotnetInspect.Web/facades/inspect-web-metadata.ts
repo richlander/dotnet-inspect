@@ -30,11 +30,11 @@ export type BrowserFastDiffState = "Unchanged" | "Changed" | "Indeterminate" | "
 
 export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyRequested" | "NotActive" | number;
 
-export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
+export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | "Status" | number;
 
 export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | "NonBreaking" | number;
 
-export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | "TypeAccessibilityChanged" | "MemberAccessibilityChanged" | number;
+export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | "TypeAccessibilityChanged" | "MemberAccessibilityChanged" | "TypeHiddenChanged" | "MemberHiddenChanged" | "TypeObsoleteChanged" | "MemberObsoleteChanged" | number;
 
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 

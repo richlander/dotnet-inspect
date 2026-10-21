@@ -304,3 +304,48 @@ internal class InternalOuterNestedMemberChanged
         public int Value(int x) => x;
     }
 }
+
+// API status transitions (docs/design/api-status-analysis.md): each changes one
+// subject's hidden or obsolete status and nothing else.
+public class MemberBecomesHidden
+{
+    public int Value() => 1;
+}
+
+public class MemberBecomesVisible
+{
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public int Value() => 1;
+}
+
+public class TypeBecomesHidden
+{
+    public int Value() => 1;
+}
+
+public class MemberBecomesObsolete
+{
+    public int Value() => 1;
+}
+
+public class ObsoleteWarningToError
+{
+    [Obsolete("m")]
+    public int Value() => 1;
+}
+
+public class TypeBecomesObsolete
+{
+    public int Value() => 1;
+}
+
+public class ObsoleteMessageChanged
+{
+    [Obsolete("before")]
+    public int Value() => 1;
+}
+
+public class MemberBecomesObsoleteError
+{
+    public int Value() => 1;
+}

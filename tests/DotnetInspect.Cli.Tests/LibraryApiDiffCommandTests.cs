@@ -169,10 +169,47 @@ public sealed class LibraryApiDiffCommandTests
         JsonElement summary = document.RootElement
             .GetProperty("document")
             .GetProperty("summary");
-        Assert.Equal(25, summary.GetProperty("breakingCount").GetInt32());
+        // The API status fixture cases add four breaking rows (obsolete added to a Member and
+        // a Type, an obsolete error added, a warning made an error) and six non-breaking ones,
+        // PublicAttribute's obsolete message change among them
+        // (docs/design/api-status-analysis.md).
+        Assert.Equal(29, summary.GetProperty("breakingCount").GetInt32());
         Assert.Equal(16, summary.GetProperty("additiveCount").GetInt32());
         Assert.Equal(0, summary.GetProperty("potentiallyBreakingCount").GetInt32());
-        Assert.Equal(10, summary.GetProperty("nonBreakingCount").GetInt32());
+        Assert.Equal(16, summary.GetProperty("nonBreakingCount").GetInt32());
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.MemberBecomesHidden", ChangeKind.MemberHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden")]
+    [InlineData("FastDiffFixture.TypeBecomesHidden", ChangeKind.TypeHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden")]
+    [InlineData("FastDiffFixture.TypeBecomesObsolete", ChangeKind.TypeObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]")]
+    [InlineData("FastDiffFixture.ObsoleteWarningToError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "[Obsolete(\"m\")]", "[Obsolete(\"m\", true)]")]
+    public async Task IncludeAll_ReportsApiStatusTransitionsAsStatusRows(
+        string type,
+        ChangeKind kind,
+        ChangeClassification classification,
+        string oldValue,
+        string newValue)
+    {
+        // Hidden and obsolete transitions are their own rows
+        // (docs/design/api-status-analysis.md).
+        using JsonDocument document = await IncludeAllFastDiffJson();
+        JsonElement subject = Assert.Single(
+            document.RootElement
+                .GetProperty("document")
+                .GetProperty("comparison")
+                .GetProperty("subjects")
+                .EnumerateArray(),
+            subject => subject.GetProperty("identifier").GetString() == type);
+        JsonElement change = Assert.Single(
+            subject.GetProperty("comparison")
+                .GetProperty("compatibilityChanges")
+                .EnumerateArray());
+        Assert.Equal((int)kind, change.GetProperty("kind").GetInt32());
+        Assert.Equal((int)classification, change.GetProperty("classification").GetInt32());
+        Assert.Equal((int)ApiChangeCategory.Status, change.GetProperty("category").GetInt32());
+        Assert.Equal(oldValue, change.GetProperty("oldValue").GetString());
+        Assert.Equal(newValue, change.GetProperty("newValue").GetString());
     }
 
     [Fact]

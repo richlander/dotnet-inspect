@@ -28,6 +28,7 @@ about it per level:
 | --- | --- | --- |
 | Semantic | Behavior and meaning: source, signatures, attributes | Source and API diff views |
 | Symbolic IL | Operations, with operands resolved to names | IL diff views |
+| Declaration | A row's decoded metadata facts: named flags, symbolic signatures, typed constants, decoded attributes, layout, `MethodImpl` rows, `beforefieldinit` | The [declaration view](declaration-view.md) |
 | Encoded | Token numbers, blob bytes, heap offsets, row order, short and long branch forms, body size | No view today |
 
 ## Rules
