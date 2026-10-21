@@ -193,8 +193,11 @@ public sealed class FastDiffBodyTests
             {
                 try
                 {
+                    // A facade that only forwards Types has no Type rows to decide.
                     using var pe = new PEReader(File.OpenRead(candidate));
-                    return pe.HasMetadata && pe.GetMetadataReader().GetHeapSize(HeapIndex.UserString) == 0;
+                    return pe.HasMetadata
+                        && pe.GetMetadataReader().GetHeapSize(HeapIndex.UserString) == 0
+                        && pe.GetMetadataReader().TypeDefinitions.Count > 1;
                 }
                 catch (BadImageFormatException)
                 {
