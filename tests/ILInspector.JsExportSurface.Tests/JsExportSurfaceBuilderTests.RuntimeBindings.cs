@@ -2177,40 +2177,25 @@ public sealed partial class JsExportSurfaceBuilderTests
             StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// TypeScript emission describes every <c>long</c> as <c>number</c>, which
-    /// is the wrong type for a JavaScript <c>BigInt</c>. Until descriptor-aware
-    /// TypeScript types exist, an authentic
-    /// <c>[JSMarshalAs&lt;JSType.BigInt&gt;] long</c> export is rejected
-    /// visibly rather than published under a type that misdescribes it.
-    /// </summary>
     [Fact]
-    public void Build_RejectsBigIntMarshaledLongExport()
+    public void Build_PublishesBigIntMarshaledLongExport()
     {
-        UnsupportedJsExportSurfaceException exception =
-            Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => BuildMarshaledLongSurface(
-                    nameof(BigIntMarshalFixture),
-                    nameof(BigIntMarshalFixture.EchoBigInt)));
+        JsExportFunction function = Assert.Single(
+            BuildMarshaledLongSurface(
+                nameof(BigIntMarshalFixture),
+                nameof(BigIntMarshalFixture.EchoBigInt)).Functions);
 
-        Assert.Contains(
-            "recognized but not supported",
-            exception.Message,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "get_BigInt64",
-            exception.Message,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "[JSMarshalAs<JSType.Number>]",
-            exception.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            JsExportInt64Marshaling.BigInt,
+            function.ReturnInt64Marshaling);
+        JsExportParameterInt64Marshaling parameter =
+            Assert.Single(function.ParameterInt64Marshalings);
+        Assert.Equal(0, parameter.ParameterIndex);
+        Assert.Equal(
+            JsExportInt64Marshaling.BigInt,
+            parameter.Marshaling);
     }
 
-    /// <summary>
-    /// The close negative for the rejection above: the Int52 descriptor is what
-    /// <c>number</c> does describe, so the same <c>long</c> keeps publishing.
-    /// </summary>
     [Fact]
     public void Build_PublishesNumberMarshaledLongExport()
     {
@@ -2222,5 +2207,56 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Equal(
             nameof(Int52MarshalFixture.EchoInt52),
             function.Name);
+        Assert.Equal(
+            JsExportInt64Marshaling.Number,
+            function.ReturnInt64Marshaling);
+        JsExportParameterInt64Marshaling parameter =
+            Assert.Single(function.ParameterInt64Marshalings);
+        Assert.Equal(0, parameter.ParameterIndex);
+        Assert.Equal(
+            JsExportInt64Marshaling.Number,
+            parameter.Marshaling);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(BigIntMarshalFixture),
+        nameof(BigIntMarshalFixture.EchoBigInt),
+        "bigint")]
+    [InlineData(
+        nameof(Int52MarshalFixture),
+        nameof(Int52MarshalFixture.EchoInt52),
+        "number")]
+    public void Emit_UsesAuthenticatedLongMarshaling(
+        string typeName,
+        string exportName,
+        string expectedType)
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildMarshaledLongSurface(typeName, exportName);
+
+        string dts = DtsEmitter.Emit(surface);
+        string facade = TypeScriptFacadeEmitter.Emit(
+            surface,
+            "./dotnet.js");
+        string functionName = char.ToLowerInvariant(exportName[0])
+            + exportName[1..];
+
+        Assert.Contains(
+            $"export declare function {functionName}(value: {expectedType}): {expectedType};",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"readonly \"{exportName}.",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"\": (value: {expectedType}) => {expectedType};",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"export function {functionName}(value: {expectedType}): {expectedType} {{",
+            facade,
+            StringComparison.Ordinal);
     }
 }

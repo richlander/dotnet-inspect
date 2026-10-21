@@ -341,18 +341,17 @@ They also reject `Void` parameters and `Func<..., Void>` returns that this
 producer cannot publish;
 `MapParameterType_RejectsVoidDelegatePayloads` gates that boundary.
 
-`[JSMarshalAs<JSType.BigInt>] long` is an authentic override that this library
-rejects for a different reason: the descriptor is real and the wrapper is
-genuine, but no consumer can describe it yet. `TsTypeMapper` emits
-every `long` as TypeScript `number`, which is the wrong type for a JavaScript
-`BigInt` and would silently truncate at 2^53. Until descriptor-aware TypeScript
-types exist, an export carrying the `get_BigInt64` descriptor fails with a
-"recognized but not supported" message naming the override and pointing at
-`[JSMarshalAs<JSType.Number>]`. The `get_Int52` descriptor — which `number` does
-describe — keeps publishing unchanged.
-`JsExportSurfaceBuilderTests.Build_RejectsBigIntMarshaledLongExport` and
-`Build_PublishesNumberMarshaledLongExport` gate the pair against compiler
-output, not hand-composed metadata.
+Direct `long` slots preserve the authenticated runtime descriptor because the
+managed type alone does not distinguish JavaScript `number` from `BigInt`.
+`get_BigInt64` becomes the target-neutral `BigInt` fact and `get_Int52` becomes
+`Number`; TypeScript generation lowers those facts to `bigint` and `number`
+respectively. The builder does not reread `[JSMarshalAs]` or infer from source
+attributes. Nested BigInt descriptors remain visibly unsupported until the
+surface models the complete nested descriptor tree.
+`JsExportSurfaceBuilderTests.Build_PublishesBigIntMarshaledLongExport`,
+`Build_PublishesNumberMarshaledLongExport`, and
+`Emit_UsesAuthenticatedLongMarshaling` gate the pair against compiler output,
+not hand-composed metadata.
 
 Generated serializer-root properties use System.Text.Json's default name
 grammar: a vector appends `Array`, while a rank-*N* multidimensional array
