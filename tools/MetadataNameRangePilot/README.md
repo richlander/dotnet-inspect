@@ -99,30 +99,30 @@ three assets:
 
 | Observation | Ratio | Assessment |
 | --- | ---: | --- |
-| Per-name opaque build retained memory | 1.140x-1.192x | Loss |
-| Population build allocation | 0.557x-0.562x | Win |
-| Population retained memory | 0.449x-0.452x | Win |
-| Population match-only elapsed time | 0.513x-0.554x | Win |
-| Population sparse-display elapsed time | 0.568x-0.604x | Win |
-| Byte-budget population build elapsed time | 0.161x-0.269x | Win |
-| Population display-all elapsed time | 3.357x-3.786x | Loss |
-| Population display-all allocation | 2.477x-2.669x | Loss |
+| Per-name opaque build retained memory | 1.14x-1.20x | Loss |
+| Population build allocation | 0.55x-0.57x | Win |
+| Population retained memory | 0.44x-0.46x | Win |
+| Population match-only elapsed time | 0.51x-0.56x | Win |
+| Population sparse-display elapsed time | 0.56x-0.61x | Win |
+| Byte-budget population build elapsed time | 0.16x-0.28x | Win |
+| Population display-all elapsed time | 3.3x-3.9x | Loss |
+| Population display-all allocation | 2.4x-2.7x | Loss |
 
 The current per-name `OpaqueByteRange.Copy` shape is therefore not a memory
 optimization: one array and one owner object per Name outweigh the UTF-8
 payload reduction on all three assets. One population backing changes the
 result, retaining about 45 percent of eager memory while making closed matching
-45 to 49 percent faster and sparse display 40 to 43 percent faster.
+44 to 49 percent faster and sparse display 39 to 44 percent faster.
 
 The retained UTF-16 budget scan consumes much of the remaining construction
 opportunity. Population build time with that scan was a win only for
 System.Text.Json and inconclusive for CoreLib and Configuration; charging exact
-stored bytes instead made construction 73 to 84 percent faster on every asset.
+stored bytes instead made construction 72 to 84 percent faster on every asset.
 That result motivates a separately owned budget-unit decision rather than
 silently changing product semantics in this pilot.
 
 `DisplayAll` is the intentional control. Eager storage already owns the final
 UTF-16 values, while byte-native storage must project every Name, so complete
-display is 3.4x to 3.8x slower and allocates 2.5x to 2.7x as much. Byte-native
+display is 3.3x to 3.9x slower and allocates 2.4x to 2.7x as much. Byte-native
 adoption therefore targets matching and sparse presentation; it is not a
 universal replacement for eagerly displayed inventories.

@@ -225,18 +225,18 @@ re-established that result with `OpaqueByteRange`,
 `OpaqueByteRangeBuilder`, `Utf8RangeReader`, and `InertUtf8String`. Across
 CoreLib, `System.Text.Json` 10.0.9, and
 `Microsoft.Extensions.Configuration` 10.0.10, one population backing retained
-44.9% to 45.2% as much managed memory as eager `InertString`, made closed
-matching 44.6% to 48.7% faster, and made one-result sparse presentation 39.6%
-to 43.2% faster. The current one-backing-per-Name shape retained 14.0% to
-19.2% more memory than eager `InertString`; future population adoption must
-not repeat it. Complete display was 3.4x to 3.8x slower and allocated 2.5x to
-2.7x as much because every byte-backed Name then paid for its UTF-16
+44% to 46% as much managed memory as eager `InertString`, made closed matching
+44% to 49% faster, and made one-result sparse presentation 39% to 44% faster.
+The current one-backing-per-Name shape retained 14% to 20% more memory than
+eager `InertString`; future population adoption must not repeat it. Complete
+display was 3.3x to 3.9x slower and allocated 2.4x to 2.7x as much because
+every byte-backed Name then paid for its UTF-16
 projection. The representation is therefore evidence for match-heavy and
 sparse-presentation terminals, not for eagerly displayed inventories.
 
 Measuring the contained UTF-16 length while building a compact population left
 construction time inconclusive on two of the three assets. Charging exact
-stored bytes instead made construction 73% to 84% faster on all three. That is
+stored bytes instead made construction 72% to 84% faster on all three. That is
 evidence for a separately owned retained-text budget decision; the pilot does
 not change the existing unit.
 
