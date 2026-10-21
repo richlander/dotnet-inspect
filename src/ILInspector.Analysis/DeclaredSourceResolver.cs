@@ -199,6 +199,8 @@ internal sealed class DeclaredSourceResolver(
             return DeclaredOwnerResolution.Rejected;
         }
 
+        MethodIdentity? asyncSource;
+        bool exactStateMachineExecutionBody = false;
         AsyncSourceResolution asyncResolution =
             exactAttribution
                 ? _stateMachineSourceResolver
@@ -211,7 +213,8 @@ internal sealed class DeclaredSourceResolver(
                             ?? throw new InvalidOperationException(
                                 "Exact attribution requires generated "
                                     + "expansion work."),
-                        out MethodIdentity? asyncSource)
+                        out asyncSource,
+                        out exactStateMachineExecutionBody)
                 : _stateMachineSourceResolver.ResolveSourceOwnership(
                     method,
                     methodDefinition,
@@ -228,10 +231,12 @@ internal sealed class DeclaredSourceResolver(
         {
             ultimateOwner = null;
             bool stateMachineExecutionBody =
-                _stateMachineSourceResolver
-                    .IsAsyncStateMachineExecutionMethod(
-                        methodHandle,
-                        methodDefinition);
+                exactAttribution
+                    ? exactStateMachineExecutionBody
+                    : _stateMachineSourceResolver
+                        .IsAsyncStateMachineExecutionMethod(
+                            methodHandle,
+                            methodDefinition);
             if (stateMachineExecutionBody
                 && CompilerGeneratedNames
                     .IsMalformedLiftedStateMachineLeaf(

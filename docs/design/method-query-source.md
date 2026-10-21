@@ -843,7 +843,8 @@ the number and exact MethodDefs of scoped queries, and
 - available stable-getter bodies read and their encoded IL bytes; and
 - TypeDef rows scanned for async-state-machine classification;
 - declared-source targeted candidates and relationships, generated-provenance
-  TypeDef and attribute rows, and contract construction and query work;
+  TypeDef and attribute rows, state-machine interface implementations, and
+  contract construction and query work;
 - local-exception queries, targeted TypeDef and relationship rows, and
   TypeSpec signature bytes; and
 - optimization-suppression queries, method and enclosing-type attribute rows,

@@ -450,10 +450,12 @@ internal sealed class StateMachineSourceResolver
         MethodDefinition methodDefinition,
         bool typeSourceGenerated,
         MethodDefinitionGeneratedExpansionWork work,
-        out MethodIdentity? source)
+        out MethodIdentity? source,
+        out bool stateMachineExecutionBody)
     {
         ArgumentNullException.ThrowIfNull(work);
         source = null;
+        stateMachineExecutionBody = false;
 
         MethodClassification? classification =
             MethodClassificationScanner.ClassifyAsyncMethod(
@@ -514,10 +516,13 @@ internal sealed class StateMachineSourceResolver
             return AsyncSourceResolution.None;
         }
 
-        if (physicalMethod.DeclaringType.Resolution?.Type is null
-            || !IsAsyncStateMachineExecutionMethod(
+        stateMachineExecutionBody =
+            physicalMethod.DeclaringType.Resolution?.Type is not null
+            && IsAsyncStateMachineExecutionMethod(
                 physicalHandle,
-                methodDefinition))
+                methodDefinition,
+                work);
+        if (!stateMachineExecutionBody)
         {
             return AsyncSourceResolution.None;
         }
@@ -618,9 +623,19 @@ internal sealed class StateMachineSourceResolver
     internal bool IsAsyncStateMachineExecutionMethod(
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition) =>
+        IsAsyncStateMachineExecutionMethod(
+            methodHandle,
+            methodDefinition,
+            work: null);
+
+    bool IsAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodDefinitionGeneratedExpansionWork? work) =>
         ImplementsAsyncStateMachine(
             _reader.GetTypeDefinition(
-                methodDefinition.GetDeclaringType()))
+                methodDefinition.GetDeclaringType()),
+            work)
         && IsMoveNextBody(methodHandle);
 
     internal bool IsAuthenticatedAsyncStateMachineExecutionMethod(

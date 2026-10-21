@@ -140,7 +140,30 @@ public sealed class StateMachineSourceResolverCertificateTests
                 name => name
                     == nameof(StateMachineFixtureMethods.Synchronous));
 
-        subject.AssertExactOrdinary(method);
+        subject.AssertExactOrdinary(
+            method,
+            expectedRelationshipNodes: 0);
+    }
+
+    [Fact]
+    public void ExactOrdinaryMethod_ReceiptsAndBoundsInterfaceRelationships()
+    {
+        byte[] image = File.ReadAllBytes(FixturePath);
+        using var subject = new Subject(image);
+        TypeDefinitionHandle owner =
+            subject.FindType(nameof(OrdinaryInterfaceFixtures));
+        MethodDefinitionHandle method =
+            subject.FindMethod(
+                owner,
+                name => name
+                    == nameof(OrdinaryInterfaceFixtures.Synchronous));
+
+        subject.AssertExactOrdinary(
+            method,
+            expectedRelationshipNodes: 2);
+        subject.AssertExactOrdinaryRelationshipBound(
+            method,
+            maximumRelationshipNodes: 1);
     }
 
     /// <summary>
@@ -321,10 +344,12 @@ public sealed class StateMachineSourceResolverCertificateTests
                     moveNextDefinition,
                     typeSourceGenerated: false,
                     exactWork,
-                    out MethodIdentity? exactSource));
+                    out MethodIdentity? exactSource,
+                    out bool exactExecutionBody));
             Assert.Equal(
                 MetadataTokens.GetToken(kickoff),
                 exactSource!.MetadataToken);
+            Assert.True(exactExecutionBody);
             Assert.Equal(
                 certificateBuildsBeforeExact,
                 CertificateBuilds);
@@ -356,7 +381,8 @@ public sealed class StateMachineSourceResolverCertificateTests
         }
 
         internal void AssertExactOrdinary(
-            MethodDefinitionHandle method)
+            MethodDefinitionHandle method,
+            int expectedRelationshipNodes)
         {
             MethodDefinition definition =
                 Reader.GetMethodDefinition(method);
@@ -365,20 +391,67 @@ public sealed class StateMachineSourceResolverCertificateTests
                     MethodDefinitionGeneratedExpansionLimits.Default);
 
             Assert.Equal(
-                AsyncSourceResolution.None,
-                Resolver.ResolveExactSourceOwnership(
+                DeclaredOwnerResolution.None,
+                _attribution.DeclaredSourceResolver
+                    .ResolveUltimateDeclaredMethod(
                     method,
-                    CreateIdentity(method, definition),
                     definition,
+                    CreateIdentity(method, definition),
                     typeSourceGenerated: false,
-                    work,
-                    out MethodIdentity? source));
-            Assert.Null(source);
+                    out AuthenticatedSourceOwner? immediateOwner,
+                    out AuthenticatedSourceOwner? ultimateOwner,
+                    exactAttribution: true,
+                    exactAttributionWork: work));
+            Assert.Null(immediateOwner);
+            Assert.Null(ultimateOwner);
             Assert.Equal(0, CertificateBuilds);
+            MethodDefinitionGeneratedExpansionCoverage coverage =
+                work.Build();
             Assert.Equal(
                 0,
-                work.Build()
-                    .CandidateDefinitionsExamined.Count);
+                coverage.CandidateDefinitionsExamined.Count);
+            Assert.Equal(
+                expectedRelationshipNodes,
+                coverage.RelationshipNodes);
+        }
+
+        internal void AssertExactOrdinaryRelationshipBound(
+            MethodDefinitionHandle method,
+            int maximumRelationshipNodes)
+        {
+            MethodDefinition definition =
+                Reader.GetMethodDefinition(method);
+            MethodDefinitionGeneratedExpansionLimits defaults =
+                MethodDefinitionGeneratedExpansionLimits.Default;
+            var work =
+                new MethodDefinitionGeneratedExpansionWork(
+                    new MethodDefinitionGeneratedExpansionLimits(
+                        defaults.MaximumCandidateDefinitions,
+                        defaults.MaximumGeneratedMethods,
+                        defaults.MaximumProbeBodies,
+                        defaults.MaximumProbeEncodedIlBytes,
+                        maximumRelationshipNodes));
+
+            MethodDefinitionGeneratedExpansionBoundException bound =
+                Assert.Throws<
+                    MethodDefinitionGeneratedExpansionBoundException>(
+                    () => _attribution.DeclaredSourceResolver
+                        .ResolveUltimateDeclaredMethod(
+                            method,
+                            definition,
+                            CreateIdentity(method, definition),
+                            typeSourceGenerated: false,
+                            out _,
+                            out _,
+                            exactAttribution: true,
+                            exactAttributionWork: work));
+            Assert.Equal(
+                MethodDefinitionGeneratedExpansionLimitKind
+                    .RelationshipNodes,
+                bound.Limit);
+            Assert.Equal(
+                maximumRelationshipNodes + 1,
+                work.Build().RelationshipNodes);
         }
 
         MethodIdentity CreateIdentity(
