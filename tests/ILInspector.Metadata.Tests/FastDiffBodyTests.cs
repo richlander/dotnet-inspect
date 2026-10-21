@@ -131,14 +131,12 @@ public sealed class FastDiffBodyTests
     }
 
     [Fact]
-    public void BranchToTheEndOfTheBody_ComparesByOffset()
+    public void BranchToTheEndOfTheBody_IsIndeterminate()
     {
-        // Both branches target the end of the body, which starts no
-        // instruction, so they compare as equal raw offsets.
+        // The end of the body starts no instruction, so the decoder reports
+        // an external control-flow target and canonical comparison fails.
         byte[] body = [0x2B, 0x02, 0x00, 0x2A]; // br.s +2 (to 4, the end); nop; ret
-        FastDiffResult result = CompareRaw(body, body);
-        Assert.Equal(FastDiffState.Unchanged, Single(result, "N.C").Body);
-        AssertPerMethodAgreement(RawImage(body), RawImage(body), decided: true);
+        AssertUndecidable(body, body);
     }
 
     static void AssertUndecidable(byte[] before, byte[] after)

@@ -349,16 +349,16 @@ public static class FastDiff
     /// stream that ends first. Every <c>ldc.i4</c> form is one family
     /// compared by value, and a short branch is the family of its long form.
     /// Branch and switch targets are decided once the instruction map is
-    /// complete, by the index of the instruction each target starts; a
-    /// target at the end of the body or outside it compares as a raw offset.
+    /// complete, by the index of the instruction each target starts.
     /// A <c>calli</c> stand-alone signature compares by its bytes, as
     /// canonical comparison compares it. Body size, the local signature,
     /// stack size, <c>init locals</c>, and exception regions are not read.
     /// An undefined opcode, a truncated operand, an operand whose token kind
-    /// its opcode does not take, a target inside the body that starts no
-    /// instruction or starts one that follows a prefix, and a body that ends
-    /// with a prefix are what canonical comparison cannot decode, so they
-    /// are malformed here too, unless a difference was decided first.
+    /// its opcode does not take, a target that starts no instruction (one
+    /// inside an instruction, at the end of the body, or outside it) or
+    /// starts one that follows a prefix, and a body that ends with a prefix
+    /// are what canonical comparison cannot decode, so they are malformed
+    /// here too, unless a difference was decided first.
     /// </remarks>
     internal sealed class BodyWalk
     {
@@ -480,17 +480,8 @@ public static class FastDiff
 
             for (int i = 0; i < targets; i++)
             {
-                int indexA = TargetIndex(_startsA, count, readerA.Length, _targetsA[i]);
-                int indexB = TargetIndex(_startsB, count, readerB.Length, _targetsB[i]);
-                if (indexA < 0 || indexB < 0)
-                {
-                    if (_targetsA[i] != _targetsB[i])
-                        return false;
-                }
-                else if (indexA != indexB)
-                {
+                if (TargetIndex(_startsA, count, _targetsA[i]) != TargetIndex(_startsB, count, _targetsB[i]))
                     return false;
-                }
             }
             return true;
         }
@@ -507,15 +498,13 @@ public static class FastDiff
         }
 
         /// <summary>
-        /// The index of the instruction that starts at <paramref name="target"/>,
-        /// or -1 for the end of the body or an offset outside it, which compare
-        /// raw. A target inside the body that starts no instruction, or starts
-        /// one that follows a prefix, cannot be decoded.
+        /// The index of the instruction that starts at <paramref name="target"/>.
+        /// A target that starts no instruction, inside one, at the end of the
+        /// body, or outside it, or that starts an instruction following a
+        /// prefix, cannot be decoded.
         /// </summary>
-        int TargetIndex(int[] starts, int count, int length, int target)
+        int TargetIndex(int[] starts, int count, int target)
         {
-            if (target < 0 || target >= length)
-                return -1;
             int index = Array.BinarySearch(starts, 0, count, target);
             if (index < 0 || !_admitted[index])
                 throw new BadImageFormatException($"Branch target IL_{target:X4} does not align with an instruction.");

@@ -149,9 +149,10 @@ as the kind's owner defines it under the policy, and they are what lockstep
 compares, with one exclusion: a branch or switch target that is undecided, as
 the pre-scan rule above leaves it, is left out of the comparison, and the
 position is pending when the rest is equal. A target that does not land on an
-instruction boundary of its own body, or lands outside it, has no instruction
-index, and the atom carries its raw offset instead, as canonical comparison
-falls back to for such a target. The atom's `FindingKey` is the kind's
+instruction boundary of its own body, or lands at its end or outside it, is a
+fault of the branch that names it, as the decoder canonical comparison runs
+rejects such a target; the pre-scan records it as it records an undefined
+opcode. The atom's `FindingKey` is the kind's
 **matcher projection** of those bytes, which may be the same or less: a
 declaration fact's identity key is a lossless encoding of its whole census key,
 as the declaration view states, so its projection is the bytes; an IL
