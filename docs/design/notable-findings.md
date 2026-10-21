@@ -93,7 +93,8 @@ list, and nothing about how the map is produced.
   decide, defined in [Marks are projections](#marks-are-projections).
 - **Current mark**: the slot that says the row has notable findings in the
   one-version map.
-- **Changes mark**: the slot that says the row is listed in the map diff.
+- **Changes mark**: the slot that says the row is a changed row of the map
+  diff.
 - **Structure mark**: the slot that says the row is a foundation or a peak at
   its scope. It is issued by the structure owners named in
   [Structure marks](#structure-marks), not projected from the map, and it is
