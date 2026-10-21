@@ -796,6 +796,15 @@ member of an existing Workspace context, not a global member outside contexts:
 7. Emit one derived definition and packet only after every selected root has a
    complete dependency result and the complete derived definition validates.
 
+One enrichment realization receives one host-issued Package Source operation
+before selected-root processing begins and reuses it sequentially for every
+dependency declaration in context, root, and declaration order. The operation
+retains one caller cancellation identity and one absolute deadline across that
+candidate-resolution schedule. Root Nuspec acquisition remains a PackageHouse
+semantic-content demand with its own House-owned source operation; its elapsed
+time still occurs within the enrichment's absolute candidate deadline because
+the candidate operation already exists.
+
 The packet carries Package coordinates and targets, not nuspec XML, graph
 nodes, edges, traversal diagnostics, acquired archives, or cached resolution.
 Dependency selection, direct-versus-transitive policy, per-root result order,

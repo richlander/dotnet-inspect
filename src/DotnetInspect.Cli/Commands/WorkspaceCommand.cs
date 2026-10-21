@@ -132,22 +132,22 @@ public static partial class WorkspaceCommand
                     HttpClientFactory.Shared.Timeout)
                 ?? new DesktopPackageSourceComposition(
                     HttpClientFactory.Shared.Timeout);
-            var candidateSource =
-                new DesktopPackageDependencyCandidateSource(
-                    composition,
-                    runtimeSourceOptions,
-                    options.Verbose ? CommandError.WriteLine : null);
             using var manifestProvider =
                 new DesktopWorkspacePackageDependencyManifestProvider(
                     composition,
                     runtimeSourceOptions,
                     loadOptions);
+            using PackageSourceOperationLease candidateOperation =
+                composition.IssueSettlementOperation(cancellationToken);
             return await ExecuteCoreAsync(
                 options,
                 loadOptions,
                 rootHouse: null,
                 manifestProvider,
-                candidateSource,
+                composition.CreateDependencySourceAuthorization(
+                    runtimeSourceOptions),
+                candidateOperation,
+                options.Verbose ? CommandError.WriteLine : null,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -158,7 +158,9 @@ public static partial class WorkspaceCommand
                 loadOptions,
                 rootHouse: null,
                 manifestProvider: null,
-                candidateSource: null,
+                dependencySourceAuthorization: null,
+                dependencyOperation: null,
+                dependencyLog: null,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -177,7 +179,9 @@ public static partial class WorkspaceCommand
             loadOptions,
             rootHouse.Execution,
             manifestProvider: null,
-            candidateSource: null,
+            dependencySourceAuthorization: null,
+            dependencyOperation: null,
+            dependencyLog: null,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -190,21 +194,9 @@ public static partial class WorkspaceCommand
             loadOptions,
             rootHouse: null,
             manifestProvider: null,
-            candidateSource: null,
-            cancellationToken);
-
-    internal static Task<int> ExecuteAsync(
-        WorkspaceOptions options,
-        WorkspaceContextLoadOptions loadOptions,
-        IWorkspacePackageDependencyManifestProvider manifestProvider,
-        IPackageDependencyCandidateSource candidateSource,
-        CancellationToken cancellationToken = default) =>
-        ExecuteCoreAsync(
-            options,
-            loadOptions,
-            rootHouse: null,
-            manifestProvider,
-            candidateSource,
+            dependencySourceAuthorization: null,
+            dependencyOperation: null,
+            dependencyLog: null,
             cancellationToken);
 
     static async Task<int> ExecuteCoreAsync(
@@ -212,7 +204,9 @@ public static partial class WorkspaceCommand
         WorkspaceContextLoadOptions loadOptions,
         PackageRootHouseExecution? rootHouse,
         IWorkspacePackageDependencyManifestProvider? manifestProvider,
-        IPackageDependencyCandidateSource? candidateSource,
+        IPackageSourceAuthorization? dependencySourceAuthorization,
+        PackageSourceOperationLease? dependencyOperation,
+        Action<string>? dependencyLog,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -243,10 +237,11 @@ public static partial class WorkspaceCommand
                 options.ShareFormat ?? WorkspaceShareFormat.Packet;
             if (options.MakePackageDependenciesExplicit)
             {
-                if (candidateSource is null)
+                if (dependencySourceAuthorization is null
+                    || dependencyOperation is null)
                 {
                     throw new InvalidOperationException(
-                        "Package dependency enrichment requires a candidate source.");
+                        "Package dependency enrichment requires Package Source authorization and an operation.");
                 }
                 if (manifestProvider is null)
                 {
@@ -258,7 +253,9 @@ public static partial class WorkspaceCommand
                     options,
                     definitionFormat,
                     manifestProvider,
-                    candidateSource,
+                    dependencySourceAuthorization,
+                    dependencyOperation,
+                    dependencyLog,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -490,7 +487,9 @@ public static partial class WorkspaceCommand
         WorkspaceOptions options,
         WorkspaceShareFormat format,
         IWorkspacePackageDependencyManifestProvider manifestProvider,
-        IPackageDependencyCandidateSource candidateSource,
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageSourceOperationLease operation,
+        Action<string>? log,
         CancellationToken cancellationToken)
     {
         try
@@ -507,9 +506,10 @@ public static partial class WorkspaceCommand
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
                                 definitions,
-                                manifestProvider,
-                                candidateSource),
-                            cancellationToken).ConfigureAwait(false);
+                                manifestProvider),
+                            sourceAuthorization,
+                            operation,
+                            log).ConfigureAwait(false);
             if (envelope.Content
                 is WorkspacePackageDependencyEnrichmentOutcome.Failed failed)
             {
