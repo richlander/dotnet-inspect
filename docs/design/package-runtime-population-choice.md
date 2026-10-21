@@ -4,27 +4,26 @@
 
 Status: **proposed; not implemented**.
 
-This document is the normative owner for host-neutral runtime-population
-choice, tracked by
+This document is the normative owner for the package-local Selection RID
+policy, tracked by
 [#10241](https://github.com/richlander/dotnet-inspect/issues/10241).
 
 The exact claim is:
 
-> Given one exact Package endpoint, or an ordered pair of exact Package
-> endpoints, whose operation requires implementation Library bytes and whose
-> target-framework request is already fixed, choose one canonical runtime
-> identifier axis for that operation or return typed non-success before
-> Package Asset Selection issues any implementation population.
+> Given one exact Package selection whose target-framework request is already
+> fixed and whose implementation Library must come from RID-qualified runtime
+> assets, choose one canonical Selection RID or return typed non-success before
+> Package Asset Selection issues the implementation population.
 
-The choice owner selects the runtime axis. It does not enumerate package
-entries, select target frameworks, issue asset populations, admit managed
-images, acquire content, resolve Source, compare implementations, or present
-the result.
+This owner chooses the RID used by one package-local Selection coordinate. It
+does not enumerate package entries, select target frameworks, issue asset
+populations, admit managed images, acquire content, resolve Source, compare
+implementations, or own Package navigation presentation.
 
 [Package asset-selection correspondence](package-asset-selection-correspondence.md)
-remains the lower mechanism that issues one exact target-and-RID
-implementation population or typed non-success for each endpoint.
-[Package Library Scope](package-library-scope.md) consumes the issued role
+remains the lower mechanism that identifies eligible runtime populations and
+issues one exact target-and-RID implementation population or typed non-success.
+[Package Library Scope](package-library-scope.md) consumes that issued role
 population only after this choice when the operation depends on Library
 evidence.
 
@@ -35,32 +34,52 @@ implementation bytes and no neutral implementation population answers the
 request. Compile/API operations retain their compile population and do not
 invoke this policy merely because runtime folders exist.
 
-One request uses one runtime axis:
+An explicit product gesture or exact retained Package coordinate supplies an
+exact Selection RID. Without that authority:
 
-- a single-endpoint request selects one RID for that endpoint;
-- a paired request selects one common RID for both endpoints; and
-- no request merges RIDs or assigns unrelated RIDs independently to the two
-  endpoints.
+- zero eligible RIDs is no match;
+- exactly one eligible RID is inferred;
+- several eligible RIDs select `linux-x64` when it is present; and
+- several eligible RIDs without `linux-x64` are ambiguous and require an
+  explicit RID.
 
-An exact RID may come from an explicit product gesture or exact retained
-operation context. The executing host RID, archive enumeration order, display
-text, package ID suffix, and a RID graph do not supply implicit authority.
+`linux-x64` is the product-default Selection RID because dotnet-inspect already
+uses it as representative CoreCLR implementation IL. The choice is stable
+across hosts and does not describe the inspected bytes as executable on the
+current host. The implementation must expose one shared product currency
+rather than copy the literal across Package, CLI, and Browser adopters.
 
-Without an exact RID:
+An exact RID selects only that RID. If it is absent, the result is no match;
+the policy does not silently fall back to the sole remaining RID, the product
+default, or another candidate.
 
-- a single endpoint infers its RID only when exactly one eligible RID exists;
-- a pair infers its RID only when the canonical intersection of both eligible
-  RID sets contains exactly one RID;
-- zero eligible single-endpoint RIDs is no match;
-- zero common paired RIDs is missing counterpart; and
-- several eligible single-endpoint or common paired RIDs are ambiguous.
+The executing host RID, archive enumeration order, display text, package ID
+suffix, and a RID graph do not supply implicit authority. This owner does not
+infer RID compatibility, fallback, renames, or replacement across package
+versions.
 
-An explicit or retained RID in a paired request applies unchanged to both
-endpoints. If either endpoint does not carry an eligible population for that
-RID, the result is missing counterpart. This owner does not infer RID renames,
-compatibility, fallback, or replacement across package versions.
+## Traversal and Selection are different policies
 
-## Requests and policy source
+Package-local Selection retains independent target-framework and RID
+decisions:
+
+- an omitted target framework uses PackageHouse's owner-issued
+  `HighestAvailable` policy;
+- an omitted RID is irrelevant while a neutral implementation population
+  answers the request; and
+- when RID qualification is required, the zero, sole, product-default, and
+  ambiguity rules above choose or reject the Selection RID.
+
+Neither decision inherits a Workspace Traversal target or the executing host's
+runtime context merely because the package participates in that Workspace. An
+operation that needs Traversal and Selection carries both typed decisions.
+
+The Selection RID is retained in the exact Package coordinate after choice.
+Later Source or Compare work consumes that retained value; it does not infer a
+new RID from the Workspace, from selected Library paths, or from the other
+endpoint of a comparison.
+
+## Request and policy source
 
 The public type names may change during implementation. The distinctions may
 not.
@@ -68,52 +87,49 @@ not.
 ```text
 PackageRuntimePopulationChoiceRequest
   OperationAssociation
-  Endpoints
-    Single(PackageEndpoint)
-    Pair(Before PackageEndpoint, After PackageEndpoint)
+  exact Package source coordinate
+  exact package-content generation
+  exact requested and selected target framework
+  owner-issued eligible runtime-population inventory
   RuntimeAuthority
     None
     Explicit(RuntimeIdentifier)
-    RetainedContext(RuntimeIdentifier, ContextAssociation)
-
-PackageEndpoint
-  exact Package source coordinate
-  exact package-content generation
-  exact requested target framework
-  owner-issued eligible runtime-population inventory
+    RetainedCoordinate(RuntimeIdentifier, CoordinateAssociation)
 ```
 
-`OperationAssociation` identifies the exact Source or Compare request that
-will consume the result. It is not a display name or an open operation-kind
-string. Each adopter defines and supplies its native association without
-moving Source or Compare lifecycle into this owner.
+`OperationAssociation` identifies the exact Package selection that will consume
+the result. It is not a display name or an open operation-kind string.
 
 `Explicit` records an exact user or API choice admitted by the consuming
-operation. `RetainedContext` records an exact RID and the owner-issued
-association that made it current for this request. Equality of the RID string
-alone cannot relabel one context as another.
+operation. `RetainedCoordinate` records an exact RID and the owner-issued
+Package-coordinate association that made it current. Equality of the RID
+string alone cannot relabel one coordinate as another.
 
-`None` permits only the one-candidate inference rules above. It does not mean
-product default, host default, first candidate, or best candidate.
+`None` authorizes the sole-RID and `linux-x64` default rules. It does not mean
+host default, first candidate, newest candidate, or best candidate.
 
 ## Lower-owner inventory
 
-Each endpoint inventory is immutable evidence issued by Package Asset
-Selection for one exact content generation and target-framework request. It
-contains every structurally eligible canonical
-`runtimes/<rid>/lib/<tfm>` population that could answer that request, including
-the exact RID, selected target framework, population identity or path, and
-ordered asset identities.
+The immutable inventory is evidence issued by Package Asset Selection for one
+exact content generation and target-framework request. It contains every
+structurally eligible canonical `runtimes/<rid>/lib/<tfm>` population that
+could answer that request, including the exact RID, selected target framework,
+population identity or path, and ordered asset identities.
 
 The inventory excludes neutral `lib`, `runtimes/<rid>/native`, analyzers,
 build assets, tools, satellites, and every unrelated role. It does not open
 candidate assemblies. Managed-image admission remains downstream.
 
-This owner may compare canonical RID identities and count or intersect
-inventory entries. It may not reconstruct inventory from archive paths or
-repeat target-framework compatibility. Package Asset Selection needs a
-focused prerequisite if its current receipt cannot expose this complete
-candidate evidence; that prerequisite remains owned and reviewed there.
+This owner may compare canonical RID identities and count inventory entries.
+It may not reconstruct inventory from archive paths or repeat
+target-framework compatibility. Package Asset Selection needs a focused
+prerequisite if its current receipt cannot expose this complete candidate
+evidence; that prerequisite remains owned and reviewed there.
+
+The host-neutral projection presents the product default first when it is
+available, followed by the remaining canonical RIDs in ordinal order. This is
+the stable available-RID inventory used by product gestures; it is not a
+selection algorithm or archive order.
 
 ## Outcomes and evidence
 
@@ -121,70 +137,92 @@ candidate evidence; that prerequisite remains owned and reviewed there.
 PackageRuntimePopulationChoiceResult
   Selected
     exact OperationAssociation
-    exact endpoint Package coordinates and generations
-    exact requested target framework per endpoint
-    exact selected target framework per endpoint
-    one selected canonical RuntimeIdentifier
+    exact Package coordinate and content generation
+    exact requested and selected target framework
+    exact selected canonical RuntimeIdentifier
     ChoiceSource
       Explicit
-      RetainedContext
+      RetainedCoordinate
       SingleEligible
-      UniqueCommon
-    exact selected population identity per endpoint
-    lower owner-issued selection receipt per endpoint
+      ProductDefault
+    exact selected population identity
+    lower owner-issued selection receipt
+    complete ordered available-RID inventory
   NoMatch
-    exact endpoint and complete eligible RID candidates
+    exact request and complete ordered available-RID inventory
   Ambiguous
-    exact endpoint or pair and complete eligible RID candidates
-  MissingCounterpart
-    exact pair, requested or inferred RID evidence, and each endpoint's
-    complete eligible RID candidates
+    exact request and complete ordered available-RID inventory
   Refused
     invalid, stale, foreign, or incomplete association evidence
   Failed
     complete lower-owner failure evidence
 ```
 
-Every outcome remains tied to the exact request. `Selected` proves that the
-same RID axis governed every endpoint, not that the selected bytes are equal,
-compatible, portable, or successfully admitted. Non-success retains enough
-candidate evidence for a host to explain the next action without parsing a
-selector message or rescanning the archive.
+Every outcome remains tied to the exact request. `Selected` proves which RID
+governed the package-local implementation population, not that its bytes are
+portable, executable on the host, equal to another package version, or
+successfully admitted.
 
-The selected target framework remains endpoint-local. A pair may select
-different compatible target frameworks while sharing one exact RID. The
-result retains both values and does not describe them as equal.
+Non-success retains enough candidate evidence for a host to explain and offer
+the next selection without parsing a selector message or rescanning the
+archive.
+
+## Package coordinate and Browser adoption
+
+The selected RID is Package-coordinate state, parallel to package-local TFM
+Selection rather than a Source- or Compare-local setting. Changing it submits
+a typed Package-coordinate transition and replaces every derived Library,
+Type, Member, Source, and implementation-Compare result.
+
+The planned Inspect Web Navigation adoption lists the complete available-RID
+inventory directly below the TFM inventory in the Package navigation pane.
+The active row is the exact RID retained by the current Package coordinate.
+When the result is ambiguous, no RID row is active until the user chooses one.
+The same inventory remains reachable through the collapsed content-navigation
+surface at narrow widths.
+
+The Navigation owner retains row interaction, responsive labels, focus,
+history, pending-state, and presentation details. This owner supplies the
+ordered canonical inventory, exact active identity, and typed transition
+input only.
 
 ## Source adoption boundary
 
-Package Source consumes the single-endpoint arm only when Source requires one
-implementation Library image. It selects one exact population and Library
+Package Source consumes the retained Selection RID only when Source requires
+one implementation Library image. It selects one exact population and Library
 before PDB, SourceLink, or decompilation work begins.
 
 Equal PDB checksums, SourceLink mappings, source URLs, source text, or assembly
-names across several RID populations cannot prove which implementation
-Library the request selected. Source equivalence therefore cannot collapse an
-ambiguous runtime choice into success.
+names across several RID populations cannot prove which implementation Library
+the Package coordinate selected. Source equivalence therefore cannot collapse
+an ambiguous runtime choice into success.
 
-The Source adopter owns its explicit gesture and retained-context authority,
-Library selection inside the chosen population, Source operation, user-visible
-diagnostics, and CLI and Browser/Wasm presentation.
+The Source adopter owns Library selection inside the chosen population, Source
+operation semantics, user-visible diagnostics, and CLI and Browser/Wasm
+presentation.
 
 ## Compare adoption boundary
 
-An implementation-byte Package comparison consumes the paired arm. Both
-endpoints use the one selected common RID. An explicit or retained RID must be
-available on both endpoints; otherwise comparison returns missing counterpart
-before implementation bytes are paired.
+An implementation-byte Package comparison consumes one exact Selection RID
+from the Package-owned comparison target state and applies it unchanged to
+both endpoints. If either endpoint cannot issue that RID population, Compare
+reports its typed missing-counterpart outcome before pairing implementation
+bytes.
 
-Compile/API comparison modes continue to use their compile populations and do
-not adopt this policy. The Compare owner classifies which modes require
-implementation bytes, supplies the ordered endpoint association, and owns
-comparison semantics, correspondence, result shape, and presentation.
+Compare does not ask this owner to intersect endpoint RID sets, search for a
+uniquely common RID, or choose unrelated per-endpoint RIDs. The user changes
+the one Package Selection RID through the Package coordinate inventory when a
+different common population is wanted.
 
-Different endpoint RIDs, RID compatibility, and RID renames are not inferred.
-A future cross-RID comparison would require its own explicit comparison policy
-and evidence rather than weakening this common-axis rule.
+If the current Package endpoint uses a neutral implementation population but a
+comparison endpoint requires RID qualification, the Package-owned comparison
+target uses the retained explicit RID when present and otherwise the product
+default `linux-x64`. It does not derive authority from the baseline endpoint.
+
+Compile/API comparison modes continue to use compile populations and do not
+adopt this policy. The Compare owner classifies which modes require
+implementation bytes and owns endpoint correspondence, missing-counterpart
+semantics, result shape, and presentation.
 
 ## Motivation and evidence boundary
 
@@ -200,41 +238,43 @@ That survey found no maintained package with no neutral `lib` population and
 several managed runtime populations. The published one-RID layouts
 `Microsoft.NETCore.App.Runtime.linux-x64@10.0.12` and
 `runtime.unix.System.Private.Uri@4.3.0` ground the runtime-directory and
-empty-compile-group mechanics. A scenario-adjacent fixture supplies two
-managed populations, such as `linux-x64` and `win-x64`, plus missing-common,
-unique-common, and several-common controls.
+empty-compile-group mechanics.
 
-The user explicitly approved this focused owner on 2026-10-20 after the
-survey gap and separate Source/Compare adoption boundaries were presented.
-That approval permits the specification despite the absence of a qualifying
-published multi-RID package. It does not permit either adopter to claim
-ecosystem prevalence.
+A scenario-adjacent fixture supplies two managed populations such as
+`linux-x64` and `win-x64`, plus a several-RID package without `linux-x64`.
+The operator explicitly approved this focused owner despite the survey gap,
+then selected `linux-x64`, sole-RID inference, and typed ambiguity when that
+default is absent. The design makes no ecosystem-prevalence claim.
 
 ## Adoption plan and gates
 
 The counted delivery is:
 
-1. define this host-neutral policy and its Package Asset Selection inventory
-   prerequisite;
-2. adopt the single-endpoint request for Package Source in shared code, CLI,
-   and Browser/Wasm;
-3. adopt the paired request for implementation Compare while leaving
-   compile/API modes unchanged; and
-4. retire replaced Source and Compare archive search or implicit-host-RID
+1. define this host-neutral Selection RID policy and its Package Asset
+   Selection inventory prerequisite;
+2. adopt retained Selection RID state and the RID inventory beneath TFMs in
+   Package Navigation;
+3. adopt the selected coordinate for Package Source in shared code, CLI, and
+   Browser/Wasm;
+4. adopt the same exact RID across implementation Compare endpoints while
+   leaving compile/API modes unchanged; and
+5. retire replaced Source and Compare archive search or implicit-host-RID
    behavior.
 
 The specification gate is Markdown validation. Later Release gates must cover:
 
+- neutral implementation bypassing RID choice;
+- zero and one eligible RID;
+- several eligible RIDs with `linux-x64`;
+- several eligible RIDs without `linux-x64`;
 - explicit and retained exact RID authority;
-- one eligible single-endpoint RID;
-- zero and several eligible single-endpoint RIDs;
-- one unique common RID across an ordered pair;
-- zero and several common RIDs;
-- explicit paired RID missing from either endpoint;
-- distinct endpoint target frameworks under one common RID;
-- stale or foreign operation/context associations;
-- Source refusing source-equivalence inference across ambiguous RIDs;
-- Compare refusing unrelated endpoint RIDs; and
+- an explicit RID absent from the inventory;
+- stable product-default-first RID inventory ordering;
+- Traversal target and executing-host independence;
+- Package Navigation listing RIDs below TFMs and retaining the active identity;
+- Source refusing equivalence inference across ambiguous RIDs;
+- Compare applying one exact Package Selection RID to both endpoints;
+- Compare reporting a missing counterpart without common-RID search; and
 - compile/API comparison bypassing runtime choice.
 
 These product gates are **unverified** until their owning implementation and
@@ -253,6 +293,6 @@ This owner does not define:
 - PDB, SourceLink, decompilation, Source equivalence, or Source presentation;
 - comparison mode applicability, endpoint Library correspondence, diff or
   clone semantics, or Compare presentation;
-- package acquisition, caching, admission, Workspace membership, or
-  Navigation; or
+- Package Navigation interaction, responsive layout, focus, or history;
+- package acquisition, caching, admission, or Workspace membership; or
 - native, analyzer, build, tool, or satellite asset roles.

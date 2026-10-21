@@ -384,10 +384,12 @@ producers that will extend that space.
   independently owned target-bound prune inventory to preserved supply
   evidence and conservative platform delegation. The proposed
   [Package Runtime Population Choice](design/package-runtime-population-choice.md)
-  owner selects one canonical RID axis for a single implementation endpoint
-  or an ordered implementation-comparison pair before Package Asset Selection
-  issues any population. Source and Compare retain separate adoption and
-  operation semantics.
+  owner defines package-local Selection RID policy when neutral implementation
+  assets cannot answer: infer one eligible RID, prefer the product
+  `linux-x64` RID among several, or retain typed ambiguity. Package Navigation
+  exposes the owner-issued RID inventory beneath TFMs; Source and Compare
+  consume the retained Package coordinate while keeping separate operation
+  semantics.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Its
