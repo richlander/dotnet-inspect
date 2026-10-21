@@ -123,8 +123,7 @@ IlAssemblyDiffResult il = IlAssemblyDiff.CompareStreams(
     new MemoryStream(beforeBytes, writable: false), beforePath,
     new MemoryStream(afterBytes, writable: false), afterPath,
     maxExamples: int.MaxValue,
-    normalization: IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope).Diff;
+    normalization: IlBodyDiffPolicy.Body).Diff;
 var bodyChanged = new HashSet<string>(StringComparer.Ordinal);
 foreach (IlAssemblyDiffExample example in il.Examples)
     bodyChanged.Add(DeclaredOwner(example.Method));
@@ -138,6 +137,9 @@ int apiUnmatched = apiChanged.Count(name => !byName.ContainsKey(name));
 int apiOverReported = result.Types.Count(s => s.Api == FastDiffState.Changed && !apiChanged.Contains(s.FullName));
 int bodyMissed = bodyChanged.Count(name => byName.TryGetValue(name, out var s) && s.Body == FastDiffState.Unchanged);
 int bodyUnmatched = bodyChanged.Count(name => !byName.ContainsKey(name));
+// A Body Changed with no changed IL owner is decided by a declaration fact,
+// which canonical IL comparison does not show; EXPLAIN=1 names the fact.
+int bodyOverReported = result.Types.Count(s => s.Body == FastDiffState.Changed && !bodyChanged.Contains(s.FullName));
 
 Console.WriteLine($"pair\t{Path.GetFileName(beforePath)}");
 Console.WriteLine(
@@ -153,7 +155,7 @@ Console.WriteLine(
     $"api-oracle\tchanged={apiChanged.Count}\tmissed={apiMissed}\tunmatched={apiUnmatched}\tover-reported={apiOverReported}");
 Console.WriteLine(
     $"body-oracle\tchangedOwners={bodyChanged.Count}\tmissed={bodyMissed}\tunmatched={bodyUnmatched}"
-        + $"\tilFailures={il.FailureCount}");
+        + $"\tdeclarationOnly={bodyOverReported}\tilFailures={il.FailureCount}");
 foreach (string name in apiChanged.Where(n => byName.TryGetValue(n, out var s) && s.Api == FastDiffState.Unchanged).Take(20))
     Console.WriteLine($"  api-missed\t{name}");
 foreach (string name in bodyChanged.Where(n => byName.TryGetValue(n, out var s) && s.Body == FastDiffState.Unchanged).Take(20))

@@ -240,11 +240,11 @@ targets the semantic level of the Public API diff, and the Body axis targets
 the symbolic IL level of the body diff for IL and the declaration view's level
 for declaration facts, so `Changed` should point to something a user can see. IL operand and signature keys never compare token numbers or
 assembly identity, so a renumbered token or a dependency version change is not
-a Body change. Today the IL view of Member Body Diff compares with no
-normalization and shows a dependency version change on every call into that
-dependency, as shipped Fast Diff already does not. The Shared Body equality
-slice (see [Adoption](#adoption)) closes that divergence: the IL view requests
-the Body policy in the same slice, so a Body cue and the view it opens agree.
+a Body change. The IL view of Member Body Diff requests the Body policy
+(`IlBodyDiffPolicy.Body`), so a Body cue and the view it opens agree, and a
+dependency version change shows no row there either. Implementation Diff
+evidence and the CLI `match` command's body comparison keep comparing with no
+normalization.
 
 Because each axis reads its complete diff's equality, neither axis
 over-reports against that diff. The divergences the earlier census reported
@@ -254,7 +254,11 @@ are settled as follows:
   offsets, body size, stack size, and exception regions are no longer
   compared, so a re-encoded branch is `Unchanged`, as canonical comparison
   treats it. Local and argument macro forms and slots remain compared, as the
-  IL view shows them.
+  IL view shows them. A changed catch Type or handler extent is not an IL
+  operation: canonical comparison shows no row for it
+  ([#9942](https://github.com/richlander/dotnet-inspect/issues/9942)), so
+  the Body axis reports it `Unchanged` until canonical comparison presents
+  it, and follows it then.
 - **Type and Member flags no view presents, nullable context, and attribute
   blobs.** These are uncertain facts. A Type that differs only in them is
   decided by its Public API surface, so a framework major-version move that
@@ -736,14 +740,15 @@ Member Body inventory, which remains Library Compare's view.
 
 Two slices adopt the shared equality before step 7, which builds on both:
 
-- **Shared Body equality:** the Body axis walks IL with canonical equality
-  under the Body policy and keeps the declaration census beside the walk,
-  gated per method against canonical IL comparison and by the canonical
-  encodings and dependency versions pairs. It depends on the policy's
-  normalization
-  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)), and
-  in the same slice Member Body Diff's IL comparison requests the Body policy,
-  gated by the dependency versions pair showing no IL row there either.
+- **Shared Body equality** (landed,
+  [#10196](https://github.com/richlander/dotnet-inspect/issues/10196)): the
+  Body axis walks IL with canonical equality under the Body policy and keeps
+  the declaration census beside the walk, gated per method against canonical
+  IL comparison and by the canonical encodings and dependency versions pairs,
+  over the policy's normalization
+  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205));
+  Member Body Diff's IL comparison requests the Body policy, gated by the
+  dependency versions pair showing no IL row there either.
 - **Shared API equality:** the census decides `Unchanged` and presented
   differences, and the API axis surface of one Type decides the rest,
   gated for exactness against the complete Public API comparison of the API

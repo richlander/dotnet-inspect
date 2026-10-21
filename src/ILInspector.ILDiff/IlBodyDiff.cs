@@ -211,8 +211,30 @@ public static partial class IlBodyDiff
         MetadataReader? reader,
         out ImmutableArray<CanonicalIlOperation> operations,
         out string? failure)
+        => TryCanonicalize(body, reader, IlBodyDiffNormalization.None, out operations, out failure);
+
+    /// <summary>
+    /// Canonicalizes one body under a normalization a single side can apply.
+    /// <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>
+    /// needs both sides' readers, so it is rejected here; a consumer that
+    /// composes it compares through <see cref="Compare(MetadataReader, MethodBodyBlock, MetadataReader, MethodBodyBlock, IlBodyDiffNormalization)"/>.
+    /// </summary>
+    public static bool TryCanonicalize(
+        MethodInstructions body,
+        MetadataReader? reader,
+        IlBodyDiffNormalization normalization,
+        out ImmutableArray<CanonicalIlOperation> operations,
+        out string? failure)
     {
         ArgumentNullException.ThrowIfNull(body);
+        if ((normalization & ~SupportedNormalizations) != 0
+            || (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(normalization),
+                normalization,
+                "Unsupported single-side IL canonicalization normalization.");
+        }
         if (!body.IsComplete)
         {
             operations = [];
@@ -220,12 +242,12 @@ public static partial class IlBodyDiff
             return false;
         }
 
-        var resolver = reader is null ? null : new MetadataOperandResolver(reader, IlBodyDiffNormalization.None, CompilerGeneratedOrdinalCorrespondence.Empty);
+        var resolver = reader is null ? null : new MetadataOperandResolver(reader, normalization, CompilerGeneratedOrdinalCorrespondence.Empty);
         return TryBuildOperations(
             body.Instructions,
             resolver,
             "body",
-            IlBodyDiffNormalization.None,
+            normalization,
             out operations,
             out failure);
     }

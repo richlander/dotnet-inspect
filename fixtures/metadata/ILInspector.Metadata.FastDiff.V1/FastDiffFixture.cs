@@ -46,6 +46,8 @@ public class StringLiteralOnly
     public string Value() => "before";
 }
 
+// A catch Type is not an IL operation: canonical IL comparison does not
+// show its change (#9942), so the Body axis compares it Unchanged.
 public class CatchTypeOnly
 {
     public int Value(Func<int> action)
@@ -348,6 +350,18 @@ public class ObsoleteMessageChanged
 public class MemberBecomesObsoleteError
 {
     public int Value() => 1;
+}
+
+// A body present on one side only: an abstract method made virtual.
+public abstract class AbstractToVirtual
+{
+    public abstract int Value(int x);
+}
+
+// A body present on one side only: a default interface implementation added.
+public interface IDefaultImplementationAdded
+{
+    int Value(int x);
 }
 
 // Ordinary presentation (docs/design/library-api-diff-presentation.md): a public
