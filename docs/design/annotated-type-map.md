@@ -50,12 +50,25 @@ Nothing sits between them.
 
 A reader of a Type Compare view wants the middle answer first: "`Parse` gained
 an allocation; `TryParse` was added; the base Type changed." That answer is the
-annotated source diff without the source: its fact comparison, kept, and its
+annotated source diff without the source: its admitted fact comparison, kept, and its
 text, dropped. It is small, cheap, and enough to mark a row; the source is
 fetched when a Member is opened.
 
 The same document answers a one-version question, such as which Members of a
 Type use unsafe code: the Type's Members, annotated with their findings.
+
+That fixes the split between the map and the
+[Annotated Source diff document](annotated-source-diff-document.md) by content,
+not only by cost. A request for [admitted findings](#admitted-findings)
+without source, at Library, Type, or Member scope, is answered by the map, in
+its one-version or its diff form. A request for source with its findings is
+answered by the Annotated Source document or its diff document, and only for
+one Member. There is no Type-scope Annotated Source view, and the diff
+document has no text-free form: for the admitted findings of a listed Member,
+the map's row is that form, so a host or an agent that wants those findings
+without the text asks the map for the row. Transitions between Members or
+between Types, such as a callee's signals, belong to
+[Annotated Type Relations](annotated-type-relations.md).
 
 The two forms only agree if one implementation produces both. A two-version
 form built separately from the one-version form is a second definition of
