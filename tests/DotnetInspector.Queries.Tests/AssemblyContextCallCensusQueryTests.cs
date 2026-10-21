@@ -507,10 +507,195 @@ public sealed class AssemblyContextCallCensusQueryTests
         }
     }
 
+    [Fact]
+    public async Task TypeCallCompatibilityUnresolvedFocusCallsKeepExistsUndecided()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference target) =
+                BuildCompatibilityCallFixture();
+        try
+        {
+            await using CensusContext context =
+                CensusContext.Create(caller);
+            AssemblyContextCallCensusResult census =
+                AssemblyContextCallCensusQuery.Execute(
+                    context.Group,
+                    TestContext.Current.CancellationToken);
+            MetadataTypeDefinitionName focusType = CompatibilityFocusType();
+
+            AssemblyContextTypeCallCompatibilityResult result =
+                AssemblyContextTypeCallCompatibilityQuery.Execute(
+                    context.Group,
+                    census,
+                    caller.Registration,
+                    focusType,
+                    TestContext.Current.CancellationToken);
+
+            Assert.Equal(
+                TypeCallCompatibilityTopologyDisposition.Partial,
+                result.TopologyDisposition);
+            Assert.NotEmpty(result.UnresolvedOccurrences);
+            Assert.DoesNotContain(
+                result.Occurrences,
+                occurrence =>
+                    ReferenceEquals(
+                        occurrence.Target.Registration,
+                        target.Registration));
+            (SubjectRelationFocusAuthority focus,
+                SubjectRelationPopulationAuthority population) =
+                    Authorities(caller, focusType, context.Group);
+            AnnotatedTypeRelationsContribution exists =
+                AnnotatedTypeRelationsCallAdoption.Exists(
+                    new(
+                        focus,
+                        population,
+                        result,
+                        [
+                            CompatibilityInspectionGraphCatalog
+                                .RequiresUnreferencedCode,
+                        ],
+                        [
+                            CompatibilityInspectionGraphCatalog
+                                .RequiresUnreferencedCode,
+                        ]));
+
+            AnnotatedTypeRelationsRelationshipContribution relationship =
+                Assert.Single(exists.Relationships);
+            Assert.Equal(
+                SubjectRelationProducerDisposition.Partial,
+                relationship.Disposition);
+            Assert.Equal(
+                AnnotatedTypeRelationsExistsValue.Undecided,
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Exists>(
+                        relationship.Terminal).Value);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeCallCompatibilityUnreadableTargetsKeepColorAbsenceUndecided()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference target) =
+                BuildCompatibilityCallFixture();
+        try
+        {
+            bool rejectTarget = false;
+            ResolvedAssemblyReference conditionalTarget =
+                ResolvedAssemblyReference.Create(
+                    target.Identity,
+                    target.Path,
+                    () => rejectTarget
+                        ? new MemoryStream([0x00, 0x01, 0x02])
+                        : File.OpenRead(target.Path!),
+                    target.Provenance);
+            AssemblyContextCallCensusResult census;
+            await using (CensusContext censusContext =
+                CensusContext.Create(caller, conditionalTarget))
+            {
+                census = AssemblyContextCallCensusQuery.Execute(
+                    censusContext.Group,
+                    TestContext.Current.CancellationToken);
+                Assert.True(census.IsComplete);
+            }
+
+            rejectTarget = true;
+            await using CensusContext context =
+                CensusContext.Create(caller, conditionalTarget);
+            MetadataTypeDefinitionName focusType = CompatibilityFocusType();
+            AssemblyContextTypeCallCompatibilityResult result =
+                AssemblyContextTypeCallCompatibilityQuery.Execute(
+                    context.Group,
+                    census,
+                    caller.Registration,
+                    focusType,
+                    TestContext.Current.CancellationToken);
+
+            Assert.True(result.TopologyComplete);
+            Assert.Equal(
+                2,
+                result.Targets.Count(targetResult =>
+                    targetResult.Disposition
+                        == TypeCallCompatibilityTargetDisposition
+                            .Unavailable));
+            (SubjectRelationFocusAuthority focus,
+                SubjectRelationPopulationAuthority population) =
+                    Authorities(caller, focusType, context.Group);
+            AnnotatedTypeRelationsContribution exists =
+                AnnotatedTypeRelationsCallAdoption.Exists(
+                    new(
+                        focus,
+                        population,
+                        result,
+                        [
+                            CompatibilityInspectionGraphCatalog
+                                .RequiresUnreferencedCode,
+                        ],
+                        [
+                            CompatibilityInspectionGraphCatalog
+                                .RequiresUnreferencedCode,
+                        ]));
+
+            AnnotatedTypeRelationsColorContribution color =
+                Assert.Single(exists.Colors);
+            Assert.Equal(
+                SubjectRelationProducerDisposition.Partial,
+                color.Disposition);
+            Assert.Equal(2, color.Coverage.Unavailable);
+            Assert.Equal(
+                AnnotatedTypeRelationsExistsValue.Undecided,
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Exists>(
+                        Assert.Single(exists.Relationships).Terminal)
+                    .Value);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static string MemberName(InspectionGraphSubject subject) =>
         Assert.IsType<InspectionGraphMemberIdentity.CallGraph>(
             Assert.IsType<InspectionGraphSubject.MemberSubject>(
                 subject).Identity).Member.Name;
+
+    static MetadataTypeDefinitionName CompatibilityFocusType() =>
+        Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                MetadataTypeDefinitionName.Create(
+                    "Consumer",
+                    ["Entry"])).Name;
+
+    static (SubjectRelationFocusAuthority Focus,
+        SubjectRelationPopulationAuthority Population) Authorities(
+                ResolvedAssemblyReference caller,
+                MetadataTypeDefinitionName focusType,
+                object populationIdentity)
+    {
+        StructuralSubjectIdentity.WorkspaceSubject workspace =
+                StructuralSubjectTestData.Package(
+                    new(
+                        "compatibility.fixture",
+                        "1.0.0",
+                        "local",
+                        "net11.0",
+                        runtimeIdentifier: null))
+                    .Workspace;
+        return (
+                SubjectRelationFocusAuthority.ForAcquiredType(
+                    workspace,
+                    caller.Registration,
+                    caller.Identity,
+                    caller.Provenance,
+                    focusType),
+                SubjectRelationPopulationAuthority.Capture(
+                    workspace,
+                    populationIdentity));
+    }
 
     static string MemberFingerprint(
         AssemblyContextCallCensusMember member) =>
