@@ -73,6 +73,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
         var scopeExcludedOpportunityTokens =
             new HashSet<int>();
         var declaredSources = new Dictionary<int, MethodIdentity>();
+        var declaredSourceSuppressedMethodTokens =
+            new HashSet<int>();
         var implementationMetrics =
             ImmutableArray
                 .CreateBuilder<MethodImplementationMetricEvidence>();
@@ -274,7 +276,14 @@ internal sealed class LibraryBodyAnalysisAccumulator
             if (r.Diagnostic is not null)
                 diagnostics.Add(r.Diagnostic);
             if (r.DeclaredSource is { } declaredSource)
+            {
                 declaredSources[r.Token] = declaredSource;
+                if (r.DeclaredSourceSuppressesOpportunities)
+                {
+                    declaredSourceSuppressedMethodTokens.Add(
+                        r.Token);
+                }
+            }
         }
 
         var methodArray = methods.ToImmutable();
@@ -337,6 +346,8 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 NonHeapNewObjOperandTokens:
                     nonHeapNewObjOperandTokens,
                 DeclaredSources: declaredSources,
+                DeclaredSourceSuppressedMethodTokens:
+                    declaredSourceSuppressedMethodTokens,
                 LocalThrows: localThrows.ToImmutable()),
             Safety: new(
                 Evidence: unsafeEvidence.ToImmutable(),

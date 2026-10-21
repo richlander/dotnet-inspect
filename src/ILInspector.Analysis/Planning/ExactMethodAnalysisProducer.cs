@@ -15,7 +15,20 @@ public sealed record ExactMethodAnalysisBody(
     ImmutableArray<UnsafetyOccurrence> UnsafeOccurrences,
     ImmutableArray<MethodExceptionRegionInfo> ExceptionRegions,
     string? ExceptionRegionError,
-    ImmutableArray<AnalysisDiagnostic> Diagnostics);
+    ImmutableArray<AnalysisDiagnostic> Diagnostics)
+{
+    public MethodIdentity? DeclaredOwner { get; init; }
+
+    public bool DeclaredOwnerSuppressesOpportunities { get; init; }
+
+    internal MethodBodyAnalysisContext? Context { get; init; }
+
+    internal MethodCallSites? CallSites { get; init; }
+
+    internal IReadOnlyDictionary<int, CallerUnsafeMode> TargetModes
+        { get; init; } =
+            new Dictionary<int, CallerUnsafeMode>();
+}
 
 public sealed record ExactMethodAnalysisProducerResult(
     ImmutableArray<ExactMethodAnalysisBody> Bodies);
@@ -39,7 +52,9 @@ public sealed class ExactMethodAnalysisProducer :
             tier: 0,
             MethodDefinitionLayers.SemanticIdentity
                 | MethodDefinitionLayers.MemorySafetyContracts
-                | MethodDefinitionLayers.Calls)
+                | MethodDefinitionLayers.Calls
+                | MethodDefinitionLayers.LocalSignature
+                | MethodDefinitionLayers.MethodAnalysis)
     {
     }
 
@@ -78,6 +93,17 @@ public sealed class ExactMethodAnalysisProducer :
                 ToCallerUnsafeMode(
                     view.GetMemorySafetyMethodContract(
                         MetadataTokens.MethodDefinitionHandle(token))));
+        ExactMethodDeclaredSource declaredSource =
+            view.ResolveDeclaredSource(method);
+        if (!declaredSource.IsAuthenticated)
+        {
+            diagnostics.Add(
+                new(
+                    token,
+                    MethodLabel(method),
+                    declaredSource.Failure
+                        ?? "Declared owner resolution failed."));
+        }
 
         ImmutableArray<UnsafeEvidence>.Builder safety =
             ImmutableArray.CreateBuilder<UnsafeEvidence>();
@@ -88,6 +114,7 @@ public sealed class ExactMethodAnalysisProducer :
             MethodSafetyAnalysis.InspectDeclaration(
                 method,
                 safety);
+        MethodBodyAnalysisContext? context = null;
 
         if (!view.HasManagedBody)
         {
@@ -104,7 +131,7 @@ public sealed class ExactMethodAnalysisProducer :
             MethodInstructions instructions =
                 view.MaterializeInstructions(out MethodBodyData bodyData);
             MethodLocalSignature localSignature = view.GetLocalSignature();
-            MethodBodyAnalysisContext context =
+            context =
                 MethodBodyAnalysisContext.Create(
                     method,
                     bodyData,
@@ -123,28 +150,17 @@ public sealed class ExactMethodAnalysisProducer :
             (exceptionRegions, exceptionRegionError) =
                 ProjectExceptionRegions(
                     bodyData.ExceptionRegionCatalog);
-            MethodCallSites callSites;
-            try
+            MethodCallSites callSites =
+                view.GetCallsRetainingPrefix(instructions);
+            if (callSites.Failure is { } callFailure)
             {
-                callSites = view.GetCalls(instructions);
-            }
-            catch (Exception ex)
-                when (LibraryMethodAnalysisRunner
-                    .IsRecoverableMethodFailure(ex))
-            {
-                CollectOperationSafety(
-                    method,
-                    instructions,
-                    includeIndirectOperations,
-                    safety);
-                MethodCallRecoveryResolver recovery =
-                    view.GetCallRecoveryResolver();
-                unsafeOccurrences =
-                    MethodSafetyAnalysis.CollectOccurrences(
-                        context,
-                        recovery.CalliReturnDetail,
-                        recovery.ResolveMember);
-                throw;
+                diagnostics.Add(
+                    new(
+                        token,
+                        MethodLabel(method),
+                        "Call analysis stopped at "
+                            + $"IL_{callFailure.ILOffset:x4}: "
+                            + callFailure.Message));
             }
             var resolver = new OwnerIssuedCallResolver(callSites);
             Dictionary<int, CallerUnsafeMode> targetModes =
@@ -202,7 +218,6 @@ public sealed class ExactMethodAnalysisProducer :
                     context,
                     resolver.CalliReturnDetail,
                     resolver.ResolveMember);
-
             return new(
                 token,
                 method,
@@ -211,7 +226,16 @@ public sealed class ExactMethodAnalysisProducer :
                 unsafeOccurrences,
                 exceptionRegions,
                 exceptionRegionError,
-                diagnostics.ToImmutable());
+                diagnostics.ToImmutable())
+            {
+                Context = context,
+                CallSites = callSites,
+                TargetModes = targetModes,
+                DeclaredOwner = declaredSource.Owner,
+                DeclaredOwnerSuppressesOpportunities =
+                    declaredSource
+                        .SuppressesOpportunities,
+            };
         }
         catch (Exception ex)
             when (ex
@@ -233,27 +257,14 @@ public sealed class ExactMethodAnalysisProducer :
                 unsafeOccurrences,
                 exceptionRegions,
                 exceptionRegionError,
-                diagnostics.ToImmutable());
-        }
-    }
-
-    static void CollectOperationSafety(
-        MethodIdentity method,
-        MethodInstructions instructions,
-        bool includeIndirectOperations,
-        ImmutableArray<UnsafeEvidence>.Builder safety)
-    {
-        foreach (DecodedInstruction instruction in instructions.Instructions)
-        {
-            if (MethodSafetyAnalysis.InspectOperation(
-                    method,
-                    instruction.OpCode,
-                    instruction.Offset,
-                    includeIndirectOperations)
-                is { } operationEvidence)
+                diagnostics.ToImmutable())
             {
-                safety.Add(operationEvidence);
-            }
+                Context = context,
+                DeclaredOwner = declaredSource.Owner,
+                DeclaredOwnerSuppressesOpportunities =
+                    declaredSource
+                        .SuppressesOpportunities,
+            };
         }
     }
 
@@ -373,7 +384,7 @@ public sealed class ExactMethodAnalysisProducer :
                 "Unsupported exception region kind."),
         };
 
-    static MethodIdentity ToMethodIdentity(
+    internal static MethodIdentity ToMethodIdentity(
         MethodSemanticIdentityResult semanticIdentity,
         CallerUnsafeMode callerUnsafeMode) =>
         semanticIdentity switch
@@ -386,7 +397,7 @@ public sealed class ExactMethodAnalysisProducer :
                 "Malformed semantic identity has no MethodIdentity."),
         };
 
-    static CallerUnsafeMode ToCallerUnsafeMode(
+    internal static CallerUnsafeMode ToCallerUnsafeMode(
         MemorySafetyMethodContract contract) =>
         CallerUnsafeModeFacts.FromContract(contract.Contract);
 
@@ -405,10 +416,95 @@ public sealed class ExactMethodAnalysisProducer :
             ExceptionRegionError: null,
             diagnostics.ToImmutable());
 
-    static string MethodLabel(MethodIdentity method) =>
+    internal static string MethodLabel(MethodIdentity method) =>
         $"{method.DeclaringType}.{method.Name}";
 
-    sealed class OwnerIssuedCallResolver(MethodCallSites callSites)
+    internal static ImmutableArray<DirectCall>
+        CollectDirectCalls(
+            ExactMethodAnalysisBody method,
+            MethodAllocationFacts? facts,
+            out IReadOnlyDictionary<
+                int,
+                CallReceiverSource> receiverSources)
+    {
+        receiverSources =
+            new Dictionary<int, CallReceiverSource>();
+        if (method.Context is not { } context
+            || method.CallSites is not { } callSites)
+        {
+            return [];
+        }
+
+        var calls =
+            ImmutableArray.CreateBuilder<DirectCall>();
+        var ignoredSafety =
+            ImmutableArray.CreateBuilder<UnsafeEvidence>();
+        var privateReceiverSources =
+            new Dictionary<int, CallReceiverSource>();
+        try
+        {
+            MethodCallAnalysis.Collect(
+                context,
+                new OwnerIssuedCallResolver(
+                    callSites,
+                    failOnUnknown: true),
+                offset =>
+                    facts?.MultiplicityAt(offset)
+                    ?? AllocationMultiplicity.Unknown,
+                calls,
+                ignoredSafety,
+                includeIndirectOpcodes: true,
+                includeCallValueFlow: false,
+                privateReceiverSources:
+                    privateReceiverSources);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+        }
+
+        Dictionary<int, MethodCallSite> sites =
+            callSites.Sites.ToDictionary(
+                static site => site.ILOffset);
+        MethodIdentity caller =
+            method.DeclaredOwner
+            ?? method.Method
+            ?? context.Method;
+        receiverSources = privateReceiverSources;
+        return
+        [
+            .. calls.Select(call =>
+            {
+                if (!sites.TryGetValue(
+                        call.ILOffset,
+                        out MethodCallSite? site))
+                {
+                    return call with
+                    {
+                        Caller = caller,
+                        EvidenceMethod = context.Method,
+                    };
+                }
+
+                return call with
+                {
+                    Caller = caller,
+                    EvidenceMethod = context.Method,
+                    TargetCallerUnsafeMode =
+                        method.TargetModes.TryGetValue(
+                            call.ILOffset,
+                            out CallerUnsafeMode targetMode)
+                            ? targetMode
+                            : null,
+                };
+            }),
+        ];
+    }
+
+    sealed class OwnerIssuedCallResolver(
+        MethodCallSites callSites,
+        bool failOnUnknown = false)
         : IMethodCallResolver
     {
         readonly Dictionary<int, MethodCallSite> _byOffset =
@@ -424,17 +520,18 @@ public sealed class ExactMethodAnalysisProducer :
         public MemberRef ResolveMember(int token) =>
             _byToken.TryGetValue(token, out MethodCallSite? site)
                 ? site.Callee
-                : MemberRef.Unsupported(
-                    $"Call operand 0x{token:x8} was not resolved.");
+                : failOnUnknown
+                    ? throw new BadImageFormatException(
+                        $"Call operand 0x{token:x8} was not resolved.")
+                    : MemberRef.Unsupported(
+                        $"Call operand 0x{token:x8} was not resolved.");
 
         public MemberRef ResolveIndirectCall(int signatureToken) =>
             ResolveMember(signatureToken);
 
         public int DefinitionToken(int operandToken) =>
             _byToken.TryGetValue(operandToken, out MethodCallSite? site)
-                && site.Target
-                    is MethodCallTarget.CurrentModule currentModule
-                ? MetadataTokens.GetToken(currentModule.Method)
+                ? site.DefinitionToken
                 : operandToken;
 
         public string? ResolveUserString(int token) => null;

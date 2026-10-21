@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 
 using ILInspector.Analysis;
 using ILInspector.Analysis.ClassicAsyncFixtures;
@@ -67,6 +68,199 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         Assert.Contains(
             result.OptimizationOpportunities,
             opportunity => opportunity.Shape == "box-value-type");
+    }
+
+    [Fact]
+    public async Task
+        MethodAnalysis_MatchesLegacyAllocationAndOptimizationPublication()
+    {
+        string path = typeof(MethodAnalysisProbe).Assembly.Location;
+        byte[] image = File.ReadAllBytes(path);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+
+        foreach (string methodName in new[]
+        {
+            nameof(MethodAnalysisProbe.Target),
+            nameof(MethodAnalysisProbe.StringConcatenation),
+            nameof(MethodAnalysisProbe.ObjectTypedStringBuilder),
+            nameof(MethodAnalysisProbe.CompilerGeneratedBox),
+            nameof(MethodAnalysisProbe.ExceptionAllocations),
+            nameof(MethodAnalysisProbe.NamedNonExceptionAllocations),
+        })
+        {
+            int token = typeof(MethodAnalysisProbe)
+                .GetMethod(methodName)!
+                .MetadataToken;
+            AssemblyMethodAnalysis actual = Assert.IsType<
+                AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                    AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                        group,
+                        Assert.Single(group.Participants),
+                        token,
+                        TestContext.Current.CancellationToken)).Value;
+            LibraryBodyAnalysisExecution legacy =
+                LibraryBodyAnalysisService.ExecutePath(
+                    path,
+                    LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures
+                            .OptimizationOpportunities,
+                        new HashSet<int> { token }));
+            try
+            {
+                Assert.Equal(
+                    legacy.CallGraph.DirectCalls.Where(
+                        call =>
+                            call.EvidenceMethod.MetadataToken
+                                == token),
+                    actual.DirectCalls);
+                MethodSignals expectedSignals =
+                    legacy.CallGraph.MethodSignals
+                        .GetValueOrDefault(token)
+                    ?? MethodSignals.None;
+                Assert.Equal(
+                    expectedSignals with
+                    {
+                        EvidenceOffsets = [],
+                        ExceptionTypeNames = [],
+                    },
+                    actual.Signals with
+                    {
+                        EvidenceOffsets = [],
+                        ExceptionTypeNames = [],
+                    });
+                Assert.Equal(
+                    expectedSignals.Evidence,
+                    actual.Signals.Evidence);
+                Assert.Equal(
+                    expectedSignals.ExceptionTypes,
+                    actual.Signals.ExceptionTypes);
+                ImmutableArray<AllocationOccurrence> expectedAllocations =
+                    legacy.Allocations.Occurrences
+                        .GetValueOrDefault(token);
+                Assert.Equal(
+                    expectedAllocations.IsDefault
+                        ? []
+                        : expectedAllocations,
+                    actual.Allocations);
+                Assert.Equal(
+                    legacy.Optimization.Opportunities.Where(
+                        opportunity =>
+                            (opportunity.EvidenceMethodToken
+                                ?? opportunity.Method.MetadataToken)
+                            == token),
+                    actual.OptimizationOpportunities);
+            }
+            finally
+            {
+                legacy.CallGraph.ReleaseCaches();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task
+        MethodAnalysis_MatchesLegacyLiftedOwnershipOpportunity()
+    {
+        string path = typeof(MethodAnalysisProbe).Assembly.Location;
+        byte[] image = File.ReadAllBytes(path);
+        MethodInfo lifted = typeof(MethodAnalysisProbe)
+            .GetMethods(
+                BindingFlags.Static
+                    | BindingFlags.NonPublic)
+            .Single(method => method.Name.Contains(
+                "<GenericObjectEqualsLocalFunction>g__EqualsCore|",
+                StringComparison.Ordinal));
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+
+        AssemblyMethodAnalysis actual = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    lifted.MetadataToken,
+                    TestContext.Current.CancellationToken)).Value;
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    new HashSet<int> { lifted.MetadataToken }));
+        try
+        {
+            OptimizationOpportunity expected = Assert.Single(
+                legacy.Optimization.Opportunities,
+                opportunity =>
+                    opportunity.Shape
+                        == "generic-parameter-object-box"
+                    && opportunity.Method.MetadataToken
+                        == lifted.MetadataToken);
+            Assert.Equal(
+                expected,
+                Assert.Single(
+                    actual.OptimizationOpportunities,
+                    opportunity =>
+                        opportunity.Shape
+                            == "generic-parameter-object-box"));
+        }
+        finally
+        {
+            legacy.CallGraph.ReleaseCaches();
+        }
+    }
+
+    [Fact]
+    public async Task
+        MethodAnalysis_SuppressesGeneratedLiftedOwnerLikeLegacy()
+    {
+        string path = typeof(MethodAnalysisProbe).Assembly.Location;
+        byte[] image = File.ReadAllBytes(path);
+        MethodInfo lifted = typeof(MethodAnalysisProbe)
+            .GetMethods(
+                BindingFlags.Static
+                    | BindingFlags.NonPublic)
+            .Single(method => method.Name.Contains(
+                "<GeneratedGenericObjectEqualsLocalFunction>"
+                    + "g__EqualsCore|",
+                StringComparison.Ordinal));
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+
+        AssemblyMethodAnalysis actual = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    lifted.MetadataToken,
+                    TestContext.Current.CancellationToken)).Value;
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures
+                        .OptimizationOpportunities,
+                    new HashSet<int> { lifted.MetadataToken }));
+        try
+        {
+            Assert.DoesNotContain(
+                legacy.Optimization.Opportunities,
+                opportunity =>
+                    opportunity.Shape
+                        == "generic-parameter-object-box"
+                    && opportunity.Method.MetadataToken
+                        == lifted.MetadataToken);
+            Assert.DoesNotContain(
+                actual.OptimizationOpportunities,
+                opportunity =>
+                    opportunity.Shape
+                        == "generic-parameter-object-box");
+        }
+        finally
+        {
+            legacy.CallGraph.ReleaseCaches();
+        }
     }
 
     [Fact]
@@ -174,6 +368,43 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
+    public async Task MethodAnalysis_UsesPhysicalCallerForGeneratedSignals()
+    {
+        byte[] image = File.ReadAllBytes(
+            typeof(MethodAnalysisProbe).Assembly.Location);
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = Group(workspace, image);
+        MethodInfo kickoff = typeof(MethodAnalysisProbe)
+            .GetMethod(nameof(MethodAnalysisProbe.CopyAfterYield))!;
+        MethodInfo moveNext = kickoff
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!;
+
+        AssemblyMethodAnalysis analysis = Assert.IsType<
+            AssemblyContextEntry<AssemblyMethodAnalysis>.Available>(
+                AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
+                    group,
+                    Assert.Single(group.Participants),
+                    moveNext.MetadataToken,
+                    TestContext.Current.CancellationToken)).Value;
+
+        Assert.Equal(1, analysis.Signals.Copies);
+        Assert.Contains(
+            analysis.DirectCalls,
+            call =>
+                call.Caller.MetadataToken
+                    == kickoff.MetadataToken
+                && call.EvidenceMethod.MetadataToken
+                    == moveNext.MetadataToken
+                && call.Callee.Name == nameof(Array.CopyTo));
+    }
+
+    [Fact]
     public async Task MethodAnalysis_PreservesDirectCallProvenance()
     {
         byte[] image = File.ReadAllBytes(
@@ -229,7 +460,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         int token = typeof(MethodAnalysisProbe)
             .GetMethod(nameof(MethodAnalysisProbe.RecoverableCallFailure))!
             .MetadataToken;
-        CorruptFirstCallOperandToField(image, token);
+        CorruptCallOperandToField(
+            image,
+            token,
+            callIndex: 2);
         await using var workspace = new InspectionWorkspace();
         using AssemblyContextGroup group = Group(workspace, image);
 
@@ -255,6 +489,14 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         Assert.Contains(
             result.UnsafeEvidence,
             evidence => evidence.Detail == "localloc");
+        Assert.Contains(
+            result.DirectCalls,
+            call => call.Callee.Name
+                == nameof(MethodAnalysisProbe.Neighbor));
+        Assert.Contains(
+            result.OptimizationOpportunities,
+            opportunity =>
+                opportunity.Shape == "box-value-type");
         Assert.Single(result.Diagnostics);
     }
 
@@ -346,58 +588,32 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
     }
 
     [Fact]
-    public async Task MethodAnalysis_CancellationDuringAnalysisPropagatesCallerToken()
+    public async Task MethodAnalysis_CancellationPropagatesCallerToken()
     {
         byte[] image = File.ReadAllBytes(
             typeof(MethodAnalysisProbe).Assembly.Location);
         await using var workspace = new InspectionWorkspace();
-        using var entered = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
-        var policy = new AnalysisCancellationBindingPolicy(
-            entered,
-            release);
-        using AssemblyContextGroup group = Group(
-            workspace,
-            image,
-            policy);
-        policy.Arm();
+        using AssemblyContextGroup group = Group(workspace, image);
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
         int token = typeof(MethodAnalysisProbe)
             .GetMethod(nameof(MethodAnalysisProbe.Target))!
             .MetadataToken;
+        cancellation.Cancel();
 
-        Task<AssemblyContextEntry<AssemblyMethodAnalysis>> operation =
-            Task.Run(() =>
 #pragma warning disable xUnit1051 // The linked caller token is the contract under test.
+        OperationCanceledException error =
+            Assert.Throws<OperationCanceledException>(() =>
                 AssemblyContextMethodAnalysisQuery.ExecuteParticipant(
                     group,
                     Assert.Single(group.Participants),
                     token,
                     cancellation.Token));
 #pragma warning restore xUnit1051
-        try
-        {
-            Assert.True(
-                entered.Wait(
-                    TimeSpan.FromSeconds(30),
-                    TestContext.Current.CancellationToken),
-                "Analysis did not reach binding-policy resolution.");
-            cancellation.Cancel();
-            release.Set();
-
-            OperationCanceledException error =
-                await Assert.ThrowsAsync<OperationCanceledException>(
-                    async () => await operation);
-            Assert.Equal(
-                cancellation.Token,
-                error.CancellationToken);
-        }
-        finally
-        {
-            release.Set();
-        }
+        Assert.Equal(
+            cancellation.Token,
+            error.CancellationToken);
     }
 
     static AssemblyContextGroup Group(
@@ -424,9 +640,10 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         return workspace.CreateAssemblyContextGroup([participant]);
     }
 
-    static void CorruptFirstCallOperandToField(
+    static void CorruptCallOperandToField(
         byte[] image,
-        int methodToken)
+        int methodToken,
+        int callIndex)
     {
         using var stream = new MemoryStream(image, writable: false);
         using var pe = new PEReader(stream);
@@ -441,8 +658,9 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
         DecodedInstruction call =
             InstructionDecoder
                 .Decode(body.GetILBytes()!)
-                .First(static instruction =>
-                    instruction.OpCode == ILOpCode.Call);
+                .Where(static instruction =>
+                    instruction.OpCode == ILOpCode.Call)
+                .ElementAt(callIndex);
         int bodyOffset = RvaToFileOffset(
             pe.PEHeaders,
             definition.RelativeVirtualAddress);
@@ -452,13 +670,12 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                     image.AsSpan(bodyOffset, sizeof(ushort)))
                 >> 12)
                 & 0xF) * sizeof(uint);
-        int fieldToken = MetadataTokens.GetToken(
-            reader.FieldDefinitions.First());
         BinaryPrimitives.WriteInt32LittleEndian(
             image.AsSpan(
                 bodyOffset + headerSize + call.OperandOffset,
                 sizeof(int)),
-            fieldToken);
+            MetadataTokens.GetToken(
+                reader.FieldDefinitions.First()));
     }
 
     static int RvaToFileOffset(PEHeaders headers, int rva)
@@ -472,44 +689,6 @@ public sealed class AssemblyContextMethodAnalysisQueryTests
                         header.SizeOfRawData));
         return checked(
             rva - section.VirtualAddress + section.PointerToRawData);
-    }
-
-    sealed class AnalysisCancellationBindingPolicy(
-        ManualResetEventSlim entered,
-        ManualResetEventSlim release) : IAssemblyBindingPolicy
-    {
-        readonly AssemblyBindingPolicyVersion _version = new();
-        int _armed;
-        int _observed;
-
-        public AssemblyBindingPolicyVersion Version
-        {
-            get
-            {
-                if (Volatile.Read(ref _armed) != 0
-                    && Interlocked.Exchange(ref _observed, 1) == 0)
-                {
-                    entered.Set();
-                    if (!release.Wait(TimeSpan.FromSeconds(30)))
-                    {
-                        throw new TimeoutException(
-                            "The Analysis cancellation probe was not released.");
-                    }
-                }
-
-                return _version;
-            }
-        }
-
-        public void Arm() => Volatile.Write(ref _armed, 1);
-
-        public AssemblyBindingSelectionSnapshot Select(
-            AssemblyBindingRequest request) =>
-            new(
-                _version,
-                AssemblyBindingSelection.CannotSelect(
-                    new AssemblyBindingFailure(
-                        AssemblyBindingFailureKind.CandidateUnavailable)));
     }
 
     sealed class MissingBindingPolicy : IAssemblyBindingPolicy
@@ -553,6 +732,14 @@ public static class MethodAnalysisProbe
 
     public static int Neighbor(int value) => value + 1;
 
+    public static async Task CopyAfterYield(
+        object[] source,
+        object[] destination)
+    {
+        await Task.Yield();
+        source.CopyTo(destination, 0);
+    }
+
     public static int StackAllocate(int value)
     {
         Span<int> values = stackalloc int[1];
@@ -568,11 +755,100 @@ public static class MethodAnalysisProbe
 
     public static int[] ExternalGenericCall() => Array.Empty<int>();
 
+    public static string StringConcatenation(
+        string first,
+        string second) =>
+        string.Concat(first, second);
+
+    public static string ObjectTypedStringBuilder(
+        StringBuilder builder)
+    {
+        object value = builder;
+        return value.ToString()!;
+    }
+
+    [CompilerGenerated]
+    public static object CompilerGeneratedBox(int value) => value;
+
+    public static bool GenericObjectEqualsLocalFunction<T>(
+        T left,
+        T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode(
+        "dotnet-inspect-tests",
+        "1.0")]
+    public static bool
+        GeneratedGenericObjectEqualsLocalFunction<T>(
+            T left,
+            T right)
+    {
+        return EqualsCore(left, right);
+
+        static bool EqualsCore(T x, T y) => x!.Equals(y);
+    }
+
+    public static void ExceptionAllocations(
+        int count,
+        List<Exception> sink)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+            sink.Add(new MethodAnalysisException());
+        }
+    }
+
+    public static void NamedNonExceptionAllocations(
+        int count,
+        List<object> sink)
+    {
+        for (int index = 0; index < count; index++)
+        {
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+            sink.Add(new MethodAnalysisPayloadException());
+        }
+    }
+
     public static int RecoverableCallFailure(int value)
     {
         try
         {
             Span<int> values = stackalloc int[1];
+            _value = value;
+            value = Neighbor(value);
             values[0] = Neighbor(value);
             return values[0];
         }
@@ -581,6 +857,15 @@ public static class MethodAnalysisProbe
             return -1;
         }
     }
+
+}
+
+public sealed class MethodAnalysisException : Exception
+{
+}
+
+public sealed class MethodAnalysisPayloadException
+{
 }
 
 public interface IMethodAnalysisProbe

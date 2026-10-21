@@ -1023,23 +1023,34 @@ It accepts one group participant and physical MethodDef token and first runs
 one exact Method Query Source operation over the participant's retained
 snapshot. That focused operation supplies the matching method identity,
 physical call sites and same-image caller contracts for call-safety evidence,
-unsafe evidence and occurrences, diagnostics, and detached exception regions.
-One scoped legacy execution still supplies public direct-call rows, final
-signals, allocations, and optimization opportunities until their complete
-semantic inputs move. Invalid and bodyless tokens are typed participant
-failures rather than empty success. The query does not aggregate a source
-method with async or lifted implementation bodies; callers select each exact
-physical body explicitly. The query releases retained legacy call-graph caches
-before returning, and group execution remains sequential for Browser/Wasm.
+unsafe evidence and occurrences, diagnostics, detached exception regions,
+exact allocation occurrences, and intrinsic optimization opportunities.
+Allocation owns the operation's one canonical context and allocation-facts
+instance; optimization consumes that same-unit fact. Existing final
+opportunity enrichment combines those focused rows with one scoped legacy
+`MethodEvidence` execution, which still supplies public direct-call rows and
+final signals plus the declared-owner suppression and in-module exception
+classification required by final opportunity publication. The donor's
+allocation, string-materialization, and optimization stages do not participate.
+Invalid and bodyless tokens are typed participant failures rather than empty
+success. A recoverable allocation-operand failure preserves prior allocation
+and optimization evidence and publishes the stopping operation as a
+diagnostic. The query does not aggregate a source method with async or lifted
+implementation bodies; callers select each exact physical body explicitly.
+The query releases retained legacy call-graph caches before returning, and
+group execution remains sequential for Browser/Wasm.
 `AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
 allocation/call/exception/opportunity evidence, visible invalid and bodyless
 failures, preservation of independent safety and exception evidence after a
 recoverable Calls failure, one public diagnostic for that failure, and
 unbounded query cost.
-`ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` additionally
-gates exact breadth, one physical body, declared source capabilities, no
-unrelated module lookup, and focused identity, safety, diagnostics, and
-exception-region parity with the retained donor facts.
+`ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` and
+`MethodQuerySource_ExactOptimizationSharesAllocationContextAndFacts`
+additionally gate exact breadth, one physical body and retained instruction
+source, declared source capabilities, no unrelated module lookup, shared
+context and allocation facts, and focused identity, safety, allocation,
+optimization, diagnostic, and exception-region parity with the retained donor
+facts.
 
 `AssemblyContextImplementationProfilesQuery` is the participant-scoped
 whole-assembly implementation-profile seam. It borrows one selected

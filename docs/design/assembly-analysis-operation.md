@@ -435,6 +435,7 @@ Exact-member work is split across focused owners:
 | Receipted memory-safety contract and accessor association support | [#9831](https://github.com/richlander/dotnet-inspect/issues/9831) |
 | Declared-source relation over all-definition and exact-type breadth | [#9864](https://github.com/richlander/dotnet-inspect/issues/9864) |
 | Method Query Source operand and signature resolution (Calls layer) | [#9868](https://github.com/richlander/dotnet-inspect/issues/9868) |
+| Exact local-signature, calls, signals, allocation, and optimization ownership | [#10285](https://github.com/richlander/dotnet-inspect/issues/10285) |
 | Public root inventory and reference-assembly status as execution capabilities | [#9865](https://github.com/richlander/dotnet-inspect/issues/9865) |
 | First exact-member consumer adoption | [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) |
 
@@ -446,12 +447,31 @@ successful empty evidence.
 
 [#9832](https://github.com/richlander/dotnet-inspect/issues/9832) adopts those
 prerequisites for `AssemblyContextMethodAnalysisQuery` through
-`ExactMethodAnalysisProducer`. The exact MethodDef source now supplies
-semantic identity, direct calls and same-module caller contracts, local and
-operation safety evidence, unsafe occurrences, diagnostics, and physical
-exception regions from one detached body. Allocations, optimization
-opportunities, and final `MethodSignals` composition remain explicitly on the
-old boundary in this mixed slice. The unsafe member census
+`ExactMethodAnalysisProducer`. [#10285](https://github.com/richlander/dotnet-inspect/issues/10285)
+adds `ExactMethodAllocationProducer` and
+`ExactMethodOptimizationProducer`; the latter consumes the former's same-unit
+canonical context and allocation facts. One composed exact source operation
+now supplies semantic identity, call-safety evidence, local and operation
+safety evidence, unsafe occurrences, exception regions, allocations, and
+intrinsic optimization opportunities. The same operation publishes complete
+direct-call provenance and final `MethodSignals`, retains a successfully
+resolved call prefix after a later recoverable operand failure, and applies
+final opportunity enrichment directly to the exact evidence. When the
+selected physical body differs from its declared member, receipted exact
+method-analysis support authenticates the ultimate declared owner without
+expanding terminal breadth or building a module-wide lifted-method census. Its
+finite owner-type candidates, closure relationships, and attribution IL probes
+are reported separately in the support receipt. Declared-owner identity reuses
+the execution's receipted memory-safety contract index. Local allocation
+exception classification follows only the operand's definition and bounded
+base chain, with those rows and any TypeSpec bytes reported in the same support
+receipt. Exact optimization suppression also uses that support; method and
+enclosing-type attribute rows, enclosing TypeDef rows, and bounded
+declaring-type relationships remain visible when suppression returns before
+intrinsic opportunity collection. Caller attribution and generated-owner
+suppression consume the authenticated owner result.
+`AssemblyContextMethodAnalysisQuery` no longer invokes
+`LibraryBodyAnalysisService`. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
@@ -586,15 +606,16 @@ The exact-member successors own their evidence:
 
 `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` proves that the
 focused producer selects and acquires one requested MethodDef body, declares
-semantic identity, memory-safety contracts, and Calls support, performs no
-module lookup, and preserves the legacy identity, safety, diagnostic, and
-exception-region facts. `AssemblyContextMethodAnalysisQueryTests` gate the
-real mixed consumer while public direct-call rows, signals, allocations, and
-optimization remain on `LibraryBodyAnalysisService`; Calls support serves
-focused call-safety evidence until complete direct-call provenance has
-owner-issued capabilities. The focused producer preserves independent
-exception-region, operation-safety, and safety-occurrence evidence when
-whole-body Calls decoding fails recoverably.
+semantic identity, memory-safety contracts, Calls, and local-signature support,
+performs no module lookup, and preserves the legacy identity, safety,
+diagnostic, and exception-region facts. The exact optimization gate proves
+that calls, local signatures, allocation, and optimization share one physical
+body and one canonical context. `AssemblyContextMethodAnalysisQueryTests` gate
+complete direct-call provenance, final signals, declared-owner attribution,
+generated-owner suppression, and exact publication parity without an LBA
+donor. The focused producers preserve the resolved direct-call prefix and
+independent exception-region, operation-safety, allocation, and
+safety-occurrence evidence when a later call operand fails recoverably.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
