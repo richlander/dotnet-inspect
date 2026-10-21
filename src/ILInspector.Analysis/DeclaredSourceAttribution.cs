@@ -43,7 +43,12 @@ internal sealed class DeclaredSourceAttribution
             implementationMetricRecorder = null,
         MethodDefinitionGeneratedExpansionWork?
             generatedExpansionWork = null,
-        MethodAnalysisLookup? methodAnalysis = null)
+        MethodAnalysisLookup? methodAnalysis = null,
+        Action<TypeDefinitionHandle>?
+            sourceGeneratedTypeDefinitionRead = null,
+        Action? sourceGeneratedAttributeRead = null,
+        Action<TypeDefinitionHandle>?
+            sourceGeneratedRelationshipRead = null)
     {
         _reader = reader;
         MethodAnalysis =
@@ -69,7 +74,10 @@ internal sealed class DeclaredSourceAttribution
             new LibraryBodyGeneratedProvenanceClassifier(
                 reader,
                 PrimaryMetadataResolver.HasGeneratedCodeAttribute,
-                sourceGeneratedTypeClassified);
+                sourceGeneratedTypeClassified,
+                sourceGeneratedTypeDefinitionRead,
+                sourceGeneratedAttributeRead,
+                sourceGeneratedRelationshipRead);
         StateMachineSourceResolver =
             new StateMachineSourceResolver(
                 reader,

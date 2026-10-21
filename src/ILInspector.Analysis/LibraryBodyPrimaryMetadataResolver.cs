@@ -548,6 +548,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal bool HasGeneratedCodeAttribute(CustomAttributeHandleCollection attributes)
         => HasGeneratedCodeAttribute(_reader, attributes);
 
+    internal bool HasGeneratedCodeAttribute(
+        CustomAttributeHandleCollection attributes,
+        Action? attributeRead) =>
+        HasGeneratedCodeAttribute(
+            _reader,
+            attributes,
+            attributeRead);
+
     internal static bool HasGeneratedCodeAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,

@@ -127,6 +127,22 @@ public sealed class StateMachineSourceResolverCertificateTests
         subject.AssertReverse(kickoff, moveNext);
     }
 
+    [Fact]
+    public void ExactOrdinaryMethod_DoesNotBuildWholeModuleCertificate()
+    {
+        byte[] image = File.ReadAllBytes(FixturePath);
+        using var subject = new Subject(image);
+        TypeDefinitionHandle owner =
+            subject.FindType("StateMachineFixtures");
+        MethodDefinitionHandle method =
+            subject.FindMethod(
+                owner,
+                name => name
+                    == nameof(StateMachineFixtureMethods.Synchronous));
+
+        subject.AssertExactOrdinary(method);
+    }
+
     /// <summary>
     /// Renames every <c>#Strings</c> entry that ends in
     /// <c>SetStateMachine</c>. The state machines then have neither an
@@ -175,12 +191,16 @@ public sealed class StateMachineSourceResolverCertificateTests
                 FixturePath,
                 Reader,
                 _peReader,
+                stateMachineExecutionMethodsBuilt:
+                    () => CertificateBuilds++,
                 generatedExpansionWork:
                     new MethodDefinitionGeneratedExpansionWork(
                         MethodDefinitionGeneratedExpansionLimits.Default));
         }
 
         internal MetadataReader Reader { get; }
+
+        internal int CertificateBuilds { get; private set; }
 
         StateMachineSourceResolver Resolver =>
             _attribution.StateMachineSourceResolver;
@@ -287,6 +307,30 @@ public sealed class StateMachineSourceResolverCertificateTests
                 Reader.GetMethodDefinition(moveNext);
             MethodIdentity moveNextIdentity =
                 CreateIdentity(moveNext, moveNextDefinition);
+            int certificateBuildsBeforeExact =
+                CertificateBuilds;
+
+            var exactWork =
+                new MethodDefinitionGeneratedExpansionWork(
+                    MethodDefinitionGeneratedExpansionLimits.Default);
+            Assert.Equal(
+                AsyncSourceResolution.Resolved,
+                Resolver.ResolveExactSourceOwnership(
+                    moveNext,
+                    moveNextIdentity,
+                    moveNextDefinition,
+                    typeSourceGenerated: false,
+                    exactWork,
+                    out MethodIdentity? exactSource));
+            Assert.Equal(
+                MetadataTokens.GetToken(kickoff),
+                exactSource!.MetadataToken);
+            Assert.Equal(
+                certificateBuildsBeforeExact,
+                CertificateBuilds);
+            Assert.True(
+                exactWork.Build()
+                    .CandidateDefinitionsExamined.Count > 0);
 
             Assert.Equal(
                 AsyncSourceResolution.Resolved,
@@ -308,6 +352,33 @@ public sealed class StateMachineSourceResolverCertificateTests
                 MetadataTokens.GetToken(kickoff),
                 Resolver.ExecutionSourceMethodsByMoveNextToken()[
                     MetadataTokens.GetToken(moveNext)].MetadataToken);
+            Assert.Equal(1, CertificateBuilds);
+        }
+
+        internal void AssertExactOrdinary(
+            MethodDefinitionHandle method)
+        {
+            MethodDefinition definition =
+                Reader.GetMethodDefinition(method);
+            var work =
+                new MethodDefinitionGeneratedExpansionWork(
+                    MethodDefinitionGeneratedExpansionLimits.Default);
+
+            Assert.Equal(
+                AsyncSourceResolution.None,
+                Resolver.ResolveExactSourceOwnership(
+                    method,
+                    CreateIdentity(method, definition),
+                    definition,
+                    typeSourceGenerated: false,
+                    work,
+                    out MethodIdentity? source));
+            Assert.Null(source);
+            Assert.Equal(0, CertificateBuilds);
+            Assert.Equal(
+                0,
+                work.Build()
+                    .CandidateDefinitionsExamined.Count);
         }
 
         MethodIdentity CreateIdentity(
@@ -324,7 +395,7 @@ public sealed class StateMachineSourceResolverCertificateTests
                     definition));
         }
 
-        TypeDefinitionHandle FindType(string name) =>
+        internal TypeDefinitionHandle FindType(string name) =>
             Reader.TypeDefinitions.Single(handle =>
             {
                 TypeDefinition type = Reader.GetTypeDefinition(handle);
@@ -342,7 +413,7 @@ public sealed class StateMachineSourceResolverCertificateTests
                 handle => match(Reader.GetString(
                     Reader.GetTypeDefinition(handle).Name)));
 
-        MethodDefinitionHandle FindMethod(
+        internal MethodDefinitionHandle FindMethod(
             TypeDefinitionHandle owner,
             Func<string, bool> match) =>
             Reader.GetTypeDefinition(owner).GetMethods().Single(

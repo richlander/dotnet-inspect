@@ -157,7 +157,9 @@ internal sealed class DeclaredSourceResolver(
         bool typeSourceGenerated,
         out AuthenticatedSourceOwner? immediateOwner,
         out AuthenticatedSourceOwner? ultimateOwner,
-        bool exactAttribution = false)
+        bool exactAttribution = false,
+        MethodDefinitionGeneratedExpansionWork?
+            exactAttributionWork = null)
     {
         immediateOwner = null;
         LiftedSourceOwnerResolution liftedResolution =
@@ -198,11 +200,23 @@ internal sealed class DeclaredSourceResolver(
         }
 
         AsyncSourceResolution asyncResolution =
-            _stateMachineSourceResolver.ResolveSourceOwnership(
-                method,
-                methodDefinition,
-                typeSourceGenerated,
-                out MethodIdentity? asyncSource);
+            exactAttribution
+                ? _stateMachineSourceResolver
+                    .ResolveExactSourceOwnership(
+                        methodHandle,
+                        method,
+                        methodDefinition,
+                        typeSourceGenerated,
+                        exactAttributionWork
+                            ?? throw new InvalidOperationException(
+                                "Exact attribution requires generated "
+                                    + "expansion work."),
+                        out MethodIdentity? asyncSource)
+                : _stateMachineSourceResolver.ResolveSourceOwnership(
+                    method,
+                    methodDefinition,
+                    typeSourceGenerated,
+                    out asyncSource);
         if (asyncResolution == AsyncSourceResolution.Unresolved)
         {
             ultimateOwner = null;
