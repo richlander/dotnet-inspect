@@ -507,6 +507,21 @@ internal sealed class PackageSourceSettlementGeneration
         ArgumentNullException.ThrowIfNull(contract);
         CancellationToken cancellationToken = operationContext.CancellationToken;
         cancellationToken.ThrowIfCancellationRequested();
+        try
+        {
+            operationContext.ThrowIfExpired();
+        }
+        catch (NuGetOperationTimeoutException)
+        {
+            return Task.FromResult(
+                _candidateIssuer.CreateIncompleteVersionDiscovery(
+                    packageId,
+                    contract,
+                    [
+                        VersionDiscoveryOperationTimeoutFailure(
+                            operationContext),
+                    ]));
+        }
         PackageSourceAuthorization authorization =
             sourceAuthorization.AuthorizeSourcesFor(packageId);
         return DiscoverVersionsCoreAsync(

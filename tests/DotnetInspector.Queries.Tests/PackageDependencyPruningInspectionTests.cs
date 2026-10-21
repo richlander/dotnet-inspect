@@ -84,7 +84,8 @@ public sealed class PackageDependencyPruningInspectionTests
     public async Task
         ExecuteAsync_OperationDeadlineKeepsIncompletionTypedAndStopsLaterSubjects()
     {
-        PackageDependencyEvidenceRoot root = PackageRoot();
+        PackageDependencyEvidenceRoot root =
+            PackageRoot("[2.0.0,3.0.0)");
         PackageDependencyEvidenceDeclaration declaration =
             SelectedDeclaration(root);
         var authorization = new CountingAuthorization(
@@ -92,7 +93,7 @@ public sealed class PackageDependencyPruningInspectionTests
         await using PackageSourceSettlementLease source =
             PackageSourceSettlementService.IssueLease(
                 _ => throw new InvalidOperationException(
-                    "Timed-out pinned authorization does not create source clients."));
+                    "Timed-out ranged discovery does not create source clients."));
         using PackageSourceOperationLease operation =
             source.IssueOperationLease(
                 TestContext.Current.CancellationToken,
@@ -125,11 +126,11 @@ public sealed class PackageDependencyPruningInspectionTests
                     Assert.IsType<
                         PackageDependencyCandidateResult.Incomplete>(
                             unavailable.Candidate);
-                PackageDependencyCandidateIncomplete.PinnedAuthorization
+                PackageDependencyCandidateIncomplete.VersionDiscovery
                     evidence =
                         Assert.IsType<
                             PackageDependencyCandidateIncomplete
-                                .PinnedAuthorization>(
+                                .VersionDiscovery>(
                                     incomplete.Evidence);
                 Assert.Contains(
                     evidence.Failures,
@@ -174,10 +175,11 @@ public sealed class PackageDependencyPruningInspectionTests
         Assert.Equal(0, authorization.Calls);
     }
 
-    private static PackageDependencyEvidenceRoot PackageRoot()
+    private static PackageDependencyEvidenceRoot PackageRoot(
+        string version = "[2.0.0]")
     {
         byte[] bytes = Encoding.UTF8.GetBytes(
-            """
+            $$"""
             <package>
               <metadata>
                 <id>Example.Package</id>
@@ -187,7 +189,7 @@ public sealed class PackageDependencyPruningInspectionTests
                 <dependencies>
                   <group targetFramework="net11.0">
                     <dependency id="Example.Dependency"
-                                version="[2.0.0]" />
+                                version="{{version}}" />
                   </group>
                 </dependencies>
               </metadata>

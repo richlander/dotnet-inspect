@@ -1,15 +1,17 @@
 using System.Collections.Immutable;
+using System.ComponentModel;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json.Nodes;
 using DotnetInspector.Packages;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Ecosystems.Tests;
 
-public class EcosystemFindIndexTests
+public partial class EcosystemFindIndexTests
 {
     [Fact]
     public void Build_IsDeterministicAcrossSourceArrivalAndRoundTrips()
@@ -73,6 +75,8 @@ public class EcosystemFindIndexTests
         Assert.Equal(
             "Microsoft.Extensions.DependencyInjection.IServiceCollection",
             type.Type?.ToMetadataFullName());
+        Assert.False(type.TypeDiscoveryAttributes!.IsEditorBrowsableNever);
+        Assert.False(type.TypeDiscoveryAttributes.IsObsolete);
 
         EcosystemFindIndexSymbol[] members =
         [
@@ -87,9 +91,25 @@ public class EcosystemFindIndexTests
                 .Count());
         Assert.All(
             members,
-            symbol => Assert.Equal(
-                IntegrationConceptCatalog.DependencyInjection.Id.Value,
-                Assert.Single(symbol.Concepts).ConceptId));
+            symbol =>
+            {
+                Assert.Equal(
+                    IntegrationConceptCatalog.DependencyInjection.Id.Value,
+                    Assert.Single(symbol.Concepts).ConceptId);
+                Assert.False(string.IsNullOrWhiteSpace(
+                    symbol.Member!.DisplaySignature));
+                Assert.NotEqual(
+                    symbol.Member.Member.CanonicalSignature,
+                    symbol.Member.DisplaySignature);
+                Assert.Equal("method", symbol.Member.DisplayKind);
+                Assert.False(
+                    symbol.Member.DeclaringTypeDiscoveryAttributes
+                        .IsEditorBrowsableNever);
+                Assert.False(
+                    symbol.Member.DeclaringTypeDiscoveryAttributes
+                        .IsObsolete);
+                Assert.False(symbol.Member.IsEditorBrowsableNever);
+            });
     }
 
     [Fact]
@@ -252,13 +272,13 @@ public class EcosystemFindIndexTests
         {
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
-                    "{\"schemaVersion\":1,",
-                    "{\"schemaVersion\":1,\"schemaVersion\":1,",
+                    "{\"schemaVersion\":3,",
+                    "{\"schemaVersion\":3,\"schemaVersion\":3,",
                     StringComparison.Ordinal)),
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
-                    "{\"schemaVersion\":1,",
-                    "{\"unexpected\":true,\"schemaVersion\":1,",
+                    "{\"schemaVersion\":3,",
+                    "{\"unexpected\":true,\"schemaVersion\":3,",
                     StringComparison.Ordinal)),
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
@@ -276,7 +296,59 @@ public class EcosystemFindIndexTests
                         + IntegrationConceptCatalog.Revision.Number,
                     "\"integrationCatalogRevision\":999999",
                     StringComparison.Ordinal)),
+            bytes => RemoveFirstProperty(
+                bytes,
+                "typeDiscoveryAttributes"),
+            bytes => RemoveFirstProperty(
+                bytes,
+                "displayKind"),
+            bytes => RemoveFirstProperty(
+                bytes,
+                "displaySignature"),
+            bytes => RemoveFirstProperty(
+                bytes,
+                "declaringTypeDiscoveryAttributes"),
         };
+
+    private static byte[] RemoveFirstProperty(
+        byte[] document,
+        string propertyName)
+    {
+        JsonNode root = JsonNode.Parse(document)!;
+        Assert.True(RemoveFirstProperty(root, propertyName));
+        return Encoding.UTF8.GetBytes(root.ToJsonString());
+    }
+
+    private static bool RemoveFirstProperty(
+        JsonNode node,
+        string propertyName)
+    {
+        if (node is JsonObject value)
+        {
+            if (value.Remove(propertyName))
+                return true;
+            foreach ((_, JsonNode? child) in value)
+            {
+                if (child is not null
+                    && RemoveFirstProperty(child, propertyName))
+                {
+                    return true;
+                }
+            }
+        }
+        else if (node is JsonArray array)
+        {
+            foreach (JsonNode? child in array)
+            {
+                if (child is not null
+                    && RemoveFirstProperty(child, propertyName))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     private static EcosystemFindIndexBuildRequest Request(
         IReadOnlyList<EcosystemFindIndexSourceInput> sources,
@@ -373,9 +445,15 @@ public class EcosystemFindIndexTests
                 Guid.Parse("01234567-89ab-cdef-0123-456789abcdef")),
             signals);
 
-    private static IReadOnlyList<EcosystemIntegrationSignalInfo> ScanFixture()
+    private static IReadOnlyList<EcosystemIntegrationSignalInfo> ScanFixture(
+        bool hideType = false,
+        bool hideDeclaringType = false,
+        bool hideMethod = false)
     {
-        using MemoryStream stream = BuildFixtureAssembly();
+        using MemoryStream stream = BuildFixtureAssembly(
+            hideType,
+            hideDeclaringType,
+            hideMethod);
         using var session = AssemblyInspectionSession.OpenPrefetched(stream);
         var binding = EcosystemIntegrationScannerBinding.Create(Classify);
         return session.EcosystemIntegrations(binding);
@@ -401,7 +479,10 @@ public class EcosystemFindIndexTests
                 }),
         ];
 
-    private static MemoryStream BuildFixtureAssembly()
+    private static MemoryStream BuildFixtureAssembly(
+        bool hideType = false,
+        bool hideDeclaringType = false,
+        bool hideMethod = false)
     {
         var assemblyBuilder = new PersistedAssemblyBuilder(
             new AssemblyName("EcosystemFindIndexFixture")
@@ -411,10 +492,19 @@ public class EcosystemFindIndexTests
             typeof(object).Assembly);
         ModuleBuilder module =
             assemblyBuilder.DefineDynamicModule("EcosystemFindIndexFixture");
-        Type serviceCollection = module.DefineType(
-                "Microsoft.Extensions.DependencyInjection.IServiceCollection",
-                TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract)
-            .CreateType();
+        TypeBuilder serviceCollectionBuilder = module.DefineType(
+            "Microsoft.Extensions.DependencyInjection.IServiceCollection",
+            TypeAttributes.Public
+                | TypeAttributes.Interface
+                | TypeAttributes.Abstract);
+        if (hideType)
+        {
+            serviceCollectionBuilder.SetCustomAttribute(
+                EditorBrowsableNever());
+            serviceCollectionBuilder.SetCustomAttribute(
+                Obsolete());
+        }
+        Type serviceCollection = serviceCollectionBuilder.CreateType();
         TypeBuilder extensions = module.DefineType(
             "Microsoft.Extensions.DependencyInjection.TestServiceCollectionExtensions",
             TypeAttributes.Public
@@ -425,6 +515,11 @@ public class EcosystemFindIndexTests
             typeof(ExtensionAttribute).GetConstructor(Type.EmptyTypes)!,
             []);
         extensions.SetCustomAttribute(extensionAttribute);
+        if (hideDeclaringType)
+        {
+            extensions.SetCustomAttribute(EditorBrowsableNever());
+            extensions.SetCustomAttribute(Obsolete());
+        }
         AddExtension([serviceCollection]);
         AddExtension([serviceCollection, typeof(string)]);
         extensions.CreateType();
@@ -442,7 +537,20 @@ public class EcosystemFindIndexTests
                 typeof(void),
                 parameters);
             method.SetCustomAttribute(extensionAttribute);
+            if (hideMethod)
+                method.SetCustomAttribute(EditorBrowsableNever());
             method.GetILGenerator().Emit(OpCodes.Ret);
         }
+
+        static CustomAttributeBuilder EditorBrowsableNever() =>
+            new(
+                typeof(EditorBrowsableAttribute).GetConstructor(
+                    [typeof(EditorBrowsableState)])!,
+                [EditorBrowsableState.Never]);
+
+        static CustomAttributeBuilder Obsolete() =>
+            new(
+                typeof(ObsoleteAttribute).GetConstructor(Type.EmptyTypes)!,
+                []);
     }
 }
