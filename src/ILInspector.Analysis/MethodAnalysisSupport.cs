@@ -47,6 +47,16 @@ public sealed record MethodAnalysisSupportWork(
 
     public long LocalExceptionTypeSignatureBytes { get; init; }
 
+    public int OptimizationSuppressionQueries { get; init; }
+
+    public int OptimizationSuppressionMethodAttributeRows { get; init; }
+
+    public int OptimizationSuppressionTypeDefinitionRows { get; init; }
+
+    public int OptimizationSuppressionTypeAttributeRows { get; init; }
+
+    public int OptimizationSuppressionRelationshipNodes { get; init; }
+
     public static MethodAnalysisSupportWork Empty { get; } =
         new(0, 0, 0, 0, 0, 0, 0);
 
@@ -99,6 +109,21 @@ public sealed record MethodAnalysisSupportWork(
             LocalExceptionTypeSignatureBytes =
                 LocalExceptionTypeSignatureBytes
                 - before.LocalExceptionTypeSignatureBytes,
+            OptimizationSuppressionQueries =
+                OptimizationSuppressionQueries
+                - before.OptimizationSuppressionQueries,
+            OptimizationSuppressionMethodAttributeRows =
+                OptimizationSuppressionMethodAttributeRows
+                - before.OptimizationSuppressionMethodAttributeRows,
+            OptimizationSuppressionTypeDefinitionRows =
+                OptimizationSuppressionTypeDefinitionRows
+                - before.OptimizationSuppressionTypeDefinitionRows,
+            OptimizationSuppressionTypeAttributeRows =
+                OptimizationSuppressionTypeAttributeRows
+                - before.OptimizationSuppressionTypeAttributeRows,
+            OptimizationSuppressionRelationshipNodes =
+                OptimizationSuppressionRelationshipNodes
+                - before.OptimizationSuppressionRelationshipNodes,
         };
 
     public MethodAnalysisSupportWork Plus(MethodAnalysisSupportWork other) =>
@@ -154,6 +179,21 @@ public sealed record MethodAnalysisSupportWork(
             LocalExceptionTypeSignatureBytes =
                 checked(LocalExceptionTypeSignatureBytes
                     + other.LocalExceptionTypeSignatureBytes),
+            OptimizationSuppressionQueries =
+                checked(OptimizationSuppressionQueries
+                    + other.OptimizationSuppressionQueries),
+            OptimizationSuppressionMethodAttributeRows =
+                checked(OptimizationSuppressionMethodAttributeRows
+                    + other.OptimizationSuppressionMethodAttributeRows),
+            OptimizationSuppressionTypeDefinitionRows =
+                checked(OptimizationSuppressionTypeDefinitionRows
+                    + other.OptimizationSuppressionTypeDefinitionRows),
+            OptimizationSuppressionTypeAttributeRows =
+                checked(OptimizationSuppressionTypeAttributeRows
+                    + other.OptimizationSuppressionTypeAttributeRows),
+            OptimizationSuppressionRelationshipNodes =
+                checked(OptimizationSuppressionRelationshipNodes
+                    + other.OptimizationSuppressionRelationshipNodes),
         };
 }
 
@@ -209,6 +249,11 @@ internal sealed class MethodAnalysisLookup
     int _localExceptionTypeDefinitionRows;
     int _localExceptionTypeRelationshipNodes;
     long _localExceptionTypeSignatureBytes;
+    int _optimizationSuppressionQueries;
+    int _optimizationSuppressionMethodAttributeRows;
+    int _optimizationSuppressionTypeDefinitionRows;
+    int _optimizationSuppressionTypeAttributeRows;
+    int _optimizationSuppressionRelationshipNodes;
     readonly object _supportWorkGate = new();
     readonly MemorySafetyContractSupport? _memorySafety;
     readonly string _path;
@@ -376,6 +421,21 @@ internal sealed class MethodAnalysisLookup
                 LocalExceptionTypeSignatureBytes =
                     Interlocked.Read(
                         ref _localExceptionTypeSignatureBytes),
+                OptimizationSuppressionQueries =
+                    Volatile.Read(
+                        ref _optimizationSuppressionQueries),
+                OptimizationSuppressionMethodAttributeRows =
+                    Volatile.Read(
+                        ref _optimizationSuppressionMethodAttributeRows),
+                OptimizationSuppressionTypeDefinitionRows =
+                    Volatile.Read(
+                        ref _optimizationSuppressionTypeDefinitionRows),
+                OptimizationSuppressionTypeAttributeRows =
+                    Volatile.Read(
+                        ref _optimizationSuppressionTypeAttributeRows),
+                OptimizationSuppressionRelationshipNodes =
+                    Volatile.Read(
+                        ref _optimizationSuppressionRelationshipNodes),
             };
         }
     }
@@ -493,6 +553,59 @@ internal sealed class MethodAnalysisLookup
         };
     }
 
+    internal bool SuppressOptimizationOpportunities(
+        MethodDefinition methodDefinition,
+        TypeDefinitionHandle typeHandle,
+        MethodIdentity method)
+    {
+        Interlocked.Increment(
+            ref _optimizationSuppressionQueries);
+        CustomAttributeHandleCollection attributes =
+            methodDefinition.GetCustomAttributes();
+        if (LibraryBodyPrimaryMetadataResolver
+                .HasGeneratedCodeAttribute(
+                    _reader,
+                    attributes,
+                    RecordMethodSuppressionAttribute)
+            || !CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                    method.Name)
+                && LibraryBodyPrimaryMetadataResolver
+                    .HasCompilerGeneratedAttribute(
+                        _reader,
+                        attributes,
+                        RecordMethodSuppressionAttribute)
+            || LibraryMethodAnalysisRunner.IsBlazorRenderMethod(
+                method))
+        {
+            return true;
+        }
+
+        TypeDefinitionHandle current = typeHandle;
+        int remaining =
+            MetadataSafetyPolicy.MaxRelationshipNodes;
+        while (!current.IsNil && remaining-- > 0)
+        {
+            Interlocked.Increment(
+                ref _optimizationSuppressionTypeDefinitionRows);
+            TypeDefinition type =
+                _reader.GetTypeDefinition(current);
+            if (LibraryBodyPrimaryMetadataResolver
+                .HasGeneratedCodeAttribute(
+                    _reader,
+                    type.GetCustomAttributes(),
+                    RecordTypeSuppressionAttribute))
+            {
+                return true;
+            }
+
+            Interlocked.Increment(
+                ref _optimizationSuppressionRelationshipNodes);
+            current = type.GetDeclaringType();
+        }
+
+        return !current.IsNil;
+    }
+
     bool GenericParameterCanBeValueType(
         TypeRef genericParameter,
         MethodIdentity caller)
@@ -509,6 +622,14 @@ internal sealed class MethodAnalysisLookup
         return StableReceiverGetterClassifier.IsStableReceiverGetter(
             instruction);
     }
+
+    void RecordMethodSuppressionAttribute() =>
+        Interlocked.Increment(
+            ref _optimizationSuppressionMethodAttributeRows);
+
+    void RecordTypeSuppressionAttribute() =>
+        Interlocked.Increment(
+            ref _optimizationSuppressionTypeAttributeRows);
 }
 
 /// <summary>

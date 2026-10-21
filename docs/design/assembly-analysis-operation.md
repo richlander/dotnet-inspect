@@ -465,8 +465,11 @@ are reported separately in the support receipt. Declared-owner identity reuses
 the execution's receipted memory-safety contract index. Local allocation
 exception classification follows only the operand's definition and bounded
 base chain, with those rows and any TypeSpec bytes reported in the same support
-receipt. Caller attribution and generated-owner suppression consume that
-result.
+receipt. Exact optimization suppression also uses that support; method and
+enclosing-type attribute rows, enclosing TypeDef rows, and bounded
+declaring-type relationships remain visible when suppression returns before
+intrinsic opportunity collection. Caller attribution and generated-owner
+suppression consume the authenticated owner result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
 `LibraryBodyAnalysisService`. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as

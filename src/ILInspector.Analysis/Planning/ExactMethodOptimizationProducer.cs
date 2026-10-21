@@ -280,7 +280,7 @@ public sealed class ExactMethodOptimizationProducer :
         {
             return new(allocation, []);
         }
-        if (SuppressOpportunities(view, method))
+        if (view.SuppressOptimizationOpportunities(method))
         {
             return new(allocation, [])
             {
@@ -307,45 +307,6 @@ public sealed class ExactMethodOptimizationProducer :
             SuppressesDerivedOpportunities =
                 requiresDeclaredOwner,
         };
-    }
-
-    static bool SuppressOpportunities(
-        scoped MethodDefinitionView view,
-        MethodIdentity method)
-    {
-        MetadataReader reader = view.Reader;
-        CustomAttributeHandleCollection attributes =
-            view.MethodDefinition.GetCustomAttributes();
-        if (LibraryBodyPrimaryMetadataResolver
-                .HasGeneratedCodeAttribute(reader, attributes)
-            || !CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                    method.Name)
-                && LibraryBodyPrimaryMetadataResolver
-                    .HasCompilerGeneratedAttribute(reader, attributes)
-            || LibraryMethodAnalysisRunner.IsBlazorRenderMethod(
-                method))
-        {
-            return true;
-        }
-
-        TypeDefinitionHandle current = view.TypeHandle;
-        int remaining =
-            MetadataSafetyPolicy.MaxRelationshipNodes;
-        while (!current.IsNil && remaining-- > 0)
-        {
-            TypeDefinition type = reader.GetTypeDefinition(current);
-            if (LibraryBodyPrimaryMetadataResolver
-                .HasGeneratedCodeAttribute(
-                    reader,
-                    type.GetCustomAttributes()))
-            {
-                return true;
-            }
-
-            current = type.GetDeclaringType();
-        }
-
-        return !current.IsNil;
     }
 
     internal override ImmutableArray<ExactMethodOptimizationBody>.Builder

@@ -841,7 +841,9 @@ the number and exact MethodDefs of scoped queries, and
 - TypeDef rows scanned for async-state-machine classification;
 - declared-source contract construction and query work; and
 - local-exception queries, targeted TypeDef and relationship rows, and
-  TypeSpec signature bytes.
+  TypeSpec signature bytes; and
+- optimization-suppression queries, method and enclosing-type attribute rows,
+  enclosing TypeDef rows, and declaring-type relationships.
 
 Construction is lazy. Declaring but not querying the support constructs
 nothing. Disposing the query scope records all support work performed by the
@@ -871,7 +873,11 @@ suppression, and exception classification. Public direct calls and final
 no Library Body Analysis donor. A recoverable allocation-operand failure
 retains the classified prefix and publishes its exact stopping offset and
 operation; optimization consumes that same partial fact rather than rebuilding
-or replacing it with successful-empty evidence.
+or replacing it with successful-empty evidence. Optimization suppression uses
+the same method-analysis support rather than reading metadata from the visit:
+method and enclosing-type generated-code attributes, bounded enclosing TypeDefs,
+and declaring-type relationships are separately reported even when suppression
+returns before intrinsic opportunity collection.
 Its performance case is
 `System.Text.Json@10.0.0`
 `System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose

@@ -517,12 +517,23 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         => CallerUnsafeModeFacts.FromContract(contract);
 
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
-        => HasAttributeNamed(_reader, attributes, simpleName, namespaces);
+        => HasAttributeNamed(
+            _reader,
+            attributes,
+            simpleName,
+            attributeRead: null,
+            namespaces);
 
-    static bool HasAttributeNamed(MetadataReader reader, CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
+    static bool HasAttributeNamed(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        string simpleName,
+        Action? attributeRead,
+        params string[] namespaces)
     {
         foreach (var handle in attributes)
         {
+            attributeRead?.Invoke();
             var (ns, name) = AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor);
             if (name == simpleName && (namespaces.Length == 0 || Array.IndexOf(namespaces, ns) >= 0))
                 return true;
@@ -539,11 +550,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
 
     internal static bool HasGeneratedCodeAttribute(
         MetadataReader reader,
-        CustomAttributeHandleCollection attributes) =>
+        CustomAttributeHandleCollection attributes,
+        Action? attributeRead = null) =>
         HasAttributeNamed(
             reader,
             attributes,
             "GeneratedCodeAttribute",
+            attributeRead,
             "System.CodeDom.Compiler");
 
     // True when the method is marked [System.Runtime.CompilerServices.CompilerGenerated]
@@ -554,8 +567,16 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
         => HasCompilerGeneratedAttribute(_reader, attributes);
 
-    internal static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
-        => HasAttributeNamed(reader, attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
+    internal static bool HasCompilerGeneratedAttribute(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action? attributeRead = null)
+        => HasAttributeNamed(
+            reader,
+            attributes,
+            "CompilerGeneratedAttribute",
+            attributeRead,
+            "System.Runtime.CompilerServices");
 
     internal bool IsCompilerGeneratedTypeOrEnclosing(
         TypeDefinitionHandle handle)

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.CodeDom.Compiler;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -252,11 +253,15 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(1, coverage.Calls.CallReads);
         Assert.Equal(1, coverage.Calls.LocalSignatureReads);
         Assert.True(coverage.CallTargets.Constructed);
-        Assert.Equal(3, coverage.MethodAnalysis.Queries);
+        Assert.Equal(4, coverage.MethodAnalysis.Queries);
         Assert.Equal(
             1,
             coverage.MethodAnalysis.QueryWork
                 .DeclaredSourceQueries);
+        Assert.Equal(
+            1,
+            coverage.MethodAnalysis.QueryWork
+                .OptimizationSuppressionQueries);
 
         ProducerParticipation allocation =
             request.WorkReceipt.For(
@@ -293,6 +298,53 @@ public sealed partial class MethodDefinitionRequestSetTests
                 == new ProducerLayerParticipation(
                     nameof(MethodDefinitionLayers.MethodAnalysis),
                     1));
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_ReceiptsMethodOptimizationSuppression()
+    {
+        (ExactMethodOptimizationBody actual, MethodAnalysisSupportWork work) =
+            ExecuteExactOptimization(
+                typeof(MethodAnalysisSupportFixture)
+                    .GetMethod(
+                        nameof(MethodAnalysisSupportFixture
+                            .GeneratedMethodSuppression))!);
+
+        Assert.True(actual.SuppressesDerivedOpportunities);
+        Assert.Equal(1, work.OptimizationSuppressionQueries);
+        Assert.True(
+            work.OptimizationSuppressionMethodAttributeRows > 0);
+        Assert.Equal(
+            0,
+            work.OptimizationSuppressionTypeDefinitionRows);
+        Assert.Equal(
+            0,
+            work.OptimizationSuppressionTypeAttributeRows);
+        Assert.Equal(
+            0,
+            work.OptimizationSuppressionRelationshipNodes);
+    }
+
+    [Fact]
+    public void
+        MethodQuerySource_ReceiptsEnclosingTypeOptimizationSuppression()
+    {
+        (ExactMethodOptimizationBody actual, MethodAnalysisSupportWork work) =
+            ExecuteExactOptimization(
+                typeof(MethodAnalysisGeneratedContainer.Nested)
+                    .GetMethod(
+                        nameof(MethodAnalysisGeneratedContainer
+                            .Nested.Target))!);
+
+        Assert.True(actual.SuppressesDerivedOpportunities);
+        Assert.Equal(1, work.OptimizationSuppressionQueries);
+        Assert.True(
+            work.OptimizationSuppressionTypeDefinitionRows >= 2);
+        Assert.True(
+            work.OptimizationSuppressionTypeAttributeRows > 0);
+        Assert.True(
+            work.OptimizationSuppressionRelationshipNodes > 0);
     }
 
     [Fact]
@@ -352,6 +404,39 @@ public sealed partial class MethodDefinitionRequestSetTests
             reader.TypeDefinitions.Count,
             coverage.MemorySafetyContracts
                 .ConstructionWork.IntegrityTypeDefRows);
+    }
+
+    static (
+        ExactMethodOptimizationBody Body,
+        MethodAnalysisSupportWork Work)
+        ExecuteExactOptimization(MethodInfo target)
+    {
+        string path = target.DeclaringType!.Assembly.Location;
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(
+                target.MetadataToken & 0x00FF_FFFF);
+        MethodDefinitionSourceAssociation exact =
+            Association(
+                ExactMethodOptimizationProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method),
+                new(
+                    maximumBodies: 1,
+                    maximumEncodedIlBytes: int.MaxValue));
+
+        MethodDefinitionSourceRequestSetExecution source =
+            ExecuteAt(AcceptedPlan([exact]), path);
+        ExactMethodOptimizationBody body =
+            Assert.Single(
+                ResultOf<ExactMethodOptimizationProducerResult>(
+                        source,
+                        exact)
+                    .Value!.Bodies);
+        MethodAnalysisSupportWork work =
+            source.ResultOf(exact)
+                .SourceReceipt.Coverage
+                .MethodAnalysis.QueryWork;
+        return (body, work);
     }
 
     [Theory]
@@ -753,4 +838,16 @@ public static class MethodAnalysisSupportFixture
 
     public static object NamedGenericNonExceptionAllocation() =>
         new NamedGenericException<int>();
+
+    [GeneratedCode("method-query-source", "1")]
+    public static object GeneratedMethodSuppression() => new();
+}
+
+[GeneratedCode("method-query-source", "1")]
+public static class MethodAnalysisGeneratedContainer
+{
+    public sealed class Nested
+    {
+        public static object Target() => new();
+    }
 }
