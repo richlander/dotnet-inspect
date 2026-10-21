@@ -382,7 +382,14 @@ producers that will extend that space.
   [platform package supply policy](design/platform-package-supply-policy.md)
   owns the host-neutral decision from a Packages-owned coordinate and an
   independently owned target-bound prune inventory to preserved supply
-  evidence and conservative platform delegation.
+  evidence and conservative platform delegation. The proposed
+  [Package Runtime Population Choice](design/package-runtime-population-choice.md)
+  owner defines package-local Selection RID policy when neutral implementation
+  assets cannot answer: infer one eligible RID, prefer the product
+  `linux-x64` RID among several, or retain typed ambiguity. Package Navigation
+  exposes the owner-issued RID inventory beneath TFMs; Source and Compare
+  consume the retained Package coordinate while keeping separate operation
+  semantics.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Its
