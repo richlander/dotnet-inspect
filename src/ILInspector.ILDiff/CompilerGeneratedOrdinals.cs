@@ -144,12 +144,13 @@ namespace ILInspector.ILDiff;
 /// <b>Scope equivalence follows the comparison.</b> A key's signature encodes every
 /// assembly-reference scope it mentions. Built through
 /// <see cref="Build(MetadataReader, MetadataReader, IlBodyDiffNormalization)"/>, those
-/// scopes are spelled by the same current- and platform-assembly rule the comparison
-/// applies to operands (<c>IlBodyDiff.AssemblyScopeToken</c>), so the key never separates
-/// two references the operand renders identically. Compile-back needs this: its recompile
-/// resolves platform types against the running framework, not the original's reference
-/// assemblies (#9586). References outside that rule keep their full identity, and a module
-/// reader keeps every identity exact on both paths. Gated by
+/// scopes are spelled by the same current-, platform-, and whole-assembly-scope rule the
+/// comparison applies to operands (<c>IlBodyDiff.AssemblyScopeToken</c>), so the key never
+/// separates two references the operand renders identically. Compile-back needs this: its
+/// recompile resolves platform types against the running framework, not the original's
+/// reference assemblies (#9586). References outside that rule keep their full identity,
+/// and under the current and platform mechanics a module reader keeps every identity
+/// exact on both paths. Gated by
 /// <c>PlatformScopeNormalization_FoldsAcrossReferenceVersions</c>,
 /// <c>NonPlatformReferenceVersion_StillDoesNotFold</c>,
 /// <c>CurrentScopeNormalization_FoldsAcrossSelfReferenceVersions</c>,

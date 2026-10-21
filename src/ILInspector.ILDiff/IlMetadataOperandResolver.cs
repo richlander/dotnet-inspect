@@ -386,6 +386,12 @@ public static partial class IlBodyDiff
     }
 
     /// <summary>
+    /// The one scope every reference shares under
+    /// <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/>.
+    /// </summary>
+    internal const string AssemblyScope = "<assembly>";
+
+    /// <summary>
     /// The shared scope token for an assembly reference under the requested scope
     /// normalization, or null when the reference keeps its exact identity. Operand
     /// rendering and the compiler-generated ordinal correspondence key share this one
@@ -396,15 +402,11 @@ public static partial class IlBodyDiff
     /// Both callers reduce to the same text: the name up to its first comma.
     /// </param>
     /// <param name="currentAssemblyName">
-    /// The comparing reader's own assembly name. Callers only supply an assembly
-    /// reader; a module reader keeps exact identities on both paths.
+    /// The comparing reader's own assembly name, or null for a module reader. Under
+    /// <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/> the name is not
+    /// read; under the current and platform mechanics a module reader keeps exact
+    /// identities on both paths.
     /// </param>
-    /// <summary>
-    /// The one scope every reference shares under
-    /// <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/>.
-    /// </summary>
-    internal const string AssemblyScope = "<assembly>";
-
     internal static string? AssemblyScopeToken(
         string reference,
         string? currentAssemblyName,
