@@ -62,7 +62,8 @@ public partial class LibraryBodyIndexTests
         Assert.False(use.HasExplicitUnsafeContract);
 
         UnsafeMemberFinding finding = Assert.Single(
-            index.Safety.MemberCensus.Members,
+            UnsafeMemberFindingsTests.LibraryCensus(
+                typeof(UnsafeEvidenceFixtures).Assembly.Location).Members,
             finding => finding.Member.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
         UnsafeMemberFindingEvidence evidence = Assert.Single(finding.Evidence);
         Assert.Equal(s_platformSource, evidence.ContractSource);
@@ -258,7 +259,7 @@ public partial class LibraryBodyIndexTests
                 && use.Method.DeclaringType.Namespace == "System.Runtime.CompilerServices"
                 && use.HasExplicitUnsafeContract);
         Assert.DoesNotContain(
-            index.Safety.MemberCensus.Members,
+            UnsafeMemberFindingsTests.LibraryCensus(typeof(object).Assembly.Location).Members,
             finding => finding.Member.DeclaringType.Name == "Unsafe"
                 && finding.Member.DeclaringType.Namespace == "System.Runtime.CompilerServices"
                 && finding.Member.Name == "As");

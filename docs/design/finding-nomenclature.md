@@ -62,7 +62,7 @@ second semantic axis.
 | **Diff** | A comparison operation, artifact, report, or presentation containing changes. | Appropriate for `AnalysisDiff<T>`, `ApiDiff`, `IlBodyDiff`, unified diff text, and CLI `diff`; not for one-version observations. |
 | **Evidence** | Information used to support a conclusion. | A Finding, transition, structural diff, failure, or provenance record may serve as evidence. Do not create a parallel `Evidence*` row hierarchy merely to rename the Finding model. |
 | **Detail** | Explanatory payload or rendered elaboration. | A field or presentation concept, not a model family. |
-| **Census** | The complete observation collection from a successful inspection. | Usually a semantic unit rather than a payload family. `FindingCensusCorrelation<T>` is the explicit N-address operation outcome when whole-census state, including `Complete([])`, must survive correlation. |
+| **Census** | The complete observation collection from a successful inspection. | Usually a semantic unit rather than a payload family. `FindingCensusCorrelation<T>` is the explicit N-address operation outcome when whole-census state, including `Complete([])`, must survive correlation. [Finding census](finding-census.md) owns the census as a stream and the Exists and Exhaustive readings of a pair. |
 | **Fact** | A curated or interpreted statement derived from observations where the product intentionally distinguishes that rung. | Do not use it as a synonym for every raw observation. |
 | **Triage** | Downstream prioritization or judgment over observations, changes, and facts. | Never present it as raw producer currency. |
 

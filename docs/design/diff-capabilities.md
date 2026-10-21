@@ -75,8 +75,9 @@ constructor, and generated code without one owner, as
 [Fast Diff's Type level](fast-diff.md#type) partitions them. The residual has
 its own rung-3 entry and rung-4 view: the Type-scope Public API diff for its
 API facts, the Body diff of each residual method, such as a static constructor
-or generated code without one owner, and the Type's declaration view for its
-Body declaration and implementation facts. Each rung covers the one above it:
+or generated code without one owner, and the Type's
+[declaration view](declaration-view.md) for its declaration and
+implementation facts on either axis. Each rung covers the one above it:
 
 - a row's rung-4 diff decides its rung-2 state;
 - for a Type present on both sides, rung 1 is `Unchanged` exactly when every
@@ -109,7 +110,8 @@ Every rung answers per **axis**:
   one is on the API axis. That is the visibility
   [Fast Diff's API axis](fast-diff.md#axes) admits; `private protected`
   declarations belong to Body. `EditorBrowsable` and `Obsolete` do not decide
-  admission: they are the subject of a separate **API status** analysis,
+  admission: they are the subject of a separate
+  [API status analysis](api-status-analysis.md),
   which reports each subject's status and its transitions, such as a Member
   made hidden or obsolete. A host filters by those findings. The ordinary
   population, the `public` bucket without hidden declarations, becomes a
@@ -122,8 +124,9 @@ Every rung answers per **axis**:
   subject's **implementation facts**, which the API axis does not present,
   such as inlining and `InternalCall` flags, `beforefieldinit`, and
   compiler-emitted attributes such as `Intrinsic`. An added private field is a
-  Body change. These facts are shown by a **declaration view**, part of each
-  row's rung-4 diff. The two axes are disjoint: a fact belongs to exactly one.
+  Body change. These facts are shown by a
+  [**declaration view**](declaration-view.md), part of each row's rung-4
+  diff. The two axes are disjoint: a fact belongs to exactly one.
 
 Types beneath a top-level compiler-generated Type, such as
 `<PrivateImplementationDetails>`, are not reported, as Fast Diff states;
@@ -182,12 +185,17 @@ document only states that each step names its axes.
    for a subject whose later content the complete diff cannot decode, such as
    a body that differs and then holds an undefined opcode.
 
-   This is the one bounded exception to rule 2 by design: for that subject,
+   This is the first bounded exception to rule 2 by design: for that subject,
    the complete diff's visible decode-failure view, the failed inspection the
    [IL diff](il-diff-canonicalization.md) reports for an endpoint it cannot
    decode, stands in for a difference. The view is not empty, and it does not
    claim the subject is unchanged. [Adoption](#adoption) step 1 records a
    second, interim exception until the declaration view lands.
+
+   A third bounded exception is a body beyond the ordered matcher's bounds.
+   Exists decides it, `Changed` or `Unchanged`, and the exhaustive view shows
+   the bound failure, which is not empty and shows no difference, as
+   [Finding census](finding-census.md#exhaustive) states.
 
 Rung 4 is read for these rules under each axis's policy, such as the Body
 policy's assembly-scope normalization

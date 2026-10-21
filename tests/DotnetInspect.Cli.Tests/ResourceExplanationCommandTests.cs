@@ -378,7 +378,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     [InlineData("metadata-image", "table", "scalar")]
     [InlineData("metadata-type-def", "table", "inventory")]
     [InlineData("reference-hierarchy", "hierarchy", "inventory")]
-    // Coordinate sections resolve through the Library address route.
+    // Coordinate sections, which only the Library address view selects.
     [InlineData("context-member", "table", "inventory")]
     [InlineData("context-exception", "table", "inventory")]
     [InlineData("metadata-heap", "table", "inventory")]
@@ -909,6 +909,64 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());
+    }
+
+    [Theory]
+    [InlineData("context member", "library/sections/context-member")]
+    [InlineData("metadata heap", "library/sections/metadata-heap")]
+    public async Task CoordinateSection_SearchesTheLibraryCatalogThroughTheAddressBinding(
+        string text,
+        string path)
+    {
+        // The Library address view's coordinate sections join the one
+        // Library catalog, and search binds them only to the view that can
+        // select them.
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement result = document.RootElement
+            .GetProperty("results")
+            .EnumerateArray()
+            .First();
+        Assert.Equal(path, result.GetProperty("resource_path").GetString());
+        Assert.Equal(
+            "library",
+            result.GetProperty("structural_identity")
+                .GetProperty("catalog")
+                .GetString());
+        JsonElement binding =
+            Assert.Single(
+                result.GetProperty("production_bindings")
+                    .EnumerateArray());
+        Assert.Equal(
+            "library address -S",
+            binding.GetProperty("gesture").GetString());
+        Assert.Equal(
+            "dotnet-inspect.cli/library-address-sections",
+            binding.GetProperty("identity").GetString());
+    }
+
+    [Fact]
+    public async Task LibraryCatalog_ReachesTheCoordinateSections()
+    {
+        var catalog = await RunAsync("explain", "library");
+
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.Contains("library/categories/context", catalog.Output);
+
+        var context = await RunAsync("explain", "library/categories/context");
+
+        Assert.Equal(0, context.ExitCode);
+        Assert.Contains("library/sections/context-member", context.Output);
+
+        var metadata = await RunAsync(
+            "explain",
+            "library/categories/metadata");
+
+        Assert.Equal(0, metadata.ExitCode);
+        Assert.Contains("library/sections/metadata-heap", metadata.Output);
     }
 
     [Theory]

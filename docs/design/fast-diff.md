@@ -24,7 +24,10 @@ changed axis at its first difference.
 A second definition of "changed" drifts from the complete diffs and points to
 views that show nothing. Fast Diff therefore has no equality of its own: each
 axis answers with its complete diff's equality, read as **Exists**, and only
-the cost of reaching the answer differs.
+the cost of reaching the answer differs. The reading of one row to its first
+difference, and its agreement with the exhaustive reading the complete diffs
+make, is owned by [Finding census](finding-census.md); this document owns the
+axes, the partition, and the folds above the row.
 
 ## Contract
 
@@ -264,9 +267,8 @@ are settled as follows:
   neither side, and `beforefieldinit` are Body facts. Canonical body comparison does
   not show them, so a Body cue decided by one of them alone opens a view with
   no IL change today. That is a known divergence under rule 4 of Diff
-  observability until the declaration view of
-  [Diff capabilities](diff-capabilities.md#axes) presents them
-  ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347));
+  observability until the [declaration view](declaration-view.md) presents
+  them ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347));
   the Body axis keeps comparing them, since an `Unchanged` that omitted them
   would be false.
 
@@ -763,8 +765,8 @@ selection belong to the background analysis design that adopts this export.
 
 - Fast Diff does not define API semantics, canonical IL, or correspondence; it
   answers with the equality their owners define.
-- It does not present the declaration facts it compares; the declaration
-  view of [Diff capabilities](diff-capabilities.md#axes) does.
+- It does not present the declaration facts it compares; the
+  [declaration view](declaration-view.md) does.
 - It does not report referenced assembly or package version changes as Type
   changes; those versions are compared as candidates in their own right.
 - It does not report which change was found, counts, classifications, or text;

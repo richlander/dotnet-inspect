@@ -497,6 +497,8 @@ internal static class BrowserLibraryApiDiffWireProjection
                     BrowserLibraryApiDiffChangeCategory.Signature,
                 ApiChangeCategory.Attribute =>
                     BrowserLibraryApiDiffChangeCategory.Attribute,
+                ApiChangeCategory.Status =>
+                    BrowserLibraryApiDiffChangeCategory.Status,
                 _ => throw new ArgumentOutOfRangeException(
                     nameof(change),
                     change.Category,

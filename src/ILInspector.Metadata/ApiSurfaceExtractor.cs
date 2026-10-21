@@ -1289,14 +1289,36 @@ public static partial class ApiSurfaceExtractor
             // Skip EditorBrowsable(Never) and Obsolete types unless --all. A public type the
             // extractor hides stays hidden in the composed scope too: it is suppressed, not
             // demoted into the non-public bucket with an include-all member list.
-            bool typeIsHidden = AttributeReader.HasHiddenAttribute(
+            bool typeIsSuppressed = AttributeReader.HasHiddenAttribute(
                 reader,
                 typeDef.GetCustomAttributes(),
                 observeDecodeWork);
             bool admitHidden = includeAll || apiAxis;
-            if (!admitHidden && typeIsHidden)
+            if (!admitHidden && typeIsSuppressed)
             {
                 continue;
+            }
+
+            // An admitted suppressed Type records its two API status facts separately
+            // (docs/design/api-status-analysis.md#status-facts): hidden is EditorBrowsable(Never)
+            // alone, and obsolete carries its message and error flag. A Type the predicate above
+            // does not suppress has neither.
+            bool typeIsHidden = false;
+            bool typeIsObsolete = false;
+            string? typeObsoleteMessage = null;
+            bool typeObsoleteIsError = false;
+            if (typeIsSuppressed)
+            {
+                typeIsHidden = AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    observeDecodeWork);
+                typeIsObsolete = AttributeReader.TryGetObsoleteAttribute(
+                    reader,
+                    typeDef.GetCustomAttributes(),
+                    out typeObsoleteMessage,
+                    out typeObsoleteIsError,
+                    observeDecodeWork);
             }
 
             MetadataTypeDefinitionName definitionName =
@@ -1348,6 +1370,9 @@ public static partial class ApiSurfaceExtractor
                             typeDefHandle)
                         : null,
                 IsHidden = typeIsHidden,
+                IsObsolete = typeIsObsolete,
+                ObsoleteMessage = typeObsoleteMessage,
+                ObsoleteIsError = typeObsoleteIsError,
                 MetadataToken = MetadataTokens.GetToken(typeDefHandle),
                 Layout = (ApiTypeLayout)(attributes & TypeAttributes.LayoutMask),
                 LayoutDetails = typesOnly

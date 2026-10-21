@@ -12,16 +12,14 @@ internal static class PackageRootRequestAdmission
         WorkspaceContextLoadOptions loadOptions,
         PackageRootHouseExecution rootHouse,
         CancellationToken cancellationToken,
-        string sourceLabel = "--root-request")
+        string sourceLabel)
     {
         if (!PackageRootReacquisitionRequest.TryDecode(
                 token,
                 out PackageRootReacquisitionRequest? request))
         {
             CommandError.Write(
-                sourceLabel == "--root-request"
-                    ? "--root-request must be a package Root reopening token issued by this tool."
-                    : "Package reference must be an exact Package reference issued by this tool.",
+                "Package reference must be an exact Package reference issued by this tool.",
                 [
                     $"Expected a '{PackageRootReacquisitionRequest.TokenPrefix}' token of at most "
                     + $"{PackageRootReacquisitionRequest.MaxEncodedLength} characters, as printed in the "

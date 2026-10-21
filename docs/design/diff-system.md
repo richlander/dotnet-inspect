@@ -300,6 +300,7 @@ information, kept apart:
 | `ImplementationDiffDocument` | Per-member evidence with native IL and C# rows, IL Finding transitions, complexity changes, coverage | Signal, shape, magnitude and in-loop facts on evidence | [Implementation diff](implementation-diff.md#exact-pair-document-and-inspection-envelope) |
 | `MemberSourceDiffPresentation` and the authored source pair | An `AnalysisDiff<string>` and a `MappedTextDiff` | Change labels for whitespace and moves (member source diff only) | [Member source diff presentation](member-source-diff-presentation.md), [member source pair](member-source-pair-query.md) |
 | `AnnotatedSourceDiffDocument` | Per medium (C# and IL), an `AnalysisDiff<string>` with its characterization and a line map | Two whole `AnnotatedSourceDocument`s, whose facts and targets annotate each side | [Annotated source diff document](annotated-source-diff-document.md) |
+| The declaration documents | One row's declaration facts per side and a `FindingComparison<DeclarationFact>` pairing them | None; each fact carries its axis and certainty | [Declaration view](declaration-view.md) |
 | `DiffHistoryOutcome` | Per-version evaluations and `DiffHistoryTransition<T>` between points | Probe receipts and Count | [Diff History](diff-history.md#shared-temporal-outcome-and-document) |
 
 ### The annotated source document
@@ -457,6 +458,12 @@ The two execution modes:
 | --- | --- | --- |
 | **Paired steps** | For each step, the operation holds both cells open and runs each pairwise producer on the step's two images. | Fast Diff, API diff, implementation diff, string literals, source pairs |
 | **Per-point census** | The operation evaluates each point on its own, then compares adjacent results. Each point resolves the focus within that version, with History's absent and ambiguous outcomes. | Today's Diff History Finding producers |
+
+The modes are how a step reads its images. How far it reads is the other
+axis, **Exists** to the first difference or **Exhaustive** to the end, which
+[Finding census](finding-census.md) owns per row over one streamed census, so
+that a paired step and a per-point census decide one equality where both
+decide, with a per-point `Failed` read as `Indeterminate`.
 
 An exact pair is a request with two points and one step. Diff History's
 existing methodology, including adaptive bisection, surveys and next actions,
