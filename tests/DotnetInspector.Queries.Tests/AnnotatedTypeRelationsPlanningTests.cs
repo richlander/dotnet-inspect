@@ -19,11 +19,11 @@ public sealed class AnnotatedTypeRelationsPlanningTests
         InspectionGraphCharacteristicDescriptor color =
             Color("test.unsafe-propagation");
         var shared =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.shared",
                 InspectionCost.Moderated);
         var colorQuery =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.color",
                 InspectionCost.Unbounded);
         AnnotatedTypeRelationsCatalog relationsCatalog =
@@ -68,7 +68,7 @@ public sealed class AnnotatedTypeRelationsPlanningTests
         InspectionGraphRelationshipDescriptor lookalike =
             Relationship("test.invocation", InspectionGraphEndpointRole.Source);
         var query =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.rows",
                 InspectionCost.NetworkFree);
         AnnotatedTypeRelationsCatalog catalog =
@@ -101,7 +101,7 @@ public sealed class AnnotatedTypeRelationsPlanningTests
         InspectionGraphCharacteristicDescriptor lookalike =
             Color("test.unsafe-propagation");
         var query =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.rows",
                 InspectionCost.NetworkFree);
         AnnotatedTypeRelationsCatalog catalog =
@@ -134,7 +134,7 @@ public sealed class AnnotatedTypeRelationsPlanningTests
         InspectionGraphRelationshipDescriptor outgoing =
             Relationship("test.outgoing", InspectionGraphEndpointRole.Source);
         var query =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.rows",
                 InspectionCost.NetworkFree);
         AnnotatedTypeRelationsCatalog catalog =
@@ -168,7 +168,7 @@ public sealed class AnnotatedTypeRelationsPlanningTests
         InspectionGraphRelationshipDescriptor relationship =
             Relationship("test.invocation", InspectionGraphEndpointRole.Source);
         var rows =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.rows",
                 InspectionCost.NetworkFree);
         AnnotatedTypeRelationsCatalog catalog =
@@ -197,11 +197,11 @@ public sealed class AnnotatedTypeRelationsPlanningTests
         InspectionGraphRelationshipDescriptor relationship =
             Relationship("test.invocation", InspectionGraphEndpointRole.Source);
         var registered =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.registered",
                 InspectionCost.NetworkFree);
         var lookalike =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 registered.Name,
                 InspectionCost.NetworkFree);
         AnnotatedTypeRelationsCatalog catalog =
@@ -231,7 +231,7 @@ public sealed class AnnotatedTypeRelationsPlanningTests
         InspectionGraphRelationshipDescriptor duplicate =
             Relationship("test.invocation", InspectionGraphEndpointRole.Target);
         var query =
-            new InspectionQuery<int>(
+            new InspectionQuery<AnnotatedTypeRelationsContribution>(
                 "test.annotated-relations.rows",
                 InspectionCost.NetworkFree);
         var registry = new AnnotatedTypeRelationsRegistry()
@@ -286,9 +286,10 @@ public sealed class AnnotatedTypeRelationsPlanningTests
     private static AnnotatedTypeRelationsRelationshipRegistration
         RelationshipRegistration(
             InspectionGraphRelationshipDescriptor relationship,
-            InspectionQueryDefinition? rows = null,
-            InspectionQueryDefinition? count = null,
-            InspectionQueryDefinition? exists = null) =>
+            InspectionQuery<AnnotatedTypeRelationsContribution>? rows = null,
+            InspectionQuery<AnnotatedTypeRelationsContribution>? count = null,
+            InspectionQuery<AnnotatedTypeRelationsContribution>? exists = null)
+        =>
         new(
             SubjectRelationForm.Invocation,
             relationship,
@@ -296,9 +297,9 @@ public sealed class AnnotatedTypeRelationsPlanningTests
 
     private static AnnotatedTypeRelationsColorRegistration ColorRegistration(
         InspectionGraphCharacteristicDescriptor color,
-        InspectionQueryDefinition? rows = null,
-        InspectionQueryDefinition? count = null,
-        InspectionQueryDefinition? exists = null) =>
+        InspectionQuery<AnnotatedTypeRelationsContribution>? rows = null,
+        InspectionQuery<AnnotatedTypeRelationsContribution>? count = null,
+        InspectionQuery<AnnotatedTypeRelationsContribution>? exists = null) =>
         new(color, new(rows, count, exists));
 
     private static InspectionGraphRelationshipDescriptor Relationship(
@@ -333,12 +334,17 @@ public sealed class AnnotatedTypeRelationsPlanningTests
             InspectionGraphAggregationPolicy.None);
 
     private static IInspectionQueryCatalog QueryCatalog(
-        params InspectionQuery<int>[] queries)
+        params InspectionQuery<AnnotatedTypeRelationsContribution>[] queries)
     {
         var registry = new InspectionQueryRegistry<object>();
-        foreach (InspectionQuery<int> query in queries)
+        foreach (
+            InspectionQuery<AnnotatedTypeRelationsContribution> query in
+            queries)
         {
-            registry.Add(query, static _ => 0);
+            registry.Add(
+                query,
+                static _ => throw new InvalidOperationException(
+                    "Planning tests do not execute adapter queries."));
         }
 
         return registry.Compile();
