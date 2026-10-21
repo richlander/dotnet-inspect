@@ -349,7 +349,10 @@ public static class FastDiff
     /// stream that ends first. Every <c>ldc.i4</c> form is one family
     /// compared by value, and a short branch is the family of its long form.
     /// Branch and switch targets are decided once the instruction map is
-    /// complete, by the index of the instruction each target starts.
+    /// complete, by the index of the instruction each target starts; a
+    /// completed stream's targets are checked for an instruction start
+    /// before any difference the end decides, as a census cursor ends
+    /// <c>Failed</c> before <c>Complete</c>.
     /// A <c>calli</c> stand-alone signature compares by its bytes, as
     /// canonical comparison compares it. Body size, the local signature,
     /// stack size, <c>init locals</c>, and exception regions are not read.
@@ -472,14 +475,28 @@ public static class FastDiff
             }
             if (prefixed)
                 throw new BadImageFormatException("The IL ends with a prefix.");
-            if (readerA.RemainingBytes != 0 || readerB.RemainingBytes != 0)
+
+            // A stream that has completed holds a complete instruction map,
+            // so each of its targets is decidable now; one that starts no
+            // instruction makes the body malformed before any difference the
+            // end decides. A stream that continues keeps its targets beyond
+            // the paired instructions undecided.
+            bool completeA = readerA.RemainingBytes == 0;
+            bool completeB = readerB.RemainingBytes == 0;
+            for (int i = 0; i < targets; i++)
+            {
+                if (completeA || _targetsA[i] < readerA.Offset)
+                    TargetIndex(_startsA, count, _targetsA[i]);
+                if (completeB || _targetsB[i] < readerB.Offset)
+                    TargetIndex(_startsB, count, _targetsB[i]);
+            }
+            if (!completeA || !completeB)
             {
                 // The stream that continues is the difference, once what it
                 // continues with is an opcode that can be decoded.
-                OperandOf(ReadOpCode(ref (readerA.RemainingBytes != 0 ? ref readerA : ref readerB)));
+                OperandOf(ReadOpCode(ref (completeA ? ref readerB : ref readerA)));
                 return false;
             }
-
             for (int i = 0; i < targets; i++)
             {
                 if (TargetIndex(_startsA, count, _targetsA[i]) != TargetIndex(_startsB, count, _targetsB[i]))
@@ -1545,21 +1562,30 @@ public static class FastDiff
 
     /// <summary>
     /// Reads <c>#US</c> entries as their stored bytes, so two user strings
-    /// compare by their UTF-16 code units without decoding a string.
+    /// compare by their UTF-16 code units without decoding a string. An
+    /// image with no <c>#US</c> stream, such as a facade or a reference
+    /// assembly, binds an empty heap: it has no user strings, and an
+    /// <c>ldstr</c> in it is malformed.
     /// </summary>
     internal sealed class UserStrings
     {
         readonly BlobReader _heap;
 
         public UserStrings(PEReader pe, MetadataReader md)
-            => _heap = pe.GetMetadata().GetReader(
-                md.GetHeapMetadataOffset(HeapIndex.UserString),
-                md.GetHeapSize(HeapIndex.UserString));
+        {
+            // The heap offset is not defined for an absent stream.
+            int size = md.GetHeapSize(HeapIndex.UserString);
+            _heap = size == 0
+                ? default
+                : pe.GetMetadata().GetReader(md.GetHeapMetadataOffset(HeapIndex.UserString), size);
+        }
 
         /// <summary>
         /// Whether two <c>ldstr</c> tokens name strings of the same code
-        /// units. The entry's terminal byte is derived from its content, so
-        /// it is not compared.
+        /// units, read as <see cref="MetadataReader.GetUserString"/> reads
+        /// them: the entry's length rounded down to whole code units, so its
+        /// terminal byte is not compared, and an offset at the heap's end is
+        /// the empty string. An entry that does not fit the heap is malformed.
         /// </summary>
         public static unsafe bool Equal(UserStrings a, int tokenA, UserStrings b, int tokenB)
         {
@@ -1574,14 +1600,19 @@ public static class FastDiff
         BlobReader Entry(int token, out int units)
         {
             int offset = token & 0xFFFFFF;
-            if (offset >= _heap.Length)
+            if (_heap.Length == 0 || offset > _heap.Length)
                 throw new BadImageFormatException("A user string lies outside the #US heap.");
             BlobReader entry = _heap;
             entry.Offset = offset;
+            if (offset == _heap.Length)
+            {
+                units = 0;
+                return entry;
+            }
             int length = entry.ReadCompressedInteger();
-            if (length > entry.RemainingBytes || (length != 0 && (length & 1) == 0))
-                throw new BadImageFormatException("A #US entry is malformed.");
-            units = length == 0 ? 0 : length - 1;
+            if (length > entry.RemainingBytes)
+                throw new BadImageFormatException("A #US entry does not fit the heap.");
+            units = length & ~1;
             return entry;
         }
     }

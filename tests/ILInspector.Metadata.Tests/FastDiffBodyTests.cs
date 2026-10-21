@@ -163,6 +163,54 @@ public sealed class FastDiffBodyTests
     }
 
     [Fact]
+    public void TrailingInstructionAfterAnUndecodableTarget_IsIndeterminate()
+    {
+        // The shorter stream completes holding a target at its end, which
+        // starts no instruction, before the trailing nop is read.
+        AssertUndecidable([0x2B, 0x01, 0x2A], [0x2B, 0x01, 0x2A, 0x00]);
+    }
+
+    [Fact]
+    public void MisalignedTargetBeforeAnUndecodableOne_IsIndeterminate()
+    {
+        // Target 0 lands on different instructions; target 1 of the second
+        // body is the end of the body. Decodability is checked first.
+        AssertUndecidable(
+            [0x2B, 0x00, 0x2B, 0x00, 0x2A],
+            [0x2B, 0x02, 0x2B, 0x01, 0x2A]);
+    }
+
+    /// <summary>
+    /// An image with no <c>#US</c> stream, as facades and reference assemblies
+    /// are built, compares on both axes; its bodies hold no user strings.
+    /// </summary>
+    [Fact]
+    public void ImageWithoutUserStrings_IsCompared()
+    {
+        string? path = Directory.GetFiles(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(), "*.dll")
+            .Order(StringComparer.Ordinal)
+            .FirstOrDefault(candidate =>
+            {
+                try
+                {
+                    using var pe = new PEReader(File.OpenRead(candidate));
+                    return pe.HasMetadata && pe.GetMetadataReader().GetHeapSize(HeapIndex.UserString) == 0;
+                }
+                catch (BadImageFormatException)
+                {
+                    return false;
+                }
+            });
+        Assert.SkipWhen(path is null, "No runtime assembly without a #US stream.");
+        byte[] image = File.ReadAllBytes(path!);
+
+        FastDiffResult result = CompareImages(image, image);
+        Assert.NotEmpty(result.Types);
+        Assert.All(result.Types, type =>
+            Assert.Equal((FastDiffState.Unchanged, FastDiffState.Unchanged), (type.Api, type.Body)));
+    }
+
+    [Fact]
     public void BranchToTheEndOfTheBody_IsIndeterminate()
     {
         // The end of the body starts no instruction, so the decoder reports
