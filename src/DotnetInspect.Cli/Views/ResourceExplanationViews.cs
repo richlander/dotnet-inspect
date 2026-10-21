@@ -309,13 +309,13 @@ public sealed class ResourceExplanationView
         RootDetails details = RootDetails.Create(root);
         // The root reads as its routing table: each entry with its hints,
         // accepted subject kinds, and destinations, in place of the generic
-        // expanded-resource and relationship listings.
-        bool explanationRoot =
-            root.ResourceType.Value == "explanation-root";
+        // expanded-resource and relationship listings. Below the depth that
+        // reaches its entries, the generic listings remain the way onward.
         List<ResourceExplanationRoutingRow> routing =
-            explanationRoot
+            root.ResourceType.Value == "explanation-root"
                 ? ResourceExplanationRoutingRow.Create(document)
                 : [];
+        bool routingTable = routing.Count > 0;
         return new ResourceExplanationView
         {
             Title =
@@ -375,7 +375,7 @@ public sealed class ResourceExplanationView
             RelatedOperations = context?.RelatedOperations ?? [],
             Routing = routing,
             ExpandedResources =
-                context is not null || explanationRoot
+                context is not null || routingTable
                     ? []
                     :
                     [
@@ -383,7 +383,7 @@ public sealed class ResourceExplanationView
                             ResourceExplanationResourceRow.Create),
                     ],
             Relationships =
-                context is not null || explanationRoot
+                context is not null || routingTable
                     ? []
                     :
                     [

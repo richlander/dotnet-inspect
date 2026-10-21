@@ -156,7 +156,8 @@ rather than search.
 Without an explicit `--depth`, bare `explain` expands to depth 2. One Document
 then carries the root, its collections, and every routing entry. The text
 reading presents the root as one Routing table, not the generic expanded and
-related listings. Each row gives:
+related listings. At depth 0 or 1, as in `explain root`, the Document reaches
+no entries, so the generic listings remain and name the three collections. Each row gives:
 
 - the entry's role, path, and name;
 - its purpose and representative questions;

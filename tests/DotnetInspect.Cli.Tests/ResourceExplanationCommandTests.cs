@@ -1083,6 +1083,34 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.DoesNotContain("## Related Resources", result.Output);
     }
 
+    [Theory]
+    [InlineData("root")]
+    [InlineData("--depth", "0")]
+    public async Task RootBelowItsEntries_ListsItsRoutingCollections(
+        params string[] arguments)
+    {
+        // Below the depth that reaches routing entries, the root keeps its
+        // collection relationships as the way onward.
+        var result = await RunAsync(["explain", .. arguments]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain("## Routing", result.Output);
+        Assert.Contains("## Related Resources", result.Output);
+        foreach (string collection in new[]
+                 {
+                     "subject-kinds",
+                     "operations",
+                     "references",
+                 })
+        {
+            Assert.Contains(
+                $"| Routing collection (root-collection) | Available | "
+                    + $"{collection} |",
+                result.Output);
+        }
+    }
+
     [Fact]
     public async Task BareExplainJson_EmbedsEveryRoutingEntry()
     {
