@@ -209,10 +209,15 @@ adopter supplies the whole-population presence fact through the existing
 per-method classification; it adds no second scanner.
 
 The classification is metadata, not an admitted finding. A Release `async
-void` method or async iterator has a struct state machine, which the
-allocation producer never reports because it recognizes a state machine only
-on `newobj`, so such a Member has no map row unless some other finding lists
-it. A Current mark it cannot join to is forbidden by the projection claim.
+void` method, like any Release async method with a struct state machine,
+produces no `alloc.statemachine` occurrence, because the allocation producer
+recognizes a state machine only on `newobj`; such a Member has no map row
+unless some other finding lists it. An async iterator is different: its
+state machine is a class in every build, so it already has an
+`alloc.statemachine` row and a Hidden mark, and Expectation would only add a
+second reason for a mark it already carries. The no-row case is the Release
+`async void` method and its struct-state-machine kin, and a Current mark
+such a Member cannot join to is forbidden by the projection claim.
 Expectation therefore drives a Member mark only after two adoptions land: the
 [provenance owner](annotated-source-finding-provenance.md#classification-contract)
 adds a Member-header descriptor for the Member's async classification, and
@@ -377,28 +382,51 @@ terminal, so the Current mark is answered at two scopes in two ways:
   is not an interim: it is the rows-within-rows shape the pattern forbids.
 
 A Type row's Changes mark is Fast Diff's Exists when it is `true`. A Member
-row's marks read its own row. An overload-family row is marked when any
-overload in its represented population would be. The Changes mark is absent
-while the baseline is pending or unavailable, and never derived from another
-baseline.
+row's marks read its own row. An overload-family row aggregates: it shows a
+findings mark when any overload in its represented population would, and
+that mark is presence only, not a key join, because the map keys one row
+per Member and a family is several. Activating a family's findings mark
+expands the family, as the nested overload rows already do, and the exact
+overload rows carry the marks that navigate. This follows the
+[method-leverage rail](inspect-web-method-leverage-achievements.md#exact-member-attribution),
+which reserves the parent slot for alignment and places the glyph on exact
+rows. The Changes mark is absent while the baseline is pending or
+unavailable, and never derived from another baseline.
 
-The map lists two kinds of row, and the slot follows the map's own
-[distinction](annotated-type-map.md#scopes-and-terminals). A **changed** row
-has a listing element: an admitted finding in the one-version map, a shape
-transition in the map diff. Its Exists is `true` even when another requested
-analysis Failed or its Body comparison is `Indeterminate` beside a settled
-API transition; the map keeps the settled evidence and carries the partial
-outcome on the row. Such a row renders its mark, and the accessible
-description names the partial outcome, so a known finding or change is never
-hidden by an unrelated failure. An **unresolved** row has no listing element
-and an unsettled outcome. Its Exists is undecided, not `true`, and the mark
-never says otherwise. The slot renders the **undecided treatment**: the same
-glyph outlined rather than filled, with the accessible description naming the
-typed outcome. It is never rendered as changed or notable, and the slot is
-never left empty, because an empty slot reads as unchanged or clean. The
-undecided treatment is a typed outcome, not a count or a scale, and it is the
-only state a slot has beyond present and absent. A Type row whose Fast Diff
-state is `Indeterminate` takes the same treatment in its Changes slot.
+The map lists two kinds of row, and each slot follows the map's own
+[distinction](annotated-type-map.md#scopes-and-terminals) over the evidence
+that slot presents. A **changed** row has a listing element: an admitted
+finding in the one-version map, a shape transition in the map diff. Its
+Exists is `true` even when another requested analysis Failed or its Body
+comparison is `Indeterminate` beside a settled API transition; the map keeps
+the settled evidence and carries the partial outcome on the row. An
+**unresolved** row has no listing element and an unsettled outcome; its
+Exists is undecided, not `true`.
+
+Each slot decides three states from that:
+
+- The **Changes slot** is filled when the row has a shape transition,
+  whatever else is unsettled beside it; takes the undecided treatment when
+  the row has no transition and an `Indeterminate` shape comparison; and is
+  empty otherwise. A settled API transition beside an `Indeterminate` Body
+  comparison is filled, with the partial outcome named in the description.
+- The **Current slot** is defined over notable evidence, which is narrower
+  than the row's listing. It is filled when the row has a notable finding,
+  whatever else is unsettled beside it; takes the undecided treatment when
+  the row has no notable finding and an analysis among the admitted ones
+  Failed or was Unavailable, because that outcome could conceal a notable
+  finding; and is empty when the row's findings are all non-notable and
+  every admitted analysis settled. An `alloc.box` beside a failed analysis
+  is filled; a straight-line `alloc.new` beside a failed analysis is
+  undecided, not filled, because no notable evidence is known.
+
+The **undecided treatment** is the same glyph outlined rather than filled,
+with the accessible description naming the typed outcome. It is never
+rendered as changed or notable, and it is never replaced by an empty slot,
+because an empty slot reads as unchanged or clean. It is a typed outcome,
+not a count or a scale, and it is the only state a slot has beyond present
+and absent. A Type row whose Fast Diff state is `Indeterminate` takes the
+same treatment in its Changes slot.
 
 Findings marks come from the map and from nothing else. The Browser never
 computes a finding, a count, or a change from display text, signatures, or row order,
@@ -429,18 +457,29 @@ subject-plus-lens activation that Compare drill-down already uses, with the
 Findings lens and the row's key, and lands on that row in the Findings view
 in the mark's mode: Current for the Current mark, Changes for the Changes
 mark. From the Findings view, activating a row navigates to the subject with
-its recommended lens. The join is the Member key both ways. The structure
-mark is not a navigation target, because its row need not exist in the map.
+its recommended lens. The join is the Member key both ways, and it applies
+to exact Member and overload rows; a family row's mark expands the family
+instead, as [Marks are projections](#marks-are-projections) states. The
+structure mark is not a navigation target, because its row need not exist
+in the map.
 
 ### Chips
 
-A symbol list's filter row gains a findings facet beside query, kind,
-accessibility, and trait. Its chips are the descriptors present in the
-scope's map, each labeled with its tally, offered only when the tally is
-non-zero. Selecting a chip keeps the rows whose tally includes that
-descriptor. The chips are the legend: a reader who does not know a glyph
-reads the chip beside the same count. The chip set follows the map, not the
-notable set, so a reader can widen to every allocation when they choose.
+The member list of an opened Type gains a findings facet in its Filters row
+beside query, kind, accessibility, and trait. Its chips are the descriptors
+present in that Type's map, each labeled with its tally, offered only when
+the tally is non-zero. Selecting a chip keeps the Member rows whose tally
+includes that descriptor. The chips are the legend: a reader who does not
+know a glyph reads the chip beside the same count. The chip set follows the
+map, not the notable set, so a reader can widen to every allocation when
+they choose.
+
+Chips are a Member-list control only. The Type inventory has no descriptor
+chips, because Library rows carry no descriptor tallies and the Library
+census of adoption step 8 answers Exists and Count over a predicate, not
+per-descriptor occurrence counts per Type. A Library aggregate with an exact
+tally contract would be the map owner's adoption, and this document does not
+plan it.
 
 ### Compilation profile
 
@@ -534,11 +573,15 @@ chips, and the profile line, each as a separately staged slice below.
   equals whether its map row has a notable finding, its Changes mark equals
   whether the map diff lists it as changed, and an unresolved row in either
   form renders the undecided treatment and never the changed or notable
-  state; a row with a listing element and a Failed, Unavailable, or
-  `Indeterminate` outcome beside it renders its mark and names the partial
-  outcome in its description, so an `alloc.box` beside a failed analysis
-  and an API transition beside an `Indeterminate` Body comparison are both
-  marked; each Type row's Changes mark equals Fast Diff's `true` Exists and
+  state; a row with notable evidence or a shape transition beside a Failed,
+  Unavailable, or `Indeterminate` outcome renders its mark and names the
+  partial outcome in its description, so an `alloc.box` beside a failed
+  analysis and an API transition beside an `Indeterminate` Body comparison
+  are both filled; a row whose only finding is a straight-line `alloc.new`
+  beside a failed analysis renders the undecided Current treatment, and
+  beside settled analyses renders an empty Current slot; a family row shows
+  a findings mark exactly when one of its overloads does, and that mark is
+  not a key join; each Type row's Changes mark equals Fast Diff's `true` Exists and
   its undecided treatment equals Fast Diff's `Indeterminate`; a Type row's
   Current mark equals the Library census's notable Exists once that
   adoption lands and is absent before it, and is never computed by filtering
@@ -550,16 +593,19 @@ chips, and the profile line, each as a separately staged slice below.
   a different baseline is not used; the Changes marks appear only after the
   current baseline settles, and Current and structure marks are unaffected
   throughout.
-- **Join:** activating a Current or Changes mark lands on the row with the
-  same key in the Findings view in that mark's mode, and activating that row
-  returns to the subject; a filtered-out marked Member is not replaced by a
-  visible one.
+- **Join:** activating a Current or Changes mark on an exact Member or
+  overload row lands on the row with the same key in the Findings view in
+  that mark's mode, and activating that row returns to the subject;
+  activating a family row's mark expands the family and navigates nowhere,
+  including when several overloads are marked; a filtered-out marked Member
+  is not replaced by a visible one.
 - **Tooltip:** a marked row's accessible description names each notable
   descriptor with its tally and catalog line, and a Changes mark names its
   transition kinds.
-- **Chips:** the chip set equals the descriptors with non-zero tally in the
-  scope's map, and selecting a chip keeps exactly the rows whose tally
-  includes it.
+- **Chips:** in an opened Type's member list, the chip set equals the
+  descriptors with non-zero tally in that Type's map, and selecting a chip
+  keeps exactly the Member rows whose tally includes it; the Type inventory
+  offers no descriptor chips.
 - **Structure:** a fixture family with a hub and two forwarders marks the
   hub foundation and the forwarders peak, with no tint and no size cue, and
   the family's sizes appear in the Findings column; a Library fixture with
@@ -611,7 +657,7 @@ owner:
    and Member scope and Changes presents the map diff at every scope,
    unresolved rows keep their typed outcome, and the structure and throw
    columns read their existing owner-issued data. Library Current shows a
-   typed unavailable state naming the Library census until step 9 enables
+   typed unavailable state naming the Library census until step 9a enables
    it. Prerequisites: steps 2 and 3, and Annotated Type Map adoption steps 4
    and 5 for the Type-scope documents.
 6. **Findings marks and click-through.** Owner:
@@ -622,9 +668,12 @@ owner:
    mark replaces Compare's navigation diff cue. Prerequisites: steps 2, 3,
    and 5.
 7. **Chips.** Owner:
-   [Inspect Web presentation language](inspect-web-presentation-language.md),
-   which owns filter disclosure. The findings facet and its chips derive
-   from the scope's map. Prerequisite: step 6.
+   [Inspect Web Surface Composition](inspect-web-surface-composition.md),
+   whose collapsed Filters row owns the member text, kind, accessibility,
+   and trait filters and now the findings facet and its selection
+   semantics. The chips use the disclosure grammar
+   [Inspect Web presentation language](inspect-web-presentation-language.md)
+   already defines, without changing it. Prerequisite: step 6.
 8. **Library census with the notable predicate.** Owner:
    [Annotated Type Map](annotated-type-map.md), as its own adoption step 4
    for the Library-scope one-version producer, extended with Exists and
@@ -632,11 +681,13 @@ owner:
    and measured against the unfiltered census. The whole-Library body decode
    that Type leverage already runs after the first paint is the cost budget
    this census shares.
-9. **Type-row marks and Library Current.** Owner: Inspect Web Surface
-   Composition. Type rows take the Current mark from the Library census's
-   notable Exists, and the Findings inspector's Library Current view replaces
-   its unavailable state with the census's Rows. Prerequisites: steps 6
-   and 8.
+9. **Type-row marks.** Owner: Inspect Web Surface Composition. Type rows
+   take the Current mark from the Library census's notable Exists.
+   Prerequisites: steps 6 and 8.
+9a. **Library Current.** Owner: Inspect Web Compare Experience, which owns
+    the inspector's result and mode semantics. The Library Current view
+    replaces its typed unavailable state with the census's Rows.
+    Prerequisites: steps 5 and 8.
 10. **Compilation profile line.** Owner: Inspect Web Surface Composition,
     which composes Library Overview. The line reads the profile facts over
     every method. Prerequisite: step 3.
@@ -695,6 +746,10 @@ block nothing else.
   descriptors to the map; those are the provenance and map owners'
   adoptions, and until they land Expectation is a profile count and a trait
   filter, not a mark.
+- It does not define descriptor chips for the Type inventory or a Library
+  aggregate of per-Type occurrence tallies; chips are a Member-list control.
+- It does not make a family row a key-join target; the map keys Members, and
+  a family mark only expands the family.
 - It does not move implementation flags between Fast Diff's axes; that is
   Diff capabilities adoption step 1.
 - It does not decide Clone's long-term home.
