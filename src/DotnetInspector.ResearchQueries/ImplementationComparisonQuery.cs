@@ -60,7 +60,7 @@ public sealed record ImplementationComparisonInput
 
     /// <param name="ilNormalization">
     /// The normalization the IL producer compares under. Member Body Diff
-    /// names Fast Diff's Body policy (<see cref="IlBodyDiffPolicy.Body"/>);
+    /// names Finding Diff Any's Body policy (<see cref="IlBodyDiffPolicy.Body"/>);
     /// Implementation Diff compares with none.
     /// </param>
     public ImplementationComparisonInput(

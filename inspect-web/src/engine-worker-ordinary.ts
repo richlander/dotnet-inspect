@@ -78,10 +78,10 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
-  | "cancelLibraryFastDiff"
+  | "cancelLibraryFindingDiffAny"
   | "findTypes"
   | "queryLibraryApiDiff"
-  | "queryLibraryFastDiff"
+  | "queryLibraryFindingDiffAny"
   | "queryTypeProjection"
   | "queryMemberDeclaration"
   | "queryMemberDocument"
@@ -1337,21 +1337,21 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryLibraryApiDiff"]>
       ) => facades.metadata.queryLibraryApiDiff(...args),
     ),
-    cancelLibraryFastDiff: valueOperation(
-      "ordinary-metadata-cancel-library-fast-diff",
+    cancelLibraryFindingDiffAny: valueOperation(
+      "ordinary-metadata-cancel-library-finding-diff-any",
       2,
       (
         facades,
-        ...args: Parameters<MetadataFacade["cancelLibraryFastDiff"]>
-      ) => facades.metadata.cancelLibraryFastDiff(...args),
+        ...args: Parameters<MetadataFacade["cancelLibraryFindingDiffAny"]>
+      ) => facades.metadata.cancelLibraryFindingDiffAny(...args),
     ),
-    queryLibraryFastDiff: valueOperation(
-      "ordinary-metadata-query-library-fast-diff",
+    queryLibraryFindingDiffAny: valueOperation(
+      "ordinary-metadata-query-library-finding-diff-any",
       2,
       (
         facades,
-        ...args: Parameters<MetadataFacade["queryLibraryFastDiff"]>
-      ) => facades.metadata.queryLibraryFastDiff(...args),
+        ...args: Parameters<MetadataFacade["queryLibraryFindingDiffAny"]>
+      ) => facades.metadata.queryLibraryFindingDiffAny(...args),
     ),
     queryMemberDeclaration: valueOperation(
       "ordinary-metadata-query-member-declaration",
@@ -2572,11 +2572,11 @@ export function bindEngineWorkerOrdinaryClient(
       queryLibraryApiDiff: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryApiDiff,
       ),
-      cancelLibraryFastDiff: bind(
-        engineWorkerOrdinaryOperations.metadata.cancelLibraryFastDiff,
+      cancelLibraryFindingDiffAny: bind(
+        engineWorkerOrdinaryOperations.metadata.cancelLibraryFindingDiffAny,
       ),
-      queryLibraryFastDiff: bind(
-        engineWorkerOrdinaryOperations.metadata.queryLibraryFastDiff,
+      queryLibraryFindingDiffAny: bind(
+        engineWorkerOrdinaryOperations.metadata.queryLibraryFindingDiffAny,
         "background",
       ),
       queryMemberDeclaration: bind(

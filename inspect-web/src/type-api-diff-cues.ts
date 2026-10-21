@@ -1,6 +1,6 @@
 // Member change cues for the Type on screen: the Type-surface Library API Diff
 // against the last-patch baseline, run as visible-subject background analysis
-// for a Type whose Fast Diff API axis is reported. Owned by
+// for a Type whose Finding Diff Any API axis is reported. Owned by
 // docs/design/inspect-web-background-analysis.md.
 
 import type { BackgroundAnalysisQueue } from "./background-analysis.ts";
@@ -16,9 +16,9 @@ import {
   type LibraryApiDiffOperationInput,
 } from "./library-api-diff.ts";
 import {
-  libraryFastDiffKey,
-  type LibraryFastDiffBaseline,
-} from "./library-fast-diff.ts";
+  libraryFindingDiffAnyKey,
+  type LibraryFindingDiffAnyBaseline,
+} from "./library-finding-diff-any.ts";
 import type {
   OperationAuthorityPage,
   OperationCancelReason,
@@ -28,7 +28,7 @@ import type {
 
 export interface TypeApiDiffCueRequest {
   readonly packageModel: object;
-  readonly baseline: LibraryFastDiffBaseline;
+  readonly baseline: LibraryFindingDiffAnyBaseline;
   /** The Type's query identity (`ApiType.FullName`). */
   readonly typeQueryIdentifier: string;
   /** The Type's definition identity, which the diff's Type rows carry. */
@@ -62,7 +62,7 @@ export type TypeApiDiffCues = HeldAnalysis<TypeApiDiffCueRequest, TypeApiDiffCue
 export function typeApiDiffCueKey(request: TypeApiDiffCueRequest): string {
   return JSON.stringify([
     "type-api-diff",
-    libraryFastDiffKey(request.baseline),
+    libraryFindingDiffAnyKey(request.baseline),
     request.typeQueryIdentifier,
     request.typeIdentifier,
   ]);
@@ -77,7 +77,7 @@ function operationInput(request: TypeApiDiffCueRequest): LibraryApiDiffOperation
     targetVersion: baseline.targetVersion,
     targetFramework: baseline.targetFramework,
     compileAssetId: baseline.compileAssetId,
-    // The analyses of Compare's Type subject: Fast Diff's API axis includes
+    // The analyses of Compare's Type subject: Finding Diff Any's API axis includes
     // member attributes, so attribute changes must place member cues too.
     query: {
       surface: "Type",

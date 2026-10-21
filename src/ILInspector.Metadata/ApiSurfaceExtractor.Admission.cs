@@ -34,7 +34,7 @@ public static partial class ApiSurfaceExtractor
         => access is MethodAttributes.Family or MethodAttributes.FamORAssem;
 
     /// <summary>
-    /// The API axis admits a Type, as Fast Diff does, when its own row and
+    /// The API axis admits a Type, as Finding Diff Any does, when its own row and
     /// every enclosing Type's row is public, nested public, nested protected,
     /// or nested protected internal. A public nested Type of a non-public Type
     /// is not admitted: no other assembly can reach it. A nested

@@ -62,8 +62,8 @@ public static class MemberBodyDiffInspection
                             .Select(pair => new ComparisonMemberPairSelection(
                                 new(pair.Before!.Type, pair.Before.Selector), new(pair.After!.Type, pair.After.Selector)))]),
                     ImplementationDiffMechanism.CSharp | ImplementationDiffMechanism.IlBody,
-                    // The IL view compares under Fast Diff's Body policy, so a
-                    // Body cue and the view it opens agree (fast-diff.md#observability).
+                    // The IL view compares under Finding Diff Any's Body policy, so a
+                    // Body cue and the view it opens agree (finding-diff-any.md#observability).
                     IlBodyDiffPolicy.Body));
                 var oldIndex = Index(oldBodies, oldBinding);
                 var newIndex = Index(newBodies, newBinding);
