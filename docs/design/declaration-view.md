@@ -111,10 +111,15 @@ both sides is one `Changed` pair, as the [two-version form](#two-versions)
 states. The kind is part of the soft identity so that facts of one row never
 pair across kinds: the visibility marker, the Type row, and the nullable
 context of one Type, or a method row and its import, each pair only with
-their own kind. A fact whose key is equal on both sides is `Present` even
-when the census places it on different axes there, as an attribute of a
-Member whose accessibility changed is; the row's own flag fact changes with
-it, and each side's axis is recorded on the fact. A kind with no row of its own, such
+their own kind. The identity, soft identity, and variant strings are a
+lossless encoding of the key's bytes, never the key's diagnostic rendering,
+so the matcher compares exactly what the census compares. A fact whose key
+is equal on both sides is `Present` even when the census places it on
+different axes there, as an attribute of a Member whose accessibility changed
+is; the row's own flag fact changes with it, since a field's or method's
+accessibility is in its row flags and a property's or event's is in its
+accessors' flags, which rule 1 gives the property or event, and each side's
+axis is recorded on the fact. A kind with no row of its own, such
 as an attribute, moves only as `Added` or `Removed`: two attributes of one
 constructor that swap places leave the census equal and are `Present`, and a
 changed argument is one `Removed` and one `Added`. An attribute's spelling
@@ -143,7 +148,10 @@ The one-version document is a row's facts on one side:
   reports it, or the Type for the residual;
 - the side's endpoint coordinates;
 - the outcome: `Complete`, or the typed reason the census could not be
-  completed for the Type, in which case no fact is claimed; and
+  completed for the Type, in which case no fact is claimed;
+- the partition the census used: whether the Type was treated as public,
+  which decides which of its facts are API facts and which are Body facts;
+  and
 - the facts, each with the fields above.
 
 It is produced from Fast Diff's census for the Type on that side, partitioned
@@ -156,8 +164,14 @@ no single owner contributes to the residual.
 
 ## Two versions
 
-The two-version document holds both sides' one-version documents and a
-comparison:
+The two-version document holds a one-version document per side and a
+comparison. The per-side documents are the pair's census: Fast Diff
+partitions a Type public on either side as public on both, as its rule 2
+states, so each side's facts are taken under that partition, and each
+document records it. They equal the standalone one-version documents except
+when the Type's visibility differs between the sides; then the hidden side's
+document holds only its visibility marker and its Body facts, which is what
+the pair compares. The comparison is:
 
 - a `FindingComparison<DeclarationFact>` over the two fact sets, by
   `FindingMatcher` in its identity-set mode, since the facts are unordered.
@@ -253,7 +267,11 @@ opens.
   the physical row agree; an attribute whose arguments cannot be decoded is
   shown as bytes and marked uncertain.
 - **Currency:** for every census fact kind, a fixture row shows the kind in
-  the one-version document on both sides of a pair in which it differs.
+  the one-version document on both sides of a pair in which it differs; and
+  for `PublicTypeToInternal`, the internal side's standalone document holds
+  its Type row as a Body fact while the pair's document for that side
+  records the public partition and holds only the visibility marker and the
+  Body facts, so the two documents differ exactly as stated.
 - **Undecided:** a Type whose census cannot be completed on one side yields
   a document with that side's outcome and an undecided comparison, never an
   empty one.
