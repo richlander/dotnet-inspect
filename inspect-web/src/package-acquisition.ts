@@ -9,7 +9,6 @@ import type {
   BrowserAccessibilityDescriptor as AccessibilityDescriptorFromPackageFacade,
   BrowserApiFacetDescriptor as ApiFacetDescriptorFromPackageFacade,
   BrowserAssemblySurface as AssemblySurfaceFromPackageFacade,
-  BrowserExceptionSurface as ExceptionSurfaceFromPackageFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromPackageFacade,
   BrowserMemberSurface as MemberSurfaceFromPackageFacade,
   BrowserPackageDocument as PackageDocumentFromPackageFacade,
@@ -27,7 +26,6 @@ import type {
   BrowserAccessibilityDescriptor as AccessibilityDescriptorFromCatalogFacade,
   BrowserApiFacetDescriptor as ApiFacetDescriptorFromCatalogFacade,
   BrowserAssemblySurface as AssemblySurfaceFromCatalogFacade,
-  BrowserExceptionSurface as ExceptionSurfaceFromCatalogFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromCatalogFacade,
   BrowserMemberSurface as MemberSurfaceFromCatalogFacade,
   BrowserPackageDocument as PackageDocumentFromCatalogFacade,
@@ -37,7 +35,6 @@ import type {
   BrowserTypeSurface as TypeSurfaceFromCatalogFacade,
 } from "./facades/inspect-web-catalog.d.ts";
 import type {
-  BrowserExceptionSurface as ExceptionSurfaceFromMetadataFacade,
   BrowserMemberBodySelector as MemberBodySelectorFromMetadataFacade,
   BrowserMemberSurface as MemberSurfaceFromMetadataFacade,
   BrowserParameterSurface as ParameterSurfaceFromMetadataFacade,
@@ -47,7 +44,6 @@ import type {
   BrowserLibraryAccessibilityDescriptor as AccessibilityDescriptorFromLibraryFacade,
   BrowserLibraryApiFacetDescriptor as ApiFacetDescriptorFromLibraryFacade,
   BrowserLibraryAssemblySurface as AssemblySurfaceFromLibraryFacade,
-  BrowserLibraryExceptionSurface as ExceptionSurfaceFromLibraryFacade,
   BrowserLibraryMemberBodySelector as MemberBodySelectorFromLibraryFacade,
   BrowserLibraryMemberSurface as MemberSurfaceFromLibraryFacade,
   BrowserLibraryParameterSurface as ParameterSurfaceFromLibraryFacade,
@@ -77,12 +73,6 @@ export type InspectedAssemblySurface =
   | AssemblySurfaceFromPackageFacade
   | AssemblySurfaceFromCatalogFacade
   | AssemblySurfaceFromLibraryFacade;
-
-export type InspectedExceptionSurface =
-  | ExceptionSurfaceFromPackageFacade
-  | ExceptionSurfaceFromCatalogFacade
-  | ExceptionSurfaceFromMetadataFacade
-  | ExceptionSurfaceFromLibraryFacade;
 
 export type InspectedMemberBodySelector =
   | MemberBodySelectorFromPackageFacade
@@ -125,6 +115,11 @@ export interface AppParameterSurface
   description: string | null;
 }
 
+export interface AppExceptionSurface {
+  type: string;
+  description: string;
+}
+
 export interface AppMemberSurface
   extends Omit<
     InspectedMemberSurface,
@@ -133,7 +128,7 @@ export interface AppMemberSurface
   parameters: AppParameterSurface[];
   summary: string | null;
   returns: string | null;
-  exceptions: InspectedExceptionSurface[];
+  exceptions: AppExceptionSurface[];
   documentationLoaded?: boolean;
   baselineOrdinal?: number | null;
   isExplicitInterfaceImplementation?: boolean;
@@ -464,8 +459,13 @@ export function createAppMemberSurface(
 ): AppMemberSurface {
   return {
     ...surface,
-    parameters: surface.parameters.map(parameter => ({ ...parameter })),
-    exceptions: [...surface.exceptions],
+    parameters: surface.parameters.map(parameter => ({
+      ...parameter,
+      description: null,
+    })),
+    summary: null,
+    returns: null,
+    exceptions: [],
   };
 }
 

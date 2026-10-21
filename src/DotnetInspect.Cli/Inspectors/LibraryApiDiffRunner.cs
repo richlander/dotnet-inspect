@@ -32,7 +32,7 @@ internal static class LibraryApiDiffRunner
             beforeParticipant,
             afterGroup,
             afterParticipant,
-            includeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public,
+            includeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.ApiAxis,
             Limits,
             typeSelection);
     }
@@ -69,7 +69,7 @@ internal static class LibraryApiDiffRunner
                                         afterParticipant,
                                         includeAll
                                             ? ApiSurfaceScope.IncludeAll
-                                            : ApiSurfaceScope.Public,
+                                            : ApiSurfaceScope.ApiAxis,
                                         Limits,
                                         typeSelection)),
                             token),

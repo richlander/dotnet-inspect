@@ -356,12 +356,12 @@ its API status findings rather than by narrowing the comparison.
 API commands retain their existing visibility behavior and should link this
 rule when they document `--all`. API Diff compares the diff's API axis
 population above and presents the ordinary population by default. The
-comparison and Fast Diff's census adopt that population first; until the CLI
-and Inspect Web Library API Diff compare the API axis surface and filter it
-for presentation
-([#10227](https://github.com/richlander/dotnet-inspect/issues/10227)), they
-compare the ordinary population directly. Library Metrics and other
-implementation analyses should state their implementation population directly
+comparison, Fast Diff's census, and the CLI and Inspect Web Library API Diff
+compare it, and those hosts filter it for presentation as
+[Library API diff presentation](library-api-diff-presentation.md#ordinary-presentation)
+owns. The other diff routes still compare the Public scope directly. Library
+Metrics and other implementation analyses should state their implementation
+population directly
 and should not add `--all` solely to expose non-public or generated bodies.
 When an implementation report offers a follow-up API route, that route may
 apply its own visibility defaults and explain the separate `--all` gesture.

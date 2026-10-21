@@ -3119,7 +3119,16 @@ public class DiffCommandTests
         Assert.Empty(implicitError);
         Assert.Empty(explicitError);
         Assert.Empty(jsonError);
-        Assert.Equal(implicitOutput, explicitOutput);
+        // The default route compares the API axis, so a protected to public
+        // constructor is an accessibility row; the --analysis api route still
+        // compares the Public scope, where it is an addition
+        // (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+        Assert.Equal(
+            implicitOutput.Replace(
+                "- Member '.ctor' accessibility widened from 'protected' to 'public'",
+                "- Member '.ctor' was added",
+                StringComparison.Ordinal),
+            explicitOutput);
         Assert.Contains(
             "5 breaking, 4 additive across 4 types",
             explicitOutput,

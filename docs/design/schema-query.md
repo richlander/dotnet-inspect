@@ -353,6 +353,27 @@ coverage: the compiled `DotnetInspector.Sections` assembly cannot directly
 reference Markout or `DotnetInspect.Cli`; existing Browser/Wasm build gates
 continue to own platform compatibility.
 
+## Routing declarations
+
+Schema Query issues the explanation root's structural subject-kind
+declarations under the
+[Resource Explanation routing contract](resource-explanation.md#routing-declarations).
+The routing identity is the `StructuralSubjectKind` name. Each destination is
+a structural catalog root:
+
+| Subject kind | Destinations | Grain |
+| --- | --- | --- |
+| `package` | `package` | One package version |
+| `library` | `library`, `type` | One library image; `type` lists the types it declares |
+| `type` | `member` | One type, through its single-type catalog |
+| `member` | `member-overload`, `member-detail` | One member, or one overload of it |
+
+Each declaration also carries an owner-written purpose, representative
+questions, and scope, in `StructuralRoutingDeclarations`. The
+`workspace` and `ecosystem` subject kinds have no installed catalog, so
+Schema Query issues no declaration for them yet. This adds no command, path,
+or section; the declarations only route to the catalogs above.
+
 ## Pathological cases
 
 ### One product document spans several views
@@ -400,6 +421,7 @@ The current Release CLI suite owns the executable contract:
 
 | Gate | Required observation |
 | --- | --- |
+| `ResourceExplanationCommandTests.ExplanationRoot_ReachesAdoptedFamilies_AndReportsFamiliesAwaitingAdoption` | The CLI root over the complete catalog lists the four subject kinds with their catalog destinations, and reaches every structural catalog resource. Only the families awaiting their owners' declarations stay unreachable. |
 | `OutputFormatterTests.TypeViewSchema_DoesNotOwnFirstClassMemberRows` and `TypeDocumentSchema_MergesFirstClassMemberViews` | One generated view is not mistaken for the complete composed product document. |
 | `OutputFormatterTests.RenderManifestFormatter_CapturesStructuredSectionsColumnsAndFields`, `RenderManifestFormatter_CapturesRootFieldTableData`, `RenderManifestFormatter_UsesFieldColumnIdentityAfterReordering`, `RenderManifestFormatter_ZeroRowTableDeclaresColumnsWithoutData`, `RenderManifestFormatter_UnionsRepeatedTablesAndTracksDataColumns`, `RenderManifestFormatter_ScopesSameNamedFieldsBySection`, `RenderManifestFormatter_CanonicalizesMachineColumnNames`, `RenderManifestFormatter_RootScopeIgnoresSyntheticHeading`, and `RenderManifestFormatter_DoesNotTreatTitleTextAsAField` | Render evidence covers root and section-scoped fields, declared versus data-bearing columns, reordered field tables, machine-name lowering, repeated tables, synthetic headings, and same-name isolation without relying on coincidental display text. |
 | `ProjectionDiagnosticsTests.ValidateProjection_FieldResolvingInOneSection_SucceedsWithoutWarning` | Multi-section validation accepts a name owned by any selected section. |

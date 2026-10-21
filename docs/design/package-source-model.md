@@ -126,9 +126,14 @@ Package Dependency Traversal now owns one sequentially reused operation lease
 from host issuance through candidate resolution, exact manifest acquisition,
 local projection, and final publication. Its adapters retain authorization,
 not the settlement root or an independently supplied operation context.
-Direct candidate-query consumers and concurrent package-license inventory
-remain compatibility work; license inventory cannot share the traversal lease
-because it intentionally runs several manifest acquisitions concurrently.
+Concurrent package-license inventory issues one operation per manifest
+acquisition under its shared inventory deadline because one operation admits
+only sequential source steps. Dependency pruning reuses one operation through
+its sequential candidate-required declaration schedule. Workspace dependency
+enrichment now reuses one host-issued operation through its complete
+candidate-resolution schedule while root Nuspec acquisition remains
+PackageHouse-owned. Only test-only direct candidate-query consumers retain the
+compatibility source interface.
 
 These compatibility paths do not claim that ordinary class aliases are
 borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).

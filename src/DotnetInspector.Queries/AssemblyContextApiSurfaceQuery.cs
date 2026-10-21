@@ -31,6 +31,14 @@ public enum ApiSurfaceScope
     /// include-all member list.
     /// </summary>
     PublicWithNonPublicTypes,
+
+    /// <summary>
+    /// The diff's API axis (docs/design/api-population-scope.md#the-diffs-api-axis-population):
+    /// the <c>public</c> and <c>protected</c> buckets less <c>private protected</c>, with hidden
+    /// and obsolete declarations admitted. Library API Diff compares it by default and presents
+    /// its ordinary population (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+    /// </summary>
+    ApiAxis,
 }
 
 /// <summary>
@@ -648,6 +656,7 @@ public static class AssemblyContextApiSurfaceQuery
         ApiSurfaceScope.IncludeAll => ApiSurfaceExtractionScope.IncludeAll,
         ApiSurfaceScope.PublicWithNonPublicTypes =>
             ApiSurfaceExtractionScope.PublicWithNonPublicTypes,
+        ApiSurfaceScope.ApiAxis => ApiSurfaceExtractionScope.ApiAxis,
         _ => ApiSurfaceExtractionScope.Public,
     };
 

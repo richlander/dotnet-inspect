@@ -374,3 +374,21 @@ public interface IDefaultImplementationAdded
 {
     int Value(int x) => x;
 }
+
+// Ordinary presentation (docs/design/library-api-diff-presentation.md): a public
+// nested Type of a hidden Type is outside the ordinary population, and an
+// obsolete Member's other changes stay in it.
+[EditorBrowsable(EditorBrowsableState.Never)]
+public class HiddenOuter
+{
+    public class Inner
+    {
+        public int Value(int after) => after;
+    }
+}
+
+public class ObsoleteMemberChanged
+{
+    [Obsolete("m")]
+    public int Value(int after) => after;
+}

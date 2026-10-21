@@ -6234,6 +6234,15 @@ button.library-api-diff-row[aria-current="true"] { background: var(--panel-raise
 .library-api-diff-state-changed { color: var(--muted); }
 .library-api-diff-state-added { color: var(--green); }
 .library-api-diff-state-removed { color: var(--red, #d97070); }
+/* API status states: Hidden is its own color beside Added and Removed. */
+.library-api-diff-state-hidden { color: var(--purple); }
+.library-api-diff-state-unhidden { color: var(--blue); }
+.library-api-diff-state-obsoleted { color: var(--yellow); }
+.library-api-diff-obsolete {
+  margin-left: 6px;
+  color: var(--yellow);
+  font: 9px var(--mono);
+}
 .library-api-diff-signature-change { color: var(--dim); font: 10px/1.5 var(--mono); overflow-wrap: anywhere; }
 .library-api-diff-signature-change code { color: var(--muted); }
 .library-api-diff-member-detail {

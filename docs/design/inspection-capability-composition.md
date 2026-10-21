@@ -619,6 +619,29 @@ An explanation must identify which level it describes. It cannot present a
 document capability omitted by the current binding as though the user can
 invoke it through that host.
 
+### Routing declarations
+
+Inspection Capability Composition issues the explanation root's operation
+declarations for the capability families a host composes, under the
+[Resource Explanation routing contract](resource-explanation.md#routing-declarations):
+
+| Operation | Destination | Accepts |
+| --- | --- | --- |
+| `package-query` | The Package Query inspection document | `package` |
+| `package-files` | The Package Files inspection document | `package` |
+| `diff-analysis` | The `analyses` collection | The subject kinds the registered analyses' Compare participation names |
+
+The Diff operation derives its accepted subject kinds from the registered
+participation surfaces. In product order these are Library, Type, and
+Member; Root and Workspace surfaces have no subject-kind declaration. Each
+declaration also carries an owner-written purpose, representative questions,
+grain, and scope, in `CapabilityRoutingDeclarations`.
+
+Every operation accepts Schema Query subject kinds. A host therefore admits
+these declarations only together with
+[Schema Query's](schema-query.md#routing-declarations); admitting them alone
+names undeclared subject kinds and is an invalid registry.
+
 ## Failure and diagnostics
 
 Capability composition is resource-free. Registration failure is a product
@@ -711,6 +734,16 @@ Browser-managed binding and
 `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` for
 resource-free catalog construction. NativeAOT and single-threaded Wasm remain
 **unverified** until their existing product gates exercise the new substrate.
+
+The routing declarations' gate is the CLI root test
+`ExplanationRoot_ReachesAdoptedFamilies_AndReportsFamiliesAwaitingAdoption`.
+It asserts four things:
+
+- the three operations route to their destinations;
+- the Diff operation accepts Library, Type, and Member;
+- the Package subject lists both package operations; and
+- every Package Query, Package Files, and analysis resource is reachable from
+  the root.
 
 Catalog construction accepts only caller-supplied modules and exposes no
 assembly-scan or CLR-type-discovery entrypoint. Construction tests provide

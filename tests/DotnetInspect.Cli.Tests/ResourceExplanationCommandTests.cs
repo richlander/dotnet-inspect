@@ -1053,6 +1053,95 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
+    // The CLI's root gate: Schema Query's and Inspection Capability
+    // Composition's declarations reach every structural and capability
+    // resource, and the root stays withheld while the family whose owner has
+    // not adopted routing declarations remains unreachable.
+    [Fact]
+    public void ExplanationRoot_ReachesAdoptedFamilies_AndReportsFamiliesAwaitingAdoption()
+    {
+        ResourceExplanationRootComposition composition =
+            ResourceExplanationCommand.CreateRootComposition()!;
+
+        Assert.False(composition.IsPublishable);
+        Assert.Equal(
+            ["vocabularies"],
+            composition.Unreachable
+                .Select(static path => path.Value.Split('/')[0])
+                .Distinct()
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["library", "member", "package", "type"],
+            Targets(composition.Catalog, "root/subject-kinds", "collection-routing-entry")
+                .Select(static path => path.Split('/')[^1])
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["library", "type"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/library",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            ["member-overload", "member-detail"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/member",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            ["package-query", "package-files", "diff-analysis"],
+            Targets(composition.Catalog, "root/operations", "collection-routing-entry")
+                .Select(static path => path.Split('/')[^1]));
+        Assert.Equal(
+            ["package-query"],
+            Targets(
+                composition.Catalog,
+                "root/operations/package-query",
+                "routing-destination-document"));
+        Assert.Equal(
+            ["package-files"],
+            Targets(
+                composition.Catalog,
+                "root/operations/package-files",
+                "routing-destination-document"));
+        Assert.Equal(
+            ["analyses"],
+            Targets(
+                composition.Catalog,
+                "root/operations/diff-analysis",
+                "routing-destination-collection"));
+        Assert.Equal(
+            ["root/subject-kinds/library", "root/subject-kinds/type", "root/subject-kinds/member"],
+            Targets(
+                composition.Catalog,
+                "root/operations/diff-analysis",
+                "accepts-subject-kind"));
+        Assert.Equal(
+            ["root/operations/package-query", "root/operations/package-files"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/package",
+                "accepted-by-operation"));
+
+        static IEnumerable<string> Targets(
+            ResourceExplanationCatalog catalog,
+            string path,
+            string relationship)
+        {
+            var source = Assert.IsType<ResourcePathResolution.Resolved>(
+                catalog.Resolve(path));
+            var paths = catalog.Resources.ToDictionary(
+                static resource => resource.Key,
+                static resource => resource.Path!.Value);
+            return catalog.Relationships
+                .Where(candidate =>
+                    candidate.Source == source.Key
+                    && candidate.Relationship.Value == relationship)
+                .SelectMany(static candidate => candidate.Targets)
+                .Select(target => paths[target.Resource])
+                .ToArray();
+        }
+    }
+
     // Search reads the structural projections without building their
     // explanation graphs, so this witnesses the wiring: every admitted path
     // resolves in the exact catalog to its section or category, and every
