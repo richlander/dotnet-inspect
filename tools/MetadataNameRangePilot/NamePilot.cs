@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Globalization;
 
@@ -11,6 +12,7 @@ internal enum PilotScenario
     MatchOnly,
     SparseDisplay,
     DisplayAll,
+    Utf8OutputAll,
 }
 
 internal sealed class PilotPayload(
@@ -26,6 +28,7 @@ internal sealed class PilotPayload(
     readonly int _expectedMatches = expectedMatches;
     readonly PilotScenario _scenario = scenario;
     DisplayedName[]? _display;
+    ArrayBufferWriter<byte>? _utf8Output;
 
     internal int Consume() =>
         _scenario switch
@@ -47,6 +50,9 @@ internal sealed class PilotPayload(
             PilotScenario.DisplayAll =>
                 HashDisplay(
                     _display = _store.ProjectAll()),
+            PilotScenario.Utf8OutputAll =>
+                HashUtf8(
+                    _utf8Output = _store.WriteAllUtf8()),
             _ => throw new ArgumentOutOfRangeException(),
         };
 
@@ -59,6 +65,13 @@ internal sealed class PilotPayload(
             hash.Add(value.Role);
             hash.Add(value.Value);
         }
+        return hash.ToHashCode();
+    }
+
+    static int HashUtf8(ArrayBufferWriter<byte> output)
+    {
+        var hash = new HashCode();
+        hash.AddBytes(output.WrittenSpan);
         return hash.ToHashCode();
     }
 }

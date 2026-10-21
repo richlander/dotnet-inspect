@@ -304,6 +304,8 @@ internal sealed class NameAsset : IDisposable
             NameStrategy.EagerInert,
             copies: 1);
         DisplayedName[] expected = eager.ProjectAll();
+        ReadOnlyMemory<byte> expectedUtf8 =
+            eager.WriteAllUtf8().WrittenMemory;
         ulong displayHash = StableDisplayHash(expected);
         foreach (NameStrategy strategy in Enum.GetValues<NameStrategy>())
         {
@@ -313,6 +315,12 @@ internal sealed class NameAsset : IDisposable
             {
                 throw new InvalidOperationException(
                     $"{strategy} display disagrees with eager containment.");
+            }
+            if (!actual.WriteAllUtf8().WrittenSpan.SequenceEqual(
+                    expectedUtf8.Span))
+            {
+                throw new InvalidOperationException(
+                    $"{strategy} UTF-8 output disagrees with eager containment.");
             }
             if (actual.CountMatches(Query, ContainedQuery)
                 != QueryMatches)

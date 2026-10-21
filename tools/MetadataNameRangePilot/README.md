@@ -31,12 +31,19 @@ than overstating the baseline with discarded encoded strings.
 | `MatchOnly` | Query every Name without presentation | One completed store |
 | `SparseDisplay` | Query every Name and project only matching Names to `InertString` | Store plus selected output |
 | `DisplayAll` | Project every Name to `InertString` | Store plus complete output |
+| `Utf8OutputAll` | Contain every Name and write it directly to a destination-owned UTF-8 buffer | Store plus complete UTF-8 output |
+
+`Build` measures construction. Every other scenario starts with a completed
+store and measures only its terminal operation. A terminal ratio therefore
+answers how representations behave when reused; it is not an end-to-end
+build-plus-terminal ratio.
 
 The query is selected outside measurement from the least frequent non-empty
 stored Name and encoded once. Every strategy must return the same match count,
 roles, contained strings, and stable display hash. The local `check` command
-also proves that distinct ill-formed bytes remain distinct and project to
-their exact `\uDCNN` spellings.
+also requires byte-for-byte equal direct UTF-8 output and proves that distinct
+ill-formed bytes remain distinct and project to their exact `\uDCNN`
+spellings.
 
 This is kernel evidence. It does not establish an end-to-end `find`, inventory,
 anchor, or declaration performance claim, and it does not change the product's

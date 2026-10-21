@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.Text;
+
 using InertText;
 using InertText.Encoding;
 
@@ -35,6 +38,12 @@ internal abstract class NameStore
         int expectedMatches);
 
     internal abstract DisplayedName[] ProjectAll();
+
+    internal abstract ArrayBufferWriter<byte> WriteAllUtf8();
+
+    protected static ArrayBufferWriter<byte> CreateUtf8Output(
+        long sourceBytes) =>
+        new(checked((int)Math.Max(1, sourceBytes)));
 
     internal static NameStore Build(
         NameAsset asset,
@@ -159,6 +168,22 @@ internal sealed class EagerNameStore(
         }
         return result;
     }
+
+    internal override ArrayBufferWriter<byte> WriteAllUtf8()
+    {
+        var output = CreateUtf8Output(SourceBytes);
+        foreach (EagerName name in _names)
+        {
+            string text = name.Value.ToString();
+            int byteCount = Encoding.UTF8.GetByteCount(text);
+            Span<byte> destination = output.GetSpan(byteCount);
+            int written = Encoding.UTF8.GetBytes(
+                text,
+                destination);
+            output.Advance(written);
+        }
+        return output;
+    }
 }
 
 internal readonly record struct OpaqueName(
@@ -179,6 +204,12 @@ internal readonly record struct OpaqueName(
         Utf8VisualEncoder.MeasureInertStringLength(
             TextPolicy.Field,
             Utf8RangeClassification.Read(Range));
+
+    internal void WriteTo(IBufferWriter<byte> destination) =>
+        new InertUtf8String(
+            TextPolicy.Field,
+            Utf8RangeClassification.Read(Range))
+        .WriteTo(destination);
 }
 
 internal abstract class OpaqueNameStore(
@@ -232,6 +263,14 @@ internal abstract class OpaqueNameStore(
                 name.Project());
         }
         return result;
+    }
+
+    internal override ArrayBufferWriter<byte> WriteAllUtf8()
+    {
+        var output = CreateUtf8Output(SourceBytes);
+        foreach (OpaqueName name in _names)
+            name.WriteTo(output);
+        return output;
     }
 }
 
@@ -440,5 +479,20 @@ internal sealed class PopulationSlotStore(
                 .ToInertString());
         }
         return result;
+    }
+
+    internal override ArrayBufferWriter<byte> WriteAllUtf8()
+    {
+        ArrayBufferWriter<byte> output =
+            CreateUtf8Output(SourceBytes);
+        foreach (OpaqueByteRangeSlot slot in _slots)
+        {
+            new InertUtf8String(
+                TextPolicy.Field,
+                Utf8RangeClassification.Read(
+                    _population.Slice(slot)))
+            .WriteTo(output);
+        }
+        return output;
     }
 }
