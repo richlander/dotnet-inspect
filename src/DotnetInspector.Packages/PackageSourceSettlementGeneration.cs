@@ -500,7 +500,8 @@ internal sealed class PackageSourceSettlementGeneration
         IPackageSourceAuthorization sourceAuthorization,
         PackageVersionDiscoveryContract contract,
         NuGetOperationContext operationContext,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
@@ -530,7 +531,8 @@ internal sealed class PackageSourceSettlementGeneration
             contract,
             cancellationToken,
             operationContext,
-            log);
+            log,
+            observations);
     }
 
     /// <summary>
@@ -559,7 +561,8 @@ internal sealed class PackageSourceSettlementGeneration
         PackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract,
         NuGetOperationContext operationContext,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(authorization);
@@ -570,7 +573,8 @@ internal sealed class PackageSourceSettlementGeneration
             contract,
             operationContext.CancellationToken,
             operationContext,
-            log);
+            log,
+            observations);
     }
 
     private async Task<PackageVersionDiscoveryResult>
@@ -580,7 +584,8 @@ internal sealed class PackageSourceSettlementGeneration
         PackageVersionDiscoveryContract contract,
         CancellationToken cancellationToken,
         NuGetOperationContext operation,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var outcomes = new List<
@@ -614,15 +619,26 @@ internal sealed class PackageSourceSettlementGeneration
             IPackageSourceClient client = GetClient(authority);
             RequireAuthority(client.Source, authority);
 
-            log?.Invoke(
-                $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
             PackageSourceOperationResult<PackageVersionResult> outcome;
             try
             {
-                outcome = await client.GetVersionsAsync(
-                    packageId,
-                    cancellationToken,
-                    operation).ConfigureAwait(false);
+                if (observations is not null
+                    && observations.TryGet(
+                        authority, client.Source, packageId, out var retained))
+                {
+                    log?.Invoke(
+                        $"Reusing dependency versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
+                    outcome = retained;
+                }
+                else
+                {
+                    log?.Invoke(
+                        $"Fetching versions from {PackageSourceDisplay.ForDiagnostics(authority.Source)}.");
+                    outcome = await client.GetVersionsAsync(
+                        packageId,
+                        cancellationToken,
+                        operation).ConfigureAwait(false);
+                }
                 cancellationToken.ThrowIfCancellationRequested();
                 operation.ThrowIfExpired();
             }
@@ -669,6 +685,9 @@ internal sealed class PackageSourceSettlementGeneration
                     VersionDiscoveryOperationTimeoutFailure(operation),
                 ]);
         }
+
+        if (discovery.State == PackageVersionDiscoveryState.Authoritative)
+            observations?.Retain(packageId, authorization.Authorities, outcomes);
 
         return discovery;
     }

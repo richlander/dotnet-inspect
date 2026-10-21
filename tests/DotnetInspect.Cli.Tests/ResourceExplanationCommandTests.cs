@@ -1053,23 +1053,23 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
-    // The CLI's root gate: Schema Query's and Inspection Capability
-    // Composition's declarations reach every structural and capability
-    // resource, and the root stays withheld while the family whose owner has
-    // not adopted routing declarations remains unreachable.
+    // The CLI's root gate: the declarations of every owner the CLI admits
+    // reach every resource of its complete catalog, so the reachability
+    // invariant holds and the CLI may publish its root.
     [Fact]
-    public void ExplanationRoot_ReachesAdoptedFamilies_AndReportsFamiliesAwaitingAdoption()
+    public void ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog()
     {
         ResourceExplanationRootComposition composition =
             ResourceExplanationCommand.CreateRootComposition()!;
 
-        Assert.False(composition.IsPublishable);
+        Assert.Empty(composition.Unreachable);
+        Assert.True(composition.IsPublishable);
         Assert.Equal(
             ["vocabularies"],
-            composition.Unreachable
-                .Select(static path => path.Value.Split('/')[0])
-                .Distinct()
-                .Order(StringComparer.Ordinal));
+            Targets(
+                composition.Catalog,
+                "root/references/vocabularies",
+                "routing-destination-collection"));
         Assert.Equal(
             ["library", "member", "package", "type"],
             Targets(composition.Catalog, "root/subject-kinds", "collection-routing-entry")

@@ -213,6 +213,36 @@ belongs to the
 [Platform design](package-backed-platform-realization.md). A direct Package
 Source consumer may own the lease lexically for one operation.
 
+### Reusing dependency-version observations
+
+One operation may reuse complete version observations from an exact configured
+authority for the same case-insensitive package ID during dependency discovery.
+The runtime client's exact source-result identity must also match. Only
+observations from an authoritative discovery are retained. Reuse does not
+retain a selected version: each declaration still resolves its own range.
+
+Every discovery still checks its cancellation and operation ceiling, obtains
+the current source authorization, validates source-result correspondence, and
+aggregates under its requested discovery contract. A changed authorization
+therefore cannot inherit an earlier aggregate's authority or hide its failures.
+Partial or failed discovery is not retained. Reuse ends with the operation;
+general version discovery remains a fresh source read and persistent version
+settlements remain with the Package Version Service.
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, selected for `net8.0`.
+Its complete website hierarchy at build `7d2c086d` contains 48 declaration
+edges but only 28 dependency package IDs: repeated edge resolution issued 48
+version-index and 131 registration-document requests, alongside 36 distinct
+manifests. Reproduce through the Package References inspector's Hierarchy tab.
+The source observations are acquired normally, not embedded as a changing
+version-index fixture. Focused Release gates in
+`PackageSourceOperationOwnershipTests` cover repeated dependency discovery,
+operation and authority isolation, visible failures and cancellation, and
+fresh general discovery. The production-adapter test
+`CandidateResolution_SharedDependencyDiscoveryStillSelectsEachRange` verifies
+that two ranges select different versions from one source observation.
+Traversal graph and scheduling semantics are unchanged.
+
 ### Awaited work
 
 Borrowing an operation lease is synchronous. Asynchronous Package Source work

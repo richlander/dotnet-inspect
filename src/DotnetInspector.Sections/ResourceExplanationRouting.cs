@@ -189,6 +189,15 @@ public sealed partial class ResourceExplanationCatalog
             Pack("analysis-collection"));
 
     /// <summary>
+    /// The explanation key of the collection that lists every composed value
+    /// vocabulary.
+    /// </summary>
+    public static ExplanationResourceKey VocabulariesCollectionKey { get; } =
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.NavigationCollectionType,
+            Pack("vocabulary-collection"));
+
+    /// <summary>
     /// The root's destination relationship for each routable resource type.
     /// An adopting owner adds the relationship for its destination type.
     /// </summary>

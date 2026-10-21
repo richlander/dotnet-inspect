@@ -736,14 +736,14 @@ resource-free catalog construction. NativeAOT and single-threaded Wasm remain
 **unverified** until their existing product gates exercise the new substrate.
 
 The routing declarations' gate is the CLI root test
-`ExplanationRoot_ReachesAdoptedFamilies_AndReportsFamiliesAwaitingAdoption`.
+`ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`.
 It asserts four things:
 
 - the three operations route to their destinations;
 - the Diff operation accepts Library, Type, and Member;
 - the Package subject lists both package operations; and
-- every Package Query, Package Files, and analysis resource is reachable from
-  the root.
+- every resource of the complete catalog, including every Package Query,
+  Package Files, and analysis resource, is reachable from the root.
 
 Catalog construction accepts only caller-supplied modules and exposes no
 assembly-scan or CLR-type-discovery entrypoint. Construction tests provide
