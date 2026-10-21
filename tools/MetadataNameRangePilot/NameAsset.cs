@@ -314,6 +314,8 @@ internal sealed class NameAsset : IDisposable
         DisplayedName[] expected = eager.ProjectAll();
         ReadOnlyMemory<byte> expectedUtf8 =
             eager.WriteAllUtf8().WrittenMemory;
+        long expectedUtf16Budget = eager.Budget;
+        long expectedContainedUtf8Budget = expectedUtf8.Length;
         ulong displayHash = StableDisplayHash(expected);
         foreach (NameStrategy strategy in Enum.GetValues<NameStrategy>())
         {
@@ -339,24 +341,12 @@ internal sealed class NameAsset : IDisposable
                 throw new InvalidOperationException(
                     $"{strategy} query count differs from the asset census.");
             }
-            if (strategy is not (
-                    NameStrategy.PopulationOpaqueBytes
-                    or NameStrategy.PopulationSlotBytes)
-                && actual.Budget != eager.Budget)
-            {
-                throw new InvalidOperationException(
-                    $"{strategy} retained-text budget differs from eager containment.");
-            }
-        }
-
-        NameStore byteBudget = NameStore.Build(
-            this,
-            NameStrategy.PopulationOpaqueBytes,
-            copies: 1);
-        if (byteBudget.Budget != Utf8Bytes)
-        {
-            throw new InvalidOperationException(
-                "The byte-count strategy did not charge the exact stored bytes.");
+            ValidateBudget(
+                strategy,
+                actual.Budget,
+                expectedUtf16Budget,
+                Utf8Bytes,
+                expectedContainedUtf8Budget);
         }
 
         return new(
@@ -365,6 +355,33 @@ internal sealed class NameAsset : IDisposable
             _query.Length,
             QueryMatches,
             displayHash);
+    }
+
+    internal static void CheckNonAsciiBudgetKnownAnswers()
+    {
+        const string Source = "\u00E9";
+        var containedUtf16 = new InertString(
+            TextPolicy.Field,
+            Source);
+        byte[] sourceUtf8 = Encoding.UTF8.GetBytes(Source);
+        var containedUtf8 = new InertUtf8String(
+            TextPolicy.Field,
+            Utf8RangeClassification.Read(
+                OpaqueByteRange.Copy(sourceUtf8)));
+        if (containedUtf16.Length != 1
+            || containedUtf8.Length != 2
+            || containedUtf8.ToInertString() != containedUtf16)
+        {
+            throw new InvalidOperationException(
+                "The non-ASCII budget fixture has unexpected containment.");
+        }
+
+        ValidateBudget(
+            NameStrategy.PopulationContainedUtf8Bytes,
+            containedUtf8.Length,
+            containedUtf16.Length,
+            sourceUtf8.Length,
+            containedUtf8.Length);
     }
 
     internal static void CheckIllFormedKnownAnswers()
@@ -386,6 +403,30 @@ internal sealed class NameAsset : IDisposable
         {
             throw new InvalidOperationException(
                 "Ill-formed bytes did not receive their exact contained spellings.");
+        }
+    }
+
+    static void ValidateBudget(
+        NameStrategy strategy,
+        long actual,
+        long expectedUtf16,
+        long expectedSourceUtf8,
+        long expectedContainedUtf8)
+    {
+        long expected = strategy switch
+        {
+            NameStrategy.PopulationOpaqueBytes
+                or NameStrategy.PopulationSlotBytes =>
+                expectedSourceUtf8,
+            NameStrategy.PopulationContainedUtf8Bytes =>
+                expectedContainedUtf8,
+            _ => expectedUtf16,
+        };
+        if (actual != expected)
+        {
+            throw new InvalidOperationException(
+                $"{strategy} retained-text budget is {actual}; "
+                + $"expected {expected}.");
         }
     }
 

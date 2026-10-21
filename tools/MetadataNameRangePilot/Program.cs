@@ -16,6 +16,7 @@ try
 
     if (options.Command == PilotCommand.Check)
     {
+        NameAsset.CheckNonAsciiBudgetKnownAnswers();
         NameAsset.CheckIllFormedKnownAnswers();
         foreach (NameAsset asset in assets)
         {

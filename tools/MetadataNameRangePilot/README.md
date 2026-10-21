@@ -47,7 +47,10 @@ stored Name and encoded once. Every strategy must return the same match count,
 roles, contained strings, and stable display hash. The local `check` command
 also requires byte-for-byte equal direct UTF-8 output and proves that distinct
 ill-formed bytes remain distinct and project to their exact `\uDCNN`
-spellings.
+spellings. Its budget oracle compares measured strategies with contained
+UTF-16 length, raw-byte strategies with source UTF-8 bytes, and contained-byte
+strategies with contained UTF-8 bytes. A non-ASCII `é` known answer keeps those
+units observably distinct.
 
 This is kernel evidence. It does not establish an end-to-end `find`, inventory,
 anchor, or declaration performance claim, and it does not change the product's
