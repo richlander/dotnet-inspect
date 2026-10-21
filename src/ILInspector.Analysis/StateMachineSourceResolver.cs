@@ -30,6 +30,8 @@ internal sealed class StateMachineSourceResolver
         _primaryMetadataResolver;
     readonly Func<TypeDefinitionHandle, bool>
         _isSourceGeneratedTypeOrEnclosing;
+    readonly Func<TypeDefinitionHandle, bool>
+        _isCompilerGeneratedTypeOrEnclosing;
     readonly Func<EntityHandle, TypeRef> _typeFromEntity;
     IReadOnlyDictionary<
         int,
@@ -73,6 +75,8 @@ internal sealed class StateMachineSourceResolver
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
         Func<TypeDefinitionHandle, bool>
             isSourceGeneratedTypeOrEnclosing,
+        Func<TypeDefinitionHandle, bool>
+            isCompilerGeneratedTypeOrEnclosing,
         Func<EntityHandle, TypeRef> typeFromEntity,
         Action? relationshipIndexBuilt = null,
         Action? stateMachineExecutionMethodsBuilt = null,
@@ -83,6 +87,8 @@ internal sealed class StateMachineSourceResolver
         _primaryMetadataResolver = primaryMetadataResolver;
         _isSourceGeneratedTypeOrEnclosing =
             isSourceGeneratedTypeOrEnclosing;
+        _isCompilerGeneratedTypeOrEnclosing =
+            isCompilerGeneratedTypeOrEnclosing;
         _typeFromEntity = typeFromEntity;
         _relationshipIndexBuilt = relationshipIndexBuilt;
         _stateMachineExecutionMethodsBuilt =
@@ -401,9 +407,8 @@ internal sealed class StateMachineSourceResolver
             _primaryMetadataResolver
                 .HasCompilerGeneratedAttribute(
                     attributes)
-                || _primaryMetadataResolver
-                    .IsCompilerGeneratedTypeOrEnclosing(
-                        definition.GetDeclaringType()),
+                || _isCompilerGeneratedTypeOrEnclosing(
+                    definition.GetDeclaringType()),
             IsAuthenticatedTopLevelEntryPoint: false);
     }
 
@@ -451,11 +456,13 @@ internal sealed class StateMachineSourceResolver
         bool typeSourceGenerated,
         MethodDefinitionGeneratedExpansionWork work,
         out MethodIdentity? source,
-        out bool stateMachineExecutionBody)
+        out bool stateMachineExecutionBody,
+        out AuthenticatedSourceOwner? authenticatedSource)
     {
         ArgumentNullException.ThrowIfNull(work);
         source = null;
         stateMachineExecutionBody = false;
+        authenticatedSource = null;
 
         MethodClassification? classification =
             MethodClassificationScanner.ClassifyAsyncMethod(
@@ -595,15 +602,21 @@ internal sealed class StateMachineSourceResolver
                 sourceName);
         CustomAttributeHandleCollection attributes =
             sourceMethod.GetCustomAttributes();
+        bool hasGeneratedCode =
+            _primaryMetadataResolver
+                .HasGeneratedCodeAttribute(attributes);
+        bool hasCompilerGenerated =
+            _primaryMetadataResolver
+                .HasCompilerGeneratedAttribute(attributes);
         if (_isSourceGeneratedTypeOrEnclosing(sourceType)
-            || _primaryMetadataResolver
-                .HasGeneratedCodeAttribute(attributes)
-            || !liftedSource
-                && _primaryMetadataResolver
-                    .HasCompilerGeneratedAttribute(attributes))
+            || hasGeneratedCode
+            || !liftedSource && hasCompilerGenerated)
         {
             return AsyncSourceResolution.None;
         }
+        bool compilerGenerated =
+            hasCompilerGenerated
+            || _isCompilerGeneratedTypeOrEnclosing(sourceType);
 
         MethodIdentity resolvedSource =
             _primaryMetadataResolver.CreateMethodIdentity(
@@ -617,6 +630,12 @@ internal sealed class StateMachineSourceResolver
             return AsyncSourceResolution.None;
 
         source = resolvedSource;
+        authenticatedSource =
+            new AuthenticatedSourceOwner(
+                resolvedSource,
+                hasGeneratedCode,
+                compilerGenerated,
+                IsAuthenticatedTopLevelEntryPoint: false);
         return AsyncSourceResolution.Resolved;
     }
 

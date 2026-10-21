@@ -408,6 +408,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                 .DeclaredSourceProbeEncodedIlBytes > 0);
         MethodAnalysisSupportWork work =
             coverage.MethodAnalysis.QueryWork;
+        Assert.True(work.DeclaredSourceTypeDefinitionRows > 0);
+        Assert.True(work.DeclaredSourceRelationshipNodes > 0);
         Assert.True(work.DeclaredSourceContractQueries > 0);
         Assert.Equal(
             MemorySafetyMetadataWork.Empty,

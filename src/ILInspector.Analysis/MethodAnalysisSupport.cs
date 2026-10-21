@@ -529,13 +529,13 @@ internal sealed class MethodAnalysisLookup
                 generatedExpansionWork:
                     _declaredSourceWork,
                 methodAnalysis: this,
-                sourceGeneratedTypeDefinitionRead:
+                declaredSourceTypeDefinitionRead:
                     _ => Interlocked.Increment(
                         ref _declaredSourceTypeDefinitionRows),
-                sourceGeneratedAttributeRead:
+                declaredSourceAttributeRead:
                     () => Interlocked.Increment(
                         ref _declaredSourceTypeAttributeRows),
-                sourceGeneratedRelationshipRead:
+                declaredSourceRelationshipRead:
                     handle => _declaredSourceWork
                         .RecordRelationshipNode(handle));
         DeclaredOwnerResolution resolution;

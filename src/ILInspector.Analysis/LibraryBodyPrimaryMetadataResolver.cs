@@ -575,6 +575,14 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     internal bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
         => HasCompilerGeneratedAttribute(_reader, attributes);
 
+    internal bool HasCompilerGeneratedAttribute(
+        CustomAttributeHandleCollection attributes,
+        Action? attributeRead) =>
+        HasCompilerGeneratedAttribute(
+            _reader,
+            attributes,
+            attributeRead);
+
     internal static bool HasCompilerGeneratedAttribute(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
@@ -587,8 +595,22 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             "System.Runtime.CompilerServices");
 
     internal bool IsCompilerGeneratedTypeOrEnclosing(
-        TypeDefinitionHandle handle)
+        TypeDefinitionHandle handle,
+        Action<TypeDefinitionHandle>? typeDefinitionRead = null,
+        Action? attributeRead = null,
+        Action<TypeDefinitionHandle>? relationshipRead = null)
     {
+        if (typeDefinitionRead is not null
+            || attributeRead is not null
+            || relationshipRead is not null)
+        {
+            return IsCompilerGeneratedTypeOrEnclosingRecorded(
+                handle,
+                typeDefinitionRead,
+                attributeRead,
+                relationshipRead);
+        }
+
         Span<TypeDefinitionHandle> chain =
             stackalloc TypeDefinitionHandle[
                 MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -609,6 +631,58 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             if (HasCompilerGeneratedAttribute(
                     _reader.GetTypeDefinition(
                         chain[i]).GetCustomAttributes()))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool IsCompilerGeneratedTypeOrEnclosingRecorded(
+        TypeDefinitionHandle handle,
+        Action<TypeDefinitionHandle>? typeDefinitionRead,
+        Action? attributeRead,
+        Action<TypeDefinitionHandle>? relationshipRead)
+    {
+        Span<TypeDefinitionHandle> chain =
+            stackalloc TypeDefinitionHandle[
+                MetadataSafetyPolicy.MaxRelationshipNodes];
+        int count = 0;
+        TypeDefinitionHandle current = handle;
+        while (!current.IsNil)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (chain[i] == current)
+                    return true;
+            }
+            if (count == chain.Length)
+                return true;
+
+            chain[count++] = current;
+            try
+            {
+                typeDefinitionRead?.Invoke(current);
+                TypeDefinition definition =
+                    _reader.GetTypeDefinition(current);
+                relationshipRead?.Invoke(current);
+                current = definition.GetDeclaringType();
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                return true;
+            }
+        }
+
+        for (int i = count - 1; i >= 0; i--)
+        {
+            typeDefinitionRead?.Invoke(chain[i]);
+            if (HasCompilerGeneratedAttribute(
+                    _reader.GetTypeDefinition(chain[i])
+                        .GetCustomAttributes(),
+                    attributeRead))
             {
                 return true;
             }

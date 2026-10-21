@@ -166,6 +166,38 @@ public sealed class StateMachineSourceResolverCertificateTests
             maximumRelationshipNodes: 1);
     }
 
+    [Fact]
+    public void
+        ExactStateMachineOwner_ReceiptsCompilerGeneratedTypeProvenance()
+    {
+        byte[] image = File.ReadAllBytes(FixturePath);
+        using var subject = new Subject(
+            image,
+            recordDeclaredSourceWork: true);
+        TypeDefinitionHandle owner =
+            subject.FindType(nameof(CompilerGeneratedOwnerFixtures));
+        MethodDefinitionHandle kickoff =
+            subject.FindMethod(
+                owner,
+                name => name
+                    == nameof(
+                        CompilerGeneratedOwnerFixtures.InstanceAsync));
+        TypeDefinitionHandle stateMachine =
+            subject.FindNestedType(
+                owner,
+                name => name.StartsWith(
+                    "<InstanceAsync>d__",
+                    StringComparison.Ordinal));
+        MethodDefinitionHandle moveNext =
+            subject.FindMethod(
+                stateMachine,
+                name => name == "MoveNext");
+
+        subject.AssertExactOwnerProvenance(
+            kickoff,
+            moveNext);
+    }
+
     /// <summary>
     /// Renames every <c>#Strings</c> entry that ends in
     /// <c>SetStateMachine</c>. The state machines then have neither an
@@ -204,12 +236,19 @@ public sealed class StateMachineSourceResolverCertificateTests
     {
         readonly PEReader _peReader;
         readonly DeclaredSourceAttribution _attribution;
+        readonly MethodDefinitionGeneratedExpansionWork
+            _attributionWork;
 
-        internal Subject(byte[] image)
+        internal Subject(
+            byte[] image,
+            bool recordDeclaredSourceWork = false)
         {
             _peReader = new PEReader(
                 ImmutableArray.Create(image));
             Reader = _peReader.GetMetadataReader();
+            _attributionWork =
+                new MethodDefinitionGeneratedExpansionWork(
+                    MethodDefinitionGeneratedExpansionLimits.Default);
             _attribution = new DeclaredSourceAttribution(
                 FixturePath,
                 Reader,
@@ -217,13 +256,29 @@ public sealed class StateMachineSourceResolverCertificateTests
                 stateMachineExecutionMethodsBuilt:
                     () => CertificateBuilds++,
                 generatedExpansionWork:
-                    new MethodDefinitionGeneratedExpansionWork(
-                        MethodDefinitionGeneratedExpansionLimits.Default));
+                    _attributionWork,
+                declaredSourceTypeDefinitionRead:
+                    recordDeclaredSourceWork
+                        ? _ => TypeDefinitionRowsRead++
+                        : null,
+                declaredSourceAttributeRead:
+                    recordDeclaredSourceWork
+                        ? () => AttributeRowsRead++
+                        : null,
+                declaredSourceRelationshipRead:
+                    recordDeclaredSourceWork
+                        ? handle => _attributionWork
+                            .RecordRelationshipNode(handle)
+                        : null);
         }
 
         internal MetadataReader Reader { get; }
 
         internal int CertificateBuilds { get; private set; }
+
+        internal int TypeDefinitionRowsRead { get; private set; }
+
+        internal int AttributeRowsRead { get; private set; }
 
         StateMachineSourceResolver Resolver =>
             _attribution.StateMachineSourceResolver;
@@ -345,11 +400,17 @@ public sealed class StateMachineSourceResolverCertificateTests
                     typeSourceGenerated: false,
                     exactWork,
                     out MethodIdentity? exactSource,
-                    out bool exactExecutionBody));
+                    out bool exactExecutionBody,
+                    out AuthenticatedSourceOwner?
+                        exactAuthenticatedSource));
             Assert.Equal(
                 MetadataTokens.GetToken(kickoff),
                 exactSource!.MetadataToken);
             Assert.True(exactExecutionBody);
+            Assert.True(exactAuthenticatedSource.HasValue);
+            Assert.Equal(
+                exactSource,
+                exactAuthenticatedSource.Value.Method);
             Assert.Equal(
                 certificateBuildsBeforeExact,
                 CertificateBuilds);
@@ -454,6 +515,43 @@ public sealed class StateMachineSourceResolverCertificateTests
                 work.Build().RelationshipNodes);
         }
 
+        internal void AssertExactOwnerProvenance(
+            MethodDefinitionHandle kickoff,
+            MethodDefinitionHandle moveNext)
+        {
+            MethodDefinition definition =
+                Reader.GetMethodDefinition(moveNext);
+
+            Assert.Equal(
+                DeclaredOwnerResolution.Resolved,
+                _attribution.DeclaredSourceResolver
+                    .ResolveUltimateDeclaredMethod(
+                        moveNext,
+                        definition,
+                        CreateIdentity(moveNext, definition),
+                        typeSourceGenerated: false,
+                        out AuthenticatedSourceOwner? immediateOwner,
+                        out AuthenticatedSourceOwner? ultimateOwner,
+                        exactAttribution: true,
+                        exactAttributionWork: _attributionWork));
+            Assert.True(immediateOwner.HasValue);
+            Assert.True(ultimateOwner.HasValue);
+            AuthenticatedSourceOwner immediate =
+                immediateOwner.Value;
+            AuthenticatedSourceOwner ultimate =
+                ultimateOwner.Value;
+            Assert.Equal(
+                MetadataTokens.GetToken(kickoff),
+                immediate.Method.MetadataToken);
+            Assert.Equal(immediate, ultimate);
+            Assert.True(ultimate.IsCompilerGenerated);
+            Assert.True(TypeDefinitionRowsRead >= 4);
+            Assert.True(AttributeRowsRead >= 2);
+            Assert.True(
+                _attributionWork.Build()
+                    .RelationshipNodes > 0);
+        }
+
         MethodIdentity CreateIdentity(
             MethodDefinitionHandle method,
             MethodDefinition definition)
@@ -479,7 +577,7 @@ public sealed class StateMachineSourceResolverCertificateTests
                         typeof(ExplicitGenericStateMachines).Namespace!);
             });
 
-        TypeDefinitionHandle FindNestedType(
+        internal TypeDefinitionHandle FindNestedType(
             TypeDefinitionHandle owner,
             Func<string, bool> match) =>
             Reader.GetTypeDefinition(owner).GetNestedTypes().Single(
