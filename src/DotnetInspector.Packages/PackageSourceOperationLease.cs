@@ -6,8 +6,8 @@ using NuGetFetch;
 namespace DotnetInspector.Packages;
 
 /// <summary>
-/// Owns one context and root registration for sequential Package Source steps.
-/// Each step must settle before the next step or synchronous release.
+/// Owns one context and root registration for bounded Package Source steps.
+/// Every admitted step must settle before synchronous release.
 /// </summary>
 [ResourceOwnership]
 public sealed class PackageSourceOperationLease : IDisposable
@@ -17,16 +17,21 @@ public sealed class PackageSourceOperationLease : IDisposable
     private readonly NuGetOperationContext _context;
     private readonly PackageSourceDependencyVersionObservations
         _dependencyVersions = new();
-    private ActiveWorkRegistration? _work;
+    private int _activeSteps;
     private bool _disposed;
 
     internal PackageSourceOperationLease(
         PackageSourceSettlementGeneration generation,
-        NuGetOperationContext context)
+        NuGetOperationContext context,
+        int maximumConcurrentSteps)
     {
         _generation = generation;
         _context = context;
+        MaximumConcurrentSteps = maximumConcurrentSteps;
     }
+
+    /// <summary>Gets the maximum number of simultaneously active source steps.</summary>
+    public int MaximumConcurrentSteps { get; }
 
     /// <summary>Gets the per-request deadline carried by this operation.</summary>
     public TimeSpan RequestTimeout => _context.RequestTimeout;
@@ -366,9 +371,9 @@ public sealed class PackageSourceOperationLease : IDisposable
         {
             if (_disposed)
                 return;
-            if (_work is not null)
+            if (_activeSteps != 0)
                 throw new InvalidOperationException(
-                    "The current Package Source step must settle before releasing its operation.");
+                    "Every active Package Source step must settle before releasing its operation.");
             _disposed = true;
             try
             {
@@ -387,22 +392,19 @@ public sealed class PackageSourceOperationLease : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_work is not null)
+            if (_activeSteps == MaximumConcurrentSteps)
                 throw new InvalidOperationException(
-                    "Only one Package Source step may be active per operation.");
-            return _work = new(this, _generation, _context);
+                    "The Package Source operation's active-step capacity is exhausted.");
+            var work = new ActiveWorkRegistration(this, _generation, _context);
+            _activeSteps++;
+            return work;
         }
     }
 
-    private void ReleaseWork(ActiveWorkRegistration work)
+    private void ReleaseWork()
     {
         lock (_gate)
-        {
-            if (!ReferenceEquals(_work, work))
-                throw new InvalidOperationException(
-                    "The active work registration is not owned by this operation.");
-            _work = null;
-        }
+            _activeSteps--;
     }
 
     internal Task<TResult> RunAsync<TResult>(
@@ -427,7 +429,7 @@ public sealed class PackageSourceOperationLease : IDisposable
         internal NuGetOperationContext Context { get; } = context;
 
         public void Dispose() =>
-            Interlocked.Exchange(ref _parent, null)?.ReleaseWork(this);
+            Interlocked.Exchange(ref _parent, null)?.ReleaseWork();
     }
 
     private static async ValueTask<PackageAcquisitionCandidateResult> ResolvePinnedCoreAsync(

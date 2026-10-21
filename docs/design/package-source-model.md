@@ -128,8 +128,8 @@ from host issuance through candidate resolution, exact manifest acquisition,
 local projection, and final publication. Its adapters retain authorization,
 not the settlement root or an independently supplied operation context.
 Concurrent package-license inventory issues one operation per manifest
-acquisition under its shared inventory deadline because one operation admits
-only sequential source steps. Dependency pruning reuses one operation through
+acquisition under its shared inventory deadline; it has not adopted bounded
+concurrent operation steps. Dependency pruning reuses one operation through
 its sequential candidate-required declaration schedule. Workspace dependency
 enrichment now reuses one host-issued operation through its complete
 candidate-resolution schedule while root Nuspec acquisition remains
@@ -193,10 +193,10 @@ The operation lease:
   top-level operation;
 - accepts only coordinates, authorizations, candidates, and source results
   associated with its root settlement generation;
-- permits sequential source steps within the one top-level operation;
+- permits sequential source steps by default, or explicitly bounded overlap;
 - does not own source clients, stores, retained payload content, or detached
   results; and
-- is released synchronously only after its current awaited source step has
+- is released synchronously only after every current awaited source step has
   settled.
 
 Explicit-authorized version discovery checks the operation ceiling before
@@ -215,6 +215,36 @@ belongs to the
 [Platform design](package-backed-platform-realization.md). A direct Package
 Source consumer may own the lease lexically for one operation.
 
+### Bounded concurrent steps
+
+Issuance may explicitly request a positive maximum number of active steps.
+The existing issuance overload preserves capacity one. Admission is atomic
+with operation release; exceeding capacity fails visibly rather than queuing
+unbounded work. Synchronous control methods also require a step slot, so a
+coordinator checks or validates between admitted jobs, not while all slots are
+occupied. This capacity bounds source API steps, not underlying HTTP requests.
+
+Overlapping ordinary steps retain the same operation context and generation.
+They do not create per-job deadlines, restart the ceiling, or require worker
+threads. The existing bounded-refresh behavior for Package Version Service is
+unchanged. Every admitted step retains its ownership obligation through terminal
+cleanup, including source failure, cancellation, and expiry. Root settlement
+still waits for operation release, not merely for the first completed step.
+
+The motivating asset and repeated-dependency shape below also motivate overlap.
+This Source-only prerequisite is
+[#10417](https://github.com/richlander/dotnet-inspect/issues/10417), slice 2 of
+[#10404](https://github.com/richlander/dotnet-inspect/issues/10404). Both CLI
+and Browser traversal adoption is the next slice; current traversal scheduling,
+graph fidelity, and pruning behavior do not change here. No end-to-end latency
+improvement is claimed before that adoption.
+
+The [operation-concurrency model](models/package-source-operation-concurrency/README.md)
+checks bounded admission, shared fetch ownership, unchanged expiry, and
+quiescent release. Focused `PackageSourceOperationOwnershipTests` establish
+actual suspended-source overlap, capacity recovery, common context,
+coalescing/retry, and cancellation/deadline cleanup.
+
 ### Reusing dependency-version observations
 
 One operation may reuse complete version observations from an exact configured
@@ -222,6 +252,14 @@ authority for the same case-insensitive package ID during dependency discovery.
 The runtime client's exact source-result identity must also match. Only
 observations from an authoritative discovery are retained. Reuse does not
 retain a selected version: each declaration still resolves its own range.
+
+Overlapping dependency discoveries share in-flight source work for that same
+operation, authority, runtime identity, and package ID. Each participating call
+retains its active-work obligation and independently authorizes and aggregates.
+Unretained work remains shareable until its participants finish; when the last
+participant leaves, incomplete or failed observations are discarded for retry.
+Source work is not awaited under a cache lock. A source identity replacement
+cannot publish into or remove another identity's observation.
 
 Every discovery still checks its cancellation and operation ceiling, obtains
 the current source authorization, validates source-result correspondence, and
@@ -258,8 +296,8 @@ or equivalent state so long as acquisition, parent retention, transfer into
 the asynchronous state machine, release, and exceptional cleanup remain
 metadata-visible to Resource Lifecycle Analysis.
 
-One operation lease has at most one active asynchronous source step. Its owner
-awaits that step before reuse or release. Package Source payload acquisition
+One operation lease has at most its issued capacity of active source steps.
+Its owner awaits all admitted steps before release. Package Source payload acquisition
 consumes lower-level response streams into caller-owned retained package
 content before the work obligation ends, so no returned package result
 requires the operation lease to remain live.

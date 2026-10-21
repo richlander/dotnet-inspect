@@ -159,6 +159,377 @@ public sealed class PackageSourceOperationOwnershipTests
         Assert.Same(content.GenerationIdentity, payload.Payload.Content.GenerationIdentity);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task InvalidStepCapacityDoesNotRegisterAnOperation(int capacity)
+    {
+        await using var fixture = new SourceFixture();
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken, null, null, capacity));
+        Assert.True(fixture.Root.DisposeAsync().IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public async Task ConcurrentStepsShareContextAndRetainOperationUntilEveryStepSettles()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken, null, null,
+                maximumConcurrentSteps: 2);
+        PackageAcquisitionCandidate candidate = Candidate(operation, fixture.Authorization);
+        var firstGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int starts = 0;
+        fixture.Client.BeforeStep = _ => (++starts) switch
+        {
+            1 => firstGate.Task,
+            2 => secondGate.Task,
+            _ => Task.CompletedTask,
+        };
+        Task first = operation.AcquireCandidateManifestAsync(candidate);
+        Task second = operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId, fixture.Authorization);
+        try
+        {
+            Assert.False(first.IsCompleted);
+            Assert.False(second.IsCompleted);
+            Assert.Equal(2, fixture.Client.Contexts.Count);
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                _ = operation.AcquireCandidateManifestAsync(candidate);
+            });
+            Assert.Throws<InvalidOperationException>(operation.ThrowIfExpired);
+            Assert.Throws<InvalidOperationException>(operation.Dispose);
+            Task settlement = fixture.Root.DisposeAsync().AsTask();
+            Assert.False(settlement.IsCompleted);
+
+            firstGate.SetResult();
+            await first;
+            Assert.False(second.IsCompleted);
+            Assert.Throws<InvalidOperationException>(operation.Dispose);
+            await operation.AcquireCandidatePayloadAsync(
+                candidate, (_, _) => new InMemoryPackageStore());
+            Assert.Equal(3, fixture.Client.Contexts.Count);
+            NuGetOperationContext context = fixture.Client.Contexts[0];
+            Assert.All(fixture.Client.Contexts, observed => Assert.Same(context, observed));
+            Assert.Equal(operation.CancellationToken, context.CancellationToken);
+            Assert.False(settlement.IsCompleted);
+
+            secondGate.SetResult();
+            await second;
+            Assert.False(settlement.IsCompleted);
+            operation.Dispose();
+            await settlement.WaitAsync(TestContext.Current.CancellationToken);
+            Assert.Throws<ObjectDisposedException>(context.ThrowIfExpired);
+        }
+        finally
+        {
+            firstGate.TrySetResult();
+            secondGate.TrySetResult();
+            await Task.WhenAll(first, second);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentDependencyDiscoverySharesPendingWorkButAuthorizesEveryCall()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken, null, null,
+                maximumConcurrentSteps: 2);
+        var authorization = new CountingAuthorization(fixture.Authorization);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Client.BeforeStep = _ => finish.Task;
+        Task<PackageVersionDiscoveryResult> first = operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId, authorization);
+        Task<PackageVersionDiscoveryResult> second = operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId.ToUpperInvariant(), authorization);
+        try
+        {
+            Assert.False(first.IsCompleted);
+            Assert.False(second.IsCompleted);
+            Assert.Equal(2, authorization.Calls);
+            Assert.Single(fixture.Client.Contexts);
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                _ = operation.DiscoverDependencyVersionsAsync("contoso.logging", authorization);
+            });
+
+            finish.SetResult();
+            PackageVersionDiscoveryResult[] results = await Task.WhenAll(first, second);
+            Assert.All(results, result =>
+                Assert.Equal(PackageVersionDiscoveryState.Authoritative, result.State));
+            Assert.NotSame(results[0], results[1]);
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+            Assert.Single(fixture.Client.Contexts);
+            await operation.DiscoverVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration);
+            Assert.Equal(2, fixture.Client.Contexts.Count);
+        }
+        finally
+        {
+            finish.TrySetResult();
+            await Task.WhenAll(first, second);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentDiscoverySharesCompletedSourcesUntilAggregationAndRetriesPartialEvidence()
+    {
+        await using var first = new SourceFixture();
+        await using var second = new SourceFixture();
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(authority =>
+                ReferenceEquals(authority, first.Authorization.Authorities[0])
+                    ? first.OwnedClient : second.OwnedClient);
+        PackageSourceAuthorization authorization = PackageSourceAuthorization.ObserveAuthorities(
+            [first.Authorization.Authorities[0], second.Authorization.Authorities[0]], []);
+        using PackageSourceOperationLease operation =
+            root.IssueOperationLease(
+                TestContext.Current.CancellationToken, null, null,
+                maximumConcurrentSteps: 2);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        second.Client.HasAuthoritativeListingState = false;
+        second.Client.BeforeStep = _ =>
+        {
+            entered.TrySetResult();
+            return finish.Task;
+        };
+        Task<PackageVersionDiscoveryResult> pending =
+            operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, authorization);
+        Task<PackageVersionDiscoveryResult>? repeated = null;
+        try
+        {
+            await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
+            repeated = operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, authorization);
+            Assert.False(pending.IsCompleted);
+            Assert.False(repeated.IsCompleted);
+            Assert.Single(first.Client.Contexts);
+            Assert.Single(second.Client.Contexts);
+            finish.SetResult();
+            PackageVersionDiscoveryResult[] partial = await Task.WhenAll(pending, repeated);
+            Assert.All(partial, result =>
+                Assert.Equal(PackageVersionDiscoveryState.Partial, result.State));
+
+            second.Client.HasAuthoritativeListingState = true;
+            PackageVersionDiscoveryResult retried =
+                await operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, authorization);
+            Assert.Equal(PackageVersionDiscoveryState.Authoritative, retried.State);
+            Assert.Equal(2, first.Client.Contexts.Count);
+            Assert.Equal(2, second.Client.Contexts.Count);
+        }
+        finally
+        {
+            finish.TrySetResult();
+            await pending;
+            if (repeated is not null)
+                await repeated;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConcurrentDiscoveryFailureFansOutAndRemainsRetryable(bool throws)
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken, null, null,
+                maximumConcurrentSteps: 2);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expected = new InvalidDataException("Shared source failed.");
+        fixture.Client.BeforeStep = _ => finish.Task;
+        fixture.Client.VersionFailure = PackageSourceFailureKind.InvalidResponse;
+        Task<PackageVersionDiscoveryResult> first =
+            operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, fixture.Authorization);
+        Task<PackageVersionDiscoveryResult> second =
+            operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, fixture.Authorization);
+        try
+        {
+            Assert.Single(fixture.Client.Contexts);
+            Assert.False(first.IsCompleted);
+            Assert.False(second.IsCompleted);
+            if (throws)
+            {
+                finish.SetException(expected);
+                Assert.Same(expected, await Assert.ThrowsAsync<InvalidDataException>(() => first));
+                Assert.Same(expected, await Assert.ThrowsAsync<InvalidDataException>(() => second));
+            }
+            else
+            {
+                finish.SetResult();
+                PackageVersionDiscoveryResult[] failed = await Task.WhenAll(first, second);
+                Assert.All(failed, result =>
+                    Assert.NotEqual(PackageVersionDiscoveryState.Authoritative, result.State));
+            }
+
+            fixture.Client.BeforeStep = null;
+            fixture.Client.VersionFailure = null;
+            PackageVersionDiscoveryResult retried =
+                await operation.DiscoverDependencyVersionsAsync(
+                    Coordinate.PackageId, fixture.Authorization);
+            Assert.Equal(PackageVersionDiscoveryState.Authoritative, retried.State);
+            Assert.Equal(2, fixture.Client.Contexts.Count);
+        }
+        finally
+        {
+            finish.TrySetResult();
+            Task settlement = Task.WhenAll(first, second);
+            await settlement.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentDiscoveryRuntimeReplacementCannotOverwriteAnotherSourcesObservation()
+    {
+        await using var fixture = new SourceFixture();
+        SourceClient? replacement = null;
+        using IPackageSourceClient replacementClient = PackageSourceClientFactory.CreateCustom(
+            PackageSourceDescriptor.NuGetGallery,
+            fixture.Authorization.Authorities[0].Association,
+            factory => replacement = new SourceClient(factory));
+        IPackageSourceClient current = fixture.OwnedClient;
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => current);
+        using PackageSourceOperationLease operation =
+            root.IssueOperationLease(
+                TestContext.Current.CancellationToken, null, null,
+                maximumConcurrentSteps: 3);
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Client.BeforeStep = _ => finish.Task;
+        Task<PackageVersionDiscoveryResult> old =
+            operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, fixture.Authorization);
+        Task<PackageVersionDiscoveryResult>? oldAgain = null;
+        try
+        {
+            current = replacementClient;
+            await operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, fixture.Authorization);
+            current = fixture.OwnedClient;
+            oldAgain = operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+            Assert.Single(fixture.Client.Contexts);
+            Assert.Single(replacement!.Contexts);
+            Assert.False(oldAgain.IsCompleted);
+            finish.SetResult();
+            await Task.WhenAll(old, oldAgain);
+            current = replacementClient;
+            PackageVersionDiscoveryResult result =
+                await operation.DiscoverDependencyVersionsAsync(
+                    Coordinate.PackageId, fixture.Authorization);
+            Assert.Single(replacement.Contexts);
+            Assert.Same(replacementClient.Source,
+                Assert.Single(result.SelectCandidate(Coordinate.Version).Authorities).Observation!.Source);
+        }
+        finally
+        {
+            finish.TrySetResult();
+            await old;
+            if (oldAgain is not null)
+                await oldAgain;
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentDiscoveryCancellationSettlesEverySharedWaiterWithCallerIdentity()
+    {
+        await using var fixture = new SourceFixture();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                cancellation.Token, null, null, maximumConcurrentSteps: 2);
+        fixture.Client.BeforeStep = token => Task.Delay(Timeout.InfiniteTimeSpan, token);
+        Task<PackageVersionDiscoveryResult>[] pending =
+        [
+            operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, fixture.Authorization),
+            operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, fixture.Authorization),
+        ];
+        try
+        {
+            Assert.All(pending, task => Assert.False(task.IsCompleted));
+            Assert.Single(fixture.Client.Contexts);
+            cancellation.Cancel();
+            foreach (Task task in pending)
+            {
+                OperationCanceledException failure =
+                    await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
+                Assert.Equal(cancellation.Token, failure.CancellationToken);
+            }
+            operation.Dispose();
+            await fixture.Root.DisposeAsync();
+        }
+        finally
+        {
+            cancellation.Cancel();
+            Task settlement = Task.WhenAll(pending);
+            await settlement.ConfigureAwait(
+                ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentDiscoveryExpiryDoesNotRestartCeilingOrReleasePendingWork()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(1),
+                maximumConcurrentSteps: 2);
+        var firstGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int starts = 0;
+        fixture.Client.BeforeStep = _ => ++starts == 1 ? firstGate.Task : secondGate.Task;
+        var authorization = new CountingAuthorization(fixture.Authorization);
+        Task<PackageVersionDiscoveryResult> first =
+            operation.DiscoverDependencyVersionsAsync(Coordinate.PackageId, authorization);
+        Task<PackageVersionDiscoveryResult> second =
+            operation.DiscoverDependencyVersionsAsync("contoso.logging", authorization);
+        try
+        {
+            Assert.Equal(2, fixture.Client.Contexts.Count);
+            Assert.All(fixture.Client.Contexts, context =>
+                Assert.Same(fixture.Client.Contexts[0], context));
+            Task settlement = fixture.Root.DisposeAsync().AsTask();
+            Assert.True(operation.OperationCancellationToken.WaitHandle.WaitOne(TimeSpan.FromSeconds(10)));
+            firstGate.SetResult();
+            PackageVersionDiscoveryResult firstExpired = await first;
+            Assert.Equal(PackageVersionDiscoveryState.Failed, firstExpired.State);
+            Assert.False(second.IsCompleted);
+            Assert.Throws<InvalidOperationException>(operation.Dispose);
+            PackageVersionDiscoveryResult late =
+                await operation.DiscoverDependencyVersionsAsync("contoso.late", authorization);
+            Assert.Equal(PackageVersionDiscoveryState.Failed, late.State);
+            Assert.Equal(2, authorization.Calls);
+            Assert.Equal(2, fixture.Client.Contexts.Count);
+            Assert.False(settlement.IsCompleted);
+            secondGate.SetResult();
+            PackageVersionDiscoveryResult secondExpired = await second;
+            Assert.Equal(PackageVersionDiscoveryState.Failed, secondExpired.State);
+            Assert.All(new[] { firstExpired, secondExpired, late }, result =>
+                Assert.Contains(result.Failures,
+                    failure => failure.Timeout?.Kind == PackageSourceTimeoutKind.Operation));
+            operation.Dispose();
+            await settlement.WaitAsync(TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            firstGate.TrySetResult();
+            secondGate.TrySetResult();
+            await Task.WhenAll(first, second);
+        }
+    }
+
     [Fact]
     public async Task DependencyVersionDiscoveryReusesAuthoritativeSourceObservations()
     {
