@@ -244,11 +244,13 @@ function posting(): BrowserRetainedWorkspacePosting {
       navigationId: "navigation-1",
       contextIndex: 0,
       consumerPackageSubjectId: packageOne.id,
+      defaultLibrary: null,
       summary: packageSummary("net10.0"),
     }, {
       navigationId: "navigation-2",
       contextIndex: 1,
       consumerPackageSubjectId: packageTwo.id,
+      defaultLibrary: null,
       summary: packageSummary("net11.0"),
     }],
     platforms: [],

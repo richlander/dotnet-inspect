@@ -929,6 +929,12 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.True(package.Summary.TypeCount > 0);
             Assert.True(package.Summary.DocumentCount > 0);
             Assert.Equal("net9.0", package.Summary.SelectedCompileFramework);
+            Catalog.BrowserRetainedWorkspacePackageLibraryIdentity defaultLibrary =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePackageLibraryIdentity>(
+                    package.DefaultLibrary);
+            Assert.NotEmpty(defaultLibrary.AssetId);
+            Assert.NotEmpty(defaultLibrary.AssetPath);
+            Assert.NotEmpty(defaultLibrary.AssemblyName);
             using (JsonDocument compact = JsonDocument.Parse(json))
             {
                 Assert.All(compact.RootElement.GetProperty("posting")
@@ -948,6 +954,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.Equal(package.Summary.TypeCount, admitted.Package.TypePage.TotalTypes);
             Assert.Equal(0, admitted.Package.TypePage.Offset);
             Assert.InRange(admitted.Package.Surface.Types.Length, 1, 100);
+            Assert.Equal(
+                defaultLibrary.AssetId,
+                admitted.Package.Surface.DefaultAssemblyId);
             Assert.Equal(package.Summary.DocumentCount, admitted.Package.Surface.Documents.Length);
             Assert.Equal(package.Summary.MemberCount, admitted.Package.Surface.TotalMembers);
             json = await Catalog.CatalogExports.AdmitRetainedWorkspacePackage(

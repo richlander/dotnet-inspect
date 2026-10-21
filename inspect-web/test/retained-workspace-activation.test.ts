@@ -119,6 +119,7 @@ function posting(
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,
         libraryCount: 1,

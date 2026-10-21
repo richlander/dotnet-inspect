@@ -155,6 +155,7 @@ import {
   createAppTypeSurface,
   createPackageAcquisition,
   createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   createRuntimePackageModel,
   mergeRuntimePackageSurface,
   packageLibrariesForModel,
@@ -215,7 +216,6 @@ import {
   alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
-  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "./library-subject-nav.ts";
 import {
@@ -2784,8 +2784,10 @@ async function installRetainedWorkspacePosting(
     let packageModel: AppPackage | null = null;
     let platformModel: AppPackage | null = null;
     try {
-      packageModel = admittedPackage
-        ? createNuGetPackageModel(admittedPackage.surface)
+      packageModel = admittedPackage && packageInventory
+        ? createNuGetPackageModelWithDefaultLibrary(
+          admittedPackage.surface,
+          packageInventory.defaultLibrary)
         : null;
       platformModel = admittedPlatform
         ? createRuntimePackageModel(admittedPlatform.surface)
@@ -2910,7 +2912,9 @@ async function activateRetainedPackageAction(
   let packageModel: AppPackage;
   try {
     const admitted = await admitRetainedPackage(posting, inventory);
-    packageModel = createNuGetPackageModel(admitted.surface);
+    packageModel = createNuGetPackageModelWithDefaultLibrary(
+      admitted.surface,
+      inventory.defaultLibrary);
   } catch (error) {
     const currentPresentation = retainedWorkspacePresentation;
     const currentPosting = activeRetainedWorkspacePosting;
@@ -7713,12 +7717,11 @@ function selectLibraryLens(lens: LibraryLens) {
   if (state.libraryLens === lens) return;
   if (libraryLensRequiresExactLibrary(lens)
     && aggregateLibrarySubjectIsActive()) {
-    const preferredLibraryId = preferredLibrarySubjectId(
-      packageLibraries(),
-      state.package?.id ?? "");
-    if (preferredLibraryId) {
+    const firstLibraryId = state.package?.assemblyId ?? "";
+    if (firstLibraryId
+      && packageLibraries().some(library => library.id === firstLibraryId)) {
       selectLibrarySubject(
-        preferredLibraryId,
+        firstLibraryId,
         { preserveLens: true });
     }
   }
@@ -17893,7 +17896,9 @@ async function projectManagedNavigationType(
   }
 
   const admitted = await admitRetainedPackage(updatedPosting, inventory);
-  const pkg = createNuGetPackageModel(admitted.surface);
+  const pkg = createNuGetPackageModelWithDefaultLibrary(
+    admitted.surface,
+    inventory.defaultLibrary);
   const matches = pkg.types.filter(type =>
     type.definitionId === selection.definitionId
     && type.assemblyName.toLowerCase()

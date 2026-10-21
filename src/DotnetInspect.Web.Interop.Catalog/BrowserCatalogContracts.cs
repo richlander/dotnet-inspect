@@ -844,11 +844,17 @@ public sealed record BrowserRetainedWorkspaceSurfaceSummary(
     int DocumentCount,
     bool HasInspectionNotices);
 
+public sealed record BrowserRetainedWorkspacePackageLibraryIdentity(
+    string AssetId,
+    string AssetPath,
+    string AssemblyName);
+
 public sealed record BrowserRetainedWorkspacePackageInventory(
     string NavigationId,
     int ContextIndex,
     string ConsumerPackageSubjectId,
-    BrowserRetainedWorkspaceSurfaceSummary Summary);
+    BrowserRetainedWorkspaceSurfaceSummary Summary,
+    BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary);
 
 public sealed record BrowserRetainedWorkspacePlatformInventory(
     string NavigationId,

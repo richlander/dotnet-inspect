@@ -673,6 +673,76 @@ test("Package children retain navigable Libraries missing from the broad surface
   assert.equal(model.totalMembers, null);
 });
 
+test("a failed First Library surface remains selected instead of using a sibling", () => {
+  const firstId = "compile:lib/net10.0/Example.Package.dll";
+  const sibling = assembly("sibling", "Example.Sibling", 3);
+  const children = packageChildren(packageSurface({
+    defaultAssemblyId: firstId,
+    assemblies: [
+      assembly(firstId, "Example.Package", 2),
+      sibling,
+    ],
+  }));
+  const notice = "Example.Package could not be inspected.";
+  const model = createNuGetPackageModel(
+    packageSurface({
+      defaultAssemblyId: firstId,
+      assemblies: [sibling],
+      types: [],
+      inspectionErrors: [notice],
+      inspectionError: notice,
+    }),
+    children);
+
+  assert.equal(model.assemblyId, firstId);
+  assert.equal(model.assembly, "Example.Package");
+  assert.equal(model.selectedCompileAssetId, firstId);
+  const libraries = packageLibrariesForModel(model);
+  assert.equal(libraries[0]?.id, firstId);
+  assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(libraries[1]?.id, sibling.id);
+  assert.equal(libraries[1]?.surfaceAvailable, true);
+  assert.equal(model.inspectionError, notice);
+});
+
+test("a broad tool surface preserves the owner-issued First Library", () => {
+  const assetId = "tools/net10.0/any/Example.Tool.dll";
+  const projectedChildren = packageChildren(packageSurface({
+    defaultAssemblyId: assetId,
+    assemblies: [assembly(assetId, "Example.Tool", 0)],
+  }));
+  const children: BrowserPackageChildrenInspection = {
+    ...projectedChildren,
+    content: {
+      ...projectedChildren.content,
+      libraries: [{
+        assetId,
+        assetPath: assetId,
+        assemblyName: "Example.Tool",
+        role: "ToolEntryPoint",
+      }],
+    },
+  };
+  const model = createNuGetPackageModel(
+    packageSurface({
+      package: "Example.Tool",
+      defaultAssemblyId: assetId,
+      compileLibrary: {
+        status: "NoCompileAssets",
+        targetFramework: null,
+        message: null,
+      },
+      assemblies: [],
+      types: [],
+    }),
+    children);
+
+  assert.equal(model.assemblyId, assetId);
+  assert.equal(model.assembly, "Example.Tool");
+  assert.equal(model.selectedCompileAssetId, assetId);
+  assert.equal(model.inspectionError, "");
+});
+
 test("Package totals become unknown when a child has no broad surface", () => {
   const complete = packageSurface({
     assemblies: [

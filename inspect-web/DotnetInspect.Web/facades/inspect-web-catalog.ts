@@ -586,6 +586,13 @@ export interface BrowserRetainedWorkspacePackageInventory {
   readonly contextIndex: number;
   readonly consumerPackageSubjectId: string;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
+  readonly defaultLibrary: BrowserRetainedWorkspacePackageLibraryIdentity | null;
+}
+
+export interface BrowserRetainedWorkspacePackageLibraryIdentity {
+  readonly assetId: string;
+  readonly assetPath: string;
+  readonly assemblyName: string;
 }
 
 export interface BrowserRetainedWorkspacePackageSourceCredential {
