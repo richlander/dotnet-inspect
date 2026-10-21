@@ -178,6 +178,11 @@ public record EcosystemIntegrationPresence
 /// </summary>
 public static class EcosystemIntegrationScanner
 {
+    /// <summary>The complete product Integration interpretation.</summary>
+    public static EcosystemIntegrationScannerBinding GeneralBinding { get; } =
+        EcosystemIntegrationScannerBinding.Create(
+            EcosystemIntegrationClassifier.Classify);
+
     /// <summary>Existing Aspire interpretation for staged application-catalog adoption.</summary>
     public static EcosystemIntegrationScannerBinding AspireBinding { get; } =
         EcosystemIntegrationScannerBinding.Create(EcosystemIntegrationClassifier.ClassifyAspire);

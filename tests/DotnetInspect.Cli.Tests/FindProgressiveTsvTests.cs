@@ -85,6 +85,28 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task OfflineIndexedFindingFillsWindowBeforeLivePrefixWork()
+    {
+        var result = await Run(
+            "--offline",
+            "find", "AddRedis",
+            "--ecosystem", "aspire",
+            "-n", "1",
+            "--tsv");
+
+        string[] lines = result.Output.TrimEnd('\n').Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(
+            "Aspire.Hosting.Redis@13.6.2",
+            lines[1],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Stopped before unsearched work: Aspire.",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProgressiveProjectionKeepsRequestedColumns()
     {
         var result = await Run(

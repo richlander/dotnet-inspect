@@ -120,10 +120,10 @@ controls are:
 
 | Ecosystem | Exact package | Integration symbol |
 | --- | --- | --- |
-| Aspire | `Aspire.Hosting.Redis@13.6.1` | `AddRedis` |
-| Aspire | `Aspire.Hosting.PostgreSQL@13.6.1` | `AddPostgres` |
-| Aspire | `Aspire.StackExchange.Redis@13.6.1` | `AddRedisClient` |
-| Microsoft.Extensions | `Microsoft.Extensions.Http@10.0.12` | `AddHttpClient` |
+| Aspire | `Aspire.Hosting.Redis@13.6.2` | `AddRedis` |
+| Aspire | `Aspire.Hosting.PostgreSQL@13.6.2` | `AddPostgres` |
+| Aspire | `Aspire.StackExchange.Redis@13.6.2` | `AddRedisClient` |
+| Microsoft.Extensions | `Microsoft.Extensions.Http@10.0.13` | `AddHttpClient` |
 
 Generation fails rather than publishing an artifact that omits a control when
 its exact package coordinate and scanner concept are in generation scope.
@@ -415,6 +415,15 @@ format versions; callers cannot substitute free-form identities.
 Each Ecosystem artifact is checked in once. The CLI consumes it as an embedded
 resource; Inspect Web consumes a static asset built from the same file.
 Ordinary build, test, startup, and indexed lookup do not regenerate it.
+
+The initial CLI artifacts live in
+`src/DotnetInspector.Ecosystems/FindIndexes/`. The explicit network-bearing
+`eng/generate-ecosystem-find-indexes.cs` generator enumerates at most 25
+packages per declared prefix, selects `net10.0` compile Libraries, runs the
+complete product Integration interpretation, records bounded-enumeration and
+source gaps, and writes deterministic Aspire and Microsoft.Extensions
+artifacts. The 25-package bound is the smallest current bound that includes all
+four known-answer controls in source order.
 
 Generation fails when any known-answer control is missing, identity or coverage
 is inconsistent, deterministic regeneration differs, or the artifact exceeds

@@ -15,6 +15,7 @@ using DotnetInspector.Sections;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using Markout;
 using DotnetInspector.Presentation;
 using NuGetFetch;
@@ -358,7 +359,7 @@ public partial class FindCommand
         FindSearchResult<TypeFindResult> TypeSearch,
         FindSearchResult<MemberFindResult> MemberSearch);
 
-    private sealed record LayeredSearchBlock(
+    internal sealed record LayeredSearchBlock(
         IReadOnlyList<TypeFindResult> Types,
         IReadOnlyList<MemberFindResult> Members,
         int AcceptedMemberCount = 0);
@@ -628,6 +629,14 @@ public partial class FindCommand
         bool IsIncomplete,
         string? Failure);
 
+    internal sealed record IndexedTypeIdentity(
+        ExactLibrarySourceCoordinate Source,
+        MetadataTypeDefinitionName Type);
+
+    internal sealed record IndexedMemberIdentity(
+        ExactLibrarySourceCoordinate Source,
+        MemberAnchor Member);
+
     private static string CoreAttribution(
         EcosystemFindLayer layer,
         IReadOnlyList<(
@@ -681,11 +690,22 @@ public partial class FindCommand
                 patterns,
                 layers,
                 demandPrefixes);
+        var indexedTypes = new HashSet<IndexedTypeIdentity>();
+        var indexedMembers = new HashSet<IndexedMemberIdentity>();
         return new(request, bounded,
             (prefix, remaining, token) =>
                 EnumeratePrefixAsync(
                     prefix, remaining, options, context, token),
-            candidate,
+            async (item, memberships, token) =>
+            {
+                EcosystemFindBlock<LayeredSearchBlock> block =
+                    await candidate(item, memberships, token);
+                return SuppressIndexedDuplicates(
+                    options,
+                    block,
+                    indexedTypes,
+                    indexedMembers);
+            },
             publish: block =>
             {
                 LayeredSearchBlock content = block.Content;
@@ -755,7 +775,311 @@ public partial class FindCommand
             combineCore: sources => new(
                 [.. sources.SelectMany(source => source.Content.Types)],
                 [.. sources.SelectMany(source => source.Content.Members)],
-                sources.Sum(source => source.Content.AcceptedMemberCount)));
+                sources.Sum(source => source.Content.AcceptedMemberCount)),
+            indexed: !demandPrefixes
+                ? null
+                : (remaining, token) => EvaluateIndexedAsync(
+                    options,
+                    patterns,
+                    request,
+                    layers,
+                    remaining,
+                    indexedTypes,
+                    indexedMembers,
+                    token));
+    }
+
+    private static Task<
+        EcosystemFindIndexedOutcome<LayeredSearchBlock>>
+        EvaluateIndexedAsync(
+            FindOptions options,
+            string[] patterns,
+            EcosystemFindSearchRequest search,
+            IReadOnlyList<(
+                EcosystemPackId Id,
+                WorkspaceEcosystemRegistrationDeclaration Declaration,
+                bool Platform)> layers,
+            int? remainingRows,
+            HashSet<IndexedTypeIdentity> indexedTypes,
+            HashSet<IndexedMemberIdentity> indexedMembers,
+            CancellationToken cancellationToken)
+    {
+        var artifacts = new List<EcosystemFindIndexArtifact>();
+        var demands =
+            new List<EcosystemFindIndexedIntegrationSourceIdentity>();
+        var failures = new List<EcosystemFindSourceFailure>();
+        var sourceProjection = new Dictionary<
+            ExactLibrarySourceCoordinate,
+            (SearchAssemblySource Source, string Ecosystem)>();
+        foreach ((EcosystemPackId id,
+            WorkspaceEcosystemRegistrationDeclaration declaration,
+            _) in layers)
+        {
+            if (!search.PrefixDemand.Contains(declaration.Id)
+                || !EcosystemFindIndexResources.IsAvailable(id))
+            {
+                continue;
+            }
+            EcosystemFindIndexResourceLoad load =
+                EcosystemFindIndexResources.Load(id);
+            if (load is EcosystemFindIndexResourceLoad.Invalid invalid)
+            {
+                failures.Add(new(
+                    "Indexed",
+                    id.Value,
+                    invalid.Message));
+                continue;
+            }
+            EcosystemFindIndexArtifact artifact =
+                ((EcosystemFindIndexResourceLoad.Available)load).Artifact;
+            PackagePrefixDeclaration[] demandedPrefixes =
+            [
+                .. declaration.Populations
+                    .OfType<
+                        WorkspaceEcosystemPopulationDeclaration.PackagePrefix>()
+                    .Select(static population => population.Prefix),
+            ];
+            bool admitted = false;
+            foreach (PackagePrefixDeclaration prefix in demandedPrefixes)
+            {
+                PackagePrefixDeclaration? indexedPrefix =
+                    artifact.Prefixes.FirstOrDefault(candidate =>
+                        string.Equals(
+                            candidate.Prefix,
+                            prefix.Prefix,
+                            StringComparison.Ordinal));
+                if (indexedPrefix is null)
+                {
+                    failures.Add(new(
+                        "Indexed",
+                        id.Value,
+                        $"Artifact does not contain package prefix "
+                            + $"'{prefix.Prefix}'."));
+                    continue;
+                }
+                demands.Add(new(id, indexedPrefix));
+                admitted = true;
+            }
+            if (!admitted)
+                continue;
+            artifacts.Add(artifact);
+            foreach (EcosystemFindIndexSourceCoordinate source
+                in artifact.Sources)
+            {
+                sourceProjection.Add(
+                    ExactSource(source),
+                    (SearchAssemblySource.FromIndexed(source), id.Value));
+            }
+        }
+
+        if (demands.Count == 0)
+        {
+            return Task.FromResult(new EcosystemFindIndexedOutcome<
+                LayeredSearchBlock>(
+                [],
+                EcosystemFindIndexedCompletion.Exhausted,
+                failures));
+        }
+
+        var types = new List<TypeFindResult>();
+        var members = new List<MemberFindResult>();
+        int acceptedMembers = 0;
+        EcosystemFindIndexedCompletion completion =
+            EcosystemFindIndexedCompletion.Exhausted;
+        FindVisibility visibility = options.IncludeAll
+            ? FindVisibility.All
+            : FindVisibility.Public;
+
+        if (search.Question is MemberFindQuestion memberQuestion)
+        {
+            EcosystemFindIndexedIntegrationResult.Member result =
+                (EcosystemFindIndexedIntegrationResult.Member)
+                    EcosystemFindIndexedIntegration.Evaluate(
+                        new(
+                            artifacts,
+                            demands,
+                            memberQuestion,
+                            remainingRows),
+                        cancellationToken);
+            members.AddRange(
+                MemberSearchService.ProjectIndexedSemanticMatches(
+                    result.Matches,
+                    source => sourceProjection[source.Coordinate].Source));
+            acceptedMembers = result.AcceptedCount;
+            RecordPublished(
+                result,
+                indexedTypes,
+                indexedMembers);
+            completion = MapCompletion(result.Completion);
+        }
+        else
+        {
+            var typeQuestion = (TypeFindQuestion)search.Question;
+            EcosystemFindIndexedIntegrationResult.Type typeResult =
+                (EcosystemFindIndexedIntegrationResult.Type)
+                    EcosystemFindIndexedIntegration.Evaluate(
+                        new(
+                            artifacts,
+                            demands,
+                            typeQuestion,
+                            remainingRows),
+                        cancellationToken);
+            types.AddRange(
+                TypeSearchService.ProjectIndexedSemanticMatches(
+                    typeQuestion,
+                    typeResult.Matches,
+                    source => sourceProjection[source.Coordinate].Source));
+            RecordPublished(
+                typeResult,
+                indexedTypes,
+                indexedMembers);
+            completion = MapCompletion(typeResult.Completion);
+
+            int? memberCapacity = remainingRows is int finite
+                ? finite - types.Count
+                : null;
+            HashSet<string> settled =
+            [
+                .. types.Select(static row => row.Pattern),
+            ];
+            string[] memberPatterns =
+            [
+                .. patterns.Where(pattern =>
+                    !settled.Contains(pattern)
+                    && MayRunImplicitMemberFallback(pattern)),
+            ];
+            if (completion is EcosystemFindIndexedCompletion.Exhausted
+                && memberCapacity is not 0
+                && memberPatterns.Length > 0)
+            {
+                MemberFindQuestion broadened = MemberFindQuestion.Create(
+                    memberPatterns,
+                    visibility,
+                    options.TypeFilter);
+                EcosystemFindIndexedIntegrationResult.Member memberResult =
+                    (EcosystemFindIndexedIntegrationResult.Member)
+                        EcosystemFindIndexedIntegration.Evaluate(
+                            new(
+                                artifacts,
+                                demands,
+                                broadened,
+                                memberCapacity),
+                            cancellationToken);
+                members.AddRange(
+                    MemberSearchService.ProjectIndexedSemanticMatches(
+                        memberResult.Matches,
+                        source => sourceProjection[source.Coordinate].Source));
+                acceptedMembers = memberResult.AcceptedCount;
+                RecordPublished(
+                    memberResult,
+                    indexedTypes,
+                    indexedMembers);
+                completion = MapCompletion(memberResult.Completion);
+            }
+        }
+
+        types = [.. types.Select(row => row with
+        {
+            Ecosystem = sourceProjection[row.ExactSource!].Ecosystem,
+        })];
+        members = [.. members.Select(row => row with
+        {
+            Ecosystem = sourceProjection[row.ExactSource!].Ecosystem,
+        })];
+        var content = new LayeredSearchBlock(
+            types,
+            members,
+            acceptedMembers);
+        return Task.FromResult(new EcosystemFindIndexedOutcome<
+            LayeredSearchBlock>(
+            [
+                new(
+                    content,
+                    types.Count + acceptedMembers),
+            ],
+            completion,
+            failures));
+    }
+
+    private static ExactLibrarySourceCoordinate ExactSource(
+        EcosystemFindIndexSourceCoordinate source) =>
+        new ExactLibrarySourceCoordinate.Package(
+            PackageSourceCoordinate.Create(
+                source.Package.PackageId,
+                source.Package.Version!),
+            new ManagedMetadataIdentity.Assembly(source.Assembly));
+
+    private static EcosystemFindIndexedCompletion MapCompletion(
+        EcosystemFindIndexedIntegrationCompletion completion) =>
+        completion switch
+        {
+            EcosystemFindIndexedIntegrationCompletion.Exhausted =>
+                EcosystemFindIndexedCompletion.Exhausted,
+            EcosystemFindIndexedIntegrationCompletion.RowLimitReached =>
+                EcosystemFindIndexedCompletion.RowLimitReached,
+            EcosystemFindIndexedIntegrationCompletion.Canceled =>
+                throw new OperationCanceledException(),
+            _ => throw new InvalidOperationException(
+                "Unknown indexed Find completion."),
+        };
+
+    private static void RecordPublished(
+        EcosystemFindIndexedIntegrationResult result,
+        HashSet<IndexedTypeIdentity> indexedTypes,
+        HashSet<IndexedMemberIdentity> indexedMembers)
+    {
+        foreach (EcosystemFindIndexedPublishedSymbolIdentity identity
+            in result.PublishedSymbols)
+        {
+            if (identity.Type is { } type)
+                indexedTypes.Add(new(identity.Source, type));
+            else if (identity.Member is { } member)
+                indexedMembers.Add(new(identity.Source, member));
+            else
+                throw new InvalidOperationException(
+                    "An indexed published symbol has no identity.");
+        }
+    }
+
+    internal static EcosystemFindBlock<LayeredSearchBlock>
+        SuppressIndexedDuplicates(
+            FindOptions options,
+            EcosystemFindBlock<LayeredSearchBlock> block,
+            HashSet<IndexedTypeIdentity> indexedTypes,
+            HashSet<IndexedMemberIdentity> indexedMembers)
+    {
+        TypeFindResult[] types =
+        [
+            .. block.Content.Types.Where(row =>
+                row.ExactSource is null
+                || row.ExactType is null
+                || !indexedTypes.Contains(new(
+                    row.ExactSource,
+                    row.ExactType))),
+        ];
+        MemberFindResult[] members =
+        [
+            .. block.Content.Members.Where(row =>
+                row.ExactSource is null
+                || row.ExactMember is null
+                || !indexedMembers.Contains(new(
+                    row.ExactSource,
+                    row.ExactMember))),
+        ];
+        int removedMembers =
+            block.Content.Members.Count - members.Length;
+        int acceptedMembers = Math.Max(
+            0,
+            block.Content.AcceptedMemberCount - removedMembers);
+        var content = new LayeredSearchBlock(
+            types,
+            members,
+            acceptedMembers);
+        return block with
+        {
+            Content = content,
+            RowCount = CountLayeredRows(options, types, members),
+        };
     }
 
     internal static EcosystemFindSearchRequest CreateEcosystemRequest(
