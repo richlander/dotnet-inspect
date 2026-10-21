@@ -7,6 +7,7 @@ internal enum PilotCommand
 {
     Check,
     Measure,
+    SlotLatency,
 }
 
 internal enum NameScope
@@ -27,6 +28,8 @@ internal sealed record Options(
     const string Usage =
         "usage: check [--scope all|method-production] <assembly>... "
         + "| measure [--scope all|method-production] [--rounds N] "
+        + "[--copies N | --target-names N] [--tsv path] <assembly>... "
+        + "| slot-latency [--scope all|method-production] [--rounds N] "
         + "[--copies N | --target-names N] [--tsv path] <assembly>...";
 
     internal static bool TryParse(
@@ -37,15 +40,18 @@ internal sealed record Options(
         options = null;
         error = null;
         if (args.Length == 0
-            || args[0] is not ("check" or "measure"))
+            || args[0] is not ("check" or "measure" or "slot-latency"))
         {
             error = Usage;
             return false;
         }
 
-        PilotCommand command = args[0] == "check"
-            ? PilotCommand.Check
-            : PilotCommand.Measure;
+        PilotCommand command = args[0] switch
+        {
+            "check" => PilotCommand.Check,
+            "measure" => PilotCommand.Measure,
+            _ => PilotCommand.SlotLatency,
+        };
         NameScope scope = NameScope.All;
         int rounds = 30;
         int? copies = null;

@@ -239,9 +239,27 @@ not the production answer: resolving and validating a range with `Slice(slot)`
 for every candidate made matching and sparse selection about three times
 slower than eager strings. A slot-backed adoption therefore requires
 owner-level closed operations that preserve opacity without materializing a
-retained range for every comparison. Until that separately reviewed
-capability exists, retained ranges are the usable match-heavy representation
-and slots are a space lower bound, not an adoption recommendation.
+retained range for every comparison.
+
+A follow-up descriptor pilot isolated that operation with one shared byte
+population. An owner-fused checked operation over an 8-byte `[offset, length]`
+slot matched the latency of a 16-byte `[array, offset, length]` retained range
+on all three assets: median ratios were `0.9956x`, `0.9973x`, and `0.9956x`.
+NativeAOT code inspection showed that the compiler retained the
+`offset + length <= array.Length` branch in both checked kernels. A
+trusted-coordinate diagnostic that omitted the branch ran at `0.68x` to
+`0.73x`, proving both that the check was not eliminated and that the safe
+checked slot still achieved the required range-latency parity. The earlier
+three-times loss therefore came from general range reconstruction, not from
+the 8-byte descriptor.
+
+This result establishes the performance shape, not a public unchecked
+capability. A product adoption may fuse checked closed operations over slots.
+It may omit per-operation validation only behind a stronger
+collection-private invariant that prevents foreign or unvalidated slots from
+reaching the operation. Until that separately reviewed capability exists,
+retained ranges remain the usable match-heavy representation and slots remain
+a demonstrated compact substrate rather than an adoption recommendation.
 
 The representation recommendation depends on the terminal:
 

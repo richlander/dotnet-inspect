@@ -140,6 +140,26 @@ internal sealed class NameAsset : IDisposable
                 reader.Length));
     }
 
+    internal int GetUtf8Length(StringHandle handle) =>
+        _names.Length(handle);
+
+    internal unsafe void CopyUtf8(
+        StringHandle handle,
+        Span<byte> destination)
+    {
+        BlobReader reader = _reader.GetBlobReader(handle);
+        if (destination.Length != reader.Length)
+        {
+            throw new ArgumentException(
+                "The destination length must equal the metadata Name length.",
+                nameof(destination));
+        }
+        new ReadOnlySpan<byte>(
+            reader.StartPointer,
+            reader.Length)
+        .CopyTo(destination);
+    }
+
     internal static NameAsset Open(
         string path,
         NameScope scope)

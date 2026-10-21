@@ -37,12 +37,20 @@ try
     using TextWriter samples = options.TsvPath is null
         ? TextWriter.Null
         : File.CreateText(options.TsvPath);
-    if (options.TsvPath is not null)
+    if (options.TsvPath is not null
+        && options.Command == PilotCommand.Measure)
     {
         samples.WriteLine(
             "asset\tround\torder\tscenario\tstrategy\tcopies\t"
             + "names\tutf8_bytes\tquery_matches\telapsed_us\t"
             + "allocated_b\tretained_b\tchecksum");
+    }
+    else if (options.TsvPath is not null)
+    {
+        samples.WriteLine(
+            "asset\tround\torder\tstrategy\tcopies\tnames\t"
+            + "utf8_bytes\tquery_matches\telapsed_us\t"
+            + "allocated_b\tchecksum");
     }
 
     foreach (NameAsset asset in assets)
@@ -53,12 +61,25 @@ try
                     / asset.NameCount,
                 1,
                 256);
-        PilotResult result = NamePilot.Measure(
-            asset,
-            options.Rounds,
-            copies,
-            samples);
-        Console.Write(NamePilot.Report(result));
+        if (options.Command == PilotCommand.Measure)
+        {
+            PilotResult result = NamePilot.Measure(
+                asset,
+                options.Rounds,
+                copies,
+                samples);
+            Console.Write(NamePilot.Report(result));
+        }
+        else
+        {
+            SlotLatencyResult result =
+                SlotLatencyPilot.Measure(
+                    asset,
+                    options.Rounds,
+                    copies,
+                    samples);
+            Console.Write(SlotLatencyPilot.Report(result));
+        }
     }
 
     return 0;

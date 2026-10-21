@@ -56,6 +56,47 @@ This is kernel evidence. It does not establish an end-to-end `find`, inventory,
 anchor, or declaration performance claim, and it does not change the product's
 retained-text budget semantics.
 
+## Slot latency diagnostic
+
+The `slot-latency` command isolates descriptor mechanics from containment and
+presentation. It builds one shared byte population and compares:
+
+- a 16-byte retained descriptor containing the array reference, offset, and
+  length;
+- an 8-byte slot resolved by an owner-fused checked operation; and
+- the same 8-byte slot through a trusted-coordinate diagnostic that omits the
+  array bounds check.
+
+The trusted-coordinate path is a diagnostic ceiling, not a product
+recommendation. Comparing it with the checked slot isolates the bounds-check
+cost; comparing both slots with the retained range determines whether compact
+coordinates can preserve match latency. The three no-inline count kernels also
+provide stable method boundaries for JIT or NativeAOT code inspection.
+
+Thirty rotated NativeAOT rounds on the three accepted assets found:
+
+| Asset | Checked slot / retained range | Trusted slot / retained range |
+| --- | ---: | ---: |
+| CoreLib | 0.9956x, inconclusive | 0.7330x, win |
+| System.Text.Json | 0.9973x, inconclusive | 0.6997x, win |
+| Configuration | 0.9956x, inconclusive | 0.6836x, win |
+
+The checked 8-byte descriptor therefore preserves the 16-byte descriptor's
+match latency. NativeAOT disassembly shows that it does not do so through
+bounds-check elimination: both checked kernels emit an `offset + length`
+comparison with the backing array length and branch to the throw path. The
+trusted-coordinate kernel omits that comparison and establishes the cost
+ceiling shown above.
+
+The result explains the earlier slot loss. Descriptor width was not the
+problem; resolving each slot through the general checked
+`OpaqueByteRange.Slice(slot)` path before every comparison was. An owner-fused
+checked operation recovers range latency while retaining the 8-byte
+descriptor. Omitting the remaining check would require a stronger
+collection-private invariant that prevents foreign or otherwise unvalidated
+slots from reaching the operation; this pilot does not recommend an unsafe
+public slot API.
+
 ## Scopes
 
 The default `all` scope reads each TypeDef namespace/name, TypeRef
@@ -84,6 +125,9 @@ Run a local harness smoke test:
 ```bash
 dotnet run --project tools/MetadataNameRangePilot -c Release -- \
   measure --scope method-production --rounds 3 \
+  --target-names 5000 <assembly>...
+dotnet run --project tools/MetadataNameRangePilot -c Release -- \
+  slot-latency --scope method-production --rounds 3 \
   --target-names 5000 <assembly>...
 ```
 
