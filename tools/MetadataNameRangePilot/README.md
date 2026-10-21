@@ -73,11 +73,10 @@ loss requires the full paired control interval to clear `1`.
 
 ## Accepted evidence
 
-Source candidate `dc6cbcee3c42bc3d3cf4d0ee225c4dca92e5ce19` published
-as linux-x64 NativeAOT with binary SHA-256
-`b78c3007c17b78dd8a7d61766dcba9d18f1eab1e2e68612f0e5c805d64faa4ac`.
-It ran on `dotnet-inspect-perf` under one `perf-guard` lease that began at
-99.55 percent CPU idle.
+The pilot published as linux-x64 NativeAOT and ran on `dotnet-inspect-perf`
+under one `perf-guard` lease that began at 99.55 percent CPU idle. The PR
+evidence records the exact candidate and binary identities without making this
+document self-referential.
 
 Thirty rotated rounds measured at least 50,000 Names per asset:
 
