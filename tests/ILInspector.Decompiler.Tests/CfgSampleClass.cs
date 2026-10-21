@@ -960,6 +960,54 @@ public class CfgSampleClass
         }
     }
 
+    // A conditional `continue` nested inside an if-arm of a rotated `while (c)`
+    // body: csc emits a conditional branch to the loop's condition from inside
+    // the arm, below the body. The statement after the arm keeps the continue
+    // from folding into a guard over the arm's tail.
+    public static int RotatedWhileWithArmContinue(int[] values, int limit)
+    {
+        int i = 0;
+        int total = 0;
+        while (i < values.Length)
+        {
+            int v = values[i++];
+            if (v > 0)
+            {
+                total += v;
+                if (v > limit)
+                    continue;
+                total++;
+            }
+            total--;
+        }
+        return total;
+    }
+
+    // `continue` inside a try block of a rotated `while (c)` body: csc emits
+    // `leave COND`, the same leave the retry rewrite raises to `continue`. The
+    // statement after the try keeps the continue from folding into a guard.
+    public static int RotatedWhileWithTryContinue(int[] values)
+    {
+        int i = 0;
+        int total = 0;
+        while (i < values.Length)
+        {
+            try
+            {
+                int v = values[i++];
+                if (v < 0)
+                    continue;
+                total += v;
+            }
+            finally
+            {
+                LastValue = i;
+            }
+            total++;
+        }
+        return total;
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;

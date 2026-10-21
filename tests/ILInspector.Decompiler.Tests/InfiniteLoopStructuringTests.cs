@@ -350,6 +350,44 @@ public class InfiniteLoopStructuringTests
     }
 
     [Fact]
+    public void RotatedWhileWithArmContinue_RaisesContinueTwoLevelsDown()
+    {
+        var function = Raised(nameof(CfgSampleClass.RotatedWhileWithArmContinue));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.False(IsWhileTrue(loop));
+        var next = Assert.Single(function.Descendants.OfType<Continue>());
+        Assert.Equal(ContinueOrigin.LoopBodyBranch, next.Origin);
+        // The continue sits inside the if-arm, below the loop body.
+        int enclosingIfs = 0;
+        for (var ancestor = next.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            if (ancestor is IfStatement)
+                enclosingIfs++;
+        }
+        Assert.Equal(2, enclosingIfs);
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+        Assert.DoesNotContain("goto", DecidedPrint.Print(function).Output!);
+    }
+
+    [Fact]
+    public void RotatedWhileWithTryContinue_RaisesProvenContinue()
+    {
+        var function = Raised(nameof(CfgSampleClass.RotatedWhileWithTryContinue));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.False(IsWhileTrue(loop));
+        Assert.Single(loop.Body.Descendants.OfType<TryFinally>());
+        var continues = function.Descendants.OfType<Continue>().ToList();
+        Assert.NotEmpty(continues);
+        Assert.All(continues, next => Assert.Equal(ContinueOrigin.LoopBodyBranch, next.Origin));
+        Assert.Empty(function.Descendants.OfType<Leave>());
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.DoesNotContain("goto", DecidedPrint.Print(function).Output!);
+    }
+
+    [Fact]
     public void LeaveOntoRotatedLoopBottomTestDoesNotRaiseWhileTrue()
     {
         // The foreach's leaves land on the following loop's bottom test, past

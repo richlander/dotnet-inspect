@@ -859,7 +859,10 @@ only when the post-dominator machinery is proven.
    `continue` to the same `br`/`brtrue`/`leave` to the same block, so it is
    opcode-exact and raises no `DEC0013` remark; the fidelity gate proves it
    on `WhileTrueWithArmContinue`, `WhileTrueWithArmContinueAndBottomTest`,
-   `WhileWithNestedContinue`, and `RetryContinueInsideTry` (the older
+   `WhileWithNestedContinue`, `RotatedWhileWithArmContinue` (a conditional
+   branch to a rotated condition from inside an if-arm),
+   `RotatedWhileWithTryContinue` (a leave to a rotated condition), and
+   `RetryContinueInsideTry` (the older
    `TryFinallyRetryLoop` and `NestedOuterRetryLoop` fixtures now import at
    Full too and are docketed for their pre-existing result-temp spill of a
    `return` inside the protected region, which is not the continue). The

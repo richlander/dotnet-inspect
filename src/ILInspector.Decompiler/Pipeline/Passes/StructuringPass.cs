@@ -1164,9 +1164,11 @@ public sealed class StructuringPass : IIrPass
     /// whole function fits the slice. <paramref name="breakTarget"/> is the
     /// block index of the enclosing loop's exit (null outside a loop body): a
     /// forward branch there is a <c>break</c>, in or out of nested ifs.
-    /// <paramref name="continueTarget"/> is the head index of the enclosing
-    /// infinite (<c>while (true)</c>) loop, whose latch is an unconditional
-    /// backward branch to that head (null outside such a loop body).
+    /// <paramref name="continueTarget"/> is the block index the enclosing
+    /// loop's <c>continue</c> re-enters: the head of an infinite
+    /// (<c>while (true)</c>) loop, or the condition block of a rotated
+    /// <c>while</c> (null outside a loop body). A branch there is a
+    /// <c>continue</c> at any nesting depth; a nested loop supplies its own.
     /// </summary>
     static bool Validate(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget, int? continueTarget, int? regionExitBreakTarget = null)
     {
@@ -1818,15 +1820,18 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>
     /// An infinite (<c>while (true)</c>) loop headed at <paramref name="head"/>:
-    /// a single later block in <c>(head, stop)</c> ends with an unconditional
-    /// <see cref="Branch"/> back to the head, or one or more safe EH
-    /// <see cref="Leave"/> nodes target the head from a recovered protected
-    /// region. Returns the latch index; the loop body is <c>[head, latch]</c>
-    /// and execution continues at <c>latch + 1</c>.
+    /// one or more later blocks in <c>(head, stop)</c> end with a
+    /// <see cref="Branch"/> or <see cref="ConditionalBranch"/> back to the
+    /// head, or one or more safe EH <see cref="Leave"/> nodes target the head
+    /// from a recovered protected region. Returns the latch index, the last
+    /// back-edge; the loop body is <c>[head, latch]</c> and execution
+    /// continues at <c>latch + 1</c>.
     ///
-    /// A conditional back-edge (a do-while, already raised, or a mid-body
-    /// <c>continue</c>) keeps the container flat. Ordinary branches still require
-    /// one latch; EH retry loops may have multiple retry leaves, all converted to
+    /// An unconditional latch is the implicit loop edge and a conditional one
+    /// is the loop's bottom test (<c>if (!c) break;</c>); every earlier
+    /// back-edge is a <c>continue</c>. A mid-block back-edge, or a transfer
+    /// from outside the loop into <c>(head, latch]</c>, keeps the container
+    /// flat. EH retry loops may have multiple retry leaves, all converted to
     /// <c>continue</c> after the loop body is built.
     /// </summary>
     static int? FindInfiniteLoopShape(Ctx ctx, int head, int stop)
