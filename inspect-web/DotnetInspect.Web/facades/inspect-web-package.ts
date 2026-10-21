@@ -393,11 +393,6 @@ export interface BrowserExactLibraryApiSourceCoordinate {
   readonly framework: string | null;
 }
 
-export interface BrowserExceptionSurface {
-  readonly type: string;
-  readonly description: string;
-}
-
 export interface BrowserInspectionDiagnostic {
   readonly code: string;
   readonly severity: string;
@@ -479,9 +474,6 @@ export interface BrowserMemberSurface {
   readonly returnType: string | null;
   readonly parameters: ReadonlyArray<BrowserParameterSurface>;
   readonly documentationId: string | null;
-  readonly summary: string | null;
-  readonly returns: string | null;
-  readonly exceptions: ReadonlyArray<BrowserExceptionSurface>;
   readonly stableSelector: string;
   readonly anchorDigest: string;
   readonly canonicalSignature: string;
@@ -1199,7 +1191,6 @@ export interface BrowserParameterSurface {
   readonly modifier: string | null;
   readonly hasDefault: boolean;
   readonly defaultValue: string | null;
-  readonly description: string | null;
 }
 
 export interface BrowserPlatformCatalog {

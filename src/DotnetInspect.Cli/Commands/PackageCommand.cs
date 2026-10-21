@@ -1248,6 +1248,16 @@ public partial class PackageCommand
                     .ConfigureAwait(false);
             if (packageInfoInventoryExitCode is { } infoInventoryExitCode)
                 return infoInventoryExitCode;
+
+            int? admittedPackageExitCode =
+                await TryExecuteOnlinePackageAsync(
+                    target,
+                    options with { Verbosity = userVerbosity },
+                    context,
+                    packageInfoTargetContext)
+                    .ConfigureAwait(false);
+            if (admittedPackageExitCode is { } onlineExitCode)
+                return onlineExitCode;
         }
 
         string? extractPath = null;

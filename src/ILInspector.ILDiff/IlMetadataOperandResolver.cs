@@ -358,9 +358,11 @@ public static partial class IlBodyDiff
         }
 
         public string CurrentAssemblyName()
-            => (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0
-                ? "<current>"
-                : reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
+            => (normalization & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0
+                ? AssemblyScope
+                : (normalization & IlBodyDiffNormalization.NormalizeCurrentAssemblyScope) != 0
+                    ? "<current>"
+                    : reader.IsAssembly ? reader.GetString(reader.GetAssemblyDefinition().Name) : "";
 
         static string Dotted(string ns, string name)
             => ns.Length == 0 ? name : $"{ns}.{name}";
@@ -370,6 +372,10 @@ public static partial class IlBodyDiff
 
         public string NormalizeAssemblyIdentity(string identity)
         {
+            // Under the whole-scope mechanic no reference keeps its identity, so a
+            // module reader elides too; the other mechanics need the current name.
+            if ((normalization & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0)
+                return AssemblyScope;
             if (!reader.IsAssembly)
                 return identity;
 
@@ -378,6 +384,12 @@ public static partial class IlBodyDiff
         }
 
     }
+
+    /// <summary>
+    /// The one scope every reference shares under
+    /// <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/>.
+    /// </summary>
+    internal const string AssemblyScope = "<assembly>";
 
     /// <summary>
     /// The shared scope token for an assembly reference under the requested scope
@@ -390,14 +402,19 @@ public static partial class IlBodyDiff
     /// Both callers reduce to the same text: the name up to its first comma.
     /// </param>
     /// <param name="currentAssemblyName">
-    /// The comparing reader's own assembly name. Callers only supply an assembly
-    /// reader; a module reader keeps exact identities on both paths.
+    /// The comparing reader's own assembly name, or null for a module reader. Under
+    /// <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/> the name is not
+    /// read; under the current and platform mechanics a module reader keeps exact
+    /// identities on both paths.
     /// </param>
     internal static string? AssemblyScopeToken(
         string reference,
         string? currentAssemblyName,
         IlBodyDiffNormalization normalization)
     {
+        if ((normalization & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0)
+            return AssemblyScope;
+
         int comma = reference.IndexOf(',');
         string assemblyName = comma >= 0 ? reference[..comma] : reference;
         bool isCurrent = currentAssemblyName is not null

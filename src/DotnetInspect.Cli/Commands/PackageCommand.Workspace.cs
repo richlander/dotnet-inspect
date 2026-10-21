@@ -237,7 +237,8 @@ public partial class PackageCommand
         CommandContext context,
         PackageRootBinding root,
         string? contextTargetFramework,
-        bool exactReference = false)
+        bool exactReference = false,
+        ConfiguredPackagePayloadResult? acquisition = null)
     {
         string? temporaryPath = null;
         try
@@ -254,7 +255,9 @@ public partial class PackageCommand
                 contextTargetFramework
                 ?? root.Root.RequestedTargetFramework
                 ?? root.Root.AssetSelection.TargetFramework;
-            InspectionOptions ordinaryOptions = options with
+            InspectionOptions ordinaryOptions = acquisition is not null
+                ? options
+                : options with
             {
                 WorkspacePacket = null,
                 ShareFormat = null,
@@ -279,17 +282,27 @@ public partial class PackageCommand
             int exitCode = await ExecuteCoreAsync(
                 ordinaryOptions,
                 context,
-                workspaceResolution.Resolution,
+                acquisition is null
+                    ? workspaceResolution.Resolution
+                    : PackageExtractionResult.FromAcquisition(acquisition),
                 root,
                 workspaceResolution.ManifestBytes,
                 () => PackageInfoMeasurementInspection.ProjectAdmittedRoot(
                     root,
                     workspaceResolution.ManifestBytes,
-                    ordinaryOptions.Tfm),
-                () => PackageEcosystemDependencyRecognitionInspection
-                    .ExecuteAsync(
-                        root,
-                        ordinaryOptions.Tfm),
+                    ordinaryOptions.Tfm?.Equals(
+                        "all",
+                        StringComparison.OrdinalIgnoreCase) == true
+                            ? null
+                            : ordinaryOptions.Tfm),
+                () => acquisition?.HouseSettlement
+                        is PackageHouseSettlement.Acquired settlement
+                    ? PackageEcosystemDependencyRecognitionInspection
+                        .ExecuteAsync(settlement)
+                    : PackageEcosystemDependencyRecognitionInspection
+                        .ExecuteAsync(
+                            root,
+                            ordinaryOptions.Tfm),
                 result => inspection = result,
                 workspaceLoadOptions: null).ConfigureAwait(false);
             return new(inspection, exitCode);

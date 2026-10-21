@@ -7,6 +7,7 @@ import {
   resolvePackagePerformanceMember,
   resolvePackagePerformanceType,
   workspaceDependencyKey,
+  type PackageDependenciesState,
   type PackageInspectionDependencies,
   type PackageInspectionState,
   type PackageIntegrationsState,
@@ -79,10 +80,7 @@ function inspectionState(
     packageLens: "overview",
     libraryLens: "overview",
     packageMetadataRoot: "cli",
-    packageDependencies: null,
-    packageDependenciesLoading: false,
-    packageDependenciesError: "",
-    packageDependenciesKey: "",
+    packageDependencies: { status: "idle" },
     packageVulnerabilities: { status: "idle" },
     workspaceDependencies: {},
     workspaceDependencyErrors: {},
@@ -150,6 +148,29 @@ function integrationsResult(): BrowserPackageIntegrations {
     inspection: null,
   };
 }
+
+test("package dependency state rejects contradictory shapes at compile time", () => {
+  const result = dependencyResult();
+  const loadingWithResult: PackageDependenciesState = {
+    status: "loading",
+    request: { key: "current" },
+    // @ts-expect-error A loading request cannot also carry dependency evidence.
+    result,
+  };
+  const readyWithError: PackageDependenciesState = {
+    status: "ready",
+    key: "current",
+    result,
+    // @ts-expect-error Ready dependency evidence cannot also carry query failure.
+    error: "failure",
+  };
+  // @ts-expect-error A failed dependency request always carries its diagnostic.
+  const failedWithoutError: PackageDependenciesState = {
+    status: "failed",
+    key: "current",
+  };
+  void [loadingWithResult, readyWithError, failedWithoutError];
+});
 
 test("package integrations state rejects contradictory shapes at compile time", () => {
   const result = integrationsResult();
@@ -860,13 +881,13 @@ test("dependency results cache for a resident package after the foreground lens 
     }));
 
   const load = coordinator.loadDependencies(packageItem, "first");
-  assert.equal(state.packageDependenciesLoading, true);
-  state.packageDependenciesKey = "second";
+  assert.equal(state.packageDependencies.status, "loading");
+  const replacement = { status: "loading" as const, request: { key: "second" } };
+  state.packageDependencies = replacement;
   request.resolve(dependencyResult(packageItem.id, "partial dependency data"));
   await load;
 
-  assert.equal(state.packageDependencies, null);
-  assert.equal(state.packageDependenciesLoading, true);
+  assert.strictEqual(state.packageDependencies, replacement);
   const key = workspaceDependencyKey(packageItem);
   const workspace = state.workspaceDependencies[key];
   assert.ok(workspace);
@@ -877,6 +898,64 @@ test("dependency results cache for a resident package after the foreground lens 
     state.workspaceDependencyErrors[key],
     "partial dependency data");
   assert.deepEqual(events, ["render", "stats", "render"]);
+});
+
+test("newer same-coordinate dependency evidence owns foreground settlement", async () => {
+  const firstA = deferred<BrowserPackageDependencies>();
+  const packageB = deferred<BrowserPackageDependencies>();
+  const secondA = deferred<BrowserPackageDependencies>();
+  const requests = [firstA, packageB, secondA];
+  const state = inspectionState();
+  let queries = 0;
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => {
+        queries++;
+        return requests.shift()!.promise;
+      },
+    }));
+  const packageItem = packageModel();
+  const firstALoad = coordinator.loadDependencies(packageItem, "A");
+  const duplicateALoad = coordinator.loadDependencies(packageItem, "A");
+  assert.equal(queries, 1);
+  const packageBLoad = coordinator.loadDependencies(packageItem, "B");
+  const secondALoad = coordinator.loadDependencies(packageItem, "A");
+  const newerEvidence = dependencyResult("Newer.Package");
+  secondA.resolve(newerEvidence);
+  await secondALoad;
+  firstA.resolve(dependencyResult("Older.Package"));
+  packageB.resolve(dependencyResult("Other.Package"));
+  await Promise.all([firstALoad, duplicateALoad, packageBLoad]);
+
+  assert.equal(queries, 3);
+  assert.deepEqual(state.packageDependencies, {
+    status: "ready",
+    key: "A",
+    result: newerEvidence,
+  });
+});
+
+test("dependency query failure is visible and cached for the same key", async () => {
+  const packageItem = packageModel();
+  const state = inspectionState();
+  let queries = 0;
+  const coordinator = createPackageInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryDependencies: async () => {
+        queries++;
+        throw new Error("");
+      },
+    }));
+
+  await coordinator.loadDependencies(packageItem, "current");
+  await coordinator.loadDependencies(packageItem, "current");
+
+  assert.equal(queries, 1);
+  assert.deepEqual(state.packageDependencies, {
+    status: "failed",
+    key: "current",
+    error: "Dependency query failed.",
+  });
 });
 
 test("foreground dependency success refreshes cached groups and clears a prior error", async () => {
@@ -945,10 +1024,16 @@ test("package lens loaders reuse cached results without querying or clearing the
       name: "dependencies",
       cached: dependencies,
       state: inspectionState({
-        packageDependenciesKey: "cached",
-        packageDependencies: dependencies,
+        packageDependencies: {
+          status: "ready",
+          key: "cached",
+          result: dependencies,
+        },
       }),
-      read: (state: PackageInspectionState) => state.packageDependencies,
+      read: (state: PackageInspectionState) =>
+        state.packageDependencies.status === "ready"
+          ? state.packageDependencies.result
+          : null,
       load: (coordinator: ReturnType<typeof createPackageInspectionCoordinator>) =>
         coordinator.loadDependencies(packageItem, "cached"),
     },
@@ -1100,23 +1185,6 @@ test("package lens loaders reuse cached failures without querying", async () => 
 test("scalar-field package lenses preserve lifecycle and ownership across invalidation", async () => {
   const packageItem = packageModel();
 
-  await verifyPackageLensLifecycle({
-    name: "dependencies",
-    result: dependencyResult(),
-    createCoordinator: (state, query, render = () => {}) =>
-      createPackageInspectionCoordinator(
-        inspectionDependencies(state, {
-          queryDependencies: async () => query(),
-          render,
-        })),
-    load: (coordinator, signature) =>
-      coordinator.loadDependencies(packageItem, signature),
-    readResult: state => state.packageDependencies,
-    readLoading: state => state.packageDependenciesLoading,
-    readError: state => state.packageDependenciesError,
-    setKey: (state, key) => { state.packageDependenciesKey = key; },
-    setError: (state, error) => { state.packageDependenciesError = error; },
-  });
   await verifyPackageLensLifecycle({
     name: "performance",
     result: performanceResult(),
@@ -1593,10 +1661,10 @@ test("invalidation clears package results, failures, keys, and loads without cha
   const state = inspectionState({
     ...retainedState,
     packageMetadataRoot: "r2r-manifest",
-    packageDependencies: dependencyResult(),
-    packageDependenciesLoading: true,
-    packageDependenciesError: "dependency failure",
-    packageDependenciesKey: "dependencies",
+    packageDependencies: {
+      status: "loading",
+      request: { key: "dependencies" },
+    },
     packageVulnerabilities: {
       status: "failed",
       key: "vulnerabilities",
@@ -2257,16 +2325,21 @@ test("package lens results clear before a different request completes", async ()
   {
     const query = deferred<BrowserPackageDependencies>();
     const state = inspectionState({
-      packageDependenciesKey: "old",
-      packageDependencies: dependencyResult(),
+      packageDependencies: {
+        status: "ready",
+        key: "old",
+        result: dependencyResult(),
+      },
     });
     const coordinator = createPackageInspectionCoordinator(
       inspectionDependencies(state, {
         queryDependencies: async () => query.promise,
       }));
     const load = coordinator.loadDependencies(packageItem, "new");
-    assert.equal(state.packageDependencies, null);
-    assert.equal(state.packageDependenciesLoading, true);
+    assert.deepEqual(state.packageDependencies, {
+      status: "loading",
+      request: { key: "new" },
+    });
     query.resolve(dependencyResult());
     await load;
   }
