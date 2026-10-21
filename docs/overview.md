@@ -1073,6 +1073,10 @@ rules, this document describes subsystem ownership, and
   exact relationship and color registration, Type-focus and direction
   admission, terminal-specialized adapter-query binding, and immutable typed
   query demand without duplicating QuerySpace or inspection query execution.
+- [Annotated Type Relations generation](design/annotated-type-relations-generation.md):
+  concrete typed contribution correspondence, independent relationship and
+  color-family settlement, and canonical Rows/Count/Exists document generation
+  without execution or acquisition.
 - [Finding Diff Any](design/finding-diff-any.md): per-Type API and Body change
   states for a Library image pair, sound for the facts each axis compares,
   without building either complete diff.

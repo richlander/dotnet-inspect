@@ -14,9 +14,9 @@ public enum AnnotatedTypeRelationsTerminal
 public sealed class AnnotatedTypeRelationsAdapterQueries
 {
     public AnnotatedTypeRelationsAdapterQueries(
-        InspectionQueryDefinition? rows = null,
-        InspectionQueryDefinition? count = null,
-        InspectionQueryDefinition? exists = null)
+        InspectionQuery<AnnotatedTypeRelationsContribution>? rows = null,
+        InspectionQuery<AnnotatedTypeRelationsContribution>? count = null,
+        InspectionQuery<AnnotatedTypeRelationsContribution>? exists = null)
     {
         if (rows is null && count is null && exists is null)
         {
@@ -29,13 +29,13 @@ public sealed class AnnotatedTypeRelationsAdapterQueries
         Exists = exists;
     }
 
-    public InspectionQueryDefinition? Rows { get; }
+    public InspectionQuery<AnnotatedTypeRelationsContribution>? Rows { get; }
 
-    public InspectionQueryDefinition? Count { get; }
+    public InspectionQuery<AnnotatedTypeRelationsContribution>? Count { get; }
 
-    public InspectionQueryDefinition? Exists { get; }
+    public InspectionQuery<AnnotatedTypeRelationsContribution>? Exists { get; }
 
-    public InspectionQueryDefinition? For(
+    public InspectionQuery<AnnotatedTypeRelationsContribution>? For(
         AnnotatedTypeRelationsTerminal terminal) =>
         terminal switch
         {
@@ -364,7 +364,8 @@ public sealed class AnnotatedTypeRelationsPlan
         ImmutableArray<AnnotatedTypeRelationsRelationshipRegistration>
             relationships,
         ImmutableArray<AnnotatedTypeRelationsColorRegistration> colors,
-        ImmutableArray<InspectionQueryDefinition> queries,
+        ImmutableArray<InspectionQuery<AnnotatedTypeRelationsContribution>>
+            queries,
         InspectionCost cost)
     {
         Request = request;
@@ -385,7 +386,9 @@ public sealed class AnnotatedTypeRelationsPlan
         get;
     }
 
-    public ImmutableArray<InspectionQueryDefinition> Queries { get; }
+    public ImmutableArray<InspectionQuery<AnnotatedTypeRelationsContribution>>
+        Queries
+    { get; }
 
     public InspectionCost Cost { get; }
 }
@@ -454,7 +457,8 @@ public sealed class AnnotatedTypeRelationsCatalog
         ImmutableArray<AnnotatedTypeRelationsColorRegistration> colors =
             [.. _colors.Where(
                 registration => requestedColors.Contains(registration.Color))];
-        var queries = ImmutableArray.CreateBuilder<InspectionQueryDefinition>();
+        var queries = ImmutableArray.CreateBuilder<
+            InspectionQuery<AnnotatedTypeRelationsContribution>>();
         var seenQueries = new HashSet<object>(
             ReferenceEqualityComparer.Instance);
         InspectionCost cost = InspectionCost.NetworkFree;
@@ -519,11 +523,14 @@ public sealed class AnnotatedTypeRelationsCatalog
             AnnotatedTypeRelationsAdapterQueries terminalQueries,
             AnnotatedTypeRelationsTerminal terminal,
             IInspectionQueryCatalog queryCatalog,
-            ImmutableArray<InspectionQueryDefinition>.Builder queries,
+            ImmutableArray<
+                InspectionQuery<AnnotatedTypeRelationsContribution>>.Builder
+                queries,
             HashSet<object> seenQueries,
             ref InspectionCost cost)
     {
-        InspectionQueryDefinition? query = terminalQueries.For(terminal);
+        InspectionQuery<AnnotatedTypeRelationsContribution>? query =
+            terminalQueries.For(terminal);
         if (query is null)
         {
             return Reject(
