@@ -581,18 +581,18 @@ export interface BrowserRetainedWorkspacePackageAdmissionResult {
   readonly message: string | null;
 }
 
-export interface BrowserRetainedWorkspacePackageLibraryIdentity {
-  readonly assetId: string;
-  readonly assetPath: string;
-  readonly assemblyName: string;
-}
-
 export interface BrowserRetainedWorkspacePackageInventory {
   readonly navigationId: string;
   readonly contextIndex: number;
   readonly consumerPackageSubjectId: string;
   readonly summary: BrowserRetainedWorkspaceSurfaceSummary;
   readonly defaultLibrary: BrowserRetainedWorkspacePackageLibraryIdentity | null;
+}
+
+export interface BrowserRetainedWorkspacePackageLibraryIdentity {
+  readonly assetId: string;
+  readonly assetPath: string;
+  readonly assemblyName: string;
 }
 
 export interface BrowserRetainedWorkspacePackageSourceCredential {
@@ -1652,3 +1652,4 @@ export async function runHomeDemo(scenarioId: string): Promise<BrowserHomeDemoRu
 export function validateRetainedWorkspaceNavigationAuthority(realizationId: string, publicationOrdinal: number, session: string, revision: string, intent: string, epoch: string): boolean {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ValidateRetainedWorkspaceNavigationAuthority.1044747233"](realizationId, publicationOrdinal, session, revision, intent, epoch);
 }
+
