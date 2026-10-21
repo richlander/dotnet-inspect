@@ -70,6 +70,10 @@ public sealed class AnnotatedTypeRelationsGenerationTests
         Assert.Single(document.Occurrences);
         Assert.Equal(0, document.Occurrences[0].Id);
         Assert.Equal(0, document.Occurrences[0].RelationId);
+        Assert.Same(query, document.Occurrences[0].Producer);
+        Assert.Equal(0, document.Occurrences[0].ProducerOccurrenceId);
+        Assert.Empty(
+            document.Occurrences[0].DerivedFromProducerOccurrenceIds);
         AnnotatedTypeRelationsDocumentAnnotation generatedAnnotation =
             Assert.Single(document.Annotations);
         Assert.Equal(
@@ -81,6 +85,81 @@ public sealed class AnnotatedTypeRelationsGenerationTests
         Assert.Single(document.RelationshipOutcomes);
         Assert.Single(document.ColorOutcomes);
         Assert.Single(document.FocusJoins);
+    }
+
+    [Fact]
+    public void RowsRetainDerivedOccurrenceReceipts()
+    {
+        Context context = CreateContext();
+        InspectionGraphRelationshipDescriptor relationship =
+            Relationship(
+                "test.derived-call-path",
+                InspectionGraphRelationshipSemantics.Derived);
+        var query = Query("test.rows");
+        AnnotatedTypeRelationsPlan plan = Plan(
+            context.Focus,
+            relationship,
+            query,
+            AnnotatedTypeRelationsTerminal.Rows);
+        SubjectRelationRow row = Row(
+            context,
+            relationship,
+            "Target",
+            occurrenceId: 7,
+            derivedFromOccurrenceIds: [2, 5]);
+        AnnotatedTypeRelationsContribution contribution = Contribution(
+            context,
+            AnnotatedTypeRelationsTerminal.Rows,
+            [
+                RelationshipContribution(
+                    context,
+                    relationship,
+                    new AnnotatedTypeRelationsFamilyTerminal.Rows([row])),
+            ]);
+
+        AnnotatedTypeRelationsOccurrence occurrence =
+            Assert.Single(
+                AnnotatedTypeRelationsGenerator.Generate(
+                    plan,
+                    Results(query, contribution)).Occurrences);
+
+        Assert.Same(query, occurrence.Producer);
+        Assert.Equal(7, occurrence.ProducerOccurrenceId);
+        Assert.Equal([2, 5], occurrence.DerivedFromProducerOccurrenceIds);
+    }
+
+    [Fact]
+    public void RowsRejectDerivedOccurrenceWithoutReceipts()
+    {
+        Context context = CreateContext();
+        InspectionGraphRelationshipDescriptor relationship =
+            Relationship(
+                "test.derived-call-path",
+                InspectionGraphRelationshipSemantics.Derived);
+        var query = Query("test.rows");
+        AnnotatedTypeRelationsPlan plan = Plan(
+            context.Focus,
+            relationship,
+            query,
+            AnnotatedTypeRelationsTerminal.Rows);
+        SubjectRelationRow row = Row(context, relationship, "Target");
+        AnnotatedTypeRelationsContribution contribution = Contribution(
+            context,
+            AnnotatedTypeRelationsTerminal.Rows,
+            [
+                RelationshipContribution(
+                    context,
+                    relationship,
+                    new AnnotatedTypeRelationsFamilyTerminal.Rows([row])),
+            ]);
+
+        AnnotatedTypeRelationsContractException exception =
+            Assert.Throws<AnnotatedTypeRelationsContractException>(
+                () => AnnotatedTypeRelationsGenerator.Generate(
+                    plan,
+                    Results(query, contribution)));
+
+        Assert.Contains("source receipts", exception.Message);
     }
 
     [Fact]
@@ -555,7 +634,9 @@ public sealed class AnnotatedTypeRelationsGenerationTests
     private static SubjectRelationRow Row(
         Context context,
         InspectionGraphRelationshipDescriptor relationship,
-        string targetName)
+        string targetName,
+        int occurrenceId = 0,
+        IEnumerable<int>? derivedFromOccurrenceIds = null)
     {
         InspectionGraphSubject source =
             InspectionGraphSubject.ForStructuralType(
@@ -564,12 +645,12 @@ public sealed class AnnotatedTypeRelationsGenerationTests
             InspectionGraphSubject.ForStructuralType(
                 TypeRef.Definition("Sample", "Sample", targetName));
         var occurrence = new InspectionGraphOccurrence(
-            0,
+            occurrenceId,
             relationship,
             source,
             target,
             new OccurrenceEvidence(new object()),
-            []);
+            derivedFromOccurrenceIds ?? []);
         return new(
             SubjectRelationForm.Invocation,
             SubjectRelationEvidenceKind.StaticIlObservation,
@@ -677,11 +758,13 @@ public sealed class AnnotatedTypeRelationsGenerationTests
         new(name, InspectionCost.NetworkFree);
 
     private static InspectionGraphRelationshipDescriptor Relationship(
-        string id) =>
+        string id,
+        InspectionGraphRelationshipSemantics semantics =
+            InspectionGraphRelationshipSemantics.Observed) =>
         new(
             id,
             InspectionGraphOwner.Queries,
-            InspectionGraphRelationshipSemantics.Observed,
+            semantics,
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Type],
             [InspectionGraphSubjectKind.Type],

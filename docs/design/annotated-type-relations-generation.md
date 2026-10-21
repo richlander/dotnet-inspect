@@ -116,9 +116,13 @@ order:
 5. focus joins.
 
 Canonical relation identity is the exact relationship descriptor plus exact
-semantic source and target. Occurrence identity is the exact relationship
-descriptor plus its descriptor-projected occurrence identity. Repetition is a
-contract failure, never silent deduplication.
+semantic source and target. An occurrence retains its exact adapter producer,
+producer-native occurrence id, descriptor-projected identity, and any
+producer-native source occurrence ids cited by a derived occurrence.
+Occurrence identity is the exact relationship descriptor plus its
+descriptor-projected occurrence identity. Repetition is a contract failure,
+never silent deduplication. Derived relationships require source occurrence
+receipts; observed relationships reject them.
 Every Row correspondence uses the plan's exact focus authority and its
 relationship family's exact population authority.
 

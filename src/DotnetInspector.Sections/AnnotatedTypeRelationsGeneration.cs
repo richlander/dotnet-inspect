@@ -702,10 +702,13 @@ public sealed record AnnotatedTypeRelationsRelation(
 public sealed record AnnotatedTypeRelationsOccurrence(
     int Id,
     int RelationId,
+    InspectionQueryDefinition Producer,
+    int ProducerOccurrenceId,
     AnnotatedTypeRelationsOccurrenceIdentity Identity,
     int SourceSubjectId,
     int TargetSubjectId,
-    IInspectionGraphOccurrenceEvidence Evidence);
+    IInspectionGraphOccurrenceEvidence Evidence,
+    ImmutableArray<int> DerivedFromProducerOccurrenceIds);
 
 public enum AnnotatedTypeRelationsDocumentTargetKind
 {
@@ -1077,10 +1080,26 @@ public static class AnnotatedTypeRelationsGenerator
                     }
 
                     InspectionGraphOccurrence value = occurrence.Occurrence;
+                    bool hasSourceReceipts =
+                        !value.DerivedFromOccurrenceIds.IsEmpty;
+                    if ((row.Relationship.Semantics
+                                == InspectionGraphRelationshipSemantics.Derived
+                            && !hasSourceReceipts)
+                        || (row.Relationship.Semantics
+                                != InspectionGraphRelationshipSemantics.Derived
+                            && hasSourceReceipts))
+                    {
+                        throw Contract(
+                            $"Relationship '{row.Relationship.Id}' has an "
+                            + "occurrence whose source receipts do not match "
+                            + "its semantics.");
+                    }
                     occurrences.Add(
                         new(
                             occurrenceId,
                             relationId,
+                            outcome.Producer,
+                            value.Id,
                             occurrenceIdentity,
                             AddSubject(
                                 value.SourceSubject,
@@ -1090,7 +1109,8 @@ public static class AnnotatedTypeRelationsGenerator
                                 value.TargetSubject,
                                 subjects,
                                 subjectIds),
-                            value.Evidence));
+                            value.Evidence,
+                            value.DerivedFromOccurrenceIds));
                 }
             }
         }
