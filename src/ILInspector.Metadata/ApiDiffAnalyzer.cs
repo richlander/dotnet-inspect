@@ -61,16 +61,26 @@ public enum ChangeKind
     // and a move that keeps it is non-breaking.
     TypeAccessibilityChanged,
     MemberAccessibilityChanged,
+
+    // API status (docs/design/api-status-analysis.md): hidden is EditorBrowsable(Never),
+    // obsolete is [Obsolete] with its message and error flag.
+    TypeHiddenChanged,
+    MemberHiddenChanged,
+    TypeObsoleteChanged,
+    MemberObsoleteChanged,
 }
 
 /// <summary>
 /// The API dimension that produced a change. Signature is the compatibility
-/// surface; attributes are opt-in metadata evidence over otherwise matched APIs.
+/// surface; attributes are opt-in metadata evidence over otherwise matched APIs;
+/// status is a subject's hidden or obsolete API status
+/// (docs/design/api-status-analysis.md).
 /// </summary>
 public enum ApiChangeCategory
 {
     Signature,
     Attribute,
+    Status,
 }
 
 public enum ApiChangeSubjectKind
@@ -345,8 +355,8 @@ public static class ApiDiffAnalyzer
             HasIncompleteTypeIdentity(oldSurface);
         bool newIdentityIncomplete =
             HasIncompleteTypeIdentity(newSurface);
-        bool compareAccessibility =
-            ComparesAccessibility(oldSurface, newSurface);
+        bool compareTransitions =
+            ComparesTransitions(oldSurface, newSurface);
         bool classifyByApiAxis =
             ClassifiesByApiAxis(oldSurface, newSurface);
 
@@ -386,7 +396,7 @@ public static class ApiDiffAnalyzer
             }
             else
             {
-                changes = CompareTypes(oldType!, newType!, options, compareAccessibility);
+                changes = CompareTypes(oldType!, newType!, options, compareTransitions);
             }
 
             if (changes.Count > 0)
@@ -599,13 +609,15 @@ public static class ApiDiffAnalyzer
     }
 
     /// <summary>
-    /// Whether accessibility moves are compared (docs/design/api-population-scope.md): only
-    /// when both surfaces were extracted with the same scope, and that scope is
-    /// <see cref="ApiSurfaceExtractionScope.ApiAxis"/> or
-    /// <see cref="ApiSurfaceExtractionScope.IncludeAll"/>. A surface whose scope is
-    /// <see langword="null"/> (merged from disagreeing scopes, or deserialized) compares none.
+    /// Whether transitions between two admitted states of one subject are compared: its
+    /// accessibility moves (docs/design/api-population-scope.md) and its API status
+    /// transitions (docs/design/api-status-analysis.md). Only when both surfaces were extracted
+    /// with the same scope, and that scope is <see cref="ApiSurfaceExtractionScope.ApiAxis"/>
+    /// or <see cref="ApiSurfaceExtractionScope.IncludeAll"/>, the scopes that admit both
+    /// states. A surface whose scope is <see langword="null"/> (merged from disagreeing
+    /// scopes, or deserialized) compares none.
     /// </summary>
-    internal static bool ComparesAccessibility(ApiSurface oldSurface, ApiSurface newSurface)
+    internal static bool ComparesTransitions(ApiSurface oldSurface, ApiSurface newSurface)
         => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.ApiAxis
                 or ApiSurfaceExtractionScope.IncludeAll
             && oldSurface.ExtractionScope == newSurface.ExtractionScope;
@@ -666,10 +678,10 @@ public static class ApiDiffAnalyzer
             ? 0
             : ExternalReach(member.Member.Accessibility) ?? int.MaxValue;
 
-    private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareAccessibility)
+    private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareTransitions)
     {
-        var changes = CompareTypeFacetsOnly(oldType, newType, options, compareAccessibility);
-        CompareMembers(oldType, newType, changes, options, compareAccessibility);
+        var changes = CompareTypeFacetsOnly(oldType, newType, options, compareTransitions);
+        CompareMembers(oldType, newType, changes, options, compareTransitions);
         return changes;
     }
 
@@ -679,12 +691,12 @@ public static class ApiDiffAnalyzer
     /// <see cref="ApiFindingClassifier"/>, which sources member-level changes from the
     /// Finding lane's own member comparison instead of this analyzer's member matcher.
     /// </summary>
-    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareAccessibility)
+    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareTransitions)
     {
         List<ApiChange> changes = [];
         if (IncludesSignature(options))
         {
-            CompareTypeMetadata(oldType, newType, changes, compareAccessibility);
+            CompareTypeMetadata(oldType, newType, changes, compareTransitions);
             CompareTypeParameters(oldType, newType, changes);
         }
         if (IncludesAttributes(options))
@@ -699,14 +711,30 @@ public static class ApiDiffAnalyzer
         return changes;
     }
 
-    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes, bool compareAccessibility)
+    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes, bool compareTransitions)
     {
-        if (compareAccessibility)
+        if (compareTransitions)
         {
             CompareAccessibility(
                 oldType.Accessibility,
                 newType.Accessibility,
                 ChangeKind.TypeAccessibilityChanged,
+                $"Type '{oldType.FullName}'",
+                ApiChangeSubject.Type(oldType, newType),
+                changes);
+            CompareStatus(
+                new ApiStatus(
+                    oldType.IsHidden,
+                    oldType.IsObsolete,
+                    oldType.ObsoleteMessage,
+                    oldType.ObsoleteIsError),
+                new ApiStatus(
+                    newType.IsHidden,
+                    newType.IsObsolete,
+                    newType.ObsoleteMessage,
+                    newType.ObsoleteIsError),
+                ChangeKind.TypeHiddenChanged,
+                ChangeKind.TypeObsoleteChanged,
                 $"Type '{oldType.FullName}'",
                 ApiChangeSubject.Type(oldType, newType),
                 changes);
@@ -902,7 +930,7 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    private static void CompareMembers(ApiType oldType, ApiType newType, List<ApiChange> changes, ApiDiffOptions options, bool compareAccessibility)
+    private static void CompareMembers(ApiType oldType, ApiType newType, List<ApiChange> changes, ApiDiffOptions options, bool compareTransitions)
     {
         var oldMembers = FilterMembers(oldType.Members);
         var newMembers = FilterMembers(newType.Members);
@@ -1010,7 +1038,7 @@ public static class ApiDiffAnalyzer
             {
                 var oldMember = oldBySignature[key];
                 var newMember = newBySignature[key];
-                CompareMemberModifiers(oldType, newType, oldMember, newMember, changes, compareAccessibility);
+                CompareMemberModifiers(oldType, newType, oldMember, newMember, changes, compareTransitions);
                 CompareMemberTypeParameterConstraints(
                     oldType,
                     newType,
@@ -1038,14 +1066,30 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes, bool compareAccessibility)
+    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes, bool compareTransitions)
     {
-        if (compareAccessibility)
+        if (compareTransitions)
         {
             CompareAccessibility(
                 oldMember.Accessibility,
                 newMember.Accessibility,
                 ChangeKind.MemberAccessibilityChanged,
+                $"Member '{oldMember.Name}'",
+                ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
+                changes);
+            CompareStatus(
+                new ApiStatus(
+                    oldMember.IsHidden,
+                    oldMember.IsObsolete,
+                    oldMember.ObsoleteMessage,
+                    oldMember.ObsoleteIsError),
+                new ApiStatus(
+                    newMember.IsHidden,
+                    newMember.IsObsolete,
+                    newMember.ObsoleteMessage,
+                    newMember.ObsoleteIsError),
+                ChangeKind.MemberHiddenChanged,
+                ChangeKind.MemberObsoleteChanged,
                 $"Member '{oldMember.Name}'",
                 ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
                 changes);
@@ -1089,7 +1133,7 @@ public static class ApiDiffAnalyzer
     /// <c>private</c> is. On the API axis a move that leaves the axis is a population
     /// difference, which surfaces as a removal or an addition instead; under include-all both
     /// sides are admitted, so <c>public</c> to <c>internal</c> is a Breaking move. Runs only
-    /// where <see cref="ComparesAccessibility"/> holds.
+    /// where <see cref="ComparesTransitions"/> holds.
     /// </summary>
     static void CompareAccessibility(
         string? oldAccessibility,
@@ -1119,6 +1163,98 @@ public static class ApiDiffAnalyzer
             oldText,
             newText,
             Subject: subject));
+    }
+
+    /// <summary>One subject's API status facts (docs/design/api-status-analysis.md#status-facts).</summary>
+    readonly record struct ApiStatus(
+        bool IsHidden,
+        bool IsObsolete,
+        string? ObsoleteMessage,
+        bool ObsoleteIsError);
+
+    /// <summary>
+    /// Reports a subject's API status transitions (docs/design/api-status-analysis.md): one
+    /// hidden row when <c>EditorBrowsable(Never)</c> is added or removed, and one obsolete row
+    /// when <c>[Obsolete]</c> is added or removed or its error flag or message changes. Each
+    /// is NonBreaking, except an obsolete row that adds <c>[Obsolete]</c>, as a warning or an
+    /// error, or turns its warning into an error: a caller that builds with warnings as errors,
+    /// or any caller of an error, stops compiling, so it is Breaking. Runs only where
+    /// <see cref="ComparesTransitions"/> holds.
+    /// </summary>
+    static void CompareStatus(
+        ApiStatus oldStatus,
+        ApiStatus newStatus,
+        ChangeKind hiddenKind,
+        ChangeKind obsoleteKind,
+        string subjectText,
+        ApiChangeSubject subject,
+        List<ApiChange> changes)
+    {
+        if (oldStatus.IsHidden != newStatus.IsHidden)
+        {
+            changes.Add(new ApiChange(
+                hiddenKind,
+                ChangeClassification.NonBreaking,
+                newStatus.IsHidden
+                    ? $"{subjectText} was hidden"
+                    : $"{subjectText} is no longer hidden",
+                HiddenText(oldStatus.IsHidden),
+                HiddenText(newStatus.IsHidden),
+                ApiChangeCategory.Status,
+                subject));
+        }
+
+        string? oldMessage = oldStatus.IsObsolete ? oldStatus.ObsoleteMessage : null;
+        string? newMessage = newStatus.IsObsolete ? newStatus.ObsoleteMessage : null;
+        bool oldIsError = oldStatus.IsObsolete && oldStatus.ObsoleteIsError;
+        bool newIsError = newStatus.IsObsolete && newStatus.ObsoleteIsError;
+        if (oldStatus.IsObsolete == newStatus.IsObsolete
+            && oldIsError == newIsError
+            && string.Equals(oldMessage, newMessage, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string description =
+            !oldStatus.IsObsolete
+                ? newIsError ? "was made obsolete as an error" : "was made obsolete"
+            : !newStatus.IsObsolete ? "is no longer obsolete"
+            : oldIsError != newIsError
+                ? newIsError
+                    ? "obsolete warning became an error"
+                    : "obsolete error became a warning"
+            : "obsolete message changed";
+        string oldText = ObsoleteText(oldStatus.IsObsolete, oldMessage, oldIsError);
+        string newText = ObsoleteText(newStatus.IsObsolete, newMessage, newIsError);
+        changes.Add(new ApiChange(
+            obsoleteKind,
+            (newStatus.IsObsolete && !oldStatus.IsObsolete) || (newIsError && !oldIsError)
+                ? ChangeClassification.Breaking
+                : ChangeClassification.NonBreaking,
+            $"{subjectText} {description}, from '{oldText}' to '{newText}'",
+            oldText,
+            newText,
+            ApiChangeCategory.Status,
+            subject));
+    }
+
+    static string HiddenText(bool isHidden)
+        => isHidden ? "hidden" : "visible";
+
+    /// <summary>
+    /// The C# spelling of one side's obsolete status, such as <c>[Obsolete("m", true)]</c>,
+    /// or <c>not obsolete</c>.
+    /// </summary>
+    static string ObsoleteText(bool isObsolete, string? message, bool isError)
+    {
+        if (!isObsolete)
+            return "not obsolete";
+        if (message is null)
+            return isError ? "[Obsolete(null, true)]" : "[Obsolete]";
+        string literal = "\"" + message
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        return isError ? $"[Obsolete({literal}, true)]" : $"[Obsolete({literal})]";
     }
 
     /// <summary>

@@ -571,6 +571,10 @@ const changeKinds = [
   "MemberAttributeRemoved",
   "TypeAccessibilityChanged",
   "MemberAccessibilityChanged",
+  "TypeHiddenChanged",
+  "MemberHiddenChanged",
+  "TypeObsoleteChanged",
+  "MemberObsoleteChanged",
 ] as const;
 
 function validateChanges(value: unknown, description: string): void {
@@ -587,6 +591,7 @@ function validateChanges(value: unknown, description: string): void {
     requireEnum(change.category, `${description}[${index}].category`, [
       "Signature",
       "Attribute",
+      "Status",
     ]);
     requireString(change.message, `${description}[${index}].message`);
     requireNullableString(

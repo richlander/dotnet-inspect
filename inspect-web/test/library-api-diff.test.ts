@@ -1075,6 +1075,64 @@ test("malformed change rows are rejected at the transport boundary", async () =>
     assert.match(outcome.error, /types\[0\]\.changes\[0\]\.classification is unsupported/);
 });
 
+test("API status rows cross the transport boundary and render their values", async () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget] = result.value.types;
+  if (widget === undefined) throw new Error("Expected a Type.");
+  const status = {
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        changes: [
+          {
+            kind: "TypeHiddenChanged",
+            classification: "NonBreaking",
+            category: "Status",
+            message: "Type 'Example.Widget' was hidden",
+            oldValue: "visible",
+            newValue: "hidden",
+          },
+          {
+            kind: "TypeObsoleteChanged",
+            classification: "Breaking",
+            category: "Status",
+            message: "Type 'Example.Widget' was made obsolete as an error",
+            oldValue: "not obsolete",
+            newValue: "[Obsolete(\"m\", true)]",
+          },
+        ],
+      }],
+    },
+  };
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(status),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(state.libraryApiDiff.status, "ready");
+  if (state.libraryApiDiff.status !== "ready")
+    throw new Error("Expected ready state.");
+  const html = renderLibraryApiDiff(state.libraryApiDiff, String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+  });
+  assert.match(html, /Type 'Example\.Widget' was hidden/);
+  assert.match(html, /<code>visible<\/code> → <code>hidden<\/code>/);
+  assert.match(html, /<code>not obsolete<\/code> → <code>\[Obsolete\("m", true\)\]<\/code>/);
+});
+
 test("Explore destinations cannot change endpoint coordinates", async () => {
   const result = withMembers();
   if (result.value === null) throw new Error("Expected success.");

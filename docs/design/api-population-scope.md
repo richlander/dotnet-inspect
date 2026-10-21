@@ -323,8 +323,9 @@ widened population rather than the ordinary one: `--all` narrowed by an
 `accessibility` term to the `public` and `protected` buckets, less
 `private protected` declarations, which no other assembly can reach. Hidden
 declarations stay admitted into their buckets. `EditorBrowsable` and
-`Obsolete` status do not decide what the diff compares; a separate API status
-analysis reports them and their transitions, as Diff capabilities states. A
+`Obsolete` status do not decide what the diff compares; a separate
+[API status analysis](api-status-analysis.md) reports them and their
+transitions, as Diff capabilities states. A
 Type is admitted when its own row and every enclosing Type's row is in an API
 axis bucket, so neither a public nested Type of a non-public Type nor a public
 Member of an internal Type is admitted: no other assembly can reach either one.

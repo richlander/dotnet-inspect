@@ -915,8 +915,28 @@ public class ApiType
     [JsonIgnore]
     public bool? EnclosingTypesExternallyReachable { get; set; }
 
+    /// <summary>
+    /// Whether the Type carries <c>EditorBrowsable(EditorBrowsableState.Never)</c>: its hidden
+    /// API status (docs/design/api-status-analysis.md). Obsolete status is separate.
+    /// </summary>
     [JsonIgnore]
     public bool IsHidden { get; set; }
+
+    /// <summary>
+    /// Whether the Type carries <c>[Obsolete]</c>, other than the compiler's compatibility
+    /// marker: its obsolete API status (docs/design/api-status-analysis.md). Not serialized,
+    /// as <see cref="IsHidden"/> is not, so existing Type JSON is unchanged.
+    /// </summary>
+    [JsonIgnore]
+    public bool IsObsolete { get; set; }
+
+    /// <summary>The <see cref="IsObsolete"/> message, or null when it has none.</summary>
+    [JsonIgnore]
+    public string? ObsoleteMessage { get; set; }
+
+    /// <summary>Whether <see cref="IsObsolete"/> makes references a compile-time error.</summary>
+    [JsonIgnore]
+    public bool ObsoleteIsError { get; set; }
 
     public string Kind { get; set; } = "";  // class, struct, interface, enum, delegate
     public List<string> Attributes { get; set; } = [];

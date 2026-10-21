@@ -402,6 +402,10 @@ public enum BrowserLibraryApiDiffChangeKind
     MemberAttributeRemoved,
     TypeAccessibilityChanged,
     MemberAccessibilityChanged,
+    TypeHiddenChanged,
+    MemberHiddenChanged,
+    TypeObsoleteChanged,
+    MemberObsoleteChanged,
 }
 
 [JsonConverter(
@@ -419,4 +423,5 @@ public enum BrowserLibraryApiDiffChangeCategory
 {
     Signature,
     Attribute,
+    Status,
 }

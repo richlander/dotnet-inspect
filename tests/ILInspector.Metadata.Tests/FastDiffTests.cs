@@ -64,6 +64,14 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.InternalTypeRemoved", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.InternalTypeMemberChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.InternalOuterNestedMemberChanged.Nested", FastDiffState.Unchanged, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.MemberBecomesHidden", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.MemberBecomesVisible", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.TypeBecomesHidden", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.MemberBecomesObsolete", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.ObsoleteWarningToError", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.TypeBecomesObsolete", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.ObsoleteMessageChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.MemberBecomesObsoleteError", FastDiffState.Changed, FastDiffState.Unchanged)]
     public void TypeStates_SeparateApiAndBodyChanges(
         string fullName,
         FastDiffState api,
@@ -590,6 +598,143 @@ public sealed class FastDiffTests
         Assert.DoesNotContain(
             "FastDiffFixture.PrivateProtectedMemberAdded",
             ChangedTypes(CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis)));
+    }
+
+    /// <summary>
+    /// API status transitions (docs/design/api-status-analysis.md): each fixture case changes
+    /// one subject's hidden or obsolete status alone.
+    /// </summary>
+    public static TheoryData<string, ChangeKind, ChangeClassification, string, string> StatusTransitions => new()
+    {
+        { "FastDiffFixture.MemberBecomesHidden", ChangeKind.MemberHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden" },
+        { "FastDiffFixture.MemberBecomesVisible", ChangeKind.MemberHiddenChanged, ChangeClassification.NonBreaking, "hidden", "visible" },
+        { "FastDiffFixture.TypeBecomesHidden", ChangeKind.TypeHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden" },
+        { "FastDiffFixture.MemberBecomesObsolete", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]" },
+        { "FastDiffFixture.ObsoleteWarningToError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "[Obsolete(\"m\")]", "[Obsolete(\"m\", true)]" },
+        { "FastDiffFixture.TypeBecomesObsolete", ChangeKind.TypeObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]" },
+        { "FastDiffFixture.ObsoleteMessageChanged", ChangeKind.MemberObsoleteChanged, ChangeClassification.NonBreaking, "[Obsolete(\"before\")]", "[Obsolete(\"after\")]" },
+        { "FastDiffFixture.MemberBecomesObsoleteError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\", true)]" },
+    };
+
+    [Theory]
+    [MemberData(nameof(StatusTransitions))]
+    public void ApiAxis_ReportsEachStatusTransitionAsOneRow(
+        string typeName,
+        ChangeKind kind,
+        ChangeClassification classification,
+        string oldValue,
+        string newValue)
+    {
+        AssertSingleStatusRow(ApiSurfaceExtractionScope.ApiAxis, typeName, kind, classification, oldValue, newValue);
+
+        // The Exists contract: Changed opens a non-empty full diff.
+        Assert.Equal(
+            FastDiffState.Changed,
+            Assert.Single(Compare(FixtureCatalog.MetadataFastDiffPair).Types, state => state.FullName == typeName).Api);
+    }
+
+    [Theory]
+    [MemberData(nameof(StatusTransitions))]
+    public void IncludeAll_ReportsEachStatusTransitionAsOneRow(
+        string typeName,
+        ChangeKind kind,
+        ChangeClassification classification,
+        string oldValue,
+        string newValue)
+        => AssertSingleStatusRow(ApiSurfaceExtractionScope.IncludeAll, typeName, kind, classification, oldValue, newValue);
+
+    static void AssertSingleStatusRow(
+        ApiSurfaceExtractionScope scope,
+        string typeName,
+        ChangeKind kind,
+        ChangeClassification classification,
+        string oldValue,
+        string newValue)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        ApiSurface before = Surface(pair.OldAssemblyPath(), scope);
+        ApiSurface after = Surface(pair.NewAssemblyPath(), scope);
+
+        // The signature scope, which hosts compare by default, reports the transition alone.
+        TypeDiff type = Assert.Single(
+            MetadataFindings.CompareApi(before, after, Subject, ApiDiffOptions.Default).ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        ApiChange change = Assert.Single(type.Changes);
+        Assert.Equal(kind, change.Kind);
+        Assert.Equal(ApiChangeCategory.Status, change.Category);
+        Assert.Equal(classification, change.Classification);
+        Assert.Equal(oldValue, change.OldValue);
+        Assert.Equal(newValue, change.NewValue);
+        Assert.Equal(
+            kind is ChangeKind.TypeHiddenChanged or ChangeKind.TypeObsoleteChanged
+                ? ApiChangeSubjectKind.Type
+                : ApiChangeSubjectKind.Member,
+            change.Subject?.Kind);
+
+        // Every scope reports exactly one status row for it.
+        TypeDiff all = Assert.Single(
+            MetadataFindings.CompareApi(before, after, Subject, new ApiDiffOptions(ApiDiffScope.All)).ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        Assert.Equal(kind, Assert.Single(all.Changes, row => row.Category == ApiChangeCategory.Status).Kind);
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.MemberBecomesHidden", ChangeKind.MemberRemoved)]
+    [InlineData("FastDiffFixture.MemberBecomesVisible", ChangeKind.MemberAdded)]
+    [InlineData("FastDiffFixture.TypeBecomesHidden", ChangeKind.TypeRemoved)]
+    [InlineData("FastDiffFixture.TypeBecomesObsolete", ChangeKind.TypeRemoved)]
+    public void OrdinaryPresentation_ReportsAHiddenOrObsoleteTransitionAsPopulation(
+        string typeName,
+        ChangeKind kind)
+    {
+        // The Public scope suppresses hidden subjects and obsolete Types, so it keeps reporting
+        // a transition across that boundary as a removal or an addition.
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        TypeDiff type = Assert.Single(
+            MetadataFindings.CompareApi(
+                Surface(pair.OldAssemblyPath(), ApiSurfaceExtractionScope.Public),
+                Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.Public),
+                Subject,
+                ApiDiffOptions.Default).ApiDiff.TypeDiffs,
+            diff => diff.TypeFullName == typeName);
+        Assert.Equal(kind, Assert.Single(type.Changes).Kind);
+    }
+
+    [Theory]
+    [InlineData("FastDiffFixture.MemberBecomesObsolete")]
+    [InlineData("FastDiffFixture.ObsoleteWarningToError")]
+    [InlineData("FastDiffFixture.ObsoleteMessageChanged")]
+    [InlineData("FastDiffFixture.MemberBecomesObsoleteError")]
+    public void OrdinaryPresentation_ComparesNoMemberObsoleteStatus(string typeName)
+    {
+        // The Public scope admits an obsolete Member and compares no status, as before.
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        ApiDiff diff = MetadataFindings.CompareApi(
+            Surface(pair.OldAssemblyPath(), ApiSurfaceExtractionScope.Public),
+            Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.Public),
+            Subject,
+            ApiDiffOptions.Default).ApiDiff;
+
+        Assert.DoesNotContain(diff.TypeDiffs, type => type.TypeFullName == typeName);
+        Assert.DoesNotContain(
+            diff.TypeDiffs.SelectMany(type => type.Changes),
+            change => change.Category == ApiChangeCategory.Status);
+    }
+
+    [Fact]
+    public void ApiAxis_SplitsATypesHiddenAndObsoleteStatus()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        ApiSurface after = Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
+
+        ApiType hidden = Assert.Single(after.Types, type => type.FullName == "FastDiffFixture.TypeBecomesHidden");
+        Assert.True(hidden.IsHidden);
+        Assert.False(hidden.IsObsolete);
+        ApiType obsolete = Assert.Single(after.Types, type => type.FullName == "FastDiffFixture.TypeBecomesObsolete");
+        Assert.False(obsolete.IsHidden);
+        Assert.True(obsolete.IsObsolete);
+        Assert.Equal("m", obsolete.ObsoleteMessage);
+        Assert.False(obsolete.ObsoleteIsError);
     }
 
     [Fact]
