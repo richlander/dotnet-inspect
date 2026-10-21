@@ -2922,6 +2922,53 @@ operations they consume. Browser-host URL selection is a separate host concern:
 production promotes the exact staging artifact rather than rebuilding it for a
 different origin.
 
+#### Recognizing packet intent
+
+`WorkspaceSharePacketCodec.Recognize` supplies bounded recognition for a host
+that has not yet admitted its input as a packet. It returns an unrecognized
+input, a validated canonical packet, or a recognized failure carrying the
+existing codec failure kind and message. This is distinct from `Decode`, whose
+caller has already declared packet intent and always receives its validation
+failure. Neither operation realizes a Workspace or authorizes acquisition.
+
+Recognition reuses the existing decoding, JSON-budget, binding and canonical
+validation path. After valid Base64URL and UTF-8 decoding, observing a
+top-level JSON property named `f` establishes packet intent, regardless of its
+value. Escaped property spelling is treated identically. A nested `f` does not
+establish intent. An unrelated encoded object with a top-level `f` deliberately
+enters packet validation: the format discriminator is the recognition boundary,
+not proof of a valid packet. A recognized malformed shape, unsupported version,
+noncanonical representation, or later JSON-budget failure retains its typed
+codec failure rather than becoming an ordinary target.
+
+Recognition does not recover a damaged envelope or raise the codec's limits.
+An empty input, an input over the global encoded limit, invalid Base64URL or
+UTF-8, or a JSON failure before the format marker is observed is unrecognized.
+The global encoded limit is checked before any decoding or marker inspection.
+A depth/value failure before the marker is likewise unrecognized; after the
+marker it is a recognized failure. Format-specific limits remain validation
+failures once the marker has been observed. Unrecognized means insufficient
+packet evidence within this bounded pass, not proof that the input was never
+intended as a packet. Explicit host admission is required to diagnose those
+inputs as packets. Cancellation propagates through either entrance.
+
+The motivating inputs are the Runtime ecosystem environment and the exact
+`System.Text.Json@10.0.0/net10.0` Package/JsonSerializer scenario emitted in the
+[CLI activation walkthrough](../cli-architecture.md#motivating-assets-and-adoption-evidence).
+Their canonical packets must be recognized without changing any identity or
+byte representation. Ordinary names such as `Newtonsoft.Json`, Base64-like
+names, unrelated encoded JSON, malformed markers and unsupported formats are
+neighboring controls. `WorkspaceSharePacketRecognitionTests` gates this
+distinction alongside the existing codec canonical/limit tests.
+
+This is step 10 of the 18-step [#10132](https://github.com/richlander/dotnet-inspect/issues/10132)
+plan, tracked in [#10369](https://github.com/richlander/dotnet-inspect/issues/10369).
+The CLI router consumes this classification in step 11 (#4647); this codec
+slice does not activate a raw target. Browser and explicit CLI packet input
+continue to use `Decode` and retain their existing failure and canonical-vector
+gates. The shared codec remains the sole parser for both hosts; no host
+receives a second packet schema or encoding heuristic.
+
 #### Packet format 1
 
 The normative v1 decoded shape is:
