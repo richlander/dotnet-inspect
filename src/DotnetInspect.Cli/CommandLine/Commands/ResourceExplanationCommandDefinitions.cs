@@ -12,14 +12,18 @@ public static class ResourceExplanationCommandDefinitions
     {
         var command = new Command(
             ResourceExplanationCommand.Name,
-            "Explain an exact product resource or search installed capabilities");
-        var operandArgument = new Argument<string>("resource-or-search")
+            "Explain an exact product resource or search installed capabilities; "
+            + "with no operand, list the subject kinds, operations, and "
+            + "references to start from");
+        var operandArgument = new Argument<string?>("resource-or-search")
         {
             Description =
                 "Exact product-resource path, such as "
                 + "library/sections/reference-hierarchy or "
                 + "package-query/query/facets/library-literal; otherwise "
-                + "bounded capability-search text such as literal",
+                + "bounded capability-search text such as literal. Omit it "
+                + "to explain the root",
+            Arity = ArgumentArity.ZeroOrOne,
         };
         var projectionArgument = new Argument<string?>("projection")
         {
@@ -67,6 +71,16 @@ public static class ResourceExplanationCommandDefinitions
 
         command.SetAction(parseResult =>
         {
+            // A lone projection token selects that projection of the root,
+            // as in "explain .contract --json".
+            string? operand = parseResult.GetValue(operandArgument);
+            string? projection = parseResult.GetValue(projectionArgument);
+            if (projection is null
+                && operand is ".contract" or ".data" or ".hal")
+            {
+                projection = operand;
+                operand = null;
+            }
             string[]? valueIds = SharedOptions.ParseProjectionList(parseResult, valuesOption);
             if (parseResult.GetValue(valuesOption) is not null && valueIds is not { Length: > 0 })
             {
@@ -74,7 +88,7 @@ public static class ResourceExplanationCommandDefinitions
                 return 1;
             }
             return ResourceExplanationCommand.Execute(
-                parseResult.GetValue(operandArgument)!,
+                operand,
                 parseResult.GetValue(depthOption),
                 parseResult.GetResult(depthOption) is { Implicit: false },
                 parseResult.GetValue(opts.Limit),
@@ -82,9 +96,8 @@ public static class ResourceExplanationCommandDefinitions
                 parseResult.GetValue(opts.Envelope),
                 parseResult.GetValue(opts.NoHeaders),
                 parseResult.GetValue(outputPathOption),
-                parseResult.GetValue(projectionArgument) == ".contract",
-                parseResult.GetValue(projectionArgument) is ".data" or ".hal"
-                    ? parseResult.GetValue(projectionArgument) : null,
+                projection == ".contract",
+                projection is ".data" or ".hal" ? projection : null,
                 valueIds);
         });
         return command;

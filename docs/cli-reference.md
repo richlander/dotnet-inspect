@@ -2798,6 +2798,11 @@ MIT
 
 ## Exact explanation JSON
 
+Bare `explain` lists where to start. It returns one routing table of the
+subject kinds, operations, and references, each with its purpose, questions,
+accepted subject kinds, and destinations. Continue with any entry's
+destination path.
+
 `explain <resource> --json` returns compact resource facts and HAL navigation.
 The declared fact names are local to the resource type; ordered values remain
 arrays. Non-available facts appear in `fact_states`, and relationship states
@@ -2805,6 +2810,8 @@ and truncation remain explicit. Integers and decimals are lossless decimal
 strings; octets are base64 strings.
 
 ```bash
+dotnet-inspect explain
+dotnet-inspect explain operations/package-query
 dotnet-inspect explain vocabularies/csharp.body-kinds --json
 dotnet-inspect explain package-query/query/facets/library-literal --json
 dotnet-inspect explain vocabularies/csharp.style-choices --depth 1 --json

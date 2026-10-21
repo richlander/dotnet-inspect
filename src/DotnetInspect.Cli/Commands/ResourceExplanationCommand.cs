@@ -26,7 +26,7 @@ public static class ResourceExplanationCommand
         facetKeys: facetKeys is { Length: > 0 } ? facetKeys : null);
 
     public static int Execute(
-        string operand,
+        string? operand,
         int depth,
         bool depthExplicitlySet,
         int? maximumResults,
@@ -49,7 +49,11 @@ public static class ResourceExplanationCommand
             return 1;
         }
         const string resourcePrefix = "inspect-resource:/";
-        string normalizedOperand = operand.Trim();
+        // Bare explain reads the root, expanded through its entries unless
+        // the caller chose a depth.
+        if (operand is null && !depthExplicitlySet)
+            depth = BareRootDepth;
+        string normalizedOperand = (operand ?? RootSegmentName).Trim();
         bool resourceAddress = normalizedOperand.StartsWith(resourcePrefix, StringComparison.Ordinal);
         if (resourceAddress)
         {
@@ -115,6 +119,21 @@ public static class ResourceExplanationCommand
                     envelopeOutput,
                     outputPath,
                     contract, selection, valueIds: valueIds);
+            }
+
+            if (IsRootPath(root))
+            {
+                return CreatePublishedRootCatalog() is { } rootCatalog
+                    ? ExplainFromCatalog(
+                        rootCatalog,
+                        canonicalPath,
+                        depth,
+                        maximumResults,
+                        format,
+                        envelopeOutput,
+                        outputPath,
+                        contract, selection, valueIds: valueIds)
+                    : 1;
             }
 
             ResourceExplanationCatalog? exactCatalog = root switch
@@ -365,16 +384,16 @@ public static class ResourceExplanationCommand
 
     /// <summary>
     /// The CLI's explanation root over its complete catalog, from the
-    /// routing declarations of the owners the CLI admits. The CLI withholds
-    /// the root while any resource is unreachable from it; until the CLI
-    /// host adoption assigns its public address (#10139), the root's path is
-    /// provisional and the root is composed only for that gate.
+    /// routing declarations of the owners the CLI admits. Bare
+    /// <c>explain</c> reads the root at <see cref="RootSegment"/>; its role
+    /// collections and entries are top-level paths. The CLI withholds the
+    /// root while any resource is unreachable from it.
     /// </summary>
     internal static ResourceExplanationRootComposition? CreateRootComposition() =>
         CreateCompleteCatalog() is { } complete
             ? ResourceExplanationCatalog.ComposeRoot(
                 complete,
-                new ResourcePath(ProvisionalRootSegment),
+                new ResourcePath(RootSegmentName),
                 [
                     .. StructuralRoutingDeclarations.Create(),
                     .. CapabilityRoutingDeclarations.Create(),
@@ -382,7 +401,42 @@ public static class ResourceExplanationCommand
                 ])
             : null;
 
-    private const string ProvisionalRootSegment = "root";
+    /// <summary>The explanation root's path, which bare <c>explain</c> reads.</summary>
+    internal const string RootSegmentName = "root";
+
+    /// <summary>
+    /// The default traversal depth of bare <c>explain</c>: the root, its role
+    /// collections, and every routing entry, in one Document.
+    /// </summary>
+    internal const int BareRootDepth = 2;
+
+    private static bool IsRootPath(string root) =>
+        root is RootSegmentName
+            or ResourceExplanationCatalog.RoutingSubjectKindsSegment
+            or ResourceExplanationCatalog.RoutingOperationsSegment
+            or ResourceExplanationCatalog.RoutingReferencesSegment;
+
+    /// <summary>
+    /// The complete catalog with its root, or a visible error while the root
+    /// is withheld because a resource is unreachable from it.
+    /// </summary>
+    private static ResourceExplanationCatalog? CreatePublishedRootCatalog()
+    {
+        ResourceExplanationRootComposition composition =
+            CreateRootComposition()
+            ?? throw new InvalidOperationException(
+                "The complete resource explanation catalog could not "
+                + "be built.");
+        if (composition.IsPublishable)
+            return composition.Catalog;
+
+        CommandError.Write(
+            "The explanation root is withheld: "
+            + $"{composition.Unreachable.Length} installed resources are not "
+            + "reachable from it, starting with "
+            + $"'{composition.Unreachable[0].Value}'.");
+        return null;
+    }
 
     internal static ResourceExplanationCatalog? CreateCompleteCatalog()
     {

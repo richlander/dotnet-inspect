@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.InspectionContracts;
@@ -1053,6 +1054,116 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
                 .GetString());
     }
 
+    [Fact]
+    public async Task BareExplain_ReadsTheRootAsItsRoutingTable()
+    {
+        var result = await RunAsync("explain");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("# Explain root", result.Output);
+        Assert.Contains("Kind: Explanation root", result.Output);
+        Assert.Contains("## Routing", result.Output);
+        Assert.Contains(
+            "| subject-kind | subject-kinds/library | Library |",
+            result.Output);
+        Assert.Contains(
+            "| library, type |",
+            result.Output);
+        Assert.Contains(
+            "| operation | operations/diff-analysis | Diff analyses |",
+            result.Output);
+        Assert.Contains(
+            "| library, type, member | analyses |",
+            result.Output);
+        Assert.Contains(
+            "| reference | references/vocabularies | Value vocabularies |",
+            result.Output);
+        Assert.DoesNotContain("## Expanded Resources", result.Output);
+        Assert.DoesNotContain("## Related Resources", result.Output);
+    }
+
+    [Fact]
+    public async Task BareExplainJson_EmbedsEveryRoutingEntry()
+    {
+        var result = await RunAsync("explain", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "root",
+            document.RootElement.GetProperty("path").GetString());
+        Assert.Equal(
+            8,
+            Regex.Matches(
+                    result.Output,
+                    "\"path\":\"((subject-kinds|operations|references)/[a-z-]+)\"")
+                .Select(static match => match.Groups[1].Value)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public async Task ExplainHelp_SucceedsWithoutAnOperand()
+    {
+        var result = await RunAsync("explain", "--help");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("[<resource-or-search>]", result.Output);
+        Assert.Contains("Omit it to explain the root", result.Output);
+    }
+
+    [Fact]
+    public async Task RoutingEntry_ExplainsItsHintsAndDestinations()
+    {
+        var result = await RunAsync("explain", "operations/package-query");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Kind: Routing entry", result.Output);
+        Assert.Contains("Role: operation", result.Output);
+        Assert.Contains(
+            "Issuer: Inspection Capability Composition",
+            result.Output);
+        Assert.Contains("Purpose: Finds the packages", result.Output);
+        Assert.Contains(
+            "Questions: Which packages depend on a given package?",
+            result.Output);
+        Assert.Contains(
+            "| Routing destination (routing-destination-document) | "
+                + "Available | package-query |",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task BareExplain_ProjectsALoneContractToken()
+    {
+        var result = await RunAsync("explain", ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "root",
+            document.RootElement.GetProperty("requested_path").GetString());
+    }
+
+    [Theory]
+    [InlineData("-n", "3")]
+    [InlineData("-Q", "x")]
+    public async Task BareExplain_RejectsSearchAndValueOptions(
+        string option,
+        string value)
+    {
+        var result = await RunAsync("explain", option, value);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.NotEmpty(result.Error);
+    }
+
     // The CLI's root gate: the declarations of every owner the CLI admits
     // reach every resource of its complete catalog, so the reachability
     // invariant holds and the CLI may publish its root.
@@ -1068,58 +1179,58 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             ["vocabularies"],
             Targets(
                 composition.Catalog,
-                "root/references/vocabularies",
+                "references/vocabularies",
                 "routing-destination-collection"));
         Assert.Equal(
             ["library", "member", "package", "type"],
-            Targets(composition.Catalog, "root/subject-kinds", "collection-routing-entry")
+            Targets(composition.Catalog, "subject-kinds", "collection-routing-entry")
                 .Select(static path => path.Split('/')[^1])
                 .Order(StringComparer.Ordinal));
         Assert.Equal(
             ["library", "type"],
             Targets(
                 composition.Catalog,
-                "root/subject-kinds/library",
+                "subject-kinds/library",
                 "routing-destination-catalog"));
         Assert.Equal(
             ["member-overload", "member-detail"],
             Targets(
                 composition.Catalog,
-                "root/subject-kinds/member",
+                "subject-kinds/member",
                 "routing-destination-catalog"));
         Assert.Equal(
             ["package-query", "package-files", "diff-analysis"],
-            Targets(composition.Catalog, "root/operations", "collection-routing-entry")
+            Targets(composition.Catalog, "operations", "collection-routing-entry")
                 .Select(static path => path.Split('/')[^1]));
         Assert.Equal(
             ["package-query"],
             Targets(
                 composition.Catalog,
-                "root/operations/package-query",
+                "operations/package-query",
                 "routing-destination-document"));
         Assert.Equal(
             ["package-files"],
             Targets(
                 composition.Catalog,
-                "root/operations/package-files",
+                "operations/package-files",
                 "routing-destination-document"));
         Assert.Equal(
             ["analyses"],
             Targets(
                 composition.Catalog,
-                "root/operations/diff-analysis",
+                "operations/diff-analysis",
                 "routing-destination-collection"));
         Assert.Equal(
-            ["root/subject-kinds/library", "root/subject-kinds/type", "root/subject-kinds/member"],
+            ["subject-kinds/library", "subject-kinds/type", "subject-kinds/member"],
             Targets(
                 composition.Catalog,
-                "root/operations/diff-analysis",
+                "operations/diff-analysis",
                 "accepts-subject-kind"));
         Assert.Equal(
-            ["root/operations/package-query", "root/operations/package-files"],
+            ["operations/package-query", "operations/package-files"],
             Targets(
                 composition.Catalog,
-                "root/subject-kinds/package",
+                "subject-kinds/package",
                 "accepted-by-operation"));
 
         static IEnumerable<string> Targets(
