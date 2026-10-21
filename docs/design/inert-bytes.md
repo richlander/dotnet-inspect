@@ -236,7 +236,7 @@ sparse-presentation terminals, not for eagerly displayed inventories.
 
 Measuring the contained UTF-16 length while building a compact population left
 construction time inconclusive on two of the three assets. Charging exact
-stored bytes instead made construction 72% to 84% faster on all three. That is
+stored bytes instead made construction 70% to 90% faster on all three. That is
 evidence for a separately owned retained-text budget decision; the pilot does
 not change the existing unit.
 

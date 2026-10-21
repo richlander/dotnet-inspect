@@ -103,7 +103,7 @@ three assets:
 | Population retained memory | 0.44x-0.46x | Win |
 | Population match-only elapsed time | 0.51x-0.56x | Win |
 | Population sparse-display elapsed time | 0.56x-0.61x | Win |
-| Byte-budget population build elapsed time | 0.16x-0.28x | Win |
+| Byte-budget population build elapsed time | 0.1x-0.3x | Win |
 | Population display-all elapsed time | 3.3x-3.9x | Loss |
 | Population display-all allocation | 2.4x-2.7x | Loss |
 
@@ -116,7 +116,7 @@ result, retaining about 45 percent of eager memory while making closed matching
 The retained UTF-16 budget scan consumes much of the remaining construction
 opportunity. Population build time with that scan was a win only for
 System.Text.Json and inconclusive for CoreLib and Configuration; charging exact
-stored bytes instead made construction 72 to 84 percent faster on every asset.
+stored bytes instead made construction 70 to 90 percent faster on every asset.
 That result motivates a separately owned budget-unit decision rather than
 silently changing product semantics in this pilot.
 
