@@ -67,6 +67,22 @@ public sealed class PackageAssetSelectorTests
             .. InstanceTypeGraph(
                 typeof(PackageRuntimeAssetPopulation)),
             .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationChoiceOperationAssociation)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationChoiceRequest)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationCoordinateAssociation)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationAuthority)),
+            .. typeof(PackageRuntimePopulationAuthority)
+                .GetNestedTypes(BindingFlags.Public)
+                .SelectMany(InstanceTypeGraph),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationChoiceResult)),
+            .. typeof(PackageRuntimePopulationChoiceResult)
+                .GetNestedTypes(BindingFlags.Public)
+                .SelectMany(InstanceTypeGraph),
+            .. InstanceTypeGraph(
                 typeof(PackageCompileAssetSelectionReceipt)),
             .. InstanceTypeGraph(typeof(PackageCompileAssetSelection)),
             .. InstanceTypeGraph(typeof(PackageCompileAsset)),
