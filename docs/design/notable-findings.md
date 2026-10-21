@@ -452,16 +452,26 @@ A mark answers at three distances, each cheaper than the next:
 
 ### Click-through
 
-A findings mark is a navigation target. Activating it performs the atomic
-subject-plus-lens activation that Compare drill-down already uses, with the
-Findings lens and the row's key, and lands on that row in the Findings view
-in the mark's mode: Current for the Current mark, Changes for the Changes
-mark. From the Findings view, activating a row navigates to the subject with
-its recommended lens. The join is the Member key both ways, and it applies
-to exact Member and overload rows; a family row's mark expands the family
-instead, as [Marks are projections](#marks-are-projections) states. The
-structure mark is not a navigation target, because its row need not exist
-in the map.
+A findings mark is a navigation target, and its key is the key of the map
+row it projects. The map keys Member rows by Member and Library-scope rows
+by exact Type identity, so the join has two shapes:
+
+- A **Member or overload row's** mark performs the atomic subject-plus-lens
+  activation that Compare drill-down already uses, with the Findings lens,
+  and lands on the row with the same Member key in the Type's Findings view
+  in the mark's mode: Current for the Current mark, Changes for the Changes
+  mark. From that view, activating a row navigates to the Member with its
+  recommended lens.
+- A **Type row's** mark activates the containing Library subject with the
+  Findings lens in the mark's mode and focuses the Library-scope row with
+  the same Type identity. From Library Findings, activating a Type row
+  drills to that Type with Findings retained, exactly as Library Compare's
+  Type rows drill today. A Type row's Current mark and Library Current share
+  the census prerequisite, so neither exists without the other.
+
+A family row's mark expands the family instead, as
+[Marks are projections](#marks-are-projections) states. The structure mark
+is not a navigation target, because its row need not exist in the map.
 
 ### Chips
 
@@ -509,7 +519,7 @@ At each scope the view is the map's Rows:
 | --- | --- | --- |
 | Library | one row per listed Type with its Count | Type, listed-Member Count, structure (incoming and outgoing degree from the Library structural report), changed-Member Count in Changes mode |
 | Type | one row per listed Member with its tally | Member, each admitted descriptor's tally, throws, size, structure (callers; family sizes and sibling calls), transition kinds in Changes mode |
-| Member | that Member's row | Each finding with its coordinates, guidance, and an Annotated Source action by instance key |
+| Member | that Member's row | Each finding with its coordinates and guidance; an Annotated Source action by instance key for each finding that has one, and declaration coordinates with no Source action for a Member-header finding |
 
 Library rows carry no descriptor tallies. The map's
 [tallies](annotated-type-map.md#tallies) are a projection of an opened Type's
@@ -518,6 +528,17 @@ carries the Type's entries and its listed-Member Count, and that Count is
 what the Library column shows. Descriptor tallies appear when a Type is
 opened. The Library structure columns read the Library structural report,
 which is a whole-Library document already issued for the Type inventory.
+
+A body finding carries an IL offset and a producer-issued instance key, and
+its Annotated Source action uses the selection
+[Finding interaction](inspect-web-finding-interaction.md#experience) already
+defines. A Member-header finding, such as the async classification of
+adoption steps 14 and 15, has no body offset and no instance key, as the
+[provenance classification](annotated-source-finding-provenance.md#classification-contract)
+states; its row presents the Member's declaration coordinates and the
+catalog's guidance, offers no Annotated Source action, and says so, as the
+Facts section's unkeyed header rows already do. It still drives the Current
+mark and the chips, because those read the map row, not a Source target.
 
 Structure and throw columns are where the numbers live. A reader who wants
 "most callers" or "largest overload" sorts a column; no glyph encodes a
@@ -594,11 +615,14 @@ chips, and the profile line, each as a separately staged slice below.
   current baseline settles, and Current and structure marks are unaffected
   throughout.
 - **Join:** activating a Current or Changes mark on an exact Member or
-  overload row lands on the row with the same key in the Findings view in
-  that mark's mode, and activating that row returns to the subject;
-  activating a family row's mark expands the family and navigates nowhere,
-  including when several overloads are marked; a filtered-out marked Member
-  is not replaced by a visible one.
+  overload row lands on the row with the same Member key in the Type's
+  Findings view in that mark's mode, and activating that row returns to the
+  Member; activating a Type row's mark lands on the Library-scope row with
+  the same Type identity in Library Findings in that mark's mode, and
+  activating that row drills to the Type with Findings retained; activating
+  a family row's mark expands the family and navigates nowhere, including
+  when several overloads are marked; a filtered-out marked Member is not
+  replaced by a visible one.
 - **Tooltip:** a marked row's accessible description names each notable
   descriptor with its tally and catalog line, and a Changes mark names its
   transition kinds.
@@ -618,12 +642,15 @@ chips, and the profile line, each as a separately staged slice below.
 - **Hosts:** CLI Facts with `--focus` and no argument equals the Browser's
   notable set for the same Member, and `-v:d` prints each admitted finding's
   guidance line and link.
-- **Guidance delivery:** for a fixture Member with one admitted finding, the
-  Findings row, the Annotated Source finding inspector, and the mark's
-  tooltip each render that finding's catalog line and link, and the Markout
-  JSON and TSV lowerings of CLI Facts at `-v:d` carry the same URL as a
-  field; a descriptor without an entry renders no guidance and no
-  placeholder at each of those boundaries.
+- **Guidance delivery:** for a fixture Member with one admitted body
+  finding, the Findings row, the Annotated Source finding inspector, and
+  the mark's tooltip each render that finding's catalog line and link, and
+  the Markout JSON and TSV lowerings of CLI Facts at `-v:d` carry the same
+  URL as a field; for a fixture Member whose only finding is a Member-header
+  finding, the Findings row and tooltip render the catalog line and link,
+  the row offers no Annotated Source action and says so, and the Current
+  mark is still present; a descriptor without an entry renders no guidance
+  and no placeholder at each of those boundaries.
 - **Profile:** Library Overview for a Debug, a runtime-async, and an unsafe
   fixture states each profile fact on one line.
 
