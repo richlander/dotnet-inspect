@@ -1458,6 +1458,30 @@ router entrance above.
 
 ### Workspace authoring and exhaustive inventory
 
+Apply a canonical packet for one invocation with either root entrance:
+
+```bash
+packet=$(dotnet-inspect workspace --register-ecosystem runtime)
+dotnet-inspect -w "$packet" --json
+dotnet-inspect "$packet" --count
+```
+
+A Workspace landing returns exhaustive live inventory across all packet
+contexts, using the same formats, semantic row selection and Count as
+`workspace --packet "$packet" --inventory`. Activation does not persist a
+current Workspace for later commands. Ordinary `--workspace` supplies context
+to the new query selected by that command instead.
+
+Saved inspection facets/queries currently fail explicitly before acquisition;
+exact saved-subject execution is tracked in #10408 and CLI binding in #4647.
+Activation accepts one canonical Base64URL packet, rather than a website URL,
+file, JSON text or implicit stdin. Source replacements, new subject/query
+controls and a second target are errors. Use `-w "$packet" --help` to see its
+presentation controls without restoration. A malformed value supplied with
+`-w` is always diagnosed as packet input. Commandless input uses bounded
+codec-owned recognition; inputs that cannot be identified as packets retain
+ordinary target routing.
+
 The default result is a canonical packet containing the complete durable
 Workspace definition. Use `--share url` for an activation URL or `--json` for
 readable canonical packet JSON. `--share packet` is an explicit equivalent of
