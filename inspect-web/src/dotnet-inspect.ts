@@ -155,6 +155,7 @@ import {
   createAppTypeSurface,
   createPackageAcquisition,
   createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   createRuntimePackageModel,
   mergeRuntimePackageSurface,
   packageLibrariesForModel,
@@ -2783,8 +2784,10 @@ async function installRetainedWorkspacePosting(
     let packageModel: AppPackage | null = null;
     let platformModel: AppPackage | null = null;
     try {
-      packageModel = admittedPackage
-        ? createNuGetPackageModel(admittedPackage.surface)
+      packageModel = admittedPackage && packageInventory
+        ? createNuGetPackageModelWithDefaultLibrary(
+          admittedPackage.surface,
+          packageInventory.defaultLibrary)
         : null;
       platformModel = admittedPlatform
         ? createRuntimePackageModel(admittedPlatform.surface)
@@ -2909,7 +2912,9 @@ async function activateRetainedPackageAction(
   let packageModel: AppPackage;
   try {
     const admitted = await admitRetainedPackage(posting, inventory);
-    packageModel = createNuGetPackageModel(admitted.surface);
+    packageModel = createNuGetPackageModelWithDefaultLibrary(
+      admitted.surface,
+      inventory.defaultLibrary);
   } catch (error) {
     const currentPresentation = retainedWorkspacePresentation;
     const currentPosting = activeRetainedWorkspacePosting;
@@ -17891,7 +17896,9 @@ async function projectManagedNavigationType(
   }
 
   const admitted = await admitRetainedPackage(updatedPosting, inventory);
-  const pkg = createNuGetPackageModel(admitted.surface);
+  const pkg = createNuGetPackageModelWithDefaultLibrary(
+    admitted.surface,
+    inventory.defaultLibrary);
   const matches = pkg.types.filter(type =>
     type.definitionId === selection.definitionId
     && type.assemblyName.toLowerCase()

@@ -8,7 +8,7 @@ import type {
   BrowserWorkspacePackageSourceRequirement,
 } from "./facades/inspect-web-catalog.d.ts";
 import {
-  createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   createRuntimePackageModel,
   type AppPackage,
 } from "./package-acquisition.ts";
@@ -1166,9 +1166,9 @@ function workspacePackageModel(
   surface: BrowserPackageSurface,
   inventory: BrowserRetainedWorkspacePackageInventory,
 ): AppPackage {
-  const packageModel = inventory.defaultLibrary === null
-    ? createNuGetPackageModel(surface)
-    : createNuGetPackageModel(surface, inventory.defaultLibrary);
+  const packageModel = createNuGetPackageModelWithDefaultLibrary(
+    surface,
+    inventory.defaultLibrary);
   return {
     ...packageModel,
     source: { kind: "unknown" },

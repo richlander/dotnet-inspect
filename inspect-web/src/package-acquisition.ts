@@ -796,6 +796,15 @@ export function createNuGetPackageModel(
   };
 }
 
+export function createNuGetPackageModelWithDefaultLibrary(
+  result: InspectedPackageSurface,
+  defaultLibrary: PackageDefaultLibraryIdentity | null,
+): AppPackage {
+  return defaultLibrary === null
+    ? createNuGetPackageModel(result)
+    : createNuGetPackageModel(result, defaultLibrary);
+}
+
 export function createWorkspaceOccurrencePackageModel(
   result: InspectedPackageSurface,
   activePackage: AppPackage | null | undefined,
