@@ -2107,6 +2107,7 @@ public sealed partial class PackageHouseExecutionTests
                 [
                     "ref/netstandard2.0/_._",
                     $"runtimes/unix/lib/netstandard1.0/{PackageId}.dll",
+                    "runtimes/unix/lib/netstandard1.0/Companion.dll",
                 ]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(
@@ -2117,7 +2118,8 @@ public sealed partial class PackageHouseExecutionTests
                 PackageHouseOperationProfile.Realize),
             PackageHouseTargetContext.Exact("netstandard2.0"),
             PackageHouseAssetSelectionKind.Runtime,
-            PackageHouseLibraryHandoffMode.SelectedLibraries);
+            PackageHouseLibraryHandoffMode.SelectedLibraries,
+            implementationNames: [$"{PackageId}.dll"]);
 
         PackageHouseSettlement settlement =
             await environment.CreateHouse(
@@ -2144,6 +2146,12 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             $"runtimes/unix/lib/netstandard1.0/{PackageId}.dll",
             Assert.Single(universe.Assets).EntryPath);
+        PackageRuntimeAssetPopulation population =
+            Assert.Single(
+                realization.Receipt.AvailableRuntimePopulations);
+        Assert.Equal("unix", population.RuntimeIdentifier);
+        Assert.Equal("netstandard1.0", population.TargetFramework);
+        Assert.Equal(2, population.Assets.Count);
         await environment.AssertRootSettledAsync();
     }
 
@@ -2186,6 +2194,16 @@ public sealed partial class PackageHouseExecutionTests
                 ambiguous.Evidence.Realization);
         Assert.IsType<PackageAssetSelection.Ambiguous>(
             realization.Selection);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            realization.Receipt.AvailableRuntimePopulations
+                .Select(population =>
+                    population.RuntimeIdentifier));
+        Assert.All(
+            realization.Receipt.AvailableRuntimePopulations,
+            population => Assert.Equal(
+                $"runtimes/{population.RuntimeIdentifier}/lib/net10.0/",
+                population.PopulationPath));
         Assert.Empty(realization.LibraryHandoffs);
         Assert.Contains(
             "explicit runtime identifier",
