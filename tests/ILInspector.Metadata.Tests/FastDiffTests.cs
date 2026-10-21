@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.ILDiff;
@@ -16,7 +17,11 @@ public sealed class FastDiffTests
     [InlineData("FastDiffFixture.AsyncOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.LocalFunctionOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.StringLiteralOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.CatchTypeOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
+    // A catch Type is not an IL operation, so canonical IL comparison shows
+    // no change for it (#9942) and the Body axis compares it Unchanged.
+    [InlineData("FastDiffFixture.CatchTypeOnly", FastDiffState.Unchanged, FastDiffState.Unchanged)]
+    [InlineData("FastDiffFixture.AbstractToVirtual", FastDiffState.Changed, FastDiffState.Changed)]
+    [InlineData("FastDiffFixture.IDefaultImplementationAdded", FastDiffState.Changed, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.PrivateMemberAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.PrivateFieldAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
     [InlineData("FastDiffFixture.PrivateCalleeChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
@@ -163,8 +168,7 @@ public sealed class FastDiffTests
             pair.OldAssemblyPath(),
             pair.NewAssemblyPath(),
             maxExamples: int.MaxValue,
-    normalization: IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
-        | IlBodyDiffNormalization.NormalizePlatformAssemblyScope).Diff;
+            normalization: IlBodyDiffPolicy.Body).Diff;
         FastDiffResult result = Compare(pair);
 
         Assert.NotEmpty(il.Examples);
@@ -177,6 +181,55 @@ public sealed class FastDiffTests
                 state is { Body: not FastDiffState.Unchanged },
                 $"{example.Method} (owner {owner}) changes in canonical IL but Fast Diff reports {state?.Body}.");
         });
+    }
+
+    /// <summary>
+    /// Body exactness: every method pair's Body verdict, under Fast Diff's own
+    /// pairing, equals canonical IL comparison's verdict for the same two
+    /// bodies under the Body policy. <c>Exact</c> is <c>Unchanged</c>, a body
+    /// on one side only or any other available verdict is <c>Changed</c>, and
+    /// a verdict canonical comparison cannot reach is never <c>Unchanged</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("fast-diff")]
+    [InlineData("diff")]
+    [InlineData("library-api-diff")]
+    public void Body_EqualsCanonicalIlComparisonPerMethod(string pairName)
+    {
+        FixturePair pair = PairOf(pairName);
+        using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
+        using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
+        List<FastDiff.BodyVerdict> verdicts = FastDiff.BodyVerdicts(before, after);
+
+        Assert.Contains(verdicts, verdict => verdict.Body == FastDiffState.Unchanged);
+        Assert.Contains(verdicts, verdict => verdict.Body == FastDiffState.Changed);
+        Assert.All(verdicts, verdict =>
+        {
+            FastDiffState canonical = CanonicalBodyVerdict(before, after, verdict);
+            if (canonical == FastDiffState.Indeterminate)
+                Assert.NotEqual(FastDiffState.Unchanged, verdict.Body);
+            else
+                Assert.True(canonical == verdict.Body, $"{verdict.Type} {verdict.Method}: canonical {canonical}, Fast Diff {verdict.Body}.");
+        });
+    }
+
+    /// <summary>
+    /// Canonical IL comparison's verdict for one of Fast Diff's method pairs
+    /// under the Body policy, in Fast Diff's states.
+    /// </summary>
+    internal static FastDiffState CanonicalBodyVerdict(PEReader before, PEReader after, FastDiff.BodyVerdict verdict)
+    {
+        MetadataReader a = before.GetMetadataReader();
+        MetadataReader b = after.GetMetadataReader();
+        int rvaA = a.GetMethodDefinition(verdict.Before).RelativeVirtualAddress;
+        int rvaB = b.GetMethodDefinition(verdict.After).RelativeVirtualAddress;
+        if (rvaA == 0 || rvaB == 0)
+            return rvaA == rvaB ? FastDiffState.Unchanged : FastDiffState.Changed;
+        IlBodyDiffResult result = IlBodyDiff.Compare(
+            a, before.GetMethodBody(rvaA), b, after.GetMethodBody(rvaB), IlBodyDiffPolicy.Body);
+        return result.IsExact
+            ? FastDiffState.Unchanged
+            : result.IsAvailable ? FastDiffState.Changed : FastDiffState.Indeterminate;
     }
 
     /// <summary>

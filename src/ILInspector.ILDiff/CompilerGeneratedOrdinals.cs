@@ -153,6 +153,7 @@ namespace ILInspector.ILDiff;
 /// exact on both paths. Gated by
 /// <c>PlatformScopeNormalization_FoldsAcrossReferenceVersions</c>,
 /// <c>NonPlatformReferenceVersion_StillDoesNotFold</c>,
+/// <c>NonPlatformReferenceVersion_FoldsUnderAssemblyScope</c>,
 /// <c>CurrentScopeNormalization_FoldsAcrossSelfReferenceVersions</c>,
 /// <c>ScopeTokenUsesTheOperandNamePrefix</c> and
 /// <c>SideIndex_IsCachedPerScopeNormalization</c>.

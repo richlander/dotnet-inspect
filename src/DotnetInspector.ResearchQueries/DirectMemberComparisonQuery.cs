@@ -4,6 +4,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Analysis;
+using ILInspector.ILDiff;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using ILInspector.Research;
@@ -41,10 +42,16 @@ public sealed record DirectMemberComparisonEndpoint(
 
 public sealed class DirectMemberComparisonRequest
 {
+    /// <param name="ilNormalization">
+    /// The normalization the IL producer compares under: Fast Diff's Body
+    /// policy (<see cref="IlBodyDiffPolicy.Body"/>) for Member Body Diff,
+    /// none otherwise.
+    /// </param>
     public DirectMemberComparisonRequest(
         DirectMemberComparisonEndpoint before,
         DirectMemberComparisonEndpoint after,
-        IEnumerable<ResearchProducerKind> producers)
+        IEnumerable<ResearchProducerKind> producers,
+        IlBodyDiffNormalization ilNormalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
@@ -54,6 +61,7 @@ public sealed class DirectMemberComparisonRequest
         Before = before;
         After = after;
         Producers = [.. producers];
+        IlNormalization = ilNormalization;
         if (Producers.IsEmpty
             || Producers.Any(kind => !Enum.IsDefined(kind))
             || Producers.Distinct().Count() != Producers.Length)
@@ -66,6 +74,9 @@ public sealed class DirectMemberComparisonRequest
     public DirectMemberComparisonEndpoint Before { get; }
     public DirectMemberComparisonEndpoint After { get; }
     public ImmutableArray<ResearchProducerKind> Producers { get; }
+
+    /// <summary>The normalization the IL producer compares under.</summary>
+    public IlBodyDiffNormalization IlNormalization { get; }
 }
 
 /// <summary>Compares exactly two designated physical methods without correspondence inference.</summary>
@@ -231,7 +242,11 @@ public static class DirectMemberComparisonQuery
 
             ResearchDesignatedPair pair = ((ResearchDesignatedPairOutcome.Admitted)designation).Pair;
             return new LocalComparisonPublication(_identity, projected).Run(
-                new ResearchProducerSessionRequest(projected.Admission, pair, request.Producers),
+                new ResearchProducerSessionRequest(
+                    projected.Admission,
+                    pair,
+                    request.Producers,
+                    request.IlNormalization),
                 cancellationToken);
         }
 

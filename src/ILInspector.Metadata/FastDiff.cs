@@ -72,8 +72,9 @@ public sealed record FastDiffResult(
 /// parameters and constraints, custom attributes, layout, member signatures
 /// and flags, parameter names and defaults, constants, and explicit interface
 /// implementations. The Body axis compares the implementation of every
-/// member, public or not: IL, exception regions, locals, stack size, and the
-/// metadata of non-public members and compiler-generated nested Types.
+/// member, public or not: IL with the equality of canonical IL comparison
+/// under the Body policy, and the declaration facts of non-public members
+/// and compiler-generated nested Types.
 /// </para>
 /// <para>
 /// Tokens compare by symbolic name, resolved once per side, never by token
@@ -83,10 +84,11 @@ public sealed record FastDiffResult(
 /// body that references them still compares their names.
 /// </para>
 /// <para>
-/// <c>Unchanged</c> is sound for the compared facts. <c>Changed</c> may
-/// over-report: a reordered member, a renumbered compiler-generated name, or
-/// an IL encoding that canonical comparison treats as equal. A row that cannot
-/// be decoded makes the unsettled axes of its Type <c>Indeterminate</c>.
+/// <c>Unchanged</c> is sound for the compared facts. <c>Changed</c> is
+/// decided by a fact a complete view presents, except a declaration fact of
+/// a non-public member until the declaration view lands. A row or body that
+/// cannot be decoded before a difference is decided makes the unsettled axes
+/// of its Type <c>Indeterminate</c>.
 /// </para>
 /// </remarks>
 public static class FastDiff
@@ -247,6 +249,13 @@ public static class FastDiff
         return true;
     }
 
+    /// <summary>
+    /// Whether two paired methods have equal bodies under the Body policy: the
+    /// equality of canonical IL comparison with every operand compared by
+    /// name, without assembly identity. A body present on one side only
+    /// differs. A body the walk cannot decode or resolve before it decides a
+    /// difference is malformed, which the caller reads as Indeterminate.
+    /// </summary>
     static bool BodyEqual(
         Side a,
         MethodDefinitionHandle handleA,
@@ -261,101 +270,331 @@ public static class FastDiff
         if (methodA.RelativeVirtualAddress == 0)
             return true;
 
-        MethodBodyBlock bodyA = a.Pe.GetMethodBody(methodA.RelativeVirtualAddress);
-        MethodBodyBlock bodyB = b.Pe.GetMethodBody(methodB.RelativeVirtualAddress);
-        if (bodyA.MaxStack != bodyB.MaxStack
-            || bodyA.LocalVariablesInitialized != bodyB.LocalVariablesInitialized
-            || bodyA.Size != bodyB.Size
-            || bodyA.LocalSignature.IsNil != bodyB.LocalSignature.IsNil
-            || (!bodyA.LocalSignature.IsNil
-                && a.Key(bodyA.LocalSignature) != b.Key(bodyB.LocalSignature)))
-        {
-            return false;
-        }
-
-        ImmutableArray<ExceptionRegion> regionsA = bodyA.ExceptionRegions;
-        ImmutableArray<ExceptionRegion> regionsB = bodyB.ExceptionRegions;
-        if (regionsA.Length != regionsB.Length)
-            return false;
-        for (int i = 0; i < regionsA.Length; i++)
-        {
-            ExceptionRegion x = regionsA[i];
-            ExceptionRegion y = regionsB[i];
-            if (x.Kind != y.Kind
-                || x.TryOffset != y.TryOffset
-                || x.TryLength != y.TryLength
-                || x.HandlerOffset != y.HandlerOffset
-                || x.HandlerLength != y.HandlerLength
-                || x.FilterOffset != y.FilterOffset
-                || x.CatchType.IsNil != y.CatchType.IsNil
-                || (!x.CatchType.IsNil && a.Key(x.CatchType) != b.Key(y.CatchType)))
-            {
-                return false;
-            }
-        }
-
-        BlobReader readerA = bodyA.GetILReader();
-        BlobReader readerB = bodyB.GetILReader();
+        BlobReader readerA = a.Pe.GetMethodBody(methodA.RelativeVirtualAddress).GetILReader();
+        BlobReader readerB = b.Pe.GetMethodBody(methodB.RelativeVirtualAddress).GetILReader();
         work.IlBytes += readerA.Length;
-        while (readerA.RemainingBytes > 0)
-        {
-            int opCode = readerA.ReadByte();
-            if (opCode != readerB.ReadByte())
-                return false;
-            if (opCode == 0xFE)
-            {
-                opCode = 0xFE00 | readerA.ReadByte();
-                if (opCode != (0xFE00 | readerB.ReadByte()))
-                    return false;
-            }
+        return work.Walk.Equal(a, readerA, b, readerB);
+    }
 
-            switch (OperandOf((ILOpCode)opCode))
+    /// <summary>
+    /// Gate support: the Body verdict of every method pair under Fast Diff's
+    /// own pairing of two paired Types' methods, including the methods of
+    /// their compiler-generated nested Types. A Type whose census cannot be
+    /// read contributes no pairs.
+    /// </summary>
+    internal static List<BodyVerdict> BodyVerdicts(PEReader before, PEReader after)
+    {
+        var a = new Side(before);
+        var b = new Side(after);
+        var work = new Work();
+        var verdicts = new List<BodyVerdict>();
+        OrderedDictionary<SymbolKey, Unit> unitsB = b.Units();
+        foreach ((SymbolKey key, Unit unitA) in a.Units())
+        {
+            if (!unitsB.TryGetValue(key, out Unit? unitB) || unitA.Malformed || unitB.Malformed)
+                continue;
+            Dictionary<SymbolKey, MethodDefinitionHandle> methodsA;
+            Dictionary<SymbolKey, MethodDefinitionHandle> methodsB;
+            try
             {
-                case Operand.None:
-                    break;
-                case Operand.Int8:
-                    if (readerA.ReadByte() != readerB.ReadByte())
-                        return false;
-                    break;
-                case Operand.Int16:
-                    if (readerA.ReadInt16() != readerB.ReadInt16())
-                        return false;
-                    break;
-                case Operand.Int32:
-                    if (readerA.ReadInt32() != readerB.ReadInt32())
-                        return false;
-                    break;
-                case Operand.Int64:
-                    if (readerA.ReadInt64() != readerB.ReadInt64())
-                        return false;
-                    break;
-                case Operand.Token:
-                    if (a.ReferenceKey(MetadataTokens.EntityHandle(readerA.ReadInt32()))
-                        != b.ReferenceKey(MetadataTokens.EntityHandle(readerB.ReadInt32())))
+                bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
+                a.BodyCensus(unitA, ownerVisible, out methodsA);
+                b.BodyCensus(unitB, ownerVisible, out methodsB);
+            }
+            catch (Exception ex) when (IsMalformed(ex))
+            {
+                a.Keys.Reset();
+                b.Keys.Reset();
+                continue;
+            }
+            foreach ((SymbolKey method, MethodDefinitionHandle methodA) in methodsA)
+            {
+                if (!methodsB.TryGetValue(method, out MethodDefinitionHandle methodB))
+                    continue;
+                FastDiffState body;
+                try
+                {
+                    body = BodyEqual(a, methodA, b, methodB, work)
+                        ? FastDiffState.Unchanged
+                        : FastDiffState.Changed;
+                }
+                catch (Exception ex) when (IsMalformed(ex))
+                {
+                    a.Keys.Reset();
+                    b.Keys.Reset();
+                    body = FastDiffState.Indeterminate;
+                }
+                verdicts.Add(new BodyVerdict(unitA.FullName, method, methodA, methodB, body));
+            }
+        }
+        return verdicts;
+    }
+
+    /// <summary>One paired method's Body verdict, for the per-method gates.</summary>
+    internal sealed record BodyVerdict(
+        string Type,
+        SymbolKey Method,
+        MethodDefinitionHandle Before,
+        MethodDefinitionHandle After,
+        FastDiffState Body);
+
+    /// <summary>
+    /// One lockstep walk over two IL streams under the Body policy, with
+    /// scratch buffers reused across bodies so that a walk allocates nothing.
+    /// </summary>
+    /// <remarks>
+    /// The walk pairs the instructions of the two bodies by position and
+    /// stops at the first difference: an opcode outside the pair's family,
+    /// a differing immediate, slot, user string, or symbolic operand, or a
+    /// stream that ends first. Every <c>ldc.i4</c> form is one family
+    /// compared by value, and a short branch is the family of its long form.
+    /// Branch and switch targets are decided once the instruction map is
+    /// complete, by the index of the instruction each target starts; a
+    /// target at the end of the body or outside it compares as a raw offset.
+    /// A <c>calli</c> stand-alone signature compares by its bytes, as
+    /// canonical comparison compares it. Body size, the local signature,
+    /// stack size, <c>init locals</c>, and exception regions are not read.
+    /// An undefined opcode, a truncated operand, an operand whose token kind
+    /// its opcode does not take, a target inside the body that starts no
+    /// instruction or starts one that follows a prefix, and a body that ends
+    /// with a prefix are what canonical comparison cannot decode, so they
+    /// are malformed here too, unless a difference was decided first.
+    /// </remarks>
+    internal sealed class BodyWalk
+    {
+        // Instruction start offsets per side, whether each start may be a
+        // branch target, and the pending targets per side.
+        int[] _startsA = new int[256];
+        int[] _startsB = new int[256];
+        bool[] _admitted = new bool[256];
+        int[] _targetsA = new int[64];
+        int[] _targetsB = new int[64];
+
+        public bool Equal(Side a, BlobReader readerA, Side b, BlobReader readerB)
+        {
+            int count = 0;
+            int targets = 0;
+            bool prefixed = false;
+            while (readerA.RemainingBytes > 0 && readerB.RemainingBytes > 0)
+            {
+                if (count == _startsA.Length)
+                {
+                    Array.Resize(ref _startsA, count * 2);
+                    Array.Resize(ref _startsB, count * 2);
+                    Array.Resize(ref _admitted, count * 2);
+                }
+                _startsA[count] = readerA.Offset;
+                _startsB[count] = readerB.Offset;
+                _admitted[count] = !prefixed;
+                count++;
+
+                ILOpCode opCodeA = ReadOpCode(ref readerA);
+                ILOpCode opCodeB = ReadOpCode(ref readerB);
+                Operand operandA = OperandOf(opCodeA);
+                Operand operandB = OperandOf(opCodeB);
+                if (operandA == Operand.LoadInt32 || operandB == Operand.LoadInt32)
+                {
+                    if (operandA != operandB
+                        || LoadedInt32(opCodeA, ref readerA) != LoadedInt32(opCodeB, ref readerB))
                     {
                         return false;
                     }
-                    break;
-                case Operand.String:
-                    if (a.Md.GetUserString(MetadataTokens.UserStringHandle(readerA.ReadInt32() & 0xFFFFFF))
-                        != b.Md.GetUserString(MetadataTokens.UserStringHandle(readerB.ReadInt32() & 0xFFFFFF)))
-                    {
-                        return false;
-                    }
-                    break;
-                case Operand.Switch:
-                    int count = readerA.ReadInt32();
-                    if (count != readerB.ReadInt32())
-                        return false;
-                    for (int i = 0; i < count; i++)
-                    {
+                    prefixed = false;
+                    continue;
+                }
+                if (Family(opCodeA) != Family(opCodeB))
+                    return false;
+                prefixed = IsPrefix(opCodeA);
+
+                switch (operandA)
+                {
+                    case Operand.None:
+                        break;
+                    case Operand.Int8:
+                        if (readerA.ReadByte() != readerB.ReadByte())
+                            return false;
+                        break;
+                    case Operand.Int16:
+                        if (readerA.ReadInt16() != readerB.ReadInt16())
+                            return false;
+                        break;
+                    case Operand.Int32:
                         if (readerA.ReadInt32() != readerB.ReadInt32())
                             return false;
+                        break;
+                    case Operand.Int64:
+                        if (readerA.ReadInt64() != readerB.ReadInt64())
+                            return false;
+                        break;
+                    case Operand.Branch:
+                    {
+                        int displacementA = IsShortBranch(opCodeA) ? readerA.ReadSByte() : readerA.ReadInt32();
+                        int displacementB = IsShortBranch(opCodeB) ? readerB.ReadSByte() : readerB.ReadInt32();
+                        PushTarget(targets++, readerA.Offset + displacementA, readerB.Offset + displacementB);
+                        break;
                     }
-                    break;
+                    case Operand.Switch:
+                    {
+                        int arms = readerA.ReadInt32();
+                        if (arms != readerB.ReadInt32())
+                            return false;
+                        if (arms < 0 || arms > readerA.RemainingBytes / sizeof(int) || arms > readerB.RemainingBytes / sizeof(int))
+                            throw new BadImageFormatException("The switch table does not fit the body.");
+                        int baseA = readerA.Offset + sizeof(int) * arms;
+                        int baseB = readerB.Offset + sizeof(int) * arms;
+                        for (int i = 0; i < arms; i++)
+                            PushTarget(targets++, baseA + readerA.ReadInt32(), baseB + readerB.ReadInt32());
+                        break;
+                    }
+                    case Operand.String:
+                        if (a.Md.GetUserString(MetadataTokens.UserStringHandle(readerA.ReadInt32() & 0xFFFFFF))
+                            != b.Md.GetUserString(MetadataTokens.UserStringHandle(readerB.ReadInt32() & 0xFFFFFF)))
+                        {
+                            return false;
+                        }
+                        break;
+                    case Operand.Signature:
+                        if (!SignatureBytesEqual(
+                                a, MetadataTokens.EntityHandle(readerA.ReadInt32()),
+                                b, MetadataTokens.EntityHandle(readerB.ReadInt32())))
+                        {
+                            return false;
+                        }
+                        break;
+                    default:
+                    {
+                        EntityHandle handleA = MetadataTokens.EntityHandle(readerA.ReadInt32());
+                        EntityHandle handleB = MetadataTokens.EntityHandle(readerB.ReadInt32());
+                        RequireOperandKind(operandA, a, handleA);
+                        RequireOperandKind(operandA, b, handleB);
+                        if (a.ReferenceKey(handleA) != b.ReferenceKey(handleB))
+                            return false;
+                        break;
+                    }
+                }
             }
+            if (readerA.RemainingBytes != 0 || readerB.RemainingBytes != 0)
+                return false;
+            if (prefixed)
+                throw new BadImageFormatException("The IL ends with a prefix.");
+
+            for (int i = 0; i < targets; i++)
+            {
+                int indexA = TargetIndex(_startsA, count, readerA.Length, _targetsA[i]);
+                int indexB = TargetIndex(_startsB, count, readerB.Length, _targetsB[i]);
+                if (indexA < 0 || indexB < 0)
+                {
+                    if (_targetsA[i] != _targetsB[i])
+                        return false;
+                }
+                else if (indexA != indexB)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
-        return true;
+
+        void PushTarget(int index, int targetA, int targetB)
+        {
+            if (index == _targetsA.Length)
+            {
+                Array.Resize(ref _targetsA, index * 2);
+                Array.Resize(ref _targetsB, index * 2);
+            }
+            _targetsA[index] = targetA;
+            _targetsB[index] = targetB;
+        }
+
+        /// <summary>
+        /// The index of the instruction that starts at <paramref name="target"/>,
+        /// or -1 for the end of the body or an offset outside it, which compare
+        /// raw. A target inside the body that starts no instruction, or starts
+        /// one that follows a prefix, cannot be decoded.
+        /// </summary>
+        int TargetIndex(int[] starts, int count, int length, int target)
+        {
+            if (target < 0 || target >= length)
+                return -1;
+            int index = Array.BinarySearch(starts, 0, count, target);
+            if (index < 0 || !_admitted[index])
+                throw new BadImageFormatException($"Branch target IL_{target:X4} does not align with an instruction.");
+            return index;
+        }
+
+        static ILOpCode ReadOpCode(ref BlobReader reader)
+        {
+            int opCode = reader.ReadByte();
+            if (opCode == 0xFE)
+                opCode = 0xFE00 | reader.ReadByte();
+            return (ILOpCode)opCode;
+        }
+
+        /// <summary>The value every <c>ldc.i4</c> form loads.</summary>
+        static int LoadedInt32(ILOpCode opCode, ref BlobReader reader) => opCode switch
+        {
+            ILOpCode.Ldc_i4_s => reader.ReadSByte(),
+            ILOpCode.Ldc_i4 => reader.ReadInt32(),
+            _ => (int)opCode - (int)ILOpCode.Ldc_i4_0,
+        };
+
+        /// <summary>A short branch belongs to the family of its long form.</summary>
+        static ILOpCode Family(ILOpCode opCode) => opCode switch
+        {
+            >= ILOpCode.Br_s and <= ILOpCode.Blt_un_s
+                => (ILOpCode)((int)opCode - (int)ILOpCode.Br_s + (int)ILOpCode.Br),
+            ILOpCode.Leave_s => ILOpCode.Leave,
+            _ => opCode,
+        };
+
+        static bool IsShortBranch(ILOpCode opCode)
+            => opCode is (>= ILOpCode.Br_s and <= ILOpCode.Blt_un_s) or ILOpCode.Leave_s;
+
+        static bool IsPrefix(ILOpCode opCode)
+            => opCode is ILOpCode.Constrained or ILOpCode.Readonly or ILOpCode.Tail
+                or ILOpCode.Unaligned or ILOpCode.Volatile or NoPrefix;
+
+        /// <summary>Canonical comparison compares a stand-alone signature by its bytes.</summary>
+        static bool SignatureBytesEqual(Side a, EntityHandle handleA, Side b, EntityHandle handleB)
+        {
+            if (handleA.Kind != HandleKind.StandaloneSignature || handleB.Kind != HandleKind.StandaloneSignature)
+                throw new BadImageFormatException("A calli operand is not a stand-alone signature.");
+            BlobReader x = a.Md.GetBlobReader(a.Md.GetStandaloneSignature((StandaloneSignatureHandle)handleA).Signature);
+            BlobReader y = b.Md.GetBlobReader(b.Md.GetStandaloneSignature((StandaloneSignatureHandle)handleB).Signature);
+            if (x.Length != y.Length)
+                return false;
+            while (x.RemainingBytes > 0)
+            {
+                if (x.ReadByte() != y.ReadByte())
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Rejects a token whose kind the opcode does not take, as canonical
+        /// comparison's operand resolution does.
+        /// </summary>
+        static void RequireOperandKind(Operand operand, Side side, EntityHandle handle)
+        {
+            bool admitted = operand switch
+            {
+                Operand.Method => handle.Kind is HandleKind.MethodDefinition or HandleKind.MethodSpecification
+                    || (handle.Kind is HandleKind.MemberReference
+                        && side.Md.GetMemberReference((MemberReferenceHandle)handle).GetKind() == MemberReferenceKind.Method),
+                Operand.Field => handle.Kind is HandleKind.FieldDefinition
+                    || (handle.Kind is HandleKind.MemberReference
+                        && side.Md.GetMemberReference((MemberReferenceHandle)handle).GetKind() == MemberReferenceKind.Field),
+                Operand.Type => handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference
+                    or HandleKind.TypeSpecification,
+                _ => handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference
+                    or HandleKind.TypeSpecification or HandleKind.MethodDefinition
+                    or HandleKind.MethodSpecification or HandleKind.FieldDefinition
+                    or HandleKind.MemberReference,
+            };
+            if (!admitted)
+                throw new BadImageFormatException($"An operand names a {handle.Kind}, which its opcode does not take.");
+        }
     }
 
     enum Operand
@@ -365,9 +604,15 @@ public static class FastDiff
         Int16,
         Int32,
         Int64,
-        Token,
-        String,
+        LoadInt32,
+        Branch,
         Switch,
+        String,
+        Signature,
+        Method,
+        Field,
+        Type,
+        Token,
     }
 
     // The `no.` prefix (0xFE 0x19) takes a one-byte operand and has no ILOpCode member.
@@ -395,37 +640,32 @@ public static class FastDiff
         return value <= 0xFF ? KnownOneByte[value] : KnownTwoByte[value & 0xFF];
     }
 
+    /// <summary>The operand an opcode takes, or malformed for an opcode ECMA-335 does not define.</summary>
     static Operand OperandOf(ILOpCode opCode) => opCode switch
     {
         ILOpCode.Ldarg_s or ILOpCode.Ldarga_s or ILOpCode.Starg_s
             or ILOpCode.Ldloc_s or ILOpCode.Ldloca_s or ILOpCode.Stloc_s
-            or ILOpCode.Ldc_i4_s or ILOpCode.Unaligned or NoPrefix
-            or ILOpCode.Br_s or ILOpCode.Brfalse_s or ILOpCode.Brtrue_s
-            or ILOpCode.Beq_s or ILOpCode.Bge_s or ILOpCode.Bgt_s
-            or ILOpCode.Ble_s or ILOpCode.Blt_s or ILOpCode.Bne_un_s
-            or ILOpCode.Bge_un_s or ILOpCode.Bgt_un_s or ILOpCode.Ble_un_s
-            or ILOpCode.Blt_un_s or ILOpCode.Leave_s => Operand.Int8,
+            or ILOpCode.Unaligned or NoPrefix => Operand.Int8,
+        >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4 => Operand.LoadInt32,
         ILOpCode.Ldarg or ILOpCode.Ldarga or ILOpCode.Starg
             or ILOpCode.Ldloc or ILOpCode.Ldloca or ILOpCode.Stloc => Operand.Int16,
-        ILOpCode.Ldc_i4 or ILOpCode.Ldc_r4
-            or ILOpCode.Br or ILOpCode.Brfalse or ILOpCode.Brtrue
-            or ILOpCode.Beq or ILOpCode.Bge or ILOpCode.Bgt
-            or ILOpCode.Ble or ILOpCode.Blt or ILOpCode.Bne_un
-            or ILOpCode.Bge_un or ILOpCode.Bgt_un or ILOpCode.Ble_un
-            or ILOpCode.Blt_un or ILOpCode.Leave => Operand.Int32,
+        ILOpCode.Ldc_r4 => Operand.Int32,
         ILOpCode.Ldc_i8 or ILOpCode.Ldc_r8 => Operand.Int64,
-        ILOpCode.Ldstr => Operand.String,
+        (>= ILOpCode.Br_s and <= ILOpCode.Blt_un_s) or ILOpCode.Leave_s
+            or (>= ILOpCode.Br and <= ILOpCode.Blt_un) or ILOpCode.Leave => Operand.Branch,
         ILOpCode.Switch => Operand.Switch,
-        ILOpCode.Jmp or ILOpCode.Call or ILOpCode.Calli or ILOpCode.Callvirt
-            or ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Newobj
-            or ILOpCode.Castclass or ILOpCode.Isinst or ILOpCode.Unbox
-            or ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
-            or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
-            or ILOpCode.Stobj or ILOpCode.Box or ILOpCode.Newarr
-            or ILOpCode.Ldelema or ILOpCode.Ldelem or ILOpCode.Stelem
-            or ILOpCode.Unbox_any or ILOpCode.Refanyval or ILOpCode.Mkrefany
-            or ILOpCode.Ldtoken or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
-            or ILOpCode.Initobj or ILOpCode.Constrained or ILOpCode.Sizeof => Operand.Token,
+        ILOpCode.Ldstr => Operand.String,
+        ILOpCode.Calli => Operand.Signature,
+        ILOpCode.Jmp or ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj
+            or ILOpCode.Ldftn or ILOpCode.Ldvirtftn => Operand.Method,
+        ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld
+            or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld => Operand.Field,
+        ILOpCode.Cpobj or ILOpCode.Ldobj or ILOpCode.Castclass or ILOpCode.Isinst
+            or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Stobj or ILOpCode.Box
+            or ILOpCode.Newarr or ILOpCode.Ldelema or ILOpCode.Ldelem or ILOpCode.Stelem
+            or ILOpCode.Refanyval or ILOpCode.Mkrefany or ILOpCode.Initobj
+            or ILOpCode.Constrained or ILOpCode.Sizeof => Operand.Type,
+        ILOpCode.Ldtoken => Operand.Token,
         _ when IsKnown(opCode) => Operand.None,
         _ => throw new BadImageFormatException($"Unknown IL opcode 0x{(int)opCode:X}."),
     };
@@ -452,6 +692,9 @@ public static class FastDiff
     {
         public int Bodies;
         public long IlBytes;
+
+        /// <summary>The one walk this comparison reuses for every body.</summary>
+        public BodyWalk Walk { get; } = new();
     }
 
     /// <param name="Malformed">
