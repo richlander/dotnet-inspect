@@ -168,6 +168,44 @@ public sealed partial class ResourceExplanationCatalog
     }
 
     /// <summary>
+    /// The explanation key of the inspection document a capability module
+    /// registers as <paramref name="documentIdentity"/>, the destination an
+    /// Inspection Capability Composition routing declaration names.
+    /// </summary>
+    public static ExplanationResourceKey CapabilityDocumentKey(
+        string documentIdentity) =>
+        CapabilityKey(
+            new InspectionCapabilityResourceIdentity(
+                InspectionCapabilityResourceKind.Document,
+                documentIdentity));
+
+    /// <summary>
+    /// The explanation key of the collection that lists every registered
+    /// analysis.
+    /// </summary>
+    public static ExplanationResourceKey AnalysesCollectionKey { get; } =
+        ResourceExplanationVocabulary.Key(
+            ResourceExplanationVocabulary.NavigationCollectionType,
+            Pack("analysis-collection"));
+
+    /// <summary>
+    /// The root's destination relationship for each routable resource type.
+    /// An adopting owner adds the relationship for its destination type.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<
+        ExplanationResourceTypeIdentity,
+        string> RoutingDestinationRelationships =
+        new Dictionary<ExplanationResourceTypeIdentity, string>
+        {
+            [ResourceExplanationVocabulary.CatalogType] =
+                "routing-destination-catalog",
+            [ResourceExplanationVocabulary.InspectionDocumentType] =
+                "routing-destination-document",
+            [ResourceExplanationVocabulary.NavigationCollectionType] =
+                "routing-destination-collection",
+        };
+
+    /// <summary>
     /// Projects the explanation root over a host's composed catalog from the
     /// routing declarations the host admitted, and reports every resource
     /// the root does not reach. A duplicate identity within a role, a
@@ -221,8 +259,8 @@ public sealed partial class ResourceExplanationCatalog
                         + $"'{destination}' is not an installed resource.",
                         nameof(declarations));
                 }
-                if (resource.Snapshot.Key.ResourceType
-                    != ResourceExplanationVocabulary.CatalogType)
+                if (!RoutingDestinationRelationships.ContainsKey(
+                        resource.Snapshot.Key.ResourceType))
                 {
                     throw new ArgumentException(
                         $"Routing {RoleText(declaration.Role)} "
@@ -391,6 +429,31 @@ public sealed partial class ResourceExplanationCatalog
     {
         ExplanationResourceTypeIdentity type =
             ResourceExplanationVocabulary.RoutingEntryType;
+        var targets =
+            new Dictionary<string, IEnumerable<ExplanationResourceKey>>
+            {
+                ["accepts-subject-kind"] =
+                    declaration.AcceptedSubjectKinds.Select(subjectKind =>
+                        keys[(
+                            ResourceExplanationRoutingRole.SubjectKind,
+                            subjectKind)]),
+                ["accepted-by-operation"] =
+                    declaration.Role
+                        == ResourceExplanationRoutingRole.SubjectKind
+                        ? admitted
+                            .Where(operation =>
+                                operation.AcceptedSubjectKinds.Contains(
+                                    declaration.Identity))
+                            .Select(operation =>
+                                keys[(operation.Role, operation.Identity)])
+                        : [],
+            };
+        foreach (IGrouping<string, ExplanationResourceKey> destinations
+                 in declaration.Destinations.GroupBy(destination =>
+                     RoutingDestinationRelationships[destination.ResourceType]))
+        {
+            targets[destinations.Key] = destinations;
+        }
         return Snapshot(
             path,
             keys[(declaration.Role, declaration.Identity)],
@@ -426,28 +489,7 @@ public sealed partial class ResourceExplanationCatalog
                     "not-yet-explainable",
                     declaration.NotYetExplainable),
             ],
-            RelationshipObservations(
-                type,
-                new Dictionary<string, IEnumerable<ExplanationResourceKey>>
-                {
-                    ["routing-destination-catalog"] =
-                        declaration.Destinations,
-                    ["accepts-subject-kind"] =
-                        declaration.AcceptedSubjectKinds.Select(subjectKind =>
-                            keys[(
-                                ResourceExplanationRoutingRole.SubjectKind,
-                                subjectKind)]),
-                    ["accepted-by-operation"] =
-                        declaration.Role
-                            == ResourceExplanationRoutingRole.SubjectKind
-                            ? admitted
-                                .Where(operation =>
-                                    operation.AcceptedSubjectKinds.Contains(
-                                        declaration.Identity))
-                                .Select(operation =>
-                                    keys[(operation.Role, operation.Identity)])
-                            : [],
-                }));
+            RelationshipObservations(type, targets));
     }
 
     private static ExplanationResourceKey RoutingEntryKey(
