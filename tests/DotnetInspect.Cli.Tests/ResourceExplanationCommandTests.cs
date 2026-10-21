@@ -1055,9 +1055,67 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task BareExplain_ReadsTheRootAsItsRoutingTable()
+    public async Task BareExplain_DefaultsToTheRoutingTableAsTsv()
     {
+        // Explain is primarily for agents, so its starting point is the
+        // routing table alone: one TSV row per entry.
         var result = await RunAsync("explain");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        string[] lines = result.Output
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .TrimEnd('\n')
+            .Split('\n');
+        Assert.Equal(
+            "role\tpath\tname\tpurpose\taccepts\tdestinations\tquestions",
+            lines[0]);
+        Assert.Equal(9, lines.Length);
+        Assert.Contains(
+            lines,
+            static line => line.StartsWith(
+                "operation\toperations/diff-analysis\tDiff analyses\t",
+                StringComparison.Ordinal)
+                && line.Contains(
+                    "\tlibrary, type, member\tanalyses\t",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain("# Explain", result.Output);
+    }
+
+    [Theory]
+    [InlineData("operations", "--jsonl", 3)]
+    [InlineData("subject-kinds/library", "--tsv", 2)]
+    public async Task RootPathTableSelection_ListsTheEntriesThePathReaches(
+        string path,
+        string format,
+        int lines)
+    {
+        var result = await RunAsync("explain", path, format);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            lines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+    }
+
+    [Theory]
+    [InlineData("--depth", "0")]
+    [InlineData("--envelope")]
+    public async Task BareExplainTable_RejectsDocumentOptions(
+        params string[] arguments)
+    {
+        var result = await RunAsync(["explain", .. arguments]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("do not apply", result.Error);
+    }
+
+    [Fact]
+    public async Task BareExplainMarkdown_ReadsTheRootAsItsRoutingTable()
+    {
+        var result = await RunAsync("explain", "--markdown");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Empty(result.Error);
@@ -1085,7 +1143,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
 
     [Theory]
     [InlineData("root")]
-    [InlineData("--depth", "0")]
+    [InlineData("--depth", "0", "--markdown")]
     public async Task RootBelowItsEntries_ListsItsRoutingCollections(
         params string[] arguments)
     {

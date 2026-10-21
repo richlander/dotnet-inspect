@@ -868,6 +868,17 @@ public sealed record ResourceExplanationRelationshipRow(
 }
 
 /// <summary>
+/// The routing-table selection of the explanation root: the Routing section
+/// alone, for the table, TSV, and JSON Lines formats.
+/// </summary>
+[MarkoutSerializable]
+public sealed class ResourceExplanationRoutingTableView
+{
+    [MarkoutSection(Headless = true)]
+    public List<ResourceExplanationRoutingRow> Routing { get; init; } = [];
+}
+
+/// <summary>
 /// One routing entry of the explanation root, with the hints its owner
 /// declared and the paths a reader continues to.
 /// </summary>
@@ -1158,6 +1169,7 @@ internal readonly record struct ResourceExplanationRecordView(
 [MarkoutContext(typeof(ResourceExplanationRelationshipRow))]
 [MarkoutContext(typeof(ResourceExplanationTraversalRow))]
 [MarkoutContext(typeof(ResourceExplanationRoutingRow))]
+[MarkoutContext(typeof(ResourceExplanationRoutingTableView))]
 [MarkoutContext(typeof(MemberExplanationOperationRow))]
 public partial class ResourceExplanationViewContext :
     MarkoutSerializerContext;

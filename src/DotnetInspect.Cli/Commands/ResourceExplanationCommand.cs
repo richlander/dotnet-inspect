@@ -123,17 +123,31 @@ public static class ResourceExplanationCommand
 
             if (IsRootPath(root))
             {
-                return CreatePublishedRootCatalog() is { } rootCatalog
-                    ? ExplainFromCatalog(
+                if (CreatePublishedRootCatalog() is not { } rootCatalog)
+                    return 1;
+                if (format is OutputFormat.Table
+                    or OutputFormat.Tsv
+                    or OutputFormat.Jsonl)
+                {
+                    return WriteRoutingTable(
                         rootCatalog,
                         canonicalPath,
-                        depth,
+                        depthExplicitlySet,
                         maximumResults,
                         format,
                         envelopeOutput,
-                        outputPath,
-                        contract, selection, valueIds: valueIds)
-                    : 1;
+                        noHeaders,
+                        outputPath);
+                }
+                return ExplainFromCatalog(
+                    rootCatalog,
+                    canonicalPath,
+                    depth,
+                    maximumResults,
+                    format,
+                    envelopeOutput,
+                    outputPath,
+                    contract, selection, valueIds: valueIds);
             }
 
             ResourceExplanationCatalog? exactCatalog = root switch
@@ -610,6 +624,64 @@ public static class ResourceExplanationCommand
                         : new MarkdownFormatter(),
                     ResourceExplanationViewContext.Default);
             });
+        return 0;
+    }
+
+    /// <summary>
+    /// The routing-table selection of a root path: one row per routing entry
+    /// the path reaches. The root reaches every entry, a collection its own,
+    /// and an entry itself, so traversal depth does not apply.
+    /// </summary>
+    private static int WriteRoutingTable(
+        ResourceExplanationCatalog catalog,
+        ResourcePath path,
+        bool depthExplicitlySet,
+        int? maximumResults,
+        OutputFormat format,
+        bool envelopeOutput,
+        bool noHeaders,
+        string? outputPath)
+    {
+        if (depthExplicitlySet || maximumResults is not null || envelopeOutput)
+        {
+            CommandError.Write(
+                "The routing table selects every entry the path reaches; "
+                + "--depth, -n, and --envelope do not apply. Add --markdown "
+                + "or --json for the Document reading.");
+            return 1;
+        }
+        if (!catalog.TryResolveExact(
+                path,
+                out ResourcePathResolution.Resolved? resolved))
+        {
+            return WriteResolutionFailure(catalog.Resolve(path.Value));
+        }
+
+        int depth = path.Value.Count(static character => character == '/')
+            switch
+            {
+                0 when path.Value == RootSegmentName => BareRootDepth,
+                0 => 1,
+                _ => 0,
+            };
+        ResourceExplanationDocument document = catalog.Explain(
+                resolved,
+                ResourceExplanationRequest.ForHost(depth))
+            .Content;
+        OutputDestination.Write(
+            outputPath,
+            rowWindow: null,
+            output => MarkoutSerializer.Serialize(
+                new ResourceExplanationRoutingTableView
+                {
+                    Routing = ResourceExplanationRoutingRow.Create(document),
+                },
+                output,
+                new TableFormatter(!noHeaders),
+                ResourceExplanationViewContext.Default,
+                OutputFormatter.CreateTableWriterOptions(
+                    tsv: format == OutputFormat.Tsv,
+                    jsonl: format == OutputFormat.Jsonl)));
         return 0;
     }
 

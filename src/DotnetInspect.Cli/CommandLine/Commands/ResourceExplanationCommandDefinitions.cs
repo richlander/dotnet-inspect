@@ -92,7 +92,14 @@ public static class ResourceExplanationCommandDefinitions
                 parseResult.GetValue(depthOption),
                 parseResult.GetResult(depthOption) is { Implicit: false },
                 parseResult.GetValue(opts.Limit),
-                opts.ResolveFormat(parseResult),
+                // Bare explain is the agent's starting point, so its default
+                // reading is the routing table as TSV.
+                opts.ResolveFormat(
+                    parseResult,
+                    operand is null
+                        && projection is null
+                        ? OutputFormat.Tsv
+                        : OutputFormat.Markdown),
                 parseResult.GetValue(opts.Envelope),
                 parseResult.GetValue(opts.NoHeaders),
                 parseResult.GetValue(outputPathOption),

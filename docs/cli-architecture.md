@@ -153,19 +153,30 @@ The root's address is `root`. Its role collections are the top-level paths
 registered exact paths, so the facade selects Resource Explanation for them
 rather than search.
 
-Without an explicit `--depth`, bare `explain` expands to depth 2. One Document
-then carries the root, its collections, and every routing entry. The text
-reading presents the root as one Routing table, not the generic expanded and
-related listings. At depth 0 or 1, as in `explain root`, the Document reaches
-no entries, so the generic listings remain and name the three collections. Each row gives:
+`explain` is primarily for agents, so bare `explain` defaults to the root's
+routing table as TSV. The table has one header row and one row per routing
+entry. Each row gives:
 
 - the entry's role, path, and name;
 - its purpose and representative questions;
 - for an operation, its accepted subject kinds; and
 - its destinations, or its not-yet-explainable state.
 
-JSON readings carry the same resources, facts, and relationships. The root has
-no HAL reading yet, so `explain root .hal --json` fails visibly.
+`--table` and `--jsonl` select the same table, and so do the table formats on
+any root path. A collection lists its own entries, and an entry lists itself.
+Like any section selection, the table carries no document facts. The root's
+Coverage caveat, which says the collections cover registered declarations
+rather than every command, is in the Document reading. A table selection
+rejects `--depth`, `-n`, and `--envelope`.
+
+`--markdown`, `--plaintext`, and `--json` select the Document reading. Bare
+`explain` then expands to depth 2 unless `--depth` is given, so one Document
+carries the root, its collections, and every entry. The text Document presents
+the same Routing table in place of the generic expanded and related listings.
+At depth 0 or 1, as in `explain root`, the Document reaches no entry resources,
+so the generic listings remain and name the three collections. JSON carries
+the same resources, facts, and relationships. The root has no HAL reading yet,
+so `explain root .hal --json` fails visibly.
 
 Bare `explain` admits the options of the Resource Explanation operand row in
 [Explain facade dispatch](design/contextual-resource-explanation.md#explain-facade-dispatch).
@@ -179,7 +190,11 @@ rebuilt from help text or from a curated list of command names.
 
 `ResourceExplanationCommandTests` gates this admission:
 
-- `BareExplain_ReadsTheRootAsItsRoutingTable`;
+- `BareExplain_DefaultsToTheRoutingTableAsTsv`;
+- `RootPathTableSelection_ListsTheEntriesThePathReaches`;
+- `BareExplainTable_RejectsDocumentOptions`;
+- `BareExplainMarkdown_ReadsTheRootAsItsRoutingTable`;
+- `RootBelowItsEntries_ListsItsRoutingCollections`;
 - `BareExplainJson_EmbedsEveryRoutingEntry`;
 - `ExplainHelp_SucceedsWithoutAnOperand`;
 - `RoutingEntry_ExplainsItsHintsAndDestinations`;
