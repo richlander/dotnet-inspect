@@ -118,8 +118,9 @@ is equal on both sides is `Present` even when the census places it on
 different axes there, as an attribute of a Member whose accessibility changed
 is; the row's own flag fact changes with it, since a field's or method's
 accessibility is in its row flags and a property's or event's is in its
-accessors' flags, which rule 1 gives the property or event, and each side's
-axis is recorded on the fact. A kind with no row of its own, such
+accessors' flags, which rule 1 gives the property or event; a method the
+surface admits only as an explicit interface implementation carries that in
+its flags too in Roslyn output. Each side's axis is recorded on the fact. A kind with no row of its own, such
 as an attribute, moves only as `Added` or `Removed`: two attributes of one
 constructor that swap places leave the census equal and are `Present`, and a
 changed argument is one `Removed` and one `Added`. An attribute's spelling
@@ -211,7 +212,8 @@ the census rather than the surface.
 ## Document and serialization
 
 Both documents hold, in canonical order: a schema version; the row and its
-Type; each side's endpoint coordinates and outcome; the facts per side, in
+Type; each side's endpoint coordinates, outcome, and partition; for two
+versions, the row's presence, on both sides or on one; the facts per side, in
 canonical order; and, for two versions, the comparison. The constructor
 validates that every pair references facts on its sides and rejects invalid
 input. The documents serialize as JSON through a Metadata JSON context in the
@@ -221,7 +223,10 @@ strict reading, so an agent receives what the host received.
 Presentation lowers both to Markout: a table of facts for one version, and a
 table with before, after, and transition columns for two, with `Present`
 pairs included so the row's whole declaration is read in place and the
-differing facts marked. No host builds its own lowering.
+differing facts marked. The lowering states the row's presence and, where a
+side's partition differs from the one its standalone document would use,
+that side's partition, so a reader of `PublicTypeToInternal` sees why the
+hidden side holds no Type row. No host builds its own lowering.
 
 ## Hosts
 
