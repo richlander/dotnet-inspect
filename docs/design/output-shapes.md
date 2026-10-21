@@ -13,6 +13,16 @@ semantic
 [inspection Document](host-observable-content-kinds.md#document)
 may render through that shape, but the two terms are not equivalent.
 
+The approved [section representation
+contract](section-shapes.md#section-representations) distinguishes offered
+Hierarchy, Table, and structured Document representations. It owns consumer
+selection and requires `--json` to serialize the Document, typically typed
+table rows plus summary and interpretation context. A Table row stream does
+not carry that summary as an extra table. The narrowing ladder below is not a
+requirement to lower every format through a Markdown-oriented Document.
+Existing per-command paths remain unchanged until their owners adopt the
+representation contract.
+
 Default-renderer policy is owned by
 [Native type and source defaults](rendering-model.md#native-type-and-source-defaults).
 In particular, `type`/`member` source payloads do not require or accept
