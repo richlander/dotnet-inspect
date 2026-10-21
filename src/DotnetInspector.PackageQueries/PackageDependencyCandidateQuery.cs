@@ -81,52 +81,10 @@ public abstract record PackageDependencyCandidateResult(
 }
 
 /// <summary>
-/// The package-source operations needed to resolve one dependency declaration.
-/// </summary>
-public interface IPackageDependencyCandidateSource
-{
-    ValueTask<PackageAcquisitionCandidateResult> ResolvePinnedCandidateAsync(
-        PackageSourceCoordinate coordinate,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null);
-
-    Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
-        string packageId,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null);
-}
-
-/// <summary>
 /// Composes one normalized declaration with package-owned source evidence.
 /// </summary>
 public static class PackageDependencyCandidateQuery
 {
-    public static async ValueTask<PackageDependencyCandidateResult> ExecuteAsync(
-        PackageDependencyCandidateRequest request,
-        IPackageDependencyCandidateSource source,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        ArgumentNullException.ThrowIfNull(source);
-        using NuGetOperationContext? ownedOperation =
-            operationContext is null
-                ? new NuGetOperationContext(cancellationToken)
-                : null;
-        NuGetOperationContext operation =
-            operationContext ?? ownedOperation!;
-        CancellationToken effectiveCancellationToken =
-            ResolveInvocationToken(
-                operation,
-                cancellationToken);
-        return await ExecuteCoreAsync(
-            request,
-            new CompatibilityCandidateOperation(
-                source,
-                operation,
-                effectiveCancellationToken)).ConfigureAwait(false);
-    }
-
     public static ValueTask<PackageDependencyCandidateResult> ExecuteAsync(
         PackageDependencyCandidateRequest request,
         IPackageSourceAuthorization sourceAuthorization,
@@ -312,23 +270,6 @@ public static class PackageDependencyCandidateQuery
             : null;
     }
 
-    private static CancellationToken ResolveInvocationToken(
-        NuGetOperationContext? operationContext,
-        CancellationToken invocationToken)
-    {
-        if (operationContext is null)
-            return invocationToken;
-        if (invocationToken != default
-            && invocationToken != operationContext.CancellationToken)
-        {
-            throw new ArgumentException(
-                "The invocation token must match the operation context's caller token.",
-                nameof(invocationToken));
-        }
-
-        return operationContext.CancellationToken;
-    }
-
     private static PackageDependencyCandidateResult.Incomplete?
         IncompleteIfExpired(
             PackageDependencyEvidenceDeclaration declaration,
@@ -404,33 +345,6 @@ public static class PackageDependencyCandidateQuery
             DiscoverDependencyVersionsAsync(string packageId);
 
         void ThrowIfExpired();
-    }
-
-    private sealed class CompatibilityCandidateOperation(
-        IPackageDependencyCandidateSource source,
-        NuGetOperationContext operation,
-        CancellationToken cancellationToken) : ICandidateOperation
-    {
-        public CancellationToken CancellationToken { get; } =
-            cancellationToken;
-
-        public TimeSpan OperationTimeout => operation.OperationTimeout;
-
-        public ValueTask<PackageAcquisitionCandidateResult>
-            ResolvePinnedCandidateAsync(PackageSourceCoordinate coordinate) =>
-            source.ResolvePinnedCandidateAsync(
-                coordinate,
-                CancellationToken,
-                operation);
-
-        public Task<PackageVersionDiscoveryResult>
-            DiscoverDependencyVersionsAsync(string packageId) =>
-            source.DiscoverDependencyVersionsAsync(
-                packageId,
-                CancellationToken,
-                operation);
-
-        public void ThrowIfExpired() => operation.ThrowIfExpired();
     }
 
     private sealed class TransferredCandidateOperation(

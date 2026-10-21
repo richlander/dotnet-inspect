@@ -22,8 +22,6 @@ public sealed class PackageSourceOperationOwnershipTests
 
         Assert.False(settlement.IsCompleted);
         Assert.Throws<ObjectDisposedException>(() => Issue(fixture.Root));
-        Assert.Throws<ObjectDisposedException>(() =>
-            fixture.Root.ResolvePinnedCandidate(fixture.Authorization, Coordinate));
         PackageAcquisitionCandidate after = Candidate(operation, fixture.Authorization);
         await operation.AcquireCandidateManifestAsync(before);
         await operation.AcquireCandidateManifestAsync(after);

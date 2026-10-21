@@ -70,9 +70,11 @@ and Inspect Web package pruning both consume that operation while retaining
 their own input scope, source and inventory authorization, completion policy,
 and presentation.
 `DesktopPackageSourceComposition` still owns desktop configuration,
-credentials, transports, clients, stores, and disposal, but its
-composition-owned exact and selecting payload operations, asynchronous pinned
-candidate path, and candidate-manifest path now settle through PackageHouse.
+credentials, transports, clients, stores, and disposal. Its asynchronous
+pinned-candidate compatibility path and direct dependency-version convenience
+are retired. Callers issue one Package Source operation for pinned candidate
+and candidate-manifest work; composition-owned exact and selecting payload
+operations continue to settle through PackageHouse.
 The CLI's online `package Package@latest --versions` query and `@latest`
 package opening consume the shared `PackageVersionSettlementInspection`
 envelope, also used by Inspect Web exact/latest package opening. The shared inspection
@@ -274,14 +276,12 @@ the compatibility result, including not-found and reporting authorities,
 without publishing those details as a second House receipt or retaining live
 source authority.
 
-An overload supplied with a caller-owned `NuGetOperationContext` remains an
-explicit direct compatibility branch. The composition cannot transfer a
-borrowed context into PackageHouse's consumed operation lease. The synchronous
-`ResolvePinnedCandidate` compatibility method also remains direct. Its
-asynchronous replacement uses House when no borrowed context is supplied and
-preserves the direct branch for query operations that still share one external
-context. Those branches retire with their callers rather than disguising
-borrowed operation authority as House ownership.
+Composition-owned payload overloads supplied with a caller-owned
+`NuGetOperationContext` remain explicit direct compatibility branches because
+the composition cannot transfer a borrowed context into PackageHouse's
+consumed operation lease. Candidate resolution has no corresponding branch:
+callers supply explicit authorization and an issued operation, including when
+they subsequently acquire the candidate manifest.
 
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
@@ -1553,7 +1553,12 @@ dependency enrichment now retains explicit authorization and transfers one
 Package Source operation through its sequential candidate-resolution schedule
 while root Nuspec acquisition remains a PackageHouse semantic-content demand.
 Its adoption removed the final production owner of
-`DesktopPackageDependencyCandidateSource`, so that adapter is gone.
+`DesktopPackageDependencyCandidateSource`, so that adapter is gone. The
+subsequent compatibility cleanup removed the candidate-source interface and
+authorized test adapter, direct candidate methods on the settlement root, and
+direct pinned/dependency-version conveniences on desktop composition. Tests
+now exercise the same explicit authorization and issued-operation contract as
+production callers.
 
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
