@@ -1616,6 +1616,38 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
+        CreateLocalPackageWithEntries(
+            string packageId,
+            params (string EntryPath, string? SourcePath)[] entries)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        foreach ((string entryPath, string? sourcePath) in entries)
+        {
+            string path = Path.Combine(
+                packageRoot,
+                entryPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (sourcePath is null)
+            {
+                File.WriteAllBytes(path, []);
+            }
+            else
+            {
+                File.Copy(sourcePath, path);
+            }
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
         CreateLocalRuntimeOnlyPackage(
             bool includeSecondRuntimeIdentifier = false)
     {
@@ -1969,7 +2001,9 @@ public partial class CommandExecutionTests
         string PointerPackagePath,
         string RidPackagePath,
         string TempDir) CreateLocalToolPackageSet(
-            bool firstLibraryFixture = false)
+            bool firstLibraryFixture = false,
+            bool includeAnalyzer = false,
+            bool includeCompileLibrary = false)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tool-package-test-{Guid.NewGuid():N}");
 
@@ -2012,6 +2046,26 @@ public partial class CommandExecutionTests
             File.Copy(
                 TestAssemblyPath,
                 Path.Combine(payloadToolsDir, "Support.dll"));
+        }
+        if (includeAnalyzer)
+        {
+            var analyzerDir = Path.Combine(
+                payloadRoot,
+                "analyzers",
+                "dotnet",
+                "cs");
+            Directory.CreateDirectory(analyzerDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(analyzerDir, "Analyzer.dll"));
+        }
+        if (includeCompileLibrary)
+        {
+            var libDir = Path.Combine(payloadRoot, "lib", "net8.0");
+            Directory.CreateDirectory(libDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(libDir, "Other.dll"));
         }
 
         var ridRoot = Path.Combine(tempDir, "rid");

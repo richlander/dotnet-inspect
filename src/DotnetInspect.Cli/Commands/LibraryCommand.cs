@@ -1572,6 +1572,7 @@ public partial class LibraryCommand
                 // Extract from package
                 var extractResult = await ExtractFromPackageAsync(
                     assemblyPath,
+                    options.SelectedPackageLibraryPath,
                     source.PackageTarget!,
                     options.Tfm,
                     options.SourceOptions,
@@ -1635,7 +1636,8 @@ public partial class LibraryCommand
                                 assemblyPaths[0],
                                 extractPath,
                                 packageName,
-                                packageVersion));
+                                packageVersion,
+                                options.PackageRuntimeIdentifier));
                     if (coordinateSubject is null)
                         return 1;
 
@@ -1663,7 +1665,8 @@ public partial class LibraryCommand
                                     path,
                                     extractPath,
                                     packageName,
-                                    packageVersion))),
+                                    packageVersion,
+                                    options.PackageRuntimeIdentifier))),
                         trace);
                 List<LibraryInspectionSubjectSelection> subjectSelections =
                     inspectionPaths.Select(path =>
@@ -1673,7 +1676,8 @@ public partial class LibraryCommand
                                 path,
                                 extractPath,
                                 packageName,
-                                packageVersion),
+                                packageVersion,
+                                options.PackageRuntimeIdentifier),
                             integrations?.AssemblyForInspection(
                                 path)))
                     .ToList();
@@ -5023,7 +5027,8 @@ public partial class LibraryCommand
                             targetPath,
                             extractPath,
                             packageName,
-                            version),
+                            version,
+                            options.PackageRuntimeIdentifier),
                         integrations?.AssemblyForInspection(targetPath));
             if (subjectSelection
                 is LibraryInspectionSubjectSelection.Rejected rejected)
@@ -5114,7 +5119,8 @@ public partial class LibraryCommand
         string assemblyPath,
         string extractPath,
         string? packageName,
-        string? packageVersion)
+        string? packageVersion,
+        string? runtimeIdentifier)
     {
         if (string.IsNullOrWhiteSpace(packageName)
             || string.IsNullOrWhiteSpace(packageVersion))
@@ -5130,11 +5136,12 @@ public partial class LibraryCommand
             packageName,
             packageVersion,
             TfmResolver.ExtractTfmFromPath(relativePath),
-            rid: null);
+            runtimeIdentifier);
     }
 
     private static async Task<(List<string> assemblyPaths, string extractPath, string? tempDir, string? nupkgPath, string? packageName, string? packageVersion)?> ExtractFromPackageAsync(
         string? assemblyName,
+        string? selectedPackageLibraryPath,
         PackageReferenceTarget packageTarget,
         string? tfm,
         NuGetSourceOptions? sourceOptions,
@@ -5172,6 +5179,8 @@ public partial class LibraryCommand
 
         // Find DLLs in the extracted package
         string[] allDlls = GetPackageDllFiles(extractPath);
+        PackageToolSliceSelection? toolSelection = null;
+        IReadOnlyList<string>? selectedToolAssemblies = null;
         if (allDlls.Length == 0)
         {
             var payload = await TryResolveToolPayloadPackageAsync(
@@ -5198,19 +5207,76 @@ public partial class LibraryCommand
                 resolvedPackageName = resolution.PackageName;
                 resolvedPackageVersion = resolution.Version;
                 allDlls = GetPackageDllFiles(extractPath);
+                toolSelection =
+                    PackageToolSliceMeasurementProjection.SelectEntries(
+                        Directory.EnumerateFiles(
+                                extractPath,
+                                "*",
+                                SearchOption.AllDirectories)
+                            .Select(path =>
+                                Path.GetRelativePath(
+                                        extractPath,
+                                        path)
+                                    .Replace('\\', '/')),
+                        tfm);
+            }
+        }
+
+        if (toolSelection is not null)
+        {
+            if (toolSelection.Status
+                != PackageToolSliceSelectionStatus.Selected)
+            {
+                string error = toolSelection.Status switch
+                {
+                    PackageToolSliceSelectionStatus.NoToolSlices =>
+                        "The tool payload contains no managed Libraries.",
+                    PackageToolSliceSelectionStatus.NoApplicableSlice =>
+                        $"No tool Library slice matches target '{tfm}'.",
+                    PackageToolSliceSelectionStatus.InvalidSelection =>
+                        toolSelection.Detail!,
+                    _ => throw new InvalidOperationException(
+                        "Unknown tool Library selection status."),
+                };
+                CommandError.Write(error);
+                DeleteTempDir(tempDir);
+                return null;
+            }
+
+            selectedToolAssemblies =
+            [
+                .. toolSelection.SelectedEntries
+                    .Select(asset =>
+                        FindExtractedPackageEntry(
+                            allDlls,
+                            extractPath,
+                            asset))
+                    .OfType<string>(),
+            ];
+            if (selectedToolAssemblies.Count == 0)
+            {
+                CommandError.Write(
+                    "The selected tool payload contains no managed Libraries.");
+                DeleteTempDir(tempDir);
+                return null;
             }
         }
 
         if (!string.IsNullOrEmpty(assemblyName))
         {
-            PackageLibraryPopulationSelection population;
-            if (resolution.HouseSettlement?.Result.Evidence.Realization
-                is PackageHouseRealizationReceipt.LibraryPopulation
-                    realization)
+            string? retainedSelectionPath =
+                preResolvedPackage is not null
+                    ? selectedPackageLibraryPath
+                    : null;
+            PackageLibraryPopulationSelection? population = null;
+            if (retainedSelectionPath is null
+                && resolution.HouseSettlement?.Result.Evidence.Realization
+                    is PackageHouseRealizationReceipt.LibraryPopulation
+                        realization)
             {
                 population = realization.Selection;
             }
-            else
+            else if (retainedSelectionPath is null)
             {
                 var content = new FileSystemPackageContent(
                     extractPath,
@@ -5237,10 +5303,37 @@ public partial class LibraryCommand
                     tfm,
                     coordinate: coordinate);
             }
-
             string? matchedAssembly;
             string? matchedTfm;
-            if (population is
+            if (retainedSelectionPath is not null)
+            {
+                string requestedPath =
+                    retainedSelectionPath.Replace('\\', '/');
+                matchedAssembly = FindExtractedPackageEntry(
+                    allDlls,
+                    extractPath,
+                    requestedPath);
+                matchedTfm = matchedAssembly is null
+                    ? null
+                    : TfmResolver.ExtractTfmFromPath(requestedPath);
+            }
+            else if (toolSelection is not null)
+            {
+                TfmSelector.PackageLibraryResolution toolResolution =
+                    TfmSelector.SelectPackageLibrary(
+                        selectedToolAssemblies!,
+                        extractPath,
+                        resolvedPackageName
+                            ?? packageTarget.PackageName,
+                        assemblyName,
+                        toolSelection.SelectedTargetFramework);
+                matchedAssembly = toolResolution.IsSelected
+                    ? toolResolution.Paths[0]
+                    : null;
+                matchedTfm =
+                    toolSelection.SelectedTargetFramework;
+            }
+            else if (population is
                 PackageLibraryPopulationSelection.Compile compilePopulation)
             {
                 PackageCompileAssetSelection selection =

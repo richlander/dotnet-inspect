@@ -925,6 +925,209 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        LibraryCommand_RuntimeOnlyPackageSelectsHighestAndExplicitTarget()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.RuntimeLibraries",
+            ("runtimes/win-x64/lib/net8.0/Older.dll", TestAssemblyPath),
+            ("runtimes/win-x64/lib/net10.0/Latest.One.dll", TestAssemblyPath),
+            ("runtimes/win-x64/lib/net10.0/Latest.Two.dll", TestAssemblyPath));
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var explicitTarget = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net8.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/win-x64/lib/net10.0/Latest.One.dll)",
+                aggregate.Output);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/win-x64/lib/net10.0/Latest.Two.dll)",
+                aggregate.Output);
+            Assert.DoesNotContain("Older.dll", aggregate.Output);
+
+            Assert.Equal(0, explicitTarget.Exit);
+            Assert.Empty(explicitTarget.Error);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/win-x64/lib/net8.0/Older.dll)",
+                explicitTarget.Output);
+            Assert.DoesNotContain("Latest.One.dll", explicitTarget.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_MarkerOnlyCompileGroupUsesRuntimePopulation()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.RuntimeMarker",
+            ("ref/netstandard/_._", null),
+            (
+                "runtimes/unix/lib/netstandard1.0/Runtime.Library.dll",
+                TestAssemblyPath));
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Runtime.Library.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/unix/lib/netstandard1.0/"
+                    + "Runtime.Library.dll)",
+                aggregate.Output);
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Runtime.Library.dll", exact.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.NonLibraryDlls",
+            ("analyzers/dotnet/cs/Analyzer.dll", TestAssemblyPath),
+            ("runtimes/win-x64/native/Native.dll", null));
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Analyzer.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(1, aggregate.Exit);
+            Assert.Empty(aggregate.Output);
+            Assert.Contains(
+                "no runtime Library assembly folder",
+                aggregate.Error);
+            Assert.DoesNotContain("Analyzer.dll", aggregate.Error);
+            Assert.DoesNotContain("Native.dll", aggregate.Error);
+
+            Assert.Equal(aggregate.Exit, exact.Exit);
+            Assert.Equal(aggregate.Output, exact.Output);
+            Assert.Equal(aggregate.Error, exact.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_ToolPayloadExactPathStaysInToolPopulation()
+    {
+        var (packagePath, _, tempDir) =
+            CreateLocalToolPackageSet(
+                includeAnalyzer: true,
+                includeCompileLibrary: true);
+        try
+        {
+            var tool = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "tools/net10.0/any/Test.Tool.dll",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var analyzer = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "analyzers/dotnet/cs/Analyzer.dll",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var unavailableToolSlice = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "lib/net8.0/Other.dll",
+                "--tfm",
+                "net8.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, tool.Exit);
+            Assert.Empty(tool.Error);
+            Assert.Contains("# Test.Tool.dll", tool.Output);
+
+            Assert.Equal(1, analyzer.Exit);
+            Assert.Empty(analyzer.Output);
+            Assert.Contains(
+                "Library 'analyzers/dotnet/cs/Analyzer.dll' not found",
+                analyzer.Error);
+
+            Assert.Equal(1, unavailableToolSlice.Exit);
+            Assert.Empty(unavailableToolSlice.Output);
+            Assert.Contains(
+                "No tool Library slice matches target 'net8.0'",
+                unavailableToolSlice.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         LibraryCommand_RootLibUsesFrameworkAgnosticCompilePopulation()
     {
         var (packagePath, tempDir) = CreateLocalRootLibPackage();
