@@ -459,7 +459,11 @@ visible failure contract.
 
 ### Explain facade dispatch
 
-The top-level `explain` facade accepts three distinct typed operand families:
+The top-level `explain` facade accepts no operand, or one of three distinct
+typed operand families. With no operand, it reads the host's published
+explanation root through Resource Explanation; the CLI's admission is under
+[Explain root admission](../cli-architecture.md#explain-root-admission). The
+operand families are:
 
 - a `ResourcePath`, dispatched to Resource Explanation; or
 - an owner-issued reusable inspection reference, dispatched to the

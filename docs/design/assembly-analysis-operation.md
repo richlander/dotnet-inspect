@@ -468,7 +468,11 @@ base chain, with those rows and any TypeSpec bytes reported in the same support
 receipt. Exact optimization suppression also uses that support; method and
 enclosing-type attribute rows, enclosing TypeDef rows, and bounded
 declaring-type relationships remain visible when suppression returns before
-intrinsic opportunity collection. Caller attribution and generated-owner
+intrinsic opportunity collection. Exact declared-source attribution resolves
+state-machine ownership from the selected execution type and targeted source
+candidates rather than building the whole-module certificate; generated-type
+provenance reports its TypeDef, attribute, and enclosing-relationship reads
+in the same support receipt. Caller attribution and generated-owner
 suppression consume the authenticated owner result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
 `LibraryBodyAnalysisService`. The unsafe member census

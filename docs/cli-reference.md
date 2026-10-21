@@ -2840,6 +2840,21 @@ when maintaining the embedded skill.
 
 MIT
 
+## Explanation root
+
+Bare `explain` lists where to start, as TSV by default. It prints one row per
+subject kind, operation, and reference, with its purpose, questions, accepted
+subject kinds, and destinations. Continue with any entry's destination path.
+`--markdown` or `--json` gives the root's Document reading instead, including
+its coverage caveat.
+
+```bash
+dotnet-inspect explain
+dotnet-inspect explain operations --jsonl
+dotnet-inspect explain --markdown
+dotnet-inspect explain operations/package-query
+```
+
 ## Exact explanation JSON
 
 `explain <resource> --json` returns compact resource facts and HAL navigation.

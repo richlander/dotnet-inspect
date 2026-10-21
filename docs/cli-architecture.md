@@ -131,6 +131,80 @@ supplies the supporting Queries-owned adapter to existing exact-Type readers. Du
 Workspace inspection selectors retire under #10186; explicit Workspace
 inventory remains.
 
+### Explain root admission
+
+Bare `dotnet-inspect explain` reads the
+[explanation root](design/resource-explanation.md#routing-declarations). It
+does not print help and does not report a missing operand. The CLI composes
+the root over its complete catalog, from the routing declarations of every
+owner it admits:
+
+- Schema Query;
+- Inspection Capability Composition; and
+- Product Vocabulary.
+
+It publishes the root only while the reachability invariant holds. If the
+invariant fails, bare `explain` and every root path fail visibly, naming the
+first unreachable resource. Those requests do not fall through to search.
+
+The root's address is `root`. Its role collections are the top-level paths
+`subject-kinds`, `operations`, and `references`. Each routing entry is
+`<collection>/<identity>`, as in `operations/package-query`. All of these are
+registered exact paths, so the facade selects Resource Explanation for them
+rather than search.
+
+`explain` is primarily for agents, so bare `explain` defaults to the root's
+routing table as TSV. The table has one header row and one row per routing
+entry. Each row gives:
+
+- the entry's role, path, and name;
+- its purpose and representative questions;
+- for an operation, its accepted subject kinds; and
+- its destinations, or its not-yet-explainable state.
+
+`--table` and `--jsonl` select the same table, and so do the table formats on
+any root path. A collection lists its own entries, and an entry lists itself.
+Like any section selection, the table carries no document facts. The root's
+Coverage caveat, which says the collections cover registered declarations
+rather than every command, is in the Document reading. A table selection
+rejects `--depth`, `-n`, and `--envelope`.
+
+`--markdown`, `--plaintext`, and `--json` select the Document reading. Bare
+`explain` then expands to depth 2 unless `--depth` is given, so one Document
+carries the root, its collections, and every entry. The text Document presents
+the same Routing table in place of the generic expanded and related listings.
+At depth 0 or 1, as in `explain root`, the Document reaches no entry resources,
+so the generic listings remain and name the three collections. JSON carries
+the same resources, facts, and relationships. The root has no HAL reading yet,
+so `explain root .hal --json` fails visibly.
+
+Bare `explain` admits the options of the Resource Explanation operand row in
+[Explain facade dispatch](design/contextual-resource-explanation.md#explain-facade-dispatch).
+A lone `.contract`, `.data`, or `.hal` token is a projection of the root, not
+search text. The search row limit `-n` and vocabulary value selection `-Q`
+fail before any explanation runs.
+
+`explain --help` succeeds without an operand. The required-operand bootstrap
+path is retired. The root is projected from owner declarations; it is not
+rebuilt from help text or from a curated list of command names.
+
+`ResourceExplanationCommandTests` gates this admission:
+
+- `BareExplain_DefaultsToTheRoutingTableAsTsv`;
+- `RootPathTableSelection_ListsTheEntriesThePathReaches`;
+- `BareExplainTable_RejectsDocumentOptions`;
+- `BareExplainMarkdown_ReadsTheRootAsItsRoutingTable`;
+- `RootBelowItsEntries_ListsItsRoutingCollections`;
+- `BareExplainJson_EmbedsEveryRoutingEntry`;
+- `ExplainHelp_SucceedsWithoutAnOperand`;
+- `RoutingEntry_ExplainsItsHintsAndDestinations`;
+- `BareExplain_ProjectsALoneContractToken`;
+- `BareExplain_RejectsSearchAndValueOptions`; and
+- `ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`, which checks the
+  reachability invariant.
+
+Exact paths and search keep their existing neighbor tests.
+
 ### Vocabulary reading admission
 
 The CLI admits `-Q` / `--query-help` on an exact vocabulary root only with a
