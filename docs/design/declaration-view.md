@@ -105,7 +105,9 @@ value:
 
 The key pairs a fact across versions exactly, so two facts are `Present`
 here exactly when the census calls them equal; the view adds no equality and
-no normalization. A row's facts have one slot per kind: the Row field
+no normalization. The census is read through the declaration cursor of
+[Finding census](finding-census.md), sorted by key bytes, so the facts the
+view matches are the facts Fast Diff's Exists compared. A row's facts have one slot per kind: the Row field
 above gives a row at most one fact of each kind on a side, so a kind and a
 row together name one slot, and that name is the fact's soft identity. The
 row here is the fact's own Row value, not the document's row: a Member's
