@@ -75,8 +75,9 @@ constructor, and generated code without one owner, as
 [Fast Diff's Type level](fast-diff.md#type) partitions them. The residual has
 its own rung-3 entry and rung-4 view: the Type-scope Public API diff for its
 API facts, the Body diff of each residual method, such as a static constructor
-or generated code without one owner, and the Type's declaration view for its
-Body declaration and implementation facts. Each rung covers the one above it:
+or generated code without one owner, and the Type's
+[declaration view](declaration-view.md) for its declaration and
+implementation facts on either axis. Each rung covers the one above it:
 
 - a row's rung-4 diff decides its rung-2 state;
 - for a Type present on both sides, rung 1 is `Unchanged` exactly when every
@@ -123,8 +124,9 @@ Every rung answers per **axis**:
   subject's **implementation facts**, which the API axis does not present,
   such as inlining and `InternalCall` flags, `beforefieldinit`, and
   compiler-emitted attributes such as `Intrinsic`. An added private field is a
-  Body change. These facts are shown by a **declaration view**, part of each
-  row's rung-4 diff. The two axes are disjoint: a fact belongs to exactly one.
+  Body change. These facts are shown by a
+  [**declaration view**](declaration-view.md), part of each row's rung-4
+  diff. The two axes are disjoint: a fact belongs to exactly one.
 
 Types beneath a top-level compiler-generated Type, such as
 `<PrivateImplementationDetails>`, are not reported, as Fast Diff states;
