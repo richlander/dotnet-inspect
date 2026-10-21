@@ -424,7 +424,8 @@ test class gates its cursor:
    with the projected key still omitting it, and the operation limit moves
    from `Inspect` to `Compare`; gated by completeness, canonical order,
    identity, fault order, and bound. It depends on the Body policy's
-   normalization ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
+   normalization
+   ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`,
    run beside Fast Diff's walk for every method of the fixture pairs under
    the Exists agreement gate, and measured against the walk on the perf
