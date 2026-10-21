@@ -124,7 +124,8 @@ Every rung answers per **axis**:
   such as inlining and `InternalCall` flags, `beforefieldinit`, and
   compiler-emitted attributes such as `Intrinsic`. An added private field is a
   Body change. These facts are shown by a
-  [**declaration view**](declaration-view.md), part of each row's rung-4 diff. The two axes are disjoint: a fact belongs to exactly one.
+  [**declaration view**](declaration-view.md), part of each row's rung-4
+  diff. The two axes are disjoint: a fact belongs to exactly one.
 
 Types beneath a top-level compiler-generated Type, such as
 `<PrivateImplementationDetails>`, are not reported, as Fast Diff states;

@@ -124,10 +124,12 @@ outcomes for a fact:
 A row with a dozen differing slots is a dozen `Changed` pairs, and a row
 whose only difference is one more attribute is one `Added` fact beside
 `Present` ones, since attributes pair by exact key with no slot. A row
-whose only difference is one more parameter is not an `Added` parameter:
-the parameter is in the method's signature key, so Fast Diff lists two rows,
-as [below](#two-versions) states. A body's instructions are not census
-facts; the IL level is their view.
+whose only difference is one more parameter in its signature is not an
+`Added` parameter: the signature is in the method's key, so Fast Diff lists
+two rows, as [below](#two-versions) states. A return-value parameter row,
+sequence number zero, is outside the signature, so one appearing is one
+`Added` parameter fact on the same row. A body's instructions are not
+census facts; the IL level is their view.
 
 The kind is part of the soft identity so that facts of one row never pair
 across kinds: the visibility marker, the Type row, and the nullable context
