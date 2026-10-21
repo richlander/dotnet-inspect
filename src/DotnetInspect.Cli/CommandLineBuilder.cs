@@ -255,6 +255,18 @@ public static class CommandLineBuilder
         string[] args,
         RootCommand rootCommand)
     {
+        // Bind the root activation option before ordinary bare-target routing.
+        // An explicit child command still owns all of its own option values.
+        if (args.TakeWhile(static token => token != "--").Any(static token =>
+                token is "-w" || token.StartsWith("-w=", StringComparison.Ordinal)
+                    || token.StartsWith("-w:", StringComparison.Ordinal)))
+        {
+            ParseResult rootProbe = rootCommand.Parse(args);
+            Option packetOption = rootCommand.Options.Single(option => option.Name == "-w");
+            if (rootProbe.GetResult(packetOption) is { Implicit: false })
+                return [WorkspaceActivationCommandDefinitions.CommandName, .. args];
+        }
+
         string[] processed = ArgumentPreprocessor.PreprocessArgs(
             args,
             UsesImplicitVersionDirectionPresence(args, rootCommand));
@@ -1306,6 +1318,9 @@ public static class CommandLineBuilder
         rootCommand.Options.Add(offlineOption);
         var httpTimeoutOption = new Option<int?>("--http-timeout") { Description = "Seconds to wait for a network request before giving up (1-3600, default 30)" };
         rootCommand.Options.Add(httpTimeoutOption);
+        rootCommand.Options.Add(WorkspaceActivationCommandDefinitions.CreatePacketOption());
+        rootCommand.Subcommands.Add(
+            WorkspaceActivationCommandDefinitions.Create(opts));
 
         // Type command (type discovery, compact table)
         Command typeCommand =

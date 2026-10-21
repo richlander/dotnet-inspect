@@ -14,6 +14,7 @@ using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using NuGet.Versioning;
+using DotnetInspector.Queries.Definitions;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -81,6 +82,21 @@ public static class RouterCommandDefinition
             {
                 HelpWriter.WriteHelp(rootCommand);
                 return 0;
+            }
+
+            WorkspaceSharePacketRecognition recognition =
+                WorkspaceSharePacketCodec.Recognize(tokens[0], ct);
+            if (recognition is WorkspaceSharePacketRecognition.Invalid invalidPacket)
+            {
+                CommandError.Write($"Invalid Workspace packet ({invalidPacket.Kind}): {invalidPacket.Message}");
+                return 1;
+            }
+            if (recognition is WorkspaceSharePacketRecognition.Recognized)
+            {
+                string[] activation =
+                    [WorkspaceActivationCommandDefinitions.CommandName, .. tokens];
+                return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                    rootCommand.Parse(activation), activation);
             }
 
             if (PackageReferenceAdmission.IsCandidate(tokens[0]))
