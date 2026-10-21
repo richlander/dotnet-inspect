@@ -11,7 +11,7 @@ namespace ILInspector.Metadata.Tests;
 /// rather than exhaust the stack. The checks run in a child process so a
 /// regression fails the test instead of terminating the test host.
 /// </summary>
-public sealed class FastDiffMetadataSafetyTests
+public sealed class FindingDiffAnyMetadataSafetyTests
 {
     const string WorkerVariable = "DOTNET_INSPECT_FAST_DIFF_METADATA_SAFETY_WORKER";
     const int DeepGraphLength = 100_000;
@@ -38,48 +38,48 @@ public sealed class FastDiffMetadataSafetyTests
 
     static void AssertIndeterminate(byte[] image, string fullName)
     {
-        FastDiffTypeState state = Assert.Single(Compare(image).Types, type => type.FullName == fullName);
-        Assert.Equal(FastDiffState.Indeterminate, state.Api);
-        Assert.Equal(FastDiffState.Indeterminate, state.Body);
+        FindingDiffAnyTypeState state = Assert.Single(Compare(image).Types, type => type.FullName == fullName);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Api);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
     }
 
     static void AssertAllIndeterminateOrAbsent(byte[] image)
     {
         Assert.All(Compare(image).Types, type =>
         {
-            Assert.Equal(FastDiffState.Indeterminate, type.Api);
-            Assert.Equal(FastDiffState.Indeterminate, type.Body);
+            Assert.Equal(FindingDiffAnyState.Indeterminate, type.Api);
+            Assert.Equal(FindingDiffAnyState.Indeterminate, type.Body);
         });
     }
 
     static void AssertUnreadableNameContained(byte[] image)
     {
-        FastDiffResult result = Compare(image);
-        FastDiffTypeState good = Assert.Single(result.Types, type => type.FullName == "N.Good");
-        Assert.Equal((FastDiffState.Unchanged, FastDiffState.Unchanged), (good.Api, good.Body));
+        FindingDiffAnyResult result = Compare(image);
+        FindingDiffAnyTypeState good = Assert.Single(result.Types, type => type.FullName == "N.Good");
+        Assert.Equal((FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged), (good.Api, good.Body));
         Assert.Contains(
             result.Types,
-            type => type.Api == FastDiffState.Indeterminate && type.Body == FastDiffState.Indeterminate);
+            type => type.Api == FindingDiffAnyState.Indeterminate && type.Body == FindingDiffAnyState.Indeterminate);
     }
 
     static void AssertDeepNestingContained(byte[] image)
     {
-        FastDiffResult result = Compare(image);
-        Assert.Contains(result.Types, type => type.Api == FastDiffState.Indeterminate);
+        FindingDiffAnyResult result = Compare(image);
+        Assert.Contains(result.Types, type => type.Api == FindingDiffAnyState.Indeterminate);
         Assert.DoesNotContain(
             result.Types,
-            type => type.Api == FastDiffState.Changed || type.Body == FastDiffState.Changed);
+            type => type.Api == FindingDiffAnyState.Changed || type.Body == FindingDiffAnyState.Changed);
     }
 
-    static FastDiffResult Compare(byte[] image)
+    static FindingDiffAnyResult Compare(byte[] image)
     {
         using var before = new PEReader(new MemoryStream(image, writable: false));
         using var after = new PEReader(new MemoryStream(image, writable: false));
-        FastDiffResult whole = FastDiff.Compare(before, after);
+        FindingDiffAnyResult whole = FindingDiffAny.Compare(before, after);
 
         // Resuming at every row and Type boundary, with fresh readers over the
         // same image each step, reaches the same result.
-        var stepped = new FastDiffComparison();
+        var stepped = new FindingDiffAnyComparison();
         bool complete = false;
         while (!complete)
         {
@@ -99,7 +99,7 @@ public sealed class FastDiffMetadataSafetyTests
             RedirectStandardOutput = true,
             UseShellExecute = false,
         };
-        startInfo.ArgumentList.Add(typeof(FastDiffMetadataSafetyTests).Assembly.Location);
+        startInfo.ArgumentList.Add(typeof(FindingDiffAnyMetadataSafetyTests).Assembly.Location);
         startInfo.ArgumentList.Add("--filter-method");
         startInfo.ArgumentList.Add($"*{workerMethod}*");
         startInfo.Environment[WorkerVariable] = workerMethod;

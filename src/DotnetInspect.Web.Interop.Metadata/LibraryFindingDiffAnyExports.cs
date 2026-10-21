@@ -11,49 +11,49 @@ namespace DotnetInspect.Web.Interop.Metadata;
 
 public static partial class MetadataExports
 {
-    static readonly BrowserManagedOperationBridge LibraryFastDiffOperations = new();
+    static readonly BrowserManagedOperationBridge LibraryFindingDiffAnyOperations = new();
 
-    // The structural bound on one synchronous Fast Diff step. The Worker is
+    // The structural bound on one synchronous Finding Diff Any step. The Worker is
     // single-threaded, so the operation yields to its event loop between steps
     // and foreground operations and cancellation run there.
-    internal static TimeSpan LibraryFastDiffStepBudget { get; set; } = TimeSpan.FromMilliseconds(8);
+    internal static TimeSpan LibraryFindingDiffAnyStepBudget { get; set; } = TimeSpan.FromMilliseconds(8);
 
     [JSExport]
-    public static string CancelLibraryFastDiff(string operationId, string reason)
+    public static string CancelLibraryFindingDiffAny(string operationId, string reason)
     {
         BrowserLibraryApiDiffCancellation cancellation = ProjectCancellation(
-            LibraryFastDiffOperations.RequestCancellation(
+            LibraryFindingDiffAnyOperations.RequestCancellation(
                 BrowserManagedOperationId.From(operationId),
                 BrowserManagedOperationCancelReasons.Parse(reason)));
         return JsonSerializer.Serialize(
-            new BrowserLibraryFastDiffCancellation(cancellation.Kind, cancellation.Reason),
-            BrowserMetadataJsonContext.Default.BrowserLibraryFastDiffCancellation);
+            new BrowserLibraryFindingDiffAnyCancellation(cancellation.Kind, cancellation.Reason),
+            BrowserMetadataJsonContext.Default.BrowserLibraryFindingDiffAnyCancellation);
     }
 
     /// <summary>
-    /// Runs Fast Diff over one exact Library pair: every Type's API and Body
+    /// Runs Finding Diff Any over one exact Library pair: every Type's API and Body
     /// states between the target and current implementation assemblies.
     /// </summary>
     [JSExport]
-    public static async Task<string> QueryLibraryFastDiff(string operationId, string requestJson)
+    public static async Task<string> QueryLibraryFindingDiffAny(string operationId, string requestJson)
     {
-        BrowserLibraryFastDiffRequest? request = null;
+        BrowserLibraryFindingDiffAnyRequest? request = null;
         Exception? requestError = null;
         try
         {
             request = JsonSerializer.Deserialize(
                     requestJson,
-                    BrowserMetadataJsonContext.Default.BrowserLibraryFastDiffRequest)
-                ?? throw new ArgumentException("A Library Fast Diff request is required.");
-            ValidateLibraryFastDiffRequest(request);
+                    BrowserMetadataJsonContext.Default.BrowserLibraryFindingDiffAnyRequest)
+                ?? throw new ArgumentException("A Library Finding Diff Any request is required.");
+            ValidateLibraryFindingDiffAnyRequest(request);
         }
         catch (Exception error) when (error is ArgumentException or JsonException)
         {
             requestError = error;
         }
 
-        BrowserManagedOperationResult<BrowserLibraryFastDiffResult, string, string> result =
-            await LibraryFastDiffOperations.RunAsync<BrowserLibraryFastDiffResult, string, string, object>(
+        BrowserManagedOperationResult<BrowserLibraryFindingDiffAnyResult, string, string> result =
+            await LibraryFindingDiffAnyOperations.RunAsync<BrowserLibraryFindingDiffAnyResult, string, string, object>(
                 BrowserManagedOperationId.From(operationId),
                 eventCallback: null,
                 async (token, _) =>
@@ -62,36 +62,36 @@ public static partial class MetadataExports
                     {
                         if (requestError is not null)
                             throw requestError;
-                        return new BrowserManagedOperationBodyResult<BrowserLibraryFastDiffResult, string, string>
-                            .Succeeded(await QueryLibraryFastDiffCore(request!, token));
+                        return new BrowserManagedOperationBodyResult<BrowserLibraryFindingDiffAnyResult, string, string>
+                            .Succeeded(await QueryLibraryFindingDiffAnyCore(request!, token));
                     }
                     catch (Exception error) when (
                         error is ArgumentException or JsonException or BrowserLibraryApiDiffRequestException)
                     {
-                        return new BrowserManagedOperationBodyResult<BrowserLibraryFastDiffResult, string, string>
+                        return new BrowserManagedOperationBodyResult<BrowserLibraryFindingDiffAnyResult, string, string>
                             .Failed(error.Message, error.ToString());
                     }
                 },
                 error => new(error.Message, error.ToString()));
 
-        BrowserLibraryFastDiffResult projected = result switch
+        BrowserLibraryFindingDiffAnyResult projected = result switch
         {
-            BrowserManagedOperationResult<BrowserLibraryFastDiffResult, string, string>.Succeeded success =>
+            BrowserManagedOperationResult<BrowserLibraryFindingDiffAnyResult, string, string>.Succeeded success =>
                 success.Value,
-            BrowserManagedOperationResult<BrowserLibraryFastDiffResult, string, string>.Failed failure =>
-                new(BrowserLibraryFastDiffSchema.Version, request, BrowserLibraryFastDiffResultKind.Failed,
+            BrowserManagedOperationResult<BrowserLibraryFindingDiffAnyResult, string, string>.Failed failure =>
+                new(BrowserLibraryFindingDiffAnySchema.Version, request, BrowserLibraryFindingDiffAnyResultKind.Failed,
                     Value: null, failure.Error, failure.Diagnostic, Reason: null),
-            BrowserManagedOperationResult<BrowserLibraryFastDiffResult, string, string>.Canceled canceled =>
-                new(BrowserLibraryFastDiffSchema.Version, request, BrowserLibraryFastDiffResultKind.Canceled,
+            BrowserManagedOperationResult<BrowserLibraryFindingDiffAnyResult, string, string>.Canceled canceled =>
+                new(BrowserLibraryFindingDiffAnySchema.Version, request, BrowserLibraryFindingDiffAnyResultKind.Canceled,
                     Value: null, Error: null, Diagnostic: null,
                     BrowserManagedOperationCancelReasons.Format(canceled.Reason)),
-            _ => throw new InvalidOperationException("Unknown managed Library Fast Diff outcome."),
+            _ => throw new InvalidOperationException("Unknown managed Library Finding Diff Any outcome."),
         };
-        return JsonSerializer.Serialize(projected, BrowserMetadataJsonContext.Default.BrowserLibraryFastDiffResult);
+        return JsonSerializer.Serialize(projected, BrowserMetadataJsonContext.Default.BrowserLibraryFindingDiffAnyResult);
     }
 
-    static async Task<BrowserLibraryFastDiffResult> QueryLibraryFastDiffCore(
-        BrowserLibraryFastDiffRequest request,
+    static async Task<BrowserLibraryFindingDiffAnyResult> QueryLibraryFindingDiffAnyCore(
+        BrowserLibraryFindingDiffAnyRequest request,
         CancellationToken cancellationToken)
     {
         await using BrowserScopeLease<BrowserInspectionScope> targetLease =
@@ -111,29 +111,29 @@ public static partial class MetadataExports
                 $"The target package endpoint {targetCoordinate.PackageId} {targetCoordinate.Version} "
                     + $"has no unique selected compile counterpart for '{currentAsset.Id}'.");
 
-        // Fast Diff compares bodies, so both endpoints use their implementation
+        // Finding Diff Any compares bodies, so both endpoints use their implementation
         // assemblies, not reference assemblies.
         BrowserWorkspaceParticipant target = targetScope.ImplementationParticipant(
             targetScope.SurfaceParticipant(targetCoordinate, targetAsset));
         BrowserWorkspaceParticipant current = currentScope.ImplementationParticipant(
             currentScope.SurfaceParticipant(currentCoordinate, currentAsset));
 
-        var comparison = new FastDiffComparison(Project(request.Axes));
-        AssemblyContextFastDiffOutcome outcome;
+        var comparison = new FindingDiffAnyComparison(Project(request.Axes));
+        AssemblyContextFindingDiffAnyOutcome outcome;
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
             outcome = targetScope.UseImplementationParticipant(target, (targetGroup, targetParticipant) =>
                 currentScope.UseImplementationParticipant(current, (currentGroup, currentParticipant) =>
-                    AssemblyContextFastDiffQuery.Execute(
+                    AssemblyContextFindingDiffAnyQuery.Execute(
                         targetGroup,
                         targetParticipant,
                         currentGroup,
                         currentParticipant,
                         comparison,
-                        LibraryFastDiffStepBudget,
+                        LibraryFindingDiffAnyStepBudget,
                         cancellationToken)));
-            if (outcome is not AssemblyContextFastDiffOutcome.Pending)
+            if (outcome is not AssemblyContextFindingDiffAnyOutcome.Pending)
                 break;
             await Task.Yield();
         }
@@ -141,18 +141,18 @@ public static partial class MetadataExports
 
         return outcome switch
         {
-            AssemblyContextFastDiffOutcome.Compared compared => new(
-                BrowserLibraryFastDiffSchema.Version,
+            AssemblyContextFindingDiffAnyOutcome.Compared compared => new(
+                BrowserLibraryFindingDiffAnySchema.Version,
                 request,
-                BrowserLibraryFastDiffResultKind.Succeeded,
-                new BrowserLibraryFastDiffValue(
+                BrowserLibraryFindingDiffAnyResultKind.Succeeded,
+                new BrowserLibraryFindingDiffAnyValue(
                     target.Asset.Id,
                     current.Asset.Id,
                     compared.Result.Types.Length,
                     [
                         .. compared.Result.Types
                             .Where(type => IsReported(type.Api) || IsReported(type.Body))
-                            .Select(type => new BrowserFastDiffType(
+                            .Select(type => new BrowserFindingDiffAnyType(
                                 type.Identifier,
                                 type.FullName,
                                 Project(type.Api),
@@ -161,44 +161,44 @@ public static partial class MetadataExports
                 Error: null,
                 Diagnostic: null,
                 Reason: null),
-            AssemblyContextFastDiffOutcome.Rejected rejected => new(
-                BrowserLibraryFastDiffSchema.Version,
+            AssemblyContextFindingDiffAnyOutcome.Rejected rejected => new(
+                BrowserLibraryFindingDiffAnySchema.Version,
                 request,
-                BrowserLibraryFastDiffResultKind.Rejected,
+                BrowserLibraryFindingDiffAnyResultKind.Rejected,
                 Value: null,
                 Error: rejected.Reason,
                 Diagnostic: null,
                 Reason: null),
-            _ => throw new InvalidOperationException("Unknown Fast Diff outcome."),
+            _ => throw new InvalidOperationException("Unknown Finding Diff Any outcome."),
         };
     }
 
-    static bool IsReported(FastDiffState state)
-        => state is FastDiffState.Changed or FastDiffState.Indeterminate;
+    static bool IsReported(FindingDiffAnyState state)
+        => state is FindingDiffAnyState.Changed or FindingDiffAnyState.Indeterminate;
 
-    static BrowserFastDiffState Project(FastDiffState state) => state switch
+    static BrowserFindingDiffAnyState Project(FindingDiffAnyState state) => state switch
     {
-        FastDiffState.Unchanged => BrowserFastDiffState.Unchanged,
-        FastDiffState.Changed => BrowserFastDiffState.Changed,
-        FastDiffState.Indeterminate => BrowserFastDiffState.Indeterminate,
-        FastDiffState.NotCompared => BrowserFastDiffState.NotCompared,
+        FindingDiffAnyState.Unchanged => BrowserFindingDiffAnyState.Unchanged,
+        FindingDiffAnyState.Changed => BrowserFindingDiffAnyState.Changed,
+        FindingDiffAnyState.Indeterminate => BrowserFindingDiffAnyState.Indeterminate,
+        FindingDiffAnyState.NotCompared => BrowserFindingDiffAnyState.NotCompared,
         _ => throw new ArgumentOutOfRangeException(nameof(state)),
     };
 
-    static FastDiffAxes Project(BrowserFastDiffAxes axes) => axes switch
+    static FindingDiffAnyAxes Project(BrowserFindingDiffAnyAxes axes) => axes switch
     {
-        BrowserFastDiffAxes.ApiAndBody => FastDiffAxes.ApiAndBody,
-        BrowserFastDiffAxes.Api => FastDiffAxes.Api,
+        BrowserFindingDiffAnyAxes.ApiAndBody => FindingDiffAnyAxes.ApiAndBody,
+        BrowserFindingDiffAnyAxes.Api => FindingDiffAnyAxes.Api,
         _ => throw new ArgumentOutOfRangeException(nameof(axes)),
     };
 
-    static void ValidateLibraryFastDiffRequest(BrowserLibraryFastDiffRequest request)
+    static void ValidateLibraryFindingDiffAnyRequest(BrowserLibraryFindingDiffAnyRequest request)
     {
-        if (request.SchemaVersion != BrowserLibraryFastDiffSchema.Version)
+        if (request.SchemaVersion != BrowserLibraryFindingDiffAnySchema.Version)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(request),
-                "The Library Fast Diff request schema version is unsupported.");
+                "The Library Finding Diff Any request schema version is unsupported.");
         }
         ArgumentException.ThrowIfNullOrWhiteSpace(request.PackageId);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.TargetFramework);
@@ -210,12 +210,12 @@ public static partial class MetadataExports
         RequireBoundedRequestField(request.CompileAssetId, nameof(request.CompileAssetId));
         _ = BrowserFrameworkText.Require(request.TargetFramework);
         if (!Enum.IsDefined(request.Axes))
-            throw new ArgumentOutOfRangeException(nameof(request), "The Library Fast Diff axes are unsupported.");
+            throw new ArgumentOutOfRangeException(nameof(request), "The Library Finding Diff Any axes are unsupported.");
         if (!NuGetVersion.TryParse(request.CurrentVersion, out _)
             || !NuGetVersion.TryParse(request.TargetVersion, out _))
         {
             throw new ArgumentException(
-                "Library Fast Diff requires exact current and target package versions.");
+                "Library Finding Diff Any requires exact current and target package versions.");
         }
     }
 }

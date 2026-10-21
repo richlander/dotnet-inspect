@@ -8,14 +8,14 @@ using DotnetInspect.Web.Interop.Metadata;
 namespace DotnetInspect.Web.Tests;
 
 [SupportedOSPlatform("browser")]
-public sealed class BrowserLibraryFastDiffOperationTests
+public sealed class BrowserLibraryFindingDiffAnyOperationTests
 {
     const string Framework = "net11.0";
     const string TargetVersion = "1.0.0";
     const string CurrentVersion = "2.0.0";
-    const string AssetPath = "lib/net11.0/ILInspector.Metadata.FastDiff.dll";
+    const string AssetPath = "lib/net11.0/ILInspector.Metadata.FindingDiffAny.dll";
     const string AssetId = "compile:" + AssetPath;
-    const string ReferencePath = "ref/net11.0/ILInspector.Metadata.FastDiff.dll";
+    const string ReferencePath = "ref/net11.0/ILInspector.Metadata.FindingDiffAny.dll";
     const string ReferenceAssetId = "compile:" + ReferencePath;
 
     [Fact]
@@ -23,49 +23,49 @@ public sealed class BrowserLibraryFastDiffOperationTests
     {
         string packageId = await RegisterFixturePairAsync();
 
-        BrowserLibraryFastDiffResult result = await Query(Request(packageId));
+        BrowserLibraryFindingDiffAnyResult result = await Query(Request(packageId));
 
         Assert.True(
-            result.Kind == BrowserLibraryFastDiffResultKind.Succeeded,
+            result.Kind == BrowserLibraryFindingDiffAnyResultKind.Succeeded,
             $"{result.Kind}: {result.Error}\n{result.Diagnostic}");
-        BrowserLibraryFastDiffValue value = Assert.IsType<BrowserLibraryFastDiffValue>(result.Value);
+        BrowserLibraryFindingDiffAnyValue value = Assert.IsType<BrowserLibraryFindingDiffAnyValue>(result.Value);
         Assert.EndsWith(AssetPath, value.CurrentAssetId, StringComparison.Ordinal);
         Assert.True(value.ComparedTypeCount > value.Types.Length);
         Assert.Equal(
-            (BrowserFastDiffState.Unchanged, BrowserFastDiffState.Changed),
-            State(value, "FastDiffFixture.BodyOnly"));
+            (BrowserFindingDiffAnyState.Unchanged, BrowserFindingDiffAnyState.Changed),
+            State(value, "FindingDiffAnyFixture.BodyOnly"));
         Assert.Equal(
-            (BrowserFastDiffState.Changed, BrowserFastDiffState.Unchanged),
-            State(value, "FastDiffFixture.PublicMemberAdded"));
+            (BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.Unchanged),
+            State(value, "FindingDiffAnyFixture.PublicMemberAdded"));
         // Nested Types use the escaped navigation identity, not the dotted name.
-        BrowserFastDiffType inner = Assert.Single(
+        BrowserFindingDiffAnyType inner = Assert.Single(
             value.Types,
-            type => type.Identifier == "FastDiffFixture.Outer+Inner");
-        Assert.Equal("FastDiffFixture.Outer.Inner", inner.FullName);
+            type => type.Identifier == "FindingDiffAnyFixture.Outer+Inner");
+        Assert.Equal("FindingDiffAnyFixture.Outer.Inner", inner.FullName);
         // A Type with no difference on either axis is omitted.
-        Assert.DoesNotContain(value.Types, type => type.Identifier == "FastDiffFixture.Unchanged");
+        Assert.DoesNotContain(value.Types, type => type.Identifier == "FindingDiffAnyFixture.Unchanged");
     }
 
     [Fact]
     public async Task Export_YieldsBetweenStepsAndReachesTheSameResult()
     {
         string packageId = await RegisterFixturePairAsync();
-        BrowserLibraryFastDiffResult whole = await Query(Request(packageId));
+        BrowserLibraryFindingDiffAnyResult whole = await Query(Request(packageId));
 
         // A zero budget makes every row and Type its own step.
-        TimeSpan budget = MetadataExports.LibraryFastDiffStepBudget;
-        MetadataExports.LibraryFastDiffStepBudget = TimeSpan.Zero;
-        BrowserLibraryFastDiffResult stepped;
+        TimeSpan budget = MetadataExports.LibraryFindingDiffAnyStepBudget;
+        MetadataExports.LibraryFindingDiffAnyStepBudget = TimeSpan.Zero;
+        BrowserLibraryFindingDiffAnyResult stepped;
         try
         {
             stepped = await Query(Request(packageId));
         }
         finally
         {
-            MetadataExports.LibraryFastDiffStepBudget = budget;
+            MetadataExports.LibraryFindingDiffAnyStepBudget = budget;
         }
 
-        Assert.Equal(BrowserLibraryFastDiffResultKind.Succeeded, stepped.Kind);
+        Assert.Equal(BrowserLibraryFindingDiffAnyResultKind.Succeeded, stepped.Kind);
         Assert.Equal(whole.Value!.ComparedTypeCount, stepped.Value!.ComparedTypeCount);
         Assert.Equal(whole.Value.Types, stepped.Value.Types);
     }
@@ -75,19 +75,19 @@ public sealed class BrowserLibraryFastDiffOperationTests
     {
         string packageId = await RegisterFixturePairAsync();
 
-        BrowserLibraryFastDiffResult result = await Query(
-            Request(packageId) with { Axes = BrowserFastDiffAxes.Api });
+        BrowserLibraryFindingDiffAnyResult result = await Query(
+            Request(packageId) with { Axes = BrowserFindingDiffAnyAxes.Api });
 
         Assert.True(
-            result.Kind == BrowserLibraryFastDiffResultKind.Succeeded,
+            result.Kind == BrowserLibraryFindingDiffAnyResultKind.Succeeded,
             $"{result.Kind}: {result.Error}\n{result.Diagnostic}");
-        BrowserLibraryFastDiffValue value = Assert.IsType<BrowserLibraryFastDiffValue>(result.Value);
-        Assert.All(value.Types, type => Assert.Equal(BrowserFastDiffState.NotCompared, type.Body));
+        BrowserLibraryFindingDiffAnyValue value = Assert.IsType<BrowserLibraryFindingDiffAnyValue>(result.Value);
+        Assert.All(value.Types, type => Assert.Equal(BrowserFindingDiffAnyState.NotCompared, type.Body));
         Assert.Equal(
-            (BrowserFastDiffState.Changed, BrowserFastDiffState.NotCompared),
-            State(value, "FastDiffFixture.PublicMemberAdded"));
+            (BrowserFindingDiffAnyState.Changed, BrowserFindingDiffAnyState.NotCompared),
+            State(value, "FindingDiffAnyFixture.PublicMemberAdded"));
         // A body-only change is not an API change, so the Type is absent.
-        Assert.DoesNotContain(value.Types, type => type.Identifier == "FastDiffFixture.BodyOnly");
+        Assert.DoesNotContain(value.Types, type => type.Identifier == "FindingDiffAnyFixture.BodyOnly");
     }
 
     [Fact]
@@ -96,24 +96,24 @@ public sealed class BrowserLibraryFastDiffOperationTests
         // Both versions share one reference assembly, so only their
         // implementations differ; comparing references would find nothing.
         string packageId = "Fast.Diff.Ref." + Guid.NewGuid().ToString("N");
-        byte[] reference = File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV1.AssemblyPath());
+        byte[] reference = File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath());
         await Register(packageId, TargetVersion,
             (ReferencePath, reference),
-            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV1.AssemblyPath())));
+            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath())));
         await Register(packageId, CurrentVersion,
             (ReferencePath, reference),
-            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV2.AssemblyPath())));
+            (AssetPath, File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath())));
 
-        BrowserLibraryFastDiffResult result = await Query(
+        BrowserLibraryFindingDiffAnyResult result = await Query(
             Request(packageId) with { CompileAssetId = ReferenceAssetId });
 
         Assert.True(
-            result.Kind == BrowserLibraryFastDiffResultKind.Succeeded,
+            result.Kind == BrowserLibraryFindingDiffAnyResultKind.Succeeded,
             $"{result.Kind}: {result.Error}\n{result.Diagnostic}");
-        BrowserLibraryFastDiffValue value = Assert.IsType<BrowserLibraryFastDiffValue>(result.Value);
+        BrowserLibraryFindingDiffAnyValue value = Assert.IsType<BrowserLibraryFindingDiffAnyValue>(result.Value);
         Assert.Equal(
-            (BrowserFastDiffState.Unchanged, BrowserFastDiffState.Changed),
-            State(value, "FastDiffFixture.BodyOnly"));
+            (BrowserFindingDiffAnyState.Unchanged, BrowserFindingDiffAnyState.Changed),
+            State(value, "FindingDiffAnyFixture.BodyOnly"));
     }
 
     [Fact]
@@ -121,14 +121,14 @@ public sealed class BrowserLibraryFastDiffOperationTests
     {
         string packageId = "Fast.Diff.RefOnly." + Guid.NewGuid().ToString("N");
         await Register(packageId, TargetVersion,
-            (ReferencePath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV1.AssemblyPath())));
+            (ReferencePath, File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath())));
         await Register(packageId, CurrentVersion,
-            (ReferencePath, File.ReadAllBytes(FixtureCatalog.MetadataFastDiffV2.AssemblyPath())));
+            (ReferencePath, File.ReadAllBytes(FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath())));
 
-        BrowserLibraryFastDiffResult result = await Query(
+        BrowserLibraryFindingDiffAnyResult result = await Query(
             Request(packageId) with { CompileAssetId = ReferenceAssetId });
 
-        Assert.Equal(BrowserLibraryFastDiffResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserLibraryFindingDiffAnyResultKind.Failed, result.Kind);
         Assert.Null(result.Value);
         Assert.False(string.IsNullOrEmpty(result.Error));
     }
@@ -136,46 +136,46 @@ public sealed class BrowserLibraryFastDiffOperationTests
     [Fact]
     public async Task Export_RejectsAnUnsupportedSchemaAsAFailedResult()
     {
-        BrowserLibraryFastDiffResult result = await Query(
+        BrowserLibraryFindingDiffAnyResult result = await Query(
             Request("Unregistered.Package") with { SchemaVersion = 0 });
 
-        Assert.Equal(BrowserLibraryFastDiffResultKind.Failed, result.Kind);
+        Assert.Equal(BrowserLibraryFindingDiffAnyResultKind.Failed, result.Kind);
         Assert.Contains("schema version", result.Error, StringComparison.Ordinal);
     }
 
-    static (BrowserFastDiffState Api, BrowserFastDiffState Body) State(
-        BrowserLibraryFastDiffValue value,
+    static (BrowserFindingDiffAnyState Api, BrowserFindingDiffAnyState Body) State(
+        BrowserLibraryFindingDiffAnyValue value,
         string identifier)
     {
-        BrowserFastDiffType type = Assert.Single(value.Types, type => type.Identifier == identifier);
+        BrowserFindingDiffAnyType type = Assert.Single(value.Types, type => type.Identifier == identifier);
         return (type.Api, type.Body);
     }
 
-    static BrowserLibraryFastDiffRequest Request(string packageId) => new(
-        BrowserLibraryFastDiffSchema.Version,
+    static BrowserLibraryFindingDiffAnyRequest Request(string packageId) => new(
+        BrowserLibraryFindingDiffAnySchema.Version,
         packageId,
         CurrentVersion,
         TargetVersion,
         Framework,
         AssetId,
-        BrowserFastDiffAxes.ApiAndBody);
+        BrowserFindingDiffAnyAxes.ApiAndBody);
 
-    static async Task<BrowserLibraryFastDiffResult> Query(BrowserLibraryFastDiffRequest request)
+    static async Task<BrowserLibraryFindingDiffAnyResult> Query(BrowserLibraryFindingDiffAnyRequest request)
     {
-        string resultJson = await MetadataExports.QueryLibraryFastDiff(
+        string resultJson = await MetadataExports.QueryLibraryFindingDiffAny(
             Guid.NewGuid().ToString(),
-            JsonSerializer.Serialize(request, BrowserMetadataJsonContext.Default.BrowserLibraryFastDiffRequest));
+            JsonSerializer.Serialize(request, BrowserMetadataJsonContext.Default.BrowserLibraryFindingDiffAnyRequest));
         return JsonSerializer.Deserialize(
                 resultJson,
-                BrowserMetadataJsonContext.Default.BrowserLibraryFastDiffResult)
+                BrowserMetadataJsonContext.Default.BrowserLibraryFindingDiffAnyResult)
             ?? throw new InvalidOperationException("The export returned no result.");
     }
 
     static async Task<string> RegisterFixturePairAsync()
     {
         string packageId = "Fast.Diff." + Guid.NewGuid().ToString("N");
-        await Register(packageId, TargetVersion, FixtureCatalog.MetadataFastDiffV1.AssemblyPath());
-        await Register(packageId, CurrentVersion, FixtureCatalog.MetadataFastDiffV2.AssemblyPath());
+        await Register(packageId, TargetVersion, FixtureCatalog.MetadataFindingDiffAnyV1.AssemblyPath());
+        await Register(packageId, CurrentVersion, FixtureCatalog.MetadataFindingDiffAnyV2.AssemblyPath());
         return packageId;
     }
 
@@ -202,7 +202,7 @@ public sealed class BrowserLibraryFastDiffOperationTests
             {
                 manifest.Write(Encoding.UTF8.GetBytes(
                     $"<package><metadata><id>{packageId}</id><version>{version}</version>"
-                        + "<authors>Tests</authors><description>Fast Diff fixture</description>"
+                        + "<authors>Tests</authors><description>Finding Diff Any fixture</description>"
                         + "</metadata></package>"));
             }
             foreach ((string path, byte[] bytes) in entries)

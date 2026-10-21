@@ -1,12 +1,12 @@
-// Fast Diff fixture, version 2. Each Type isolates one kind of change; the
-// expected API and Body states are asserted by FastDiffTests.
+// Finding Diff Any fixture, version 2. Each Type isolates one kind of change; the
+// expected API and Body states are asserted by FindingDiffAnyTests.
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace FastDiffFixture;
+namespace FindingDiffAnyFixture;
 
 public class Unchanged
 {

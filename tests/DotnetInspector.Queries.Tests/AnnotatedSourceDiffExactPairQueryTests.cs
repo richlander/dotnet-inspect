@@ -53,7 +53,7 @@ public sealed class MemberBodyDiffInspectionTests
     /// <summary>
     /// The dependency versions gate for Member Body Diff: a pair whose only
     /// difference is the version of a non-platform referenced assembly lists
-    /// no changed Member, because its inventory compares IL under Fast Diff's
+    /// no changed Member, because its inventory compares IL under Finding Diff Any's
     /// Body policy; the same comparison with no normalization shows the IL
     /// change on every call into that dependency.
     /// </summary>

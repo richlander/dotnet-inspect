@@ -325,7 +325,7 @@ public class IlBodyDiffNormalizationTests
 
     /// <summary>
     /// The Finding census is taken under the same policy as the body
-    /// comparison: under Fast Diff's Body policy a pair that differs only in
+    /// comparison: under Finding Diff Any's Body policy a pair that differs only in
     /// a non-platform reference's version yields equal atoms, and without it
     /// the call atom differs. A normalization that needs both readers is not
     /// a single-side canonicalization.

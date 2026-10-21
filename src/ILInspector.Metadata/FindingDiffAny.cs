@@ -8,7 +8,7 @@ using System.Reflection.PortableExecutable;
 namespace ILInspector.Metadata;
 
 /// <summary>Whether one axis of a Type differs between two Library images.</summary>
-public enum FastDiffState
+public enum FindingDiffAnyState
 {
     /// <summary>Every fact the axis compares is equal.</summary>
     Unchanged,
@@ -24,12 +24,12 @@ public enum FastDiffState
 }
 
 /// <summary>The axes one comparison decides.</summary>
-public enum FastDiffAxes
+public enum FindingDiffAnyAxes
 {
     /// <summary>Both the API and the Body axis.</summary>
     ApiAndBody,
 
-    /// <summary>The API axis only; every Body state is <see cref="FastDiffState.NotCompared"/>.</summary>
+    /// <summary>The API axis only; every Body state is <see cref="FindingDiffAnyState.NotCompared"/>.</summary>
     Api,
 }
 
@@ -45,21 +45,21 @@ public enum FastDiffAxes
 /// spelling, which hosts use to join navigation Types. A Type whose name cannot
 /// be read is identified by its row token, prefixed with <c>!</c>.
 /// </param>
-public sealed record FastDiffTypeState(
+public sealed record FindingDiffAnyTypeState(
     string FullName,
-    FastDiffState Api,
-    FastDiffState Body,
+    FindingDiffAnyState Api,
+    FindingDiffAnyState Body,
     string Identifier);
 
 /// <summary>The work one comparison performed.</summary>
-public sealed record FastDiffReceipt(
+public sealed record FindingDiffAnyReceipt(
     int Types,
     int BodiesCompared,
     long IlBytesCompared);
 
-public sealed record FastDiffResult(
-    ImmutableArray<FastDiffTypeState> Types,
-    FastDiffReceipt Receipt);
+public sealed record FindingDiffAnyResult(
+    ImmutableArray<FindingDiffAnyTypeState> Types,
+    FindingDiffAnyReceipt Receipt);
 
 /// <summary>
 /// Decides, for every Type of one Library image pair, whether its API and its
@@ -91,15 +91,15 @@ public sealed record FastDiffResult(
 /// of its Type <c>Indeterminate</c>.
 /// </para>
 /// </remarks>
-public static class FastDiff
+public static class FindingDiffAny
 {
-    public static FastDiffResult Compare(
+    public static FindingDiffAnyResult Compare(
         PEReader before,
         PEReader after,
-        FastDiffAxes axes = FastDiffAxes.ApiAndBody,
+        FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody,
         CancellationToken cancellationToken = default)
     {
-        var comparison = new FastDiffComparison(axes);
+        var comparison = new FindingDiffAnyComparison(axes);
         comparison.Step(before, after, Timeout.InfiniteTimeSpan, cancellationToken);
         return comparison.Result!;
     }
@@ -166,63 +166,63 @@ public static class FastDiff
             : $"- {onlyBefore}\n+ {onlyAfter}";
     }
 
-    internal static FastDiffTypeState OneSided(Side side, Unit unit, FastDiffAxes axes)
+    internal static FindingDiffAnyTypeState OneSided(Side side, Unit unit, FindingDiffAnyAxes axes)
     {
-        FastDiffState presence = axes is FastDiffAxes.Api
-            ? FastDiffState.NotCompared
-            : FastDiffState.Changed;
+        FindingDiffAnyState presence = axes is FindingDiffAnyAxes.Api
+            ? FindingDiffAnyState.NotCompared
+            : FindingDiffAnyState.Changed;
         if (unit.Malformed)
         {
-            return new FastDiffTypeState(
+            return new FindingDiffAnyTypeState(
                 unit.FullName,
-                FastDiffState.Indeterminate,
-                axes is FastDiffAxes.Api ? FastDiffState.NotCompared : FastDiffState.Indeterminate,
+                FindingDiffAnyState.Indeterminate,
+                axes is FindingDiffAnyAxes.Api ? FindingDiffAnyState.NotCompared : FindingDiffAnyState.Indeterminate,
                 unit.Identifier);
         }
-        FastDiffState api;
+        FindingDiffAnyState api;
         try
         {
-            api = side.IsVisible(unit.Owner) ? FastDiffState.Changed : FastDiffState.Unchanged;
+            api = side.IsVisible(unit.Owner) ? FindingDiffAnyState.Changed : FindingDiffAnyState.Unchanged;
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
             side.Keys.Reset();
-            api = FastDiffState.Indeterminate;
+            api = FindingDiffAnyState.Indeterminate;
         }
-        return new FastDiffTypeState(unit.FullName, api, presence, unit.Identifier);
+        return new FindingDiffAnyTypeState(unit.FullName, api, presence, unit.Identifier);
     }
 
-    internal static FastDiffTypeState CompareUnit(
+    internal static FindingDiffAnyTypeState CompareUnit(
         Side a,
         Unit unitA,
         Side b,
         Unit unitB,
-        FastDiffAxes axes,
+        FindingDiffAnyAxes axes,
         Work work)
     {
-        FastDiffState api = FastDiffState.Indeterminate;
-        FastDiffState body = axes is FastDiffAxes.Api
-            ? FastDiffState.NotCompared
-            : FastDiffState.Indeterminate;
+        FindingDiffAnyState api = FindingDiffAnyState.Indeterminate;
+        FindingDiffAnyState body = axes is FindingDiffAnyAxes.Api
+            ? FindingDiffAnyState.NotCompared
+            : FindingDiffAnyState.Indeterminate;
         if (unitA.Malformed || unitB.Malformed)
-            return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
+            return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
         {
             api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB))
-                ? FastDiffState.Unchanged
-                : FastDiffState.Changed;
-            if (axes is FastDiffAxes.Api)
-                return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
+                ? FindingDiffAnyState.Unchanged
+                : FindingDiffAnyState.Changed;
+            if (axes is FindingDiffAnyAxes.Api)
+                return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
             body = BodiesEqual(a, unitA, b, unitB, work)
-                ? FastDiffState.Unchanged
-                : FastDiffState.Changed;
+                ? FindingDiffAnyState.Unchanged
+                : FindingDiffAnyState.Changed;
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
             a.Keys.Reset();
             b.Keys.Reset();
         }
-        return new FastDiffTypeState(unitA.FullName, api, body, unitA.Identifier);
+        return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
     }
 
     static bool BodiesEqual(Side a, Unit unitA, Side b, Unit unitB, Work work)
@@ -277,7 +277,7 @@ public static class FastDiff
     }
 
     /// <summary>
-    /// Gate support: the Body verdict of every method pair under Fast Diff's
+    /// Gate support: the Body verdict of every method pair under Finding Diff Any's
     /// own pairing of two paired Types' methods, including the methods of
     /// their compiler-generated nested Types. A Type whose census cannot be
     /// read contributes no pairs.
@@ -311,18 +311,18 @@ public static class FastDiff
             {
                 if (!methodsB.TryGetValue(method, out MethodDefinitionHandle methodB))
                     continue;
-                FastDiffState body;
+                FindingDiffAnyState body;
                 try
                 {
                     body = BodyEqual(a, methodA, b, methodB, work)
-                        ? FastDiffState.Unchanged
-                        : FastDiffState.Changed;
+                        ? FindingDiffAnyState.Unchanged
+                        : FindingDiffAnyState.Changed;
                 }
                 catch (Exception ex) when (IsMalformed(ex))
                 {
                     a.Keys.Reset();
                     b.Keys.Reset();
-                    body = FastDiffState.Indeterminate;
+                    body = FindingDiffAnyState.Indeterminate;
                 }
                 verdicts.Add(new BodyVerdict(unitA.FullName, method, methodA, methodB, body));
             }
@@ -336,7 +336,7 @@ public static class FastDiff
         SymbolKey Method,
         MethodDefinitionHandle Before,
         MethodDefinitionHandle After,
-        FastDiffState Body);
+        FindingDiffAnyState Body);
 
     /// <summary>
     /// One lockstep walk over two IL streams under the Body policy, with
@@ -651,7 +651,7 @@ public static class FastDiff
     static readonly bool[] KnownOneByte = new bool[256];
     static readonly bool[] KnownTwoByte = new bool[256];
 
-    static FastDiff()
+    static FindingDiffAny()
     {
         foreach (ILOpCode opCode in Enum.GetValues<ILOpCode>())
         {
@@ -779,7 +779,7 @@ public static class FastDiff
                 return;
             MetadataReader md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             if (md.GetGuid(md.GetModuleDefinition().Mvid) != _mvid)
-                throw new InvalidOperationException("A Fast Diff comparison continues over the same images.");
+                throw new InvalidOperationException("A Finding Diff Any comparison continues over the same images.");
             Pe = pe;
             Md = md;
             Keys.Names = new SymbolKey.Utf8Names(pe, md);
@@ -1709,7 +1709,7 @@ public static class FastDiff
 }
 
 /// <summary>
-/// One Fast Diff over an image pair, advanced in bounded steps so a
+/// One Finding Diff Any over an image pair, advanced in bounded steps so a
 /// single-threaded host can return to its event loop between them.
 /// </summary>
 /// <remarks>
@@ -1720,24 +1720,24 @@ public static class FastDiff
 /// Cancellation is observed at the same boundaries and leaves the comparison
 /// resumable; any other exception leaves it unusable.
 /// </remarks>
-public sealed class FastDiffComparison(FastDiffAxes axes = FastDiffAxes.ApiAndBody)
+public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody)
 {
-    readonly FastDiff.UnitTable _unitsA = new();
-    readonly FastDiff.UnitTable _unitsB = new();
-    readonly ImmutableArray<FastDiffTypeState>.Builder _states =
-        ImmutableArray.CreateBuilder<FastDiffTypeState>();
-    readonly FastDiff.Work _work = new();
-    FastDiff.Side? _a;
-    FastDiff.Side? _b;
+    readonly FindingDiffAny.UnitTable _unitsA = new();
+    readonly FindingDiffAny.UnitTable _unitsB = new();
+    readonly ImmutableArray<FindingDiffAnyTypeState>.Builder _states =
+        ImmutableArray.CreateBuilder<FindingDiffAnyTypeState>();
+    readonly FindingDiffAny.Work _work = new();
+    FindingDiffAny.Side? _a;
+    FindingDiffAny.Side? _b;
     bool _readA;
     bool _readB;
-    List<FastDiff.Unit>? _onlyB;
+    List<FindingDiffAny.Unit>? _onlyB;
     int _next;
 
-    public FastDiffAxes Axes { get; } = axes;
+    public FindingDiffAnyAxes Axes { get; } = axes;
 
     /// <summary>The complete result, once a step has finished the comparison.</summary>
-    public FastDiffResult? Result { get; private set; }
+    public FindingDiffAnyResult? Result { get; private set; }
 
     /// <summary>
     /// Advances the comparison for about <paramref name="budget"/>, or to
@@ -1759,8 +1759,8 @@ public sealed class FastDiffComparison(FastDiffAxes axes = FastDiffAxes.ApiAndBo
 
         if (_a is null || _b is null)
         {
-            _a = new FastDiff.Side(before);
-            _b = new FastDiff.Side(after);
+            _a = new FindingDiffAny.Side(before);
+            _b = new FindingDiffAny.Side(after);
         }
         else
         {
@@ -1787,8 +1787,8 @@ public sealed class FastDiffComparison(FastDiffAxes axes = FastDiffAxes.ApiAndBo
         if (!_readB && !(_readB = _b.ReadUnits(_unitsB, OverBudget)))
             return false;
 
-        OrderedDictionary<SymbolKey, FastDiff.Unit> unitsA = _unitsA.Units;
-        OrderedDictionary<SymbolKey, FastDiff.Unit> unitsB = _unitsB.Units;
+        OrderedDictionary<SymbolKey, FindingDiffAny.Unit> unitsA = _unitsA.Units;
+        OrderedDictionary<SymbolKey, FindingDiffAny.Unit> unitsB = _unitsB.Units;
         _onlyB ??= [.. unitsB.Where(pair => !unitsA.ContainsKey(pair.Key)).Select(pair => pair.Value)];
         int total = unitsA.Count + _onlyB.Count;
         for (; _next < total; _next++)
@@ -1797,21 +1797,21 @@ public sealed class FastDiffComparison(FastDiffAxes axes = FastDiffAxes.ApiAndBo
                 return false;
             if (_next < unitsA.Count)
             {
-                (SymbolKey key, FastDiff.Unit unitA) = unitsA.GetAt(_next);
-                _states.Add(unitsB.TryGetValue(key, out FastDiff.Unit? unitB)
-                    ? FastDiff.CompareUnit(_a, unitA, _b, unitB, Axes, _work)
-                    : FastDiff.OneSided(_a, unitA, Axes));
+                (SymbolKey key, FindingDiffAny.Unit unitA) = unitsA.GetAt(_next);
+                _states.Add(unitsB.TryGetValue(key, out FindingDiffAny.Unit? unitB)
+                    ? FindingDiffAny.CompareUnit(_a, unitA, _b, unitB, Axes, _work)
+                    : FindingDiffAny.OneSided(_a, unitA, Axes));
             }
             else
             {
-                _states.Add(FastDiff.OneSided(_b, _onlyB[_next - unitsA.Count], Axes));
+                _states.Add(FindingDiffAny.OneSided(_b, _onlyB[_next - unitsA.Count], Axes));
             }
         }
 
         _states.Sort((x, y) => string.CompareOrdinal(x.FullName, y.FullName));
-        Result = new FastDiffResult(
+        Result = new FindingDiffAnyResult(
             _states.ToImmutable(),
-            new FastDiffReceipt(_states.Count, _work.Bodies, _work.IlBytes));
+            new FindingDiffAnyReceipt(_states.Count, _work.Bodies, _work.IlBytes));
         return true;
     }
 }

@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace DotnetInspect.Web.Interop.Metadata;
 
-public static class BrowserLibraryFastDiffSchema
+public static class BrowserLibraryFindingDiffAnySchema
 {
     public const int Version = 2;
 }
@@ -11,20 +11,20 @@ public static class BrowserLibraryFastDiffSchema
 /// One exact Library pair: the current compile asset and its target
 /// counterpart, and the axes to decide.
 /// </summary>
-public sealed record BrowserLibraryFastDiffRequest(
+public sealed record BrowserLibraryFindingDiffAnyRequest(
     int SchemaVersion,
     string PackageId,
     string CurrentVersion,
     string TargetVersion,
     string TargetFramework,
     string CompileAssetId,
-    BrowserFastDiffAxes Axes);
+    BrowserFindingDiffAnyAxes Axes);
 
-public sealed record BrowserLibraryFastDiffResult(
+public sealed record BrowserLibraryFindingDiffAnyResult(
     int SchemaVersion,
-    BrowserLibraryFastDiffRequest? Request,
-    BrowserLibraryFastDiffResultKind Kind,
-    BrowserLibraryFastDiffValue? Value,
+    BrowserLibraryFindingDiffAnyRequest? Request,
+    BrowserLibraryFindingDiffAnyResultKind Kind,
+    BrowserLibraryFindingDiffAnyValue? Value,
     string? Error,
     string? Diagnostic,
     string? Reason);
@@ -34,23 +34,23 @@ public sealed record BrowserLibraryFastDiffResult(
 /// <c>Changed</c> or <c>Indeterminate</c>. A compared Type that is absent has
 /// every requested axis unchanged.
 /// </summary>
-public sealed record BrowserLibraryFastDiffValue(
+public sealed record BrowserLibraryFindingDiffAnyValue(
     string TargetAssetId,
     string CurrentAssetId,
     int ComparedTypeCount,
-    BrowserFastDiffType[] Types);
+    BrowserFindingDiffAnyType[] Types);
 
 /// <param name="Identifier">
 /// The escaped Type identity navigation uses as <c>definitionId</c>.
 /// </param>
-public sealed record BrowserFastDiffType(
+public sealed record BrowserFindingDiffAnyType(
     string Identifier,
     string FullName,
-    BrowserFastDiffState Api,
-    BrowserFastDiffState Body);
+    BrowserFindingDiffAnyState Api,
+    BrowserFindingDiffAnyState Body);
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserFastDiffState>))]
-public enum BrowserFastDiffState
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserFindingDiffAnyState>))]
+public enum BrowserFindingDiffAnyState
 {
     Unchanged,
     Changed,
@@ -58,15 +58,15 @@ public enum BrowserFastDiffState
     NotCompared,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserFastDiffAxes>))]
-public enum BrowserFastDiffAxes
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserFindingDiffAnyAxes>))]
+public enum BrowserFindingDiffAnyAxes
 {
     ApiAndBody,
     Api,
 }
 
-[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryFastDiffResultKind>))]
-public enum BrowserLibraryFastDiffResultKind
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryFindingDiffAnyResultKind>))]
+public enum BrowserLibraryFindingDiffAnyResultKind
 {
     Succeeded,
     Rejected,
@@ -74,6 +74,6 @@ public enum BrowserLibraryFastDiffResultKind
     Canceled,
 }
 
-public sealed record BrowserLibraryFastDiffCancellation(
+public sealed record BrowserLibraryFindingDiffAnyCancellation(
     BrowserLibraryApiDiffCancellationKind Kind,
     string? Reason);
