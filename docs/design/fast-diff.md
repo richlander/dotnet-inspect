@@ -762,8 +762,8 @@ selection belong to the background analysis design that adopts this export.
 
 - Fast Diff does not define API semantics, canonical IL, or correspondence; it
   answers with the equality their owners define.
-- It does not present the declaration facts it compares; the declaration
-  view of [Diff capabilities](diff-capabilities.md#axes) does.
+- It does not present the declaration facts it compares; the
+  [declaration view](declaration-view.md) does.
 - It does not report referenced assembly or package version changes as Type
   changes; those versions are compared as candidates in their own right.
 - It does not report which change was found, counts, classifications, or text;

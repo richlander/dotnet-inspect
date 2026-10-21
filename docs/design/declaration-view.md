@@ -19,9 +19,10 @@ Its normative claim is:
 > signatures, typed constants, and attributes with their decoded arguments.
 > One version lists the row's facts. Two versions pair them by fact identity
 > into `Present`, `Changed`, `Added`, and `Removed` transitions, with Fast
-> Diff's census equality, so the view is empty for a row Fast Diff reports
-> `Unchanged` on both axes and non-empty for a row it reports `Changed` by a
-> declaration fact. The view is a representation; every host renders from it.
+> Diff's census equality, so the view is empty exactly when the census's
+> facts for that row are equal on both axes, and non-empty for a row Fast
+> Diff reports `Changed` by a declaration fact. The view is a representation;
+> every host renders from it.
 
 It consumes and does not redefine:
 
@@ -94,23 +95,25 @@ value:
 
 | Field | Value |
 | --- | --- |
-| Kind | One of Fast Diff's fact kinds: Type row, `beforefieldinit`, interface, nullable context, layout, `MethodImpl` row, field row, method row, parameter, import, property row, event row, generic parameter, constraint, attribute, constant |
+| Kind | One of Fast Diff's fact kinds: the Type's visibility marker, Type row, `beforefieldinit`, interface, nullable context, layout, `MethodImpl` row, field row, method row, parameter, import, property row, event row, generic parameter, constraint, attribute, constant |
 | Axis | API or Body, as the census places it on that side |
 | Owner | The row the fact describes under rule 1 of Fast Diff's Type level: the Member's key, or the Type for the residual |
-| Identity | The fact's key within its owner: the owner alone for a row fact; the sequence number for a parameter; the interface, constraint, or generic parameter key; the attribute's constructor key and ordinal among that constructor's uses on the owner |
-| Value | The fact's remaining payload, spelled at the declaration level |
+| Key | The fact's whole census `SymbolKey`, which is its exact identity |
+| Row | For a kind with one fact per row, the row's own key inside the census key: the method, field, property, or event row key; the Type key for the visibility marker, Type row, `beforefieldinit`, nullable context, and layout; the owning row key and sequence number for a parameter; the owning row key and ordinal for a generic parameter; the method key for an import. An interface, constraint, `MethodImpl` row, or attribute fact has no row of its own |
+| Value | The fact's payload after its row, spelled at the declaration level |
 | Certainty | Presented or uncertain, as the census classifies the kind on that axis |
 
-Identity pairs a fact across versions. Value decides whether a pair is
-`Present` or `Changed`. Both come from the census's `SymbolKey` for the fact:
-the identity is the part the census builds before the payload, and the value
-is the payload, so two facts are equal here exactly when the census calls them
-equal. The view adds no equality and no normalization. A kind the census keys
-by raw bytes, such as an attribute blob, pairs by its constructor and ordinal
-and compares by its bytes; its spelling decodes the bytes where
-`AttributeReader` can and shows them as bytes where it cannot, marked as an
-uncertain kind. Promoting such a kind is Diff capabilities' adoption step 2,
-and the view follows the census when it does.
+The key pairs a fact across versions exactly, so two facts are `Present`
+here exactly when the census calls them equal; the view adds no equality and
+no normalization. The row is the fact's one soft identity: a fact whose key is
+on one side only but whose row is on both sides is one `Changed` pair, as the
+[two-version form](#two-versions) states. A kind with no row of its own, such
+as an attribute, moves only as `Added` or `Removed`: two attributes of one
+constructor that swap places leave the census equal and are `Present`, and a
+changed argument is one `Removed` and one `Added`. An attribute's spelling
+decodes its bytes where `AttributeReader` can and shows them as bytes where it
+cannot, marked as an uncertain kind. Promoting such a kind is Diff
+capabilities' adoption step 2, and the view follows the census when it does.
 
 The spelling is presentation over the fact's bytes, never a second
 comparison. Flags are named from their ECMA-335 enumerations; a signature is
@@ -122,8 +125,8 @@ context its value. A Type row names the Type's attributes without
 `beforefieldinit`, which is its own fact; the base Type is part of the row.
 
 A row's facts are an unordered set. The view lists them in a canonical order
-by kind, then identity, for stable output; order carries no meaning and
-produces no transition.
+by kind, then key, for stable output; order carries no meaning and produces
+no transition.
 
 ## One version
 
@@ -141,8 +144,8 @@ by owner under rule 1, and projected for the requested row. The view runs no
 second walk and reads no fact the census does not record; a fact the census
 does not compare, such as a method's IL, is not a declaration fact and is not
 listed. Generated code a Member owns contributes its facts to that Member's
-row, as the census assigns them; generated code with no single owner
-contributes to the residual.
+row, as Fast Diff's Type level assigns the lifted owner; generated code with
+no single owner contributes to the residual.
 
 ## Two versions
 
@@ -150,14 +153,21 @@ The two-version document holds both sides' one-version documents and a
 comparison:
 
 - a `FindingComparison<DeclarationFact>` over the two fact sets, by
-  `FindingMatcher` in its identity-set mode, since the facts are unordered;
-- each pair a `PairFinding`: `Present` when identity and value match,
-  `Changed` when identity matches and value differs, `Added` or `Removed`
-  when the identity is on one side only; and
+  `FindingMatcher` in its identity-set mode, since the facts are unordered.
+  Each fact's `FindingKey` has the whole census key as its `IdentityKey` and,
+  for a kind with a row, one soft key whose tier is the row and whose
+  identity is the row key;
+- each pair a `PairFinding`: `Present` for a matched key, `Added` or
+  `Removed` for a key on one side only, and `Changed` for an accepted soft
+  candidate, a row on both sides whose keys differ, which the view accepts
+  at its row tier and which retains that tier through its match provenance,
+  as [Finding nomenclature](finding-nomenclature.md) folds soft candidates;
+  a row with more than one unmatched fact per side on a tier is left as
+  `Added` and `Removed`, as the matcher's degree-one rule requires; and
 - for a row present on one side only, every fact `Added` or `Removed`, and
   the row's presence recorded on the document.
 
-The comparison runs when either side's outcome is `Complete`; a side that
+The comparison runs when both sides' outcomes are `Complete`; a side that
 could not be censused leaves the comparison undecided rather than empty, so
 an `Indeterminate` row never reads as unchanged. Correspondence across keys
 is not the view's: a Member whose signature changed is two rows, one `Removed`
@@ -168,9 +178,13 @@ declaration comparison; the IL view is its view, and the document says which
 axis and level hold the difference rather than saying nothing, as rule 1 of
 Diff observability requires. A row Fast Diff reports `Changed` by a
 declaration fact has at least one non-`Present` pair. An uncertain fact that
-differs appears as `Changed` and is marked uncertain, which is the
-**Present** decision of Diff capabilities' uncertain-kind table for the Body
-axis: a raw difference the user can see, low-signal, never empty.
+differs appears as `Changed` or as `Removed` and `Added`, marked uncertain,
+which is the **Present** decision of Diff capabilities' uncertain-kind table
+for the Body axis: a raw difference the user can see, low-signal, never
+empty. On the API axis, a row whose census differs only in uncertain facts is
+one the API axis surface may decide `Unchanged`, as Fast Diff's rule 2
+states; the view still shows those facts, marked uncertain, since it follows
+the census rather than the surface.
 
 ## Document and serialization
 
@@ -191,8 +205,8 @@ differing facts marked. No host builds its own lowering.
 
 | Host | One version | Two versions |
 | --- | --- | --- |
-| CLI | `member ... -S "Declaration Facts"`, JSON and Markout | `diff ... --type T --member M -S "Declaration Diff"`, JSON and Markout; the residual by `--type T` without `--member` |
-| Inspect Web | A Declaration facts panel on the Member page, beside Member Facts | The Member reader of [Member Body Diff](inspect-web-member-body-diff.md) gains a declaration medium beside C# and IL; a Type Compare row's Body transition that a declaration fact decides opens the reader on that medium |
+| CLI | `member ... -S "Declaration Facts"` for a Member and `type T -S "Declaration Facts"` for the residual, JSON and Markout | `diff ... --type T --member M -S "Declaration Diff"`, JSON and Markout; the residual by `--type T` without `--member` |
+| Inspect Web | A Declaration facts panel on the Member page, beside Member Facts, and one on the Type page for the residual | The Member reader of [Member Body Diff](inspect-web-member-body-diff.md) gains a declaration medium beside C# and IL; a Type Compare Member row's Body transition that a declaration fact decides opens the reader on that medium, and the Type row's opens the same reader shell on the residual's document |
 | Agent | The one-version document as JSON | The two-version document as JSON |
 
 Every host renders from the same document. The Browser receives it through
@@ -215,9 +229,13 @@ opens.
   as an `Added` attribute, on whichever axis the census places them at that
   head.
 - **One-sided:** for an added and a removed Type, every row's facts are
-  `Added` or `Removed`, including the residual's Type row, and
-  `PublicTypeToInternal`'s rows show a `Changed` Type row for the residual
-  and `Present` facts for every Member.
+  `Added` or `Removed`, including the residual's Type row; and for
+  `PublicTypeToInternal`, whose census records only the visibility marker
+  and the Body facts on the hidden side, the residual shows a `Changed`
+  visibility marker and `Removed` Type row, interface, and nullable context
+  facts, every public Member's API facts are `Removed`, as Fast Diff marks
+  those Members API `Changed`, and every non-public Member's Body facts are
+  `Present`.
 - **Residual:** a public Type gaining an explicit static constructor shows a
   `beforefieldinit` transition on the residual and, with field initializers,
   nothing else; a marker interface removed shows a `Removed` interface fact
@@ -255,8 +273,8 @@ opens.
 | --- | --- | --- |
 | DV1 | The fact projection from Fast Diff's census, both documents, the identity-set comparison, JSON serialization, and the Exactness, One-sided, Residual, Spelling, Currency, and Undecided gates | CLI `member -S "Declaration Facts"` and `diff -S "Declaration Diff"` as JSON |
 | DV2 | Markout lowering of both documents | The same CLI sections as text and Markdown |
-| DV3 | The Browser facade export and the Member page panel | Inspect Web Member page |
-| DV4 | The declaration medium in the Member reader, opened from a Type Compare row's Body transition | Inspect Web Compare |
+| DV3 | The Browser facade export and the Member and Type page panels | Inspect Web Member and Type pages |
+| DV4 | The declaration medium in the Member reader, opened from a Type Compare Member row's Body transition, and the residual's document opened from the Type row | Inspect Web Compare |
 
 DV1 lands with the Expansive gate's fixtures. When DV4 lands, Fast Diff's
 Observability bullet and Diff capabilities' interim exception retire: a Body

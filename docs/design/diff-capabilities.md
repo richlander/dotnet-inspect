@@ -75,8 +75,9 @@ constructor, and generated code without one owner, as
 [Fast Diff's Type level](fast-diff.md#type) partitions them. The residual has
 its own rung-3 entry and rung-4 view: the Type-scope Public API diff for its
 API facts, the Body diff of each residual method, such as a static constructor
-or generated code without one owner, and the Type's declaration view for its
-Body declaration and implementation facts. Each rung covers the one above it:
+or generated code without one owner, and the Type's
+[declaration view](declaration-view.md) for its declaration and
+implementation facts on either axis. Each rung covers the one above it:
 
 - a row's rung-4 diff decides its rung-2 state;
 - for a Type present on both sides, rung 1 is `Unchanged` exactly when every
