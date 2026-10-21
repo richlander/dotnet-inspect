@@ -427,8 +427,7 @@ internal static class BrowserSurfaceProjection
                             parameter.Type,
                             parameter.Modifier,
                             parameter.HasDefault,
-                            parameter.DefaultValue,
-                            parameter.Description),
+                            parameter.DefaultValue),
                     static selector =>
                         new BrowserMemberBodySelectorInfo(
                             selector.Token,
@@ -452,9 +451,6 @@ internal static class BrowserSurfaceProjection
             presentation.ReturnType,
             presentation.Parameters,
             presentation.DocumentationId,
-            null,
-            null,
-            [],
             presentation.StableSelector,
             presentation.AnchorDigest,
             presentation.CanonicalSignature,
@@ -586,8 +582,6 @@ internal static class BrowserSurfaceProjection
             Retain(member.Accessibility);
             Retain(member.ReturnType);
             Retain(member.DocumentationId);
-            Retain(member.Summary);
-            Retain(member.Returns);
             Retain(member.StableSelector);
             Retain(member.AnchorDigest);
             Retain(member.CanonicalSignature);
@@ -601,12 +595,6 @@ internal static class BrowserSurfaceProjection
                 Retain(parameter.Type);
                 Retain(parameter.Modifier);
                 Retain(parameter.DefaultValue);
-                Retain(parameter.Description);
-            }
-            foreach (BrowserExceptionSurfaceInfo exception in member.Exceptions)
-            {
-                Retain(exception.Type);
-                Retain(exception.Description);
             }
             foreach (BrowserMemberBodySelectorInfo selector
                 in member.BodySelectors)

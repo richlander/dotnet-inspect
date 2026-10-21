@@ -363,6 +363,23 @@ public static class ResourceExplanationCommand
                 PackageFileInventoryCommandCapability.Module,
             ]);
 
+    /// <summary>
+    /// The CLI's explanation root over its complete catalog, from the
+    /// routing declarations of the owners the CLI admits. The CLI withholds
+    /// the root while any resource is unreachable from it; until the CLI
+    /// host adoption assigns its public address (#10139), the root's path is
+    /// provisional and the root is composed only for that gate.
+    /// </summary>
+    internal static ResourceExplanationRootComposition? CreateRootComposition() =>
+        CreateCompleteCatalog() is { } complete
+            ? ResourceExplanationCatalog.ComposeRoot(
+                complete,
+                new ResourcePath(ProvisionalRootSegment),
+                [.. StructuralRoutingDeclarations.Create()])
+            : null;
+
+    private const string ProvisionalRootSegment = "root";
+
     internal static ResourceExplanationCatalog? CreateCompleteCatalog()
     {
         var structuralCatalogs = new List<ResourceExplanationCatalog>();

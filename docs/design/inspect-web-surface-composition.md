@@ -1040,6 +1040,19 @@ the same header, controls, and scroll owner. Failures remain visibly distinct
 from successful
 empty results.
 
+Foreground Package Dependencies owns one closed acquisition lifecycle shared
+by the Package References and Library References surfaces. Idle carries no
+coordinate or evidence; loading carries the exact request; ready carries the
+typed dependency and assembly-reference result, including owner-issued partial
+diagnostics or successful no-dependency evidence; failed carries a non-empty
+visible query diagnostic and no result. Only the exact current loading request
+may publish foreground evidence, and same-coordinate loading or terminal
+evidence suppresses duplicate acquisition. Workspace dependency-group caches
+remain a separate durable authority: a resident package result may populate
+its coordinate-keyed cache even after a different foreground request replaces
+it. Workspace snapshots retain ready and failed foreground evidence and
+normalize interrupted loading to idle.
+
 At narrow widths, the `Types` return control shares the quiet header, controls
 wrap within their row, and header values may elide as complete
 strings. The surface creates no page-level horizontal overflow. This slice
