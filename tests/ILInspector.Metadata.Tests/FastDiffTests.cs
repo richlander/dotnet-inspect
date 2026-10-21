@@ -188,7 +188,9 @@ public sealed class FastDiffTests
     /// pairing, equals canonical IL comparison's verdict for the same two
     /// bodies under the Body policy. <c>Exact</c> is <c>Unchanged</c>, a body
     /// on one side only or any other available verdict is <c>Changed</c>, and
-    /// a verdict canonical comparison cannot reach is never <c>Unchanged</c>.
+    /// a body canonical comparison cannot decide is <c>Indeterminate</c>. The
+    /// one designed departure, a difference decided before a decode fault, has
+    /// its own generated case in <c>FastDiffIdentityTests</c>.
     /// </summary>
     [Theory]
     [InlineData("fast-diff")]
@@ -206,10 +208,7 @@ public sealed class FastDiffTests
         Assert.All(verdicts, verdict =>
         {
             FastDiffState canonical = CanonicalBodyVerdict(before, after, verdict);
-            if (canonical == FastDiffState.Indeterminate)
-                Assert.NotEqual(FastDiffState.Unchanged, verdict.Body);
-            else
-                Assert.True(canonical == verdict.Body, $"{verdict.Type} {verdict.Method}: canonical {canonical}, Fast Diff {verdict.Body}.");
+            Assert.True(canonical == verdict.Body, $"{verdict.Type} {verdict.Method}: canonical {canonical}, Fast Diff {verdict.Body}.");
         });
     }
 

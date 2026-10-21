@@ -149,10 +149,11 @@ as the kind's owner defines it under the policy, and they are what lockstep
 compares, with one exclusion: a branch or switch target that is undecided, as
 the pre-scan rule above leaves it, is left out of the comparison, and the
 position is pending when the rest is equal. A target that does not land on an
-instruction boundary of its own body, or lands at its end or outside it, is a
-fault of the branch that names it, as the decoder canonical comparison runs
-rejects such a target; the pre-scan records it as it records an undefined
-opcode. The atom's `FindingKey` is the kind's
+instruction boundary of its own body, or lands at its end or outside it, is
+one the decoder canonical comparison runs rejects; the atom carries it as
+undecided, and a cursor whose stream completes with such a target ends
+`Failed` instead of `Complete`, so a difference decided before the end is
+read as Fast Diff's walk reads it. The atom's `FindingKey` is the kind's
 **matcher projection** of those bytes, which may be the same or less: a
 declaration fact's identity key is a lossless encoding of its whole census key,
 as the declaration view states, so its projection is the bytes; an IL

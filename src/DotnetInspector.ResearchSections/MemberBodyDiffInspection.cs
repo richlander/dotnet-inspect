@@ -2,6 +2,7 @@ using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Analysis;
+using ILInspector.ILDiff;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -60,7 +61,10 @@ public static class MemberBodyDiffInspection
                             .Where(pair => pair.Before is not null && pair.After is not null)
                             .Select(pair => new ComparisonMemberPairSelection(
                                 new(pair.Before!.Type, pair.Before.Selector), new(pair.After!.Type, pair.After.Selector)))]),
-                    ImplementationDiffMechanism.CSharp | ImplementationDiffMechanism.IlBody));
+                    ImplementationDiffMechanism.CSharp | ImplementationDiffMechanism.IlBody,
+                    // The IL view compares under Fast Diff's Body policy, so a
+                    // Body cue and the view it opens agree (fast-diff.md#observability).
+                    IlBodyDiffPolicy.Body));
                 var oldIndex = Index(oldBodies, oldBinding);
                 var newIndex = Index(newBodies, newBinding);
                 var rows = new Dictionary<string, MemberBodyDiffMember>(StringComparer.Ordinal);

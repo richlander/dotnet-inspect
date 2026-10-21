@@ -131,6 +131,38 @@ public sealed class FastDiffBodyTests
     }
 
     [Fact]
+    public void TrailingUndefinedOpcode_IsIndeterminate()
+    {
+        // The longer stream continues with an opcode that cannot be decoded,
+        // so no difference is decided before the fault.
+        AssertUndecidable([0x2A], [0x2A, 0x24]);
+    }
+
+    [Fact]
+    public void TrailingInstruction_IsChanged()
+    {
+        FastDiffResult result = CompareRaw([0x2A], [0x2A, 0x00]); // ret vs ret; nop
+        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Body);
+        AssertPerMethodAgreement(RawImage([0x2A]), RawImage([0x2A, 0x00]), decided: true);
+    }
+
+    /// <summary>
+    /// Roslyn emits a same-module vararg call as a member reference whose
+    /// parent is the method definition. Canonical comparison cannot resolve
+    /// that parent, so the body is undecidable for both engines.
+    /// </summary>
+    [Fact]
+    public void VarargCallSiteWithAMethodParent_IsIndeterminate()
+    {
+        byte[] image = VarargImage();
+        FastDiffTypeState state = Single(CompareImages(image, image), "N.C");
+        Assert.Equal(FastDiffState.Unchanged, state.Api);
+        Assert.Equal(FastDiffState.Indeterminate, state.Body);
+        Assert.Equal(FastDiffState.Unchanged, Single(CompareImages(image, image), "N.V").Body);
+        AssertPerMethodAgreement(image, image, decided: false);
+    }
+
+    [Fact]
     public void BranchToTheEndOfTheBody_IsIndeterminate()
     {
         // The end of the body starts no instruction, so the decoder reports
@@ -216,6 +248,41 @@ public sealed class FastDiffBodyTests
     {
         var image = new ImageBuilder("Raw", "11111111-1111-1111-1111-111111111111");
         image.AddType("N", "C", ("M", image.VoidSignature, il => il.CodeBuilder.WriteBytes(body)));
+        return image.Build();
+    }
+
+    /// <summary>
+    /// <c>N.V::Invoke(int, ...)</c> is a vararg method; <c>N.C::M</c> calls it
+    /// through a member reference whose parent is <c>Invoke</c> itself.
+    /// </summary>
+    static byte[] VarargImage()
+    {
+        var image = new ImageBuilder("Vararg", "44444444-4444-4444-4444-444444444444");
+        var declaration = new BlobBuilder();
+        new BlobEncoder(declaration).MethodSignature(SignatureCallingConvention.VarArgs).Parameters(
+            1, returnType => returnType.Void(), parameters => parameters.AddParameter().Type().Int32());
+        MethodDefinitionHandle invoke = MetadataTokens.MethodDefinitionHandle(image.NextMethod);
+        image.AddType("N", "V", ("Invoke", image.Metadata.GetOrAddBlob(declaration), il => il.OpCode(ILOpCode.Ret)));
+        var callSite = new BlobBuilder();
+        new BlobEncoder(callSite).MethodSignature(SignatureCallingConvention.VarArgs).Parameters(
+            2,
+            returnType => returnType.Void(),
+            parameters =>
+            {
+                parameters.AddParameter().Type().Int32();
+                parameters = parameters.StartVarArgs();
+                parameters.AddParameter().Type().Int64();
+            });
+        MemberReferenceHandle site = image.Metadata.AddMemberReference(
+            invoke, image.Metadata.GetOrAddString("Invoke"), image.Metadata.GetOrAddBlob(callSite));
+        image.AddType("N", "C", ("M", image.VoidSignature, il =>
+        {
+            il.OpCode(ILOpCode.Ldc_i4_1);
+            il.OpCode(ILOpCode.Ldc_i8);
+            il.CodeBuilder.WriteInt64(2);
+            il.Call(site);
+            il.OpCode(ILOpCode.Ret);
+        }));
         return image.Build();
     }
 
@@ -443,6 +510,9 @@ public sealed class FastDiffBodyTests
         public MetadataBuilder Metadata { get; } = new();
 
         public BlobHandle VoidSignature { get; }
+
+        /// <summary>The row the next added method takes.</summary>
+        public int NextMethod => _nextMethod;
 
         public (MethodDefinitionHandle, MethodDefinitionHandle) AddCallees()
         {

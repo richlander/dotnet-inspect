@@ -389,26 +389,6 @@ public sealed class DirectMemberComparisonQueryTests
             TestContext.Current.CancellationToken));
     }
 
-    /// <summary>
-    /// Member Body Diff names Fast Diff's Body policy on its request; a request
-    /// that names none compares with none, as Implementation Diff and the CLI
-    /// match command do.
-    /// </summary>
-    [Fact]
-    public async Task DirectMemberComparison_RetainsTheIlNormalizationItNames()
-    {
-        await using var fixture = new Fixture(Image());
-        DirectMemberComparisonEndpoint endpoint = fixture.Endpoint("Stable");
-
-        Assert.Equal(
-            IlBodyDiffNormalization.None,
-            new DirectMemberComparisonRequest(endpoint, endpoint, ResearchProducerCatalog.Kinds).IlNormalization);
-        Assert.Equal(
-            IlBodyDiffPolicy.Body,
-            new DirectMemberComparisonRequest(
-                endpoint, endpoint, ResearchProducerCatalog.Kinds, IlBodyDiffPolicy.Body).IlNormalization);
-    }
-
     [Fact]
     public async Task DirectMemberComparison_RequiresExplicitNonemptyProducers()
     {

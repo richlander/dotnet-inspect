@@ -447,11 +447,8 @@ public static class FastDiff
                         break;
                     }
                     case Operand.String:
-                        if (a.Md.GetUserString(MetadataTokens.UserStringHandle(readerA.ReadInt32() & 0xFFFFFF))
-                            != b.Md.GetUserString(MetadataTokens.UserStringHandle(readerB.ReadInt32() & 0xFFFFFF)))
-                        {
+                        if (!UserStrings.Equal(a.Strings, readerA.ReadInt32(), b.Strings, readerB.ReadInt32()))
                             return false;
-                        }
                         break;
                     case Operand.Signature:
                         if (!SignatureBytesEqual(
@@ -473,10 +470,15 @@ public static class FastDiff
                     }
                 }
             }
-            if (readerA.RemainingBytes != 0 || readerB.RemainingBytes != 0)
-                return false;
             if (prefixed)
                 throw new BadImageFormatException("The IL ends with a prefix.");
+            if (readerA.RemainingBytes != 0 || readerB.RemainingBytes != 0)
+            {
+                // The stream that continues is the difference, once what it
+                // continues with is an opcode that can be decoded.
+                OperandOf(ReadOpCode(ref (readerA.RemainingBytes != 0 ? ref readerA : ref readerB)));
+                return false;
+            }
 
             for (int i = 0; i < targets; i++)
             {
@@ -561,28 +563,49 @@ public static class FastDiff
         }
 
         /// <summary>
-        /// Rejects a token whose kind the opcode does not take, as canonical
-        /// comparison's operand resolution does.
+        /// Rejects a token canonical comparison's operand resolution rejects:
+        /// a kind the opcode does not take, a member reference whose parent is
+        /// not a Type (such as Roslyn's vararg call site, whose parent is the
+        /// method definition), or a method specification of such a reference.
         /// </summary>
         static void RequireOperandKind(Operand operand, Side side, EntityHandle handle)
         {
             bool admitted = operand switch
             {
-                Operand.Method => handle.Kind is HandleKind.MethodDefinition or HandleKind.MethodSpecification
-                    || (handle.Kind is HandleKind.MemberReference
-                        && side.Md.GetMemberReference((MemberReferenceHandle)handle).GetKind() == MemberReferenceKind.Method),
+                Operand.Method => handle.Kind is HandleKind.MethodDefinition
+                    || IsMemberReference(side, handle, MemberReferenceKind.Method)
+                    || IsMethodSpecification(side, handle),
                 Operand.Field => handle.Kind is HandleKind.FieldDefinition
-                    || (handle.Kind is HandleKind.MemberReference
-                        && side.Md.GetMemberReference((MemberReferenceHandle)handle).GetKind() == MemberReferenceKind.Field),
-                Operand.Type => handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference
-                    or HandleKind.TypeSpecification,
-                _ => handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference
-                    or HandleKind.TypeSpecification or HandleKind.MethodDefinition
-                    or HandleKind.MethodSpecification or HandleKind.FieldDefinition
-                    or HandleKind.MemberReference,
+                    || IsMemberReference(side, handle, MemberReferenceKind.Field),
+                Operand.Type => IsType(handle),
+                _ => IsType(handle)
+                    || handle.Kind is HandleKind.MethodDefinition or HandleKind.FieldDefinition
+                    || IsMemberReference(side, handle, kind: null)
+                    || IsMethodSpecification(side, handle),
             };
             if (!admitted)
-                throw new BadImageFormatException($"An operand names a {handle.Kind}, which its opcode does not take.");
+                throw new BadImageFormatException($"An operand names a {handle.Kind} canonical comparison does not resolve.");
+        }
+
+        static bool IsType(EntityHandle handle)
+            => handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification;
+
+        /// <summary>A member reference of the kind, or any kind, whose parent is a Type.</summary>
+        static bool IsMemberReference(Side side, EntityHandle handle, MemberReferenceKind? kind)
+        {
+            if (handle.Kind != HandleKind.MemberReference)
+                return false;
+            MemberReference member = side.Md.GetMemberReference((MemberReferenceHandle)handle);
+            return (kind is null || member.GetKind() == kind) && IsType(member.Parent);
+        }
+
+        static bool IsMethodSpecification(Side side, EntityHandle handle)
+        {
+            if (handle.Kind != HandleKind.MethodSpecification)
+                return false;
+            EntityHandle method = side.Md.GetMethodSpecification((MethodSpecificationHandle)handle).Method;
+            return method.Kind is HandleKind.MethodDefinition
+                || IsMemberReference(side, method, MemberReferenceKind.Method);
         }
     }
 
@@ -718,11 +741,15 @@ public static class FastDiff
             Md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
             Keys = new SymbolKey.Builder(new SymbolKey.Utf8Names(pe, Md));
+            Strings = new UserStrings(pe, Md);
             _signatures = new SignatureKeys(this);
         }
 
         /// <summary>The only way this side spells a compared key or fact.</summary>
         public SymbolKey.Builder Keys { get; }
+
+        /// <summary>This side's <c>#US</c> heap, read as stored bytes.</summary>
+        public UserStrings Strings { get; private set; }
 
         /// <summary>
         /// Rebinds this side to a reader over the same image. Every retained
@@ -739,6 +766,7 @@ public static class FastDiff
             Pe = pe;
             Md = md;
             Keys.Names = new SymbolKey.Utf8Names(pe, md);
+            Strings = new UserStrings(pe, md);
         }
 
         /// <summary>
@@ -1512,6 +1540,49 @@ public static class FastDiff
             Keys.Mark(SymbolPart.StandaloneSignature).Int(method.Header.RawValue);
             Signature(method);
             return Keys.End(mark);
+        }
+    }
+
+    /// <summary>
+    /// Reads <c>#US</c> entries as their stored bytes, so two user strings
+    /// compare by their UTF-16 code units without decoding a string.
+    /// </summary>
+    internal sealed class UserStrings
+    {
+        readonly BlobReader _heap;
+
+        public UserStrings(PEReader pe, MetadataReader md)
+            => _heap = pe.GetMetadata().GetReader(
+                md.GetHeapMetadataOffset(HeapIndex.UserString),
+                md.GetHeapSize(HeapIndex.UserString));
+
+        /// <summary>
+        /// Whether two <c>ldstr</c> tokens name strings of the same code
+        /// units. The entry's terminal byte is derived from its content, so
+        /// it is not compared.
+        /// </summary>
+        public static unsafe bool Equal(UserStrings a, int tokenA, UserStrings b, int tokenB)
+        {
+            BlobReader x = a.Entry(tokenA, out int lengthA);
+            BlobReader y = b.Entry(tokenB, out int lengthB);
+            return lengthA == lengthB
+                && new ReadOnlySpan<byte>(x.CurrentPointer, lengthA)
+                    .SequenceEqual(new ReadOnlySpan<byte>(y.CurrentPointer, lengthB));
+        }
+
+        /// <summary>The heap positioned at an entry's code units, with their byte length.</summary>
+        BlobReader Entry(int token, out int units)
+        {
+            int offset = token & 0xFFFFFF;
+            if (offset >= _heap.Length)
+                throw new BadImageFormatException("A user string lies outside the #US heap.");
+            BlobReader entry = _heap;
+            entry.Offset = offset;
+            int length = entry.ReadCompressedInteger();
+            if (length > entry.RemainingBytes || (length != 0 && (length & 1) == 0))
+                throw new BadImageFormatException("A #US entry is malformed.");
+            units = length == 0 ? 0 : length - 1;
+            return entry;
         }
     }
 

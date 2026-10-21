@@ -1,3 +1,4 @@
+using ILInspector.ILDiff;
 using ILInspector.Research;
 
 namespace DotnetInspector.Queries;
@@ -57,12 +58,18 @@ public sealed record ImplementationComparisonInput
     {
     }
 
+    /// <param name="ilNormalization">
+    /// The normalization the IL producer compares under. Member Body Diff
+    /// names Fast Diff's Body policy (<see cref="IlBodyDiffPolicy.Body"/>);
+    /// Implementation Diff compares with none.
+    /// </param>
     public ImplementationComparisonInput(
         IReadOnlyList<ImplementationAssemblyInput> oldAssemblies,
         IReadOnlyList<ImplementationAssemblyInput> newAssemblies,
         IReadOnlySet<string>? typeFilters,
         ImplementationComparisonPopulation population,
-        ImplementationDiffMechanism mechanisms)
+        ImplementationDiffMechanism mechanisms,
+        IlBodyDiffNormalization ilNormalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(oldAssemblies);
         ArgumentNullException.ThrowIfNull(newAssemblies);
@@ -76,6 +83,7 @@ public sealed record ImplementationComparisonInput
         TypeFilters = typeFilters;
         Population = population;
         Mechanisms = mechanisms;
+        IlNormalization = ilNormalization;
     }
 
     public IReadOnlyList<ImplementationAssemblyInput> OldAssemblies { get; }
@@ -83,6 +91,9 @@ public sealed record ImplementationComparisonInput
     public IReadOnlySet<string>? TypeFilters { get; }
     public ImplementationComparisonPopulation Population { get; }
     public ImplementationDiffMechanism Mechanisms { get; }
+
+    /// <summary>The normalization the IL producer compares under.</summary>
+    public IlBodyDiffNormalization IlNormalization { get; }
 }
 
 public abstract class ImplementationComparisonResult
@@ -407,7 +418,9 @@ public static class ImplementationComparisonQuery
                     new ResearchProducerSessionRequest(
                         resolved.Projected.Admission,
                         resolved.Resolution,
-                        producers, designatedPairs),
+                        producers,
+                        designatedPairs,
+                        input.IlNormalization),
                     cancellationToken);
             if (session is
                 ResearchProducerSessionOutcome.Rejected producerRejected)

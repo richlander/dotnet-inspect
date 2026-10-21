@@ -1,7 +1,6 @@
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
-using ILInspector.ILDiff;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -115,10 +114,7 @@ internal static class MethodBodyComparisonOperations
                     [
                         ResearchProducerKind.CSharp,
                         ResearchProducerKind.IlBody,
-                    ],
-                    // The IL view compares under Fast Diff's Body policy, so
-                    // a Body cue and the view it opens agree.
-                    IlBodyDiffPolicy.Body),
+                    ]),
                 token);
         return BrowserMethodBodyProjection.Project(
             request,
