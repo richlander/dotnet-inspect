@@ -25,7 +25,7 @@ export const endpoint = (
     culture: null,
     publicKeyToken: null,
   },
-  scope: "Public",
+  scope: "ApiAxis",
   isComplete: true,
   issues: [],
 });
@@ -36,9 +36,9 @@ export function succeeded(
   compileAssetId = "lib/net11.0/Example.dll",
 ): BrowserLibraryApiDiffResult {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     request: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion,
       targetVersion,
@@ -66,6 +66,7 @@ export function succeeded(
         additiveCount: 2,
         potentiallyBreakingCount: 0,
         nonBreakingCount: 0,
+        outsideOrdinaryRowCount: 0,
       },
       types: [
         {
@@ -83,12 +84,14 @@ export function succeeded(
             namespace: "Example",
             segments: ["Widget"],
             display: "Example.Widget",
+            isObsolete: false,
           },
           after: {
             identifier: "after-widget",
             namespace: "Example",
             segments: ["Widget"],
             display: "Example.Widget",
+            isObsolete: false,
           },
           members: [],
           changes: [],
@@ -109,6 +112,7 @@ export function succeeded(
             namespace: "Example",
             segments: ["Options"],
             display: "Example.Options",
+            isObsolete: false,
           },
           members: [],
           changes: [],
@@ -206,6 +210,7 @@ export function withMembers(): BrowserLibraryApiDiffResult {
     typeFullName: "Example.Widget",
     memberName: "Run",
     display,
+    isObsolete: false,
   });
   const exploreEndpoint = (
     version: string,
@@ -262,6 +267,7 @@ export function withMembers(): BrowserLibraryApiDiffResult {
                   kind: "MemberSignatureChanged",
                   classification: "Breaking",
                   category: "Signature",
+                  state: "Changed",
                   message: "Parameter type changed from int to long.",
                   oldValue: "void Run(int)",
                   newValue: "void Run(long)",
@@ -270,6 +276,7 @@ export function withMembers(): BrowserLibraryApiDiffResult {
                   kind: "MemberAttributeAdded",
                   classification: "PotentiallyBreaking",
                   category: "Attribute",
+                  state: "Changed",
                   message: "[Obsolete] was added.",
                   oldValue: null,
                   newValue: "Obsolete",
@@ -288,6 +295,7 @@ export function withMembers(): BrowserLibraryApiDiffResult {
                 kind: "MemberAdded",
                 classification: "Additive",
                 category: "Signature",
+                state: "Added",
                 message: "Member New() was added.",
                 oldValue: null,
                 newValue: null,
@@ -308,6 +316,7 @@ export function withMembers(): BrowserLibraryApiDiffResult {
             kind: "SealedAdded",
             classification: "Breaking",
             category: "Signature",
+            state: "Changed",
             message: "Type became sealed.",
             oldValue: null,
             newValue: "sealed",
@@ -322,12 +331,14 @@ export function withMembers(): BrowserLibraryApiDiffResult {
             namespace: "Example",
             segments: ["Options"],
             display: "Example.Options",
+            isObsolete: false,
           },
           after: null,
           changes: [{
             kind: "TypeRemoved",
             classification: "Breaking",
             category: "Signature",
+            state: "Removed",
             message: "Type Example.Options was removed.",
             oldValue: null,
             newValue: null,

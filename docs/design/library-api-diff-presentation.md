@@ -441,6 +441,182 @@ bounded member-name preview derived from the complete member population, but
 the preview is host presentation and does not change the document's counts or
 completeness.
 
+## Ordinary presentation
+
+This section, tracked by
+[#10363](https://github.com/richlander/dotnet-inspect/issues/10363) (slice 1a
+PR 3 of [#10227](https://github.com/richlander/dotnet-inspect/issues/10227)),
+owns:
+
+> Library API Diff compares the
+> [API axis](api-population-scope.md#the-diffs-api-axis-population) and
+> presents its ordinary population by default. The document stays the complete
+> API axis comparison and carries typed per-side facts, so each host shows a
+> row when either side is ordinary, from those facts alone, and states how
+> many rows it leaves out.
+
+### Comparison scope
+
+The CLI selected-Library `diff` route and the Inspect Web Library API Diff
+request `ApiSurfaceScope.ApiAxis`, which maps to
+`ApiSurfaceExtractionScope.ApiAxis`. `--all` keeps `IncludeAll`. The other
+diff routes, such as the aggregate package, member-filter, Analysis Diff
+(including `--analysis api`), and Implementation Diff routes, keep the Public
+scope. A public to protected move is therefore an accessibility row on the
+selected-Library route and a removal on those routes. In Inspect Web, the
+other Diff analyses that share the Library comparison
+(`DiffAnalysisLibraryInspection.Execute`) receive the same API axis surfaces
+([Inspect Web Library API Diff](inspect-web-library-api-diff.md#managed-composition)).
+
+### Per-side facts
+
+Every `LibraryApiTypeIdentity` and `LibraryApiMemberIdentity` carries one
+`LibraryApiDeclarationStatus(IsOrdinary, IsHidden, IsObsolete)`, so every
+occupied side of a Type subject, a member relation, and a compatibility change
+subject has it. JSON serializes it as `status`.
+
+- A Type side is **ordinary** when it is public or nested public, not hidden,
+  and every enclosing Type is public or nested public and not hidden.
+  Extraction records the enclosing fact from metadata
+  (`ApiType.EnclosingTypesOrdinary`, with the hidden rule of `IsHidden`), so
+  it holds when a [Type selection](#type-scoped-comparison) does not project
+  the enclosing Type. A public nested Type of a protected, internal, or hidden
+  Type is not ordinary.
+- A Member side is ordinary when it is public, not hidden, and its declaring
+  Type side is ordinary.
+- `IsHidden` and `IsObsolete` are the
+  [API status](api-status-analysis.md#status-facts) facts. Obsolete does not
+  remove a declaration from the ordinary population.
+
+A change, a member relation, or a Type is ordinary when either occupied side
+is (`IsOrdinary`, not serialized). `LibraryApiOrdinaryPresentation` names the
+unclassified evidence rows (a Type definition change, or a changed-member
+relation, without a compatibility row), whether a Type has an ordinary row,
+and the outside count. A host applies the ordinary presentation only when
+both endpoints compared the API axis (`PresentsOrdinaryPopulation`); `--all`
+shows every row.
+
+### Row states
+
+Each `LibraryApiCompatibilityChange` carries `State`, a
+`LibraryApiChangeState` derived from its `ChangeKind` and its sides' status,
+never from message text:
+
+| State | Rows |
+| ----- | ---- |
+| Added | `TypeAdded`, `MemberAdded` |
+| Removed | `TypeRemoved`, `MemberRemoved` |
+| Hidden | `TypeHiddenChanged`, `MemberHiddenChanged` whose After side is hidden |
+| Unhidden | `TypeHiddenChanged`, `MemberHiddenChanged` whose After side is visible |
+| Obsoleted | `TypeObsoleteChanged`, `MemberObsoleteChanged` |
+| Changed | every other row |
+
+`Changed` makes the derivation total; it is not a filter the operator
+decision names. A hidden subject's row says `was hidden` where the Public
+scope said `was removed`.
+
+### CLI
+
+The Markout views, Type summaries, detailed rows, name-only output, and
+explicitly projected JSON show the rows with an ordinary side; a Type appears
+when at least one of its rows does. Summary counts and the `--breaking` and
+`--additive` filters apply to those rows. When rows are left out, stderr
+carries one note: how many rows the type and classification selections keep
+outside the ordinary population, pointing to unprojected `--json`. A row is
+counted once for each changed Type that holds it. Unprojected `--json` and
+`--envelope` serialize the complete document, with status and state. There is
+no new option.
+
+An obsolete Type is marked by `[Obsolete]` after its name in a Type column,
+heading, or summary row. A row about an obsolete Member, other than its own
+obsolete-status row, starts with `[Obsolete]`. Name-only output lists names
+and is not marked.
+
+Exit codes are unchanged: an Available comparison returns 0, whether or not
+rows are displayed or left out, and Unavailable or Rejected returns 1 in
+every output mode.
+
+### Inspect Web
+
+The Browser wire inventory (schema version 4) is the ordinary view: it keeps
+the Types, members, and changes with an ordinary side, and its aggregate
+counts them. `OutsideOrdinaryRowCount` carries the outside count, each change
+carries its `State`, and each Type and member identity carries `IsObsolete`.
+The `inspection` baseline keeps the complete document. The Browser owner
+renders the states and the note
+([Inspect Web Library API Diff](inspect-web-library-api-diff.md#library-presentation)).
+
+### Evidence
+
+The population check compared the Public scope default with this one over
+314 Library pairs: the 172 shared-framework `Microsoft.NETCore.App` and 132
+`Microsoft.AspNetCore.App` runtime-pack Libraries present in both 10.0.12 and
+11.0.0-rc.1 (osx-arm64), and ten package pairs: `System.Text.Json` 4.7.2 to
+5.0.0, 5.0.0 to 6.0.0, and 6.0.0 to 8.0.0 (`netstandard2.0`), 8.0.0 to
+9.0.0, and 9.0.0 to 10.0.0 (`net8.0`); `Serilog` 4.0.0 to 4.2.0;
+`Newtonsoft.Json` 12.0.3 to 13.0.3, `System.Collections.Immutable` 8.0.0 to
+9.0.0, and `Microsoft.Extensions.DependencyInjection.Abstractions` and
+`Microsoft.Extensions.Logging.Abstractions` 8.0.0 to 9.0.0
+(`netstandard2.0`). Every pair is Available under both scopes. Default text
+is byte-identical for 280 pairs. The 34 others differ only in these
+classes, with no unexplained row; a row count includes both the rows that
+leave and the rows that appear:
+
+| Class | Rows |
+| ----- | ---- |
+| A public nested Type of a non-public Type leaves the output ([#10345](https://github.com/richlander/dotnet-inspect/issues/10345)) | 67 |
+| A removal or addition becomes a Hidden or Unhidden row, with the rows of a Type whose hidden status changed | 39 |
+| Rows of an obsolete Type the Public scope suppressed, now shown and marked | 16 |
+| New obsolete-status rows | 9 |
+| `[Obsolete]` markers | 18 lines |
+| The outside note | 12 pairs |
+
+Only headings and summary lines otherwise differ, in pairs with row
+differences. The corpus has no public to protected Member move; the fixture
+gates it. `--all` text is unchanged apart from the marker on the four pairs
+checked (`System.Private.CoreLib`, `Microsoft.AspNetCore.Mvc.Core`, and
+`System.Text.Json` 4.7.2 to 5.0.0 and 6.0.0 to 8.0.0).
+
+One class (c) case is a surprise: `System.Text.Json` 8.0.0's
+`netstandard2.0` `Utf8JsonReader` is marked `[Obsolete]`. Roslyn's ref-struct
+`[Obsolete]` marker has no `CompilerFeatureRequired` partner on that target,
+so the [API status](api-status-analysis.md#status-facts) fact records it as
+obsolete, and the Public scope already suppressed the Type.
+
+On NativeAOT (osx-arm64, base `a144c7545`), `System.Private.CoreLib` 10 to 11
+takes, as medians of 12 interleaved runs after two warmups:
+
+| Command | Base | Head |
+| ------- | ---- | ---- |
+| Complete diff | 1.293 s | 1.480 s |
+| One Type (`-t System.String`) | 0.179 s | 0.213 s |
+| Complete unprojected `--json` | 1.311 s | 1.500 s |
+
+The same head forced to the Public scope takes 1.296 s, 0.181 s, and 1.315 s
+with byte-identical text, so the status, state, and ordinary filtering cost
+is within noise. The increase is the API axis comparison itself, which
+extracts and compares protected, hidden, and obsolete declarations and their
+transitions; the complete JSON grows from 5.6 MB to 6.8 MB.
+
+### Gates
+
+- `LibraryApiDiffPresentationTests` gate each state's derivation, each side's
+  ordinary fact (a public to protected move, hidden and protected Members, a
+  public nested Type of a hidden Type, and an obsolete Member), Type status on
+  both sides, a nested Type's ordinary fact under a Type selection, and the
+  outside count for each scope. `FastDiffTests` gate the recorded enclosing
+  fact under public, protected, and hidden enclosing Types.
+- `LibraryApiDiffCommandTests` gate `-t` naming a nested Type, by simple and
+  `Outer+Nested` name, and a public Type nested in a hidden Type under `-t`.
+- `LibraryApiDiffCommandTests` gate the default text for each state, a public
+  to protected row, an obsolete Type and Member marked, the note and absence of
+  rows outside the ordinary population in Markout, name-only, and table
+  output, and the complete unprojected JSON.
+- `BrowserLibraryApiDiffOperationTests` and the inspect-web
+  `library-api-diff` tests gate the wire view, state, marker, and note, and
+  an empty ordinary view with rows left out does not claim the Library is
+  unchanged.
+
 ## Relationship to shared diff formats and Markout
 
 `ComparisonDocument<T>` composes the comparison topology within
@@ -623,7 +799,7 @@ case is marked Slow; deterministic fixture cases remain PR-fast.
 The selected-Library query and Metadata bounds suites retain their own
 extraction gates. The existing Browser adopter calls the shared terminal and
 retains its complete baseline beside the bounded wire projection.
-`BrowserLibraryApiDiffOperationTests` gates that consumer's complete changed-Type
+`BrowserLibraryApiDiffOperationTests` gates that consumer's ordinary changed-Type
 inventory, baseline serialization, empty and typed non-success cases, and
 whole-result bound rejection. Browser operation/lifetime and UI navigation remain governed
 and gated by the [Browser owner](inspect-web-library-api-diff.md); this content

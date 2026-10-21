@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ILInspector.Metadata;
 
@@ -49,6 +50,44 @@ public static partial class ApiSurfaceExtractor
             or TypeAttributes.NestedFamily
             or TypeAttributes.NestedFamORAssem
             && MetadataVisibility.AreEnclosingTypesExternallyReachable(reader, handle);
+
+    /// <summary>
+    /// Whether every Type enclosing <paramref name="handle"/> is in the ordinary population
+    /// (docs/design/library-api-diff-presentation.md#per-side-facts): public or nested public,
+    /// and not hidden by <c>EditorBrowsable(Never)</c>, the rule <see cref="ApiType.IsHidden"/>
+    /// records. A top-level Type has no enclosing Type. Read from metadata, so the answer does
+    /// not depend on which Types a selection projects.
+    /// </summary>
+    static bool AreEnclosingTypesOrdinary(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        Action<int>? beforeMaterialize)
+    {
+        int remaining = reader.GetTableRowCount(TableIndex.TypeDef);
+        TypeDefinitionHandle current =
+            reader.GetTypeDefinition(handle).GetDeclaringType();
+        while (!current.IsNil)
+        {
+            if (remaining-- == 0)
+            {
+                throw new BadImageFormatException(
+                    "The nested type graph contains a cycle.");
+            }
+
+            TypeDefinition definition = reader.GetTypeDefinition(current);
+            if ((definition.Attributes & TypeAttributes.VisibilityMask)
+                    is not (TypeAttributes.Public or TypeAttributes.NestedPublic)
+                || AttributeReader.HasEditorBrowsableNeverAttribute(
+                    reader,
+                    definition.GetCustomAttributes(),
+                    beforeMaterialize))
+            {
+                return false;
+            }
+            current = definition.GetDeclaringType();
+        }
+        return true;
+    }
 
     internal static MetadataMethodAccessibilityFilter AccessibilityBucket(
         MethodAttributes access) =>

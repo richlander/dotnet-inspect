@@ -2,6 +2,8 @@ using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.ILDiff;
 using Inspector.Findings;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -377,6 +379,52 @@ public sealed class FastDiffTests
             type => type.FullName == "FastDiffFixture.HiddenTypeChanged");
 
         Assert.True(type.IsHidden);
+    }
+
+    // Whether every enclosing Type is ordinary is read from metadata, so a Type selection
+    // that does not project the enclosing Type keeps it
+    // (docs/design/library-api-diff-presentation.md#per-side-facts).
+    [Theory]
+    [InlineData(ApiSurfaceExtractionScope.ApiAxis)]
+    [InlineData(ApiSurfaceExtractionScope.IncludeAll)]
+    public void EnclosingTypesOrdinary_RequiresEveryEnclosingTypePublicAndNotHidden(
+        ApiSurfaceExtractionScope scope)
+    {
+        const string source = """
+            using System.ComponentModel;
+            namespace N;
+            public class Outer
+            {
+                public class Nested { public class Deeper { } }
+                protected class Protected { public class InProtected { } }
+                [EditorBrowsable(EditorBrowsableState.Never)]
+                public class Hidden { public class InHidden { } }
+            }
+            [EditorBrowsable(EditorBrowsableState.Never)]
+            public class HiddenOuter { public class Inner { } }
+            """;
+        CSharpCompilation compilation = CSharpCompilation.Create(
+            "EnclosingOrdinary",
+            [CSharpSyntaxTree.ParseText(source, cancellationToken: TestContext.Current.CancellationToken)],
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        using var image = new MemoryStream();
+        Microsoft.CodeAnalysis.Emit.EmitResult result =
+            compilation.Emit(image, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Diagnostics));
+        image.Position = 0;
+        using var reader = new PEReader(image);
+        Dictionary<string, bool?> facts = ApiSurfaceExtractor.Extract(reader, scope).Types
+            .ToDictionary(type => type.Name, type => type.EnclosingTypesOrdinary);
+
+        Assert.True(facts["Outer"]);
+        Assert.True(facts["Outer.Nested"]);
+        Assert.True(facts["Outer.Nested.Deeper"]);
+        Assert.True(facts["Outer.Protected"]);
+        Assert.False(facts["Outer.Protected.InProtected"]);
+        Assert.True(facts["Outer.Hidden"]);
+        Assert.False(facts["Outer.Hidden.InHidden"]);
+        Assert.False(facts["HiddenOuter.Inner"]);
     }
 
     [Theory]
