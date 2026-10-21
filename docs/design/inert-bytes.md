@@ -267,9 +267,9 @@ were substantial wins.
 
 Measuring the contained UTF-16 length while building a compact population left
 substantial construction work. Charging contained UTF-8 bytes instead produced
-medians 25% to 38% below eager, though the final control intervals established
-a win only on Configuration. That is evidence for a separately owned
-retained-text budget decision; the pilot does not change the existing unit.
+medians 25% to 38% below eager without establishing a consistent all-asset
+win. That is evidence for a separately owned retained-text budget decision;
+the pilot does not change the existing unit.
 
 ## Representation
 

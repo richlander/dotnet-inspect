@@ -134,10 +134,10 @@ three assets:
 
 | Reused-store terminal time | Shared ranges | Shared slots | Contained UTF-8 |
 | --- | ---: | ---: | ---: |
-| Match every Name | 0.50x-0.60x | 3.2x-3.6x | 0.89x-1.03x |
-| Match all, display selected | 0.57x-0.72x | 3.0x-3.3x | 1.00x-1.13x |
-| Write every Name as UTF-8 | 3.3x-3.9x | 3.4x-4.2x | 0.39x-0.75x |
-| Project every Name to UTF-16 | 2.4x-4.0x | 2.4x-5.3x | 1.3x-2.5x |
+| Match every Name | 0.49x-0.63x | 3.2x-3.6x | 0.88x-1.03x |
+| Match all, display selected | 0.56x-0.73x | 2.9x-3.3x | 1.00x-1.15x |
+| Write every Name as UTF-8 | 3.2x-4.0x | 3.2x-4.3x | 0.38x-0.80x |
+| Project every Name to UTF-16 | 2.4x-4.0x | 2.3x-5.3x | 1.3x-2.5x |
 
 The contained UTF-8 match and sparse medians were near eager, but their
 control intervals did not establish a general time win. Direct contained
@@ -180,9 +180,9 @@ because every write repeats containment.
 
 The retained UTF-16 budget scan consumes much of the remaining construction
 opportunity. Charging contained UTF-8 bytes instead produced medians 25 to
-38 percent below eager, but the final control intervals established a win only
-on Configuration. That signal motivates a separately owned budget-unit
-decision rather than silently changing product semantics in this pilot.
+38 percent below eager without establishing a consistent all-asset win. That
+signal motivates a separately owned budget-unit decision rather than silently
+changing product semantics in this pilot.
 
 `DisplayAll` is the intentional control. Eager storage already owns the final
 UTF-16 values, while byte-native storage must project every Name. Retaining
