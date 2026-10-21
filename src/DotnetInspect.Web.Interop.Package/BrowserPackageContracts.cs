@@ -296,9 +296,6 @@ public sealed record BrowserMemberSurface(
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -317,8 +314,7 @@ public sealed record BrowserParameterSurface(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
+    string? DefaultValue);
 
 /// <summary>
 /// A browsable Markdown document shipped inside a package. The manifest carries presence and size
@@ -394,10 +390,6 @@ public sealed record BrowserDocumentLeafContainmentRejected(
     string? Generation,
     BrowserDocumentLeafContainmentFailure Failure)
     : BrowserDocumentLeafContainmentOutcome;
-
-public sealed record BrowserExceptionSurface(
-    string Type,
-    string Description);
 
 public sealed record BrowserTypeCandidate(
     string Key,
