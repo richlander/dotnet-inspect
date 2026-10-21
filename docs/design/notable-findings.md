@@ -14,8 +14,9 @@ view, and what guidance each mark carries. It owns:
   Library, Type, and family scope;
 - the **guidance catalog**: one upstream link and one line of advice per
   admitted descriptor, and how hosts render it;
-- the **marks-are-projections** contract: every mark in a symbol list is a
-  projection of one keyed Findings document at that list's scope;
+- the **marks-are-projections** contract: every findings mark in a symbol
+  list is a projection of one keyed Findings document at that list's scope,
+  and the structure mark is a separate owner-issued cue outside it;
 - the **Findings view**: the dense Rows projection of the same document, its
   modes, and its join to the marks; and
 - the **compilation profile** line a Library presents.
@@ -68,16 +69,21 @@ path from a mark to the evidence and to what to do about it.
 
 The fix is a model, not an icon set:
 
-> Every mark in a symbol list is a projection of one keyed Findings document
-> at the scope the list shows. The Findings view is the Rows projection of the
-> same document. A mark and its row are joined by key in both directions.
-> Rankings and relations are not marks; they are columns in the Findings view
-> or color in Annotated Type Relations.
+> Every findings mark in a symbol list is a projection of one keyed Findings
+> document at the scope the list shows. The Findings view is the Rows
+> projection of the same document. A findings mark and its row are joined by
+> key in both directions. Rankings and relations are not findings; their
+> numbers are columns in the Findings view or color in Annotated Type
+> Relations, and the one structure cue a row keeps is issued by the structure
+> owners, not by the map.
 
 The keyed document is the Annotated Type Map, in its one-version form
-(**Current**) and its map-diff form (**Changes**). This document decides what
-the map's findings look like when they reach a symbol list, and nothing about
-how the map is produced.
+(**Current**) and its map-diff form (**Changes**). The map admits only
+[local instruction findings](annotated-type-map.md#admitted-findings); it
+does not carry degree, leverage, or sibling-call evidence, so a structure
+cue cannot be its projection and this document does not pretend it is. This
+document decides what the map's findings look like when they reach a symbol
+list, and nothing about how the map is produced.
 
 ## Terms
 
@@ -86,7 +92,10 @@ how the map is produced.
 - **Current mark**: the slot that says the row has notable findings in the
   one-version map.
 - **Changes mark**: the slot that says the row is listed in the map diff.
-- **Structure mark**: the slot that follows the row's scope.
+- **Structure mark**: the slot that says the row is a foundation or a peak at
+  its scope. It is issued by the structure owners named in
+  [Structure marks](#structure-marks), not projected from the map, and it is
+  not a navigation target.
 - **Notable**: counted toward the Current mark by the notable set. It is a
   presentation preset, not a severity. A finding that is not notable is still
   a finding and is still in the map.
@@ -95,7 +104,8 @@ how the map is produced.
 - **Chip**: a filter control labeled with a descriptor and its tally.
 - **Compilation profile**: the Library-level facts that set expectations for
   its Members: optimized or Debug, runtime async or state-machine async,
-  unsafe present.
+  unsafe present. Each fact is read over every method of the Library with a
+  CIL body, regardless of accessibility.
 
 ## The notable set
 
@@ -175,13 +185,26 @@ mark is issued. Whether a Member is async stays a trait filter, not a
 finding.
 
 The metadata layer already classifies each method as runtime async or
-state-machine async and already records both presence flags per Library. The
-preset reads those classifications; it adds no scanner.
+state-machine async. The profile's runtime-async fact is that classification
+read over every method of the Library with a CIL body, at every
+accessibility: an internal runtime-async method sets the expectation as
+surely as a public one. The existing Library presence flags are not that
+fact: they summarize public non-accessor methods only, and a Library whose
+only runtime-async methods are non-public would report none. The Expectation
+adopter supplies the whole-population presence fact through the existing
+per-method classification; it adds no second scanner.
 
-Expectation also makes Changes mode informative for a migration: a package
-version compared before and after it adopted runtime async lists each
-method whose implementation flag changed, because the flag is a declaration
-fact on Fast Diff's Body axis and the map diff lists it.
+Expectation also makes Changes mode informative for a migration. The
+implementation flag is a declaration fact Fast Diff compares, and a package
+version compared before and after it adopted runtime async lists each method
+whose flag Fast Diff's equality decides as changed. Today that is the
+non-admitted Members, whose declaration facts sit on the Body axis. For a
+Member the Public API surface admits, Fast Diff's owner records the
+implementation flags as
+[uncertain API facts](fast-diff.md#axes) until Diff capabilities adoption
+step 1 moves them to Body, so a migrated public method is listed only when
+its body also changed or once that step lands. The complete migration census
+is promised after that step, not before.
 
 ## Structure marks
 
@@ -204,6 +227,21 @@ Findings view.
 A structure mark is at most one glyph per row, either value or none. The
 same two glyphs serve every scope, and the chip and tooltip name the scope.
 Color stays secondary.
+
+The structure mark is not a projection of the map and makes no claim to be.
+Its source is the owner that already issues the designation at that scope:
+[Library structural report](library-structural-report.md) for Library poles,
+[Inspect Web implementation profiles](inspect-web-implementation-profiles.md)
+for the family hub, and
+[Inspect Web method-leverage achievements](inspect-web-method-leverage-achievements.md)
+for Type-scope foundation. The Browser joins each designation to a visible
+row by the exact identity that owner issues, as it does today. A Member with
+a structure mark need not be listed in the map, so the mark is not a
+navigation target: its tooltip carries the owner-issued numbers (degree,
+callers, or family sizes and sibling calls) and the scope name, and the
+Findings view shows the same numbers in its structure columns for the rows
+it lists. The structure owners' existing gates, not the projection gate,
+govern the mark's correctness.
 
 Type-scope foundation reads Library-wide caller degree, which
 [Annotated Type Relations](annotated-type-relations.md#type-focused-relation-inventory)
@@ -270,11 +308,14 @@ A symbol list row reserves three fixed slots, in this order:
    one-version map;
 2. the **Changes mark**: the row is listed in the map diff against the
    settled Package Diff baseline; and
-3. the **structure mark**: foundation or peak at the row's scope.
+3. the **structure mark**: foundation or peak at the row's scope, issued by
+   the structure owners as [Structure marks](#structure-marks) states.
 
 Each slot is binary. The gutter has three glyphs to learn, and they mean the
 same thing on a Type row, a Member row, and an overload row. A row fills zero
-to three slots, and nothing reflows when a new descriptor family lands.
+to three slots, and nothing reflows when a new descriptor family lands. The
+first two slots are the findings marks this section governs; the third is
+outside the projection contract.
 
 The two findings marks are the map's Exists terminal made visible. The
 Current mark is Exists over the row's notable findings; the Changes mark is
@@ -293,8 +334,8 @@ overload-family row is marked when any overload in its represented
 population would be. The Changes mark is absent while the baseline is
 pending or unavailable, and never derived from another baseline.
 
-Marks come from the map and from nothing else. The Browser never computes a
-finding, a count, or a change from display text, signatures, or row order,
+Findings marks come from the map and from nothing else. The Browser never
+computes a finding, a count, or a change from display text, signatures, or row order,
 and never substitutes a visible runner-up when the marked Member is filtered
 out of view, as
 [method leverage](inspect-web-method-leverage-achievements.md#icon-only-presentation)
@@ -307,7 +348,8 @@ A mark answers at three distances, each cheaper than the next:
 - **Hover.** The tooltip and accessible description are the row's notable
   tally with the catalog's one-line guidance per descriptor, for example
   `2 notable: unsafe dereference; array allocated in a loop`. For the Changes
-  mark it is the transition kinds. No navigation.
+  mark it is the transition kinds; for the structure mark it is the scope and
+  the owner-issued numbers. No navigation.
 - **Click.** The atomic subject-plus-lens activation to the Findings view at
   that mark's mode, with the row focused, as [Click-through](#click-through)
   states.
@@ -316,12 +358,13 @@ A mark answers at three distances, each cheaper than the next:
 
 ### Click-through
 
-A mark is a navigation target. Activating it performs the atomic
+A findings mark is a navigation target. Activating it performs the atomic
 subject-plus-lens activation that Compare drill-down already uses, with the
 Findings lens and the row's key, and lands on that row in the Findings view
 in the mark's mode: Current for the Current mark, Changes for the Changes
 mark. From the Findings view, activating a row navigates to the subject with
-its recommended lens. The join is the Member key both ways.
+its recommended lens. The join is the Member key both ways. The structure
+mark is not a navigation target, because its row need not exist in the map.
 
 ### Chips
 
@@ -355,9 +398,17 @@ At each scope the view is the map's Rows:
 
 | Scope | Rows | Columns |
 | --- | --- | --- |
-| Library | one row per listed Type with its Count | Type, notable tallies, structure (incoming and outgoing degree), changed Members in Changes mode |
+| Library | one row per listed Type with its Count | Type, listed-Member Count, structure (incoming and outgoing degree from the Library structural report), changed-Member Count in Changes mode |
 | Type | one row per listed Member with its tally | Member, each admitted descriptor's tally, throws, size, structure (callers; family sizes and sibling calls), transition kinds in Changes mode |
 | Member | that Member's row | Each finding with its coordinates, guidance, and an Annotated Source action by instance key |
+
+Library rows carry no descriptor tallies. The map's
+[tallies](annotated-type-map.md#tallies) are a projection of an opened Type's
+map and are not computed for Types the user has not opened; a Library row
+carries the Type's entries and its listed-Member Count, and that Count is
+what the Library column shows. Descriptor tallies appear when a Type is
+opened. The Library structure columns read the Library structural report,
+which is a whole-Library document already issued for the Type inventory.
 
 Structure and throw columns are where the numbers live. A reader who wants
 "most callers" or "largest overload" sorts a column; no glyph encodes a
@@ -397,13 +448,23 @@ chips, and the profile line, each as a separately staged slice below.
   issues no Library mark and marks only the iterator.
 - **Expectation:** a fixture Library with runtime async methods and one
   async iterator marks the iterator and nothing else; the same Library
-  without runtime async marks nothing; Changes between them lists the
-  methods whose implementation flag changed.
+  without runtime async marks nothing; a Library whose only runtime-async
+  method is internal still marks its public async iterator, so the profile
+  reads every accessibility; Changes between the two builds lists each
+  non-admitted method whose implementation flag changed, and lists an
+  admitted method only when its body changed or Diff capabilities adoption
+  step 1 has landed, with the complete census gated after that step.
 - **Projection:** for every fixture Type, each Member row's Current mark
   equals whether its map row has a notable finding, its Changes mark equals
-  whether the map diff lists it, and each Type row's marks equal the map's
-  notable Exists and Fast Diff's Exists; no mark exists for a key the map
-  does not list, and no mark carries a count, intensity, or color scale.
+  whether the map diff lists it, and each Type row's findings marks equal the
+  map's notable Exists and Fast Diff's Exists; no findings mark exists for a
+  key the map does not list, and no mark of any slot carries a count,
+  intensity, or color scale.
+- **Baseline:** with the Package Diff baseline pending, unavailable, or
+  failed, no row of any scope shows a Changes mark, and a result settled for
+  a different baseline is not used; the Changes marks appear only after the
+  current baseline settles, and Current and structure marks are unaffected
+  throughout.
 - **Join:** activating a Current or Changes mark lands on the row with the
   same key in the Findings view in that mark's mode, and activating that row
   returns to the subject; a filtered-out marked Member is not replaced by a
@@ -417,7 +478,9 @@ chips, and the profile line, each as a separately staged slice below.
 - **Structure:** a fixture family with a hub and two forwarders marks the
   hub foundation and the forwarders peak, with no tint and no size cue, and
   the family's sizes appear in the Findings column; a Library fixture with
-  aligned and opposing poles issues one structure glyph per Type.
+  aligned and opposing poles issues one structure glyph per Type; a hub
+  whose Member the map does not list still carries its structure mark, has
+  no Findings row, and activating the mark navigates nowhere.
 - **Catalog:** every descriptor the preset admits has a catalog entry; the
   slow link test resolves every entry; the ordinary gates do not touch the
   network.
@@ -432,34 +495,65 @@ chips, and the profile line, each as a separately staged slice below.
 Each step is its own focused effort naming this document and one adopting
 owner:
 
-1. **Lock this document.**
-2. **Preset and catalog as owner-issued data.** The hidden-fact annotation
-   owner carries the notable classification and the catalog entry beside
-   each descriptor; Research producers emit them; the slow link test lands.
-   CLI Facts prints the notable column and the `-v:d` guidance line.
-3. **Findings inspector.** Inspect Web Compare Experience renames Compare to
-   Findings, adds Current over the one-version Type map (Annotated Type Map
-   adoption step 4), and presents Changes over the map diff (its step 7).
-4. **Member marks and chips.** Member filtering and presentation language
-   derive the Current and Changes marks, their tooltips, the chips, and the
-   Members header tally from the Type map, and wire the marks'
-   click-through.
-5. **Library census and profile line.** The Annotated Type Map's
-   Library-scope one-version producer lands; Type rows take Exists from it;
-   Library Overview states the compilation profile. The whole-Library body
-   decode that Type leverage already runs after the first paint is the cost
-   budget this census shares.
-6. **Structure vocabulary.** Implementation profiles retire tint and size
-   and present hub and forwarder as family foundation and peak; Type
-   leverage presents poles as Library foundation and peak; method leverage
-   presents Top Leverage as Type foundation until Relations supplies it.
-   Degrees and sizes move to Findings columns.
-7. **Expectation.** Metadata classification supplies runtime-async and
-   state-machine facts to the preset; the Debug profile reads the Debuggable
-   attribute's arguments.
+1. **Lock this document.** Owner: this document.
+2. **Preset and catalog on the descriptor model.** Owner:
+   [Hidden-fact annotations](hidden-fact-annotations.md). The notable
+   classification and the catalog entry sit beside each descriptor the
+   annotation model declares, and the slow link test lands. Prerequisite:
+   step 1.
+3. **CLI Facts presentation.** Owner: the CLI host
+   ([CLI host architecture](../cli-architecture.md)). `--focus` with no
+   argument selects the notable set, Facts gains the notable column, and
+   `-v:d` prints the guidance line. Prerequisite: step 2.
+4. **Findings inspector.** Owner:
+   [Inspect Web Compare Experience](inspect-web-compare-experience.md).
+   Compare is renamed Findings; Current presents the one-version Type map
+   and Changes the map diff, with the structure and throw columns reading
+   their existing owner-issued data. Prerequisite: Annotated Type Map
+   adoption steps 4 and 5 for the Type-scope documents.
+5. **Findings marks and click-through.** Owner:
+   [Inspect Web Surface Composition](inspect-web-surface-composition.md),
+   which composes the Type and Member navigation panes. The Current and
+   Changes marks, their tooltips, and the Members header tally derive from
+   the Type map; the Changes mark replaces Compare's navigation diff cue.
+   Prerequisites: steps 2 and 4.
+6. **Chips.** Owner:
+   [Inspect Web presentation language](inspect-web-presentation-language.md),
+   which owns filter disclosure. The findings facet and its chips derive
+   from the scope's map. Prerequisite: step 5.
+7. **Library census.** Owner: [Annotated Type Map](annotated-type-map.md),
+   as its own adoption step 4 for the Library-scope one-version producer.
+   The whole-Library body decode that Type leverage already runs after the
+   first paint is the cost budget this census shares.
+8. **Type-row marks.** Owner: Inspect Web Surface Composition. Type rows
+   take the Current mark from the Library census's Exists. Prerequisites:
+   steps 5 and 7.
+9. **Compilation profile line.** Owner: Inspect Web Surface Composition,
+   which composes Library Overview. The line reads the profile facts over
+   every method. Prerequisite: step 12 for the runtime-async and Debug
+   facts.
+10. **Family structure.** Owner:
+    [Inspect Web implementation profiles](inspect-web-implementation-profiles.md).
+    Tint and size retire; hub and forwarder present as family foundation
+    and peak; family sizes become a Findings column. Prerequisite: step 4
+    for the column.
+11. **Library structure.** Owner:
+    [Inspect Web Type leverage](inspect-web-type-leverage.md). Poles
+    present as Library foundation and peak with the shared glyphs.
+12. **Expectation facts.** Owner: Metadata classification
+    (`MethodClassificationScanner` and the Debuggable attribute's
+    arguments). A whole-population runtime-async and state-machine presence
+    fact and the Debug fact are issued for the preset and the profile line.
+    Prerequisite: step 2.
+13. **Type structure.** Owner:
+    [Inspect Web method-leverage achievements](inspect-web-method-leverage-achievements.md).
+    Top Leverage presents as Type foundation with the shared glyph until
+    Annotated Type Relations supplies caller degree, when the designation
+    query retires under that owner.
 
-Steps 3 and 4 need no new analysis and remove most of the explanation
-burden; they go first after the data lands.
+Steps 4 and 5 need no new analysis and remove most of the explanation
+burden; they go first after step 2 lands. Steps 10, 11, and 13 are
+independent of each other and of the findings marks.
 
 ## Non-claims
 
@@ -471,6 +565,10 @@ burden; they go first after the data lands.
   Annotated Type Map's adoption step 4.
 - It does not define caller populations or relation color; those belong to
   Annotated Type Relations.
+- It does not make structure a finding, add it to the map, or claim the
+  structure mark is a projection; the structure owners issue it and gate it.
+- It does not move implementation flags between Fast Diff's axes; that is
+  Diff capabilities adoption step 1.
 - It does not decide Clone's long-term home.
 - It does not add `throw` to the map's vocabulary; the throw column reads
   the existing body signals until the provenance owner admits a throw
