@@ -1202,10 +1202,7 @@ public sealed partial class ResourceExplanationCatalog
             .ToHashSet(StringComparer.Ordinal);
 
         var collectionPath = new ResourcePath(VocabulariesCollectionSegment);
-        ExplanationResourceKey collectionKey =
-            ResourceExplanationVocabulary.Key(
-                ResourceExplanationVocabulary.NavigationCollectionType,
-                Pack("vocabulary-collection"));
+        ExplanationResourceKey collectionKey = VocabulariesCollectionKey;
         var snapshots = new List<ExplanationResourceSnapshot>
         {
             NavigationSnapshot(
