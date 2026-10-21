@@ -15,16 +15,17 @@ public class RetainedMergeStructuringTests
         Assert.Equal(2, diagnostics.RetainedRegions);
         Assert.Equal(3, function.Body.Blocks.Count);
         Assert.Equal(4, function.Descendants.OfType<StoreLocal>().Count());
-        Assert.Equal(2, function.Descendants.OfType<Branch>().Count());
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 40);
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 80);
-
-        var firstRetained = Assert.Single(
-            function.Descendants.OfType<IfStatement>(),
-            statement => statement.Then.Children.OfType<Branch>().Any(branch => branch.TargetOffset == 40));
-        Assert.IsType<Comparison>(firstRetained.Condition);
+        // The imported conditional transfers to the retained merges keep their
+        // own nodes and identities inside the structured ranges.
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        var retained = function.Descendants.OfType<ConditionalBranch>().ToArray();
+        Assert.Equal(2, retained.Length);
+        Assert.Contains(retained, branch => branch.TargetOffset == 40);
+        Assert.Contains(retained, branch => branch.TargetOffset == 80);
+        Assert.All(retained, branch => Assert.IsType<IfStatement>(branch.Parent?.Parent));
 
         Assert.Equal(40, function.Body.Blocks[1].Children[0].SourceOffset);
+        Assert.IsType<LabelAnchor>(function.Body.Blocks[1].Children[0]);
         string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
         Assert.Contains("if (", output);
         Assert.Contains("goto IL_0028;", output);
@@ -597,8 +598,12 @@ public class RetainedMergeStructuringTests
 
         Assert.Equal(1, diagnostics.RetainedRegions);
         Assert.Contains("retained-back-edge-region", diagnostics.RetainedDeclines);
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 48);
-        Assert.Contains(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 40);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 40);
+        // The tail loop is not a retained range, but the tail validates on its
+        // own against the container end, so it is built as an ordinary loop
+        // instead of staying flat behind the retained region.
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.DoesNotContain(function.Descendants.OfType<Branch>(), branch => branch.TargetOffset == 48);
     }
 
     [Fact]
@@ -644,8 +649,13 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
-    public void RetainedGotoWithFlatTailBailsDefiniteAssignmentConservatively()
+    public void RetainedGotoIntoStructuredTailLoopKeepsDefiniteAssignmentPrecise()
     {
+        // The tail after the retained merge is a loop; it validates on its own
+        // and is built as an ordinary loop behind the merge's anchor, so the
+        // definite-assignment walk no longer has to bail on a flat tail. The
+        // retained path reaches the final read with V_0 unassigned, which the
+        // walk reports precisely and the printer answers with `= default`.
         var blocks = new[]
         {
             Term(0, Cond(24)),
@@ -662,7 +672,9 @@ public class RetainedMergeStructuringTests
         var facts = CSharpPrinter.CollectDataflowFacts(function);
 
         Assert.Equal(1, diagnostics.RetainedRegions);
-        Assert.True(facts.Bailed);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.False(facts.Bailed);
+        Assert.Contains(0, facts.ReadBeforeAssign);
         Assert.Contains("int V_0 = default;", DecidedPrint.Print(function).Output!);
     }
 
@@ -678,8 +690,13 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
-    public void RetainedRegionStartKeepsOutsideTargetLabel()
+    public void ValidatedPrefixTransferOntoRetainedRegionStartDissolves()
     {
+        // The prefix `goto IL_0008` lands on the retained range's start block.
+        // The prefix validates on its own with that start as its join, so it is
+        // built as an ordinary region: the goto dissolves into fallthrough and
+        // nothing is printed for it, while the range's first statement still owns
+        // IL_0008 and the retained merge keeps its label through the built tail.
         var blocks = new[]
         {
             Term(0, new Branch(8)),
@@ -694,10 +711,171 @@ public class RetainedMergeStructuringTests
         var (function, diagnostics) = Structure(blocks);
 
         Assert.Equal(1, diagnostics.RetainedRegions);
-        Assert.Equal(8, function.Body.Blocks[1].Children[0].SourceOffset);
+        Assert.Equal(8, function.Body.Blocks[0].Children[0].SourceOffset);
         string output = DecidedPrint.Print(function).Output!;
-        Assert.Contains("goto IL_0008;", output);
-        Assert.Contains("IL_0008:", output);
+        Assert.DoesNotContain("goto IL_0008;", output);
+        Assert.DoesNotContain("IL_0008:", output);
+        Assert.Contains("goto IL_0030;", output);
+        Assert.Contains("IL_0030:", output);
+    }
+
+    [Fact]
+    public void ExitCollapsedSplitStructuresAgainstItsSurvivorMerge()
+    {
+        // if (a) goto R; if (b) goto M; if (c) goto M; R: return 1; M: ...
+        // Every split's ordinary post-dominator is the method exit because R
+        // returns, so the plan used to name no region at all. The surviving
+        // paths rejoin at M, which is the retained merge; the tail after M
+        // validates on its own and is built as an ordinary region. The tail is
+        // five blocks so the whole-container path cannot clone it into the
+        // guards as a short past-region terminator.
+        var blocks = new[]
+        {
+            Term(0, Cond(24)),
+            Term(8, Cond(32)),
+            Term(16, Cond(32)),
+            Term(24, new Return(new Constant(1, I32))),
+            Term(32, Cond(64)),
+            Term(40, new StoreLocal(0, I32, new Constant(5, I32))),
+            Term(48, new StoreLocal(0, I32, new Constant(6, I32))),
+            Term(56, new Return(new LoadLocal(0, I32))),
+            Term(64, new Return(new Constant(3, I32))),
+        };
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Empty(diagnostics.Stops);
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        var retained = function.Descendants.OfType<ConditionalBranch>().ToArray();
+        Assert.Equal(2, retained.Length);
+        Assert.All(retained, branch => Assert.Equal(32, branch.TargetOffset));
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.False(CSharpPrinter.CollectDataflowFacts(function).Bailed);
+        string output = DecidedPrint.Print(function).Output!.ReplaceLineEndings("\n");
+        Assert.Contains("IL_0020:", output);
+        Assert.Equal(2, output.Split("goto IL_0020;").Length - 1);
+        Assert.DoesNotContain("IL_0018:", output);
+        Assert.DoesNotContain("IL_0040:", output);
+    }
+
+    [Fact]
+    public void SharedTerminatorPastRetainedRangeIsClonedIntoItsGuard()
+    {
+        // The diamond's true arm guards a throw that sits past the retained
+        // merge M and is also guarded from the tail. Validation clones such a
+        // short shared terminator into each guard, so the candidate range is
+        // accepted even though the throw lies outside [start, merge].
+        var exceptionType = TypeRef.CoreLib("System", "Exception");
+        var blocks = new[]
+        {
+            Term(0, Cond(24)),
+            Term(8, Cond(40)),
+            Block(16, new StoreLocal(0, I32, new Constant(2, I32)), new Branch(32)),
+            Term(24, Cond(72)),
+            Term(32, new Branch(40)),
+            Term(40, Cond(72)),
+            Term(48, new StoreLocal(0, I32, new Constant(5, I32))),
+            Term(56, new StoreLocal(0, I32, new Constant(6, I32))),
+            Term(64, new Return(new LoadLocal(0, I32))),
+            Term(72, new Throw(new Constant(null, exceptionType))),
+        };
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Empty(diagnostics.Stops);
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        Assert.DoesNotContain("retained-transfer-outside-region", diagnostics.RetainedDeclines);
+        var retained = Assert.Single(function.Descendants.OfType<ConditionalBranch>());
+        Assert.Equal(40, retained.TargetOffset);
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.Equal(2, function.Descendants.OfType<Throw>().Count());
+        string output = DecidedPrint.Print(function).Output!;
+        Assert.Contains("goto IL_0028;", output);
+        Assert.Contains("IL_0028:", output);
+        Assert.DoesNotContain("goto IL_0048;", output);
+    }
+
+    [Fact]
+    public void TailGapThatDoesNotValidateStaysFlatBehindTheRetainedRange()
+    {
+        var blocks = new[]
+        {
+            Term(0, Cond(24)),
+            Term(8, Cond(40)),
+            Block(16, new StoreLocal(0, I32, new Constant(2, I32)), new Branch(32)),
+            Term(24, new StoreLocal(0, I32, new Constant(3, I32))),
+            Term(32, new Branch(40)),
+            Term(40, Cond(999)),
+            Term(48, new Return(new LoadLocal(0, I32))),
+        };
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        Assert.Equal(3, function.Body.Blocks.Count);
+        Assert.Equal(40, function.Body.Blocks[1].StartOffset);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 40);
+        Assert.Single(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 999);
+    }
+
+    [Fact]
+    public void GapTargetedFromFlatBlockStaysFlat()
+    {
+        // The flat prefix jumps into the interior of the tail (IL_0040). The
+        // tail would validate on its own, but building it would move IL_0040
+        // inside a nested region where the prefix's goto could no longer see
+        // its label (CS0159), so the tail stays flat and keeps the label.
+        var blocks = new[]
+        {
+            Term(0, Cond(64)),
+            Term(8, Cond(32)),
+            Term(16, Cond(48)),
+            Block(24, new StoreLocal(0, I32, new Constant(2, I32)), new Branch(40)),
+            Term(32, new StoreLocal(0, I32, new Constant(3, I32))),
+            Term(40, new Branch(48)),
+            Term(48, new StoreLocal(0, I32, new Constant(4, I32))),
+            Term(56, Cond(96)),
+            Term(64, new StoreLocal(0, I32, new Constant(5, I32))),
+            Term(72, new StoreLocal(0, I32, new Constant(6, I32))),
+            Term(80, new StoreLocal(0, I32, new Constant(7, I32))),
+            Term(88, new StoreLocal(0, I32, new Constant(8, I32))),
+            Term(96, new Return(new LoadLocal(0, I32))),
+        };
+
+        var (function, diagnostics) = Structure(blocks);
+
+        Assert.Equal(1, diagnostics.RetainedRegions);
+        Assert.Equal(9, function.Body.Blocks.Count);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 64);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 48);
+        string output = DecidedPrint.Print(function).Output!;
+        Assert.Contains("goto IL_0040;", output);
+        Assert.Contains("IL_0040:", output);
+        Assert.Contains("goto IL_0030;", output);
+        Assert.Contains("IL_0030:", output);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmptyGapAtRetainedMergeKeepsItsLabel(bool gotoNext)
+    {
+        // The first range's retained merge (IL_0028) is a gap that builds to
+        // nothing: an empty landing pad, or a block that only jumps onto the
+        // second range. The retained goto still targets it, so the gap keeps
+        // its label through an anchor-only block.
+        var blocks = SequentialRetainedMerges().ToList();
+        blocks[5] = gotoNext ? Term(40, new Branch(44)) : new Block(40);
+        blocks.Insert(6, Term(44, Cond(64)));
+
+        var (function, diagnostics) = Structure([.. blocks]);
+
+        Assert.Equal(2, diagnostics.RetainedRegions);
+        Assert.Contains(function.Descendants.OfType<ConditionalBranch>(), branch => branch.TargetOffset == 40);
+        Assert.Contains(function.Descendants.OfType<LabelAnchor>(), anchor => anchor.SourceOffset == 40);
+        string output = DecidedPrint.Print(function).Output!;
+        Assert.Contains("goto IL_0028;", output);
+        Assert.Contains("IL_0028:", output);
     }
 
     [Fact]
