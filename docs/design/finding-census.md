@@ -37,14 +37,11 @@ and compares declaration facts as sorted key lists, stopping at the first
 difference and building nothing. `IlFindings` canonicalizes one body into a
 complete census of `il.op` Findings, runs the shared matcher, and folds the
 alignment into pairs. The declaration view is designed to do the same for
-declaration facts. The producers are meant to agree through gates that hold
-them together: Fast Diff's pending Shared Body equality slice, which gives its
-walk canonical equality under the Body policy and gates it for exactness
-against canonical IL comparison, and the declaration view's claim that its
-comparison is empty exactly when Fast Diff's census facts are equal. Today the
-walk compares raw encodings, so `br.s` against `br` or a changed stack size is
-`Changed` for it and equal for canonical comparison, and its one Body gate is
-one way, soundness of `Unchanged` only.
+declaration facts. The producers agree through gates that hold them
+together: Fast Diff's Shared Body equality, which gives its walk canonical
+equality under the Body policy and gates every method pair's verdict against
+canonical IL comparison, and the declaration view's claim that its comparison
+is empty exactly when Fast Diff's census facts are equal.
 
 That is two implementations of one equality per kind, which is the drift Fast
 Diff's own Why rules out, and it leaves the slowest Exhaustive shape as the
@@ -88,7 +85,7 @@ paired step over two of them.
 
 | | Paired steps | Per-point census |
 | --- | --- | --- |
-| **Exists** | Lockstep over two cursors to the first difference; Fast Diff's walk is its provision once Shared Body equality lands | Lockstep over two censuses the per-point mode already sealed, to the first difference, with a `Failed` drain read as `Indeterminate`; Exists seals nothing itself |
+| **Exists** | Lockstep over two cursors to the first difference; Fast Diff's walk is its provision | Lockstep over two censuses the per-point mode already sealed, to the first difference, with a `Failed` drain read as `Indeterminate`; Exists seals nothing itself |
 | **Exhaustive** | Not a scenario of the census; a pair-dependent native algorithm such as `IlBodyDiff`'s hunk alignment keeps its own result beside the census, as Finding nomenclature allows | Two sealed censuses through `FindingMatcher` in the kind's mode, folded to `PairFinding<T>` by the kind's fold |
 
 ## The cursor
@@ -152,9 +149,11 @@ as the kind's owner defines it under the policy, and they are what lockstep
 compares, with one exclusion: a branch or switch target that is undecided, as
 the pre-scan rule above leaves it, is left out of the comparison, and the
 position is pending when the rest is equal. A target that does not land on an
-instruction boundary of its own body, or lands outside it, has no instruction
-index, and the atom carries its raw offset instead, as canonical comparison
-falls back to for such a target. The atom's `FindingKey` is the kind's
+instruction boundary of its own body, or lands at its end or outside it, is
+one the decoder canonical comparison runs rejects; the atom carries it as
+undecided, and a cursor whose stream completes with such a target ends
+`Failed` instead of `Complete`, so a difference decided before the end is
+read as Fast Diff's walk reads it. The atom's `FindingKey` is the kind's
 **matcher projection** of those bytes, which may be the same or less: a
 declaration fact's identity key is a lossless encoding of its whole census key,
 as the declaration view states, so its projection is the bytes; an IL
@@ -266,18 +265,18 @@ one kind and nothing above it.
 ### Provisions
 
 The Exists contract binds provisions, not code, as Diff capabilities states.
-Fast Diff's paired walk becomes an Exists provision once its Shared Body
-equality slice lands: from then it decides the same events as lockstep over two
-IL cursors under the Body policy, pairwise and without a cursor, and its
-declaration census is one sorted key list per Type compared to the first
-difference, which is lockstep over the Type's declaration cursors, in key
-order, by another name. Before that slice the walk decides a raw equality, and
-this document makes no claim that it equals lockstep. Once it is a provision,
-the walk is kept while it is measurably cheaper than lockstep and deleted when
+Fast Diff's paired walk is an Exists provision since its Shared Body
+equality landed
+([#10196](https://github.com/richlander/dotnet-inspect/issues/10196)): it
+decides the same events as lockstep over two IL cursors under the Body
+policy, pairwise and without a cursor, and its declaration census is one
+sorted key list per Type compared to the first difference, which is lockstep
+over the Type's declaration cursors, in key order, by another name. The walk
+is kept while it is measurably cheaper than lockstep and deleted when
 lockstep matches it, under the rule that a fast provision is justified by
-performance alone and never by a second definition of change. Until then, both
-answer under one gate: for every row of every fixture pair, the walk's verdict
-equals lockstep's.
+performance alone and never by a second definition of change. Until it is
+deleted, both answer under one gate: for every row of every fixture pair, the
+walk's verdict equals lockstep's.
 
 ## Exhaustive
 
@@ -385,9 +384,9 @@ test class gates its cursor:
   every row Exists reports `Changed` the Exhaustive comparison has a pair
   other than `Present` with no difference or cannot run, with a body whose
   only change is a relocated run among the cases; Exists on the IL kind per
-  method equals Fast Diff's per-method body verdict once Shared Body
-  equality lands, which re-bases that slice's Body exactness gate on the
-  cursor; and Exists on the declaration kind per Type equals Fast Diff's
+  method equals Fast Diff's per-method body verdict, which re-bases Fast
+  Diff's Body exactness gate on the cursor; and Exists on the declaration
+  kind per Type equals Fast Diff's
   declaration census equality for the Type. Folds above the row are Fast
   Diff's gates.
 - **Identity:** over the `FastDiffIdentityTests` images, two method names
@@ -454,8 +453,9 @@ test class gates its cursor:
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`,
    run beside Fast Diff's walk for every method of the fixture pairs under
    the Exists agreement gate, and measured against the walk on the perf
-   hosts. It depends on Fast Diff's Shared Body equality slice, without
-   which the walk and lockstep decide different equalities. The walk is
+   hosts. Fast Diff's Shared Body equality
+   ([#10196](https://github.com/richlander/dotnet-inspect/issues/10196))
+   landed first, so the walk and lockstep decide one equality. The walk is
    deleted or kept by the cost gate's answer.
 3. **Declaration cursor.** The declaration view's census through a sorted
    cursor shared with Fast Diff's declaration census, which is the view's

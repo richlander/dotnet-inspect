@@ -1,3 +1,4 @@
+using ILInspector.ILDiff;
 using ILInspector.Metadata;
 using ILInspector.Research;
 
@@ -49,6 +50,45 @@ public sealed class AnnotatedSourceDiffExactPairQueryTests
 
 public sealed class MemberBodyDiffInspectionTests
 {
+    /// <summary>
+    /// The dependency versions gate for Member Body Diff: a pair whose only
+    /// difference is the version of a non-platform referenced assembly lists
+    /// no changed Member, because its inventory compares IL under Fast Diff's
+    /// Body policy; the same comparison with no normalization shows the IL
+    /// change on every call into that dependency.
+    /// </summary>
+    [Fact]
+    public async Task DependencyVersion_ShowsNoIlChangeInTheInventory()
+    {
+        await using var fixture = new WorkspaceResearchTargetFixture(
+            WorkspaceResearchTargetFixture.BuildAssembly("Direct", callsReference: "Library.One", callsReferenceVersion: new Version(8, 0, 0, 0)),
+            WorkspaceResearchTargetFixture.BuildAssembly("Direct", callsReference: "Library.One", callsReferenceVersion: new Version(9, 0, 0, 0)));
+        using var oldGroup = fixture.CreateGroup([0]);
+        using var newGroup = fixture.CreateGroup([1]);
+        var inventory = DotnetInspector.ResearchSections.MemberBodyDiffInspection.Execute(
+            oldGroup, fixture.Nodes[0].Participant, newGroup, fixture.Nodes[1].Participant,
+            new ApiSurfaceProjectionLimits(2, 100, 100, 100, 100, 10_000), TestContext.Current.CancellationToken);
+
+        Assert.Empty(inventory.Content.Members);
+        Assert.Equal("Identical", Assert.Single(inventory.Content.Destinations).Outcome);
+        Assert.DoesNotContain(inventory.Content.Implementation.Members, member =>
+            member.Evidence.Any(evidence => evidence.Mechanism == ResearchChangeMechanism.IlBody));
+
+        ImplementationDiffDocument Document(IlBodyDiffNormalization normalization)
+        {
+            var before = fixture.Binding(0);
+            var after = fixture.Binding(1);
+            return ImplementationDiffDocumentQuery.Execute(new(
+                [new(before.Assembly, before.Resolver, before.MethodPopulation)],
+                [new(after.Assembly, after.Resolver, after.MethodPopulation)],
+                null, new ImplementationComparisonPopulation.All(), ImplementationDiffMechanism.IlBody, normalization));
+        }
+        Assert.Contains(Document(IlBodyDiffNormalization.None).Members, member =>
+            member.Evidence.Any(evidence => evidence.Mechanism == ResearchChangeMechanism.IlBody));
+        Assert.DoesNotContain(Document(IlBodyDiffPolicy.Body).Members, member =>
+            member.Evidence.Any(evidence => evidence.Mechanism == ResearchChangeMechanism.IlBody));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

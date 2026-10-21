@@ -23,6 +23,13 @@ public sealed record ResearchDiffOptions(
 {
     public ImmutableHashSet<string> RetainedComparisonDescriptorIds { get; init; } =
         ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The normalization the IL body comparison and its Finding census run
+    /// under; a consumer's named policy, such as Fast Diff's Body policy, or
+    /// none.
+    /// </summary>
+    public IlBodyDiffNormalization IlNormalization { get; init; } = IlBodyDiffNormalization.None;
 }
 
 public sealed record ResearchDiffInput(
@@ -778,7 +785,8 @@ public static partial class ResearchDiff
                 oldInput,
                 newInput,
                 options.TypeFilters,
-                options.RetainedComparisonDescriptorIds);
+                options.RetainedComparisonDescriptorIds,
+                options.IlNormalization);
         }
 
         if (options.Mechanisms.HasFlag(ResearchChangeMechanism.CSharp))
@@ -926,7 +934,8 @@ public static partial class ResearchDiff
         ResearchDiffInput oldInput,
         ResearchDiffInput newInput,
         IReadOnlySet<string>? typeFilters,
-        IReadOnlySet<string> retainedComparisonDescriptorIds)
+        IReadOnlySet<string> retainedComparisonDescriptorIds,
+        IlBodyDiffNormalization normalization)
     {
         bool retainOperations = retainedComparisonDescriptorIds.Contains(
             IlFindings.OperationDescriptor.Id);
@@ -935,7 +944,8 @@ public static partial class ResearchDiff
                 builder,
                 oldInput,
                 newInput,
-                typeFilters)
+                typeFilters,
+                normalization)
             : new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
                 StringComparer.Ordinal);
 
@@ -986,7 +996,8 @@ public static partial class ResearchDiff
                     oldBodies.MetadataReader,
                     oldBody!,
                     newBodies.MetadataReader,
-                    newBody!);
+                    newBody!,
+                    normalization);
                 if (findingComparison is FindingComparison<CanonicalIlOperation>.Complete complete
                     && ImplementationDiff.FindingDivergenceChange(
                         subject,
@@ -1056,7 +1067,8 @@ public static partial class ResearchDiff
             ResultBuilder builder,
             ResearchDiffInput oldInput,
             ResearchDiffInput newInput,
-            IReadOnlySet<string>? typeFilters)
+            IReadOnlySet<string>? typeFilters,
+            IlBodyDiffNormalization normalization)
     {
         var retained = new Dictionary<string, FindingComparison<CanonicalIlOperation>>(
             StringComparer.Ordinal);
@@ -1109,7 +1121,8 @@ public static partial class ResearchDiff
                         newBodies!.PeReader,
                         newBodies.MetadataReader,
                         MethodHandle(newMethod.MetadataToken),
-                        findingSubject);
+                        findingSubject,
+                        normalization: normalization);
                 }
                 else
                 {
@@ -1123,7 +1136,8 @@ public static partial class ResearchDiff
                             oldBodies!.PeReader,
                             oldBodies.MetadataReader,
                             MethodHandle(oldMethod.MetadataToken),
-                            findingSubject);
+                            findingSubject,
+                            normalization);
                     var newInspection = newMethod is null
                         ? MissingIlInspection(
                             pair.New,
@@ -1134,7 +1148,8 @@ public static partial class ResearchDiff
                             newBodies!.PeReader,
                             newBodies.MetadataReader,
                             MethodHandle(newMethod.MetadataToken),
-                            findingSubject);
+                            findingSubject,
+                            normalization);
                     comparison = IlFindings.Compare(oldInspection, newInspection);
                 }
 

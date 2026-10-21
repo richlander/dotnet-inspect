@@ -77,7 +77,8 @@ public static class ResearchProducerSession
                     item,
                     stages,
                     acquired,
-                    invoker);
+                    invoker,
+                    request.IlNormalization);
                 results.Add(new ResearchProducerWorkResult(item, outcome));
                 if (outcome is ResearchProducerWorkOutcome.Failed
                     {
@@ -177,7 +178,8 @@ public static class ResearchProducerSession
         ResearchProducerWorkItem item,
         Dictionary<ResearchComparisonInputId, StageAccess> stages,
         List<InputStage> acquired,
-        IResearchProducerInvoker invoker)
+        IResearchProducerInvoker invoker,
+        IlBodyDiffNormalization ilNormalization)
     {
         if (item.Basis is ResearchProducerWorkBasis.Correspondence
             {
@@ -213,7 +215,10 @@ public static class ResearchProducerSession
                 ResearchProducerKind.CSharp => ProduceCSharp(
                     endpoints,
                     invoker),
-                ResearchProducerKind.IlBody => ProduceIl(endpoints, invoker),
+                ResearchProducerKind.IlBody => ProduceIl(
+                    endpoints,
+                    invoker,
+                    ilNormalization),
                 _ => throw new UnreachableException(),
             };
         }
@@ -243,13 +248,15 @@ public static class ResearchProducerSession
 
     static ResearchProducerWorkOutcome ProduceIl(
         EndpointPair endpoints,
-        IResearchProducerInvoker invoker)
+        IResearchProducerInvoker invoker,
+        IlBodyDiffNormalization normalization)
     {
         IlMemberDiffEndpoint oldEndpoint = IlEndpoint(endpoints.Before!);
         IlMemberDiffEndpoint newEndpoint = IlEndpoint(endpoints.After!);
         IlMemberEndpointComparison result = invoker.CompareIl(
             oldEndpoint,
-            newEndpoint);
+            newEndpoint,
+            normalization);
         return result is not null
             && NativeResultMatches(endpoints, result)
                 ? new ResearchProducerWorkOutcome.ProducedIlBody(result)
@@ -719,8 +726,9 @@ public static class ResearchProducerSession
 
         public IlMemberEndpointComparison CompareIl(
             IlMemberDiffEndpoint oldEndpoint,
-            IlMemberDiffEndpoint newEndpoint)
-            => IlAssemblyDiff.CompareMemberEndpoints(oldEndpoint, newEndpoint);
+            IlMemberDiffEndpoint newEndpoint,
+            IlBodyDiffNormalization normalization)
+            => IlAssemblyDiff.CompareMemberEndpoints(oldEndpoint, newEndpoint, normalization);
     }
 }
 
@@ -730,7 +738,12 @@ internal interface IResearchProducerInvoker
         CSharpMemberDiffEndpoint oldEndpoint,
         CSharpMemberDiffEndpoint newEndpoint);
 
+    /// <param name="normalization">
+    /// The IL normalization the request names; the Body policy for Member
+    /// Body Diff, none for every other consumer.
+    /// </param>
     IlMemberEndpointComparison CompareIl(
         IlMemberDiffEndpoint oldEndpoint,
-        IlMemberDiffEndpoint newEndpoint);
+        IlMemberDiffEndpoint newEndpoint,
+        IlBodyDiffNormalization normalization);
 }
