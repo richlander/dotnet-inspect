@@ -139,7 +139,7 @@ three assets:
 | --- | ---: | ---: | ---: |
 | Match every Name | 0.49x-0.63x | 3.2x-3.6x | 0.88x-1.03x |
 | Match all, display selected | 0.56x-0.73x | 2.9x-3.3x | 1.00x-1.15x |
-| Write every Name as UTF-8 | 3.2x-4.0x | 3.2x-4.3x | 0.38x-0.80x |
+| Write every Name as UTF-8 | 3.2x-4.3x | 3.2x-4.3x | 0.35x-0.90x |
 | Project every Name to UTF-16 | 2.4x-4.0x | 2.3x-5.3x | 1.3x-2.5x |
 
 The contained UTF-8 match and sparse medians were near eager, but their
