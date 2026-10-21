@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
@@ -39,13 +40,7 @@ public static class EcosystemFindIndexJson
     {
         try
         {
-            EcosystemFindIndexDocument document =
-                JsonSerializer.Deserialize(
-                    utf8Json.Span,
-                    EcosystemFindIndexJsonContext.Default.EcosystemFindIndexDocument)
-                ?? throw new JsonException(
-                    "The Ecosystem Find Index document is null.");
-            EcosystemFindIndexArtifact artifact = FromDocument(document);
+            EcosystemFindIndexArtifact artifact = Deserialize(utf8Json.Span);
             EcosystemFindIndexValidation.Validate(artifact);
             return new EcosystemFindIndexLoadResult.Available(artifact);
         }
@@ -59,6 +54,19 @@ public static class EcosystemFindIndexJson
             return new EcosystemFindIndexLoadResult.Invalid(
                 new InertString(TextPolicy.Field, exception.Message));
         }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static EcosystemFindIndexArtifact Deserialize(
+        ReadOnlySpan<byte> utf8Json)
+    {
+        EcosystemFindIndexDocument document =
+            JsonSerializer.Deserialize(
+                utf8Json,
+                EcosystemFindIndexJsonContext.Default.EcosystemFindIndexDocument)
+            ?? throw new JsonException(
+                "The Ecosystem Find Index document is null.");
+        return FromDocument(document);
     }
 
     private static EcosystemFindIndexDocument ToDocument(
