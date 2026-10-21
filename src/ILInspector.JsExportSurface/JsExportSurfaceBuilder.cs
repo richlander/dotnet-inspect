@@ -140,6 +140,10 @@ public static class JsExportSurfaceBuilder
                         FormatMemberLocation(type, member),
                         "bodyless JS exports have no runtime wrapper");
                 }
+                ValidateMemorySafety(
+                    type,
+                    member,
+                    requireTypedFacts: bodyAnalysis is not null);
                 int managedNameExportCount =
                     type.Members.Count(candidate =>
                         HasJsExportEvidence(candidate)
@@ -167,10 +171,6 @@ public static class JsExportSurfaceBuilder
                         "JS export has no compiler-generated runtime wrapper");
                 }
 
-                if (member.IsUnsafe)
-                    throw new UnsupportedJsExportSurfaceException(
-                        FormatMemberLocation(type, member),
-                        "unsafe JS exports are not supported");
                 if (member.SignatureDecodeStatus
                     == SignatureDecodeStatus.Degraded)
                 {
@@ -1841,6 +1841,57 @@ public static class JsExportSurfaceBuilder
             throw new UnsupportedJsExportSurfaceException(
                 FormatMemberLocation(type, member),
                 "JSExport metadata is malformed or declares duplicate authentic rows");
+        }
+    }
+
+    static void ValidateMemorySafety(
+        ApiType type,
+        ApiMember member,
+        bool requireTypedFacts)
+    {
+        if (member.MemorySafety is not { } memorySafety)
+        {
+            if (requireTypedFacts)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatMemberLocation(type, member),
+                    "JS export memory-safety evidence is unavailable");
+            }
+
+            if (member.IsUnsafe)
+            {
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatMemberLocation(type, member),
+                    "legacy memory-safety evidence marks the JS export as unsafe");
+            }
+
+            return;
+        }
+
+        switch (memorySafety.CallerContract)
+        {
+            case MemorySafetyMemberContractResult.Implicit:
+            case MemorySafetyMemberContractResult.Explicit:
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatMemberLocation(type, member),
+                    "caller-unsafe JS exports are not supported");
+            case MemorySafetyMemberContractResult.Unavailable:
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatMemberLocation(type, member),
+                    "JS export caller-safety contract is unavailable");
+        }
+
+        switch (memorySafety.SignaturePointer)
+        {
+            case MemorySafetyPointerEvidence.Present:
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatMemberLocation(type, member),
+                    "pointer-bearing JS export signatures are not supported");
+            case MemorySafetyPointerEvidence.NotExamined:
+            case MemorySafetyPointerEvidence.Unavailable:
+                throw new UnsupportedJsExportSurfaceException(
+                    FormatMemberLocation(type, member),
+                    "JS export pointer-shape evidence is unavailable");
         }
     }
 

@@ -61,6 +61,185 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.DoesNotContain(hostileMemberName, exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_RejectsCallerUnsafeExport(bool explicitContract)
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Absent);
+        export.MemorySafety = new(
+            Guid.Empty,
+            explicitContract
+                ? new MemorySafetyMemberContractResult.Explicit(evidence)
+                : new MemorySafetyMemberContractResult.Implicit(evidence),
+            MemorySafetyPointerEvidence.Absent);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "caller-unsafe JS exports are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsSafeCallablePointerBearingExport()
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Present);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.None(evidence),
+            MemorySafetyPointerEvidence.Present);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "pointer-bearing JS export signatures are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_CallerUnsafePointerBearingExportReportsCallerContract()
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Present);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.Explicit(evidence),
+            MemorySafetyPointerEvidence.Present);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "caller-unsafe JS exports are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "pointer-bearing",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsUnavailableCallerSafetyContract()
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Absent);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.Unavailable(
+                evidence,
+                new(
+                    MemorySafetyMemberContractFailureKind.MetadataUnavailable,
+                    "Hostile\u001b[31mDetail")),
+            MemorySafetyPointerEvidence.Absent);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "JS export caller-safety contract is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Hostile",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(MemorySafetyPointerEvidence.NotExamined)]
+    [InlineData(MemorySafetyPointerEvidence.Unavailable)]
+    public void Build_RejectsUnavailablePointerShapeEvidence(
+        MemorySafetyPointerEvidence pointerEvidence)
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(pointerEvidence);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.None(evidence),
+            pointerEvidence);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "JS export pointer-shape evidence is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_WithBodiesRequiresTypedMemorySafetyFacts()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FixtureExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name == nameof(FixtureExports.Ping));
+        SelectOnlyRuntimeJsExport(apiSurface, export);
+        export.MemorySafety = null;
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    OpenWireContractBodyAnalysis(path)));
+
+        Assert.Contains(
+            "JS export memory-safety evidence is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_AcceptsSafeContractWithInnerUnsafeImplementation()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FixtureExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(FixtureExports.SafeBoundaryWithInnerUnsafe));
+        export.HasRuntimeJsExport = true;
+        exports.Members = [export];
+        apiSurface.Types = [exports];
+
+        Assert.IsType<MemorySafetyMemberContractResult.None>(
+            export.MemorySafety!.CallerContract);
+        Assert.Equal(
+            MemorySafetyPointerEvidence.Absent,
+            export.MemorySafety.SignaturePointer);
+        Assert.Single(JsExportSurfaceBuilder.Build(apiSurface).Functions);
+    }
+
     [Fact]
     public void Build_RejectsDegradedJsExportSignature()
     {
@@ -94,6 +273,17 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Throws<UnsupportedJsExportSurfaceException>(
             () => JsExportSurfaceBuilder.Build(apiSurface));
     }
+
+    static MemorySafetyMemberContractEvidence MemorySafetyEvidence(
+        MemorySafetyPointerEvidence pointer) =>
+        new(
+            0x06000001,
+            null,
+            pointer,
+            MemorySafetyFixedBufferEvidence.NotExamined,
+            RequiresUnsafeAttributeEvidence.NotExamined,
+            RequiresUnsafeAttributeEvidence.NotExamined,
+            AssociatedMemberToken: null);
 
     [Fact]
     public void Build_IgnoresLookalikeJsExportAttribute()
