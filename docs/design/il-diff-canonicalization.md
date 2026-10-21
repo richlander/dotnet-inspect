@@ -63,6 +63,17 @@ mechanics without defining a consumer's equality policy:
   (`System.*`, `mscorlib`, `netstandard`, `Microsoft.CSharp`, and
   `Microsoft.VisualBasic*`) a shared `<platform>` scope while preserving the
   current assembly and non-platform references.
+- `NormalizeAssemblyScope` gives every type and member reference, including
+  those either compared assembly defines, one shared `<assembly>` scope, so
+  operands compare by namespace, name, and signature alone, without their
+  defining or referenced assembly or its version. It subsumes the two scope
+  mechanics above. It is the mechanic Finding Diff Any's Body policy composes
+  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)):
+  a Library rebuilt only because a dependency's version moved compares
+  `Exact` under it, and a dependency's own changes are found in the
+  dependency's diff. Gated by
+  `NormalizeAssemblyScope_ToleratesNonPlatformReferenceVersionChanges` and
+  `NonPlatformReferenceVersion_FoldsUnderAssemblyScope`.
 
 Values, symbolic targets, and branch topology remain observable under every
 normalization. Consumers own any named or versioned policy that composes these

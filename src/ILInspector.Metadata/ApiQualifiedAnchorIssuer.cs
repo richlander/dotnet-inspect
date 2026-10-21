@@ -403,8 +403,10 @@ internal sealed class ApiQualifiedAnchorIssuer
         ImmutableArray<ApiQualifiedParameter> parameters =
             ReadPropertyParameters(evidence, parameterTypes);
         bool isStatic = ReadAccessorStaticness(evidence);
+        // Identity decodes the Name exactly as MetadataReader.GetString does; the evidence keeps
+        // its bytes for presentation.
         ApiQualifiedMemberDeclaration.Property declaration = new(
-            Decode(root.Name),
+            MetadataSafetyPolicy.ReadStructuralString(_reader, definition.Name),
             isStatic,
             root.Signature.GenericParameterCount,
             root.Signature.Header,
@@ -444,7 +446,7 @@ internal sealed class ApiQualifiedAnchorIssuer
                 "The event declaration produced non-event evidence.");
 
         ApiQualifiedMemberDeclaration.Event declaration = new(
-            Decode(root.Name),
+            MetadataSafetyPolicy.ReadStructuralString(_reader, definition.Name),
             ReadAccessorStaticness(evidence),
             NormalizeType(root.EventType));
         MemberAnchor companion = CreateCompanionAnchor(

@@ -161,9 +161,6 @@ public sealed record BrowserLibraryMemberSurface(
     string? ReturnType,
     BrowserLibraryParameterSurface[] Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserLibraryExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -182,12 +179,7 @@ public sealed record BrowserLibraryParameterSurface(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
-
-public sealed record BrowserLibraryExceptionSurface(
-    string Type,
-    string Description);
+    string? DefaultValue);
 
 /// <summary>
 /// Typed Browser request for one exact Library document

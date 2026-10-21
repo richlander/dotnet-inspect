@@ -1,12 +1,12 @@
-// Fast Diff fixture, version 2. Each Type isolates one kind of change; the
-// expected API and Body states are asserted by FastDiffTests.
+// Finding Diff Any fixture, version 1. Each Type isolates one kind of change; the
+// expected API and Body states are asserted by FindingDiffAnyTests.
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace FastDiffFixture;
+namespace FindingDiffAnyFixture;
 
 public class Unchanged
 {
@@ -15,12 +15,12 @@ public class Unchanged
 
 public class BodyOnly
 {
-    public int Value(int x) => x + 2;
+    public int Value(int x) => x + 1;
 }
 
 public class LambdaOnly
 {
-    public IEnumerable<int> Value(IEnumerable<int> items) => items.Select(x => x + 2);
+    public IEnumerable<int> Value(IEnumerable<int> items) => items.Select(x => x + 1);
 }
 
 public class AsyncOnly
@@ -28,7 +28,7 @@ public class AsyncOnly
     public async Task<int> Value(int x)
     {
         await Task.Yield();
-        return x + 2;
+        return x + 1;
     }
 }
 
@@ -37,39 +37,35 @@ public class LocalFunctionOnly
     public int Value(int x)
     {
         return Add(x);
-        static int Add(int y) => y + 2;
+        static int Add(int y) => y + 1;
     }
 }
 
 public class StringLiteralOnly
 {
-    public string Value() => "after";
+    public string Value() => "before";
 }
 
+// A catch Type is not an IL operation: canonical IL comparison does not
+// show its change (#9942), so the Body axis compares it Unchanged.
 public class CatchTypeOnly
 {
     public int Value(Func<int> action)
     {
         try { return action(); }
-        catch (ArgumentException) { return 0; }
+        catch (InvalidOperationException) { return 0; }
     }
 }
 
 public class PrivateMemberAdded
 {
     public int Value(int x) => x + 1;
-
-    private int Helper() => 0;
 }
 
 // A private field added: a Body change, not an API change.
 public class PrivateFieldAdded
 {
     public int Value(int x) => x + 1;
-
-#pragma warning disable CS0169 // The field is the change.
-    private int _added;
-#pragma warning restore CS0169
 }
 
 // A public method whose only change is in the private method it calls.
@@ -77,19 +73,17 @@ public class PrivateCalleeChanged
 {
     public int Value(int x) => Helper(x);
 
-    private int Helper(int x) => x + 2;
+    private int Helper(int x) => x + 1;
 }
 
 public class PublicMemberAdded
 {
     public int Value(int x) => x + 1;
-
-    public int Added() => 0;
 }
 
 public class MethodConstraint
 {
-    public void Value<T>() where T : struct { }
+    public void Value<T>() where T : class { }
 }
 
 #nullable disable
@@ -97,37 +91,36 @@ public class MethodConstraint
 // only the constraint fact itself differs.
 public class ConstraintType
 {
-    public void Value<T>() where T : IComparable { }
+    public void Value<T>() where T : IDisposable { }
 }
 #nullable restore
 
 public class ConstantValue
 {
-    public const int Value = 2;
+    public const int Value = 1;
 }
 
 public class DefaultParameter
 {
-    public int Value(int x = 2) => x;
+    public int Value(int x = 1) => x;
 }
 
 public class ParameterName
 {
-    public int Value(int after) => after;
+    public int Value(int before) => before;
 }
 
 public class PublicAttribute
 {
-    [Obsolete("after")]
+    [Obsolete("before")]
     public int Value() => 1;
 }
 
-public class InterfaceAdded : IDisposable
+public class InterfaceAdded
 {
-    public void Dispose() { }
 }
 
-public class BecomesPublic
+internal class BecomesPublic
 {
 }
 
@@ -135,38 +128,36 @@ public class Outer
 {
     public class Inner
     {
-        public int Value(int x) => x + 2;
+        public int Value(int x) => x + 1;
     }
 }
 
 public class Generic<T>
 {
     public T Value(T x) => x;
-
-    public T Other(T x) => x;
 }
 
 internal class InternalBodyOnly
 {
-    public int Value(int x) => x + 2;
+    public int Value(int x) => x + 1;
 }
 
 // Roslyn emits NullableContext on NullableOuter only; Inner inherits it.
 public class NullableOuter
 {
-    public string? A(string? x) => x!;
-    public string? B(string? x) => x!;
-    public string? C(string? x) => x!;
+    public string A(string x) => x!;
+    public string B(string x) => x!;
+    public string C(string x) => x!;
 
     public class Inner
     {
-        public string? X(string? x) => x!;
-        public string? Y(string? x) => x!;
-        public string? Z(string? x) => x!;
+        public string X(string x) => x!;
+        public string Y(string x) => x!;
+        public string Z(string x) => x!;
     }
 }
 
-public class Added
+public class Removed
 {
 }
 
@@ -176,71 +167,69 @@ public class HiddenMemberChanged
     public int Value(int x) => x;
 
     [EditorBrowsable(EditorBrowsableState.Never)]
-    public int Hidden(int after) => after;
+    public int Hidden(int before) => before;
 }
 
 // A hidden public Type is on the API axis, marked hidden.
 [EditorBrowsable(EditorBrowsableState.Never)]
 public class HiddenTypeChanged
 {
-    public int Value(int after) => after;
+    public int Value(int before) => before;
 }
 
 // A protected Member is on the API axis.
 public class ProtectedMemberChanged
 {
-    protected int Value(int after) => after;
+    protected int Value(int before) => before;
 }
 
 // A private protected Member is not on the API axis.
 public class PrivateProtectedMemberAdded
 {
     public int Value(int x) => x;
-
-    private protected int Added() => 0;
 }
 
 // Accessibility changes within the API axis.
 public class PublicToProtected
 {
-    protected int Value(int x) => x;
+    public int Value(int x) => x;
 }
 
 public class PublicToProtectedInternal
 {
-    protected internal int Value(int x) => x;
+    public int Value(int x) => x;
 }
 
 public class ProtectedInternalToProtected
 {
-    protected int Value(int x) => x;
+    protected internal int Value(int x) => x;
 }
 
 public class ProtectedToProtectedInternal
 {
-    protected internal int Value(int x) => x;
+    protected int Value(int x) => x;
 }
 
 public class ProtectedInternalToPublic
 {
-    public int Value(int x) => x;
+    protected internal int Value(int x) => x;
 }
 
 public class SetterToProtected
 {
-    public int Value { get; protected set; }
+    public int Value { get; set; }
 }
 
 public class NestedPublicToProtected
 {
-    protected class Nested
+    public class Nested
     {
     }
 }
 
 public class NestedProtectedToPublic
 {
-    public class Nested
+    protected class Nested
     {
     }
 }
@@ -248,67 +237,73 @@ public class NestedProtectedToPublic
 // Accessibility moves that leave or stay outside the API axis.
 public class PublicToInternal
 {
-    internal int Value(int x) => x;
+    public int Value(int x) => x;
 }
 
 public class PublicToPrivate
 {
-    private int Value(int x) => x;
+    public int Value(int x) => x;
 }
 
 public class ProtectedToInternal
 {
-    internal int Value(int x) => x;
+    protected int Value(int x) => x;
 }
 
 public class InternalToPrivate
 {
-    private int Value(int x) => x;
+    internal int Value(int x) => x;
 }
 
 public class ProtectedToPrivateProtected
 {
-    private protected int Value(int x) => x;
+    protected int Value(int x) => x;
 }
 
-internal class PublicTypeToInternal
+public class PublicTypeToInternal
 {
 }
 
 public class PropertyPublicToProtected
 {
-    protected int Value { get; set; }
+    public int Value { get; set; }
 }
 
 // A whole property with a narrower accessor moves; only its accessibility changes.
 public class PropertyWithPrivateSetterPublicToProtected
 {
-    protected int Value { get; private set; }
+    public int Value { get; private set; }
 }
 
 // Changes wholly outside the API axis.
 public class PrivateMemberRemoved
 {
     public int Value(int x) => x;
+
+    private int Helper() => 0;
 }
 
 public class PrivateMemberChanged
 {
-    public int Value(int x) => (int)Helper(x);
+    public int Value(int x) => Helper(x);
 
-    private long Helper(int x) => x;
+    private int Helper(int x) => x;
+}
+
+internal class InternalTypeRemoved
+{
 }
 
 internal class InternalTypeMemberChanged
 {
-    public long Value(int x) => x;
+    public int Value(int x) => x;
 }
 
 internal class InternalOuterNestedMemberChanged
 {
     public class Nested
     {
-        public long Value(int x) => x;
+        public int Value(int x) => x;
     }
 }
 
@@ -316,16 +311,15 @@ internal class InternalOuterNestedMemberChanged
 // subject's hidden or obsolete status and nothing else.
 public class MemberBecomesHidden
 {
-    [EditorBrowsable(EditorBrowsableState.Never)]
     public int Value() => 1;
 }
 
 public class MemberBecomesVisible
 {
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public int Value() => 1;
 }
 
-[EditorBrowsable(EditorBrowsableState.Never)]
 public class TypeBecomesHidden
 {
     public int Value() => 1;
@@ -333,17 +327,15 @@ public class TypeBecomesHidden
 
 public class MemberBecomesObsolete
 {
-    [Obsolete("m")]
     public int Value() => 1;
 }
 
 public class ObsoleteWarningToError
 {
-    [Obsolete("m", true)]
+    [Obsolete("m")]
     public int Value() => 1;
 }
 
-[Obsolete("m")]
 public class TypeBecomesObsolete
 {
     public int Value() => 1;
@@ -351,12 +343,41 @@ public class TypeBecomesObsolete
 
 public class ObsoleteMessageChanged
 {
-    [Obsolete("after")]
+    [Obsolete("before")]
     public int Value() => 1;
 }
 
 public class MemberBecomesObsoleteError
 {
-    [Obsolete("m", true)]
     public int Value() => 1;
+}
+
+// A body present on one side only: an abstract method made virtual.
+public abstract class AbstractToVirtual
+{
+    public abstract int Value(int x);
+}
+
+// A body present on one side only: a default interface implementation added.
+public interface IDefaultImplementationAdded
+{
+    int Value(int x);
+}
+
+// Ordinary presentation (docs/design/library-api-diff-presentation.md): a public
+// nested Type of a hidden Type is outside the ordinary population, and an
+// obsolete Member's other changes stay in it.
+[EditorBrowsable(EditorBrowsableState.Never)]
+public class HiddenOuter
+{
+    public class Inner
+    {
+        public int Value(int before) => before;
+    }
+}
+
+public class ObsoleteMemberChanged
+{
+    [Obsolete("m")]
+    public int Value(int before) => before;
 }

@@ -6,7 +6,8 @@ This document owns the host-neutral registry and exact-selection planning
 substrate for [Annotated Type Relations](annotated-type-relations.md). It owns:
 
 - immutable registration of relationship and color descriptors;
-- binding each registered descriptor to terminal-specialized adapter queries;
+- binding each registered descriptor to terminal-specialized concrete
+  `InspectionQuery<AnnotatedTypeRelationsContribution>` adapter queries;
 - validation of exact Type-focus admission and semantic direction;
 - resolution of one closed exact descriptor selection;
 - deterministic projection of the existing typed queries needed by that
@@ -62,11 +63,12 @@ One color registration binds one exact
 `InspectionGraphCharacteristicDescriptor` to the same terminal-specialized
 adapter-query shape. The characteristic descriptor remains the color identity.
 
-An adapter query is an ordinary typed `InspectionQueryDefinition`. Its owner
-adapts producer-native results to the contribution expected by the later
-document generator. Required and optional dependencies remain registered in
-`InspectionQueryCatalog`; this registry neither repeats nor executes that
-dependency graph.
+An adapter query is an
+`InspectionQuery<AnnotatedTypeRelationsContribution>`. The concrete
+[generation owner](annotated-type-relations-generation.md) understands that
+`T`; QuerySpace and `InspectionQueryCatalog` do not. Required and optional
+dependencies remain registered in `InspectionQueryCatalog`; this registry
+neither repeats nor executes that dependency graph.
 
 Registration rejects:
 
@@ -126,9 +128,8 @@ descriptor remains independently selected.
 
 The plan contains no execution delegate. A consumer passes its query demand to
 the existing typed inspection query catalog, which owns dependency expansion,
-execution, sharing, cancellation, and result access. The later document
-generator consumes the resulting canonical contributions and cannot reacquire
-or rerun producer work.
+execution, sharing, cancellation, and result access. The concrete generation
+owner retrieves the typed results and cannot reacquire or rerun producer work.
 
 ## Failure contract
 
@@ -157,6 +158,9 @@ becomes an empty successful plan.
   adapter query; an unsupported terminal fails.
 - **Catalog authority:** an unregistered adapter query fails instead of
   executing through an alternate path.
+- **Follow the T:** every adapter query has the concrete Annotated Type
+  Relations contribution result type; general query infrastructure never
+  understands that result.
 - **Shared demand:** descriptors bound to the same exact query produce one
   typed-query demand while remaining separate selections.
 - **Color admission:** every required color is selected, and color selection

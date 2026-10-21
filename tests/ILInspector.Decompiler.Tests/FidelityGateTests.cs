@@ -54,6 +54,15 @@ public class FidelityGateTests
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
         "GotoCommonExit",
+        // #10192 PR 2: a retry leave raised to `continue` now carries the proven
+        // LoopBodyBranch origin, so these two fixtures import at Full and are
+        // compared for the first time. Their diff is the pre-existing result-temp
+        // spill of a `return` inside the protected region (`V_0 = x; return V_0;`
+        // plus its `= default` declaration), not the continue: the leave csc
+        // emits for `continue` is the original one. RetryContinueInsideTry is the
+        // return-free proof and stays Exact.
+        "TryFinallyRetryLoop",
+        "NestedOuterRetryLoop",
         // #3514: the compiler-backed reference-type switch witness proves the
         // missing shared default is restored and the body compiles, but the
         // valid nested-if form re-lowers with direct returns rather than csc's
@@ -756,6 +765,32 @@ public class FidelityGateTests
                     or FidelityCheck.CompileBackStatus.OperandDiff,
                 $"SwitchStoreThenUse regressed to {result.Status}: the switch-store fold (#1710) no longer "
                     + "recompiles. Its decompiled C# must stay recompilable.\n"
+                    + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n"
+                    + $"  detail: {result.Detail}");
+    }
+
+    /// <summary>
+    /// FillThenPad's foreach leaves land on the following rotated loop's bottom
+    /// test, past that loop's head. The loop-continue slice's multi-back-edge
+    /// `while (true)` shape must prove the body is entered only at its head;
+    /// without that proof the render nests the leave target inside the loop's
+    /// braces (CS0159), which is a <c>RecompileFail</c> the opcode-diff docket
+    /// would not see. Pin that the fixture stays compile-back-checkable.
+    /// </summary>
+    [Fact]
+    public void FillThenPad_StaysCompileBackCheckable()
+    {
+        var matches = EvaluateFixtures().Where(r => r.Method == "FillThenPad").ToList();
+
+        Assert.True(matches.Count > 0,
+            "Expected the fidelity check to render FillThenPad, but it was not evaluated.");
+        foreach (var result in matches)
+            Assert.True(
+                result.Status is FidelityCheck.CompileBackStatus.Exact
+                    or FidelityCheck.CompileBackStatus.OpcodeDiff
+                    or FidelityCheck.CompileBackStatus.OperandDiff,
+                $"FillThenPad regressed to {result.Status}: a loop body entered past its head was raised "
+                    + "as while (true) and its decompiled C# no longer recompiles.\n"
                     + $"  original : {result.OriginalOpcodes}\n  recompiled: {result.RecompiledOpcodes}\n"
                     + $"  detail: {result.Detail}");
     }

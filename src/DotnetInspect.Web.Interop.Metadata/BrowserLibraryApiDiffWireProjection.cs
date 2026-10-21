@@ -115,7 +115,19 @@ internal static class BrowserLibraryApiDiffWireProjection
             Project(target, document.Before);
         BrowserLibraryApiDiffEndpoint currentEndpoint =
             Project(current, document.After);
-        if (document.Comparison.Subjects.Length > MaxChangedTypes)
+
+        // An API axis comparison shows its ordinary population: the inventory
+        // keeps the rows with an ordinary side, and the aggregate counts them
+        // (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+        // The complete document remains the Inspection baseline.
+        bool ordinaryOnly = document.PresentsOrdinaryPopulation;
+        ComparisonSubject<LibraryApiTypeDiff>[] subjects =
+        [
+            .. document.Comparison.Subjects.Where(subject =>
+                !ordinaryOnly
+                || LibraryApiOrdinaryPresentation.HasOrdinaryRow(subject.Comparison)),
+        ];
+        if (subjects.Length > MaxChangedTypes)
         {
             return Rejected(
                 request,
@@ -124,10 +136,10 @@ internal static class BrowserLibraryApiDiffWireProjection
                 targetEndpoint,
                 currentEndpoint,
                 MaxChangedTypes,
-                document.Comparison.Subjects.Length);
+                subjects.Length);
         }
 
-        long textCharacters = document.Comparison.Subjects.Sum(TypeTextCharacters);
+        long textCharacters = subjects.Sum(TypeTextCharacters);
         if (textCharacters > MaxTypeTextCharacters)
         {
             return Rejected(
@@ -141,10 +153,16 @@ internal static class BrowserLibraryApiDiffWireProjection
 
         BrowserLibraryApiDiffType[] types =
         [
-            .. document.Comparison.Subjects.Select(
-                subject => Project(subject, targetEndpoint, currentEndpoint)),
+            .. subjects.Select(
+                subject => Project(
+                    subject,
+                    targetEndpoint,
+                    currentEndpoint,
+                    ordinaryOnly)),
         ];
-        LibraryApiDiffSummary summary = document.Summary;
+        LibraryApiDiffSummary summary = ordinaryOnly
+            ? DisplayedSummary(subjects)
+            : document.Summary;
         return new BrowserLibraryApiDiffResult(
             BrowserLibraryApiDiffSchema.Version,
             request,
@@ -162,7 +180,8 @@ internal static class BrowserLibraryApiDiffWireProjection
                     summary.BreakingCount,
                     summary.AdditiveCount,
                     summary.PotentiallyBreakingCount,
-                    summary.NonBreakingCount),
+                    summary.NonBreakingCount,
+                    LibraryApiOrdinaryPresentation.OutsideRowCount(document)),
                 types),
             Unavailable: null,
             Rejected: null,
@@ -407,12 +426,58 @@ internal static class BrowserLibraryApiDiffWireProjection
             truncation.InspectedMetadataRows,
             truncation.ProjectedRetainedTextCharacters);
 
+    // The aggregate of the displayed inventory. A change or relation placed
+    // on two Types, as a cross-Type relation is, counts once.
+    static LibraryApiDiffSummary DisplayedSummary(
+        ComparisonSubject<LibraryApiTypeDiff>[] subjects)
+    {
+        LibraryApiCompatibilityChange[] changes =
+        [
+            .. subjects
+                .SelectMany(subject => subject.Comparison.CompatibilityChanges)
+                .Where(change => change.IsOrdinary)
+                .Distinct(ReferenceEqualityComparer.Instance)
+                .Cast<LibraryApiCompatibilityChange>(),
+        ];
+        return new LibraryApiDiffSummary(
+            subjects.Length,
+            subjects.Count(subject =>
+                subject.Comparison.PairKind == LibraryApiTypePairKind.Added),
+            subjects.Count(subject =>
+                subject.Comparison.PairKind == LibraryApiTypePairKind.Removed),
+            subjects
+                .SelectMany(subject => subject.Comparison.Members)
+                .Where(member => member.Relation.IsOrdinary)
+                .Select(member => member.Relation.Identifier)
+                .Distinct(StringComparer.Ordinal)
+                .Count(),
+            changes.Count(change =>
+                change.Classification == ChangeClassification.Breaking),
+            changes.Count(change =>
+                change.Classification == ChangeClassification.Additive),
+            changes.Count(change =>
+                change.Classification == ChangeClassification.PotentiallyBreaking),
+            changes.Count(change =>
+                change.Classification == ChangeClassification.NonBreaking));
+    }
+
     static BrowserLibraryApiDiffType Project(
         ComparisonSubject<LibraryApiTypeDiff> subject,
         BrowserLibraryApiDiffEndpoint target,
-        BrowserLibraryApiDiffEndpoint current)
+        BrowserLibraryApiDiffEndpoint current,
+        bool ordinaryOnly)
     {
         LibraryApiTypeDiff type = subject.Comparison;
+        LibraryApiCompatibilityChange[] changes =
+        [
+            .. type.CompatibilityChanges.Where(change =>
+                !ordinaryOnly || change.IsOrdinary),
+        ];
+        LibraryApiMemberDiff[] members =
+        [
+            .. type.Members.Where(member =>
+                !ordinaryOnly || member.Relation.IsOrdinary),
+        ];
         return new(
             subject.Identifier,
             subject.Display,
@@ -429,23 +494,26 @@ internal static class BrowserLibraryApiDiffWireProjection
                         + "exceptional coordinate change."),
             },
             type.TypeDefinitionChanged,
-            type.ChangedMemberCount,
-            type.BreakingCount,
-            type.AdditiveCount,
-            type.PotentiallyBreakingCount,
-            type.NonBreakingCount,
+            members.Length,
+            Count(ChangeClassification.Breaking),
+            Count(ChangeClassification.Additive),
+            Count(ChangeClassification.PotentiallyBreaking),
+            Count(ChangeClassification.NonBreaking),
             type.Before is null ? null : Project(type.Before),
             type.After is null ? null : Project(type.After),
             [
-                .. type.Members.Select(
-                    member => Project(member, type, target, current)),
+                .. members.Select(
+                    member => Project(member, changes, target, current)),
             ],
             [
-                .. type.CompatibilityChanges
+                .. changes
                     .Where(change =>
                         change.Subject.Kind == ApiChangeSubjectKind.Type)
                     .Select(Project),
             ]);
+
+        int Count(ChangeClassification classification)
+            => changes.Count(change => change.Classification == classification);
     }
 
     // A member-level change belongs to the relation whose Before or After
@@ -504,6 +572,25 @@ internal static class BrowserLibraryApiDiffWireProjection
                     change.Category,
                     "Unknown Library API change category."),
             },
+            change.State switch
+            {
+                LibraryApiChangeState.Changed =>
+                    BrowserLibraryApiDiffChangeState.Changed,
+                LibraryApiChangeState.Added =>
+                    BrowserLibraryApiDiffChangeState.Added,
+                LibraryApiChangeState.Removed =>
+                    BrowserLibraryApiDiffChangeState.Removed,
+                LibraryApiChangeState.Hidden =>
+                    BrowserLibraryApiDiffChangeState.Hidden,
+                LibraryApiChangeState.Unhidden =>
+                    BrowserLibraryApiDiffChangeState.Unhidden,
+                LibraryApiChangeState.Obsoleted =>
+                    BrowserLibraryApiDiffChangeState.Obsoleted,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(change),
+                    change.State,
+                    "Unknown Library API change state."),
+            },
             change.Message.ToString(),
             change.OldValue?.ToString(),
             change.NewValue?.ToString());
@@ -526,11 +613,12 @@ internal static class BrowserLibraryApiDiffWireProjection
             identity.Identifier,
             identity.DefinitionName.Namespace,
             [.. identity.DefinitionName.Segments],
-            identity.Display);
+            identity.Display,
+            identity.Status.IsObsolete);
 
     static BrowserLibraryApiDiffMember Project(
         LibraryApiMemberDiff member,
-        LibraryApiTypeDiff type,
+        IReadOnlyList<LibraryApiCompatibilityChange> changes,
         BrowserLibraryApiDiffEndpoint target,
         BrowserLibraryApiDiffEndpoint current)
     {
@@ -573,7 +661,7 @@ internal static class BrowserLibraryApiDiffWireProjection
             before,
             after,
             [
-                .. type.CompatibilityChanges
+                .. changes
                     .Where(change => Describes(change, member.Relation))
                     .Select(Project),
             ],
@@ -626,7 +714,8 @@ internal static class BrowserLibraryApiDiffWireProjection
             identity.Anchor.Fingerprint,
             identity.Anchor.TypeFullName,
             identity.Anchor.MemberName,
-            identity.Display);
+            identity.Display,
+            identity.Status.IsObsolete);
 
     static long TypeTextCharacters(
         ComparisonSubject<LibraryApiTypeDiff> subject)
@@ -723,6 +812,8 @@ internal static class BrowserLibraryApiDiffWireProjection
                 BrowserLibraryApiDiffSurfaceScope.IncludeAll,
             ApiSurfaceScope.PublicWithNonPublicTypes =>
                 BrowserLibraryApiDiffSurfaceScope.PublicWithNonPublicTypes,
+            ApiSurfaceScope.ApiAxis =>
+                BrowserLibraryApiDiffSurfaceScope.ApiAxis,
             _ => throw new ArgumentOutOfRangeException(nameof(scope)),
         };
 

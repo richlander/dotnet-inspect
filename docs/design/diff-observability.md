@@ -7,10 +7,10 @@ and views adopt to decide whether a difference is a reported change, and how
 to reason about subtle differences. It owns only the pattern. Each producer
 or view adopts it as its own focused effort and owns its adoption decisions.
 
-[Fast Diff](fast-diff.md) is the first adopter. IL diff canonicalization's
-adoption is filed as
-[#9801](https://github.com/richlander/dotnet-inspect/issues/9801); other
-owners adopt in the same way.
+[Finding Diff Any](finding-diff-any.md) is the first adopter. IL diff
+canonicalization's adoption is filed as
+[#9801](https://github.com/richlander/dotnet-inspect/issues/9801); other owners
+adopt in the same way.
 
 ## Principle
 

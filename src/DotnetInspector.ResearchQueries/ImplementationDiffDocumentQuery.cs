@@ -40,7 +40,8 @@ public static class ImplementationDiffDocumentQuery
             compared.Comparison,
             new ImplementationDiffOptions(
                 input.Mechanisms,
-                TypeFilters: input.TypeFilters),
+                TypeFilters: input.TypeFilters,
+                IlNormalization: input.IlNormalization),
             input.Population switch
             {
                 ImplementationComparisonPopulation.All =>

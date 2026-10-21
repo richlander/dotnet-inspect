@@ -457,6 +457,8 @@ public sealed class LibraryBodyAnalysisExecution
                         bool>(),
                 NonHeapNewObjOperandTokens: new HashSet<int>(),
                 DeclaredSources: new Dictionary<int, MethodIdentity>(),
+                DeclaredSourceSuppressedMethodTokens:
+                    new HashSet<int>(),
                 LocalThrows: []),
             Safety: new(
                 Evidence: unsafeEvidence,

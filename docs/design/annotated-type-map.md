@@ -28,7 +28,7 @@ It consumes and does not redefine:
 | Owner | Contract consumed |
 | --- | --- |
 | [Finding nomenclature](finding-nomenclature.md) and [Finding coordinates](finding-coordinates.md) | `Finding<T>`, `PairFinding<T>`, `IFinding`, `IPairFinding`, `FindingKey`, and inspection and comparison outcomes |
-| [Fast Diff](fast-diff.md) | Member identity and ownership, the census key, the API and Body equality, and the reported Member anchor |
+| [Finding Diff Any](finding-diff-any.md) | Member identity and ownership, the census key, the API and Body equality, and the reported Member anchor |
 | [Annotated Source diff document](annotated-source-diff-document.md) | A method's side outcomes and the [fact comparison](annotated-source-diff-document.md#fact-comparison) |
 | [Annotated Source Finding provenance](annotated-source-finding-provenance.md#classification-contract) | The fact descriptors and their classifications |
 | [QuerySpace composition](query-space-composition.md) | Rows, Count, and Exists, and how they are planned |
@@ -44,9 +44,9 @@ decide #10227.
 ## Why
 
 A changed Type is a short list: the Members that changed and, for each, what
-kind of change it was. Today a host gets either one bit per Type (Fast Diff) or
-the whole annotated source diff of each Member, which decompiles both sides.
-Nothing sits between them.
+kind of change it was. Today a host gets either one bit per Type (Finding Diff
+Any) or the whole annotated source diff of each Member, which decompiles both
+sides. Nothing sits between them.
 
 A reader of a Type Compare view wants the middle answer first: "`Parse` gained
 an allocation; `TryParse` was added; the base Type changed." That answer is the
@@ -72,7 +72,7 @@ between Types, such as a callee's signals, belong to
 
 The two forms only agree if one implementation produces both. A two-version
 form built separately from the one-version form is a second definition of
-"changed", and the two drift, as Fast Diff and the complete diffs did
+"changed", and the two drift, as Finding Diff Any and the complete diffs did
 ([#10223](https://github.com/richlander/dotnet-inspect/issues/10223),
 [#9801](https://github.com/richlander/dotnet-inspect/issues/9801)). So the
 map diff is not its own producer: it is two maps, joined and compared.
@@ -94,71 +94,70 @@ A map is about one Type at one version. It holds:
   projects them. The comparison matches facts by their position in the whole
   stream, so the map keeps the whole stream to reproduce it.
 
-A Member's key is its Fast Diff census key, with its accessors raised into its
-property or event and its generated code attached to it, as
-[Fast Diff](fast-diff.md#type) partitions a Type's facts. Facts that belong to
-no single Member are the Type's **residual**, and they are the Type's own
-entries. A host-facing document spells a key with the Member's anchor, as Fast
-Diff's Type level reports it: the After side's anchor, or the Before side's
-for a Member present only there. The spelling is presentation; keys still
+A Member's key is its Finding Diff Any census key, with its accessors raised
+into its property or event and its generated code attached to it, as [Finding
+Diff Any](finding-diff-any.md#type) partitions a Type's facts. Facts that belong
+to no single Member are the Type's **residual**, and they are the Type's own
+entries. A host-facing document spells a key with the Member's anchor, as
+Finding Diff Any's Type level reports it: the After side's anchor, or the Before
+side's for a Member present only there. The spelling is presentation; keys still
 join and compare exactly. When two keys in one document share a spelling, as a
 `Removed` and an `Added` key do when only a return or field Type changed, the
 document spells each with its anchor and its row token on its side, and both
-keep their own outcomes. The rows that Fast Diff's identity rule makes
+keep their own outcomes. The rows that Finding Diff Any's identity rule makes
 `Indeterminate`, such as two Type rows of one name, are `Indeterminate` here
 too.
 
-Shape facts are Fast Diff's two axes at Member grain:
+Shape facts are Finding Diff Any's two axes at Member grain:
 
 - **API facts:** the Member's projection in the Public API surface of its
   version, the input the complete Public API comparison reads for that Member;
   and
 - **Body facts:** for each method the Member owns that has a body on that
-  side, its body's identity under Fast Diff's Body equality: its canonical
-  instructions with symbolic operands; and, for a Member the API axis surface
-  does not admit, its **declaration facts**, the row, signature, flags,
-  constants, import, generic parameters, and attributes that Fast Diff's Body
-  census records for it, and, for any Member, the declaration facts of the
-  generated code it owns, and its implementation facts once Fast Diff's Body
-  census records them there under
-  [Diff capabilities](diff-capabilities.md#adoption) step 1. A method with no
-  body owns no body fact on that
-  side, so a one-sided method without a body that the surface admits is an
-  API change only, and a method on both sides with a body on one side only
-  is a Body change,
-  as Fast Diff's Body axis states. The Type's own Body facts are every
-  Body fact Fast Diff's census gives the residual under its rule 1, such as
-  `beforefieldinit` for any Type with a static constructor, the declaration
-  of a Type the surface admits on neither side, and, for each row no Member
-  owns, such as a static constructor or generated code with no single owner,
-  its declaration facts and its IL.
+  side, its body's identity under Finding Diff Any's Body equality: its
+  canonical instructions with symbolic operands; and, for a Member the API axis
+  surface does not admit, its **declaration facts**, the row, signature, flags,
+  constants, import, generic parameters, and attributes that Finding Diff Any's
+  Body census records for it, and, for any Member, the declaration facts of the
+  generated code it owns, and its implementation facts once Finding Diff Any's
+  Body census records them there under [Diff
+  capabilities](diff-capabilities.md#adoption) step 1. A method with no body
+  owns no body fact on that side, so a one-sided method without a body that the
+  surface admits is an API change only, and a method on both sides with a body
+  on one side only is a Body change, as Finding Diff Any's Body axis states. The
+  Type's own Body facts are every Body fact Finding Diff Any's census gives the
+  residual under its rule 1, such as `beforefieldinit` for any Type with a
+  static constructor, the declaration of a Type the surface admits on neither
+  side, and, for each row no Member owns, such as a static constructor or
+  generated code with no single owner, its declaration facts and its IL.
 
-Admission follows Fast Diff's partition. A Type public on either side
-partitions its facts as public on both, so a Type's visibility change is an
-API fact only, as [Fast Diff's Axes](fast-diff.md#axes) state; within that,
-each Member's declaration facts are API or Body by the Member's own
-accessibility on its side, as if the Type were public there. Each map therefore records every Member's declaration facts with
-its version's admission, and the comparison places them.
+Admission follows Finding Diff Any's partition. A Type public on either side
+partitions its facts as public on both, so a Type's visibility change is an API
+fact only, as [Finding Diff Any's Axes](finding-diff-any.md#axes) state; within
+that, each Member's declaration facts are API or Body by the Member's own
+accessibility on its side, as if the Type were public there. Each map therefore
+records every Member's declaration facts with its version's admission, and the
+comparison places them.
 
-Those are Fast Diff's [Body axis](fast-diff.md#axes) facts at every
-accessibility. Every Member therefore owns shape facts on at least one axis:
-API facts where the surface admits it, Body declaration facts where it does
-not, and a body fact per method with a body. An added private field is a
-Body `Added` row, an attribute added to an internal method is a Body
-`Changed` row, and a non-admitted Type whose own declaration changed has a
-Body transition on its Type row. The row carries the transition, not the
-fact that differs: the [declaration view](declaration-view.md)
+Those are Finding Diff Any's [Body axis](finding-diff-any.md#axes) facts at
+every accessibility. Every Member therefore owns shape facts on at least one
+axis: API facts where the surface admits it, Body declaration facts where it
+does not, and a body fact per method with a body. An added private field is a
+Body `Added` row, an attribute added to an internal method is a Body `Changed`
+row, and a non-admitted Type whose own declaration changed has a Body transition
+on its Type row. The row carries the transition, not the fact that differs: the
+[declaration view](declaration-view.md)
 ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) presents
 that at rung 4. Until that view lands, such a row has no rung-4 view, the
 interim exception Diff capabilities' adoption step 1 records.
 
-Each shape fact is a function of one version, and the axis a declaration
-fact compares on is settled across the pair as above, so two retained maps
-can be compared without reopening either image. The map adds no equality. Two API
-facts are equal exactly when the complete Public API comparison reports no
-change to the Member, which is Fast Diff's API axis, and two Body facts are
-equal exactly when Fast Diff's Body axis would call them equal. Fast Diff's
-census is a faster route to the same API answer in lockstep: its presented
+Each shape fact is a function of one version, and the axis a declaration fact
+compares on is settled across the pair as above, so two retained maps can be
+compared without reopening either image. The map adds no equality. Two API facts
+are equal exactly when the complete Public API comparison reports no change to
+the Member, which is Finding Diff Any's API axis, and two Body facts are equal
+exactly when Finding Diff Any's Body axis would call them equal. Finding Diff
+Any's census is a faster route to the same API answer in lockstep: its presented
 facts decide a difference, and it falls back to the Public API surface for
 uncertain ones.
 
@@ -196,12 +195,12 @@ by one rule:
    a rename, move, or changed signature, belongs to
    [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
 2. **Compare each joined key.** A key on one side yields `Added` or `Removed`
-   on each axis where the Member owns shape facts, as Fast Diff's Type level
-   does, and for each of its facts. A key on both sides compares its
-   shape facts by Fast Diff's equality, giving an API and a Body transition,
-   and, per method, its two whole fact streams by the
-   [fact comparison](annotated-source-diff-document.md#fact-comparison), with
-   its keys, matching, and acceptance threshold. Only then are the transitions
+   on each axis where the Member owns shape facts, as Finding Diff Any's Type
+   level does, and for each of its facts. A key on both sides compares its shape
+   facts by Finding Diff Any's equality, giving an API and a Body transition,
+   and, per method, its two whole fact streams by the [fact
+   comparison](annotated-source-diff-document.md#fact-comparison), with its
+   keys, matching, and acceptance threshold. Only then are the transitions
    filtered to admitted descriptors, so which analyses a request names never
    changes how a fact is matched. The Type's own entries compare the same way.
 3. **Keep the non-`Present` transitions.** The map diff's annotations are a
@@ -226,20 +225,20 @@ A Member whose Body changed while all its admitted findings compare as
 no finding transitions, and reads as "body changed, no classified finding".
 
 A key that cannot be compared, such as a Member owning a method with an
-undefined opcode, carries Fast Diff's `Indeterminate` as its outcome and is never
-omitted.
+undefined opcode, carries Finding Diff Any's `Indeterminate` as its outcome and
+is never omitted.
 
 The map diff carries, for the Type, its presence: on both sides, or `Added` or
-`Removed`. A one-sided Type's presence is a shape transition of its Type row,
-by Fast Diff's presence rule: Body `Added` or `Removed` whether or not the Type
-declares a body, and API `Added` or `Removed` when the Public API surface admits
-the Type. So a one-sided Type is always listed by its Type row, and its map
-diff lists every Member key of its present side, one-sided, `Added` or
+`Removed`. A one-sided Type's presence is a shape transition of its Type row, by
+Finding Diff Any's presence rule: Body `Added` or `Removed` whether or not the
+Type declares a body, and API `Added` or `Removed` when the Public API surface
+admits the Type. So a one-sided Type is always listed by its Type row, and its
+map diff lists every Member key of its present side, one-sided, `Added` or
 `Removed` on each axis where the Member owns shape facts and for each of its
-facts, as Fast Diff's [one-sided Type level](fast-diff.md#type) states: an
-added internal enum lists each of its members as Body `Added`, and an added
-public Type lists a public field as API `Added` and a private field as Body
-`Added`.
+facts, as Finding Diff Any's [one-sided Type level](finding-diff-any.md#type)
+states: an added internal enum lists each of its members as Body `Added`, and an
+added public Type lists a public field as API `Added` and a private field as
+Body `Added`.
 
 A paired Member is listed exactly when a shape fact it owns differs or its
 shape comparison is unsettled. A private field whose declaration is the same
@@ -261,11 +260,11 @@ fact stream, so producing two maps censuses unchanged Members too; producing
 them in lockstep can census only the listed Members. Adoption steps 3 and 5
 measure both.
 
-Fast Diff's census is a one-version table of shape facts per Type keyed by the
-census key, so the shape comparison is what Fast Diff computes. Until
-[#10227](https://github.com/richlander/dotnet-inspect/issues/10227) decides
-the implementation, the **Agreement** gate below holds the map diff's shape
-transitions equal to Fast Diff's states per Member.
+Finding Diff Any's census is a one-version table of shape facts per Type keyed
+by the census key, so the shape comparison is what Finding Diff Any computes.
+Until [#10227](https://github.com/richlander/dotnet-inspect/issues/10227)
+decides the implementation, the **Agreement** gate below holds the map diff's
+shape transitions equal to Finding Diff Any's states per Member.
 
 ## Admitted findings
 
@@ -343,8 +342,8 @@ persistent artifact and is offered only as one. A Member's findings are the
 detail of its row, not a narrower scope.
 
 A Type's Exists in the map diff is the shape comparison stopped at its first
-difference: Fast Diff's Library-level state for that Type. The map runs no
-second walk to answer it.
+difference: Finding Diff Any's Library-level state for that Type. The map runs
+no second walk to answer it.
 
 ## Disclosure ladder
 
@@ -352,7 +351,7 @@ A host spends cost as the user narrows:
 
 | Step | Answers | Cost evidence |
 | --- | --- | --- |
-| Exists per Type | which Types changed | Fast Diff: 0.01–0.8 ms per Type |
+| Exists per Type | which Types changed | Finding Diff Any: 0.01–0.8 ms per Type |
 | A Type's map diff | which Members, and what kind of change each | see [Evidence](#evidence) |
 | A Member's annotated source diff, or its [declaration view](declaration-view.md) for a declaration fact | the change itself, in C# and IL, or the declaration that differs | its own owner; [#10347](https://github.com/richlander/dotnet-inspect/issues/10347) |
 
@@ -403,27 +402,27 @@ The spike `exp/unified-diff-exists` (`14ae747e4`) measured Exists through the
 complete diffs' own code
 ([evidence](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6252848264)).
 Its verdicts equalled the complete diffs on six pairs, but text identities
-(method keys, operands, and the API surface model) cost several times Fast
-Diff's symbolic census. A retained map's API facts are the Public API surface
-projection, whose exact-Type cost is measured in
+(method keys, operands, and the API surface model) cost several times Finding
+Diff Any's symbolic census. A retained map's API facts are the Public API
+surface projection, whose exact-Type cost is measured in
 [#10221](https://github.com/richlander/dotnet-inspect/issues/10221), and its
-Body facts use Fast Diff's symbolic identities; a Body fact for each method of
-one version is not yet measured. Adoption step 2 measures both.
+Body facts use Finding Diff Any's symbolic identities; a Body fact for each
+method of one version is not yet measured. Adoption step 2 measures both.
 
 ## Adoption
 
 Each step is its own focused effort:
 
-1. **Shape at Member grain.** Fast Diff's Type level meets its contract,
+1. **Shape at Member grain.** Finding Diff Any's Type level meets its contract,
    including [#10223](https://github.com/richlander/dotnet-inspect/issues/10223)
    and a one-sided Type's partition
    ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)).
-2. **One-version shape facts.** A map producer emits one version's shape facts
-   per Member: its Public API surface projection, through the exact-Type
+2. **One-version shape facts.** A map producer emits one version's shape
+   facts per Member: its Public API surface projection, through the exact-Type
    extraction of
    [#10221](https://github.com/richlander/dotnet-inspect/issues/10221), and a
-   Body fact per method under Fast Diff's Body equality, with NativeAOT cost
-   per Type for each against Fast Diff's lockstep walk.
+   Body fact per method under Finding Diff Any's Body equality, with NativeAOT
+   cost per Type for each against Finding Diff Any's lockstep walk.
 3. **Fact census without text.** The Annotated Source owner produces one
    method's whole fact stream and fact comparison, for each method a Member
    owns including generated methods, without the text comparison or the C#
@@ -450,13 +449,13 @@ implementation and, if adopted, of its QuerySpace operators.
 - **One implementation:** for every fixture Type pair, the map diff computed
   from two retained maps equals the map diff computed in lockstep, element for
   element and outcome for outcome.
-- **Agreement:** over the Fast Diff fixture pairs and the spike's pairs, each
-  Member's API and Body transitions equal Fast Diff's states for that Member,
-  where a one-sided key's `Added` or `Removed` is Fast Diff's one-sided
-  `Changed`, including Body `Added` for `PrivateFieldAdded`'s field, and a
-  Type's Exists equals Fast Diff's Library-level state, `true`, `false`, or
-  undecided for `Changed`, `Unchanged`, or `Indeterminate`, including Fast
-  Diff's fixture with two Type rows of one name.
+- **Agreement:** over the Finding Diff Any fixture pairs and the spike's
+  pairs, each Member's API and Body transitions equal Finding Diff Any's states
+  for that Member, where a one-sided key's `Added` or `Removed` is Finding Diff
+  Any's one-sided `Changed`, including Body `Added` for `PrivateFieldAdded`'s
+  field, and a Type's Exists equals Finding Diff Any's Library-level state,
+  `true`, `false`, or undecided for `Changed`, `Unchanged`, or `Indeterminate`,
+  including Finding Diff Any's fixture with two Type rows of one name.
 - **Findings:** for every listed Member of the fixture Types, and for each
   method it owns on both sides, the admitted non-`Present` transitions of that
   method's annotated source diff equal that method's part of the Member's
@@ -490,7 +489,7 @@ implementation and, if adopted, of its QuerySpace operators.
   outcome at that scope.
 - **Retained maps:** for every fixture Member with uncertain API facts, such
   as an attribute blob or nullable context, comparing two retained maps gives
-  Fast Diff's API state without reopening an image.
+  Finding Diff Any's API state without reopening an image.
 - **Keys:** the JSON keyed collection and the Rows projection hold the same
   Members and elements, and no two Members share a spelled key.
 - **No fact census at Library scope:** producing map diff Library Rows runs no

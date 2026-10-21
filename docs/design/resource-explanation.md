@@ -69,6 +69,7 @@ dotnet-inspect has several introspection surfaces with different jobs:
 | --- | --- |
 | `-D` | Which structural resources are available here? |
 | `-Q` | Which query capabilities does this route expose? |
+| `explain` | Which subjects, operations, and references can I start from? |
 | `explain vocabularies` | Which stable values may I supply? |
 | `explain <search text>` | Which installed product resources might match this text? |
 | `explain <resource path>` | What exactly is this one product resource, and how is it related to other resources? |
@@ -225,8 +226,30 @@ linked operation or expand every reverse match.
 
 ### Routing declarations
 
-Status: **proposed, not implemented**, the design slice of
-[#10312](https://github.com/richlander/dotnet-inspect/issues/10312).
+Status: **partially implemented**. The design slice is
+[#10312](https://github.com/richlander/dotnet-inspect/issues/10312). Shared
+root projection, declaration validation, and the reachability report are
+implemented. Every owner of a resource family the CLI composes has adopted:
+
+- Schema Query
+  ([#10316](https://github.com/richlander/dotnet-inspect/issues/10316));
+- Inspection Capability Composition
+  ([#10317](https://github.com/richlander/dotnet-inspect/issues/10317)); and
+- Product Vocabulary
+  ([#10318](https://github.com/richlander/dotnet-inspect/issues/10318)).
+
+The CLI's root over its complete catalog satisfies the reachability
+invariant, and the CLI publishes it as bare `explain`
+([#10139](https://github.com/richlander/dotnet-inspect/issues/10139); see
+[Explain root admission](../cli-architecture.md#explain-root-admission)).
+Two parts arrive later:
+
+- collection-level member hints; and
+- the HAL reading of the root.
+
+The shared projection places the role collections at the top-level paths
+`subject-kinds`, `operations`, and `references`, and each entry at
+`<collection>/<identity>`. A host assigns only the root's own path.
 
 The root's entries are projections of **routing declarations**. An owner issues
 one routing declaration for each subject kind, operation, or reference
@@ -293,10 +316,17 @@ the catalog is not published, when:
 
 - two declarations of the same role share an identity;
 - any destination does not resolve to exactly one installed resource in the
-  composed catalog;
+  composed catalog, or resolves to a resource type the root has no
+  destination relationship for;
 - an operation names a subject kind no admitted declaration issues; or
 - a declaration has neither a destination nor an explicit not-yet-explainable
-  state.
+  state, or has both.
+
+The root schema declares one destination relationship per routable resource
+type. Each adopting owner adds the relationship for its destination type, so
+a destination of any other type is rejected rather than projected untyped.
+The routable types are structural catalogs, inspection documents, and
+navigation collections.
 
 Reachability is separate: it decides whether the host may publish its root,
 not whether its catalog is valid. The root's reachability invariant holds when
@@ -323,8 +353,8 @@ own focused effort: Schema Query for the structural subject kinds (#10316),
 Inspection Capability Composition for Package Query, Package Files, and
 analyses (#10317), and Product Vocabulary for value vocabularies (#10318).
 The Library address view's coordinate sections joined the complete catalog
-under the one `library` root (#10315). Until every such owner has adopted it, hosts keep their
-current required-operand behavior; bare root admission belongs to the
+under the one `library` root (#10315). Until every such owner has adopted it,
+hosts keep their current required-operand behavior; bare root admission belongs to the
 [CLI host](../cli-architecture.md) and Browser host adoptions, which consume
 the published root and do not compose one themselves.
 

@@ -56,6 +56,8 @@ internal sealed class LiftedSourceOwnerResolver
     readonly PEReader _peReader;
     readonly LibraryBodyPrimaryMetadataResolver
         _primaryMetadataResolver;
+    readonly Func<TypeDefinitionHandle, bool>
+        _isCompilerGeneratedTypeOrEnclosing;
     readonly LibraryBodyMethodReferenceResolver
         _methodReferenceResolver;
     readonly StateMachineSourceResolver
@@ -106,6 +108,8 @@ internal sealed class LiftedSourceOwnerResolver
         MetadataReader reader,
         PEReader peReader,
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
+        Func<TypeDefinitionHandle, bool>
+            isCompilerGeneratedTypeOrEnclosing,
         LibraryBodyMethodReferenceResolver methodReferenceResolver,
         StateMachineSourceResolver asyncSourceResolver,
         Action<MethodDefinitionHandle>? methodBodyReferenceIndexed = null,
@@ -120,6 +124,8 @@ internal sealed class LiftedSourceOwnerResolver
         _reader = reader;
         _peReader = peReader;
         _primaryMetadataResolver = primaryMetadataResolver;
+        _isCompilerGeneratedTypeOrEnclosing =
+            isCompilerGeneratedTypeOrEnclosing;
         _methodReferenceResolver = methodReferenceResolver;
         _asyncSourceResolver = asyncSourceResolver;
         _methodBodyReferenceIndexed = methodBodyReferenceIndexed;
@@ -183,6 +189,53 @@ internal sealed class LiftedSourceOwnerResolver
             directlySelectedBody,
             cacheScopedGroup: true)
             == LiftedSourceOwnerResolution.Resolved;
+
+    internal LiftedSourceOwnerResolution ResolveExact(
+        MethodDefinitionHandle liftedHandle,
+        MethodDefinition liftedMethod,
+        MethodIdentity liftedIdentity,
+        out AuthenticatedSourceOwner sourceOwner)
+    {
+        sourceOwner = default;
+        if (!TryGetTargetedLiftedOwnerGroup(
+                liftedMethod,
+                out LiftedOwnerGroupKey group,
+                out bool rejected))
+        {
+            return rejected
+                ? LiftedSourceOwnerResolution.Rejected
+                : LiftedSourceOwnerResolution.None;
+        }
+
+        var ownerMethodScope = new HashSet<int>();
+        TypeDefinition ownerType =
+            _reader.GetTypeDefinition(group.OwnerType);
+        foreach (MethodDefinitionHandle handle in ownerType.GetMethods())
+        {
+            _generatedExpansionWork?.RecordCandidateDefinition(handle);
+            MethodDefinition candidate =
+                _reader.GetMethodDefinition(handle);
+            if (_reader.StringComparer.Equals(
+                    candidate.Name,
+                    group.OwnerName))
+            {
+                ownerMethodScope.Add(
+                    MetadataTokens.GetToken(handle));
+            }
+        }
+        if (ownerMethodScope.Count == 0)
+            return LiftedSourceOwnerResolution.None;
+
+        return Resolve(
+            liftedHandle,
+            liftedMethod,
+            liftedIdentity,
+            out sourceOwner,
+            ownerMethodScope,
+            ownerTypeScope: null,
+            directlySelectedBody: false,
+            cacheScopedGroup: true);
+    }
 
     internal LiftedSourceOwnerResolution Resolve(
         MethodDefinitionHandle liftedHandle,
@@ -295,8 +348,7 @@ internal sealed class LiftedSourceOwnerResolver
             _primaryMetadataResolver
                 .HasCompilerGeneratedAttribute(
                     attributes)
-                || _primaryMetadataResolver
-                .IsCompilerGeneratedTypeOrEnclosing(
+                || _isCompilerGeneratedTypeOrEnclosing(
                     ownerType),
             ownerIsTopLevelEntryPoint);
         return LiftedSourceOwnerResolution.Resolved;
@@ -373,9 +425,8 @@ internal sealed class LiftedSourceOwnerResolver
                     _primaryMetadataResolver
                         .HasCompilerGeneratedAttribute(
                             attributes)
-                        || _primaryMetadataResolver
-                            .IsCompilerGeneratedTypeOrEnclosing(
-                                group.OwnerType),
+                        || _isCompilerGeneratedTypeOrEnclosing(
+                            group.OwnerType),
                     IsAuthenticatedTopLevelEntryPoint: false);
                 if (owner.HasMalformedGeneratedLiftedName)
                     return true;

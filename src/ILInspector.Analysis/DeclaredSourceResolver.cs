@@ -156,18 +156,27 @@ internal sealed class DeclaredSourceResolver(
         MethodIdentity method,
         bool typeSourceGenerated,
         out AuthenticatedSourceOwner? immediateOwner,
-        out AuthenticatedSourceOwner? ultimateOwner)
+        out AuthenticatedSourceOwner? ultimateOwner,
+        bool exactAttribution = false,
+        MethodDefinitionGeneratedExpansionWork?
+            exactAttributionWork = null)
     {
         immediateOwner = null;
         LiftedSourceOwnerResolution liftedResolution =
-            _liftedSourceOwnerResolver.Resolve(
-                methodHandle,
-                methodDefinition,
-                method,
-                out AuthenticatedSourceOwner liftedOwner,
-                ownerMethodScope: null,
-                ownerTypeScope: null,
-                directlySelectedBody: false);
+            exactAttribution
+                ? _liftedSourceOwnerResolver.ResolveExact(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    out AuthenticatedSourceOwner liftedOwner)
+                : _liftedSourceOwnerResolver.Resolve(
+                    methodHandle,
+                    methodDefinition,
+                    method,
+                    out liftedOwner,
+                    ownerMethodScope: null,
+                    ownerTypeScope: null,
+                    directlySelectedBody: false);
         if (liftedResolution
             == LiftedSourceOwnerResolution.Resolved)
         {
@@ -175,7 +184,8 @@ internal sealed class DeclaredSourceResolver(
             DeclaredOwnerResolution resolution =
                 ResolveUltimateLiftedOwner(
                 liftedOwner,
-                out AuthenticatedSourceOwner resolvedOwner);
+                out AuthenticatedSourceOwner resolvedOwner,
+                exactAttribution);
             ultimateOwner =
                 resolution == DeclaredOwnerResolution.Resolved
                     ? resolvedOwner
@@ -189,12 +199,29 @@ internal sealed class DeclaredSourceResolver(
             return DeclaredOwnerResolution.Rejected;
         }
 
+        MethodIdentity? asyncSource;
+        bool exactStateMachineExecutionBody = false;
+        AuthenticatedSourceOwner? exactAsyncSourceOwner = null;
         AsyncSourceResolution asyncResolution =
-            _stateMachineSourceResolver.ResolveSourceOwnership(
-                method,
-                methodDefinition,
-                typeSourceGenerated,
-                out MethodIdentity? asyncSource);
+            exactAttribution
+                ? _stateMachineSourceResolver
+                    .ResolveExactSourceOwnership(
+                        methodHandle,
+                        method,
+                        methodDefinition,
+                        typeSourceGenerated,
+                        exactAttributionWork
+                            ?? throw new InvalidOperationException(
+                                "Exact attribution requires generated "
+                                    + "expansion work."),
+                        out asyncSource,
+                        out exactStateMachineExecutionBody,
+                        out exactAsyncSourceOwner)
+                : _stateMachineSourceResolver.ResolveSourceOwnership(
+                    method,
+                    methodDefinition,
+                    typeSourceGenerated,
+                    out asyncSource);
         if (asyncResolution == AsyncSourceResolution.Unresolved)
         {
             ultimateOwner = null;
@@ -206,10 +233,12 @@ internal sealed class DeclaredSourceResolver(
         {
             ultimateOwner = null;
             bool stateMachineExecutionBody =
-                _stateMachineSourceResolver
-                    .IsAsyncStateMachineExecutionMethod(
-                        methodHandle,
-                        methodDefinition);
+                exactAttribution
+                    ? exactStateMachineExecutionBody
+                    : _stateMachineSourceResolver
+                        .IsAsyncStateMachineExecutionMethod(
+                            methodHandle,
+                            methodDefinition);
             if (stateMachineExecutionBody
                 && CompilerGeneratedNames
                     .IsMalformedLiftedStateMachineLeaf(
@@ -230,12 +259,16 @@ internal sealed class DeclaredSourceResolver(
                 .IsLocalFunctionOrLambda(asyncSource.Name))
         {
             AuthenticatedSourceOwner asyncSourceOwner =
-                CreateAuthenticatedSourceOwner(asyncSource);
+                ExactOrResolvedSourceOwner(
+                    asyncSource,
+                    exactAttribution,
+                    exactAsyncSourceOwner);
             immediateOwner = asyncSourceOwner;
             DeclaredOwnerResolution resolution =
                 ResolveUltimateLiftedOwner(
                     asyncSourceOwner,
-                    out AuthenticatedSourceOwner resolvedOwner);
+                    out AuthenticatedSourceOwner resolvedOwner,
+                    exactAttribution);
             ultimateOwner =
                 resolution == DeclaredOwnerResolution.Resolved
                     ? resolvedOwner
@@ -244,7 +277,10 @@ internal sealed class DeclaredSourceResolver(
         }
 
         AuthenticatedSourceOwner sourceOwner =
-            CreateAuthenticatedSourceOwner(asyncSource);
+            ExactOrResolvedSourceOwner(
+                asyncSource,
+                exactAttribution,
+                exactAsyncSourceOwner);
         immediateOwner = sourceOwner;
         ultimateOwner = sourceOwner;
         return DeclaredOwnerResolution.Resolved;
@@ -524,7 +560,8 @@ internal sealed class DeclaredSourceResolver(
 
     DeclaredOwnerResolution ResolveUltimateLiftedOwner(
         AuthenticatedSourceOwner source,
-        out AuthenticatedSourceOwner ultimateOwner)
+        out AuthenticatedSourceOwner ultimateOwner,
+        bool exactAttribution = false)
     {
         AuthenticatedSourceOwner current = source;
         Span<int> visited =
@@ -564,14 +601,20 @@ internal sealed class DeclaredSourceResolver(
                 _reader.GetMethodDefinition(
                     (MethodDefinitionHandle)currentHandle);
             LiftedSourceOwnerResolution resolution =
-                _liftedSourceOwnerResolver.Resolve(
-                    (MethodDefinitionHandle)currentHandle,
-                    currentDefinition,
-                    current.Method,
-                    out AuthenticatedSourceOwner sourceOwner,
-                    ownerMethodScope: null,
-                    ownerTypeScope: null,
-                    directlySelectedBody: false);
+                exactAttribution
+                    ? _liftedSourceOwnerResolver.ResolveExact(
+                        (MethodDefinitionHandle)currentHandle,
+                        currentDefinition,
+                        current.Method,
+                        out AuthenticatedSourceOwner sourceOwner)
+                    : _liftedSourceOwnerResolver.Resolve(
+                        (MethodDefinitionHandle)currentHandle,
+                        currentDefinition,
+                        current.Method,
+                        out sourceOwner,
+                        ownerMethodScope: null,
+                        ownerTypeScope: null,
+                        directlySelectedBody: false);
             if (resolution != LiftedSourceOwnerResolution.Resolved)
             {
                 ultimateOwner = default;
@@ -604,11 +647,34 @@ internal sealed class DeclaredSourceResolver(
         AuthenticatedSourceOwner owner =
             _stateMachineSourceResolver
                 .CreateAuthenticatedSourceOwner(source);
+        return AuthenticateTopLevelEntryPoint(owner);
+    }
+
+    AuthenticatedSourceOwner ExactOrResolvedSourceOwner(
+        MethodIdentity source,
+        bool exactAttribution,
+        AuthenticatedSourceOwner? exactOwner)
+    {
+        if (!exactAttribution)
+            return CreateAuthenticatedSourceOwner(source);
+        if (exactOwner is not { } owner
+            || owner.Method != source)
+        {
+            throw new InvalidOperationException(
+                "Exact state-machine attribution did not return its "
+                    + "authenticated source owner.");
+        }
+        return AuthenticateTopLevelEntryPoint(owner);
+    }
+
+    AuthenticatedSourceOwner AuthenticateTopLevelEntryPoint(
+        AuthenticatedSourceOwner owner)
+    {
         return owner with
         {
             IsAuthenticatedTopLevelEntryPoint =
                 _liftedSourceOwnerResolver
-                    .IsAuthenticatedTopLevelEntryPoint(source),
+                    .IsAuthenticatedTopLevelEntryPoint(owner.Method),
         };
     }
 }

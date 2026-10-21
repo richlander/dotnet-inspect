@@ -195,8 +195,8 @@ public static class IlAssemblyDiff
         ArgumentNullException.ThrowIfNull(oldEndpoint);
         ArgumentNullException.ThrowIfNull(newEndpoint);
 
-        var old = InspectEndpoint(oldEndpoint);
-        var @new = InspectEndpoint(newEndpoint);
+        var old = InspectEndpoint(oldEndpoint, normalization);
+        var @new = InspectEndpoint(newEndpoint, normalization);
         var findings = IlFindings.CompareInspections(
             old.Inspection,
             @new.Inspection,
@@ -238,10 +238,10 @@ public static class IlAssemblyDiff
             memberDiff);
     }
 
-    static InspectedEndpoint InspectEndpoint(IlMemberDiffEndpoint endpoint)
+    static InspectedEndpoint InspectEndpoint(IlMemberDiffEndpoint endpoint, IlBodyDiffNormalization normalization)
         => endpoint switch
         {
-            IlMemberDiffEndpoint.Present present => InspectPresentEndpoint(present),
+            IlMemberDiffEndpoint.Present present => InspectPresentEndpoint(present, normalization),
             IlMemberDiffEndpoint.SubjectAbsent absent => new(
                 absent.Subject,
                 new FindingInspection<CanonicalIlOperation>.Absent(
@@ -252,7 +252,7 @@ public static class IlAssemblyDiff
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
         };
 
-    static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint)
+    static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint, IlBodyDiffNormalization normalization)
     {
         var subject = new FindingSubject(endpoint.Subject.Identity, endpoint.Subject.Label);
         var inspection = IlFindings.InspectMethod(
@@ -261,7 +261,8 @@ public static class IlAssemblyDiff
             endpoint.Method,
             subject,
             out var body,
-            out var methodBody);
+            out var methodBody,
+            normalization);
         return new InspectedEndpoint(endpoint.Subject, inspection, body, methodBody);
     }
 

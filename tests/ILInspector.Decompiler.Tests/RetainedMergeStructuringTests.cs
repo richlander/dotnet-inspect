@@ -273,8 +273,11 @@ public class RetainedMergeStructuringTests
     }
 
     [Fact]
-    public void RetainedBodyMergeAtLatchStaysFlat()
+    public void BodyMergeAtLatchRaisesAsContinue()
     {
+        // The body's inner merge is the loop condition itself, so the nested
+        // transfer to it is a `continue`: whole-container structuring consumes
+        // the loop and the retained planner is never consulted.
         var blocks = new[]
         {
             Term(0, new Branch(5)),
@@ -293,8 +296,11 @@ public class RetainedMergeStructuringTests
         var (function, diagnostics) = Structure(blocks);
 
         Assert.Equal(0, diagnostics.RetainedRegions);
-        Assert.Contains("retained-back-edge-entangled", diagnostics.RetainedDeclines);
-        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Empty(diagnostics.Stops);
+        Assert.Empty(diagnostics.RetainedDeclines);
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<Continue>());
+        Assert.Empty(function.Descendants.OfType<Branch>());
     }
 
     [Fact]

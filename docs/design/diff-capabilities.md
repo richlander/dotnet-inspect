@@ -28,7 +28,7 @@ It consumes and does not redefine:
 | [API population scope](api-population-scope.md) | The ordinary and widened API populations; this document changes which one a comparison uses |
 | [Diff observability](diff-observability.md) | A reported change has a view; over-reporting stays within observability |
 | [IL diff canonicalization](il-diff-canonicalization.md) | Canonical body equality, and a failed inspection for an endpoint it cannot decode |
-| [Fast Diff](fast-diff.md) | Today's Exists provision: its census, identity, axes, and Type level |
+| [Finding Diff Any](finding-diff-any.md) | Today's Exists provision: its census, identity, axes, and Type level |
 | [Annotated Type Map](annotated-type-map.md) | The per-Member differences of a Type |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The complete diff of one Member |
 | [Symbol Key](symbol-key.md) | Byte-exact symbolic identity |
@@ -36,9 +36,9 @@ It consumes and does not redefine:
 
 ## Why
 
-Two implementations of one question drift. Fast Diff and the complete diffs
-each define "changed" in their own code, and the
-[Annotated Type Map spike](https://github.com/richlander/dotnet-inspect/issues/10215#issuecomment-6246071379)
+Two implementations of one question drift. Finding Diff Any and the complete
+diffs each define "changed" in their own code, and the [Annotated Type Map
+spike](https://github.com/richlander/dotnet-inspect/issues/10215#issuecomment-6246071379)
 found that each side had bugs the other did not
 ([#10223](https://github.com/richlander/dotnet-inspect/issues/10223),
 [#9801](https://github.com/richlander/dotnet-inspect/issues/9801)).
@@ -59,8 +59,8 @@ judged on latency, and the rich rungs on completeness.
 
 | Rung | Question | Scope | Precision | Today's provision |
 | --- | --- | --- | --- | --- |
-| 1 | Does this Type have any diff? | Library | one state per Type per axis | Fast Diff, Library level |
-| 2 | Which Members of this Type have any diff? | Type | one state per row per axis | Fast Diff, Type level |
+| 1 | Does this Type have any diff? | Library | one state per Type per axis | Finding Diff Any, Library level |
+| 2 | Which Members of this Type have any diff? | Type | one state per row per axis | Finding Diff Any, Type level |
 | 3 | Which differences does this Type have, per Member? | Type | multiple states per row per axis | Annotated Type Map |
 | 4 | What is the complete diff of this Member? | Member | all states per axis | Annotated Source diff document |
 
@@ -71,25 +71,25 @@ questions: they explain.
 
 A Type's rung-2 rows are its Members and its **residual**: the facts no single
 Member owns, such as its base Type, interfaces, attributes, layout, static
-constructor, and generated code without one owner, as
-[Fast Diff's Type level](fast-diff.md#type) partitions them. The residual has
-its own rung-3 entry and rung-4 view: the Type-scope Public API diff for its
-API facts, the Body diff of each residual method, such as a static constructor
-or generated code without one owner, and the Type's
-[declaration view](declaration-view.md) for its declaration and
-implementation facts on either axis. Each rung covers the one above it:
+constructor, and generated code without one owner, as [Finding Diff Any's Type
+level](finding-diff-any.md#type) partitions them. The residual has its own
+rung-3 entry and rung-4 view: the Type-scope Public API diff for its API facts,
+the Body diff of each residual method, such as a static constructor or generated
+code without one owner, and the Type's [declaration view](declaration-view.md)
+for its declaration and implementation facts on either axis. Each rung covers
+the one above it:
 
 - a row's rung-4 diff decides its rung-2 state;
 - for a Type present on both sides, rung 1 is `Unchanged` exactly when every
   rung-2 row is `Unchanged`, and rung-1 `Changed` implies some row is
   `Changed`. An Exists provision may stop at an undecidable row, so rung 1 may
   be `Indeterminate` while a later row is `Changed`;
-- a Type present on one side has a rung-1 state from Fast Diff's presence
+- a Type present on one side has a rung-1 state from Finding Diff Any's presence
   rule, and its rung-2 rows are its present side's rows, each `Changed` with a
   one-sided facet on its axes
   ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)); and
-- a Type that Fast Diff's identity rule makes `Indeterminate`, such as two
-  Type rows of one name, has no rung-2 rows, and its rung-1 state is
+- a Type that Finding Diff Any's identity rule makes `Indeterminate`, such as
+  two Type rows of one name, has no rung-2 rows, and its rung-1 state is
   `Indeterminate`.
 
 Those coverage relationships are certified by the gates below, as the
@@ -104,20 +104,21 @@ Every rung answers per **axis**:
   buckets of [API population scope](api-population-scope.md), with hidden
   declarations, such as `EditorBrowsable(Never)` ones, admitted into their
   buckets: `--all` narrowed by an `accessibility` term to those two buckets,
-  less `private protected` declarations, which no other assembly can reach.
-  A Type is admitted when it and every enclosing Type are in those buckets,
-  so neither a public Member of an internal Type nor a public nested Type of
-  one is on the API axis. That is the visibility
-  [Fast Diff's API axis](fast-diff.md#axes) admits; `private protected`
-  declarations belong to Body. `EditorBrowsable` and `Obsolete` do not decide
-  admission: they are the subject of a separate
-  [API status analysis](api-status-analysis.md),
-  which reports each subject's status and its transitions, such as a Member
-  made hidden or obsolete. A host filters by those findings. The ordinary
-  population, the `public` bucket without hidden declarations, becomes a
-  presentation default. This changes that owner's rule
-  that API Diff keeps its existing visibility behavior; adoption step 1 makes
-  the change there.
+  less `private protected` declarations, which no other assembly can reach. A
+  Type is admitted when it and every enclosing Type are in those buckets, so
+  neither a public Member of an internal Type nor a public nested Type of one is
+  on the API axis. That is the visibility [Finding Diff Any's API
+  axis](finding-diff-any.md#axes) admits; `private protected` declarations
+  belong to Body. `EditorBrowsable` and `Obsolete` do not decide admission: they
+  are the subject of a separate [API status analysis](api-status-analysis.md),
+  which reports each subject's status and its transitions, such as a Member made
+  hidden or obsolete. A host filters by those findings. The ordinary population,
+  the `public` bucket without hidden declarations, becomes a presentation
+  default. This changes that owner's rule that API Diff keeps its existing
+  visibility behavior; adoption step 1 makes the change there. The CLI and
+  Inspect Web Library API Diff compare the API axis and present that default, as
+  [Library API diff
+  presentation](library-api-diff-presentation.md#ordinary-presentation) owns.
 - **Body**: every subject at every accessibility: the IL of every method; the
   **declaration facts** of every subject the API axis does not compare, such
   as a non-public Member's signature, attributes, and flags; and every
@@ -129,7 +130,7 @@ Every rung answers per **axis**:
   diff. The two axes are disjoint: a fact belongs to exactly one.
 
 Types beneath a top-level compiler-generated Type, such as
-`<PrivateImplementationDetails>`, are not reported, as Fast Diff states;
+`<PrivateImplementationDetails>`, are not reported, as Finding Diff Any states;
 their content is compared where a reported body references it.
 
 A request names its axes, as the [diff request](diff-system.md#request) does
@@ -256,13 +257,12 @@ offers:
 | Retained maps | Rungs 2 and 3 | Produces one version's facts once, paying for rung 3's facts, and compares two retained maps by key; its rung-2 answer is a projection of them |
 | Complete | Rungs 3 and 4 | Builds the complete models and explains every difference |
 
-All provisions share one fact substrate: Member and operand identity are
-[Symbol Keys](symbol-key.md), Member grain is Fast Diff's census key, and the
-facts are the axes' facts above. Coverage runs from richer to cheaper: a
-row's complete diff decides its rung-2 state, a Type's rung-3 map decides its
-rung-2 states, and a Type's rung-2 states decide its rung-1 state as the ladder
-states. Each edge's proof
-obligation is a gate below.
+All provisions share one fact substrate: Member and operand identity are [Symbol
+Keys](symbol-key.md), Member grain is Finding Diff Any's census key, and the
+facts are the axes' facts above. Coverage runs from richer to cheaper: a row's
+complete diff decides its rung-2 state, a Type's rung-3 map decides its rung-2
+states, and a Type's rung-2 states decide its rung-1 state as the ladder states.
+Each edge's proof obligation is a gate below.
 
 ### When a separate provision is kept
 
@@ -271,14 +271,14 @@ for its contract against the cost of keeping a second implementation that
 must agree. A separate provision is kept while it delivers latency the shared
 code does not, and is deleted when the shared code delivers enough.
 
-Fast Diff is today's lockstep Exists provision. The
-[symbolic-identity spike](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6253951916)
+Finding Diff Any is today's lockstep Exists provision. The [symbolic-identity
+spike](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6253951916)
 measured the complete IL diff's own code, with symbolic identity, at 0.67 to
-1.19 times Fast Diff's Body cost on six pairs, with every method pair agreeing.
-Fast Diff's Body IL walk is therefore deleted once the shared code meets the
-latency bar below. Its censuses remain: the API census as the API axis's
-Exists provision, because the surface model costs about ten times more, and
-the Body declaration census, which compares the Body axis's declaration
+1.19 times Finding Diff Any's Body cost on six pairs, with every method pair
+agreeing. Finding Diff Any's Body IL walk is therefore deleted once the shared
+code meets the latency bar below. Its censuses remain: the API census as the API
+axis's Exists provision, because the surface model costs about ten times more,
+and the Body declaration census, which compares the Body axis's declaration
 facts. Both are owned by the diff owner as the first stages of their axes.
 
 ## Latency bar
@@ -286,15 +286,14 @@ facts. Both are owned by the diff owner as the first stages of their axes.
 - **Structural.** The lockstep Exists provision builds no complete model,
   materializes no instruction arrays, and formats no text. Every measurement
   reports any fallback to the complete model.
-- **Numeric.** Measured with `eng/measure-fast-diff.cs` on
+- **Numeric.** Measured with `eng/measure-finding-diff-any.cs` on
   `dotnet-inspect-perf-2`, NativeAOT, under one `perf-guard` lease, at Library
   scope, on six pairs: Aspire.Hosting 13.6.0 to 13.6.1, System.Text.Json
   9.0.0 to 10.0.0, Newtonsoft.Json 13.0.3 to 13.0.4 and 11.0.2 to 13.0.4, and
   System.Private.Xml and System.Private.CoreLib 10 to 11:
-  - API and Body Exists, as the median per pair in the same lease, costs no
-    more than the **baseline**: Fast Diff at
-    `FastDiff.cs` `abe96d2de`, measured in the same lease. Its medians on
-    perf-2 at
+  - API and Body Exists, as the median per pair in the same lease, costs no more
+    than the **baseline**: Finding Diff Any at `FindingDiffAny.cs` `abe96d2de`,
+    measured in the same lease. Its medians on perf-2 at
     [`96a07d4ac`](https://github.com/richlander/dotnet-inspect/issues/10227#issuecomment-6253951916)
     were 144, 22, 28, 24, 105, and 323 ms in the order above. The baseline
     binary is kept for later measurements after the walk is deleted.
@@ -315,36 +314,36 @@ adoption step named:
 | Owner | Rule today | Change | Step |
 | --- | --- | --- | --- |
 | [API population scope](api-population-scope.md) | API Diff keeps its existing visibility behavior | The API axis compares the `public` and `protected` buckets, less `private protected`, with hidden declarations admitted | 1 |
-| [Fast Diff](fast-diff.md#axes) | Body compares non-public declaration facts and `beforefieldinit` ([#10348](https://github.com/richlander/dotnet-inspect/pull/10348)); implementation flags and compiler-emitted attributes of admitted Members are uncertain API facts, and no view presents declaration facts | Those facts move to Body, presented by the declaration view ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
-| [Fast Diff](fast-diff.md#type) | The Type level is not run for a one-sided Type | It runs, with each row `Changed` and one-sided | 1 |
-| [Fast Diff](fast-diff.md#axes) | A body that cannot be decoded is `Indeterminate`, never a difference, and the Body exactness gate expects `Indeterminate` for a decode failure | Narrowed to content read before Exists decides, as rule 3 states | 1 |
-| [Annotated Type Map](annotated-type-map.md) | Non-public declarations are Body rows ([#10350](https://github.com/richlander/dotnet-inspect/pull/10350)); admitted Members' implementation facts are not map facts; a declaration-fact row has no rung-4 view | Admitted Members' implementation facts join the map's Body facts when Fast Diff's census moves them; the declaration view presents both ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
+| [Finding Diff Any](finding-diff-any.md#axes) | Body compares non-public declaration facts and `beforefieldinit` ([#10348](https://github.com/richlander/dotnet-inspect/pull/10348)); implementation flags and compiler-emitted attributes of admitted Members are uncertain API facts, and no view presents declaration facts | Those facts move to Body, presented by the declaration view ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
+| [Finding Diff Any](finding-diff-any.md#type) | The Type level is not run for a one-sided Type | It runs, with each row `Changed` and one-sided | 1 |
+| [Finding Diff Any](finding-diff-any.md#axes) | A body that cannot be decoded is `Indeterminate`, never a difference, and the Body exactness gate expects `Indeterminate` for a decode failure | Narrowed to content read before Exists decides, as rule 3 states | 1 |
+| [Annotated Type Map](annotated-type-map.md) | Non-public declarations are Body rows ([#10350](https://github.com/richlander/dotnet-inspect/pull/10350)); admitted Members' implementation facts are not map facts; a declaration-fact row has no rung-4 view | Admitted Members' implementation facts join the map's Body facts when Finding Diff Any's census moves them; the declaration view presents both ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 
 ## Adoption
 
 Each step is its own focused effort:
 
 1. **Axes.** The API axis compares the `public` and `protected` buckets, less
-   `private protected`, with hidden declarations admitted, in Fast Diff, the
-   Public API surface and its complete comparison,
-   [API population scope](api-population-scope.md), and
-   the [Annotated Type Map](annotated-type-map.md). The Body axis includes
-   declaration and implementation facts, in Fast Diff's Body census and the
-   Annotated Type Map's listing. Each row gains a declaration view, and the
-   residual's rung-4 view is composed as stated above. Fast Diff's Type level
-   runs for a one-sided Type
-   ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)),
-   which also resolves its private-field case. Until the declaration view
-   lands ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)),
-   a Body `Changed` that a declaration fact alone decides has no view; Fast
-   Diff records that as its known divergence, an interim exception to the
-   [Exists contract](#the-exists-contract)'s second rule.
+   `private protected`, with hidden declarations admitted, in Finding Diff Any,
+   the Public API surface and its complete comparison, [API population
+   scope](api-population-scope.md), and the [Annotated Type
+   Map](annotated-type-map.md). The Body axis includes declaration and
+   implementation facts, in Finding Diff Any's Body census and the Annotated
+   Type Map's listing. Each row gains a declaration view, and the residual's
+   rung-4 view is composed as stated above. Finding Diff Any's Type level runs
+   for a one-sided Type
+   ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)), which
+   also resolves its private-field case. Until the declaration view lands
+   ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)), a Body
+   `Changed` that a declaration fact alone decides has no view; Finding Diff Any
+   records that as its known divergence, an interim exception to the [Exists
+   contract](#the-exists-contract)'s second rule.
 2. **Uncertain kinds.** Promote or present each kind in the order the census
    measured, removing every Exists fallback on the six measured pairs.
 3. **Shared Body Exists.** The complete IL diff takes symbolic identity
    ([#9918](https://github.com/richlander/dotnet-inspect/issues/9918)) and a
-   lockstep comparison without materialized instructions, then meets the
-   latency bar with the Body declaration census included; Fast Diff's Body IL
+   lockstep comparison without materialized instructions, then meets the latency
+   bar with the Body declaration census included; Finding Diff Any's Body IL
    walk is deleted.
 4. **Census ownership.** The API census moves under the API comparison, and
    the Body declaration census under the Body comparison, as each axis's
@@ -354,19 +353,19 @@ Each step is its own focused effort:
 
 ## Gates
 
-- **Unchanged is exact:** over the Fast Diff fixtures and the six measured
-  pairs, every subject Exists reports `Unchanged` on an axis has no difference in the
-  complete diff on that axis.
+- **Unchanged is exact:** over the Finding Diff Any fixtures and the six
+  measured pairs, every subject Exists reports `Unchanged` on an axis has no
+  difference in the complete diff on that axis.
 - **Changed is observable:** every subject Exists reports `Changed` has at
   least one difference in the complete diff on that axis, or, for a fixture
   whose body differs and then holds an undefined opcode, the complete diff's
   visible decode-failure view.
 - **Coverage:** for each fixture Type, its rung-1 state follows from its
-  rung-2 states, its presence, and Fast Diff's identity rule as stated above,
-  and each decided row's rung-2 state equals whether its rung-3 entry and its
-  rung-4 diff are non-empty on that axis, including the residual, a one-sided
-  Type, and a Type with two rows of one name; an `Indeterminate` row is read
-  under the Exists contract's third rule.
+  rung-2 states, its presence, and Finding Diff Any's identity rule as stated
+  above, and each decided row's rung-2 state equals whether its rung-3 entry and
+  its rung-4 diff are non-empty on that axis, including the residual, a
+  one-sided Type, and a Type with two rows of one name; an `Indeterminate` row
+  is read under the Exists contract's third rule.
 - **Expansive:** fixtures with a hidden public Member, a private field, a
   private method, a changed inlining flag, and a gained `Intrinsic` attribute
   show each one's difference on its axis, and the private field, the flag,
@@ -376,16 +375,17 @@ Each step is its own focused effort:
 - **Latency (design evidence):** the latency bar, measured on NativeAOT.
 
 The fixture gates run in `ILInspector.Metadata.Tests` beside the existing
-`FastDiffTests`. The six real pairs are measured by `eng/measure-fast-diff.cs`;
-they are design evidence for each adoption step, not an ordinary gate.
+`FindingDiffAnyTests`. The six real pairs are measured by
+`eng/measure-finding-diff-any.cs`; they are design evidence for each adoption
+step, not an ordinary gate.
 
 ## Non-claims
 
 - It does not define a version window, its projection, or its steps.
 - It does not define any fact's equality; the axes' owners do.
-- It does not define generated-code ownership; Fast Diff's Type level consumes
-  the shared lifted-owner resolution, whose async ownership is recorded to
-  come from `StateMachineRelationshipIndex`
+- It does not define generated-code ownership; Finding Diff Any's Type level
+  consumes the shared lifted-owner resolution, whose async ownership is recorded
+  to come from `StateMachineRelationshipIndex`
   ([#10235](https://github.com/richlander/dotnet-inspect/issues/10235)).
 - It does not define a host's filters, defaults, or visual design.
 - It does not define the QuerySpace operators a diff may later use; that is

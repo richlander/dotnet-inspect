@@ -20,10 +20,10 @@ signatures also embed the real metadata signature blob. Both strategies use
 the same key grammar and input order. `check` also rejects duplicate
 Type-definition keys so a shared identity loss cannot pass as parity.
 
-This is a representative Symbol Key storage-kernel pilot, not a complete Fast
-Diff benchmark. It exercises marker, Name, nested Key, and Blob parts, but it
-does not reproduce signature decoding, every Fast Diff fact shape, or the
-end-to-end diff pipeline. Favorable results would support the shared-range
+This is a representative Symbol Key storage-kernel pilot, not a complete Finding
+Diff Any benchmark. It exercises marker, Name, nested Key, and Blob parts, but
+it does not reproduce signature decoding, every Finding Diff Any fact shape, or
+the end-to-end diff pipeline. Favorable results would support the shared-range
 representation; they would not replace product-path evidence.
 
 The candidate assumes that the producer has enumerated one population and knows
@@ -132,7 +132,7 @@ That evidence supports the large-win side of the goal, but it is not the same
 full-key workload and cannot erase the private-`SymbolKey` regression here.
 
 The population-backed representation therefore does not yet meet its
-parity-or-better goal. The operator accepted this pilot result as sufficient
-to proceed with staged implementation while retaining private `SymbolKey`
-parity as a final Fast Diff adoption gate. The remaining KeyMatch gap must be
+parity-or-better goal. The operator accepted this pilot result as sufficient to
+proceed with staged implementation while retaining private `SymbolKey` parity as
+a final Finding Diff Any adoption gate. The remaining KeyMatch gap must be
 closed before that adoption is complete.

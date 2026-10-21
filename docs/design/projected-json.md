@@ -1,5 +1,38 @@
 # Projected JSON output
 
+## Approved Document representation target
+
+The operator approved
+[Section representations](section-shapes.md#section-representations) on
+2026-10-20. That owner now requires `--json` to consume a structured Document:
+typed content plus its owner-issued summary and interpretation context, not
+the Markdown display view. A table-centric Document carries the same selected,
+ordered rows as its Table representation while retaining native JSON types.
+It is content, not the service envelope exposed by `--envelope`.
+
+Under [typed demand and work](section-shapes.md#typed-demand-and-work), JSON
+selects Document demand before content execution. The returned content type is
+the owner's Document type, not an encoding-time conversion of a Table or a
+mandatory rich object built for every request. Structural requests avoid
+Document-only summary work.
+
+For an adopted owner, accepted field and column projections narrow declared
+typed Document content before serialization; they do not select a
+string-valued JSON dialect. Unsupported projections fail explicitly. Display
+labels and formatted strings are not a source from which to infer typed
+properties.
+
+This target supersedes the two-dialect routing decision below as each owner
+adopts it. The rest of this document records the existing display-lowered
+compatibility path and its historical target, not the architecture for new
+Document adoptions. Existing public schemas and unadopted projection paths
+remain unchanged until their owning adoption deliberately migrates them.
+Representability, machine-key, and atomic-output constraints below still
+describe that compatibility path; they do not require new Documents to pass
+through Markout callbacks.
+
+## Display-lowered compatibility contract
+
 This document defines the target contract for issue #3494: JSON over the
 section/shape model when a caller requests `--fields` or `--columns`. It is a
 format contract, not a new shape or a replacement for the established typed

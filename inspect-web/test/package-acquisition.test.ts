@@ -241,9 +241,6 @@ function memberSurface(): BrowserMemberSurface {
     returnType: "int",
     parameters: [],
     documentationId: "P:Example.Widget.Value",
-    summary: null,
-    returns: null,
-    exceptions: [],
     stableSelector: "Value",
     anchorDigest: "value",
     canonicalSignature: "int Example.Widget.Value",
@@ -261,6 +258,24 @@ function memberSurface(): BrowserMemberSurface {
     }],
   };
 }
+
+test("app member surfaces initialize deferred documentation fields", () => {
+  const member = createAppMemberSurface({
+    ...memberSurface(),
+    parameters: [{
+      name: "value",
+      type: "string",
+      modifier: null,
+      hasDefault: false,
+      defaultValue: null,
+    }],
+  });
+
+  assert.equal(member.summary, null);
+  assert.equal(member.returns, null);
+  assert.deepEqual(member.exceptions, []);
+  assert.equal(member.parameters[0]?.description, null);
+});
 
 function packageSurface(
   overrides: Partial<BrowserPackageSurface> = {},

@@ -37,9 +37,12 @@ API status analysis owns:
   comparison admits obsolete Members and compares no status, so it reports
   nothing. Compared with `--all`, it is one `MemberObsoleteChanged` row.
 
-When hosts compare the API axis by default
-([#10227](https://github.com/richlander/dotnet-inspect/issues/10227) PR 3),
-both transitions would be silent without these rows. The fixture cases under
+Hosts compare the API axis by default
+([Library API diff presentation](library-api-diff-presentation.md#ordinary-presentation)),
+where both transitions would be silent without these rows. The 4.7.2 to 5.0.0
+row is a Hidden row in default output. The 5.0.0 to 6.0.0 row's property is
+hidden on both sides, so default output counts it outside the ordinary
+population and unprojected `--json` reports it. The fixture cases under
 [Gates](#gates) retain each shape.
 
 ## Status facts
@@ -118,36 +121,38 @@ classifies every such change.
 new diagnostic ID, which breaks a caller that suppressed the old ID by name,
 is not reported. Recording it is a separate change to the status facts.
 
-## Fast Diff
+## Finding Diff Any
 
-Fast Diff's API census records each admitted subject's custom attributes as
-API facts, `EditorBrowsable` and `Obsolete` among them, so a status-only
+Finding Diff Any's API census records each admitted subject's custom attributes
+as API facts, `EditorBrowsable` and `Obsolete` among them, so a status-only
 change makes the Type API `Changed` with Body `Unchanged`. For a change to a
 recorded status fact (a Type's or Member's hidden fact, or `[Obsolete]`'s
 presence, message, or error flag), the API axis comparison now reports a row,
-which keeps the [Fast Diff](fast-diff.md#contract) Exists contract:
-`Changed` opens a non-empty complete diff. A change only to an unrecorded part
-of a status attribute, such as `[Obsolete]`'s `DiagnosticId` or `UrlFormat`,
-or to an accessor's hidden fact, is not covered by this owner; whether Fast
-Diff treats it as `Changed` with an empty complete diff is tracked by
-[#10354](https://github.com/richlander/dotnet-inspect/issues/10354).
+which keeps the [Finding Diff Any](finding-diff-any.md#contract) Exists
+contract: `Changed` opens a non-empty complete diff. A change only to an
+unrecorded part of a status attribute, such as `[Obsolete]`'s `DiagnosticId` or
+`UrlFormat`, or to an accessor's hidden fact, is not covered by this owner;
+whether Finding Diff Any treats it as `Changed` with an empty complete diff is
+tracked by [#10354](https://github.com/richlander/dotnet-inspect/issues/10354).
 
 ## Hosts
 
 The CLI and Inspect Web carry the four kinds and the `Status` category through
 the Library API diff presentation, its JSON, the Browser wire contract, and
 the Research diff, where a status row has `ResearchChangeCategory.Status`.
-Until hosts compare the API axis by default, `--all` shows status rows; the
-default output is unchanged.
+Both hosts compare the API axis by default, so default output shows a status
+row whose subject has an ordinary side, as Hidden, Unhidden, or Obsoleted;
+[Library API diff presentation](library-api-diff-presentation.md#ordinary-presentation)
+owns that presentation and the obsolete marker.
 
 ## Gates
 
-- The Fast Diff fixture pair has one Type per transition: a Member made
+- The Finding Diff Any fixture pair has one Type per transition: a Member made
   hidden, a Member made visible, a Type made hidden, a Member made obsolete,
   a Member's obsolete warning made an error, a Type made obsolete, a Member's
   obsolete message changed, and a Member made obsolete as an error.
-- Each case is Fast Diff API `Changed` and Body `Unchanged`, and the API axis
-  and include-all comparisons each report exactly one row of its kind,
+- Each case is Finding Diff Any API `Changed` and Body `Unchanged`, and the
+  API axis and include-all comparisons each report exactly one row of its kind,
   category, classification, and values.
 - The Public comparison reports the hidden and obsolete-Type cases as a
   removal or an addition and reports no status row.
@@ -159,8 +164,8 @@ default output is unchanged.
 
 - Status rows do not decide presentation. Showing a subject outside the
   ordinary population, and marking obsolete declarations in default output,
-  belong to [#10227](https://github.com/richlander/dotnet-inspect/issues/10227)
-  PR 3.
+  belong to
+  [Library API diff presentation](library-api-diff-presentation.md#ordinary-presentation).
 - Commands other than API comparison keep their existing hidden and obsolete
   behavior, which reads `AttributeReader.HasHiddenAttribute`, still hidden or
   obsolete.

@@ -48,6 +48,36 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Online Package inspection admission
+
+Ordinary online single-Package inspection acquires through PackageHouse and
+queries one committed content-only Workspace Root. The CLI preserves the
+original target filter and the acquired authority, generation, and House
+evidence when adapting that Root to existing package presentation.
+Package facts remain available when DLLs are unusable or the requested
+framework has no applicable assets; package inspection does not require
+Library realization. Acquisition, admission, and query failures are terminal,
+not reasons to retry through the legacy extractor.
+
+This is the CLI adopter in the two-slice prerequisite/adoption sequence under
+[#6638](https://github.com/richlander/dotnet-inspect/issues/6638).
+[Content-only package admission](design/artifact-acquisition-and-workspaces.md#content-only-package-admission)
+owns the supporting Root contract; [PackageHouse](design/package-house.md)
+owns acquisition and selection. Existing specialized content/inventory routes,
+local/offline inspection, Library inspection, and tool-wrapper redirection
+remain separate routes. Detecting a wrapper after acquisition retains its
+legacy redirect route and can require another acquisition for temporary stores.
+This slice does not retire the extraction result's presentation compatibility
+shape or change archive transfer policy.
+
+The motivating real asset is nuget.org `Microsoft.NETCore.App.Ref` 10.0.0:
+its package facts must remain inspectable with `--tfm net9.0`, despite its
+`net10.0` assets. Reproduce with source CLI `package
+Microsoft.NETCore.App.Ref@10.0.0 --tfm net9.0 -S "Package Info" --json`.
+Deterministic configured-source tests gate admitted inspection with unusable
+DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
+offline, and Library tests remain neighboring controls.
+
 ### Exact Package reference admission
 
 An owner-issued exact Package reference is accepted as positional `package`
@@ -100,6 +130,80 @@ It adds no shared token schema or Browser-navigation contract.
 supplies the supporting Queries-owned adapter to existing exact-Type readers. Duplicate
 Workspace inspection selectors retire under #10186; explicit Workspace
 inventory remains.
+
+### Explain root admission
+
+Bare `dotnet-inspect explain` reads the
+[explanation root](design/resource-explanation.md#routing-declarations). It
+does not print help and does not report a missing operand. The CLI composes
+the root over its complete catalog, from the routing declarations of every
+owner it admits:
+
+- Schema Query;
+- Inspection Capability Composition; and
+- Product Vocabulary.
+
+It publishes the root only while the reachability invariant holds. If the
+invariant fails, bare `explain` and every root path fail visibly, naming the
+first unreachable resource. Those requests do not fall through to search.
+
+The root's address is `root`. Its role collections are the top-level paths
+`subject-kinds`, `operations`, and `references`. Each routing entry is
+`<collection>/<identity>`, as in `operations/package-query`. All of these are
+registered exact paths, so the facade selects Resource Explanation for them
+rather than search.
+
+`explain` is primarily for agents, so bare `explain` defaults to the root's
+routing table as TSV. The table has one header row and one row per routing
+entry. Each row gives:
+
+- the entry's role, path, and name;
+- its purpose and representative questions;
+- for an operation, its accepted subject kinds; and
+- its destinations, or its not-yet-explainable state.
+
+`--table` and `--jsonl` select the same table, and so do the table formats on
+any root path. A collection lists its own entries, and an entry lists itself.
+Like any section selection, the table carries no document facts. The root's
+Coverage caveat, which says the collections cover registered declarations
+rather than every command, is in the Document reading. A table selection
+rejects `--depth`, `-n`, and `--envelope`.
+
+`--markdown`, `--plaintext`, and `--json` select the Document reading. Bare
+`explain` then expands to depth 2 unless `--depth` is given, so one Document
+carries the root, its collections, and every entry. The text Document presents
+the same Routing table in place of the generic expanded and related listings.
+At depth 0 or 1, as in `explain root`, the Document reaches no entry resources,
+so the generic listings remain and name the three collections. JSON carries
+the same resources, facts, and relationships. The root has no HAL reading yet,
+so `explain root .hal --json` fails visibly.
+
+Bare `explain` admits the options of the Resource Explanation operand row in
+[Explain facade dispatch](design/contextual-resource-explanation.md#explain-facade-dispatch).
+A lone `.contract`, `.data`, or `.hal` token is a projection of the root, not
+search text. The search row limit `-n` and vocabulary value selection `-Q`
+fail before any explanation runs.
+
+`explain --help` succeeds without an operand. The required-operand bootstrap
+path is retired. The root is projected from owner declarations; it is not
+rebuilt from help text or from a curated list of command names.
+
+`ResourceExplanationCommandTests` gates this admission:
+
+- `BareExplain_DefaultsToTheRoutingTableAsTsv`;
+- `RootPathTableSelection_ListsTheEntriesThePathReaches`;
+- `BareExplainTable_RejectsDocumentOptions`;
+- `BareExplainMarkdown_ReadsTheRootAsItsRoutingTable`;
+- `RootBelowItsEntries_ListsItsRoutingCollections`;
+- `BareExplainJson_EmbedsEveryRoutingEntry`;
+- `ExplainHelp_SucceedsWithoutAnOperand`;
+- `RoutingEntry_ExplainsItsHintsAndDestinations`;
+- `BareExplain_ProjectsALoneContractToken`;
+- `BareExplain_RejectsSearchAndValueOptions`; and
+- `ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`, which checks the
+  reachability invariant.
+
+Exact paths and search keep their existing neighbor tests.
 
 ### Vocabulary reading admission
 
@@ -256,6 +360,185 @@ stdout / stderr / exit code
 Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
+
+### Planned Workspace packet activation
+
+The first runtime adoption, [#10407](https://github.com/richlander/dotnet-inspect/issues/10407),
+admits the root entrances below for Workspace inventory landings. Saved
+inspection facets and queries are explicitly refused before acquisition.
+[#10408](https://github.com/richlander/dotnet-inspect/issues/10408) supplies the
+missing exact-subject execution/correspondence boundary: restored Navigation
+uses Package Root surface registrations, while the selected declaration context
+retains different acquisition registrations. The existing selected-context
+Type executor cannot accept the saved Navigation registration unchanged.
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) remains the
+subsequent CLI saved-inspection adoption. The full target contract follows.
+
+This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
+partially implemented as described above. The CLI owns command admission,
+the one-shot landing choice, terminal output, and exit behavior. It consumes
+[Workspace Definitions](design/workspace-definitions.md)' canonical codec and
+complete-restoration contracts; inspection operations retain their existing
+selection, query, execution and result contracts. Browser activation remains
+an existing consumer of those shared owners.
+
+The user-requested entrances are:
+
+```bash
+dotnet-inspect -w "$packet"
+dotnet-inspect "$packet"
+```
+
+Both apply the same portable environment and selected scenario for the lifetime
+of one invocation. They do not persist a current Workspace for later commands.
+The convention is the website's packet activation: use its declared environment
+and selected inspection without asking the reader to reconstruct flags. The CLI
+adds one-shot result consumption, rather than the website's retained UI.
+Ordinary `member ... --workspace "$packet"` instead supplies context to the
+new query that the caller explicitly selected.
+
+#### Admission and precedence
+
+`-w` is a root activation entrance, not a global alias for ordinary commands'
+`--workspace`. Its value is authoritative packet input: malformed,
+noncanonical, unsupported or over-limit values fail visibly before acquisition.
+It does not accept a website URL, a file path, JSON text or an implicit stdin
+value. Existing packet conversion commands remain the explicit codec tools.
+
+Raw input participates only in ordinary commandless-target routing. Explicit
+commands keep their existing parsing and value ownership; a packet-looking
+option value does not activate anything. The router consumes the codec owner's
+bounded distinction between a non-packet, a recognized packet failure and a
+valid canonical packet. A recognized packet failure never falls through to
+Package or Type lookup. Non-packet targets retain ordinary routing. The router
+must not derive this distinction from Base64 spelling, packet field names, or
+validation error text. Owner-issued recognition is prerequisite
+[#10369](https://github.com/richlander/dotnet-inspect/issues/10369); its treatment
+of damaged or over-limit envelopes remains the codec owner's responsibility.
+When that owner cannot identify input as a packet, `-w` is the unambiguous
+entrance for reporting packet validation failure.
+
+Root packet activation accepts a single packet. A second target, an explicit
+command combined with root `-w`, a source replacement, or new subject/query
+controls is an admission error. It cannot silently override the saved scenario.
+Help, local execution policy and result presentation are host controls, subject
+to their ordinary capability and conflict checks. Help does not restore or
+acquire. Only the selected operation's admitted result terminals are available;
+an unsupported terminal is refused before realization when knowable.
+
+#### Landing and output
+
+Activation resolves one selected subject and its lens/view. The CLI prints
+that view using the inspection's ordinary default presentation: a Hierarchy,
+Table, or Document, unless a supported output option selects another format.
+Restoring multiple contexts supplies the inspection environment; it does not
+select one output subject per context.
+
+A Workspace landing selects the Workspace subject. Its currently admitted
+default is the inventory Table: Kind, Location, and State columns containing
+Package and registration entries across those contexts. Saved Package, Type,
+and Member subjects retain their own view's default presentation when their
+execution bindings are admitted.
+
+| Selected portable intent | CLI result |
+| --- | --- |
+| Workspace landing without an inspection | Existing exhaustive Workspace top-level inventory |
+| Admitted saved subject, facet and query | That inspection's ordinary result through its owning operation |
+| Saved intent without a CLI execution binding | Visible unsupported-intent failure; no substitute inspection |
+| Failed or incomplete restoration/selection | Existing typed failure; no success-shaped partial landing |
+
+The landing comes from the committed scenario and its selected state. A
+Workspace landing does not choose the first Package; a saved Member or Type
+does not become a Package inspection. Restoring all contexts must not replace
+the selected inspection with whichever tab completes first. Likewise,
+Navigation facet availability alone does not establish that a CLI executor
+exists for that facet and query.
+
+Inspection stdout carries the result, not a packet echo or an activation
+receipt. Diagnostics go to stderr; successful completion returns zero and
+failures return nonzero.
+Workspace inventory uses its existing formats, row selection and Count.
+Inspection terminals retain their owning output/Count semantics. Typed results
+remain structured through the existing operation and rendering boundary;
+Markout remains the default for human/tabular results and existing structured
+lowerings retain their contracts. Activation adds no parallel rendering model.
+
+The CLI must check its execution binding before acquiring content when the
+portable intent is already sufficient to identify missing support. A missing
+binding is not permission to drop a saved query, select a recommended facet,
+show inventory, or reconstruct and invoke a command line. Realization-backed
+absence, ambiguity, authorization, projection and execution failures retain
+their owning outcomes after restoration.
+
+#### Restoration and execution boundary
+
+Consume the shared validated activation input and complete-restoration result.
+The CLI supplies credentials, source authorization, acquisition policy,
+cancellation and cleanup through its existing host composition. Portable
+source declarations are not acquisition authority. Packet application is an
+explicit realization request; resource-free authoring remains with `workspace`.
+
+The chosen operation consumes owner-issued resolved intent and subject/context
+identity within that activation's lifetime. Do not manufacture argv from packet
+fields, infer an exact source from a display coordinate, decode a second packet
+schema, or restore a separate Workspace merely to call an ordinary command.
+Close the invocation-owned realization after result consumption and on failure
+through the existing restoration lifetime. The router introduces no persistent
+controller, new Workspace query grammar, or second Navigation implementation.
+If an existing inspection owner lacks a typed execution entrance, record that
+prerequisite separately rather than rebuilding its semantics in the router.
+
+#### Motivating assets and adoption evidence
+
+`System.Text.Json@10.0.0/net10.0` provides a real Package, the
+`System.Text.Json.JsonSerializer` Type and exact Member selections. The shipped
+Runtime ecosystem supplies a registration-only environment; adding
+`Markout@0.35.2` supplies a second Package/context control. Author environment
+packets through `workspace`; obtain scenario packets through the ordinary
+inspection command's admitted `--share packet` projection. The packet is the
+complete emitted value, not a shortened `ey...` sample.
+
+Target walkthrough (saved Type execution remains staged under #4647):
+
+```bash
+environment=$(dotnet-inspect workspace --register-ecosystem runtime)
+dotnet-inspect -w "$environment" --json   # Workspace inventory
+
+package_workspace=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$package_workspace" --share packet \
+  > type-content.md 2> type-handoff.txt
+scenario=$(tail -n 1 type-handoff.txt)     # Final Share scalar, after diagnostics
+dotnet-inspect "$scenario" --json        # Saved Type inspection result
+```
+
+The explicit public source is retained in the format-5 environment. Type
+Share currently requires format 4 or 5; the source-free format-3 authoring
+result supports inspection but refuses this derived scenario projection.
+
+For each admitted CLI binding, gate both root entrances with the same packet,
+plus its website activation through the production Browser facade. Compare
+typed environment, selected subject/facet/query and failure outcomes across
+hosts rather than rendered HTML and terminal text. Pair saved exact Type and
+Member cases with a different focused tab and all-context membership. Gate
+Workspace-only zero/one/multiple-Package inventory, row selection and Count;
+preserve non-packet routing, option-value ownership, help and local policy.
+Recognized invalid, unsupported and limit failures must not trigger fallback
+acquisition or publish partial results. `WorkspacePacketActivationTests` gates
+the admitted inventory entrances,
+ordinary output/row parity and early refusals. Saved-inspection execution and
+its cross-host parity remain adoption requirements, not current validation
+claims.
+
+[#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
+production path: this focused CLI contract, owner-issued packet recognition,
+then CLI router and individually admitted operation bindings. Browser retains
+its existing activation consumer and receives explicit-input regression/parity
+gates; this work does not redesign its UI. Runtime adoption must publish exact
+NativeAOT base/head evidence for every affected terminal and identify every
+unsupported saved binding before claiming #4647 complete.
 
 ### Bare-target ecosystem explanation
 

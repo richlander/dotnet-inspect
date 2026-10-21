@@ -1,51 +1,58 @@
-# Fast Diff
+# Finding Diff Any
 
 ## Status and owner
 
-This document owns **Fast Diff**: one pass over a Library image pair that
+This document owns **Finding Diff Any**: one pass over a Library image pair that
 decides, for every Type, whether its API and its implementation differ, with
 the same equality the complete diffs use, and the narrower
 [Type and Member levels](#levels) beneath it. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716) and
 supersedes the earlier body-free, presence-only design proposed in #9717.
 
-The producer is `FastDiff.Compare` in `ILInspector.Metadata`. It depends only
-on System.Reflection.Metadata, so it runs unchanged under NativeAOT and
+The producer is `FindingDiffAny.Compare` in `ILInspector.Metadata`. It depends
+only on System.Reflection.Metadata, so it runs unchanged under NativeAOT and
 Browser/Wasm.
+
+The name was Fast Diff until 2026-10-21
+([#10430](https://github.com/richlander/dotnet-inspect/issues/10430)). "Fast"
+named a cost, and the design says the cost is not its identity; `Any` names the
+question it answers, as `Enumerable.Any` and `Task.WhenAny` do: whether any
+Finding differs, decided at the first one. Library Compare calls it **Any
+Diff**. The Exists contract of
+[Diff capabilities](diff-capabilities.md#the-exists-contract) keeps its name;
+`Any` is the operation that implements it.
 
 ## Why
 
 Library Compare needs to show which Types changed so a user can choose where
 to look. A complete Library diff answers far more than that and costs far
 more. Most Types in a version pair are unchanged, and proving that is the
-dominant cost, so Fast Diff makes the unchanged case cheap and stops each
+dominant cost, so Finding Diff Any makes the unchanged case cheap and stops each
 changed axis at its first difference.
 
 A second definition of "changed" drifts from the complete diffs and points to
-views that show nothing. Fast Diff therefore has no equality of its own: each
-axis answers with its complete diff's equality, read as **Exists**, and only
-the cost of reaching the answer differs. The reading of one row to its first
-difference, and its agreement with the exhaustive reading the complete diffs
-make, is owned by [Finding census](finding-census.md); this document owns the
-axes, the partition, and the folds above the row.
+views that show nothing. Finding Diff Any therefore has no equality of its own:
+each axis answers with its complete diff's equality, read as **Exists**, and
+only the cost of reaching the answer differs. The reading of one row to its
+first difference, and its agreement with the exhaustive reading the complete
+diffs make, is owned by [Finding census](finding-census.md); this document owns
+the axes, the partition, and the folds above the row.
 
 ## Contract
 
-> **Claim.** For one Library image pair, Fast Diff returns, for
-> every Type, an **API** state and a **Body** state, each `Unchanged`,
-> `Changed`, or `Indeterminate`; when a caller asks for the API axis alone,
-> every Body state is `NotCompared`. The API state is `Changed` exactly when
-> the complete Public API comparison of the
-> [API axis population](diff-capabilities.md#axes) reports a change to the
-> Type or one of its Members. The Body state is `Changed` exactly when the Type is present on
-> one side only, a method of it with a body is present on one side only, a
-> paired method has a body on one side only, a paired body is not `Exact`
-> under
-> [canonical IL comparison](il-diff-canonicalization.md#comparison-outcomes)
-> with the [Body policy](#axes), or a [declaration fact](#axes) on the Body
-> axis differs. A row or body that cannot be decoded or
-> resolved makes the unsettled axes of its Type `Indeterminate`, never
-> `Unchanged`.
+> **Claim.** For one Library image pair, Finding Diff Any returns, for every
+> Type, an **API** state and a **Body** state, each `Unchanged`, `Changed`, or
+> `Indeterminate`; when a caller asks for the API axis alone, every Body state
+> is `NotCompared`. The API state is `Changed` exactly when the complete Public
+> API comparison of the [API axis population](diff-capabilities.md#axes) reports
+> a change to the Type or one of its Members. The Body state is `Changed`
+> exactly when the Type is present on one side only, a method of it with a body
+> is present on one side only, a paired method has a body on one side only, a
+> paired body is not `Exact` under [canonical IL
+> comparison](il-diff-canonicalization.md#comparison-outcomes) with the [Body
+> policy](#axes), or a [declaration fact](#axes) on the Body axis differs. A row
+> or body that cannot be decoded or resolved makes the unsettled axes of its
+> Type `Indeterminate`, never `Unchanged`.
 
 The two axes are independent searches. Each stops at its own first
 difference, and a host derives **Any** as either axis `Changed`. A Type that
@@ -70,14 +77,14 @@ members:
   shape rendered signatures; and
 - explicit interface implementations.
 
-That is the API axis population of
-[Diff capabilities](diff-capabilities.md#axes): `private protected` Members
-belong to Body, and hidden Types and Members, such as ones marked
-`EditorBrowsable(Never)`, are compared like any other; their status is the
-API status analysis's, not Fast Diff's. A Type is public when its own row and
+That is the API axis population of [Diff
+capabilities](diff-capabilities.md#axes): `private protected` Members belong to
+Body, and hidden Types and Members, such as ones marked
+`EditorBrowsable(Never)`, are compared like any other; their status is the API
+status analysis's, not Finding Diff Any's. A Type is public when its own row and
 every enclosing Type's row is public, nested public, protected, or protected
-internal, matching the API axis surface (`ApiSurfaceExtractionScope.ApiAxis`);
-a public nested Type of a non-public Type is not. Non-public Types have no API
+internal, matching the API axis surface (`ApiSurfaceExtractionScope.ApiAxis`); a
+public nested Type of a non-public Type is not. Non-public Types have no API
 facts.
 
 These facts are a census, and the census decides `Unchanged` alone: equal
@@ -177,14 +184,14 @@ one-sided Type is `Indeterminate` on each axis compared.
 
 ### Steps
 
-`FastDiffComparison` advances one comparison in bounded steps for a
+`FindingDiffAnyComparison` advances one comparison in bounded steps for a
 single-threaded host. Each step takes readers over the same two images, makes
-progress on at least one Type row or compared Type, and stops at the first
-such boundary after its budget elapses. The retained state holds handles and
-strings, never a reader, so a host re-enters its own image callbacks for each
-step; a reader over a different image is rejected by module version ID.
-Stepping reaches exactly the result of one uninterrupted `FastDiff.Compare`.
-Cancellation is observed at the same boundaries.
+progress on at least one Type row or compared Type, and stops at the first such
+boundary after its budget elapses. The retained state holds handles and strings,
+never a reader, so a host re-enters its own image callbacks for each step; a
+reader over a different image is rejected by module version ID. Stepping reaches
+exactly the result of one uninterrupted `FindingDiffAny.Compare`. Cancellation
+is observed at the same boundaries.
 
 ### Identity
 
@@ -235,16 +242,17 @@ their content-named members still compares those names.
 
 ### Observability
 
-Fast Diff adopts [Diff observability](diff-observability.md). The API axis
-targets the semantic level of the Public API diff, and the Body axis targets
-the symbolic IL level of the body diff for IL and the declaration view's level
-for declaration facts, so `Changed` should point to something a user can see. IL operand and signature keys never compare token numbers or
-assembly identity, so a renumbered token or a dependency version change is not
-a Body change. Today the IL view of Member Body Diff compares with no
-normalization and shows a dependency version change on every call into that
-dependency, as shipped Fast Diff already does not. The Shared Body equality
-slice (see [Adoption](#adoption)) closes that divergence: the IL view requests
-the Body policy in the same slice, so a Body cue and the view it opens agree.
+Finding Diff Any adopts [Diff observability](diff-observability.md). The API
+axis targets the semantic level of the Public API diff, and the Body axis
+targets the symbolic IL level of the body diff for IL and the declaration view's
+level for declaration facts, so `Changed` should point to something a user can
+see. IL operand and signature keys never compare token numbers or assembly
+identity, so a renumbered token or a dependency version change is not a Body
+change. The IL view of Member Body Diff requests the Body policy
+(`IlBodyDiffPolicy.Body`), so a Body cue and the view it opens agree, and a
+dependency version change shows no row there either. Implementation Diff
+evidence and the CLI `match` command's body comparison keep comparing with no
+normalization.
 
 Because each axis reads its complete diff's equality, neither axis
 over-reports against that diff. The divergences the earlier census reported
@@ -254,7 +262,11 @@ are settled as follows:
   offsets, body size, stack size, and exception regions are no longer
   compared, so a re-encoded branch is `Unchanged`, as canonical comparison
   treats it. Local and argument macro forms and slots remain compared, as the
-  IL view shows them.
+  IL view shows them. A changed catch Type or handler extent is not an IL
+  operation: canonical comparison shows no row for it
+  ([#9942](https://github.com/richlander/dotnet-inspect/issues/9942)), so
+  the Body axis reports it `Unchanged` until canonical comparison presents
+  it, and follows it then.
 - **Type and Member flags no view presents, nullable context, and attribute
   blobs.** These are uncertain facts. A Type that differs only in them is
   decided by its Public API surface, so a framework major-version move that
@@ -282,21 +294,21 @@ signatures differ only in token numbers. The Body axis uses canonical equality
 there too, so it reports them `Changed`. Decoding stand-alone signatures
 symbolically belongs to canonical comparison
 ([#9801](https://github.com/richlander/dotnet-inspect/issues/9801)), and
-Fast Diff follows it; the axis never keeps a private exception.
+Finding Diff Any follows it; the axis never keeps a private exception.
 
 ## Gates
 
-`FastDiffTests` gates:
+`FindingDiffAnyTests` gates:
 
 - exact API and Body states for one targeted change per Type in the
-  `ILInspector.Metadata.FastDiff` fixture pair, including lambda-, async-, and
-  local-function-only bodies, constraint Types, constants, defaults,
+  `ILInspector.Metadata.FindingDiffAny` fixture pair, including lambda-, async-,
+  and local-function-only bodies, constraint Types, constants, defaults,
   parameter names, attributes, interfaces, visibility, and added and removed
   Types;
-- API exactness, in both directions: every Type's API state equals whether
-  the complete Public API comparison of the API axis surface reports a change
-  to it or one of its Members, over three fixture pairs. A changed non-enum
-  constant is the one known exception: Fast Diff reports it, and the complete
+- API exactness, in both directions: every Type's API state equals whether the
+  complete Public API comparison of the API axis surface reports a change to it
+  or one of its Members, over three fixture pairs. A changed non-enum constant
+  is the one known exception: Finding Diff Any reports it, and the complete
   comparison does not yet compare constant values;
 - accessibility: a Member or nested Type whose accessibility moves between
   API axis buckets is API `Changed`, and the complete comparison of the API
@@ -340,32 +352,32 @@ Fast Diff follows it; the axis never keeps a private exception.
   changed constant, a retargeted branch, a switch target count change, a
   changed call or string, or an inserted instruction is Body `Changed`.
 
-`FastDiffIdentityTests` gates identity and decoding by outcome, over generated
-image pairs compared whole and stepped: a nested Type's body change beside a
-top-level Type whose name spells the same path, a namespace and a dotted Type
-name that display alike, a caller switching between two callees whose names
-joined by punctuation would collide, two method names, and two Type names, whose
-stored bytes differ but decode alike, a primitive and a global Type of one name,
-a function pointer returning a pointer and a pointer to a function pointer, an
-attribute moved from a backing field to its event, a switch between external
-vararg overloads, duplicate Type names and duplicate generated Type names, a
-caller switching between two compiler-controlled methods or between methods of
-two Type rows of one name, undefined one-byte and two-byte opcodes, and an
-undefined opcode after a difference the walk decides first, which is `Changed`.
-The same
-class checks that the stored UTF-8 of every System.Private.CoreLib Type, method,
-and field name equals the encoding of its decoded name.
+`FindingDiffAnyIdentityTests` gates identity and decoding by outcome, over
+generated image pairs compared whole and stepped: a nested Type's body change
+beside a top-level Type whose name spells the same path, a namespace and a
+dotted Type name that display alike, a caller switching between two callees
+whose names joined by punctuation would collide, two method names, and two Type
+names, whose stored bytes differ but decode alike, a primitive and a global Type
+of one name, a function pointer returning a pointer and a pointer to a function
+pointer, an attribute moved from a backing field to its event, a switch between
+external vararg overloads, duplicate Type names and duplicate generated Type
+names, a caller switching between two compiler-controlled methods or between
+methods of two Type rows of one name, undefined one-byte and two-byte opcodes,
+and an undefined opcode after a difference the walk decides first, which is
+`Changed`. The same class checks that the stored UTF-8 of every
+System.Private.CoreLib Type, method, and field name equals the encoding of its
+decoded name.
 
-Stepping and the API axis are gated by outcome: a comparison stepped at
-every row and Type boundary, with fresh readers per step, equals the whole
-comparison over the fixture pair and every malformed image in
-`FastDiffMetadataSafetyTests`; a reader over a different image is rejected;
-and API-only states equal the API states of the full comparison with no body
-compared.
+Stepping and the API axis are gated by outcome: a comparison stepped at every
+row and Type boundary, with fresh readers per step, equals the whole comparison
+over the fixture pair and every malformed image in
+`FindingDiffAnyMetadataSafetyTests`; a reader over a different image is
+rejected; and API-only states equal the API states of the full comparison with
+no body compared.
 
-`eng/measure-fast-diff.cs` runs the same checks over a real image pair and
-reports NativeAOT timing, API-only and stepped timing, and every disagreement
-with the complete comparisons.
+`eng/measure-finding-diff-any.cs` runs the same checks over a real image pair
+and reports NativeAOT timing, API-only and stepped timing, and every
+disagreement with the complete comparisons.
 
 The shared-equality design was measured by a spike
 ([`exp/staged-diff-spike`](https://github.com/richlander/dotnet-inspect/tree/exp/staged-diff-spike)
@@ -426,31 +438,31 @@ primitives, and every signature decode passes `SignatureBlobGuard`, with Type
 specifications under `TypeSpecGuard`. A rejected walk or decode makes the
 affected Type `Indeterminate` on both axes, and so does a Type row whose name
 cannot be read; other Types keep their states, and no metadata shape
-terminates the process. `FastDiffMetadataSafetyTests` gates cyclic and
+terminates the process. `FindingDiffAnyMetadataSafetyTests` gates cyclic and
 100,000-deep Type reference chains, nested Type chains, a self-referential
 Type specification, a 100,000-deep signature blob, and top-level and nested
 Type names outside the string heap in a child process.
 
 ## Browser export
 
-`MetadataExports.QueryLibraryFastDiff` (Worker operation
-`queryLibraryFastDiff`, request schema 2) runs `AssemblyContextFastDiffQuery`
-over the implementation assemblies of one exact compile asset in two package
-versions. It accepts the Library API Diff endpoint coordinates and `axes`,
-`ApiAndBody` or `Api`. It returns only Types with an axis that is `Changed` or
-`Indeterminate`, plus the compared Type count; absence means every requested
-axis is `Unchanged`. Each Type carries `identifier`, the escaped definition
-name (`Outer+Inner`) that Library navigation joins on, and `fullName` for
-display. Malformed rows, and Types whose namespace or names are not
-well-formed UTF-8, have no decodable name; they receive a row-token identifier
-and never join a navigation entry.
+`MetadataExports.QueryLibraryFindingDiffAny` (Worker operation
+`queryLibraryFindingDiffAny`, request schema 2) runs
+`AssemblyContextFindingDiffAnyQuery` over the implementation assemblies of one
+exact compile asset in two package versions. It accepts the Library API Diff
+endpoint coordinates and `axes`, `ApiAndBody` or `Api`. It returns only Types
+with an axis that is `Changed` or `Indeterminate`, plus the compared Type count;
+absence means every requested axis is `Unchanged`. Each Type carries
+`identifier`, the escaped definition name (`Outer+Inner`) that Library
+navigation joins on, and `fullName` for display. Malformed rows, and Types whose
+namespace or names are not well-formed UTF-8, have no decodable name; they
+receive a row-token identifier and never join a navigation entry.
 
 The Worker is single-threaded, so the operation runs the comparison in
 [steps](#steps) with an 8 ms budget each and yields to the Worker event loop
 between them. A step ends at the first Type row or compared Type after its
-budget, so one large Type can extend it. Foreground operations and
-cancellation run between steps; one Fast Diff never holds the Worker for its
-whole duration.
+budget, so one large Type can extend it. Foreground operations and cancellation
+run between steps; one Finding Diff Any never holds the Worker for its whole
+duration.
 
 Firefox, published Release site, warm calls through the production Worker
 (interpreted Wasm). Foreground is a cheap Worker call issued every 25 ms while
@@ -473,8 +485,8 @@ costs roughly 15x relative to NativeAOT.
 
 ## Levels
 
-Fast Diff answers at three levels, each scoped to what its view shows. Each
-level is sound for the level above it, so a cue never points to a view that
+Finding Diff Any answers at three levels, each scoped to what its view shows.
+Each level is sound for the level above it, so a cue never points to a view that
 shows nothing.
 
 | Level | Question | Answer per row |
@@ -651,47 +663,43 @@ only, through `MemberTargetResolver`, as exact Member lookup does
 builds the Library's API surface.
 
 The query runs in [steps](#steps) that end at Member boundaries. It lives in
-`DotnetInspector.Queries`, beside `AssemblyContextFastDiffQuery`, because
+`DotnetInspector.Queries`, beside `AssemblyContextFindingDiffAnyQuery`, because
 generated-code owner resolution comes from `ILInspector.Analysis`; anchors and
 `MemberTargetResolver` are in `ILInspector.Metadata`, and the per-Member fact
-partition itself stays in `FastDiff`.
+partition itself stays in `FindingDiffAny`.
 
-Gates: for the fixture pairs, the Type-level states agree with the Library
-level per the partition claim, including an added public method, an added
-public property with a private setter, a public Type made internal, an enum
-underlying-type change, a
-`[field:]` attribute on a field-like event, a base Type change on an internal
-Type, a marker interface removed from a public Type, which makes the residual
-API `Changed` and every Member `Unchanged`, and a nested
-Type whose inherited nullable context changed; an added and a removed public
-Type, the
-added one with Members and the removed one with none, are reported whole by
-the Library level and have one-sided Type-level rows whose keys equal the keys
-of the same Type's two-sided rows against itself, in which a public method
-with a body is `Changed` on both axes, an internal method with a body, a
-private field, and a bodyless private `extern` method are Body `Changed`
+Gates: for the fixture pairs, the Type-level states agree with the Library level
+per the partition claim, including an added public method, an added public
+property with a private setter, a public Type made internal, an enum
+underlying-type change, a `[field:]` attribute on a field-like event, a base
+Type change on an internal Type, a marker interface removed from a public Type,
+which makes the residual API `Changed` and every Member `Unchanged`, and a
+nested Type whose inherited nullable context changed; an added and a removed
+public Type, the added one with Members and the removed one with none, are
+reported whole by the Library level and have one-sided Type-level rows whose
+keys equal the keys of the same Type's two-sided rows against itself, in which a
+public method with a body is `Changed` on both axes, an internal method with a
+body, a private field, and a bodyless private `extern` method are Body `Changed`
 only, the residual is `Changed` on both axes, and no IL is read; an added
 internal enum has Member rows all Body `Changed` and API `Unchanged`, and a
-residual API `Unchanged` and Body `Changed`;
-an undefined opcode reached before a difference in one method
-makes that Member Body `Indeterminate` and no owner `Unchanged` by omission; two Type rows of one
-name have no Type-level rows; a Member present on both sides carries both
-fingerprints, which differ after a nullable annotation change; an attribute
-added to an internal method and a private field added to a public Type are
-each Body `Changed` for that Member and no API change; a Member is API `Changed`
-exactly when the complete Public API diff reports it changed, or reports its
-Type added or removed and the API axis surface admits the Member on the side
-where it admits the Type, and every other Member is API `Unchanged`, which
-covers a paired Type, a Type made internal, and a one-sided public or internal
-Type in one rule; for every Type present on both sides, every owner of a body
-that canonical IL comparison reports changed is Body `Changed` or
-`Indeterminate`, or the change is a residual Body change, and every other
-owner Body `Changed` owns a declaration fact that differs; and for a Type
-present on one side, an owner is Body `Changed` exactly when the API axis
-surface does not admit it, it owns a method with a body, or it is the
-residual.
-`eng/measure-fast-diff.cs` reports
-NativeAOT time per Type for the largest changed Types of each measured pair.
+residual API `Unchanged` and Body `Changed`; an undefined opcode reached before
+a difference in one method makes that Member Body `Indeterminate` and no owner
+`Unchanged` by omission; two Type rows of one name have no Type-level rows; a
+Member present on both sides carries both fingerprints, which differ after a
+nullable annotation change; an attribute added to an internal method and a
+private field added to a public Type are each Body `Changed` for that Member and
+no API change; a Member is API `Changed` exactly when the complete Public API
+diff reports it changed, or reports its Type added or removed and the API axis
+surface admits the Member on the side where it admits the Type, and every other
+Member is API `Unchanged`, which covers a paired Type, a Type made internal, and
+a one-sided public or internal Type in one rule; for every Type present on both
+sides, every owner of a body that canonical IL comparison reports changed is
+Body `Changed` or `Indeterminate`, or the change is a residual Body change, and
+every other owner Body `Changed` owns a declaration fact that differs; and for a
+Type present on one side, an owner is Body `Changed` exactly when the API axis
+surface does not admit it, it owns a method with a body, or it is the residual.
+`eng/measure-finding-diff-any.cs` reports NativeAOT time per Type for the
+largest changed Types of each measured pair.
 
 ### Member
 
@@ -706,8 +714,8 @@ Member Body inventory, which remains Library Compare's view.
 
 ## Adoption
 
-1. **Producer** (#9798): `FastDiff.Compare`, its gates, and the measurement
-   tool.
+1. **Producer** (#9798): `FindingDiffAny.Compare`, its gates, and the
+   measurement tool.
 2. **Browser export** (#9805): per-Type states through a Worker export, with
    Browser/Wasm numbers.
 3. **Steps and API axis** (this slice): bounded steps that yield the Worker
@@ -716,8 +724,8 @@ Member Body inventory, which remains Library Compare's view.
    baselines after a Library page loads and drives the navigation cues.
 5. **Library Compare:** replace the content selector's Public API and Member
    Body choices with **Any Diff** (default), **API Diff**, and **Body Diff**
-   lists from Fast Diff, keep **String literals**, and link each Type to its
-   complete signature-only or body-level diff.
+   lists from Finding Diff Any, keep **String literals**, and link each Type to
+   its complete signature-only or body-level diff.
 6. **Caching:** retain results per exact endpoint pair in the Worker and in
    persistent storage keyed by the build commit, per
    [#9793](https://github.com/richlander/dotnet-inspect/issues/9793).
@@ -736,35 +744,36 @@ Member Body inventory, which remains Library Compare's view.
 
 Two slices adopt the shared equality before step 7, which builds on both:
 
-- **Shared Body equality:** the Body axis walks IL with canonical equality
-  under the Body policy and keeps the declaration census beside the walk,
-  gated per method against canonical IL comparison and by the canonical
-  encodings and dependency versions pairs. It depends on the policy's
-  normalization
-  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)), and
-  in the same slice Member Body Diff's IL comparison requests the Body policy,
-  gated by the dependency versions pair showing no IL row there either.
+- **Shared Body equality** (landed,
+  [#10196](https://github.com/richlander/dotnet-inspect/issues/10196)): the
+  Body axis walks IL with canonical equality under the Body policy and keeps
+  the declaration census beside the walk, gated per method against canonical
+  IL comparison and by the canonical encodings and dependency versions pairs,
+  over the policy's normalization
+  ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205));
+  Member Body Diff's IL comparison requests the Body policy, gated by the
+  dependency versions pair showing no IL row there either.
 - **Shared API equality:** the census decides `Unchanged` and presented
   differences, and the API axis surface of one Type decides the rest,
   gated for exactness against the complete Public API comparison of the API
   axis surface.
 
-These slices make Fast Diff's equality the complete diffs' own, so a
+These slices make Finding Diff Any's equality the complete diffs' own, so a
 complete diff can adopt the same walk as its first pass and explain only what
 it finds changed. That adoption belongs to each complete diff's owner.
 
-By default, each Library page computes Fast Diff in the background after it
-first loads, against two baselines: `ApiAndBody` against the last patch
+By default, each Library page computes Finding Diff Any in the background after
+it first loads, against two baselines: `ApiAndBody` against the last patch
 version and `Api` against the last major version. An explicit Library Compare
 targets the one version the user selects. The background run acquires the
 baseline packages without a user action, which is this design's approved
-exception to explicit network work. Scheduling, ordering, and baseline
-selection belong to the background analysis design that adopts this export.
+exception to explicit network work. Scheduling, ordering, and baseline selection
+belong to the background analysis design that adopts this export.
 
 ## Non-claims
 
-- Fast Diff does not define API semantics, canonical IL, or correspondence; it
-  answers with the equality their owners define.
+- Finding Diff Any does not define API semantics, canonical IL, or
+  correspondence; it answers with the equality their owners define.
 - It does not present the declaration facts it compares; the
   [declaration view](declaration-view.md) does.
 - It does not report referenced assembly or package version changes as Type

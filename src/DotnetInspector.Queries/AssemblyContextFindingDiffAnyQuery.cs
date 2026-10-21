@@ -2,43 +2,43 @@ using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries;
 
-/// <summary>The outcome of one Fast Diff over two retained endpoint images.</summary>
-public abstract record AssemblyContextFastDiffOutcome
+/// <summary>The outcome of one Finding Diff Any over two retained endpoint images.</summary>
+public abstract record AssemblyContextFindingDiffAnyOutcome
 {
-    private AssemblyContextFastDiffOutcome()
+    private AssemblyContextFindingDiffAnyOutcome()
     {
     }
 
     /// <summary>Both images were compared; every Type has API and Body states.</summary>
-    public sealed record Compared(FastDiffResult Result) : AssemblyContextFastDiffOutcome;
+    public sealed record Compared(FindingDiffAnyResult Result) : AssemblyContextFindingDiffAnyOutcome;
 
     /// <summary>The step's budget elapsed; the comparison continues in a later step.</summary>
-    public sealed record Pending : AssemblyContextFastDiffOutcome;
+    public sealed record Pending : AssemblyContextFindingDiffAnyOutcome;
 
     /// <summary>One endpoint image could not be opened or admitted.</summary>
     public sealed record Rejected(
         AssemblyContextSubject Subject,
-        string Reason) : AssemblyContextFastDiffOutcome;
+        string Reason) : AssemblyContextFindingDiffAnyOutcome;
 }
 
 /// <summary>
-/// Advances one <see cref="FastDiffComparison"/> by one bounded step over two
+/// Advances one <see cref="FindingDiffAnyComparison"/> by one bounded step over two
 /// retained endpoint images, each read through its own group's retained
 /// session.
 /// </summary>
-public static class AssemblyContextFastDiffQuery
+public static class AssemblyContextFindingDiffAnyQuery
 {
-    public static InspectionQuery<AssemblyContextFastDiffOutcome> Definition
+    public static InspectionQuery<AssemblyContextFindingDiffAnyOutcome> Definition
     { get; } = new(
-        "Assembly context fast diff",
+        "Assembly context Finding Diff Any",
         InspectionCost.Moderated);
 
-    public static AssemblyContextFastDiffOutcome Execute(
+    public static AssemblyContextFindingDiffAnyOutcome Execute(
         AssemblyContextGroup beforeGroup,
         AssemblyContextParticipant beforeParticipant,
         AssemblyContextGroup afterGroup,
         AssemblyContextParticipant afterParticipant,
-        FastDiffComparison comparison,
+        FindingDiffAnyComparison comparison,
         TimeSpan budget,
         CancellationToken cancellationToken = default)
     {
@@ -49,13 +49,13 @@ public static class AssemblyContextFastDiffQuery
         ArgumentNullException.ThrowIfNull(afterParticipant);
 
         var beforeSubject = new AssemblyContextSubject(beforeParticipant.Assembly);
-        AssemblyImageAccessResult<AssemblyContextFastDiffOutcome> before =
+        AssemblyImageAccessResult<AssemblyContextFindingDiffAnyOutcome> before =
             beforeGroup.UseAssemblySession(
                 beforeParticipant,
                 cancellationToken,
                 (beforeSession, _) =>
                 {
-                    AssemblyImageAccessResult<AssemblyContextFastDiffOutcome> after =
+                    AssemblyImageAccessResult<AssemblyContextFindingDiffAnyOutcome> after =
                         afterGroup.UseAssemblySession(
                             afterParticipant,
                             cancellationToken,
@@ -71,11 +71,11 @@ public static class AssemblyContextFastDiffQuery
         return Unwrap(before);
     }
 
-    static AssemblyContextFastDiffOutcome Step(
+    static AssemblyContextFindingDiffAnyOutcome Step(
         AssemblyInspectionSession beforeSession,
         AssemblyContextSubject beforeSubject,
         AssemblyInspectionSession afterSession,
-        FastDiffComparison comparison,
+        FindingDiffAnyComparison comparison,
         TimeSpan budget,
         CancellationToken cancellationToken)
     {
@@ -83,29 +83,29 @@ public static class AssemblyContextFastDiffQuery
         try
         {
             return beforeSession.InspectImage(beforeImage =>
-                afterSession.InspectImage<AssemblyContextFastDiffOutcome>(afterImage =>
+                afterSession.InspectImage<AssemblyContextFindingDiffAnyOutcome>(afterImage =>
                     comparison.Step(beforeImage, afterImage, budget, cancellationToken)
-                        ? new AssemblyContextFastDiffOutcome.Compared(comparison.Result!)
-                        : new AssemblyContextFastDiffOutcome.Pending()));
+                        ? new AssemblyContextFindingDiffAnyOutcome.Compared(comparison.Result!)
+                        : new AssemblyContextFindingDiffAnyOutcome.Pending()));
         }
         catch (BadImageFormatException ex)
         {
-            // FastDiff contains malformed rows per Type; only a whole image it
+            // FindingDiffAny contains malformed rows per Type; only a whole image it
             // cannot admit reaches here, and the endpoint is not identified.
-            return new AssemblyContextFastDiffOutcome.Rejected(
+            return new AssemblyContextFindingDiffAnyOutcome.Rejected(
                 beforeSubject,
                 $"The endpoint images could not be compared: {ex.Message}");
         }
     }
 
-    static AssemblyContextFastDiffOutcome Unwrap(
-        AssemblyImageAccessResult<AssemblyContextFastDiffOutcome> access)
+    static AssemblyContextFindingDiffAnyOutcome Unwrap(
+        AssemblyImageAccessResult<AssemblyContextFindingDiffAnyOutcome> access)
         => access switch
         {
-            AssemblyImageAccessResult<AssemblyContextFastDiffOutcome>.Available available =>
+            AssemblyImageAccessResult<AssemblyContextFindingDiffAnyOutcome>.Available available =>
                 available.Value,
-            AssemblyImageAccessResult<AssemblyContextFastDiffOutcome>.Rejected rejected =>
-                new AssemblyContextFastDiffOutcome.Rejected(
+            AssemblyImageAccessResult<AssemblyContextFindingDiffAnyOutcome>.Rejected rejected =>
+                new AssemblyContextFindingDiffAnyOutcome.Rejected(
                     new AssemblyContextSubject(rejected.Assembly),
                     rejected.Failure.ToString()),
             _ => throw new InvalidOperationException("Unknown assembly image access result."),

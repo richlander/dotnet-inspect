@@ -30,11 +30,17 @@ public sealed class ResearchProducerSessionRequest
 {
     readonly object _identity = new();
 
+    /// <param name="ilNormalization">
+    /// The normalization the IL producer compares under. Member Body Diff
+    /// requests Finding Diff Any's Body policy (<see cref="IlBodyDiffPolicy.Body"/>);
+    /// every other consumer compares with none.
+    /// </param>
     public ResearchProducerSessionRequest(
         ResearchAdmittedPopulation population,
         ResearchTargetResolution resolution,
         IEnumerable<ResearchProducerKind> producers,
-        IEnumerable<ResearchDesignatedPair>? designatedPairs = null)
+        IEnumerable<ResearchDesignatedPair>? designatedPairs = null,
+        IlBodyDiffNormalization ilNormalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(population);
         ArgumentNullException.ThrowIfNull(resolution);
@@ -42,6 +48,7 @@ public sealed class ResearchProducerSessionRequest
         Population = population;
         Resolution = resolution;
         Producers = [.. producers];
+        IlNormalization = ilNormalization;
         ResearchDesignatedPair[] pairs = [.. designatedPairs ?? []];
         if (pairs.Any(pair => !ReferenceEquals(pair.Resolution, resolution)
                 || !resolution.Correspondences.OfType<ResearchTargetCorrespondenceOutcome.CounterpartUnavailable>()
@@ -61,10 +68,12 @@ public sealed class ResearchProducerSessionRequest
         ];
     }
 
+    /// <inheritdoc cref="ResearchProducerSessionRequest(ResearchAdmittedPopulation, ResearchTargetResolution, IEnumerable{ResearchProducerKind}, IEnumerable{ResearchDesignatedPair}?, IlBodyDiffNormalization)"/>
     public ResearchProducerSessionRequest(
         ResearchAdmittedPopulation population,
         ResearchDesignatedPair pair,
-        IEnumerable<ResearchProducerKind> producers)
+        IEnumerable<ResearchProducerKind> producers,
+        IlBodyDiffNormalization ilNormalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(population);
         ArgumentNullException.ThrowIfNull(pair);
@@ -72,6 +81,7 @@ public sealed class ResearchProducerSessionRequest
         Population = population;
         Resolution = pair.Resolution;
         Producers = [.. producers];
+        IlNormalization = ilNormalization;
         WorkBases = [new ResearchProducerWorkBasis.DesignatedPair(pair)];
     }
 
@@ -80,6 +90,9 @@ public sealed class ResearchProducerSessionRequest
     public ResearchTargetResolution Resolution { get; }
 
     public ImmutableArray<ResearchProducerKind> Producers { get; }
+
+    /// <summary>The normalization the IL producer compares under.</summary>
+    public IlBodyDiffNormalization IlNormalization { get; }
 
     internal object Identity => _identity;
 

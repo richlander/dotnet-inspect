@@ -382,7 +382,14 @@ producers that will extend that space.
   [platform package supply policy](design/platform-package-supply-policy.md)
   owns the host-neutral decision from a Packages-owned coordinate and an
   independently owned target-bound prune inventory to preserved supply
-  evidence and conservative platform delegation.
+  evidence and conservative platform delegation. The proposed
+  [Package Runtime Population Choice](design/package-runtime-population-choice.md)
+  owner defines package-local Selection RID policy when neutral implementation
+  assets cannot answer: infer one eligible RID, prefer the product
+  `linux-x64` RID among several, or retain typed ambiguity. Package Navigation
+  exposes the owner-issued RID inventory beneath TFMs; Source and Compare
+  consume the retained Package coordinate while keeping separate operation
+  semantics.
 - `src/DotnetInspector.SourceSelection/` owns immutable typed source intent,
   bounded package-prefix requests, and pure search normalization under
   [the typed source domain](design/search-scope-domain.md). Its
@@ -1066,12 +1073,16 @@ rules, this document describes subsystem ownership, and
   exact relationship and color registration, Type-focus and direction
   admission, terminal-specialized adapter-query binding, and immutable typed
   query demand without duplicating QuerySpace or inspection query execution.
-- [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
-  Library image pair, sound for the facts each axis compares, without building
-  either complete diff.
+- [Annotated Type Relations generation](design/annotated-type-relations-generation.md):
+  concrete typed contribution correspondence, independent relationship and
+  color-family settlement, and canonical Rows/Count/Exists document generation
+  without execution or acquisition.
+- [Finding Diff Any](design/finding-diff-any.md): per-Type API and Body change
+  states for a Library image pair, sound for the facts each axis compares,
+  without building either complete diff.
 - [Inspect-web background analysis](design/inspect-web-background-analysis.md):
   the page-side queue for analysis the website starts on its own, its
-  foreground-first order, and the default Fast Diff baselines.
+  foreground-first order, and the default Finding Diff Any baselines.
 - [Implementation Diff](design/implementation-diff.md): product C# + IL/body diff projection shared by the opt-in `diff` section, RTS, and harnesses.
 - [C# assembly round-trip testing](design/csharp-member-recompilation.md): proposed tools-only `cluster`/`all` artifact compilation and layered IL/C# comparison.
 - [Fixture governance](fixture-governance.md): fixture catalog, project-boundary, and semantic-axis rules.

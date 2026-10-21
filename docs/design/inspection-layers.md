@@ -1686,11 +1686,13 @@ canaries:
   Browser rendering, attribution, navigation policy, and wire projection
   without a direct `ILInspector.CallGraph` or `ILInspector.Analysis` project or
   emitted assembly edge.
-- Platform call-graph resolution selects the implementation participant in Web,
-  then delegates exact body matching to
-  `AssemblyContextMemberSelectionQuery`. Web retains Platform acquisition,
-  type-resolution expansion, bounds, and scope lifetime without projecting an
-  API surface solely to invoke `CallGraphMemberResolver` itself.
+- Platform call-graph resolution delegates each closed-world type-resolution
+  decision and exact body match to Queries. The decision returns the exact
+  participant, a detached failure or identity conflict, or one exact assembly
+  continuation demand. Web retains Platform acquisition, authorization,
+  bounded expansion and retry, and scope lifetime without interpreting live
+  Metadata resolution outcomes or projecting an API surface solely to invoke
+  `CallGraphMemberResolver` itself.
 - Product demo plans resolve their owner-issued member anchor over
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog

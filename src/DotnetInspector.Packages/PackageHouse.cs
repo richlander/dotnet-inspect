@@ -2800,6 +2800,7 @@ public sealed partial class PackageHouse
                 receipt.Generation,
                 receipt.RequestedTargetFramework,
                 receipt.RequestedRuntimeIdentifier,
+                receipt.AvailableRuntimePopulations,
                 new PackageAssetSelection.Selected(
                     new PackageAssetUniverse(
                         selected.Universe.TargetFramework,
