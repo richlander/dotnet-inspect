@@ -108,9 +108,8 @@ dotnet-inspect type Microsoft.Azure.SignalR.AccessTokenAlgorithm \
 enum Microsoft.Azure.SignalR.AccessTokenAlgorithm
 ```
 
-Use `--library`, `--namesake-library`, or `--first-library` when the Library
-itself is part of the question and the operation should inspect only that
-exact Library.
+Use `--library` when the Library itself is part of the Type question and the
+operation should inspect only that exact Library.
 
 ## 3. Type forwarders
 

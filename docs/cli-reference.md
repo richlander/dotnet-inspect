@@ -236,10 +236,10 @@ contributes more than one Library keeps the multi-Library view unless one of
 those explicit narrowing gestures is supplied; explicit `--tree` or
 `--mermaid` on an aggregate fails and asks for the assembly within the package.
 Package-scoped Type lookup is also aggregate by default: it searches every
-Library in the selected Package population. An exact `--library`,
-`--namesake-library`, or `--first-library` gesture narrows that lookup to one
-Library. Inspect Web's First Library entry recommendation is a browser
-navigation default and does not change this CLI scope.
+Library in the selected Package population. Its supported exact `--library`
+source narrows that lookup to one Library. Inspect Web's First Library entry
+recommendation is a browser navigation default and does not change this CLI
+scope.
 Any other option, including `-S`, `-v:n`, `-v:d`, and every format option,
 keeps the sectioned Library view; combined with such an option, `--tree` and
 `--mermaid` keep their `-S "Reference Hierarchy"` requirement. A

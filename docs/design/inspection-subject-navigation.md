@@ -1194,11 +1194,12 @@ Package-grain operation whose
 consumes every Library in the owner-issued population even when its host would
 recommend one exact Library for interactive navigation. The CLI therefore
 accepts `All libraries` as the implicit scope for Package-scoped Type lookup;
-an explicit exact, namesake, or First Library gesture narrows that operation.
-Inspect Web instead recommends First Library when a person opens a Package,
-while keeping `All libraries` and every exact Library as explicit choices.
-These host defaults differ only in entry gesture. They do not redefine the
-operation's aggregate or exact semantics.
+its supported exact `--library` source narrows that operation. Inspect Web
+instead recommends First Library when a person opens a Package, while keeping
+`All libraries` and every exact Library as explicit choices. These host
+defaults differ only in entry gesture. They do not redefine the operation's
+aggregate or exact semantics, and they do not imply that every host exposes
+every Library gesture on every command.
 
 `Microsoft.Azure.SignalR` 1.33.1 is the motivating real asset. Its `net8.0`
 population contains `Microsoft.Azure.SignalR.dll` and
