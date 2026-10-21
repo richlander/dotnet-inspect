@@ -1,7 +1,9 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Emit;
 
 using DotnetInspector.Fixtures;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
 
@@ -248,6 +250,268 @@ public sealed class AssemblyContextCallCensusQueryTests
         }
     }
 
+    [Fact]
+    public async Task TypeCallCompatibilityPublishesExactExternalColorAndTerminals()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference target) =
+                BuildCompatibilityCallFixture();
+        try
+        {
+            await using CensusContext context =
+                CensusContext.Create(caller, target);
+            AssemblyContextCallCensusResult census =
+                AssemblyContextCallCensusQuery.Execute(
+                    context.Group,
+                    TestContext.Current.CancellationToken);
+            MetadataTypeDefinitionName focusType =
+                Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                    MetadataTypeDefinitionName.Create(
+                        "Consumer",
+                        ["Entry"])).Name;
+
+            AssemblyContextTypeCallCompatibilityResult result =
+                AssemblyContextTypeCallCompatibilityQuery.Execute(
+                    context.Group,
+                    census,
+                    caller.Registration,
+                    focusType,
+                    TestContext.Current.CancellationToken);
+
+            Assert.True(result.TopologyComplete);
+            Assert.Empty(result.UnresolvedOccurrences);
+            Assert.Equal(4, result.Occurrences.Length);
+            Assert.Equal(3, result.Targets.Length);
+            TypeCallCompatibilityTarget dangerous = Assert.Single(
+                result.Targets,
+                candidate => candidate.Method.Name == "Dangerous");
+            Assert.Equal(
+                TypeCallCompatibilityTargetDisposition.Available,
+                dangerous.Disposition);
+            Assert.Contains(
+                dangerous.Attributes,
+                attribute =>
+                    attribute.AttributeTypeName
+                    == KnownAttributeNames
+                        .RequiresUnreferencedCodeAttribute);
+            TypeCallCompatibilityTarget dynamic = Assert.Single(
+                result.Targets,
+                candidate => candidate.Method.Name == "Dynamic");
+            Assert.Equal(
+                [
+                    KnownAttributeNames.RequiresAssemblyFilesAttribute,
+                    KnownAttributeNames.RequiresDynamicCodeAttribute,
+                ],
+                dynamic.Attributes
+                    .Select(attribute => attribute.AttributeTypeName)
+                    .Order());
+            Assert.Contains(
+                result.Targets,
+                candidate =>
+                    candidate.Method.Name == "SameLibrary"
+                    && ReferenceEquals(
+                        candidate.Subject.Registration,
+                        caller.Registration)
+                    && candidate.Attributes.Any(attribute =>
+                        attribute.AttributeTypeName
+                        == KnownAttributeNames
+                            .RequiresAssemblyFilesAttribute));
+
+            StructuralSubjectIdentity.WorkspaceSubject workspace =
+                StructuralSubjectTestData.Package(
+                    new(
+                        "compatibility.fixture",
+                        "1.0.0",
+                        "local",
+                        "net11.0",
+                        runtimeIdentifier: null))
+                    .Workspace;
+            SubjectRelationFocusAuthority focus =
+                SubjectRelationFocusAuthority.ForAcquiredType(
+                    workspace,
+                    caller.Registration,
+                    caller.Identity,
+                    caller.Provenance,
+                    focusType);
+            SubjectRelationPopulationAuthority population =
+                SubjectRelationPopulationAuthority.Capture(
+                    workspace,
+                    context.Group);
+            InspectionGraphCharacteristicDescriptor dynamicColor =
+                CompatibilityInspectionGraphCatalog.RequiresDynamicCode;
+            InspectionGraphCharacteristicDescriptor filesColor =
+                CompatibilityInspectionGraphCatalog.RequiresAssemblyFiles;
+            var request = new AnnotatedTypeRelationsCallRequest(
+                focus,
+                population,
+                result,
+                [
+                    CompatibilityInspectionGraphCatalog
+                        .RequiresUnreferencedCode,
+                    dynamicColor,
+                    filesColor,
+                ],
+                [dynamicColor, filesColor]);
+
+            AnnotatedTypeRelationsContribution rows =
+                AnnotatedTypeRelationsCallAdoption.Rows(request);
+            AnnotatedTypeRelationsRelationshipContribution relationship =
+                Assert.Single(rows.Relationships);
+            SubjectRelationRow row = Assert.Single(
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Rows>(
+                        relationship.Terminal).Values);
+            Assert.Equal("Dynamic", MemberName(row.Target));
+            Assert.Single(row.Occurrences);
+            Assert.Equal(2, rows.Colors.Count(color =>
+                !color.Annotations.IsEmpty));
+            AnnotatedTypeRelationsCatalog catalog =
+                AnnotatedTypeRelationsCallAdoption.Register(
+                    new AnnotatedTypeRelationsRegistry()).Compile();
+            IInspectionQueryCatalog queryCatalog =
+                new InspectionQueryRegistry<object>()
+                    .Add(
+                        AnnotatedTypeRelationsCallAdoption.RowsQuery,
+                        static (_, _) => throw new InvalidOperationException())
+                    .Add(
+                        AnnotatedTypeRelationsCallAdoption.CountQuery,
+                        static (_, _) => throw new InvalidOperationException())
+                    .Add(
+                        AnnotatedTypeRelationsCallAdoption.ExistsQuery,
+                        static (_, _) => throw new InvalidOperationException())
+                    .Compile();
+            AnnotatedTypeRelationsPlan plan = Assert.IsType<
+                AnnotatedTypeRelationsPlanningResult.Accepted>(
+                    catalog.Resolve(
+                        new(
+                            focus,
+                            [CallGraphInspectionGraphCatalog.Call],
+                            SubjectRelationDirectionSelection.Outgoing,
+                            [
+                                CompatibilityInspectionGraphCatalog
+                                    .RequiresUnreferencedCode,
+                                dynamicColor,
+                                filesColor,
+                            ],
+                            [dynamicColor, filesColor],
+                            AnnotatedTypeRelationsTerminal.Rows),
+                        queryCatalog)).Plan;
+            InspectionQueryResults results =
+                new InspectionQueryRegistry<
+                    AnnotatedTypeRelationsContribution>()
+                    .Add(
+                        AnnotatedTypeRelationsCallAdoption.RowsQuery,
+                        static value => value)
+                    .Compile()
+                    .Plan(
+                        AnnotatedTypeRelationsCallAdoption.RowsQuery)
+                    .Run(rows);
+            AnnotatedTypeRelationsDocument document =
+                AnnotatedTypeRelationsGenerator.Generate(plan, results);
+            Assert.Single(document.Relations);
+            Assert.Single(document.Occurrences);
+            Assert.Equal(2, document.Annotations.Length);
+
+            AnnotatedTypeRelationsContribution count =
+                AnnotatedTypeRelationsCallAdoption.Count(request);
+            var countTerminal = Assert.IsType<
+                AnnotatedTypeRelationsFamilyTerminal.Count>(
+                    Assert.Single(count.Relationships).Terminal);
+            Assert.Equal(1, countTerminal.Value);
+            Assert.True(countTerminal.IsExact);
+            Assert.All(
+                count.Colors,
+                color => Assert.Empty(color.Annotations));
+
+            AnnotatedTypeRelationsContribution exists =
+                AnnotatedTypeRelationsCallAdoption.Exists(request);
+            Assert.Equal(
+                AnnotatedTypeRelationsExistsValue.True,
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Exists>(
+                        Assert.Single(exists.Relationships).Terminal)
+                    .Value);
+
+            AssemblyContextTypeCallCompatibilityResult limitedEvidence =
+                result with
+                {
+                    Targets =
+                    [
+                        .. result.Targets.Select(target =>
+                            target with
+                            {
+                                Disposition =
+                                    TypeCallCompatibilityTargetDisposition
+                                        .Limited,
+                                Limitation = "fixture limitation",
+                            }),
+                    ],
+                };
+            var limitedWitnessRequest =
+                new AnnotatedTypeRelationsCallRequest(
+                    focus,
+                    population,
+                    limitedEvidence,
+                    [dynamicColor, filesColor],
+                    [dynamicColor, filesColor]);
+            Assert.Equal(
+                AnnotatedTypeRelationsExistsValue.True,
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Exists>(
+                        Assert.Single(
+                            AnnotatedTypeRelationsCallAdoption.Exists(
+                                limitedWitnessRequest).Relationships)
+                            .Terminal).Value);
+            var limitedAbsenceRequest =
+                new AnnotatedTypeRelationsCallRequest(
+                    focus,
+                    population,
+                    limitedEvidence,
+                    [
+                        CompatibilityInspectionGraphCatalog
+                            .RequiresUnreferencedCode,
+                        dynamicColor,
+                    ],
+                    [
+                        CompatibilityInspectionGraphCatalog
+                            .RequiresUnreferencedCode,
+                        dynamicColor,
+                    ]);
+            AnnotatedTypeRelationsContribution limitedAbsence =
+                AnnotatedTypeRelationsCallAdoption.Exists(
+                    limitedAbsenceRequest);
+            Assert.Equal(
+                AnnotatedTypeRelationsExistsValue.Undecided,
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Exists>(
+                        Assert.Single(limitedAbsence.Relationships).Terminal)
+                    .Value);
+
+            var unfiltered = new AnnotatedTypeRelationsCallRequest(
+                focus,
+                population,
+                result);
+            SubjectRelationRow dangerousRow = Assert.Single(
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Rows>(
+                        Assert.Single(
+                            AnnotatedTypeRelationsCallAdoption.Rows(
+                                unfiltered).Relationships).Terminal)
+                    .Values,
+                candidate => MemberName(candidate.Target) == "Dangerous");
+            Assert.Equal(2, dangerousRow.Occurrences.Length);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static string MemberName(InspectionGraphSubject subject) =>
+        Assert.IsType<InspectionGraphMemberIdentity.CallGraph>(
+            Assert.IsType<InspectionGraphSubject.MemberSubject>(
+                subject).Identity).Member.Name;
+
     static string MemberFingerprint(
         AssemblyContextCallCensusMember member) =>
         string.Join(
@@ -366,6 +630,126 @@ public sealed class AssemblyContextCallCensusQueryTests
                 path,
                 AssemblyResolutionProvenance.Local(
                     "call-census query policy test"));
+    }
+
+    static (string Directory, ResolvedAssemblyReference Caller,
+        ResolvedAssemblyReference Target)
+        BuildCompatibilityCallFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-type-call-compatibility-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        var targetName = new AssemblyName("CompatibilityTarget")
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var targetAssembly = new PersistedAssemblyBuilder(
+            targetName,
+            typeof(object).Assembly);
+        ModuleBuilder targetModule =
+            targetAssembly.DefineDynamicModule(targetName.Name!);
+        TypeBuilder targetType = targetModule.DefineType(
+            "Target.Api",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        MethodBuilder dangerous = targetType.DefineMethod(
+            "Dangerous",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        dangerous.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(RequiresUnreferencedCodeAttribute)
+                    .GetConstructor([typeof(string)])!,
+                ["fixture"]));
+        dangerous.GetILGenerator().Emit(OpCodes.Ret);
+        MethodBuilder dynamic = targetType.DefineMethod(
+            "Dynamic",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        dynamic.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(RequiresDynamicCodeAttribute)
+                    .GetConstructor([typeof(string)])!,
+                ["fixture"]));
+        dynamic.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(RequiresAssemblyFilesAttribute)
+                    .GetConstructor([typeof(string)])!,
+                ["fixture"]));
+        dynamic.GetILGenerator().Emit(OpCodes.Ret);
+        _ = targetType.CreateType();
+        string targetPath = Path.Combine(directory, "target.dll");
+        targetAssembly.Save(targetPath);
+
+        var callerName = new AssemblyName("CompatibilityCaller")
+        {
+            Version = new Version(1, 0, 0, 0),
+        };
+        var callerAssembly = new PersistedAssemblyBuilder(
+            callerName,
+            typeof(object).Assembly);
+        ModuleBuilder callerModule =
+            callerAssembly.DefineDynamicModule(callerName.Name!);
+        TypeBuilder localTargetType = callerModule.DefineType(
+            "Consumer.LocalTarget",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        MethodBuilder sameLibrary = localTargetType.DefineMethod(
+            "SameLibrary",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        sameLibrary.SetCustomAttribute(
+            new CustomAttributeBuilder(
+                typeof(RequiresAssemblyFilesAttribute)
+                    .GetConstructor([typeof(string)])!,
+                ["fixture"]));
+        sameLibrary.GetILGenerator().Emit(OpCodes.Ret);
+        _ = localTargetType.CreateType();
+        TypeBuilder callerType = callerModule.DefineType(
+            "Consumer.Entry",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        MethodBuilder local = callerType.DefineMethod(
+            "Local",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        local.GetILGenerator().Emit(OpCodes.Ret);
+        MethodBuilder run = callerType.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        ILGenerator il = run.GetILGenerator();
+        il.Emit(OpCodes.Call, dangerous);
+        il.Emit(OpCodes.Call, dangerous);
+        il.Emit(OpCodes.Call, dynamic);
+        il.Emit(OpCodes.Call, sameLibrary);
+        il.Emit(OpCodes.Call, local);
+        il.Emit(OpCodes.Ret);
+        _ = callerType.CreateType();
+        string callerPath = Path.Combine(directory, "caller.dll");
+        callerAssembly.Save(callerPath);
+
+        return (
+            directory,
+            Reference(callerPath),
+            Reference(targetPath));
+
+        static ResolvedAssemblyReference Reference(string path) =>
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "Type call compatibility test"));
     }
 
     sealed class SelectedAssemblyPolicy(

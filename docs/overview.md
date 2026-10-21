@@ -1077,6 +1077,11 @@ rules, this document describes subsystem ownership, and
   concrete typed contribution correspondence, independent relationship and
   color-family settlement, and canonical Rows/Count/Exists document generation
   without execution or acquisition.
+- [Annotated Type Relations call adoption](design/annotated-type-relations-call-adoption.md):
+  exact outgoing call relations from one Type, physical call-site receipts,
+  direct trimming and NativeAOT compatibility color on external callees, and
+  producer-native terminal settlement over independently qualified topology
+  and color evidence.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.

@@ -17,6 +17,12 @@ public static class CallGraphInspectionGraphCatalog
     public static InspectionGraphEvidenceDescriptor CallSiteEvidence { get; } =
         new("call.site", InspectionGraphOwner.Analysis);
 
+    public static InspectionGraphEvidenceDescriptor CensusCallSiteEvidence
+    {
+        get;
+    } =
+        new("call.census-site", InspectionGraphOwner.Analysis);
+
     public static InspectionGraphRelationshipDescriptor Call { get; } =
         new(
             "call",
@@ -35,10 +41,14 @@ public static class CallGraphInspectionGraphCatalog
                     InspectionGraphSubjectKind.Member,
                     InspectionGraphSeedAdmissionKind.EdgeEndpoint,
                     InspectionGraphEndpointRole.Target),
+                new(
+                    InspectionGraphSubjectKind.Type,
+                    InspectionGraphSeedAdmissionKind.OwnedSubjects,
+                    InspectionGraphEndpointRole.Source),
             ],
             InspectionGraphEndpointProjection.Exact,
             CallOccurrenceIdentity,
-            [CallSiteEvidence, LogicalEdgeEvidence]);
+            [CallSiteEvidence, CensusCallSiteEvidence, LogicalEdgeEvidence]);
 
     public static InspectionGraphCharacteristicDescriptor
         OccurrenceCallKind
@@ -196,6 +206,8 @@ public static class CallGraphInspectionGraphCatalog
             {
                 CallGraphCallSiteEvidence callSite =>
                     callSite.Identity,
+                CallGraphCensusCallSiteEvidence censusCallSite =>
+                    censusCallSite.Identity,
                 CallGraphLogicalEdgeEvidence =>
                     (
                         occurrence.SourceSubject,
@@ -205,6 +217,19 @@ public static class CallGraphInspectionGraphCatalog
                     nameof(occurrence)),
             };
     }
+}
+
+/// <summary>
+/// Typed evidence for one generation-bound physical call-census occurrence.
+/// </summary>
+public sealed record CallGraphCensusCallSiteEvidence(
+    CatalogCallCensusOccurrenceOrderingKey Identity,
+    DirectCall Call,
+    GraphNodeEvidence CallSite)
+    : IInspectionGraphOccurrenceEvidence
+{
+    public InspectionGraphEvidenceDescriptor Descriptor =>
+        CallGraphInspectionGraphCatalog.CensusCallSiteEvidence;
 }
 
 /// <summary>
