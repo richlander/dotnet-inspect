@@ -135,8 +135,9 @@ small, and the order is what Exists needs.
 **Policy.** A cursor is created under one named policy that its consumer
 composes from the kind owner's mechanics, as Fast Diff composes the Body
 policy from IL diff canonicalization's, and its atoms' bytes and projected
-keys follow that policy. The Body axis reads IL under the Body policy, which compares every
-operand by name and signature without its assembly, so an IL operand's
+keys follow that policy. The Body axis reads IL under the Body policy,
+which compares every operand by name and signature without its assembly, so
+an IL operand's
 `SymbolKey` under it carries no assembly identity, as Fast Diff's Identity
 states; IL diff canonicalization's default policy, no normalization, keeps
 the assembly, and a view under it reads a dependency-version bump as a
@@ -192,8 +193,9 @@ A fault is an event in the sequence, not an exception that escapes it, so a
 reader can order it against the atoms it saw. The cursor's `Failed` terminal
 carries the stage it failed at, identity or reading, and its position, which
 is what the Exists table reads; draining lowers both into the
-`InspectionError`'s reason, which no decision reads. Nothing is inferred from a null
-body or an empty blob; the cursor's owner supplies the typed kind.
+`InspectionError`'s reason, which no decision reads. Nothing is inferred
+from a null body or an empty blob; the cursor's owner supplies the typed
+kind.
 
 ## Exists
 
@@ -305,8 +307,9 @@ The IL kind's fold includes target validation over the match: after the
 ordered matcher aligns operations by their projected keys, each matched
 branch or switch is `Present` only when its targets' indexes map to each
 other under the alignment, and otherwise is `Changed`, keeping any move
-difference, which is `IlFindings.Compare` today and is why a retargeted branch is a
-difference while a branch over an insertion is not. That step is pair
+difference, which is `IlFindings.Compare` today and is why a retargeted
+branch is a difference while a branch over an insertion is not. That step is
+pair
 dependent, and it runs over census atoms, so it is Exhaustive's. A native
 algorithm that is not over census atoms, such as `IlBodyDiff`'s hunk and
 row production, may run beside the census comparison when both sides are
