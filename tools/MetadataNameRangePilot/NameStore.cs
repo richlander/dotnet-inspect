@@ -14,6 +14,8 @@ internal enum NameStrategy
     PopulationOpaqueBytes,
     PopulationSlotMeasured,
     PopulationSlotBytes,
+    PopulationContainedUtf8Measured,
+    PopulationContainedUtf8Bytes,
 }
 
 internal readonly record struct DisplayedName(
@@ -30,11 +32,13 @@ internal abstract class NameStore
 
     internal abstract int CountMatches(
         ReadOnlySpan<byte> query,
-        InertString containedQuery);
+        InertString containedQuery,
+        InertUtf8String containedUtf8Query);
 
     internal abstract DisplayedName[] SelectAndProject(
         ReadOnlySpan<byte> query,
         InertString containedQuery,
+        InertUtf8String containedUtf8Query,
         int expectedMatches);
 
     internal abstract DisplayedName[] ProjectAll();
@@ -72,6 +76,16 @@ internal abstract class NameStore
                     measureContainedLength: true),
             NameStrategy.PopulationSlotBytes =>
                 PopulationSlotStore.Build(
+                    asset,
+                    copies,
+                    measureContainedLength: false),
+            NameStrategy.PopulationContainedUtf8Measured =>
+                PopulationContainedUtf8Store.Build(
+                    asset,
+                    copies,
+                    measureContainedLength: true),
+            NameStrategy.PopulationContainedUtf8Bytes =>
+                PopulationContainedUtf8Store.Build(
                     asset,
                     copies,
                     measureContainedLength: false),
@@ -133,7 +147,8 @@ internal sealed class EagerNameStore(
 
     internal override int CountMatches(
         ReadOnlySpan<byte> query,
-        InertString containedQuery)
+        InertString containedQuery,
+        InertUtf8String containedUtf8Query)
     {
         int matches = 0;
         foreach (EagerName name in _names)
@@ -147,6 +162,7 @@ internal sealed class EagerNameStore(
     internal override DisplayedName[] SelectAndProject(
         ReadOnlySpan<byte> query,
         InertString containedQuery,
+        InertUtf8String containedUtf8Query,
         int expectedMatches)
     {
         var result = new List<DisplayedName>(expectedMatches);
@@ -227,7 +243,8 @@ internal abstract class OpaqueNameStore(
 
     internal override int CountMatches(
         ReadOnlySpan<byte> query,
-        InertString containedQuery)
+        InertString containedQuery,
+        InertUtf8String containedUtf8Query)
     {
         int matches = 0;
         foreach (OpaqueName name in _names)
@@ -241,6 +258,7 @@ internal abstract class OpaqueNameStore(
     internal override DisplayedName[] SelectAndProject(
         ReadOnlySpan<byte> query,
         InertString containedQuery,
+        InertUtf8String containedUtf8Query,
         int expectedMatches)
     {
         var result = new List<DisplayedName>(expectedMatches);
@@ -425,7 +443,8 @@ internal sealed class PopulationSlotStore(
 
     internal override int CountMatches(
         ReadOnlySpan<byte> query,
-        InertString containedQuery)
+        InertString containedQuery,
+        InertUtf8String containedUtf8Query)
     {
         int matches = 0;
         foreach (OpaqueByteRangeSlot slot in _slots)
@@ -443,6 +462,7 @@ internal sealed class PopulationSlotStore(
     internal override DisplayedName[] SelectAndProject(
         ReadOnlySpan<byte> query,
         InertString containedQuery,
+        InertUtf8String containedUtf8Query,
         int expectedMatches)
     {
         var result = new List<DisplayedName>(expectedMatches);
@@ -493,6 +513,128 @@ internal sealed class PopulationSlotStore(
                     _population.Slice(slot)))
             .WriteTo(output);
         }
+        return output;
+    }
+}
+
+internal readonly record struct ContainedUtf8Name(
+    NameRole Role,
+    InertUtf8String Value);
+
+internal sealed class PopulationContainedUtf8Store(
+    ContainedUtf8Name[] names,
+    long sourceBytes,
+    long budget) : NameStore
+{
+    readonly ContainedUtf8Name[] _names = names;
+
+    internal override int Count => _names.Length;
+
+    internal override long SourceBytes => sourceBytes;
+
+    internal override long Budget => budget;
+
+    internal static PopulationContainedUtf8Store Build(
+        NameAsset asset,
+        int copies,
+        bool measureContainedLength)
+    {
+        int count = checked(asset.NameCount * copies);
+        int byteCount = checked(asset.Utf8Bytes * copies);
+        var roles = new NameRole[count];
+        var slots = new OpaqueByteRangeSlot[count];
+        var builder = new OpaqueByteRangeBuilder(byteCount);
+        int index = 0;
+        for (int copy = 0; copy < copies; copy++)
+        {
+            foreach (NameEntry entry in asset.Entries)
+            {
+                roles[index] = entry.Role;
+                slots[index] = asset.Append(
+                    builder,
+                    entry.Handle);
+                index++;
+            }
+        }
+
+        OpaqueByteRange population = builder.Freeze();
+        var names = new ContainedUtf8Name[count];
+        long budget = 0;
+        for (index = 0; index < names.Length; index++)
+        {
+            Utf8RangeReader reader =
+                Utf8RangeClassification.Read(
+                    population.Slice(slots[index]));
+            if (measureContainedLength)
+            {
+                budget = checked(
+                    budget
+                    + Utf8VisualEncoder.MeasureInertStringLength(
+                        TextPolicy.Field,
+                        reader));
+            }
+            var value = new InertUtf8String(
+                TextPolicy.Field,
+                reader);
+            if (!measureContainedLength)
+                budget = checked(budget + value.Length);
+            names[index] = new(roles[index], value);
+        }
+        return new(names, byteCount, budget);
+    }
+
+    internal override int CountMatches(
+        ReadOnlySpan<byte> query,
+        InertString containedQuery,
+        InertUtf8String containedUtf8Query)
+    {
+        int matches = 0;
+        foreach (ContainedUtf8Name name in _names)
+        {
+            if (name.Value == containedUtf8Query)
+                matches++;
+        }
+        return matches;
+    }
+
+    internal override DisplayedName[] SelectAndProject(
+        ReadOnlySpan<byte> query,
+        InertString containedQuery,
+        InertUtf8String containedUtf8Query,
+        int expectedMatches)
+    {
+        var result = new List<DisplayedName>(expectedMatches);
+        foreach (ContainedUtf8Name name in _names)
+        {
+            if (name.Value == containedUtf8Query)
+            {
+                result.Add(new(
+                    name.Role,
+                    name.Value.ToInertString()));
+            }
+        }
+        return [.. result];
+    }
+
+    internal override DisplayedName[] ProjectAll()
+    {
+        var result = new DisplayedName[_names.Length];
+        for (int index = 0; index < result.Length; index++)
+        {
+            ContainedUtf8Name name = _names[index];
+            result[index] = new(
+                name.Role,
+                name.Value.ToInertString());
+        }
+        return result;
+    }
+
+    internal override ArrayBufferWriter<byte> WriteAllUtf8()
+    {
+        ArrayBufferWriter<byte> output =
+            CreateUtf8Output(SourceBytes);
+        foreach (ContainedUtf8Name name in _names)
+            name.Value.WriteTo(output);
         return output;
     }
 }

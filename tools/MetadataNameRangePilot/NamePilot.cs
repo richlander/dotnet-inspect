@@ -19,12 +19,15 @@ internal sealed class PilotPayload(
     NameStore store,
     byte[] query,
     InertString containedQuery,
+    InertUtf8String containedUtf8Query,
     int expectedMatches,
     PilotScenario scenario)
 {
     readonly NameStore _store = store;
     readonly byte[] _query = query;
     readonly InertString _containedQuery = containedQuery;
+    readonly InertUtf8String _containedUtf8Query =
+        containedUtf8Query;
     readonly int _expectedMatches = expectedMatches;
     readonly PilotScenario _scenario = scenario;
     DisplayedName[]? _display;
@@ -40,12 +43,14 @@ internal sealed class PilotPayload(
             PilotScenario.MatchOnly =>
                 _store.CountMatches(
                     _query,
-                    _containedQuery),
+                    _containedQuery,
+                    _containedUtf8Query),
             PilotScenario.SparseDisplay =>
                 HashDisplay(
                     _display = _store.SelectAndProject(
                         _query,
                         _containedQuery,
+                        _containedUtf8Query,
                         _expectedMatches)),
             PilotScenario.DisplayAll =>
                 HashDisplay(
@@ -343,6 +348,7 @@ internal static class NamePilot
                 copies),
             asset.QueryBytes,
             asset.ContainedQuery,
+            asset.ContainedUtf8Query,
             checked(asset.QueryMatches * copies),
             cell.Scenario);
 

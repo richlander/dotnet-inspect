@@ -36,6 +36,7 @@ internal sealed class NameAsset : IDisposable
     readonly Utf8Heap _names;
     readonly byte[] _query;
     readonly InertString _containedQuery;
+    readonly InertUtf8String _containedUtf8Query;
 
     NameAsset(
         string path,
@@ -89,6 +90,10 @@ internal sealed class NameAsset : IDisposable
         _containedQuery = new(
             TextPolicy.Field,
             reader.GetString(queryHandle));
+        _containedUtf8Query = new(
+            TextPolicy.Field,
+            Utf8RangeClassification.Read(
+                OpaqueByteRange.Copy(_query)));
     }
 
     internal string Name { get; }
@@ -108,6 +113,9 @@ internal sealed class NameAsset : IDisposable
     internal byte[] QueryBytes => _query;
 
     internal InertString ContainedQuery => _containedQuery;
+
+    internal InertUtf8String ContainedUtf8Query =>
+        _containedUtf8Query;
 
     internal string ReadString(StringHandle handle) =>
         _reader.GetString(handle);
@@ -322,7 +330,10 @@ internal sealed class NameAsset : IDisposable
                 throw new InvalidOperationException(
                     $"{strategy} UTF-8 output disagrees with eager containment.");
             }
-            if (actual.CountMatches(Query, ContainedQuery)
+            if (actual.CountMatches(
+                    Query,
+                    ContainedQuery,
+                    ContainedUtf8Query)
                 != QueryMatches)
             {
                 throw new InvalidOperationException(

@@ -16,6 +16,8 @@ the migration tracked by
 | `PopulationOpaqueBytes` | One immutable backing with one range per Name | Exact stored byte count only |
 | `PopulationSlotMeasured` | One immutable backing with one population-local slot per Name | The same UTF-8 contained-length scan |
 | `PopulationSlotBytes` | One immutable backing with one population-local slot per Name | Exact stored byte count only |
+| `PopulationContainedUtf8Measured` | One immutable backing with one retained `InertUtf8String` per Name | Contain the bytes and separately measure the contained UTF-16 length |
+| `PopulationContainedUtf8Bytes` | One immutable backing with one retained `InertUtf8String` per Name | Contain the bytes and charge the contained UTF-8 byte count |
 
 The eager baseline deliberately constructs `InertString` twice over the same
 decoded string. For ordinary names, both constructions retain that original
