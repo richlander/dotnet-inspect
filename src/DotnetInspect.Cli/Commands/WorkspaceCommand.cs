@@ -29,6 +29,11 @@ public static partial class WorkspaceCommand
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
+        if (OptionError(options) is { } optionError)
+        {
+            CommandError.Write(optionError);
+            return 1;
+        }
         WorkspaceContextLoadOptions loadOptions = CreateLoadOptions(options);
         NuGetSourceOptions runtimeSourceOptions = options.SourceOptions;
         if (options.Packet is not null && options.PackageSources.Length != 0)
@@ -40,7 +45,7 @@ public static partial class WorkspaceCommand
         }
 
         bool realizesWorkspace =
-            options.ShareFormat is null
+            options.Inventory
             || options.MakePackageDependenciesExplicit
             || options.UpdatePackage is not null;
         IReadOnlyList<WorkspacePackageSourceDefinition> packageSources =
@@ -146,8 +151,7 @@ public static partial class WorkspaceCommand
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (options.RootRequest is null
-            && options.UpdatePackage is null)
+        if (options.UpdatePackage is null)
         {
             return await ExecuteCoreAsync(
                 options,
@@ -192,19 +196,6 @@ public static partial class WorkspaceCommand
     internal static Task<int> ExecuteAsync(
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
-        PackageRootHouseExecution rootHouse,
-        CancellationToken cancellationToken = default) =>
-        ExecuteCoreAsync(
-            options,
-            loadOptions,
-            rootHouse,
-            manifestProvider: null,
-            candidateSource: null,
-            cancellationToken);
-
-    internal static Task<int> ExecuteAsync(
-        WorkspaceOptions options,
-        WorkspaceContextLoadOptions loadOptions,
         IWorkspacePackageDependencyManifestProvider manifestProvider,
         IPackageDependencyCandidateSource candidateSource,
         CancellationToken cancellationToken = default) =>
@@ -226,7 +217,7 @@ public static partial class WorkspaceCommand
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(loadOptions);
-        if (NavigationOptionError(options) is { } optionError)
+        if (OptionError(options) is { } optionError)
         {
             CommandError.Write(optionError);
             return 1;
@@ -246,8 +237,10 @@ public static partial class WorkspaceCommand
                 cancellationToken).ConfigureAwait(false);
         }
 
-        if (options.ShareFormat is { } definitionFormat)
+        if (!options.Inventory)
         {
+            WorkspaceShareFormat definitionFormat =
+                options.ShareFormat ?? WorkspaceShareFormat.Packet;
             if (options.MakePackageDependenciesExplicit)
             {
                 if (candidateSource is null)
@@ -318,7 +311,6 @@ public static partial class WorkspaceCommand
                 directMembers,
                 options,
                 loadOptions,
-                rootHouse,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception failure)
@@ -359,7 +351,6 @@ public static partial class WorkspaceCommand
         IReadOnlyList<WorkspaceMemberCoordinate> directMembers,
         WorkspaceOptions options,
         WorkspaceContextLoadOptions loadOptions,
-        PackageRootHouseExecution? rootHouse,
         CancellationToken cancellationToken)
     {
         WorkspaceScopeReadResult read =
@@ -375,24 +366,7 @@ public static partial class WorkspaceCommand
         WorkspaceScopeSnapshot snapshot =
             ((WorkspaceScopeReadResult.Available)read).Snapshot;
         IReadOnlyList<PackageRootBinding> committedBindings = [];
-        if (options.RootRequest is not null)
-        {
-            if (rootHouse is null)
-            {
-                throw new InvalidOperationException(
-                    "--root-request requires package Root House execution.");
-            }
-            PackageRootBinding? root =
-                await PackageRootRequestAdmission.AcquireAsync(
-                    options.RootRequest!,
-                    loadOptions,
-                    rootHouse,
-                    cancellationToken).ConfigureAwait(false);
-            if (root is null)
-                return 1;
-            committedBindings = [root];
-        }
-        else if (directMembers.Count != 0)
+        if (directMembers.Count != 0)
         {
             var packageBindings =
                 new List<PackageRootBinding>(directMembers.Count);
@@ -454,22 +428,6 @@ public static partial class WorkspaceCommand
                 request,
                 cancellationToken).ConfigureAwait(false);
 
-        if (options.ActivePackage is not null
-            || options.ActiveEcosystem is not null)
-        {
-            WorkspaceNavigationCommandResult? result =
-                await EvaluateNavigationAsync(
-                    workspace,
-                    inventory,
-                    committedBindings,
-                    options,
-                    cancellationToken).ConfigureAwait(false);
-            if (result is null)
-                return 1;
-            Write(result, options);
-            return result.IsSuccess ? 0 : 1;
-        }
-
         return WriteInventory(inventory, options);
     }
 
@@ -505,11 +463,15 @@ public static partial class WorkspaceCommand
                 return 1;
             }
 
-            return WorkspaceShareOutput.Write(
-                projection.Packet
-                    ?? throw new InvalidOperationException(
-                        "A successful Workspace definition projection requires a packet."),
-                format);
+            WorkspaceSharePacket packet = projection.Packet
+                ?? throw new InvalidOperationException(
+                    "A successful Workspace definition projection requires a packet.");
+            if (options.Format == OutputFormat.Json)
+            {
+                Console.WriteLine(WorkspaceSharePacketCodec.SerializeJson(packet));
+                return 0;
+            }
+            return WorkspaceShareOutput.Write(packet, format);
         }
         catch (Exception ex) when (ex is
             WorkspaceSharePacketException
@@ -668,7 +630,7 @@ public static partial class WorkspaceCommand
         if (directMembers.Length == 0 && registrations.IsEmpty)
         {
             CommandError.Write(
-                "--share requires at least one --package or --register-* input.");
+                "Workspace authoring requires --packet or at least one --package or --register-* input.");
             definitions = null!;
             return false;
         }
@@ -1056,429 +1018,6 @@ public static partial class WorkspaceCommand
         return null;
     }
 
-    static async Task<WorkspaceNavigationCommandResult?>
-        EvaluateNavigationAsync(
-        InspectionWorkspace workspace,
-        WorkspaceTopLevelInventoryExecution inventory,
-        IReadOnlyList<PackageRootBinding> bindings,
-        WorkspaceOptions options,
-        CancellationToken cancellationToken)
-    {
-        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
-        ViewFacetAvailabilitySnapshot executableEntries =
-            CurrentCatalogEntriesExecutable(registry);
-        NavigationFacetAvailabilityProvider availability =
-            (_, _) => executableEntries;
-        if (inventory.Inspection.Content
-            is not WorkspaceTopLevelInventoryOutcome.Available available)
-        {
-            WriteInventoryFailure(inventory.Inspection);
-            return null;
-        }
-
-        if (options.ActiveEcosystem is { } requestedEcosystem)
-        {
-            EcosystemPackId id;
-            try
-            {
-                id = ParseEcosystemPackId(requestedEcosystem);
-            }
-            catch (ArgumentException ex)
-            {
-                CommandError.Write(ex.Message);
-                return null;
-            }
-
-            WorkspaceTopLevelEcosystemEntry? ecosystemEntry =
-                available.Document.Entries
-                    .OfType<WorkspaceTopLevelEcosystemEntry>()
-                    .SingleOrDefault(candidate =>
-                        candidate.Id.Equals(
-                            id.Value,
-                            StringComparison.Ordinal));
-            if (ecosystemEntry is null)
-            {
-                CommandError.Write(
-                    $"--active-ecosystem {id.Value} is not registered in the Workspace.");
-                return null;
-            }
-
-            WorkspaceTopLevelInventorySelectionResolution ecosystemResolution =
-                await inventory.Selection.ResolveAsync(
-                    workspace,
-                    ecosystemEntry.Key,
-                    cancellationToken).ConfigureAwait(false);
-            if (ecosystemResolution
-                is not WorkspaceTopLevelInventorySelectionResolution.Selected
-                {
-                    Selection:
-                        WorkspaceTopLevelInventorySelection.Ecosystem
-                            selectedEcosystemOccurrence,
-                } selectedEcosystem)
-            {
-                CommandError.Write(
-                    $"Ecosystem '{id.Value}' could not be selected from the Workspace inventory receipt.",
-                    [
-                        ecosystemResolution switch
-                        {
-                            WorkspaceTopLevelInventorySelectionResolution
-                                .Stale =>
-                                "The inventory receipt is stale for the active Workspace definition.",
-                            WorkspaceTopLevelInventorySelectionResolution
-                                .Absent =>
-                                "The inventory receipt does not contain the requested Ecosystem.",
-                            _ =>
-                                "The inventory receipt returned an unsupported selection.",
-                        },
-                    ]);
-                return null;
-            }
-            if (!selectedEcosystemOccurrence.Id.Value.Equals(
-                    ecosystemEntry.Id,
-                    StringComparison.Ordinal))
-            {
-                CommandError.Write(
-                    "The Workspace inventory receipt did not retain the exact Ecosystem occurrence.");
-                return null;
-            }
-
-            NavigationWorkspaceSnapshot ecosystem =
-                NavigationWorkspaceSnapshotEvaluation.Evaluate(
-                    new NavigationWorkspaceSnapshotRequest
-                    {
-                        Scope = selectedEcosystem.Scope,
-                        Ecosystem = new NavigationEcosystemEvaluation(
-                            selectedEcosystemOccurrence),
-                    },
-                    registry,
-                    availability);
-            return new(
-                ecosystem,
-                Descendant: null,
-                Selector: null);
-        }
-
-        int requestedOrder = options.ActivePackage!.Value;
-        WorkspaceTopLevelPackageEntry? entry =
-            available.Document.Entries
-                .OfType<WorkspaceTopLevelPackageEntry>()
-                .SingleOrDefault(candidate =>
-                    candidate.SourceOrder == requestedOrder);
-        if (entry is null)
-        {
-            int packageCount = available.Document.Entries.Count(
-                static candidate =>
-                    candidate.Kind
-                        == WorkspaceTopLevelInventoryEntryKind.Package);
-            CommandError.Write(
-                $"--active-package {requestedOrder} is outside the committed occurrence range 1..{packageCount}.");
-            return null;
-        }
-
-        WorkspaceTopLevelInventorySelectionResolution resolution =
-            await inventory.Selection.ResolveAsync(
-                workspace,
-                entry.Key,
-                cancellationToken).ConfigureAwait(false);
-        if (resolution
-            is not WorkspaceTopLevelInventorySelectionResolution.Selected
-            {
-                Selection: WorkspaceTopLevelInventorySelection.Package selected,
-            } selectedResolution)
-        {
-            CommandError.Write(
-                $"Package occurrence {requestedOrder} could not be selected from the Workspace inventory receipt.",
-                [
-                    resolution switch
-                    {
-                        WorkspaceTopLevelInventorySelectionResolution.Stale =>
-                            "The inventory receipt is stale for the active Workspace definition.",
-                        WorkspaceTopLevelInventorySelectionResolution.Absent =>
-                            "The inventory receipt does not contain the requested Package.",
-                        _ => "The inventory receipt returned an unsupported selection.",
-                    },
-                ]);
-            return null;
-        }
-
-        WorkspaceScopeSnapshot scope = selectedResolution.Scope;
-        int index = selected.SourceIndex;
-        if (index < 0
-            || index >= scope.Packages.Length
-            || !ReferenceEquals(
-                selected.Occurrence,
-                scope.Packages[index].Occurrence.Identity))
-        {
-            CommandError.Write(
-                "The Workspace inventory receipt did not retain the exact Package occurrence.");
-            return null;
-        }
-        if (bindings.Count != scope.Packages.Length)
-        {
-            CommandError.Write(
-                "The CLI could not retain an exact Package binding for every committed occurrence.");
-            return null;
-        }
-
-        WorkspacePackageOccurrenceDescriptor occurrence =
-            scope.Packages[index];
-        if (occurrence.Realization.Status
-                is not ArtifactRootRealizationStatus.Ready ready)
-        {
-            CommandError.Write(
-                $"Package occurrence {options.ActivePackage.Value} is not ready.",
-                [
-                    occurrence.Realization.Status switch
-                    {
-                        ArtifactRootRealizationStatus.Pending =>
-                            "The exact occurrence is still pending.",
-                        ArtifactRootRealizationStatus.Failed failed =>
-                            $"Artifact realization failed: {failed.Failure}.",
-                        _ => "The exact occurrence has an unsupported realization state.",
-                    },
-                ]);
-            return null;
-        }
-
-        PackageRootBinding binding = bindings[index];
-        ArtifactRootResult<NavigationPackageEvaluation> query =
-            await workspace.ExecutePackageRootQueryAsync(
-                (PackageArtifactRootCorrespondence)
-                    occurrence.Occurrence.Correspondence,
-                ready.Generation,
-                (realization, token) =>
-                    ValueTask.FromResult(
-                        NavigationPackageEvaluationFactory.Create(
-                            occurrence,
-                            binding,
-                            realization,
-                            token)),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (query is ArtifactRootResult<NavigationPackageEvaluation>.Rejected
-            rejected)
-        {
-            CommandError.Write(
-                "The active Package occurrence could not be evaluated.",
-                [$"Artifact Root query rejected: {rejected.Failure}."]);
-            return null;
-        }
-
-        NavigationPackageEvaluation package =
-            ((ArtifactRootResult<NavigationPackageEvaluation>.Available)query)
-                .Value;
-        NavigationWorkspaceSnapshot initial =
-            NavigationWorkspaceSnapshotEvaluation.Evaluate(
-                new NavigationWorkspaceSnapshotRequest
-                {
-                    Scope = scope,
-                    Package = package,
-                },
-                registry,
-                availability);
-        return SelectDestination(
-            initial,
-            package,
-            options,
-            registry,
-            availability);
-    }
-
-    static WorkspaceNavigationCommandResult? SelectDestination(
-        NavigationWorkspaceSnapshot initial,
-        NavigationPackageEvaluation package,
-        WorkspaceOptions options,
-        ViewFacetRegistry registry,
-        NavigationFacetAvailabilityProvider availability)
-    {
-        if (options.Library is null
-            && !options.AllLibraries
-            && options.Type is null)
-        {
-            return new(
-                initial,
-                Descendant: null,
-                Selector: null);
-        }
-
-        NavigationSnapshotSelectorResolution? sourceSelection = null;
-        StructuralSubjectIdentity sourceLibrary;
-        if (options.AllLibraries)
-        {
-            sourceSelection =
-                NavigationSnapshotSelector.ResolveAllLibraries(initial);
-            if (sourceSelection
-                is not NavigationSnapshotSelectorResolution.Selected all)
-            {
-                return FailedSelection(sourceSelection);
-            }
-            sourceLibrary = all.Subject;
-        }
-        else if (options.Library is not null)
-        {
-            sourceSelection = NavigationSnapshotSelector.ResolveLibrary(
-                initial,
-                WorkspaceNavigationPortableSelector.Decode(
-                    options.Library));
-            if (sourceSelection
-                is not NavigationSnapshotSelectorResolution.Selected one)
-            {
-                return FailedSelection(sourceSelection);
-            }
-            sourceLibrary = one.Subject;
-        }
-        else
-        {
-            sourceLibrary = initial.ActiveSubject;
-            if (sourceLibrary is not StructuralSubjectIdentity.LibrarySubject)
-            {
-                NavigationSnapshotSelectorResolution unavailable =
-                    NavigationSnapshotSelector.ResolveAllLibraries(initial);
-                return FailedSelection(unavailable);
-            }
-        }
-
-        NavigationWorkspaceSnapshot source =
-            NavigationWorkspaceSnapshotEvaluation.Evaluate(
-                new NavigationWorkspaceSnapshotRequest
-                {
-                    Scope = initial.Scope,
-                    Package = package,
-                    ActiveSubject = sourceLibrary,
-                },
-                registry,
-                availability);
-        if (options.Type is null)
-        {
-            return new(
-                source,
-                Descendant: null,
-                sourceSelection);
-        }
-
-        NavigationSnapshotSelectorResolution librarySelection =
-            NavigationSnapshotSelector.ResolveLibrary(
-                source,
-                WorkspaceNavigationPortableSelector.Decode(
-                    options.Library
-                        ?? throw new InvalidOperationException(
-                            "An exact Type destination requires a defining Library selector.")));
-        if (librarySelection
-            is not NavigationSnapshotSelectorResolution.Selected
-            {
-                Subject:
-                    StructuralSubjectIdentity.LibrarySubject definingLibrary,
-            })
-        {
-            return FailedSelection(librarySelection);
-        }
-        NavigationSnapshotSelectorResolution typeSelection =
-            NavigationSnapshotSelector.ResolveType(
-                source,
-                definingLibrary,
-                WorkspaceNavigationPortableSelector.Decode(options.Type));
-        if (typeSelection
-            is not NavigationSnapshotSelectorResolution.Selected
-            {
-                Subject: StructuralSubjectIdentity.TypeSubject typeSubject,
-            })
-        {
-            return FailedSelection(typeSelection);
-        }
-        NavigationTypeDescriptor type = source.Types.Single(
-            candidate => candidate.Row.Subject == typeSubject);
-
-        if (options.Member is null)
-        {
-            return Descendant(
-                source,
-                type.Row.Subject,
-                options.Lens!,
-                registry,
-                availability,
-                typeSelection);
-        }
-
-        NavigationWorkspaceSnapshot typeSource =
-            NavigationWorkspaceSnapshotEvaluation.Evaluate(
-                new NavigationWorkspaceSnapshotRequest
-                {
-                    Scope = initial.Scope,
-                    Package = package,
-                    ActiveSubject = type.Row.Subject,
-                },
-                registry,
-                availability);
-        NavigationTypeInventoryRow selectedType =
-            typeSource.Types.Single(
-                candidate => candidate.Row.Subject == type.Row.Subject).Row;
-        NavigationSnapshotSelectorResolution memberSelection =
-            NavigationSnapshotSelector.ResolveMember(
-                typeSource,
-                selectedType,
-                WorkspaceNavigationPortableSelector.Decode(options.Member));
-        if (memberSelection
-            is not NavigationSnapshotSelectorResolution.Selected
-            {
-                Subject: StructuralSubjectIdentity.MemberSubject member,
-            })
-        {
-            return FailedSelection(memberSelection);
-        }
-        return Descendant(
-            typeSource,
-            member,
-            options.Lens!,
-            registry,
-            availability,
-            memberSelection);
-
-        static WorkspaceNavigationCommandResult FailedSelection(
-            NavigationSnapshotSelectorResolution resolution) =>
-            new(
-                resolution.Snapshot,
-                Descendant: null,
-                resolution);
-    }
-
-    static WorkspaceNavigationCommandResult Descendant(
-        NavigationWorkspaceSnapshot source,
-        StructuralSubjectIdentity destination,
-        string facet,
-        ViewFacetRegistry registry,
-        NavigationFacetAvailabilityProvider availability,
-        NavigationSnapshotSelectorResolution selector)
-    {
-        ViewFacetId facetId;
-        try
-        {
-            facetId = facet.StartsWith(".", StringComparison.Ordinal)
-                ? registry.ResolveRelativeName(
-                    destination.Kind,
-                    facet[1..])
-                : new ViewFacetId(facet);
-        }
-        catch (ArgumentException ex)
-        {
-            return new(
-                source,
-                Descendant: null,
-                NavigationSnapshotSelector.Invalid(
-                    source,
-                    ex.Message));
-        }
-
-        var request = new DescendantSubjectLensRequest(
-            source.ActiveSubject,
-            new NavigationLensIdentity(destination, facetId));
-        NavigationDescendantLensResult result =
-            NavigationDescendantLensEvaluation.Evaluate(
-                source,
-                request,
-                registry,
-                availability);
-        return new(result.Snapshot, result, selector);
-    }
-
     /// <summary>
     /// The current active catalog entries execute on demand once Navigation
     /// has admitted an exact subject. Query and result non-success remains
@@ -1491,30 +1030,6 @@ public static partial class WorkspaceCommand
                 new ViewFacetAvailabilityFact(
                     descriptor.Id,
                     ViewFacetAvailability.Available.Instance)));
-
-    internal static void Write(
-        WorkspaceNavigationCommandResult result,
-        WorkspaceOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(result);
-        ArgumentNullException.ThrowIfNull(options);
-
-        IReadOnlyList<NavigationPackageDescriptor> occurrences =
-            RowWindow.Apply(
-                options.Rows,
-                result.Snapshot.Packages);
-        if (options.Count)
-        {
-            CountOutput.WriteCount(occurrences.Count);
-            return;
-        }
-
-        WriteNavigation(
-            WorkspaceNavigationProjection.Create(
-                result,
-                occurrences),
-            options);
-    }
 
     static int WriteInventory(
         WorkspaceTopLevelInventoryExecution execution,
@@ -1735,47 +1250,6 @@ public static partial class WorkspaceCommand
             ]);
     }
 
-    static void WriteNavigation(
-        WorkspaceNavigationView view,
-        WorkspaceOptions options)
-    {
-        switch (options.Format)
-        {
-            case OutputFormat.Json:
-                Console.WriteLine(
-                    JsonSerializer.Serialize(
-                        view,
-                        WorkspaceCommandJsonContext.Default
-                            .WorkspaceNavigationView));
-                break;
-            case OutputFormat.Table:
-            case OutputFormat.Tsv:
-            case OutputFormat.Jsonl:
-                MarkoutSerializer.Serialize(
-                    WorkspaceNavigationProjection.CreateStream(view),
-                    Console.Out,
-                    new TableFormatter(!options.NoHeader),
-                    WorkspaceNavigationViewContext.Default,
-                    OutputFormatter.CreateTableWriterOptions(
-                        tsv: options.Format == OutputFormat.Tsv,
-                        jsonl: options.Format == OutputFormat.Jsonl));
-                break;
-            case OutputFormat.PlainText:
-                MarkoutSerializer.Serialize(
-                    view,
-                    Console.Out,
-                    new PlainTextFormatter(),
-                    WorkspaceNavigationViewContext.Default);
-                break;
-            default:
-                MarkoutSerializer.Serialize(
-                    view,
-                    Console.Out,
-                    WorkspaceNavigationViewContext.Default);
-                break;
-        }
-    }
-
     static bool HasExplicitSourceOptions(NuGetSourceOptions options) =>
         options.Sources.Length != 0
         || options.AdditionalSources.Length != 0
@@ -1798,155 +1272,42 @@ public static partial class WorkspaceCommand
                 : null,
         };
 
-    static string? NavigationOptionError(WorkspaceOptions options)
+    static string? OptionError(WorkspaceOptions options)
     {
         if (options.UpdatePackage is not null
             || options.ReplacementVersion is not null
             || options.ReplacementTfm is not null)
-        {
             return ReplacementOptionError(options);
-        }
         if (options.EnvelopeOutput)
-            return "--envelope is available on 'workspace package update' "
-                + "with --json.";
-
-        if (options.RootRequest is not null
-            && (options.Packages.Length != 0 || options.Tfm is not null))
-        {
-            return "--root-request opens the exact Root its token names and "
-                + "cannot be combined with --package or --tfm.";
-        }
-
-        bool hasDirectConstruction =
-            options.Packages.Length != 0
-            || options.Tfm is not null
-            || options.RootRequest is not null
-            || options.OrderedRegistrations.Length != 0
+            return "--envelope is available on 'workspace package update' with --json.";
+        bool hasConstruction = options.Packages.Length != 0
+            || options.Tfm is not null || options.OrderedRegistrations.Length != 0
             || options.RegisteredLibraries.Length != 0
             || options.RegisteredPackagePrefixes.Length != 0
             || options.RegisteredEcosystems.Length != 0;
-        if (options.Packet is not null && hasDirectConstruction)
+        if (options.Packet is not null && hasConstruction)
+            return "--packet cannot be combined with --package, --tfm, or --register-* construction options.";
+        if (options.MakePackageDependenciesExplicit && options.ShareFormat is null)
+            return "--make-package-dependencies-explicit requires --share packet or --share url.";
+        if (options.Inventory)
         {
-            return "--packet cannot be combined with --package, --tfm, "
-                + "--root-request, or --register-* construction options.";
+            if (options.ShareFormat is not null || options.MakePackageDependenciesExplicit)
+                return "--inventory observes live Workspace content and cannot be combined with portable definition output or dependency enrichment.";
+            return null;
         }
-        if (options.ActivePackage is <= 0)
-        {
-            return "--active-package must be a one-based positive occurrence order.";
-        }
-        if (options.ActivePackage is not null
-            && options.ActiveEcosystem is not null)
-        {
-            return "--active-package and --active-ecosystem select different structural subjects and cannot be combined.";
-        }
-        bool hasNavigationSelector =
-            options.Library is not null
-            || options.AllLibraries
-            || options.Type is not null
-            || options.Member is not null
-            || options.Lens is not null;
-        if (options.MakePackageDependenciesExplicit
-            && options.ShareFormat is null)
-        {
-            return "--make-package-dependencies-explicit requires --share "
-                + "packet or --share url.";
-        }
-        if (options.ShareFormat is not null
-            && options.RootRequest is not null)
-        {
-            return "--root-request opens a live Package Root and cannot be "
-                + "combined with portable Workspace definition output.";
-        }
-        if (options.ShareFormat is not null
-            && (options.ActivePackage is not null
-                || options.ActiveEcosystem is not null
-                || hasNavigationSelector))
-        {
-            return "--share emits a portable Workspace definition and cannot "
-                + "be combined with Navigation options.";
-        }
-        if (options.ShareFormat is not null
-            && options.InventoryKinds.Length != 0)
-        {
-            return "--share emits the complete portable Workspace definition "
-                + "and cannot be combined with --kind inventory filters.";
-        }
-        if (options.ShareFormat is not null
-            && (options.Count
-                || options.Rows is not null
-                || options.NoHeader))
-        {
-            return "--share emits one portable Workspace definition and "
-                + "cannot be combined with inventory row controls.";
-        }
-        if (options.ShareFormat is not null
-            && !options.MakePackageDependenciesExplicit
-            && (options.IncludePrerelease
-                || HasExplicitSourceOptions(options.SourceOptions)))
-        {
-            return "--share emits a resource-free portable Workspace "
-                + "definition and cannot be combined with --preview or "
-                + "NuGet source options.";
-        }
-        if (options.ShareFormat is not null
-            && options.Packet is null
-            && options.Packages.Length == 0
-            && options.Tfm is not null)
-        {
-            return "--tfm requires --package when authoring a portable "
-                + "Workspace definition.";
-        }
-        if (options.Packet is not null
-            && (options.ActivePackage is not null
-                || options.ActiveEcosystem is not null
-                || hasNavigationSelector))
-        {
-            return "Workspace packet restoration currently supports inventory "
-                + "only and cannot be combined with Navigation options.";
-        }
-        if (options.InventoryKinds.Length != 0
-            && (options.ActivePackage is not null
-                || options.ActiveEcosystem is not null
-                || hasNavigationSelector))
-        {
-            return "--kind filters Workspace inventory and cannot be combined "
-                + "with Navigation options.";
-        }
-        if (hasNavigationSelector && options.ActivePackage is null)
-        {
-            return "--library, --all-libraries, --type, --member, and --lens "
-                + "require --active-package.";
-        }
-        if (options.Type is not null && options.Library is null)
-        {
-            return "--type requires --library so the exact defining Library "
-                + "remains explicit.";
-        }
-        if (options.Member is not null && options.Type is null)
-            return "--member requires --type.";
-        if ((options.Type is not null || options.Member is not null)
-            && options.Lens is null)
-        {
-            return "--type and --member destinations require --lens for one "
-                + "atomic Navigation request.";
-        }
-        if (options.Lens is not null && options.Type is null)
-        {
-            return "--lens currently applies to an exact --type or --member "
-                + "destination.";
-        }
-        if (options.AllLibraries && options.Member is not null)
-        {
-            return "--all-libraries applies only to a Library-to-Type "
-                + "destination.";
-        }
-        if (options.AllLibraries
-            && options.Library is not null
-            && options.Type is null)
-        {
-            return "--library names the exact defining Library only when "
-                + "--all-libraries supplies a Library-to-Type source.";
-        }
+        if (options.InventoryKinds.Length != 0)
+            return "--kind filters live Workspace inventory and requires --inventory.";
+        if (options.Count || options.Rows is not null || options.RowSelection is not null || options.NoHeader)
+            return "Workspace authoring emits one portable definition and cannot be combined with inventory row controls; use --inventory.";
+        if (!options.MakePackageDependenciesExplicit
+            && (options.IncludePrerelease || HasExplicitSourceOptions(options.SourceOptions)))
+            return "Workspace authoring emits a resource-free portable Workspace definition and cannot be combined with --preview or NuGet source options; use --inventory for live observation.";
+        if (options.Packet is null && options.Packages.Length == 0 && options.Tfm is not null)
+            return "--tfm requires --package when authoring a portable Workspace definition.";
+        if (options.Format == OutputFormat.Json && options.ShareFormat is not null)
+            return "Choose --json for packet JSON or --share for a packet or URL scalar.";
+        if (options.Format is not (OutputFormat.Markdown or OutputFormat.Json))
+            return "Workspace authoring emits a packet scalar or --json; other output formats require --inventory.";
         return null;
     }
 
@@ -1982,7 +1343,6 @@ public static partial class WorkspaceCommand
 [JsonSerializable(
     typeof(WorkspaceTopLevelEcosystemPopulation.PackagePrefix),
     TypeInfoPropertyName = "WorkspaceInventoryEcosystemPackagePrefix")]
-[JsonSerializable(typeof(WorkspaceNavigationView))]
 [JsonSerializable(typeof(WorkspaceComponentDocument))]
 [JsonSerializable(typeof(WorkspaceContextComponentDescriptor))]
 [JsonSerializable(typeof(WorkspacePackageComponentDescriptor))]

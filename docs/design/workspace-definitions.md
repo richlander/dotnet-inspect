@@ -337,7 +337,7 @@ grammar.
 
 ### Narrow command boundary and inspection placement
 
-Status: **target clarified; CLI retirement is not implemented**.
+Status: **CLI adoption in #10186; shared definition semantics unchanged**.
 [#10183](https://github.com/richlander/dotnet-inspect/issues/10183) continues
 the definition-first boundary originally specified by #7379. The user approved
 prioritizing this correction before extending Workspace component explanation
@@ -351,6 +351,14 @@ retain. The CLI owner chooses the definition/packet/URL output binding; routine
 execution must no longer default to acquiring content for a live inventory.
 Packet and component inspection can describe declared membership, fields and
 configuration without implying that packages or libraries have been inspected.
+
+Workspace also retains explicit exhaustive inventory across its contexts.
+Declared membership and realized inventory are different observations: the
+latter can report resolved Package versions, target selection and readiness.
+That Workspace-wide capability belongs with Workspace and is distinct from
+Find's matching queries. Keeping it does not retain a second Library, Type or
+Member selection grammar, nor make routine authoring acquire content. The CLI
+owner chooses its explicit binding and rendering.
 
 Ecosystem selection and composition are the primary Workspace authoring
 workflow. The ecosystem catalog supplies namespace hints, core-package roots

@@ -71,7 +71,7 @@ binding; it does not author or restore a Workspace packet or reacquire a
 coordinate. Type/Member input requires one exact Type, matching the existing
 admitted-context inspection boundary. Share cannot currently preserve this
 exact source and fails visibly. Other source forms retain their own contracts.
-The transitional `workspace --root-request` entrance remains until #10186;
+The former `workspace --root-request` entrance is removed under #10186;
 ordinary Package inspection has no separate reopening option.
 
 The motivating real asset is nuget.org `Newtonsoft.Json` 13.0.4. Running
@@ -98,7 +98,8 @@ implemented by [#10185](https://github.com/richlander/dotnet-inspect/issues/1018
 It adds no shared token schema or Browser-navigation contract.
 [Acquired Package declaration admission](design/workspace-live-locator.md#exact-acquired-package-declaration-context)
 supplies the supporting Queries-owned adapter to existing exact-Type readers. Duplicate
-Workspace inspection retirement remains the following slice, #10186.
+Workspace inspection selectors retire under #10186; explicit Workspace
+inventory remains.
 
 ### Vocabulary reading admission
 
@@ -147,105 +148,59 @@ examples, rather than duplicating their inventories here.
 
 ### Workspace top-level inventory
 
-The `workspace` command first distinguishes durable definition output from
-runtime observation. With `--share`, direct Package and registration inputs
-become one schema-version-3 Workspace definition plus its committed peer
-records. Package coordinates coalesce by normalized identity, and
-registrations retain authored cross-kind command-line order. The
-Definitions-owned transposer and codec then emit a canonical format-3 packet or
-URL as the command's stdout scalar. This deliberately differs from noun-command
-Share, which is additive stderr output beside inspection content: the portable
-definition is the `workspace` command's primary result. With `--share`,
-canonical Base64URL packet-string input follows the same resource-free decode,
-transposition, and projection path. No
-`WorkspacePlan`, Package-store access, complete-restoration host, or live
-Workspace exists on this path. Inventory filters, Root reopening, and
-Navigation selectors are rejected rather than ignored because they request
-runtime observation. Inventory row controls are likewise rejected before
-output. Prerelease resolution and explicit NuGet source policy are also
-rejected because they are acquisition settings that the portable definition
-cannot preserve.
+The `workspace` command owns portable environment authoring and explicit
+exhaustive inventory across its contexts. Ordinary construction and packet
+input emit the canonical packet scalar on stdout without acquisition or live
+restoration. `--share packet` is the explicit equivalent; `--share url` emits
+an activation URL; `--json` emits the existing codec's canonical packet JSON.
+JSON and Share are alternative output selections. Bare `workspace` shows help.
+Definitions owns validation, immutable composition, transposition and codec
+semantics; no new packet schema is introduced by this CLI binding.
 
-Without `--share`, the `workspace` command directly owns one ephemeral
-`InspectionWorkspace` built from Package and registration inputs, or delegates
-current-format packet input to the Definitions-owned complete restoration
-transaction. Direct Package membership remains separate from the
-`WorkspacePlan`. Complete restoration owns packet
-decoding and version dispatch, complete context loading, Scope publication,
-retained Navigation restoration, projection, cancellation, and cleanup. Both
-routes capture one exact Workspace operation snapshot before calling
-`WorkspaceTopLevelInventoryOperation`.
+Normalized-equivalent Package coordinates coalesce, while registrations retain
+authored cross-kind command-line order. Source declarations remain portable;
+authoring validates ephemeral credential bindings without reading their
+providers. Inventory filters, row controls, acquisition policy and inventory
+formats require an explicit live observation. Dependency enrichment remains an
+explicit acquisition-backed transformation with `--share`; Package update
+retains its existing scalar/envelope and authorization contract.
 
-The CLI does not read current Scope and registration collections separately.
-It lowers the shared typed document through Markout as compact `Kind`,
-`Location`, and `State` rows. JSON and JSONL retain the shared polymorphic
-entry arms. Kind filtering occurs in the shared operation and does not change
-construction.
+`--inventory` explicitly constructs or completely restores one live Workspace
+and calls `WorkspaceTopLevelInventoryOperation` over its exact operation
+snapshot. Package membership covers every packet context. Inventory reports
+resolved Package versions, producer, requested/selected/effective targets,
+runtime identifier, compile selection and readiness, followed by inert
+registrations. It answers what the Workspace contains, distinct from Find's
+search for matches. Retaining it requires no Find Package-grain prerequisite.
+`--kind` and semantic row controls narrow the returned entries, not Workspace
+construction. Markout renders human output; JSON/JSONL retain the typed arms.
+Verbose human output includes the detailed Package target and producer facts.
+Live inventory cannot be combined with portable definition output or dependency
+enrichment. Direct construction and packet input remain mutually exclusive.
 
-Direct inventory construction supplies a non-projectable realized-Workspace
-Share basis. Packet restoration derives its basis from the exact
-`CompleteRestorationResult.Activated`, including the owner-issued definition
-and projection. The CLI does not independently pair packet text with a
-definition snapshot.
+`workspace packet encode/decode` exposes the resource-free codec.
+`workspace component list` emits owner-issued component paths used unchanged by
+immutable Package and registration edits. Component inspection describes
+declarations; it does not stand in for realized inventory.
 
-`workspace packet encode` and `workspace packet decode` expose the same
-resource-free canonical codec beneath the Workspace noun. `workspace component
-list` projects a packet-local typed component catalog as JSON. Its canonical
-Package paths are emitted by Workspace Definitions and accepted unchanged by
-`workspace package update` and `workspace package remove`; the CLI does not
-derive identity from package inventory order, Navigation row order, or display
-text. Package add and remove are resource-free immutable packet
-transformations. Package update delegates to the existing realization-backed
-fresh-successor operation and preserves its completed envelope.
+Package, Library, Type and Member selection belongs to their ordinary commands
+with admitted `--workspace` context. `package ID --workspace PACKET` replaces
+activation ordinals and can derive a Workspace by adding an admitted Package.
+The duplicate Workspace selectors (`--active-package`, `--active-ecosystem`,
+`--library`, `--all-libraries`, `--type`, `--member`, `--lens`) are removed.
+Exact Package references use ordinary Package/router admission instead of
+`workspace --root-request`. Shared Navigation and complete restoration remain
+available to ordinary commands and Browser consumers. Supplying packet context
+does not silently replay its saved query.
 
-The existing `--active-package` path resolves Package source order through the
-operation's selection receipt, validates the exact occurrence identity, and
-then enters Navigation. Packet-restored Navigation refinement and filtered
-inventory Navigation are rejected rather than silently changing either
-contract. Share is likewise top-level-inventory output and is rejected with
-Package Navigation instead of being silently skipped. Human output remains
-compact by default; verbose lowering appends the Package producer, distinct
-target fields, runtime identifier, and asset-selection status.
-
-### Stateless Workspace navigation
-
-The `workspace` command is the first production consumer of
-`NavigationWorkspaceSnapshotEvaluation`. The default path preserves the
-ordered Package subset of the top-level inventory without choosing an active
-occurrence. An explicit
-`--active-package` request borrows the exact committed Package Root generation,
-materializes bounded API-surface evidence, and retains each realization-issued
-Package asset/participant association through Navigation classification. It
-does not rejoin assets to assemblies by file or assembly name.
-
-Exact Type and Member destinations are selected only from the returned
-scoped inventory and submitted through `DescendantSubjectLensRequest`.
-Projected Member rows retain separate containing and declaring Types, so a
-Type-to-Member selector resolves within its selected source Type rather than a
-flattened global Member list. Selector failure retains the complete snapshot;
-absence is claimed only from complete scoped evidence.
-
-After Navigation validates an exact admitted subject, this CLI supplies
-`Available` facts for the Registry's current active entries. Those entries
-execute on demand, so query or result non-success remains inside the selected
-entry rather than making the entry unavailable. The Navigation evaluator still
-accepts per-subject facts carrying explicit unavailable or failed owner
-evidence; the CLI assumption is narrow to the current catalog and is not a
-permanent availability rule. The CLI does not inspect Registry-private
-execution targets, construct an ID-based availability policy, infer structural
-identity from display text, recommend an intermediate destination lens, or
-install one requested half after a non-applied result.
-
-Markdown, plain text, table, and TSV are Markout lowerings; JSON and JSONL omit
-process-local Workspace, occurrence, generation, action, and authority
-identity while retaining portable Library asset, containing-Type, and
-declaring-Type joins. Portable Library, Type, and Member selector fields use a
-reversible backslash transport spelling before display containment and
-tabular lowering. It escapes line separators, tabs, rendering hazards, literal
-backslashes, and the `&`, `<`, `>`, backtick, and `|` characters rewritten by
-Markdown table lowering; copied values are decoded before exact ordinal
-selector resolution. A nonempty selector remains an identity even when its
-decoded metadata spelling consists only of whitespace or line separators.
+The motivating real asset is nuget.org `System.Text.Json` 10.0.0 on `net10.0`
+with the Runtime ecosystem. Resource-free default authoring preserves these
+coordinates and registrations; explicit inventory retains the resolved Package
+and selected-target facts. Release gates in `WorkspaceCommandTests` cover
+failing HTTP/store authoring fakes, unread credential providers, exact packet
+and JSON round-trips, all-context inventory and existing inventory formats.
+Exact NativeAOT base/head comparisons distinguish authoring output changes from
+retained live inventory rather than treating less work as an inventory speedup.
 
 ## Runtime identity
 

@@ -19,7 +19,7 @@ public static partial class WorkspaceCommandDefinitions
     {
         var command = new Command(
             WorkspaceCommand.Name,
-            "Author or inspect an inspection Workspace and optionally evaluate one exact Navigation occurrence");
+            "Author a portable Workspace or explicitly inventory its contents");
         var packageOption = new Option<string[]>("--package")
         {
             Description =
@@ -77,48 +77,9 @@ public static partial class WorkspaceCommandDefinitions
             "exact-library",
             "package-prefix",
             "ecosystem");
-        var rootRequestOption = new Option<string?>("--root-request")
+        var inventoryOption = new Option<bool>("--inventory")
         {
-            Description =
-                "Reopen the exact package Root named by a reopening token from the Root column of 'package query ... --where \"library-literal=TEXT\" --tfm TFM'",
-            Arity = ArgumentArity.ExactlyOne,
-        };
-        var activePackageOption = new Option<int?>("--active-package")
-        {
-            Description =
-                "Evaluate one exact committed Package occurrence by its one-based Workspace order",
-        };
-        var activeEcosystemOption =
-            new Option<string?>("--active-ecosystem")
-            {
-                Description =
-                    "Evaluate one exact registered Ecosystem by short or canonical ID",
-            };
-        var libraryOption = new Option<string?>("--library")
-        {
-            Description =
-                "Exact Library asset id from Navigation output",
-        };
-        var allLibrariesOption = new Option<bool>("--all-libraries")
-        {
-            Description =
-                "Use the aggregate Library subject as a Type destination source",
-        };
-        var typeOption = new Option<string?>("--type")
-        {
-            Description =
-                "Exact returned metadata Type full name for an atomic destination",
-        };
-        var memberOption = new Option<string?>("--member")
-        {
-            Description =
-                "Exact returned Member stable selector for an atomic destination",
-        };
-        var lensOption = new Option<string?>("--lens")
-        {
-            Description =
-                "Exact destination view-facet id or contextual name, "
-                    + "such as type.compare or .compare",
+            Description = "Realize and inventory Workspace contents across all contexts",
         };
         var shareOption = WorkspaceShareOption.Create(
             "Emit the complete portable Workspace definition as a canonical packet or URL");
@@ -160,14 +121,7 @@ public static partial class WorkspaceCommandDefinitions
         command.Options.Add(registerPackagePrefixOption);
         command.Options.Add(registerEcosystemOption);
         command.Options.Add(kindOption);
-        command.Options.Add(rootRequestOption);
-        command.Options.Add(activePackageOption);
-        command.Options.Add(activeEcosystemOption);
-        command.Options.Add(libraryOption);
-        command.Options.Add(allLibrariesOption);
-        command.Options.Add(typeOption);
-        command.Options.Add(memberOption);
-        command.Options.Add(lensOption);
+        command.Options.Add(inventoryOption);
         command.Options.Add(shareOption);
         command.Options.Add(makePackageDependenciesExplicitOption);
         command.Options.Add(anonymousNuGetSourceOption);
@@ -180,17 +134,7 @@ public static partial class WorkspaceCommandDefinitions
         opts.AddTableOptionsTo(command);
         opts.AddOutputOptionsTo(
             command,
-            validateLegacyRowWindow: result =>
-                !IsTopLevelInventory(
-                    result,
-                    activePackageOption,
-                    activeEcosystemOption,
-                    libraryOption,
-                    allLibrariesOption,
-                    typeOption,
-                    memberOption,
-                    lensOption,
-                    shareOption));
+            validateLegacyRowWindow: result => !result.GetValue(inventoryOption));
         opts.AddCountOptionTo(command);
         opts.AddNuGetOptionsTo(command);
 
@@ -206,6 +150,11 @@ public static partial class WorkspaceCommandDefinitions
                 return 1;
             }
 
+            if (parseResult.Tokens.Count == 1)
+            {
+                HelpWriter.WriteHelp(command);
+                return 0;
+            }
             string[] packages =
                 parseResult.GetValue(packageOption) ?? [];
             string? tfm = parseResult.GetValue(tfmOption);
@@ -221,17 +170,6 @@ public static partial class WorkspaceCommandDefinitions
                 .. (parseResult.GetValue(kindOption) ?? [])
                     .Select(ParseInventoryKind),
             ];
-            string? rootRequest = parseResult.GetValue(rootRequestOption);
-            int? activePackage =
-                parseResult.GetValue(activePackageOption);
-            string? activeEcosystem =
-                parseResult.GetValue(activeEcosystemOption);
-            string? library = parseResult.GetValue(libraryOption);
-            bool allLibraries =
-                parseResult.GetValue(allLibrariesOption);
-            string? type = parseResult.GetValue(typeOption);
-            string? member = parseResult.GetValue(memberOption);
-            string? lens = parseResult.GetValue(lensOption);
             if (!TryParsePackageSources(
                     parseResult,
                     opts,
@@ -244,17 +182,6 @@ public static partial class WorkspaceCommandDefinitions
             {
                 return 1;
             }
-            if (rootRequest is not null
-                && (packages.Length > 0
-                    || !string.IsNullOrWhiteSpace(tfm)))
-            {
-                CommandError.Write(
-                    "--root-request opens the exact Root its token names and cannot be combined with --package or --tfm.");
-                CommandError.WriteLine(
-                    "Run 'dotnet-inspect workspace --help' for usage.");
-                return 1;
-            }
-
             if (packages.Length > 0
                 && string.IsNullOrWhiteSpace(tfm))
             {
@@ -279,14 +206,7 @@ public static partial class WorkspaceCommandDefinitions
                     RegisteredEcosystems =
                         parseResult.GetValue(registerEcosystemOption) ?? [],
                     InventoryKinds = inventoryKinds,
-                    RootRequest = rootRequest,
-                    ActivePackage = activePackage,
-                    ActiveEcosystem = activeEcosystem,
-                    Library = library,
-                    AllLibraries = allLibraries,
-                    Type = type,
-                    Member = member,
-                    Lens = lens,
+                    Inventory = parseResult.GetValue(inventoryOption),
                     IncludePrerelease =
                         parseResult.GetValue(prereleaseOption),
                     Format = opts.ResolveFormat(parseResult),
@@ -323,17 +243,7 @@ public static partial class WorkspaceCommandDefinitions
             CliRowSelectionCapabilities.HeadTail
                 | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            result =>
-                IsTopLevelInventory(
-                    result.CommandResult,
-                    activePackageOption,
-                    activeEcosystemOption,
-                    libraryOption,
-                    allLibrariesOption,
-                    typeOption,
-                    memberOption,
-                    lensOption,
-                    shareOption),
+            result => result.GetValue(inventoryOption),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result),
@@ -347,25 +257,6 @@ public static partial class WorkspaceCommandDefinitions
         command.Subcommands.Add(CreateWorkspaceRegistrationCommand(ecosystem: false));
         return command;
     }
-
-    static bool IsTopLevelInventory(
-        CommandResult commandResult,
-        Option<int?> activePackageOption,
-        Option<string?> activeEcosystemOption,
-        Option<string?> libraryOption,
-        Option<bool> allLibrariesOption,
-        Option<string?> typeOption,
-        Option<string?> memberOption,
-        Option<string?> lensOption,
-        Option<string?> shareOption) =>
-        commandResult.GetValue(activePackageOption) is null
-        && commandResult.GetValue(activeEcosystemOption) is null
-        && commandResult.GetValue(libraryOption) is null
-        && !commandResult.GetValue(allLibrariesOption)
-        && commandResult.GetValue(typeOption) is null
-        && commandResult.GetValue(memberOption) is null
-        && commandResult.GetValue(lensOption) is null
-        && commandResult.GetResult(shareOption) is null;
 
     static Command CreateWorkspaceComponentCommand()
     {
