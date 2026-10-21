@@ -22,9 +22,14 @@ public enum ImplementationDiffMechanism
     All = CSharp | IlBody | Complexity,
 }
 
+/// <param name="IlNormalization">
+/// The normalization the IL body mechanism compares under; Member Body Diff
+/// names Fast Diff's Body policy, Implementation Diff none.
+/// </param>
 public sealed record ImplementationDiffOptions(
     ImplementationDiffMechanism Mechanisms = ImplementationDiffMechanism.All,
-    IReadOnlySet<string>? TypeFilters = null)
+    IReadOnlySet<string>? TypeFilters = null,
+    IlBodyDiffNormalization IlNormalization = IlBodyDiffNormalization.None)
 {
     public static void ValidateMechanisms(
         ImplementationDiffMechanism mechanisms,
@@ -279,7 +284,8 @@ public static partial class ImplementationDiff
             newInput,
             new ResearchDiffOptions(
                 ToResearchMechanisms(options.Mechanisms),
-                TypeFilters: options.TypeFilters)
+                TypeFilters: options.TypeFilters,
+                IlNormalization: options.IlNormalization)
             {
                 RetainedComparisonDescriptorIds =
                     RetainedComparisonDescriptorIds(options.Mechanisms),

@@ -248,7 +248,8 @@ public static class ImplementationComparisonQuery
                         input.NewAssemblies,
                         new ImplementationDiffOptions(
                             input.Mechanisms,
-                            TypeFilters: input.TypeFilters)),
+                            TypeFilters: input.TypeFilters,
+                            IlNormalization: input.IlNormalization)),
                     resolution: null,
                     producerCompletion: null),
             _ => throw new ArgumentOutOfRangeException(
@@ -448,7 +449,8 @@ public static class ImplementationComparisonQuery
                 research,
                 new ImplementationDiffOptions(
                     input.Mechanisms,
-                    TypeFilters: input.TypeFilters));
+                    TypeFilters: input.TypeFilters,
+                    IlNormalization: input.IlNormalization));
         if (input.Mechanisms.HasFlag(
             ImplementationDiffMechanism.Complexity))
         {
