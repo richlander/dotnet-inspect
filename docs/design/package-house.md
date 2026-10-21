@@ -69,12 +69,14 @@ applies that pruning query, and returns the ordered outcomes through
 and Inspect Web package pruning both consume that operation while retaining
 their own input scope, source and inventory authorization, completion policy,
 and presentation.
-`DesktopPackageSourceComposition` still owns desktop configuration,
-credentials, transports, clients, stores, and disposal. Its asynchronous
-pinned-candidate compatibility path and direct dependency-version convenience
-are retired. Callers issue one Package Source operation for pinned candidate
-and candidate-manifest work; composition-owned exact and selecting payload
-operations continue to settle through PackageHouse.
+`DesktopPackageSourceComposition` remains a transitional native-host bundle:
+it resolves source policy, supplies installed credential-provider integration,
+creates native HTTP or local source clients, and owns their lifetime. Package
+stores are caller-supplied. Its asynchronous pinned-candidate compatibility
+path and direct dependency-version convenience are retired. Callers issue one
+Package Source operation for pinned candidate and candidate-manifest work;
+composition-owned exact and selecting payload operations continue to settle
+through PackageHouse.
 The CLI's online `package Package@latest --versions` query and `@latest`
 package opening consume the shared `PackageVersionSettlementInspection`
 envelope, also used by Inspect Web exact/latest package opening. The shared inspection
@@ -1517,6 +1519,43 @@ rationalization in
 its evidence and traversal algorithms usable. PackageHouse does not introduce
 a generic Houses assembly. Exact moves from `DotnetInspector.Services` remain
 tracked by [#6335](https://github.com/richlander/dotnet-inspect/issues/6335).
+
+## Host-specific package type vocabulary
+
+`Desktop` is not a positive package responsibility and is not a replacement
+prefix. Package types name the distinction they own:
+
+- source policy names configuration discovery and authorization;
+- native capability names installed credential-provider integration, native
+  HTTP or local routes, and the lifetime of their source clients;
+- filesystem capability names temporary or durable file-backed stores; and
+- CLI-local adapters name the package operation they adapt. Their enclosing
+  namespace and owner already establish the host.
+
+`Ambient` is reserved for an owner whose specific input is the default
+user/repository/project NuGet configuration hierarchy. It does not name
+`DesktopPackageSourceComposition`: `NuGetSourceOptions` can replace or add
+sources, select an explicit config file or directory, or carry Workspace
+sources and credentials. The existing
+`SourcePolicyPackageSourceAuthorization` owns that broader policy input.
+
+The complete production `Desktop*` census and disposition is:
+
+| Current symbol | Positive responsibility | Surviving architecture or rename disposition |
+| --- | --- | --- |
+| `DesktopPackageSourceComposition` | Transitional native-host bundle for source-policy resolution, installed credential providers, native HTTP/local clients, and client lifetime. | Do not give the compatibility composition a durable replacement name. Move policy to `SourcePolicyPackageSourceAuthorization`, supply host-created clients to Package Source operations, and remove this identity under the retirement plan below. |
+| `DesktopPlatformPackageSourceRuntime` | CLI-local coordinator for Package Source authorization and operations, temporary package stores, and the package-backed Platform adapter. | Drop the host prefix as `PackagePlatformSourceRuntime` when renamed; the composition dependency remains transitional. |
+| `DesktopPackageStoreScope` | Lazily created authority-scoped stores under one temporary filesystem root. | Name the capability `TemporaryPackageStoreScope`. |
+| `DesktopPackageDependencyMemberCallGraphContinuationSource` | CLI call-graph continuation that combines installed and package-backed Platform sources. | Drop the host prefix as `PackageDependencyMemberCallGraphContinuationSource`. |
+| `DesktopHistoryCellExecutor` | Private `diff --history` PackageHouse version-cell executor. | Drop the redundant prefix as `HistoryCellExecutor`. |
+| `DesktopWorkspacePackageDependencyManifestProvider` | Private Workspace dependency-manifest provider over PackageHouse content acquisition. | Drop the redundant prefix as `WorkspacePackageDependencyManifestProvider`. |
+| `DesktopPortablePdbPackageContentSource` | Private Portable PDB package-content adapter over PackageHouse content acquisition. | Drop the redundant prefix as `PortablePdbPackageContentSource`. |
+
+Browser and native transports may differ below the shared package-source
+contract, but neither host label becomes package identity, authority, producer
+identity, or policy. Tests may use host labels when the behavior under test is
+specifically a host transport capability; they do not establish product type
+vocabulary.
 
 ## Current implementation retirement
 

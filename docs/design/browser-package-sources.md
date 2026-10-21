@@ -91,6 +91,22 @@ The boundary preserves these properties:
   transport failure are distinct results; and
 - no consumer above NuGetFetch constructs protocol URLs.
 
+Host names describe capabilities only at the boundary that owns them.
+`Browser` may identify Fetch-specific transport behavior and `Native` may
+identify installed credential-provider, socket HTTP, redirect, DNS, or local
+filesystem behavior. Neither name is a package source, authority, producer, or
+policy identity. `Ambient` is narrower still: it applies only to an owner whose
+input is the default user/repository/project NuGet configuration hierarchy.
+Explicit config files, replaced or additional sources, and Workspace-supplied
+sources are source-policy inputs rather than ambient host identity.
+
+[PackageHouse host-specific package type
+vocabulary](package-house.md#host-specific-package-type-vocabulary) owns the
+current production `Desktop*` census and rename dispositions. In particular,
+the mixed `DesktopPackageSourceComposition` remains a transitional identity to
+remove, not a durable architecture to preserve under an `Ambient` or `Native`
+rename.
+
 [Incremental package-prefix candidates](package-prefix-candidate-stream.md)
 owns the pull-driven page sequence, including its remaining active-work budget
 and first adoption by the shared package-profile query. It consumes this
