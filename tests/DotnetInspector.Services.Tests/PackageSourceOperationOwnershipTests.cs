@@ -162,6 +162,224 @@ public sealed class PackageSourceOperationOwnershipTests
     }
 
     [Fact]
+    public async Task DependencyVersionDiscoveryReusesAuthoritativeSourceObservations()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
+        var authorization = new CountingAuthorization(fixture.Authorization);
+
+        PackageVersionDiscoveryResult first =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, authorization);
+        PackageVersionDiscoveryResult repeated =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId.ToUpperInvariant(), authorization);
+        PackageVersionDiscoveryResult explicitAuthorization =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+
+        Assert.Equal(2, authorization.Calls);
+        Assert.Single(fixture.Client.Contexts);
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, repeated.State);
+        Assert.Equal(
+            first.SelectCandidate(Coordinate.Version).Correspondence,
+            repeated.SelectCandidate(Coordinate.Version).Correspondence);
+        Assert.Equal(
+            first.SelectCandidate(Coordinate.Version).Correspondence,
+            explicitAuthorization.SelectCandidate(Coordinate.Version).Correspondence);
+    }
+
+    [Fact]
+    public async Task DependencyVersionDiscoveryDoesNotReuseAnotherOperationOrGeneralDiscovery()
+    {
+        await using var fixture = new SourceFixture();
+        using (PackageSourceOperationLease first = Issue(fixture.Root))
+        {
+            await first.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+            await first.DiscoverVersionsAsync(
+                Coordinate.PackageId,
+                fixture.Authorization,
+                PackageVersionDiscoveryContract.CompleteVersionEnumeration);
+        }
+        using (PackageSourceOperationLease second = Issue(fixture.Root))
+        {
+            await second.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+            await second.DiscoverDependencyVersionsAsync(
+                "contoso.logging", fixture.Authorization);
+        }
+
+        Assert.Equal(4, fixture.Client.Contexts.Count);
+    }
+
+    [Fact]
+    public async Task DependencyVersionDiscoveryKeepsConfiguredAuthoritiesSeparate()
+    {
+        await using var first = new SourceFixture();
+        await using var second = new SourceFixture();
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(authority =>
+                ReferenceEquals(
+                    authority,
+                    first.Authorization.Authorities[0])
+                    ? first.OwnedClient
+                    : second.OwnedClient);
+        using PackageSourceOperationLease operation = Issue(root);
+
+        PackageVersionDiscoveryResult firstResult =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, first.Authorization);
+        PackageVersionDiscoveryResult secondResult =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, second.Authorization);
+
+        Assert.Single(first.Client.Contexts);
+        Assert.Single(second.Client.Contexts);
+        Assert.NotEqual(
+            firstResult.SelectCandidate(Coordinate.Version).Correspondence,
+            secondResult.SelectCandidate(Coordinate.Version).Correspondence);
+    }
+
+    [Fact]
+    public async Task DependencyVersionDiscoveryReadsAReplacementRuntimeClient()
+    {
+        await using var fixture = new SourceFixture();
+        SourceClient? replacement = null;
+        using IPackageSourceClient replacementClient =
+            PackageSourceClientFactory.CreateCustom(
+                PackageSourceDescriptor.NuGetGallery,
+                fixture.Authorization.Authorities[0].Association,
+                factory => replacement = new SourceClient(factory));
+        IPackageSourceClient current = fixture.OwnedClient;
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => current);
+        using PackageSourceOperationLease operation = Issue(root);
+        await operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId, fixture.Authorization);
+        current = replacementClient;
+
+        PackageVersionDiscoveryResult result =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+
+        Assert.Single(fixture.Client.Contexts);
+        Assert.Single(replacement!.Contexts);
+        Assert.Same(
+            replacementClient.Source,
+            Assert.Single(
+                result.SelectCandidate(Coordinate.Version).Authorities)
+                .Observation!.Source);
+    }
+
+    [Fact]
+    public async Task DependencyVersionDiscoveryReusePreservesCurrentAuthorizationFailures()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
+        await operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId, fixture.Authorization);
+        var failure = new PackageAuthorityFailure(
+            new InertString(TextPolicy.Field, "unavailable-peer"),
+            PackageAuthorityFailureKind.Configuration,
+            "A configured peer could not be used.");
+        PackageSourceAuthorization partial =
+            PackageSourceAuthorization.ObserveAuthorities(
+                fixture.Authorization.Authorities, [failure]);
+
+        PackageVersionDiscoveryResult result =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, new FixedAuthorization(partial));
+        PackageVersionDiscoveryResult denied =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId,
+                new FixedAuthorization(
+                    PackageSourceAuthorization.Deny("No mapped source.")));
+
+        Assert.Equal(PackageVersionDiscoveryState.Partial, result.State);
+        Assert.Same(failure, Assert.Single(result.Failures));
+        Assert.Equal(PackageVersionDiscoveryState.Failed, denied.State);
+        Assert.Empty(denied.SourceListings);
+        Assert.Single(fixture.Client.Contexts);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DependencyVersionDiscoveryRetriesIncompleteSourceObservations(bool failed)
+    {
+        await using var fixture = new SourceFixture();
+        fixture.Client.HasAuthoritativeListingState = false;
+        fixture.Client.VersionFailure =
+            failed ? PackageSourceFailureKind.InvalidResponse : null;
+        using PackageSourceOperationLease operation = Issue(fixture.Root);
+        PackageVersionDiscoveryResult incomplete =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+        fixture.Client.HasAuthoritativeListingState = true;
+        fixture.Client.VersionFailure = null;
+
+        PackageVersionDiscoveryResult retried =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, fixture.Authorization);
+        await operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId, fixture.Authorization);
+
+        Assert.NotEqual(
+            PackageVersionDiscoveryState.Authoritative, incomplete.State);
+        Assert.Equal(PackageVersionDiscoveryState.Authoritative, retried.State);
+        Assert.Equal(2, fixture.Client.Contexts.Count);
+    }
+
+    [Fact]
+    public async Task DependencyVersionDiscoveryReuseObservesCallerCancellation()
+    {
+        await using var fixture = new SourceFixture();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(cancellation.Token);
+        await operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId, fixture.Authorization);
+        cancellation.Cancel();
+
+        OperationCanceledException failure =
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                operation.DiscoverDependencyVersionsAsync(
+                    Coordinate.PackageId, fixture.Authorization));
+
+        Assert.Equal(cancellation.Token, failure.CancellationToken);
+        Assert.Single(fixture.Client.Contexts);
+    }
+
+    [Fact]
+    public async Task DependencyVersionDiscoveryReuseDoesNotOutliveOperationDeadline()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromMilliseconds(250));
+        var authorization = new CountingAuthorization(fixture.Authorization);
+        await operation.DiscoverDependencyVersionsAsync(
+            Coordinate.PackageId, authorization);
+        Assert.True(operation.OperationCancellationToken.WaitHandle.WaitOne(
+            TimeSpan.FromSeconds(10)));
+
+        PackageVersionDiscoveryResult expired =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId, authorization);
+
+        Assert.Equal(PackageVersionDiscoveryState.Failed, expired.State);
+        Assert.Contains(
+            expired.Failures,
+            failure => failure.Timeout?.Kind == PackageSourceTimeoutKind.Operation);
+        Assert.Equal(1, authorization.Calls);
+        Assert.Single(fixture.Client.Contexts);
+    }
+
+    [Fact]
     public async Task PackageSourceOperationLeaseSuccessfulReleaseDoesNotPublishCancellation()
     {
         await using var fixture = new SourceFixture();
@@ -467,6 +685,8 @@ public sealed class PackageSourceOperationOwnershipTests
         internal bool IsDisposed { get; private set; }
         internal List<NuGetOperationContext> Contexts { get; } = [];
         internal Func<CancellationToken, Task>? BeforeStep { get; set; }
+        internal bool HasAuthoritativeListingState { get; set; } = true;
+        internal PackageSourceFailureKind? VersionFailure { get; set; }
 
         public async Task<PackageSourceOperationResult<PackageSourceManifest>> GetManifestAsync(
             string packageId, string version, CancellationToken cancellationToken = default,
@@ -488,11 +708,13 @@ public sealed class PackageSourceOperationOwnershipTests
             Contexts.Add(Assert.IsType<NuGetOperationContext>(operationContext));
             if (BeforeStep is not null)
                 await BeforeStep(cancellationToken);
+            if (VersionFailure is { } failure)
+                return factory.FailedVersions(failure);
             return factory.SucceededVersions(factory.Versions(
                 [factory.Candidate(
                     PackageSourceCoordinate.Create(packageId, Coordinate.Version),
                     PackageDiscoveryContract.CompleteVersionEnumeration, PackageListingState.Listed)],
-                hasAuthoritativeListingState: true));
+                hasAuthoritativeListingState: HasAuthoritativeListingState));
         }
 
         public Task<PackageSourceOperationResult<PackageSearchResult>> SearchAsync(
