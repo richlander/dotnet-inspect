@@ -61,18 +61,20 @@ construction rather than from a gate between two walks.
 > yields the row's observations one at a time, each a `Finding<T>` with its
 > `FindingKey`, in a **canonical order** that is a function of that side
 > alone, and ends in exactly one terminal: `Complete`, `Absent` with its
-> typed kind, or `Failed`. Draining a cursor yields the `FindingInspection<T>`
-> that the kind's `Inspect` returns for that row, and its `Complete` census
-> sealed is the kind's `FindingCensus<T>`. Over two cursors for one paired
-> row, **Exists** returns `Changed` when the lockstep reaches a position
-> where the two atoms' keys differ or one cursor ends `Complete` while the
-> other yields an atom, `Unchanged` when both end `Complete` at the same
-> position with every atom equal, and `Indeterminate` when either cursor ends
+> typed kind, or `Failed`. Draining a cursor yields its atoms and then its
+> terminal, which is the kind's `FindingInspection<T>` for that row, and a
+> `Complete` drain sealed is the kind's `FindingCensus<T>`; the kind's
+> `Inspect` is that drain. Over two cursors for one paired row, **Exists**
+> returns `Changed` when the lockstep reaches a position where the two
+> atoms' bytes differ, one side has a census and the other an absence, or
+> one cursor ends `Complete` while the other yields an atom; `Unchanged`
+> when both end `Complete` at the same position with every atom equal, or
+> both end `Absent` of one kind; and `Indeterminate` when either cursor ends
 > `Failed` before a difference is decided. **Exhaustive** drains both
-> cursors and returns the kind's `FindingComparison<T>`. Exists is
-> `Unchanged` exactly when both drained inspections are `Complete` and their
-> censuses are equal atom by atom, and `Indeterminate` exactly when a
-> drained inspection is `Failed` and no difference precedes the failure.
+> cursors and returns the kind's `FindingComparison<T>` over the two drains.
+> Exists is `Unchanged` exactly when the two drains are equal atom by atom
+> and terminal for terminal without a `Failed`, and `Indeterminate` exactly
+> when a drain ends `Failed` and no difference precedes the failure.
 
 The two scenarios are the depth of one read, not two kinds of read. The
 [Diff system](diff-system.md)'s execution modes, paired steps and per-point
@@ -81,8 +83,8 @@ lockstep is the paired step over two of them.
 
 | | Paired steps | Per-point census |
 | --- | --- | --- |
-| **Exists** | Lockstep over two cursors to the first difference; Fast Diff's walk is its provision today | Two sealed censuses compared atom by atom to the first difference |
-| **Exhaustive** | Not a scenario of the census; a pair-dependent native algorithm such as `IlBodyDiff` keeps its own alignment beside the census, as Finding nomenclature allows | Two sealed censuses through `FindingMatcher` in the kind's mode, folded to `PairFinding<T>` |
+| **Exists** | Lockstep over two cursors to the first difference; Fast Diff's walk is its provision today | Lockstep over two censuses the per-point mode already sealed, to the first difference; Exists seals nothing itself |
+| **Exhaustive** | Not a scenario of the census; a pair-dependent native algorithm such as `IlBodyDiff`'s hunk alignment keeps its own result beside the census, as Finding nomenclature allows | Two sealed censuses through `FindingMatcher` in the kind's mode, folded to `PairFinding<T>` by the kind's fold |
 
 ## The cursor
 
@@ -99,8 +101,8 @@ side. It is what makes positional equality meaningful across two images:
 
 | Kind | Atom | Order | Matcher mode | Owner |
 | --- | --- | --- | --- | --- |
-| IL operations | A canonical operation, as IL diff canonicalization shapes it, with operands as symbolic identities and targets as aligned instruction indexes | Instruction order | `Ordered`, with the move pass | IL diff canonicalization; `IlFindings` |
-| Declaration facts | One census fact, keyed by its whole `SymbolKey` | Ascending key bytes | `IdentitySet` | Declaration view; Fast Diff's census |
+| IL operations | A canonical operation, as IL diff canonicalization shapes it: the folded opcode family, its operand as a `SymbolKey` for a metadata token, a value for an immediate or a user string, and each branch or switch target as the target's instruction index within its own body | Instruction order | `Ordered`, with the move pass, then the kind's target validation over the match | IL diff canonicalization; `IlFindings` |
+| Declaration facts | One census fact, keyed by its whole `SymbolKey` | Ascending key bytes | `IdentitySet` | Declaration view for the atom; Fast Diff for the census it compares today |
 
 For an ordered kind, positional equality is sequence equality. For an
 identity-set kind, the sort makes positional equality multiset equality, so
@@ -116,18 +118,34 @@ side. It needs one lookahead: a branch or switch target is an instruction
 index, and a forward target's index is unknown until the decoder reaches it,
 so the cursor runs a boundary pre-scan over the body, which decodes lengths
 and resolves nothing, before it yields its first atom. That is the one
-non-lazy step, and it is the step canonical comparison already needs to align
-targets. A declaration cursor sorts before it yields, so it materializes its
-keys; the census of one row is small, and the order is what Exists needs.
+non-lazy step, and it is the instruction map canonical comparison already
+builds to align targets. An opcode ECMA-335 does not define has no length, so
+the pre-scan stops there and records the fault's offset; the cursor then
+yields every atom before that offset and ends `Failed` at it. With the map
+incomplete, a target at or past the fault has no index, so a branch or
+switch atom before the fault carries its target as **undecided**, and the
+Exists rules below say how an undecided target is read. A declaration cursor
+sorts before it yields, so it materializes its keys; the census of one row is
+small, and the order is what Exists needs.
 
-**Atoms compare as bytes.** A `FindingKey` on a sealed Finding is a lossless
-string encoding of the atom's canonical bytes, as the declaration view
-states for its facts, and the symbolic identity of an IL operand is the same
-`SymbolKey` Fast Diff memoizes. The cursor yields the bytes, lockstep compares
-the bytes, and only sealing for Exhaustive builds the string. A cursor that
-yields a record with display text would pay for every operation what a view
-pays only for the operations it shows, which the measurement gate below
-catches.
+**Atoms compare as bytes.** An atom's **canonical bytes** are its whole
+content as the kind's owner defines it, and they are what lockstep compares.
+The atom's `FindingKey` is the kind's **matcher projection** of those bytes,
+which may be the same or less: a declaration fact's identity key is a lossless
+encoding of its whole census key, as the declaration view states, so its
+projection is the bytes; an IL operation's identity key omits its branch and
+switch targets, as IL diff canonicalization requires so that a branch over an
+inserted instruction still aligns, and the kind's fold validates targets over
+the match. Equality of canonical bytes is therefore the stricter relation,
+and it is the one both scenarios' agreement is stated on. The symbolic
+identity of an IL operand is the same `SymbolKey` Fast Diff memoizes, byte
+exact and self-delimiting, never a decoded and formatted name, so two names
+whose bytes differ but decode alike stay distinct, as Fast Diff's
+[Identity](fast-diff.md#identity) requires. The cursor yields the bytes,
+lockstep compares the bytes, and only sealing for Exhaustive builds the key
+string. A cursor that yields a record with display text would pay for every
+operation what a view pays only for the operations it shows, which the
+measurement gate below catches.
 
 **Terminals** are the inspection outcomes of Finding nomenclature, reached in
 sequence:
@@ -153,27 +171,35 @@ Exists reads two cursors for one paired row in lockstep and stops at the
 first event that decides. The events at one position, in the order they are
 tested:
 
-| Old | New | Decision |
+| One side | Other side | Decision |
 | --- | --- | --- |
-| atom | atom, equal bytes | advance both |
+| `Absent(k)` | `Absent(k)` | `Unchanged` |
+| `Absent` | atom, `Complete`, `Failed`, or `Absent` of another kind | `Changed` |
+| atom | atom, equal bytes, targets decided | advance both |
+| atom | atom, equal bytes, a target undecided on either | advance both, pending |
 | atom | atom, unequal bytes | `Changed` |
 | atom | `Complete` | `Changed` |
-| `Complete` | atom | `Changed` |
-| `Complete` | `Complete` | `Unchanged` |
-| `Failed` | any | `Indeterminate` |
-| any | `Failed` | `Indeterminate` |
-| `Absent(k)` | `Absent(k)` | `Unchanged` |
-| `Absent` | atom, `Complete`, or `Absent` of another kind | `Changed` |
+| `Complete` | `Complete`, nothing pending | `Unchanged` |
+| `Failed` | atom, `Complete`, or `Failed` | `Indeterminate` |
 
-The order of rows is the order of the lockstep: a difference at position
-three is decided at position three, and neither cursor is advanced again, so
-a fault at position ninety on either side is never seen. A fault before any
+The rows are symmetric in the two sides, and the table is read top down at
+each position, so presence is decided before reading: an absence is known
+from the row before any atom is decoded, as Fast Diff decides a body present
+on one side only from its RVA, so a body that cannot be decoded on one side
+and is absent on the other is `Changed`, not `Indeterminate`. The order of
+positions is the order of the lockstep: a difference at position three is
+decided at position three, and neither cursor is advanced again, so a fault
+at position ninety on either side is never seen. A fault before any
 difference is `Indeterminate` whichever side faulted, and when both fault at
-the same position, since equal so far is not equal. That is Diff
-capabilities' rule 3, undecided is never read either way, and it is the one
-bounded exception to its rule 2 that the contract already names: a row Exists
-decides `Changed` before a fault is `Changed`, and its Exhaustive view is the
-visible failure the kind reports for the side it could not read.
+the same position, since equal so far is not equal. An undecided target can
+only occur on a side whose cursor will end `Failed`, so a pending position
+never resolves: a body whose only differences before an undefined opcode are
+targets is `Indeterminate`, and a non-target difference before the fault is
+`Changed`, as Fast Diff states both. That is Diff capabilities' rule 3,
+undecided is never read either way, and the `Changed`-before-fault case is
+the bounded exception to its rule 2 that the contract names: the row's
+Exhaustive view is the visible failure the kind reports for the side it could
+not read.
 
 Two absent terminals with equal kinds are `Unchanged`, and a `Complete`
 census, even an empty one, against an absence is `Changed`, which is Finding
@@ -186,22 +212,22 @@ matcher. It reads at most one atom past the last equal position on each side,
 and for an unchanged row it reads every atom once, which is the cost of
 proving equality and the cost Fast Diff pays today.
 
-Exists decides one row on one kind. A row's axis verdict combines its kinds:
-the Body axis of a method is `Changed` when its IL or its declaration facts
-are, `Indeterminate` when neither is `Changed` and either is, and
-`Unchanged` otherwise. A Type's verdict is the same combination over the rows
-it owns under rule 1 of [Fast Diff's Type level](fast-diff.md#type), and a
-Library's over its Types. Those folds, the axes, the pair partition, and the
-API axis surface stay Fast Diff's; this document owns the row's reading and
-nothing above it.
+Exists decides one row on one kind. How a row's kinds combine into an axis
+verdict, how the rows a Type owns under rule 1 of
+[Fast Diff's Type level](fast-diff.md#type) combine into the Type's, and in
+what order the walk reads them, so that a declaration fault read first makes
+a Type `Indeterminate` before its bodies are compared, are Fast Diff's, as
+are the axes, the pair partition, and the API axis surface. This document
+owns the row's reading on one kind and nothing above it.
 
 ### Provisions
 
 The Exists contract binds provisions, not code, as Diff capabilities states.
 Fast Diff's paired walk is an Exists provision: it decides the same events as
 lockstep over two IL cursors, pairwise and without a cursor, and its
-declaration census is a sorted key list compared to the first difference,
-which is lockstep over two declaration cursors by another name. The walk is
+declaration census is one sorted key list per Type compared to the first
+difference, which is lockstep over the Type's declaration cursors, in key
+order, by another name. The walk is
 kept while it is measurably cheaper than lockstep and deleted when lockstep
 matches it, under the rule that a fast provision is justified by performance
 alone and never by a second definition of change. Until then, both answer
@@ -222,48 +248,59 @@ so that the census Exhaustive matches is the census Exists compared.
 Exhaustive always drains before it matches. The ordered matcher needs both
 whole sequences for its matrix, and the identity-set matcher needs both whole
 multisets, so there is no lazy Exhaustive; laziness is Exists's property. The
-matcher's bound is the matcher's own: a body beyond
-`IlFindings.MaxCanonicalOperations` on either side is a `Failed` comparison
-that the view reports visibly, as Finding adoption's fail-visibly rule
-requires, while Exists over the same pair still decides, since lockstep is
-linear and unbounded. That is the one place the two scenarios' outcomes
-differ by design, and the agreement below is stated so that it is not a
-divergence: agreement is on the drained censuses, which both scenarios share,
-not on the matcher's success.
+ordered matcher's bound is the matcher's own and is applied at `Compare`,
+after both drains, never at `Inspect`: a pair with a side beyond
+`IlFindings.MaxCanonicalOperations` drains to two `Complete` censuses and is a
+`Failed` comparison that the view reports visibly, as Finding adoption's
+fail-visibly rule requires, while Exists over the same pair decides, since
+lockstep is linear and unbounded. That is the one place the two scenarios'
+outcomes differ by design. It is a bounded exception to Diff capabilities'
+rule 2, registered there beside the decode-failure exception: for such a
+row, the view shows the bound failure, which is not empty and does not claim
+the row is unchanged. Today `IlFindings.Inspect` applies the bound, which
+would make a large unchanged body `Failed` on both sides; adoption step 1
+moves it to `Compare`.
 
-A pair-dependent native algorithm, such as `IlBodyDiff`'s order-preserving
-alignment with target validation, may run beside the census comparison when
-both sides are `Complete`, as Finding nomenclature's inspection topology
-allows. It is not a scenario of the census. It must not be the source of
-Exists, and a view that shows its rows still declares the census comparison's
-level.
+The IL kind's fold includes target validation over the match: after the
+ordered matcher aligns operations by their projected keys, each matched
+branch or switch is `Present` only when its targets' indexes map to each
+other under the alignment, and otherwise is one `Removed` and one `Added`,
+which is `IlFindings.Compare` today and is why a retargeted branch is a
+difference while a branch over an insertion is not. That step is pair
+dependent, and it runs over census atoms, so it is Exhaustive's. A native
+algorithm that is not over census atoms, such as `IlBodyDiff`'s hunk and
+row production, may run beside the census comparison when both sides are
+`Complete`, as Finding nomenclature's inspection topology allows. It is not
+a scenario of the census, it must not be the source of Exists, and a view
+that shows its rows still declares the census comparison's level.
 
 ## Agreement
 
 The two scenarios agree per row and per kind, and the agreement is the
 Exists contract of Diff capabilities applied to one producer:
 
-1. **Unchanged is exact.** Exists `Unchanged` holds exactly when both drained
-   inspections are `Complete` with censuses equal atom by atom, or both are
-   `Absent` of one kind. Then the Exhaustive comparison, when its matcher
-   runs, has only `Present` pairs and a same-topology transition, so the
-   view has nothing to show.
-2. **Changed is observable.** Exists `Changed` holds exactly when both
-   inspections are non-`Failed` and the censuses differ at some position or
-   the topology differs, or when a difference precedes a failure. Then the
-   Exhaustive comparison, when its matcher runs, has a non-`Present` pair or
-   a non-same topology; when the matcher cannot run, the view shows the
-   failure, never an empty diff.
+1. **Unchanged is exact.** Exists `Unchanged` holds exactly when both drains
+   are `Complete` with censuses equal in canonical bytes atom by atom, or
+   both are `Absent` of one kind. Equal bytes give equal projected keys and
+   an identity alignment under which every target maps to itself, so the
+   Exhaustive comparison, when its matcher runs, has only `Present` pairs
+   and a same-topology transition, and the view has nothing to show.
+2. **Changed is observable.** Exists `Changed` holds exactly when both drains
+   are non-`Failed` and differ in bytes at some position or in topology, or
+   when a difference precedes a failure. Then the Exhaustive comparison, when
+   its matcher runs, has a non-`Present` pair, a target that fails
+   validation, or a non-same topology; when the matcher cannot run, by a
+   failure or by its bound, the view shows that, never an empty diff.
 3. **Undecided is never read either way.** Exists `Indeterminate` holds
-   exactly when an inspection is `Failed` and no difference precedes the
+   exactly when a drain ends `Failed` and no difference precedes the
    failure. The Exhaustive comparison is `Failed` for the same reason, and
    both say so.
 
-Because the drained census is the cursor's own output, 1 and 3 hold by
-construction once the cursor is gated complete against `Inspect`. Rule 2's
-first clause is the same. Its second clause, a difference before a failure,
-is the one Exists decides and Exhaustive cannot, and both report it as the
-contract says.
+Because the drain is the cursor's own output, 1 and 3 hold by construction
+once the cursor is gated complete. Rule 2's first clause is the same. Its
+second clause, a difference before a failure or a pair beyond the matcher's
+bound, is the one Exists decides and Exhaustive cannot, and both report it
+as the contract says.
 
 ## Gates
 
@@ -272,23 +309,34 @@ test class gates its cursor:
 
 - **Completeness:** for every row of the `ILInspector.Metadata.FastDiff`
   fixture pair and every body of the IL diff fixtures, draining the kind's
-  cursor yields the inspection `Inspect` returns, atom for atom and terminal
-  for terminal, including `Absent` kinds and the position of a `Failed`.
+  cursor yields the same atoms and terminal as a whole read of the row
+  through the kind's canonicalization, including `Absent` kinds and the
+  offset of a `Failed`; and, from adoption step 1, the kind's `Inspect`
+  returns that drain.
 - **Canonical order:** draining a cursor twice yields equal atoms; draining
   cursors over an image pair that differs only in token numbers, row order,
   or a non-platform dependency version yields equal atoms, as Fast Diff's
   dependency-versions and canonical-encodings pairs require.
 - **Exists agreement:** over the same fixture pairs, Exists per row and kind
-  equals atom-by-atom equality of the drained censuses with the topology
-  rule, and the Body-axis fold of IL and declaration Exists per method
-  equals Fast Diff's Body verdict for the method, which re-bases Fast
-  Diff's Body exactness gate on the cursor.
+  equals byte equality of the two drains with the topology rule; Exists on
+  the IL kind per method equals Fast Diff's per-method body verdict, which
+  re-bases Fast Diff's Body exactness gate on the cursor; and Exists on the
+  declaration kind per Type equals Fast Diff's declaration census equality
+  for the Type. Folds above the row are Fast Diff's gates.
+- **Identity:** over the `FastDiffIdentityTests` images, two method names
+  whose bytes differ but decode alike, a callee switch between names that
+  collide when joined by punctuation, and the other identity cases, the IL
+  cursor's atoms differ where Fast Diff's walk differs, which the formatted
+  operand identity of `IlFindings` today does not satisfy.
 - **Fault order:** a body that differs and then holds an undefined opcode is
   `Changed`; an undefined opcode, an unresolvable operand, or an undecodable
   body before any difference is `Indeterminate` on either side and on both;
-  a declaration fact whose key cannot be formed is the same for its kind.
-  The cases are Fast Diff's `FastDiffIdentityTests` and
-  `FastDiffMetadataSafetyTests` images, read through the cursor.
+  a body whose only differences before an undefined opcode are targets is
+  `Indeterminate`; a body undecodable on one side and absent on the other is
+  `Changed`; and a declaration fact whose key cannot be formed is
+  `Indeterminate` for its kind. The cases are Fast Diff's
+  `FastDiffIdentityTests` and `FastDiffMetadataSafetyTests` images, read
+  through the cursor.
 - **Laziness:** for a pair that differs at its first atom, Exists advances
   each IL cursor once past the pre-scan and resolves one operand per side;
   for an unchanged pair, each cursor is advanced exactly its census length
@@ -301,9 +349,10 @@ test class gates its cursor:
   NativeAOT and Browser/Wasm. The walk is deleted only when lockstep matches
   or beats it on every reported number; a lockstep that does not is not an
   improvement, and the walk stays as the provision.
-- **Bound:** a body beyond `MaxCanonicalOperations` on one side is decided
-  by Exists and is a visible `Failed` comparison for Exhaustive, with no
-  `Unchanged` or empty view in either.
+- **Bound:** a pair with a body beyond `MaxCanonicalOperations` on one side
+  drains to two `Complete` censuses, is decided by Exists, and is a visible
+  `Failed` comparison for Exhaustive, with no `Unchanged` or empty view in
+  either; an unchanged pair of such bodies is Exists `Unchanged`.
 
 ## Non-claims
 
@@ -312,9 +361,9 @@ test class gates its cursor:
   defines.
 - It does not define correspondence. Rows arrive paired; a Member whose
   signature changed is two rows, as Fast Diff's identity and the map state.
-- It does not change `FindingCensus<T>`, receipts, instance keys, the
-  matcher, or the fold. Draining a cursor seals through the existing
-  operation.
+- It does not change `FindingCensus<T>`, receipts, instance keys, or the
+  matcher. Draining a cursor seals through the existing operation. It
+  changes `IlFindings` only as adoption step 1 states.
 - It does not add a third scenario. Counts, samples, and bounded reads are
   hosts' uses of Exists or Exhaustive, not depths of their own.
 - It does not own the axes, the pair partition, the API axis surface, or the
@@ -326,8 +375,11 @@ test class gates its cursor:
 
 1. **IL cursor.** A cursor over one body for the IL kind, placed with the
    kind's canonicalization under the layering of Diff system's layer 1, with
-   `IlFindings.Inspect` draining it; gated by completeness, canonical order,
-   and fault order.
+   `IlFindings.Inspect` draining it. Under IL diff canonicalization's owner,
+   the atom's operand identity becomes the `SymbolKey`, the atom carries each
+   target's instruction index with the projected key still omitting it, and
+   the size bound moves from `Inspect` to `Compare`; gated by completeness,
+   canonical order, identity, fault order, and bound.
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`,
    run beside Fast Diff's walk for every method of the fixture pairs under
    the Exists agreement gate, and measured against the walk on the perf

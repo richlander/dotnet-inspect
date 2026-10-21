@@ -190,7 +190,9 @@ document only states that each step names its axes.
    [IL diff](il-diff-canonicalization.md) reports for an endpoint it cannot
    decode, stands in for a difference. The view is not empty, and it does not
    claim the subject is unchanged. [Adoption](#adoption) step 1 records a
-   second, interim exception until the declaration view lands.
+   second, interim exception until the declaration view lands. A third is a
+   body beyond the ordered matcher's bound: Exists decides it, and the view
+   shows the bound failure, as [Finding census](finding-census.md) states.
 
 Rung 4 is read for these rules under each axis's policy, such as the Body
 policy's assembly-scope normalization
