@@ -106,13 +106,14 @@ operation-lease borrow across `await`. The root implements only
 PackageHouse adopts operation-lease ownership in
 [#6622](https://github.com/richlander/dotnet-inspect/issues/6622). Each House
 execution consumes one request-matched operation lease, owns it across every
-asynchronous suspension, and releases it on every terminal path. Existing
-direct source adapters retain the root only through the scoped compatibility
-path until their owning consumers adopt transferred operation leases. Calls
-without an external context own a fresh operation lease, while existing
-external-context calls use the internal registered-work bridge. Desktop
-composition owns the root and awaits root quiescence before releasing its
-clients.
+asynchronous suspension, and releases it on every terminal path. Dependency
+candidate resolution likewise accepts only explicit authorization and a
+caller-issued operation; its former source adapter and direct root candidate
+methods were removed after all production and test consumers adopted that
+contract. Remaining compatibility calls without an external context own a
+fresh operation lease, while existing external-context calls use the internal
+registered-work bridge. Desktop composition owns the root and awaits root
+quiescence before releasing its clients.
 
 `DesktopPackageSourceComposition.GetVersionsAsync` retains its compatibility
 input validation and exact configured-authority registration, but Package
@@ -132,8 +133,9 @@ only sequential source steps. Dependency pruning reuses one operation through
 its sequential candidate-required declaration schedule. Workspace dependency
 enrichment now reuses one host-issued operation through its complete
 candidate-resolution schedule while root Nuspec acquisition remains
-PackageHouse-owned. Only test-only direct candidate-query consumers retain the
-compatibility source interface.
+PackageHouse-owned. Candidate-query tests use the same caller-issued operation
+contract as production consumers; no candidate-source compatibility interface
+remains.
 
 These compatibility paths do not claim that ordinary class aliases are
 borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
@@ -269,14 +271,13 @@ second `Dispose` does not create another valid release obligation.
 
 ### Results and retirement
 
-Root retirement rejects candidate issuance or use through the direct
-compatibility surface and through newly requested operations. An operation
-issued before retirement retains generation-bound candidate authority until it
-releases. The current compatibility surface does not dispose an explicitly
-caller-supplied operation context; the adopted operation surface accepts no
-such context and owns the one it creates. Completed result values retain their
-existing evidence semantics after root or operation retirement; no package
-result or House receipt stores either live lease.
+Root retirement rejects newly requested operations. An operation issued before
+retirement retains generation-bound candidate authority until it releases.
+Candidate issuance and dependency discovery are available only through that
+issued operation; the root has no direct candidate compatibility surface.
+Completed result values retain their existing evidence semantics after root or
+operation retirement; no package result or House receipt stores either live
+lease.
 
 Candidate payload acquisition consults every authorized cache before cold
 acquisition, then tries the same stable local-before-HTTP authority order used
