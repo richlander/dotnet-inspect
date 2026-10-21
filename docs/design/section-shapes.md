@@ -29,11 +29,12 @@ be shown.
 
 Section Shapes owns one claim:
 
-> After a section's semantic result is known, its owner declares the
-> representations it offers. Each representation presents that same result;
-> the consumer chooses one without changing the declared rows, ordering,
-> selection, or Count. The CLI prefers Hierarchy, then Table, then Document;
-> JSON consumes the structured Document.
+> A section's owner declares the representations it offers for its semantic
+> result. The consumer selects representation demand before content execution;
+> that demand determines the typed content returned and the work required,
+> without changing the declared rows, ordering, selection, or Count. The CLI
+> prefers Hierarchy, then Table, then Document; JSON consumes the structured
+> Document.
 
 This owner defines the three shapes, the native and permitted lowerings of
 each, the owner-issued properties that give a result its context, the
@@ -54,8 +55,10 @@ command's data.
 ### One result, several representations
 
 A section may expose Hierarchy, Table, and Document representations in any
-supported combination. These are alternative presentations of one owner-issued
-result, not separate inspections or permission to acquire additional content.
+supported combination. These answer the same semantic question over the same
+subject and selected population; they are not a requirement to materialize
+one rich object containing every representation. Demand alone does not
+authorize acquisition beyond the operation's existing permissions.
 The semantic definitions below still distinguish rows, parent relationships,
 and text payloads. An owner may expose a Table alongside a Hierarchy, or a
 Document alongside either, without changing that semantic grain.
@@ -78,6 +81,53 @@ not be mistaken for totals over a selected row window. Row selection does not
 silently recompute a complete-result summary. Each owner defines the summary's
 scope and any selection context needed to interpret it; this contract does not
 impose a universal summary schema.
+
+### Typed demand and work
+
+The operator approved this type and work boundary on 2026-10-21:
+
+> The selected representation determines the final content type `T` in
+> `InspectionEnvelope<T>`. Encoding does not. Table and Hierarchy demand
+> excludes work performed solely to construct Document summary or context.
+
+The host maps its format gesture to an offered representation before executing
+the section's content plan. The shared owner consumes typed representation
+demand, not CLI format flags. For example, TSV and JSONL both request the same
+Table content type; changing between those encodings changes neither `T` nor
+its producer work. JSON requests the owner's Document type. Markdown requests
+that Document type when offered, or the declared structural fallback type.
+
+Conceptually, a Diff owner can issue
+`InspectionEnvelope<ChangesTable>` for Table demand and
+`InspectionEnvelope<ChangesDocument>` for Document demand. These illustrative
+names prescribe neither CLR types nor a universal schema. Each owner defines
+its concrete typed request/result pairs; a method does not dynamically change
+its declared return type after inspecting an encoding flag. The shared
+boundary must preserve the selected type rather than erase it to `object`,
+serialize every representation, or require a stable all-representations
+Document with unused summary slots.
+
+Table and Hierarchy demand must avoid Document-only summary computation,
+acquisition, and allocation. Building a complete Document and then discarding
+its summary is not conforming. Shared prerequisites and facts needed for the
+requested rows, parent relationships, selection, or required completeness and
+failure evidence still run; facts already produced by that work may be reused.
+There is no requirement to duplicate a scan or prevent incidental production
+of a fact. There is a requirement not to add Document-only aggregation,
+materialization, or prerequisite work to a structural request.
+
+Document demand composes the selected payload with its owner-issued summary
+and context. Owners share mechanisms and prerequisites where their inputs and
+invariants agree, rather than running a second inspection solely to wrap the
+rows. Document demand remains subject to existing cost and acquisition
+authorization; a format preference grants no additional network permission.
+
+Thus "same result" means the same semantic question and declared row
+population, not the same fully materialized object or identical work plan.
+Summary scope remains defined even when producing that summary requires work
+that structural requests deliberately avoid. The envelope continues to wrap
+one owner-issued content value with Share and diagnostics; selecting a
+different `T` does not alter those service responsibilities.
 
 ### Consumer selection
 
@@ -663,6 +713,11 @@ gates covering, for its command:
   an empty primary population;
 - agreement between Document payload rows and Table rows after the same
   selection, with declared summary scope preserved;
+- representation-specific typed content at the shared boundary, with the same
+  Table type for TSV and JSONL encodings;
+- Table and Hierarchy demand avoiding Document-only summary computation,
+  acquisition, and allocation while preserving required row, completeness,
+  and failure work;
 - JSON Document serialization with native types, retained context, and
   projection that never switches to display-lowered JSON;
 - default representation preference and explicit Markdown Document preference

@@ -10,6 +10,12 @@ the Markdown display view. A table-centric Document carries the same selected,
 ordered rows as its Table representation while retaining native JSON types.
 It is content, not the service envelope exposed by `--envelope`.
 
+Under [typed demand and work](section-shapes.md#typed-demand-and-work), JSON
+selects Document demand before content execution. The returned content type is
+the owner's Document type, not an encoding-time conversion of a Table or a
+mandatory rich object built for every request. Structural requests avoid
+Document-only summary work.
+
 For an adopted owner, accepted field and column projections narrow declared
 typed Document content before serialization; they do not select a
 string-valued JSON dialect. Unsupported projections fail explicitly. Display
