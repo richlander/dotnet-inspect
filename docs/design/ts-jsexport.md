@@ -19,6 +19,10 @@ TypeScript source module and how one metadata-declared facade context selects a
 closed set of those independent modules. It does not own .NET JavaScript
 interop thunk generation, `JsExportSurface` authentication, TypeScript compiler
 behavior, public module specifiers, startup order, or browser hosting.
+The component
+[`README`](../../src/ts-jsexport/README.md) is the introductory and adoption
+guide; this document remains the normative architecture and supported-contract
+owner.
 
 ## Decision
 
