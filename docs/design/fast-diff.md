@@ -264,9 +264,8 @@ are settled as follows:
   neither side, and `beforefieldinit` are Body facts. Canonical body comparison does
   not show them, so a Body cue decided by one of them alone opens a view with
   no IL change today. That is a known divergence under rule 4 of Diff
-  observability until the declaration view of
-  [Diff capabilities](diff-capabilities.md#axes) presents them
-  ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347));
+  observability until the [declaration view](declaration-view.md) presents
+  them ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347));
   the Body axis keeps comparing them, since an `Unchanged` that omitted them
   would be false.
 
