@@ -185,12 +185,17 @@ document only states that each step names its axes.
    for a subject whose later content the complete diff cannot decode, such as
    a body that differs and then holds an undefined opcode.
 
-   This is the one bounded exception to rule 2 by design: for that subject,
+   This is the first bounded exception to rule 2 by design: for that subject,
    the complete diff's visible decode-failure view, the failed inspection the
    [IL diff](il-diff-canonicalization.md) reports for an endpoint it cannot
    decode, stands in for a difference. The view is not empty, and it does not
    claim the subject is unchanged. [Adoption](#adoption) step 1 records a
    second, interim exception until the declaration view lands.
+
+   A third bounded exception is a body beyond the ordered matcher's bounds.
+   Exists decides it, `Changed` or `Unchanged`, and the exhaustive view shows
+   the bound failure, which is not empty and shows no difference, as
+   [Finding census](finding-census.md#exhaustive) states.
 
 Rung 4 is read for these rules under each axis's policy, such as the Body
 policy's assembly-scope normalization
