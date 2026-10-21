@@ -661,16 +661,17 @@ public static class FastDiff
             => Md.StringComparer.StartsWith(type.Name, "<");
 
         /// <remarks>
-        /// Visibility is the Type's own row, not its declaring chain: the
-        /// Public API surface admits a public nested Type of a non-public Type,
-        /// so the API axis must compare it.
+        /// Visibility is the Type's own row and its declaring chain, as the API
+        /// axis admits it: a public nested Type of a non-public Type is not
+        /// visible, since no other assembly can reach it.
         /// </remarks>
         public bool IsVisible(TypeDefinitionHandle handle)
             => (Md.GetTypeDefinition(handle).Attributes & TypeAttributes.VisibilityMask)
                     is TypeAttributes.Public
                     or TypeAttributes.NestedPublic
                     or TypeAttributes.NestedFamily
-                    or TypeAttributes.NestedFamORAssem;
+                    or TypeAttributes.NestedFamORAssem
+                && MetadataVisibility.AreEnclosingTypesExternallyReachable(Md, handle);
 
         bool IsVisible(MethodDefinitionHandle handle, MethodDefinition method)
             => IsVisibleAccess((int)(method.Attributes & MethodAttributes.MemberAccessMask))

@@ -569,6 +569,8 @@ const changeKinds = [
   "TypeAttributeRemoved",
   "MemberAttributeAdded",
   "MemberAttributeRemoved",
+  "TypeAccessibilityChanged",
+  "MemberAccessibilityChanged",
 ] as const;
 
 function validateChanges(value: unknown, description: string): void {
@@ -580,7 +582,7 @@ function validateChanges(value: unknown, description: string): void {
     requireEnum(
       change.classification,
       `${description}[${index}].classification`,
-      ["Additive", "Breaking", "PotentiallyBreaking"],
+      ["Additive", "Breaking", "PotentiallyBreaking", "NonBreaking"],
     );
     requireEnum(change.category, `${description}[${index}].category`, [
       "Signature",
@@ -784,6 +786,7 @@ function validateSucceeded(value: unknown): void {
     "breakingCount",
     "additiveCount",
     "potentiallyBreakingCount",
+    "nonBreakingCount",
   ]) {
     requireInteger(
       aggregate[property],
@@ -815,6 +818,7 @@ function validateSucceeded(value: unknown): void {
       "breakingCount",
       "additiveCount",
       "potentiallyBreakingCount",
+      "nonBreakingCount",
     ]) {
       requireInteger(type[property], `Library API Diff Type ${property}`);
     }
@@ -1427,6 +1431,7 @@ function typeMetrics(type: BrowserLibraryApiDiffType): string {
     compactCount(type.breakingCount, "breaking"),
     compactCount(type.additiveCount, "additive"),
     compactCount(type.potentiallyBreakingCount, "potentially breaking"),
+    compactCount(type.nonBreakingCount, "non-breaking"),
   ].filter(Boolean).join(" · ");
 }
 
@@ -1504,6 +1509,7 @@ function classificationLabel(
     case "Breaking": return "Breaking";
     case "Additive": return "Additive";
     case "PotentiallyBreaking": return "Potentially breaking";
+    case "NonBreaking": return "Non-breaking";
     default: return String(classification);
   }
 }
@@ -1947,6 +1953,7 @@ function renderLibrarySubject(
     compactCount(aggregate.breakingCount, "breaking"),
     compactCount(aggregate.additiveCount, "additive"),
     compactCount(aggregate.potentiallyBreakingCount, "potentially breaking"),
+    compactCount(aggregate.nonBreakingCount, "non-breaking"),
   ].filter(Boolean);
   if (value.types.length === 0) {
     return {
@@ -1993,6 +2000,7 @@ function renderTypeSubject(
     compactCount(type.breakingCount, "breaking"),
     compactCount(type.additiveCount, "additive"),
     compactCount(type.potentiallyBreakingCount, "potentially breaking"),
+    compactCount(type.nonBreakingCount, "non-breaking"),
     type.typeDefinitionChanged === true ? "Type definition changed" : "",
     type.state === "Addition"
       ? "Added Type"

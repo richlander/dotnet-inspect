@@ -383,8 +383,8 @@ public static partial class WorkspaceCommand
                     "--root-request requires package Root House execution.");
             }
             PackageRootBinding? root =
-                await AcquireRootRequestAsync(
-                    options,
+                await PackageRootRequestAdmission.AcquireAsync(
+                    options.RootRequest!,
                     loadOptions,
                     rootHouse,
                     cancellationToken).ConfigureAwait(false);
@@ -901,7 +901,7 @@ public static partial class WorkspaceCommand
         }
     }
 
-    static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
+    internal static WorkspaceRegistration.Ecosystem ParseEcosystemRegistration(
         string value)
     {
         EcosystemPackId id = ParseEcosystemPackId(value);
@@ -927,7 +927,7 @@ public static partial class WorkspaceCommand
         return new WorkspaceRegistration.Ecosystem(known.Declaration);
     }
 
-    static EcosystemPackId ParseEcosystemPackId(string value)
+    internal static EcosystemPackId ParseEcosystemPackId(string value)
     {
         string canonical = value.StartsWith(
             "ecosystem.",
@@ -1009,57 +1009,6 @@ public static partial class WorkspaceCommand
                     assemblyVersion,
                     Culture: null,
                     PublicKeyToken: null)));
-    }
-
-    static async Task<PackageRootBinding?> AcquireRootRequestAsync(
-        WorkspaceOptions options,
-        WorkspaceContextLoadOptions loadOptions,
-        PackageRootHouseExecution rootHouse,
-        CancellationToken cancellationToken)
-    {
-        if (!PackageRootReacquisitionRequest.TryDecode(
-                options.RootRequest!,
-                out PackageRootReacquisitionRequest? request))
-        {
-            CommandError.Write(
-                "--root-request must be a package Root reopening token issued by this tool.",
-                [
-                    $"Expected a '{PackageRootReacquisitionRequest.TokenPrefix}' token of at most "
-                    + $"{PackageRootReacquisitionRequest.MaxEncodedLength} characters, as printed in the "
-                    + "Root column of 'package query ... --where \"library-literal=TEXT\" --tfm TFM'.",
-                ]);
-            return null;
-        }
-
-        PackageRootAcquisitionOutcome outcome =
-            await PackageRootAcquisition.AcquireAsync(
-                request,
-                rootHouse,
-                cancellationToken).ConfigureAwait(false);
-        if (outcome is PackageRootAcquisitionOutcome.Failed failed)
-            return Failure(failed.Kind, failed.Message);
-
-        var acquired = (PackageRootAcquisitionOutcome.Acquired)outcome;
-        PackageRootBinding binding = acquired.Binding;
-        PackagePayloadOrigin origin = acquired.Payload.Origin;
-
-        loadOptions.Log?.Invoke(
-            $"Reopened {binding.Coordinate.PackageId}@{binding.Coordinate.Version} "
-            + $"from producer '{binding.Root.ProducerKey}' ({origin}); "
-            + $"compile {request.CompileTargetFramework ?? "(none)"}, "
-            + $"implementation {request.SelectionTargetFramework ?? "(none)"} "
-            + $"resolved {binding.Root.AssetSelection.Status}.");
-        return binding;
-
-        PackageRootBinding? Failure(
-            PackageRootAcquisitionFailureKind kind,
-            string message)
-        {
-            CommandError.Write(
-                $"The package Root named by --root-request could not be reopened: {request}.",
-                [$"{kind}: {message}"]);
-            return null;
-        }
     }
 
     /// <summary>

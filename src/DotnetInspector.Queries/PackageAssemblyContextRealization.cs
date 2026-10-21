@@ -125,8 +125,36 @@ public sealed class PackageRootBinding
     /// authority. Gated by
     /// <c>SparsePackageAssemblyProjectionTests.ReacquisitionRequest_IsExactResourceFreeAndSeparatesTargets</c>.
     /// </remarks>
-    public PackageRootReacquisitionRequest CreateReacquisitionRequest() =>
-        new(PackageArtifactRootRequest.From(this));
+    public PackageRootReacquisitionRequest CreateReacquisitionRequest()
+    {
+        if (Root.ContentOnly)
+        {
+            throw new InvalidOperationException(
+                "Content-only package admission is invocation-local and cannot issue a durable Library realization request.");
+        }
+        return new(PackageArtifactRootRequest.From(this));
+    }
+
+    /// <summary>
+    /// Preserves the acquired generation and selection evidence while admitting
+    /// only package content, without preparing Library participants.
+    /// </summary>
+    public PackageRootBinding ForContentInspection()
+    {
+        if (Root.ContentOnly)
+            return this;
+
+        var root = new PackageRootRealization(
+            Root.Content, Root.PackageId, Root.PackageVersion,
+            Root.RequestedTargetFramework, Root.RequestedRuntimeIdentifier,
+            Root.AssetSelection, Root.AssetDemand, Root.ImplementationNames,
+            Root.LibrarySelector, contentOnly: true);
+        return new PackageRootBinding(
+            root, Coordinate, SourceProducer, ContentGenerationIdentity,
+            SelectionIdentity, CompileTargetFramework,
+            ImplementationSelectionTargetFramework,
+            UsesCompatibleImplementationSelection, AllowsCompatibleTargetSelection);
+    }
 
     /// <summary>
     /// Binds a payload acquired through the typed source-client path.
@@ -1108,7 +1136,7 @@ public sealed class PackageRootBinding
             Root.RequestedRuntimeIdentifier,
             Root.AssetSelection,
             demand,
-            implementationNames, Root.LibrarySelector);
+            implementationNames, Root.LibrarySelector, Root.ContentOnly);
         return new PackageRootBinding(
             root,
             Coordinate,
@@ -1130,7 +1158,7 @@ public sealed class PackageRootBinding
         ArgumentNullException.ThrowIfNull(selector);
         var root = new PackageRootRealization(Root.Content, Root.PackageId, Root.PackageVersion,
             Root.RequestedTargetFramework, Root.RequestedRuntimeIdentifier, Root.AssetSelection,
-            Root.AssetDemand, Root.ImplementationNames, selector);
+            Root.AssetDemand, Root.ImplementationNames, selector, Root.ContentOnly);
         return new PackageRootBinding(root, Coordinate, SourceProducer, ContentGenerationIdentity,
             new PackageRootSelectionIdentity(), CompileTargetFramework,
             ImplementationSelectionTargetFramework,
@@ -1236,7 +1264,8 @@ public sealed class PackageRootRealization
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         PackageImplementationNames? implementationNames = null,
-        PackageLibrarySelector? librarySelector = null)
+        PackageLibrarySelector? librarySelector = null,
+        bool contentOnly = false)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -1250,6 +1279,7 @@ public sealed class PackageRootRealization
         }
 
         _content = content;
+        ContentOnly = contentOnly;
         LibrarySelector = librarySelector;
         AssetDemand = assetDemand;
         ImplementationNames = implementationNames;
@@ -1303,6 +1333,9 @@ public sealed class PackageRootRealization
 
     public PackageCompileAssetSelection AssetSelection { get; }
 
+    /// <summary>Whether admission prepares package content without Library participants.</summary>
+    public bool ContentOnly { get; }
+
     /// <summary>
     /// Which roles this Root realizes: the surface only, or the surface and
     /// its implementation universe.
@@ -1324,11 +1357,13 @@ public sealed class PackageRootRealization
 
     /// <summary>The exact surface participants this demand authorizes materializing.</summary>
     public IReadOnlyList<PackageCompileAsset> RealizedSurfaceAssets =>
-        LibrarySelector is null ? AssetSelection.Assets
+        ContentOnly ? []
+            : LibrarySelector is null ? AssetSelection.Assets
             : LibrarySelector.Select(AssetSelection) is { Count: 1 } selected ? selected : [];
 
     public IReadOnlyList<PackageCompileAsset> RealizedImplementationAssets =>
-        !AssetSelection.IsSelected
+        ContentOnly
+        || !AssetSelection.IsSelected
         || AssetDemand == PackageAssetDemand.Surface
             ? []
             : LibrarySelector is not null

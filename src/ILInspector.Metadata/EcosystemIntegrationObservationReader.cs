@@ -24,7 +24,10 @@ internal static class EcosystemIntegrationObservationReader
                         : null;
             var type = new EcosystemIntegrationTypeObservation(
                 typeName,
-                definitionName);
+                definitionName,
+                AttributeReader.ReadTypeDiscoveryAttributes(
+                    reader,
+                    definition.GetCustomAttributes()));
             types.Add(type);
             AddStarterMethods(methods, reader, handle, definition, type);
         }
@@ -87,11 +90,35 @@ internal static class EcosystemIntegrationObservationReader
                             reader,
                             typeHandle,
                             method);
+                    var displaySignature =
+                        ApiSurfaceExtractor.GetMethodSignatureForIdentity(
+                            reader,
+                            GenericContext.ForType(
+                                reader,
+                                typeDefinition),
+                            handle,
+                            method,
+                            NullabilityReader.GetTypeNullableContext(
+                                reader,
+                                typeHandle),
+                            captureExtensionReceiver: true);
+                    if (displaySignature.IsDegraded)
+                        throw new BadImageFormatException(
+                            "The Integration API display signature is degraded.");
                     evidence = new EcosystemIntegrationApiEvidence(
                         anchor.Anchor,
                         definitionName,
                         anchor.ExtendedTypeReference,
-                        anchor.ReturnTypeReference);
+                        anchor.ReturnTypeReference,
+                        ApiSurfaceExtractor.ClassifyMethodKind(
+                            name,
+                            isFinalizer: false,
+                            isExplicitInterfaceImplementation: false),
+                        displaySignature.Text,
+                        declaringType.DiscoveryAttributes,
+                        AttributeReader.HasEditorBrowsableNeverAttribute(
+                            reader,
+                            method.GetCustomAttributes()));
                 }
                 catch (BadImageFormatException)
                 {

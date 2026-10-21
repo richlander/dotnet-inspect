@@ -22,6 +22,10 @@ public sealed record PackageCompileAsset(
     public string AssemblySimpleName =>
         PackageEntryPath.GetStemName(AssemblyName);
 
+    /// <summary>The package-relative compile-population root.</summary>
+    internal string PopulationPath =>
+        PackageEntryPath.GetLibraryPopulationPath(Path, TargetFramework);
+
     /// <summary>The same-directory XML documentation path, when this is a DLL.</summary>
     public string? DocumentationCompanionPath =>
         GetCompanionPath(".xml");

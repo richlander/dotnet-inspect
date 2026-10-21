@@ -44,7 +44,6 @@ type PackageOperationName =
   | "openPlatformForwarderView"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
-  | "containPackageDocumentHtml"
   | "containPackageDocumentLeaves"
   | "getPlatformCatalog"
   | "getPlatformVersions"
@@ -68,6 +67,7 @@ type PackageOperationName =
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackageDependencies"
+  | "queryReferencePackageSuppliers"
   | "queryPackageHierarchy"
   | "queryPackageVulnerabilities"
   | "queryPackageVersions"
@@ -1203,14 +1203,6 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["getPackageDocument"]>
       ) => facades.package.getPackageDocument(...args),
     ),
-    containPackageDocumentHtml: valueOperation(
-      "ordinary-package-contain-document-html",
-      1,
-      (
-        facades,
-        ...args: Parameters<PackageFacade["containPackageDocumentHtml"]>
-      ) => facades.package.containPackageDocumentHtml(...args),
-    ),
     containPackageDocumentLeaves: valueOperation(
       "ordinary-package-contain-document-leaves",
       2,
@@ -1258,6 +1250,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>
       ) => facades.package.queryPackageDependencies(...args),
+    ),
+    queryReferencePackageSuppliers: valueOperation(
+      "ordinary-package-query-reference-suppliers",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryReferencePackageSuppliers"]>
+      ) => facades.package.queryReferencePackageSuppliers(...args),
     ),
     queryPackageHierarchy: valueOperation(
       "ordinary-package-query-hierarchy",
@@ -2519,9 +2519,6 @@ export function bindEngineWorkerOrdinaryClient(
       getPackageDocument: bind(
         engineWorkerOrdinaryOperations.package.getPackageDocument,
       ),
-      containPackageDocumentHtml: bind(
-        engineWorkerOrdinaryOperations.package.containPackageDocumentHtml,
-      ),
       containPackageDocumentLeaves: bind(
         engineWorkerOrdinaryOperations.package.containPackageDocumentLeaves,
       ),
@@ -2540,6 +2537,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryPackageDependencies: bind(
         engineWorkerOrdinaryOperations.package.queryPackageDependencies,
+      ),
+      queryReferencePackageSuppliers: bind(
+        engineWorkerOrdinaryOperations.package.queryReferencePackageSuppliers,
       ),
       queryPackageHierarchy: bind(
         engineWorkerOrdinaryOperations.package.queryPackageHierarchy,

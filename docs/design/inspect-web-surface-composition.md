@@ -822,12 +822,14 @@ subject-specific identity details and content
 ```
 
 Package Overview starts directly with its identity and content rather than
-reserving a quiet `Overview` header row. The Package navigation pane lists target frameworks first, then
+reserving a quiet `Overview` header row. The Package navigation pane lists target
+frameworks first, then
 versions in owner-issued release order, with the active version selected,
 text filtering, and an `Include:` group with independent Prerelease and Unlisted
 checkboxes, both unchecked initially. Listing flags come from the existing
 owner-issued version inventory; the host does not infer them from version text.
-Async inventory refresh preserves both checkbox selections. The list headings identify the pane
+Async inventory refresh preserves both checkbox selections. The list headings
+identify the pane
 without an additional Package Navigation row.
 The active coordinate remains visible regardless of filters. Loading and
 failed inventory states retain that coordinate; failure offers explicit retry.
@@ -869,7 +871,8 @@ failed reads show title unavailability while retaining the document action.
 first H1 `Json.NET` (with an inline logo). `System.Text.Json@10.0.0` motivates
 the untitled fallback: its `PACKAGE.md` has no H1.
 Frameworks
-and versions remain in the master pane for both Overview and Compare. The icon and package name identify the subject without an additional
+and versions remain in the master pane for both Overview and Compare. The icon
+and package name identify the subject without an additional
 Package label. Package Compare uses the same full-width frame, content alignment,
 as Overview, starts directly with Comparison targets without repeating
 the package icon or name, and owns that work area; Library,
@@ -1033,7 +1036,8 @@ zero-dependency case.
 
 Package Dependencies has no bottom context row. Loading, query failure,
 no-dependency, no-exact-group, graph failure, and partial-workspace states retain
-the same header, controls, and scroll owner. Failures remain visibly distinct from successful
+the same header, controls, and scroll owner. Failures remain visibly distinct
+from successful
 empty results.
 
 Foreground Package Dependencies owns one closed acquisition lifecycle shared
@@ -1059,7 +1063,8 @@ Integrations, Analysis, Package Metadata, or the Metadata Explorer.
 
 Package Vulnerabilities is available for exact nuget.org package coordinates.
 It uses the complete package inspector area with the Package Overview
-Frameworks & versions navigation pane; version changes update the package coordinate, but
+Frameworks & versions navigation pane; version changes update the package
+coordinate, but
 framework selection does not alter vulnerability identity.
 
 ```text
@@ -1114,7 +1119,8 @@ One independently scrolling region begins with a bounded one-hop AssemblyRef
 graph and follows it with the complete reference rows. The graph uses the
 existing shared Mermaid viewport and pan/zoom controls, keeps the selected
 assembly as its root, and projects only the direct references already returned
-by the Library query. It performs no additional acquisition or transitive
+by the Library query. The root assembly name fits inside its rendered node
+without clipped text. It performs no additional acquisition or transitive
 inference. The preview is capped at 80 total nodes; when a Library exceeds that
 bound, the graph reports its shown count and the complete list remains
 authoritative immediately below it.
@@ -1127,6 +1133,38 @@ carries both the exact package identity and Library identifier; selecting it
 switches to that package and opens the Library Overview. An absent or ambiguous
 match remains static, and References never guesses a package from an assembly
 display name.
+
+For package-backed References, an optional asynchronous supplier pass consumes
+the selected package Library's direct Metadata AssemblyRefs and the closed,
+reachable Package route evidence owned by
+[Package-origin AssemblyRef supply routing](package-origin-assemblyref-supply-routing.md).
+Only a terminal Package selection yields an exact package ID and version for
+the existing range-only icon request. A Platform supplier, incomplete or
+ambiguous association, and any unavailable or failed result leave the reference
+plain. This pass does not delay the direct reference rows or diagram, change
+their navigation, or admit a supplier to the Workspace. A result may update the
+same reference row and diagram node only while the package, selected Library,
+and direct reference result remain current. The graph icon sits in space added
+to the node's left edge so it cannot shorten the Library or AssemblyRef text.
+
+[`Microsoft.Extensions.AI.OpenAI@10.11.0`](https://www.nuget.org/packages/Microsoft.Extensions.AI.OpenAI/10.11.0)
+at `net10.0` is the motivating NuGet asset: its root package declares
+`Microsoft.Extensions.AI.Abstractions@10.11.0` and `OpenAI@2.14.0`
+dependencies, while the shared References URL admits only the root package.
+The browser renderer gate uses a deterministic package-backed fixture to check
+that an external supplier icon arrives after the direct rows and diagram.
+
+For a uniquely matched Workspace Library, References may show the owning
+ordinary package's icon beside the AssemblyRef row. It uses the admitted
+Library-to-package provenance established by that exact identity match, then
+the package's retained icon or the default icon for a known package source.
+For nuget.org coordinates, the existing exact-coordinate icon query may
+replace the default. Framework/runtime Libraries and absent or ambiguous
+Workspace matches receive no icon from this path. A local artifact
+without retained package-icon evidence also remains plain. Icon loading is
+bounded and cannot change the direct AssemblyRef answer or a newer Library
+view. The graph remains an AssemblyRef diagram; icons annotate rows and nodes
+where package ownership is known.
 
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows
@@ -1627,7 +1665,8 @@ navigation band. It never scrolls or obscures the Application menu.
 The bottom data bar is one compact 30 CSS-pixel line with three presentations:
 transient inspection feedback, the active inspector's result summary, and
 default product information, in that order of precedence. Its grid row remains
-allocated in every state; long messages scroll horizontally without wrapping or expansion.
+allocated in every state; long messages scroll horizontally without wrapping or
+expansion.
 
 The data bar has two feedback purposes: useful information for the user and
 genuine assertion-style errors that a dotnet-inspect maintainer should fix.
@@ -1646,7 +1685,8 @@ presentation does not clear retained evidence or automatically retry work.
 
 Home retains default product information. Library Compare's Public API Diff
 is the result-summary pilot. On a successful complete comparison it supplies
-the owner-issued Library display, version endpoints, and totals for changed, added, and removed
+the owner-issued Library display, version endpoints, and totals for changed,
+added, and removed
 Types, changed Members, and breaking, additive, and potentially breaking changes.
 Inspection notices remain named. The completed summary moves from the working
 surface into the persistent bar; comparison targets, row-level evidence, and

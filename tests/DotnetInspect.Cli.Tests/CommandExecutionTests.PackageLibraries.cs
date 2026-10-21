@@ -925,6 +925,209 @@ public partial class CommandExecutionTests
 
     [Fact]
     public async Task
+        LibraryCommand_RuntimeOnlyPackageSelectsHighestAndExplicitTarget()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.RuntimeLibraries",
+            ("runtimes/win-x64/lib/net8.0/Older.dll", TestAssemblyPath),
+            ("runtimes/win-x64/lib/net10.0/Latest.One.dll", TestAssemblyPath),
+            ("runtimes/win-x64/lib/net10.0/Latest.Two.dll", TestAssemblyPath));
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var explicitTarget = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--tfm",
+                "net8.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/win-x64/lib/net10.0/Latest.One.dll)",
+                aggregate.Output);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/win-x64/lib/net10.0/Latest.Two.dll)",
+                aggregate.Output);
+            Assert.DoesNotContain("Older.dll", aggregate.Output);
+
+            Assert.Equal(0, explicitTarget.Exit);
+            Assert.Empty(explicitTarget.Error);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/win-x64/lib/net8.0/Older.dll)",
+                explicitTarget.Output);
+            Assert.DoesNotContain("Latest.One.dll", explicitTarget.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_MarkerOnlyCompileGroupUsesRuntimePopulation()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.RuntimeMarker",
+            ("ref/netstandard/_._", null),
+            (
+                "runtimes/unix/lib/netstandard1.0/Runtime.Library.dll",
+                TestAssemblyPath));
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Runtime.Library.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, aggregate.Exit);
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "## Library Info "
+                    + "(runtimes/unix/lib/netstandard1.0/"
+                    + "Runtime.Library.dll)",
+                aggregate.Output);
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Runtime.Library.dll", exact.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries()
+    {
+        var (packagePath, tempDir) = CreateLocalPackageWithEntries(
+            "Test.NonLibraryDlls",
+            ("analyzers/dotnet/cs/Analyzer.dll", TestAssemblyPath),
+            ("runtimes/win-x64/native/Native.dll", null));
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Analyzer.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(1, aggregate.Exit);
+            Assert.Empty(aggregate.Output);
+            Assert.Contains(
+                "no runtime Library assembly folder",
+                aggregate.Error);
+            Assert.DoesNotContain("Analyzer.dll", aggregate.Error);
+            Assert.DoesNotContain("Native.dll", aggregate.Error);
+
+            Assert.Equal(aggregate.Exit, exact.Exit);
+            Assert.Equal(aggregate.Output, exact.Output);
+            Assert.Equal(aggregate.Error, exact.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_ToolPayloadExactPathStaysInToolPopulation()
+    {
+        var (packagePath, _, tempDir) =
+            CreateLocalToolPackageSet(
+                includeAnalyzer: true,
+                includeCompileLibrary: true);
+        try
+        {
+            var tool = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "tools/net10.0/any/Test.Tool.dll",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var analyzer = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "analyzers/dotnet/cs/Analyzer.dll",
+                "-S",
+                "Library Info",
+                "--markdown");
+            var unavailableToolSlice = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "lib/net8.0/Other.dll",
+                "--tfm",
+                "net8.0",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, tool.Exit);
+            Assert.Empty(tool.Error);
+            Assert.Contains("# Test.Tool.dll", tool.Output);
+
+            Assert.Equal(1, analyzer.Exit);
+            Assert.Empty(analyzer.Output);
+            Assert.Contains(
+                "Library 'analyzers/dotnet/cs/Analyzer.dll' not found",
+                analyzer.Error);
+
+            Assert.Equal(1, unavailableToolSlice.Exit);
+            Assert.Empty(unavailableToolSlice.Output);
+            Assert.Contains(
+                "No tool Library slice matches target 'net8.0'",
+                unavailableToolSlice.Error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
         LibraryCommand_RootLibUsesFrameworkAgnosticCompilePopulation()
     {
         var (packagePath, tempDir) = CreateLocalRootLibPackage();
@@ -1083,6 +1286,146 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task
+        LibraryCommand_RuntimeOnlyPackageUsesOneImplementationPopulation()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRuntimeOnlyPackage();
+        try
+        {
+            var aggregate = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var exact = await RunAppAsync(
+                "library",
+                "Neighbor.dll",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+            var namesake = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--namesake-library",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.True(
+                aggregate.Exit == 0,
+                $"Error: {aggregate.Error}{Environment.NewLine}"
+                    + $"Output: {aggregate.Output}");
+            Assert.Empty(aggregate.Error);
+            Assert.Contains(
+                "runtimes/linux-x64/lib/net10.0/Neighbor.dll",
+                aggregate.Output);
+            Assert.Contains(
+                "runtimes/linux-x64/lib/net10.0/Unexpected.FileName.dll",
+                aggregate.Output);
+            Assert.DoesNotContain("Analyzer.dll", aggregate.Output);
+            Assert.DoesNotContain("BuildTask.dll", aggregate.Output);
+            Assert.DoesNotContain("Native.dll", aggregate.Output);
+
+            Assert.Equal(0, exact.Exit);
+            Assert.Empty(exact.Error);
+            Assert.Contains("# Neighbor.dll", exact.Output);
+            Assert.DoesNotContain(
+                "Unexpected.FileName.dll",
+                exact.Output);
+
+            Assert.Equal(0, namesake.Exit);
+            Assert.Empty(namesake.Error);
+            Assert.Contains(
+                "# Unexpected.FileName.dll",
+                namesake.Output);
+            Assert.DoesNotContain("Neighbor.dll", namesake.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_RuntimeOnlyPackageDoesNotMergeRuntimeIdentifiers()
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRuntimeOnlyPackage(
+                includeSecondRuntimeIdentifier: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "explicit runtime identifier",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("Neighbor.dll")]
+    [InlineData(null)]
+    public async Task
+        LibraryCommand_ExactAndNamesakeRejectAllFrameworks(
+            string? requestedLibrary)
+    {
+        var (packagePath, tempDir) =
+            CreateLocalRuntimeOnlyPackage();
+        try
+        {
+            string[] arguments = requestedLibrary is null
+                ? [
+                    "library",
+                    "--package",
+                    packagePath,
+                    "--namesake-library",
+                    "--tfm",
+                    "all",
+                ]
+                : [
+                    "library",
+                    requestedLibrary,
+                    "--package",
+                    packagePath,
+                    "--tfm",
+                    "all",
+                ];
+            var result = await RunAppAsync(arguments);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "--tfm all",
+                result.Error,
+                StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_NamesakeLibrary_UsesManagedAssemblyIdentity()
     {
         string packageId =
@@ -1141,6 +1484,458 @@ public partial class CommandExecutionTests
             Assert.Contains("# Unexpected.FileName.dll", result.Output);
             Assert.DoesNotContain("Neighbor.dll", result.Output);
             Assert.Equal(result, libraryResult);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("package", false)]
+    [InlineData("package", true)]
+    [InlineData("library", false)]
+    [InlineData("library", true)]
+    public async Task
+        PackageCommand_NamesakeLibrary_FailsTerselyWithoutUniqueNamesake(
+            string command,
+            bool severalNamesakes)
+    {
+        string packageId = severalNamesakes
+            ? typeof(CommandExecutionTests).Assembly.GetName().Name!
+            : "Contoso.Missing";
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            packageId,
+            packageType: null,
+            (TestAssemblyPath, "lib/net10.0/First.dll"),
+            (TestAssemblyPath, "lib/net10.0/Second.dll"));
+        try
+        {
+            string[] arguments = command == "package"
+                ? [
+                    "package",
+                    packagePath,
+                    "--namesake-library",
+                ]
+                : [
+                    "library",
+                    "--package",
+                    packagePath,
+                    "--namesake-library",
+                ];
+
+            var result = await RunAppAsync(arguments);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                severalNamesakes
+                    ? "Error: Multiple namesake libraries found in "
+                        + "lib/net10.0/"
+                    : "Error: No namesake library found in lib/net10.0/",
+                result.Error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        "runtimes/linux-x64/lib/NET10.0/System.Runtime.dll",
+        null,
+        "runtimes/linux-x64/lib/NET10.0/")]
+    [InlineData(
+        "tools/NET10.0/any/lib/System.Runtime.dll",
+        "DotnetToolRidPackage",
+        "tools/NET10.0/any/")]
+    public async Task
+        PackageCommand_NamesakeLibrary_NamesTheSelectedPopulation(
+            string assetPath,
+            string? packageType,
+            string populationPath)
+    {
+        var (systemRuntime, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        Assert.True(
+            resolveError is null && systemRuntime is not null,
+            resolveError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "Contoso.Missing",
+            packageType,
+            (systemRuntime!, assetPath));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--namesake-library");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                $"Error: No namesake library found in {populationPath}",
+                result.Error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("--namesake-library", "Namesake")]
+    [InlineData("--first-library", "First")]
+    public async Task
+        PackageCommand_LibraryIdentityFailureNamesSelectedPopulation(
+            string option,
+            string selector)
+    {
+        const string packageId = "Contoso.Bad";
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        try
+        {
+            string packageRoot = Path.Combine(tempDir, "content");
+            string libDir = Path.Combine(
+                packageRoot,
+                "lib",
+                "net10.0");
+            Directory.CreateDirectory(libDir);
+            File.WriteAllBytes(
+                Path.Combine(libDir, "Broken.dll"),
+                []);
+            File.WriteAllText(
+                Path.Combine(packageRoot, $"{packageId}.nuspec"),
+                $$"""
+                <?xml version="1.0"?>
+                <package>
+                  <metadata>
+                    <id>{{packageId}}</id>
+                    <version>1.0.0</version>
+                    <authors>tests</authors>
+                    <description>Unreadable Library fixture.</description>
+                  </metadata>
+                </package>
+                """);
+            string packagePath = Path.Combine(
+                tempDir,
+                $"{packageId}.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                option);
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Equal(
+                $"Error: {selector} Library identity is unavailable in "
+                    + $"lib/net10.0/ for package '{packageId}'."
+                    + $"{Environment.NewLine}  lib/net10.0/Broken.dll",
+                result.Error.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_FirstLibrary_PrefersSystemTextJsonNamesake()
+    {
+        var (systemTextJson, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly("System.Text.Json");
+        Assert.True(
+            resolveError is null && systemTextJson is not null,
+            resolveError);
+        var (systemRuntime, _, _, runtimeError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        Assert.True(
+            runtimeError is null && systemRuntime is not null,
+            runtimeError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "System.Text.Json",
+            packageType: null,
+            (systemRuntime!, "lib/net10.0/First.By.Order.dll"),
+            (systemTextJson!, "lib/net10.0/Namesake.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("# Namesake.dll", result.Output);
+            Assert.DoesNotContain("First.By.Order.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        LibraryCommand_FirstLibrary_OrdersMicrosoftTestPlatformObjectModelPopulation()
+    {
+        var (systemTextJson, _, _, jsonError) =
+            PlatformResolver.ResolveAssembly("System.Text.Json");
+        Assert.True(
+            jsonError is null && systemTextJson is not null,
+            jsonError);
+        var (systemRuntime, _, _, runtimeError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        Assert.True(
+            runtimeError is null && systemRuntime is not null,
+            runtimeError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "Microsoft.TestPlatform.ObjectModel",
+            packageType: null,
+            (systemTextJson!, "lib/net10.0/Declared.First.dll"),
+            (systemRuntime!, "lib/net10.0/Library.Order.First.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "library",
+                "--package",
+                packagePath,
+                "--first-library",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Empty(result.Error);
+            Assert.Contains("# Library.Order.First.dll", result.Output);
+            Assert.DoesNotContain("Declared.First.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_FirstLibrary_TieBreaksDotnetInspectAnyDuplicateNames()
+    {
+        var (pkcs, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly(
+                "System.Security.Cryptography.Pkcs");
+        Assert.True(resolveError is null && pkcs is not null, resolveError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "dotnet-inspect.any",
+            "DotnetToolRidPackage",
+            (pkcs!,
+                "tools/net10.0/any/z/System.Security.Cryptography.Pkcs.dll"),
+            (pkcs!,
+                "tools/net10.0/any/a/System.Security.Cryptography.Pkcs.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "--verbose",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "tools/net10.0/any/a/System.Security.Cryptography.Pkcs.dll",
+                result.Error.Replace('\\', '/'));
+            Assert.Contains(
+                "# System.Security.Cryptography.Pkcs.dll",
+                result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_FirstLibrary_FollowsToolPointerPayload()
+    {
+        var (packagePath, _, tempDir) =
+            CreateLocalToolPackageSet(firstLibraryFixture: true);
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "--verbose",
+                "-S",
+                "Library Info",
+                "--markdown");
+
+            Assert.Equal(0, result.Exit);
+            Assert.Contains(
+                "Found: tools/net10.0/any/Support.dll",
+                result.Error.Replace('\\', '/'));
+            Assert.Contains("# Support.dll", result.Output);
+            Assert.Contains(
+                "| Name | DotnetInspect.Cli.Tests |",
+                result.Output);
+            Assert.DoesNotContain("# Test.Tool.dll", result.Output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_FirstLibrary_ChosenFailureDoesNotTrySibling()
+    {
+        string sourceDir = Directory.CreateTempSubdirectory(
+            "first-library-failure-").FullName;
+        string malformedPath = Path.Combine(
+            sourceDir,
+            "MalformedIntegrations.dll");
+        WriteMalformedTypeNameAssembly(malformedPath);
+        var (healthyPath, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly(
+                "Microsoft.Extensions.Configuration");
+        Assert.True(
+            resolveError is null && healthyPath is not null,
+            resolveError);
+        var (packagePath, tempDir) = CreateLocalFirstLibraryPackage(
+            "First.Library.Failure",
+            packageType: null,
+            (malformedPath,
+                "lib/net10.0/MalformedIntegrations.dll"),
+            (healthyPath!,
+                "lib/net10.0/Microsoft.Extensions.Configuration.dll"));
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--first-library",
+                "--verbose",
+                "-S",
+                "Integrations");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Empty(result.Output);
+            Assert.Contains(
+                "Found: lib/net10.0/MalformedIntegrations.dll",
+                result.Error.Replace('\\', '/'));
+            Assert.DoesNotContain(
+                "Found: lib/net10.0/Microsoft.Extensions.Configuration.dll",
+                result.Error.Replace('\\', '/'));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+            Directory.Delete(sourceDir, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("package")]
+    [InlineData("library")]
+    public async Task FirstLibrary_RejectsNamesakeLibrary(
+        string command)
+    {
+        string[] arguments = command == "package"
+            ? [
+                "package",
+                "System.Text.Json",
+                "--first-library",
+                "--namesake-library",
+            ]
+            : [
+                "library",
+                "--package",
+                "System.Text.Json",
+                "--first-library",
+                "--namesake-library",
+            ];
+
+        var result = await RunAppAsync(arguments);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            "--namesake-library cannot be combined with --first-library",
+            result.Error);
+    }
+
+    [Theory]
+    [InlineData("package")]
+    [InlineData("library")]
+    public async Task FirstLibrary_RejectsExactLibrary(
+        string command)
+    {
+        string[] arguments = command == "package"
+            ? [
+                "package",
+                "System.Text.Json",
+                "--first-library",
+                "--library",
+                "System.Text.Json.dll",
+            ]
+            : [
+                "library",
+                "System.Text.Json.dll",
+                "--package",
+                "System.Text.Json",
+                "--first-library",
+            ];
+
+        var result = await RunAppAsync(arguments);
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            command == "package"
+                ? "--first-library cannot be combined with --library"
+                : "--first-library requires --package and cannot be combined "
+                    + "with an exact Library source",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_FirstLibrary_RequiresPackage()
+    {
+        var result = await RunAppAsync(
+            "library",
+            "--first-library");
+
+        Assert.Equal(1, result.Exit);
+        Assert.Contains(
+            "--first-library requires --package",
+            result.Error);
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_MissingExactLibraryNamesFirstLibraryTip()
+    {
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var result = await RunAppAsync(
+                "package",
+                packagePath,
+                "--library",
+                "Missing.dll");
+
+            Assert.Equal(1, result.Exit);
+            Assert.Contains("--first-library", result.Error);
         }
         finally
         {
@@ -2800,6 +3595,7 @@ public partial class CommandExecutionTests
             var help = await RunAppAsync("package", "--help");
             Assert.Equal(0, help.Exit);
             Assert.Contains("--namesake-library", help.Output);
+            Assert.Contains("--first-library", help.Output);
             Assert.DoesNotContain("--all-libraries", help.Output);
         }
         finally

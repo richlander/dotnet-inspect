@@ -403,7 +403,8 @@ public static class StructuralViewRegistry
                 bool exactLibraryTarget =
                     ContainsOption(tokens, "--library")
                     && !hasBareLibraryTarget
-                    || ContainsOption(tokens, "--namesake-library");
+                    || ContainsOption(tokens, "--namesake-library")
+                    || ContainsOption(tokens, "--first-library");
                 StructuralViewIdentity view = aggregateLibrary
                     ? StructuralViewIdentity.PackageAllLibraries
                     : exactLibraryTarget

@@ -10,13 +10,45 @@ namespace ILInspector.Metadata;
 public static partial class ApiSurfaceExtractor
 {
     /// <summary>
-    /// A method record passes the access rule when the population admits every
-    /// accessibility or its effective access is public.
+    /// A method, property, or event record passes the access rule when the
+    /// population admits every accessibility, its effective access is public,
+    /// or the population is the API axis and its effective access is in the
+    /// <c>protected</c> bucket and reachable from another assembly.
     /// </summary>
     static bool AdmitsMethodAccess(
         MethodAttributes effectiveAccess,
-        bool includeAll)
-        => includeAll || effectiveAccess == MethodAttributes.Public;
+        bool includeAll,
+        bool apiAxis = false)
+        => includeAll
+            || effectiveAccess == MethodAttributes.Public
+            || (apiAxis && IsApiAxisProtectedAccess(effectiveAccess));
+
+    /// <summary>
+    /// The <c>protected</c> bucket less <c>private protected</c>: the accesses
+    /// a derived Type in another assembly can reach. <c>private protected</c>
+    /// (<see cref="MethodAttributes.FamANDAssem"/>) belongs to the Body axis.
+    /// Field access shares this encoding.
+    /// </summary>
+    static bool IsApiAxisProtectedAccess(MethodAttributes access)
+        => access is MethodAttributes.Family or MethodAttributes.FamORAssem;
+
+    /// <summary>
+    /// The API axis admits a Type, as Fast Diff does, when its own row and
+    /// every enclosing Type's row is public, nested public, nested protected,
+    /// or nested protected internal. A public nested Type of a non-public Type
+    /// is not admitted: no other assembly can reach it. A nested
+    /// <c>private protected</c> Type is not admitted either.
+    /// </summary>
+    static bool AdmitsApiAxisType(
+        MetadataReader reader,
+        TypeDefinitionHandle handle,
+        TypeDefinition typeDef)
+        => (typeDef.Attributes & TypeAttributes.VisibilityMask)
+            is TypeAttributes.Public
+            or TypeAttributes.NestedPublic
+            or TypeAttributes.NestedFamily
+            or TypeAttributes.NestedFamORAssem
+            && MetadataVisibility.AreEnclosingTypesExternallyReachable(reader, handle);
 
     internal static MetadataMethodAccessibilityFilter AccessibilityBucket(
         MethodAttributes access) =>
@@ -441,6 +473,16 @@ public static partial class ApiSurfaceExtractor
     /// </summary>
     static bool AdmitsMemberAccess(bool isPublic, bool includeAll)
         => includeAll || isPublic;
+
+    /// <summary>
+    /// A field passes the access rule as a method does; field and method
+    /// access share their encoding.
+    /// </summary>
+    static bool AdmitsFieldAccess(
+        FieldAttributes access,
+        bool includeAll,
+        bool apiAxis)
+        => AdmitsMethodAccess((MethodAttributes)(int)access, includeAll, apiAxis);
 
     /// <summary>
     /// An enum's <c>value__</c> storage slot supplies a Type fact, not a member.

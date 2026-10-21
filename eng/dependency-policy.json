@@ -66,7 +66,7 @@
     },
     {
       "id": "inspect-web-core-project-dependencies-stay-within-host-composition-ratchet",
-      "source": "docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
+      "source": "docs/design/call-graph-projection.md#assembly-context-handoff; docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
       "graphs": [
         "project"
       ],
@@ -88,15 +88,13 @@
         "DotnetInspector.Sections",
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
-        "ILInspector.Analysis",
-        "ILInspector.CallGraph",
         "ILInspector.Metadata",
         "NuGetFetch"
       ]
     },
     {
       "id": "inspect-web-core-assembly-dependencies-stay-within-host-composition-ratchet",
-      "source": "docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
+      "source": "docs/design/call-graph-projection.md#assembly-context-handoff; docs/design/inspect-web-jsexport-partitioning.md#boundaries; docs/design/inspection-layers.md#current-migration-state; composition tracker #8779",
       "graphs": [
         "assembly"
       ],
@@ -124,8 +122,6 @@
         "DotnetInspector.Services",
         "DotnetInspector.SourceHouse",
         "DotnetInspector.SourceSelection",
-        "ILInspector.Analysis",
-        "ILInspector.CallGraph",
         "ILInspector.Metadata",
         "InertText",
         "Inspector.Artifacts",
@@ -432,7 +428,7 @@
     },
     {
       "id": "inspect-web-source-facade-project-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-9-exports; composition tracker #8779",
+      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-21-exports; composition tracker #8779",
       "graphs": [
         "project"
       ],
@@ -460,7 +456,7 @@
     },
     {
       "id": "inspect-web-source-facade-assembly-dependencies-stay-within-capability-ratchet",
-      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-9-exports; composition tracker #8779",
+      "source": "docs/design/member-source-acquisition.md#owner-and-claim; docs/design/inspect-web-jsexport-partitioning.md#source-facade-21-exports; composition tracker #8779",
       "graphs": [
         "assembly"
       ],

@@ -162,6 +162,21 @@ public sealed class PackageSourceOperationOwnershipTests
     }
 
     [Fact]
+    public async Task PackageSourceOperationLeaseSuccessfulReleaseDoesNotPublishCancellation()
+    {
+        await using var fixture = new SourceFixture();
+        PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
+        CancellationToken operationToken =
+            operation.OperationCancellationToken;
+
+        operation.Dispose();
+
+        Assert.False(operationToken.IsCancellationRequested);
+    }
+
+    [Fact]
     public async Task AuthorizationFailuresFlowThroughPinnedAndVersionDiscovery()
     {
         await using var fixture = new SourceFixture();
@@ -191,6 +206,37 @@ public sealed class PackageSourceOperationOwnershipTests
             discovery.State);
         Assert.Same(failure, Assert.Single(discovery.Failures));
         Assert.NotEmpty(discovery.SourceListings);
+    }
+
+    [Fact]
+    public async Task ExpiredVersionDiscoveryDoesNotAuthorizeSources()
+    {
+        await using var fixture = new SourceFixture();
+        using PackageSourceOperationLease operation =
+            fixture.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromMilliseconds(25));
+        var authorization =
+            new CountingAuthorization(fixture.Authorization);
+        Thread.Sleep(TimeSpan.FromMilliseconds(100));
+
+        PackageVersionDiscoveryResult discovery =
+            await operation.DiscoverDependencyVersionsAsync(
+                Coordinate.PackageId,
+                authorization);
+
+        Assert.Equal(0, authorization.Calls);
+        Assert.Equal(PackageVersionDiscoveryState.Failed, discovery.State);
+        Assert.True(
+            discovery.Contract.SupportsDependencyRangeResolution);
+        Assert.Equal(0, discovery.CandidateObservationCount);
+        Assert.Empty(discovery.SourceListings);
+        Assert.Contains(
+            discovery.Failures,
+            failure => failure.Timeout?.Kind
+                == PackageSourceTimeoutKind.Operation);
+        Assert.Empty(fixture.Client.Contexts);
     }
 
     [Fact]
@@ -364,6 +410,20 @@ public sealed class PackageSourceOperationOwnershipTests
         : IPackageSourceAuthorization
     {
         public PackageSourceAuthorization AuthorizeSourcesFor(string packageId) => authorization;
+    }
+
+    private sealed class CountingAuthorization(
+        PackageSourceAuthorization authorization)
+        : IPackageSourceAuthorization
+    {
+        public int Calls { get; private set; }
+
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId)
+        {
+            Calls++;
+            return authorization;
+        }
     }
 
     private sealed class ThrowingAuthorization : IPackageSourceAuthorization

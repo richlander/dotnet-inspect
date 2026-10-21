@@ -322,8 +322,6 @@ public sealed record BrowserMemberGroupDocumentRow(
     int MetadataToken,
     int BaselineOrdinal,
     string DisplaySignature,
-    string CanonicalSignature,
-    string Fingerprint,
     string Accessibility,
     string Receiver);
 

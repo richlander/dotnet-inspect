@@ -29,8 +29,7 @@ namespace DotnetInspector.Queries.Tests;
 /// The framework-classification, budget-adjacent-failure, and host-equivalence gates
 /// instead exercise the real <c>DotnetInspector.PackageQueries</c> adapters
 /// (<see cref="PackageDependencyTraversalCandidateAdapter"/>,
-/// <see cref="AuthorizedPackageDependencyManifestSource"/>,
-/// <see cref="DesktopPackageDependencyTraversalManifestSource"/>) over a fake or real
+/// <see cref="AuthorizedPackageDependencyManifestSource"/>) over a fake or real
 /// local-folder package source, so they prove the product's own candidate-resolution
 /// and manifest-acquisition classification rather than a re-implementation of it.
 /// </para>
@@ -902,12 +901,18 @@ public sealed partial class PackageDependencyTraversalQueryTests
             [root],
             resolver,
             acquirer);
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "Cancellation must stop traversal before package-source work."));
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(cancellation.Token);
 
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => PackageDependencyTraversalQuery.ExecuteAsync(
                 request,
-                cancellation.Token));
+                operation));
         Assert.Equal(cancellation.Token, exception.CancellationToken);
     }
 
@@ -935,12 +940,18 @@ public sealed partial class PackageDependencyTraversalQueryTests
             factory.Manifest(
                 candidate.Coordinate,
                 ManifestBytes("child", "1.0.0", "")));
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "The cancellation fixture does not perform package-source work."));
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(cancellation.Token);
 
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 () => PackageDependencyTraversalQuery.ExecuteAsync(
                     BuildRequest([root], resolver, acquirer),
-                    cancellation.Token));
+                    operation));
 
         Assert.Equal(cancellation.Token, exception.CancellationToken);
     }
@@ -1019,7 +1030,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [root],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         PackageDependencyTraversalEdge acquiredEdge = Assert.Single(
             outcome.Edges.Where(
@@ -1056,7 +1068,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [root],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         Assert.Equal(0, fixture.Client.VersionCalls);
         Assert.True(outcome.IsComplete);
@@ -1089,7 +1102,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [root],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         Assert.True(fixture.Client.VersionCalls > 0);
         PackageDependencyTraversalEdge edge = Assert.Single(outcome.Edges);
@@ -1120,7 +1134,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [root],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         PackageDependencyTraversalFailedResolutionNode node =
             Assert.Single(outcome.FailedResolutions);
@@ -1151,7 +1166,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [root],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         PackageDependencyTraversalFailedResolutionNode node =
             Assert.Single(outcome.FailedResolutions);
@@ -1185,7 +1201,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [root],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         PackageDependencyTraversalFailure failure = Assert.Single(outcome.Failures);
         var acquisition = Assert.IsType<
@@ -1319,7 +1336,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
             [root],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         Assert.True(outcome.IsComplete);
         Assert.Equal(0, fixture.Client.PackageOrSymbolCalls);
@@ -1336,10 +1354,13 @@ public sealed partial class PackageDependencyTraversalQueryTests
             "dependency",
             "1.2.3");
 
+        using PackageSourceOperationLease operation =
+            fixture.Lease.IssueOperationLease(
+                TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => fixture.ManifestAcquirer.AcquireAsync(
                 foreignCandidate,
-                TestContext.Current.CancellationToken));
+                operation));
         Assert.False(fixture.Client.IsDisposed);
     }
 
@@ -1359,10 +1380,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
             "1.0.0",
             Dependency("dependency", "[1.2.3]"),
             PackageDependencyTraversalExpansionAuthority.RecursiveSources);
-        using var operation = new NuGetOperationContext(
+        using PackageSourceOperationLease operation =
+            fixture.Lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
             TimeSpan.FromSeconds(1),
-            TimeSpan.FromMilliseconds(250),
-            TestContext.Current.CancellationToken);
+            TimeSpan.FromMilliseconds(250));
 
         PackageDependencyTraversalOutcome outcome =
             await PackageDependencyTraversalQuery.ExecuteAsync(
@@ -1370,8 +1392,7 @@ public sealed partial class PackageDependencyTraversalQueryTests
                     [directRoot, recursiveRoot],
                     fixture.CandidateResolver,
                     fixture.ManifestAcquirer),
-                TestContext.Current.CancellationToken,
-                operationContext: operation);
+                operation);
 
         Assert.Equal(
             PackageDependencyTraversalRootCompletion.SourceBounded,
@@ -1379,6 +1400,113 @@ public sealed partial class PackageDependencyTraversalQueryTests
         Assert.Equal(
             PackageDependencyTraversalRootCompletion.Partial,
             outcome.Roots[1].Completion);
+        var incomplete = Assert.IsType<
+            PackageDependencyTraversalManifestFailureDetail
+                .IncompleteAcquisition>(
+                    Assert.Single(outcome.Failures).Detail);
+        Assert.Contains(
+            incomplete.Failures,
+            failure => failure.Timeout?.Kind
+                == PackageSourceTimeoutKind.Operation);
+    }
+
+    [Fact]
+    public async Task
+        Traversal_OperationDeadlineAfterManifestAcquisitionReturnsTypedPartialOutcome()
+    {
+        var issuer = new PackageAcquisitionCandidateIssuer();
+        PackageSourceAuthorization authorization =
+            Authorize("deadline-after-manifest");
+        PackageAcquisitionCandidate candidate = Pinned(
+            issuer,
+            authorization,
+            "dependency",
+            "1.2.3");
+        var resolver = new StubCandidateResolver();
+        resolver.SetResponse(
+            "recursive",
+            "dependency",
+            () => Resolved(candidate));
+        var acquirer = new DelayedAcquiredManifestAcquirer(
+            TimeSpan.FromMilliseconds(25),
+            ManifestBytes("dependency", "1.2.3", ""));
+        PackageDependencyTraversalRootOccurrence directRoot = Root(
+            "direct",
+            "1.0.0",
+            Dependency("boundary", "[1.0.0]"),
+            PackageDependencyTraversalExpansionAuthority.DirectDeclarationsOnly);
+        PackageDependencyTraversalRootOccurrence recursiveRoot = Root(
+            "recursive",
+            "1.0.0",
+            Dependency("dependency", "[1.2.3]"),
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "The traversal deadline test does not consult a source client."));
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds(5));
+
+        PackageDependencyTraversalOutcome outcome =
+            await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    [directRoot, recursiveRoot],
+                    resolver,
+                    acquirer),
+                operation);
+
+        Assert.Equal(
+            PackageDependencyTraversalRootCompletion.SourceBounded,
+            outcome.Roots[0].Completion);
+        Assert.Equal(
+            PackageDependencyTraversalRootCompletion.Partial,
+            outcome.Roots[1].Completion);
+        var incomplete = Assert.IsType<
+            PackageDependencyTraversalManifestFailureDetail
+                .IncompleteAcquisition>(
+                    Assert.Single(outcome.Failures).Detail);
+        Assert.Contains(
+            incomplete.Failures,
+            failure => failure.Timeout?.Kind
+                == PackageSourceTimeoutKind.Operation);
+    }
+
+    [Fact]
+    public async Task
+        Traversal_ExpiredOperationBeforeLocalScheduleReturnsTypedPartialOutcome()
+    {
+        PackageDependencyTraversalRootOccurrence root = Root(
+            "root",
+            "1.0.0",
+            "",
+            PackageDependencyTraversalExpansionAuthority.RecursiveSources);
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "The traversal deadline test does not consult a source client."));
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                TimeSpan.FromSeconds(1),
+                TimeSpan.FromMilliseconds(5));
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(25),
+            TestContext.Current.CancellationToken);
+
+        PackageDependencyTraversalOutcome outcome =
+            await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    [root],
+                    new StubCandidateResolver(),
+                    new StubManifestAcquirer()),
+                operation);
+
+        Assert.Equal(
+            PackageDependencyTraversalRootCompletion.Partial,
+            Assert.Single(outcome.Roots).Completion);
         var incomplete = Assert.IsType<
             PackageDependencyTraversalManifestFailureDetail
                 .IncompleteAcquisition>(
@@ -1421,7 +1549,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
                     PackageDependencyTraversalExpansionAuthority.RecursiveSources),
             ],
             fixture.CandidateResolver,
-            fixture.ManifestAcquirer);
+            fixture.ManifestAcquirer,
+            sourceLease: fixture.Lease);
 
         // CLI desktop-style: DesktopPackageSourceComposition over a real local-folder
         // feed, restricted to that folder so no ambient nuget.config is consulted.
@@ -1430,25 +1559,31 @@ public sealed partial class PackageDependencyTraversalQueryTests
         var sourceOptions = new NuGetSourceOptions { Sources = [folder] };
         IPackageDependencyTraversalCandidateResolver desktopResolver =
             new PackageDependencyTraversalCandidateAdapter(
-                new DesktopPackageDependencyCandidateSource(
-                    composition,
+                composition.CreateDependencySourceAuthorization(
                     sourceOptions));
         IPackageDependencyTraversalManifestAcquirer desktopAcquirer =
-            new DesktopPackageDependencyTraversalManifestSource(composition);
+            new AuthorizedPackageDependencyManifestSource();
 
         PackageDependencyEvidenceRoot desktopRootEvidence = BuildRoot(
             "roota",
             "1.0.0",
             Dependency("dependency", "[1.2.3]"),
             requestedFramework: null);
-        PackageDependencyTraversalOutcome desktopOutcome = await ExecuteAsync(
-            [
-                new PackageDependencyTraversalRootOccurrence(
-                    desktopRootEvidence,
-                    PackageDependencyTraversalExpansionAuthority.RecursiveSources),
-            ],
-            desktopResolver,
-            desktopAcquirer);
+        using PackageSourceOperationLease desktopOperation =
+            composition.IssueSettlementOperation(
+                TestContext.Current.CancellationToken);
+        PackageDependencyTraversalOutcome desktopOutcome =
+            await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    [
+                        new PackageDependencyTraversalRootOccurrence(
+                            desktopRootEvidence,
+                            PackageDependencyTraversalExpansionAuthority
+                                .RecursiveSources),
+                    ],
+                    desktopResolver,
+                    desktopAcquirer),
+                desktopOperation);
 
         Assert.Equal(
             browserOutcome.Nodes.Select(node => node.Coordinate).OrderBy(c => c.PackageId),
@@ -1519,13 +1654,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
                     dependencyAuthorization.Authorities[0].Association)
                         ? missingClient
                         : successfulClient);
-        var candidateSource = new AuthorizedPackageDependencyCandidateSource(
-            authorization,
-            lease);
         PackageDependencyTraversalOutcome explicitOutcome = await ExecuteAsync(
             [root],
-            new PackageDependencyTraversalCandidateAdapter(candidateSource),
-            new AuthorizedPackageDependencyManifestSource(candidateSource));
+            new PackageDependencyTraversalCandidateAdapter(authorization),
+            new AuthorizedPackageDependencyManifestSource(),
+            sourceLease: lease);
 
         PackageDependencyTraversalProjection explicitProjection = FindProjection(
             explicitOutcome,
@@ -1544,13 +1677,18 @@ public sealed partial class PackageDependencyTraversalQueryTests
         {
             Sources = [missingFolder, successfulFolder],
         };
-        PackageDependencyTraversalOutcome desktopOutcome = await ExecuteAsync(
-            [root],
-            new PackageDependencyTraversalCandidateAdapter(
-                new DesktopPackageDependencyCandidateSource(
-                    composition,
-                    sourceOptions)),
-            new DesktopPackageDependencyTraversalManifestSource(composition));
+        using PackageSourceOperationLease desktopOperation =
+            composition.IssueSettlementOperation(
+                TestContext.Current.CancellationToken);
+        PackageDependencyTraversalOutcome desktopOutcome =
+            await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    [root],
+                    new PackageDependencyTraversalCandidateAdapter(
+                        composition.CreateDependencySourceAuthorization(
+                            sourceOptions)),
+                    new AuthorizedPackageDependencyManifestSource()),
+                desktopOperation);
 
         PackageDependencyTraversalProjection desktopProjection = FindProjection(
             desktopOutcome,
@@ -1590,19 +1728,25 @@ public sealed partial class PackageDependencyTraversalQueryTests
             Sources = [missingFolder, invalidFolder],
         };
 
-        PackageDependencyTraversalOutcome outcome = await ExecuteAsync(
-            [
-                Root(
-                    "roota",
-                    "1.0.0",
-                    Dependency("dependency", "[1.2.3]"),
-                    PackageDependencyTraversalExpansionAuthority.RecursiveSources),
-            ],
-            new PackageDependencyTraversalCandidateAdapter(
-                new DesktopPackageDependencyCandidateSource(
-                    composition,
-                    sourceOptions)),
-            new DesktopPackageDependencyTraversalManifestSource(composition));
+        using PackageSourceOperationLease operation =
+            composition.IssueSettlementOperation(
+                TestContext.Current.CancellationToken);
+        PackageDependencyTraversalOutcome outcome =
+            await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    [
+                        Root(
+                            "roota",
+                            "1.0.0",
+                            Dependency("dependency", "[1.2.3]"),
+                            PackageDependencyTraversalExpansionAuthority
+                                .RecursiveSources),
+                    ],
+                    new PackageDependencyTraversalCandidateAdapter(
+                        composition.CreateDependencySourceAuthorization(
+                            sourceOptions)),
+                    new AuthorizedPackageDependencyManifestSource()),
+                operation);
 
         PackageDependencyTraversalProjection projection = FindProjection(
             outcome,
@@ -1643,15 +1787,40 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 maxDeclarationResolutions),
             maxDepth);
 
-    private static Task<PackageDependencyTraversalOutcome> ExecuteAsync(
+    private static async Task<PackageDependencyTraversalOutcome> ExecuteAsync(
         ImmutableArray<PackageDependencyTraversalRootOccurrence> roots,
         IPackageDependencyTraversalCandidateResolver resolver,
         IPackageDependencyTraversalManifestAcquirer acquirer,
         int? maxDepth = null,
         int maxManifestProjections = DefaultManifestBudget,
         int maxDeclarationResolutions = DefaultDeclarationBudget,
-        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null) =>
-        PackageDependencyTraversalQuery.ExecuteAsync(
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null,
+        PackageSourceSettlementLease? sourceLease = null)
+    {
+        CancellationToken token = TestContext.Current.CancellationToken;
+        if (sourceLease is not null)
+        {
+            using PackageSourceOperationLease operation =
+                sourceLease.IssueOperationLease(token);
+            return await PackageDependencyTraversalQuery.ExecuteAsync(
+                BuildRequest(
+                    roots,
+                    resolver,
+                    acquirer,
+                    maxDepth,
+                    maxManifestProjections,
+                    maxDeclarationResolutions,
+                    traversalTargetPolicy),
+                operation);
+        }
+
+        await using PackageSourceSettlementLease ownedLease =
+            PackageSourceSettlementService.IssueLease(
+                _ => throw new InvalidOperationException(
+                    "The traversal test did not configure package-source work."));
+        using PackageSourceOperationLease ownedOperation =
+            ownedLease.IssueOperationLease(token);
+        return await PackageDependencyTraversalQuery.ExecuteAsync(
             BuildRequest(
                 roots,
                 resolver,
@@ -1660,7 +1829,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 maxManifestProjections,
                 maxDeclarationResolutions,
                 traversalTargetPolicy),
-            TestContext.Current.CancellationToken);
+            ownedOperation);
+    }
 
     private static PackageDependencyTraversalCandidateResult.Resolved Resolved(
         PackageAcquisitionCandidate candidate) =>
@@ -1810,11 +1980,10 @@ public sealed partial class PackageDependencyTraversalQueryTests
 
         public ValueTask<PackageDependencyTraversalCandidateResult> ResolveAsync(
             PackageDependencyEvidenceDeclaration declaration,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            PackageSourceOperationLease operation)
         {
             CallCount++;
-            cancellationToken.ThrowIfCancellationRequested();
+            operation.CancellationToken.ThrowIfCancellationRequested();
             string sourcePackageId = SourcePackageIdOf(declaration);
             var key = (sourcePackageId, declaration.CanonicalPackageId);
             if (!_byDeclaration.TryGetValue(
@@ -1853,12 +2022,13 @@ public sealed partial class PackageDependencyTraversalQueryTests
 
         public async ValueTask<PackageDependencyTraversalCandidateResult> ResolveAsync(
             PackageDependencyEvidenceDeclaration declaration,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            PackageSourceOperationLease operation)
         {
             (TimeSpan delay, Func<PackageDependencyTraversalCandidateResult> response) =
                 _byDependencyId[declaration.CanonicalPackageId];
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(
+                delay,
+                operation.CancellationToken).ConfigureAwait(false);
             return response();
         }
     }
@@ -1869,13 +2039,12 @@ public sealed partial class PackageDependencyTraversalQueryTests
     {
         public async ValueTask<PackageDependencyTraversalCandidateResult> ResolveAsync(
             PackageDependencyEvidenceDeclaration declaration,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            PackageSourceOperationLease operation)
         {
             cancellation.Cancel();
             await Task.Delay(
                 Timeout.InfiniteTimeSpan,
-                cancellationToken).ConfigureAwait(false);
+                operation.CancellationToken).ConfigureAwait(false);
             throw new InvalidOperationException(
                 "Cancellation did not stop candidate resolution.");
         }
@@ -1888,14 +2057,33 @@ public sealed partial class PackageDependencyTraversalQueryTests
     {
         public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
             PackageAcquisitionCandidate candidate,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            PackageSourceOperationLease operation)
         {
             cancellation.Cancel();
             return Task.FromResult<PackageDependencyTraversalManifestResult>(
                 new PackageDependencyTraversalManifestResult.Acquired(
                     manifest,
                     []));
+        }
+    }
+
+    private sealed class DelayedAcquiredManifestAcquirer(
+        TimeSpan delay,
+        byte[] bytes) :
+        IPackageDependencyTraversalManifestAcquirer
+    {
+        public async Task<PackageDependencyTraversalManifestResult> AcquireAsync(
+            PackageAcquisitionCandidate candidate,
+            PackageSourceOperationLease operation)
+        {
+            await Task.Delay(
+                delay,
+                operation.CancellationToken).ConfigureAwait(false);
+            PackageSourceResultFactory factory =
+                CreateResultFactoryFor(candidate.Authorities[0].Authority);
+            return new PackageDependencyTraversalManifestResult.Acquired(
+                factory.Manifest(candidate.Coordinate, bytes),
+                []);
         }
     }
 
@@ -1931,13 +2119,12 @@ public sealed partial class PackageDependencyTraversalQueryTests
 
         public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
             PackageAcquisitionCandidate candidate,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
+            PackageSourceOperationLease operation)
         {
             CallCount++;
             _callsByCoordinate[candidate.Coordinate] =
                 CallsFor(candidate.Coordinate) + 1;
-            cancellationToken.ThrowIfCancellationRequested();
+            operation.CancellationToken.ThrowIfCancellationRequested();
             if (!_byCorrespondence.TryGetValue(
                     candidate.Correspondence,
                     out Func<PackageDependencyTraversalManifestResult>? response))
@@ -2221,14 +2408,9 @@ public sealed partial class PackageDependencyTraversalQueryTests
             Client = new RegistryPackageSourceClient(factory, Registry);
             Lease = PackageSourceSettlementService.IssueLease(
                 _ => Client);
-            var candidateSource =
-                new AuthorizedPackageDependencyCandidateSource(
-                    authorization,
-                    Lease);
             CandidateResolver = new PackageDependencyTraversalCandidateAdapter(
-                candidateSource);
-            ManifestAcquirer = new AuthorizedPackageDependencyManifestSource(
-                candidateSource);
+                authorization);
+            ManifestAcquirer = new AuthorizedPackageDependencyManifestSource();
         }
 
         public async ValueTask DisposeAsync()

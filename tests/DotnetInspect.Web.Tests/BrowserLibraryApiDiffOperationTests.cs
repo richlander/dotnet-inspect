@@ -309,7 +309,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.NotEmpty(receiverMoved.After.CanonicalSignature);
         Assert.Equal(10, receiverMoved.After.Fingerprint.Length);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0),
+            new BrowserLibraryApiDiffAggregate(8, 1, 1, 10, 5, 3, 0, 0),
             value.Aggregate);
     }
 
@@ -942,7 +942,8 @@ public sealed class BrowserLibraryApiDiffOperationTests
             type.Changes.Length
             + type.Members.Sum(member => member.Changes.Length));
         int issued = value.Types.Sum(type =>
-            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount);
+            type.BreakingCount + type.AdditiveCount + type.PotentiallyBreakingCount
+                + type.NonBreakingCount);
         Assert.Equal(issued, placed);
     }
 
@@ -967,7 +968,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         Assert.Equal(TargetVersion, value.Current.Version);
         Assert.Empty(value.Types);
         Assert.Equal(
-            new BrowserLibraryApiDiffAggregate(0, 0, 0, 0, 0, 0, 0),
+            new BrowserLibraryApiDiffAggregate(0, 0, 0, 0, 0, 0, 0, 0),
             value.Aggregate);
     }
 
@@ -1798,6 +1799,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
                 "display",
                 "documentIdentifier",
                 "members",
+                "nonBreakingCount",
                 "potentiallyBreakingCount",
                 "state",
                 "typeDefinitionChanged",

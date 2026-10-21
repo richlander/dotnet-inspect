@@ -302,11 +302,6 @@ public partial class DependsCommand
             {
                 PackageHouseTargetContext boundTarget = target!;
                 PlatformPruneInventory boundInventory = inventory!;
-                var candidateSource =
-                    new DesktopPackageDependencyCandidateSource(
-                        composition,
-                        options.SourceOptions,
-                        context.Logger.Log);
                 var inspectionRequest =
                     new PackageDependencyPruningInspectionRequest(
                         pending.Select(
@@ -316,13 +311,18 @@ public partial class DependsCommand
                                     item.Declaration)),
                         boundTarget,
                         boundInventory);
+                using PackageSourceOperationLease pruningOperation =
+                    composition.IssueSettlementOperation(
+                        operationContext.OperationTimeout,
+                        cancellationToken);
                 InspectionEnvelope<PackageDependencyPruningInspectionResult>
                     inspection =
                         await PackageDependencyPruningInspection.ExecuteAsync(
                             inspectionRequest,
-                            candidateSource,
-                            cancellationToken,
-                            operationContext).ConfigureAwait(false);
+                            composition.CreateDependencySourceAuthorization(
+                                options.SourceOptions),
+                            pruningOperation,
+                            context.Logger.Log).ConfigureAwait(false);
                 if (inspection.Content.Outcomes.Length != pending.Count)
                 {
                     throw new InvalidOperationException(

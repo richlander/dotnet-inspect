@@ -195,52 +195,6 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/DotnetInspector.Ecosystems.Consumer.Tests -c Release
 
-      - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
-
-      - name: Discover expected decompiler gate tests
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: >-
-          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build --
-          --gate-discovery-receipt "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
-          --gate pre-merge --pre-enumerate-theories on --no-ansi
-
-      - name: Run bounded decompiler receipt
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        id: gates
-        continue-on-error: true
-        timeout-minutes: 5
-        env:
-          DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT: ${{ runner.temp }}/decompiler-gates-execution.jsonl
-        run: >-
-          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build --
-          --gate pre-merge --pre-enumerate-theories on --no-ansi
-          --auto-reporters off --report-xunit-xml
-          --report-xunit-xml-filename decompiler-gates.xml
-          --results-directory "$RUNNER_TEMP"
-
-      - name: Compare bounded decompiler receipt against known-red
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: >-
-          dotnet run eng/check-decompiler-gate.cs --
-          "$RUNNER_TEMP/decompiler-gates.xml"
-          "$RUNNER_TEMP/decompiler-gates-execution.jsonl"
-          eng/decompiler-gate-known-red.txt
-          eng/decompiler-gate-expected-classes.txt
-          "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
-
-      - name: Upload bounded decompiler receipt
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: deep-inspect-decompiler-gates-report
-          path: |
-            ${{ runner.temp }}/decompiler-gates.xml
-            ${{ runner.temp }}/decompiler-gates-execution.jsonl
-            ${{ runner.temp }}/decompiler-gates-discovery.jsonl
-          if-no-files-found: warn
-
       - name: Run NuGetFetch tests (offline)
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet run --project tests/NuGetFetch.Tests -c Release -- --filter-not-trait "Network=Live"
@@ -715,6 +669,105 @@ jobs:
       - name: Uninstall tool
         run: dotnet tool uninstall --global dotnet-inspect
 
+  # The decompiler fidelity ratchet and bounded compile-back receipt run in
+  # their own job so a hang or failure in the host suites above cannot stop
+  # them from executing. On 2026-10-09 through 2026-10-15 the Test lane spent
+  # its whole six-hour default limit in the CLI suite and was cancelled before
+  # the decompiler step started; a cancelled job does not satisfy `failure()`,
+  # so the red ratchet recorded in #9504 went unobserved for ten days. The
+  # explicit timeout keeps this job well inside the host limit and fails
+  # visibly instead of being cancelled.
+  decompiler-test:
+    name: Decompiler test lane
+    permissions:
+      contents: read
+      packages: read
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '30 11 * * *') ||
+      inputs.lane == 'test' ||
+      inputs.lane == 'release-candidate' ||
+      inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '11.0.100-rc.1.26425.128'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build solution (tool + fixtures)
+        id: build
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Install ilasm/ildasm/mdv
+        id: iltools
+        continue-on-error: true
+        shell: bash
+        run: eng/restore-iltools.sh --rid linux-x64 --mdv --native-paths >> "$GITHUB_PATH"
+
+      - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build -- --gate no-corpus
+
+      - name: Discover expected decompiler gate tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build --
+          --gate-discovery-receipt "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
+          --gate pre-merge --pre-enumerate-theories on --no-ansi
+
+      - name: Run bounded decompiler receipt
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        id: gates
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          DOTNET_INSPECT_DECOMPILER_TEST_RECEIPT: ${{ runner.temp }}/decompiler-gates-execution.jsonl
+        run: >-
+          dotnet run --project tests/ILInspector.Decompiler.Tests -c Release --no-build --
+          --gate pre-merge --pre-enumerate-theories on --no-ansi
+          --auto-reporters off --report-xunit-xml
+          --report-xunit-xml-filename decompiler-gates.xml
+          --results-directory "$RUNNER_TEMP"
+
+      - name: Compare bounded decompiler receipt against known-red
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: >-
+          dotnet run eng/check-decompiler-gate.cs --
+          "$RUNNER_TEMP/decompiler-gates.xml"
+          "$RUNNER_TEMP/decompiler-gates-execution.jsonl"
+          eng/decompiler-gate-known-red.txt
+          eng/decompiler-gate-expected-classes.txt
+          "$RUNNER_TEMP/decompiler-gates-discovery.jsonl"
+
+      - name: Upload bounded decompiler receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deep-inspect-decompiler-gates-report
+          path: |
+            ${{ runner.temp }}/decompiler-gates.xml
+            ${{ runner.temp }}/decompiler-gates-execution.jsonl
+            ${{ runner.temp }}/decompiler-gates-discovery.jsonl
+          if-no-files-found: warn
+
+      - name: Check decompiler test ilasm/ildasm result
+        if: always() && steps.iltools.outcome == 'failure'
+        run: |
+          echo "::error::Restoring ilasm/ildasm failed, so decompiler tests that use them skipped." >&2
+          echo "This lane cannot certify oracle-backed results." >&2
+          exit 1
+
   platform-test:
     name: Platform test (${{ matrix.rid }})
     # Windows and macOS run the fast CLI population plus suites with real OS,
@@ -876,7 +929,7 @@ jobs:
 
   release-certification:
     name: Release certification
-    needs: [test, platform-test, decompiler-corpus]
+    needs: [test, decompiler-test, platform-test, decompiler-corpus]
     if: >-
       always() &&
       (
@@ -889,16 +942,18 @@ jobs:
       - name: Certify slow validation
         env:
           TEST_RESULT: ${{ needs.test.result }}
+          DECOMPILER_TEST_RESULT: ${{ needs.decompiler-test.result }}
           PLATFORM_RESULT: ${{ needs.platform-test.result }}
           CORPUS_RESULT: ${{ needs.decompiler-corpus.result }}
         shell: bash
         run: |
           set -euo pipefail
           if [ "$TEST_RESULT" != success ] ||
+             [ "$DECOMPILER_TEST_RESULT" != success ] ||
              [ "$PLATFORM_RESULT" != success ] ||
              [ "$CORPUS_RESULT" != success ]; then
-            echo "::error::Release certification requires successful test, platform-test, and decompiler-corpus jobs."
-            echo "test=$TEST_RESULT platform-test=$PLATFORM_RESULT decompiler-corpus=$CORPUS_RESULT"
+            echo "::error::Release certification requires successful test, decompiler-test, platform-test, and decompiler-corpus jobs."
+            echo "test=$TEST_RESULT decompiler-test=$DECOMPILER_TEST_RESULT platform-test=$PLATFORM_RESULT decompiler-corpus=$CORPUS_RESULT"
             exit 1
           fi
           echo "Release certification passed for $GITHUB_SHA"
@@ -1441,13 +1496,21 @@ jobs:
     needs:
       - package-sweep
       - test
+      - decompiler-test
       - platform-test
       - decompiler-corpus
       - release-certification
       - inspect-web
       - census
       - authored-corpus-ratchet
-    if: ${{ github.event_name == 'schedule' && failure() }}
+    # A job that exceeds its time limit ends as `cancelled`, not `failure`, and
+    # neither `failure()` nor `cancelled()` observes that from a dependent job.
+    # Read the needed results directly so a timed-out scheduled lane is
+    # reported like a failed one.
+    if: >-
+      always() &&
+      github.event_name == 'schedule' &&
+      (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
     runs-on: ubuntu-26.04
     permissions:
       issues: write

@@ -1120,11 +1120,11 @@ public class CorpusSensorComparisonTests
 
         var firstSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             firstFunction,
-            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantA")),
+            WithTestPass(IrPasses.Default, new ReplaceLocalFunctionBodyWithBranchPass("QuadrantA")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var secondSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             secondFunction,
-            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            WithTestPass(IrPasses.Default, new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var firstOutput = Assert.Single(
             firstSites,
@@ -1169,13 +1169,13 @@ public class CorpusSensorComparisonTests
 
         var baselineSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             baselineFunction,
-            IrPasses.Default
-                .Add(new RemoveLocalFunctionPass("QuadrantA"))
-                .Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            WithTestPass(
+                WithTestPass(IrPasses.Default, new RemoveLocalFunctionPass("QuadrantA")),
+                new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var currentSites = CorpusSensor.CaptureControlFlowSitesForTesting(
             currentFunction,
-            IrPasses.Default.Add(new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
+            WithTestPass(IrPasses.Default, new ReplaceLocalFunctionBodyWithBranchPass("QuadrantB")),
             PassContext.ForImport(method => IrImporter.Import(source, method)));
         var baselineOutput = Assert.Single(
             baselineSites,
@@ -1937,7 +1937,7 @@ public class CorpusSensorComparisonTests
         Assert.NotNull(restored);
         Assert.Equal(4, restored.SchemaVersion);
         Assert.Equal(0, restored.Metrics.Fidelity.ContractVersion);
-        Assert.Equal(7, CorpusSensor.CurrentSchemaVersion);
+        Assert.Equal(8, CorpusSensor.CurrentSchemaVersion);
         Assert.Equal(
             FidelityCheck.CurrentContractVersion,
             CorpusSensor.CurrentFidelityContractVersion);
@@ -3208,6 +3208,15 @@ public class CorpusSensorComparisonTests
         }
     }
 
+    /// <summary>
+    /// Inserts a test-only mutation before the pipeline's final
+    /// <see cref="DefiniteAssignmentPass"/>. <c>IrPassComposition</c> validates
+    /// caller-supplied pipelines and requires that pass to stay last (#9403), so
+    /// a test pass appended after it is rejected rather than run.
+    /// </summary>
+    static ImmutableArray<IIrPass> WithTestPass(ImmutableArray<IIrPass> passes, IIrPass pass)
+        => passes.Insert(passes.Length - 1, pass);
+
     sealed class ReplaceLocalFunctionBodyWithBranchPass(string name) : IIrPass
     {
         public string Name => "replace-local-function-body-with-branch";
@@ -3419,6 +3428,158 @@ public class CorpusSensorComparisonTests
         Assert.Contains(
             "Caveat: the corpus drifted from the baseline (see baseline staleness above).",
             card);
+    }
+
+    [Fact]
+    public void HeadlinePopulations_ClassifyFromMetadataAndImportedTree()
+    {
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var byName = IrImporter.GetStableSampleCandidates(
+                source,
+                int.MaxValue,
+                candidate => candidate.TypeName == typeof(CfgSampleClass).FullName
+                    && candidate.Overload == 0
+                    && candidate.MethodName is "IfAnd" or "ReadByRef" or "ValidNestedIf")
+            .ToDictionary(candidate => candidate.MethodName, StringComparer.Ordinal);
+
+        Assert.Equal(
+            [HeadlinePopulations.Branching, HeadlinePopulations.PublicApi],
+            Classify(byName["IfAnd"]));
+        Assert.Null(Classify(byName["ReadByRef"]));
+        Assert.Equal(
+            [HeadlinePopulations.StateMachine, HeadlinePopulations.PublicApi],
+            Classify(byName["ValidNestedIf"]));
+
+        ImmutableArray<string>? Classify(IrImporter.StableSampleCandidate candidate)
+            => HeadlinePopulations.Classify(
+                source.Reader,
+                candidate.TypeDefHandle,
+                candidate.MethodHandle,
+                candidate.Build(source));
+    }
+
+    [Fact]
+    public void HeadlinePopulations_BuildCountsEachPopulationOverItsOwnDenominator()
+    {
+        var headline = HeadlinePopulations.Build(
+        [
+            PopulationMethod("A", fullyRaised: true, HeadlinePopulations.Branching, HeadlinePopulations.PublicApi),
+            PopulationMethod("B", fullyRaised: false, HeadlinePopulations.Branching),
+            PopulationMethod("C", fullyRaised: false, HeadlinePopulations.StateMachine, HeadlinePopulations.PublicApi),
+            PopulationMethod("D", fullyRaised: true),
+        ]);
+
+        Assert.NotNull(headline);
+        Assert.Equal(new PopulationRaisedMetrics(2, 1, 5_000), headline.Branching);
+        Assert.Equal(new PopulationRaisedMetrics(1, 0, 0), headline.StateMachine);
+        Assert.Equal(new PopulationRaisedMetrics(2, 1, 5_000), headline.PublicApi);
+        Assert.Null(HeadlinePopulations.Build([PopulationMethod("E", fullyRaised: true)]));
+    }
+
+    [Fact]
+    public void CorpusMethodSnapshot_PopulationsRoundTripAndStayAbsentWhenNull()
+    {
+        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        string withPopulations = JsonSerializer.Serialize(
+            PopulationMethod("A", fullyRaised: true, HeadlinePopulations.Branching),
+            options);
+        string withoutPopulations = JsonSerializer.Serialize(SnapshotMethod("B"), options);
+
+        Assert.Contains("\"populations\":[\"branching\"]", withPopulations);
+        Assert.DoesNotContain("populations", withoutPopulations);
+        var roundTrip = JsonSerializer.Deserialize<CorpusMethodSnapshot>(withPopulations, options);
+        Assert.Equal([HeadlinePopulations.Branching], roundTrip!.Populations);
+    }
+
+    [Fact]
+    public void Compare_RejectsHeadlineRaisedRateDrop()
+    {
+        var baseline = HeadlineSnapshot(branchingRaised: 10, stateMachineRaised: 10, publicApiRaised: 10);
+        var current = HeadlineSnapshot(branchingRaised: 9, stateMachineRaised: 10, publicApiRaised: 7);
+
+        var regressions = CorpusSensor.Compare(baseline, current, []);
+
+        Assert.Contains(
+            regressions,
+            failure => failure.StartsWith("branching fully raised rate dropped", StringComparison.Ordinal)
+                && failure.Contains("(baseline 100.00%, current 90.00%", StringComparison.Ordinal));
+        Assert.Contains(
+            regressions,
+            failure => failure.StartsWith("public API fully raised rate dropped", StringComparison.Ordinal)
+                && failure.Contains("(baseline 100.00%, current 70.00%", StringComparison.Ordinal));
+        Assert.DoesNotContain(regressions, failure => failure.StartsWith("state-machine", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_PrQuickGateEvaluatesHeadlineRatesOnPinnedRows()
+    {
+        var baseline = HeadlineSnapshot(branchingRaised: 10, stateMachineRaised: 10, publicApiRaised: 10);
+        var current = HeadlineSnapshot(branchingRaised: 10, stateMachineRaised: 8, publicApiRaised: 10);
+
+        var regressions = CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false);
+
+        Assert.Contains(
+            regressions,
+            failure => failure.StartsWith("state-machine fully raised rate (pinned) dropped", StringComparison.Ordinal)
+                && failure.Contains("(baseline 100.00%, current 80.00%", StringComparison.Ordinal));
+        Assert.DoesNotContain(regressions, failure => failure.StartsWith("branching", StringComparison.Ordinal));
+        Assert.DoesNotContain(regressions, failure => failure.StartsWith("public API", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compare_LeavesHeadlineUngatedWhenBaselinePredatesSchemaV8()
+    {
+        var baseline = HeadlineSnapshot(branchingRaised: 10, stateMachineRaised: 10, publicApiRaised: 10, schemaVersion: 7);
+        var current = HeadlineSnapshot(branchingRaised: 5, stateMachineRaised: 5, publicApiRaised: 5);
+
+        Assert.DoesNotContain(
+            CorpusSensor.Compare(baseline, current, []),
+            failure => failure.Contains("fully raised rate", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            CorpusSensor.Compare(baseline, current, [], gateAggregateRates: false),
+            failure => failure.Contains("fully raised rate", StringComparison.Ordinal));
+    }
+
+    static CorpusMethodSnapshot PopulationMethod(string method, bool fullyRaised, params string[] populations)
+        => SnapshotMethod(method) with
+        {
+            Fidelity = fullyRaised ? "Full" : "Partial",
+            FullyRaised = fullyRaised,
+            Residual = fullyRaised ? null : "structuring: conditional-branch",
+            Populations = populations.Length == 0 ? null : populations,
+            ControlFlowSites = [new("branch", 0x10, 0, Raised: fullyRaised)],
+        };
+
+    // Ten pinned rows per population; each row belongs to exactly one
+    // population so a drop in one measure cannot leak into another.
+    static CorpusSensorSnapshot HeadlineSnapshot(
+        int branchingRaised,
+        int stateMachineRaised,
+        int publicApiRaised,
+        int schemaVersion = CorpusSensor.CurrentSchemaVersion)
+    {
+        var rows = ImmutableArray.CreateBuilder<CorpusMethodSnapshot>(30);
+        foreach (var (population, raised) in new[]
+        {
+            (HeadlinePopulations.Branching, branchingRaised),
+            (HeadlinePopulations.StateMachine, stateMachineRaised),
+            (HeadlinePopulations.PublicApi, publicApiRaised),
+        })
+        {
+            for (int i = 0; i < 10; i++)
+                rows.Add(PopulationMethod($"{population}{i}", fullyRaised: i < raised, population));
+        }
+
+        var methods = rows.ToImmutable();
+        var headline = schemaVersion >= 8 ? HeadlinePopulations.Build(methods) : null;
+        int fullyRaised = methods.Count(method => method.FullyRaised);
+        var snapshot = Snapshot(
+            totalMethods: methods.Length,
+            fullyRaisedMethods: fullyRaised,
+            fullyRaisedBasisPoints: fullyRaised * 10_000 / methods.Length,
+            pinnedMethods: methods,
+            schemaVersion: schemaVersion);
+        return snapshot with { Metrics = snapshot.Metrics with { Headline = headline } };
     }
 
 }

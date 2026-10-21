@@ -2036,10 +2036,18 @@ public sealed partial class PackageHouseExecutionTests
     }
 
     [Fact]
-    public async Task RuntimeOwnerDefaultRealizeIsVisiblyRejected()
+    public async Task
+        RuntimeOwnerDefaultRealizeInfersSingleRidAndHighestTarget()
     {
         await using HouseEnvironment environment = HouseEnvironment.Create(
-            new SourceBehavior([Version]));
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    $"runtimes/linux-x64/lib/net8.0/{PackageId}.dll",
+                    $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+                    $"runtimes/linux-x64/native/{PackageId}.dll",
+                ]));
         var request = new PackageHouseRequest(
             new PackageHouseDemand.Exact(
                 PackageSourceCoordinate.Create(
@@ -2048,7 +2056,8 @@ public sealed partial class PackageHouseExecutionTests
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize),
             PackageHouseTargetContext.OwnerDefault(),
-            PackageHouseAssetSelectionKind.Runtime);
+            PackageHouseAssetSelectionKind.Runtime,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
 
         PackageHouseSettlement settlement =
             await environment.CreateHouse(
@@ -2062,24 +2071,126 @@ public sealed partial class PackageHouseExecutionTests
         PackageHouseSettlement.Acquired acquired =
             Assert.IsType<PackageHouseSettlement.Acquired>(
                 settlement);
-        PackageHouseResult.Rejected rejected =
-            Assert.IsType<PackageHouseResult.Rejected>(
+        PackageHouseResult.Settled settled =
+            Assert.IsType<PackageHouseResult.Settled>(
                 acquired.Result);
-        Assert.Null(rejected.Evidence.Realization);
-        PackageHouseFailure.Stage failure =
-            Assert.IsType<PackageHouseFailure.Stage>(
-                Assert.Single(rejected.Evidence.Failures));
+        PackageHouseRealizationReceipt.Runtime realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Runtime>(
+                settled.Evidence.Realization);
+        Assert.Null(realization.Receipt.RequestedTargetFramework);
+        Assert.Null(realization.Receipt.RequestedRuntimeIdentifier);
+        PackageAssetSelection.Selected selected =
+            Assert.IsType<PackageAssetSelection.Selected>(
+                realization.Selection);
+        Assert.Equal("net10.0", selected.Universe.TargetFramework);
+        Assert.Equal("linux-x64", selected.Universe.RuntimeIdentifier);
+        PackageHouseLibraryHandoff.Runtime handoff =
+            Assert.IsType<PackageHouseLibraryHandoff.Runtime>(
+                Assert.Single(realization.LibraryHandoffs));
         Assert.Equal(
-            PackageHouseFailureStage.Selection,
-            failure.StageKind);
-        Assert.Contains(
-            "exact target framework",
-            rejected.Reason.ToString(),
-            StringComparison.Ordinal);
+            $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+            handoff.Asset.EntryPath);
         Assert.Same(
             acquired.Payload,
             acquired.SourcePayloadResult!.Payload);
         Assert.True(acquired.SelectionUsesOriginalSources);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task RuntimeExactTargetWithoutRidInfersSingleRid()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    "ref/netstandard2.0/_._",
+                    $"runtimes/unix/lib/netstandard1.0/{PackageId}.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.Exact("netstandard2.0"),
+            PackageHouseAssetSelectionKind.Runtime,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseRealizationReceipt.Runtime realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Runtime>(
+                Assert.IsType<PackageHouseResult.Settled>(
+                    settlement.Result).Evidence.Realization);
+        Assert.Equal(
+            "netstandard2.0",
+            realization.Receipt.RequestedTargetFramework);
+        Assert.Null(realization.Receipt.RequestedRuntimeIdentifier);
+        PackageAssetUniverse universe =
+            Assert.IsType<PackageAssetSelection.Selected>(
+                realization.Selection).Universe;
+        Assert.Equal("netstandard1.0", universe.TargetFramework);
+        Assert.Equal("unix", universe.RuntimeIdentifier);
+        Assert.Equal(
+            $"runtimes/unix/lib/netstandard1.0/{PackageId}.dll",
+            Assert.Single(universe.Assets).EntryPath);
+        await environment.AssertRootSettledAsync();
+    }
+
+    [Fact]
+    public async Task RuntimeOwnerDefaultDoesNotMergeMultipleRids()
+    {
+        await using HouseEnvironment environment = HouseEnvironment.Create(
+            new SourceBehavior(
+                [Version],
+                PayloadEntries:
+                [
+                    $"runtimes/linux-x64/lib/net10.0/{PackageId}.dll",
+                    $"runtimes/win-x64/lib/net10.0/{PackageId}.dll",
+                ]));
+        var request = new PackageHouseRequest(
+            new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    PackageId,
+                    Version)),
+            PackageHouseOperation.Create(
+                PackageHouseOperationProfile.Realize),
+            PackageHouseTargetContext.OwnerDefault(),
+            PackageHouseAssetSelectionKind.Runtime,
+            PackageHouseLibraryHandoffMode.SelectedLibraries);
+
+        PackageHouseSettlement settlement =
+            await environment.CreateHouse(
+                (_, _) => new InMemoryPackageStore())
+                .ExecuteAsync(
+                    request,
+                    environment.IssueOperation(
+                        request,
+                        TestContext.Current.CancellationToken));
+
+        PackageHouseResult.Ambiguous ambiguous =
+            Assert.IsType<PackageHouseResult.Ambiguous>(
+                settlement.Result);
+        PackageHouseRealizationReceipt.Runtime realization =
+            Assert.IsType<PackageHouseRealizationReceipt.Runtime>(
+                ambiguous.Evidence.Realization);
+        Assert.IsType<PackageAssetSelection.Ambiguous>(
+            realization.Selection);
+        Assert.Empty(realization.LibraryHandoffs);
+        Assert.Contains(
+            "explicit runtime identifier",
+            ambiguous.Reason.ToString(),
+            StringComparison.Ordinal);
         await environment.AssertRootSettledAsync();
     }
 

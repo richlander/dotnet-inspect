@@ -1,0 +1,44 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspectedVersion": "10.0.13",
+        "dependencyKind": "direct",
+        "evidence": "The package manifest's .NETStandard2.0 dependency group declares Polly 7.2.4. The package query selected that group for requested dependency target net10.0 and matched depends=Polly. The same group also declares Microsoft.Extensions.Http 10.0.13 and Polly.Extensions.Http 3.0.0."
+      }
+    ],
+    "familyExhausted": false,
+    "familyScopeExplanation": "The Microsoft.Extensions* search reached its explicit 40-candidate limit, with one match among those 40. The recorder warned that these results do not exhaust the requested package-ID scope. No claim is made about further packages or indirect dependencies outside the inspected candidate set."
+  },
+  "provenance": [
+    {
+      "response": "response-01.out",
+      "command": "package query --help",
+      "use": "Established package-query arguments, --take candidate bound, and --json output."
+    },
+    {
+      "response": "response-02.out",
+      "command": "package query -Q",
+      "use": "Located the Packages query-capable section."
+    },
+    {
+      "response": "response-03.out",
+      "command": "package query -Q Packages",
+      "use": "Located depends and dependency-target facets."
+    },
+    {
+      "response": "response-04.out",
+      "command": "explain package-query/query/facets/depends-transitive .data --json",
+      "use": "Confirmed dependency-target net10.0 semantics and that transitive traversal has separate depth and candidate constraints."
+    },
+    {
+      "response": "response-05.out",
+      "stderrResponse": "response-05.err",
+      "command": "package query 'Microsoft.Extensions*' --take 40 --where 'depends=Polly' --where 'dependency-target=net10.0' --json",
+      "use": "Search result, inspected package version, manifest dependency group, selected framework group, direct dependency evidence, and candidate-limit warning."
+    }
+  ],
+  "uncertainty": "Only direct Polly dependencies were queried. The search reached its candidate limit; other Microsoft.Extensions packages, including ones with indirect Polly dependencies, may exist outside these 40 candidates. No output was truncated.",
+  "discoveryFriction": "The -Q output located facet names, while the structured .data facet response supplied framework-selection and traversal semantics. The returned package result was sufficient for the direct claim, but its numeric completion code required the stderr warning to understand search completeness."
+}

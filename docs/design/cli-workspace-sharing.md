@@ -467,12 +467,13 @@ Neighboring cases prove the boundary:
 
 The common target contract is **partially verified**. Current
 `member --share[=url|packet]` proves canonical packet/URL production for one
-explicitly selected public NuGet member Overview, but it still requires an
-exact overload gesture, rejects all section selection, and replaces ordinary
-content with scalar stdout. Package Dependencies similarly proves exact
-coordinate projection and Browser restoration through a share-only fast path.
-Those implementations verify projection but do not yet satisfy the additive
-stdout/stderr contract. The real-package Member Call Graph adoption is designed
+explicitly selected public NuGet member Overview. #10184 makes that route
+additive and adds Workspace input with complete-environment derived Member
+scenarios. Unsupported section selection and unqualified overload groups
+preserve ordinary content and refuse only Share. Presentation such as JSON
+coexists with the side output. Package Dependencies still proves exact
+coordinate projection and Browser restoration through a share-only fast path;
+that implementation does not yet satisfy the additive stdout/stderr contract. The real-package Member Call Graph adoption is designed
 and tracked by #6540 but remains unverified until its CLI-to-Browser production
 slice lands. Existing-adopter migration is tracked by
 [#6725](https://github.com/richlander/dotnet-inspect/issues/6725).
@@ -511,10 +512,10 @@ Each adoption must add focused Release gates proving:
 - the real Inspect Web URL restores the same normalized coordinates, context,
   subject, facet, query, and portable options.
 
-The existing `MemberShare_*` tests gate the narrower member subset.
-`MemberShare_RejectsLegacyLineWindowBeforeScalarOutput` specifically gates
-the superseded scalar-only output contract and must be replaced by coexistence
-coverage.
+The `MemberShare_*` and `MemberWorkspaceRouteTests` gates cover Member
+stdout preservation, presentation coexistence, complete-environment derivation,
+visible refusal and exact overload identity. `MemberWorkspace_ParserToCompletedInspectionAndDerivedShare`
+exercises the production parser and completed CLI inspection.
 `DependsShare_PacketProjectsExactPackageDependencyView`,
 `DependsShare_PacketPreservesCompatibleRequestedFramework`,
 `DependsShare_UrlWrapsCanonicalPacket`,

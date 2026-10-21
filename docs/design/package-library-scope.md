@@ -95,12 +95,15 @@ to the ordered candidates and participant evidence that Navigation requires.
 
 Which roles a probe may declare beyond the compile projection and how a
 package with no compile Library but RID-specific implementation assets selects
-its role, target, and RID belong to Navigation, `PackageAssetSelector`, and
-compile selection. Direct framework-less `lib/*.dll` assets form the
+its role belong to Navigation. When that role is implementation,
+`PackageAssetSelector` can issue one owner-default runtime population by
+inferring a RID only when exactly one eligible
+`runtimes/<rid>/lib/<tfm>` RID occurs; it never merges RIDs or uses the broader
+platform-pack population. Direct framework-less `lib/*.dll` assets form the
 framework-agnostic `any` compile slice owned by
 [compile selection](package-asset-selection-correspondence.md#authority-and-exact-claim).
 [#9833](https://github.com/richlander/dotnet-inspect/issues/9833) carries the
-remaining role and RID decisions.
+remaining Navigation role adoption and archive-search retirement.
 
 A survey of the 500 most downloaded nuget.org packages at their latest stable
 versions, under #9833, informs them:
@@ -345,26 +348,36 @@ population Count. CLI and Browser/Wasm consume the same Package-owned planning
 strategy and identity-row provision; hosts do not infer one provision from
 another.
 
-CLI `library --package` and its namesake request do not yet adopt Library
-probes. When compile selection returns `NoCompileAssets`, and under
-`--tfm all`, the CLI's package Library routes search the extracted archive
-through `TfmSelector` instead of consuming a role population; #9833 records
-each route. Observed results include a runtime pack yielding its
-implementation assemblies, an analyzer package its analyzers, and a
-satellite-only package its satellite resource assemblies. Direct root
-`lib/*.dll` packages no longer enter that search because compile selection
-issues their framework-agnostic population. The standalone exact
-`library --package` route consumes that same selected population when a package
-contains direct root Libraries, so a real framework-qualified slice still
-outranks the root slice. Under `--tfm all` the search also merges
-frameworks and roles and ignores explicit empty groups; those routes are
-retired rather than repopulated, because `--tfm all` is package discovery
-under [All-frameworks package discovery](package-tfm-all-discovery.md), which
-records that adoption. Without `--tfm all`, a selected explicit empty compile
-group fails before the search and reports the group's own folder spelling,
-such as `netstandard`. #9833 records the search's exact rules and decides the
-remaining `NoCompileAssets` path after the RID-implementation decision above,
-and Browser adoption of Library probes is not yet recorded.
+CLI Package Library aggregate, exact, and Namesake requests adopt Library
+probes under #10240. PackageHouse receives one `LibraryPopulation`
+realization demand before payload transfer. It preserves compile precedence
+and evaluates the one-RID runtime implementation policy only for
+`NoCompileAssets` or `EmptyCompileGroup`; ranged planning and the retained
+realization receipt consume that same generation-bound decision. When that
+runtime policy returns `NoMatch`, a nuspec-authenticated `DotnetTool` or
+`DotnetToolRidPackage` may supply the one tool-Library population selected by
+the Package Info tool-measurement owner. Eligible nested managed runtime DLLs
+remain ordinary members of that selected tool slice. Analyzer, build, native,
+satellite, second-RID, and unrelated framework entries do not become probe
+candidates. The CLI consumes the retained role population and no longer uses
+`TfmSelector` to recover from `NoCompileAssets`. When that population is
+runtime-specific, exact and aggregate inspection retain its selected RID in
+Package provenance. After an exact probe selects one asset, the CLI opens that
+retained package-relative path directly rather than running another archive or
+target-framework selection.
+
+Direct framework-less `lib/*.dll` packages continue to use their
+framework-agnostic compile population, and a real framework-qualified slice
+still outranks it. Exact and Namesake `--tfm all` requests are rejected because
+one probe cannot merge framework projections. Aggregate `--tfm all` remains
+package discovery under
+[All-frameworks package discovery](package-tfm-all-discovery.md), rather than
+one Library Scope population. Package children continue to consume their
+separate settings-issued tool population; Library probes consume the
+declaration-authenticated measurement population and do not redefine tool
+layout or settings correspondence. Browser adoption remains separately owned.
+Issue #9833 records First Library, remaining host adoption, and final
+archive-search retirement.
 
 Later SourceLink and relationship adoptions remain separately scoped. Existing
 aggregate behavior is evidence, not an automatic conformance claim.
@@ -384,6 +397,16 @@ settings status and case-insensitive entry-point correspondence, while
 `QueryPackage_ToolPayloadPublishesExactManagedLibraries` and
 `QueryPackage_DeclaredToolWithoutSettingsRemainsUnavailable` gate Browser
 adoption.
+
+CLI runtime-role adoption is gated by
+`LibraryCommand_RuntimeOnlyPackageSelectsHighestAndExplicitTarget`,
+`LibraryCommand_MarkerOnlyCompileGroupUsesRuntimePopulation`,
+`LibraryCommand_AnalyzerAndNativeDllsAreNotLibraries`, and
+`LibraryAddressCommand_PackageNonCompileSelectionsAreRejected`.
+`LibraryCommand_ToolPayloadExactPathStaysInToolPopulation` gates the boundary
+between a retained Package Library path and the declaration-authenticated tool
+population, including terminal non-success when the requested target cannot
+issue one tool slice.
 `ProducerCapabilityPlanSelectsBeforeEnrichment` gates selection before
 per-Library work, while
 `PackageTreeCapabilitiesPreserveHostsAndWorkReduction` gates equivalent

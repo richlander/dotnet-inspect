@@ -164,10 +164,14 @@ the payload is already inert. Losing the wrapper loses provenance, not
 protection.
 
 `TextConcern` retains why visual containment occurred: control, format/bidi,
-unpaired surrogate, line separator, or paragraph separator. The flags are
+unpaired surrogate, line separator, or paragraph separator. An ill-formed UTF-8
+byte reports the surrogate concern because it is spelled as its surrogate escape
+(see [Inert UTF-8](inert-bytes.md#inert-utf-8)). The flags are
 captured while the untreated scalar is available and travel with the
-`InertString` through composition, policy tightening, bounding, and persistence
-restoration. An audit can therefore aggregate categories without importing the
+`InertString` through composition, bounding, and persistence restoration.
+Policy tightening recomputes them while re-spelling the decoded source, so they
+describe what the stricter policy spelled; two adjacent surrogate escapes that
+decode to one permitted scalar no longer report a surrogate concern. An audit can therefore aggregate categories without importing the
 decoder or retaining a second raw copy. `RequiredContainment` is exactly
 `Concerns != None`; a literal backslash may affect `VisualForm` to preserve
 invertibility but contributes no concern.
@@ -233,14 +237,15 @@ handling. Applying containment before Markdown parsing remains intentionally
 excluded because Markdown can consume backslash spellings and collapse
 distinct source text.
 
-`PackageDocument_RealWrongTurnReadmeIsContainedForBrowserPublication` retains
-the exact package archive by `PackageDownload` and gates the observed bidi
-shape. `PackageDocumentHtml_ContainsBidiAfterStructuralSanitization` gates
-visual containment, literal-spelling distinction, and scalar JSON transport.
-The document coordinator tests gate the same distinction for separately
-published frontmatter name and version values. These gates describe the safe
-transitional whole-HTML implementation; the contained-document adoption owns
-its eventual replacement.
+`PackageDocument_RealWrongTurnReadmeRetainsBidiUntilBrowserPublication`
+retains the exact package archive by `PackageDownload` and gates that the
+observed bidi shape remains untreated through acquisition. The production
+Browser gate `publishes body and frontmatter through one contained fragment`
+then covers actual controls, literal escape spellings, body text, code, link
+labels, displayed attributes, and frontmatter through the leaf-containment
+boundary. The contained-document unit gates establish exact correspondence and
+structure-preserving publication. No whole-serialized-HTML containment
+operation remains.
 
 ### Package skills entering agent context
 

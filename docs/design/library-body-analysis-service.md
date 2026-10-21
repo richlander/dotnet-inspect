@@ -109,6 +109,30 @@ the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
 
+The next drain slice moves safety-only IL-coordinate preparation to
+`ExactMethodAnalysisProducer`. CLI and Library Address borrow their existing
+prefetched metadata context, deduplicate the requested MethodDef tokens, and
+execute one owner-issued exact request. `ILOffsetSafetyAnalysisInput` carries
+the safety evidence, unsafe occurrences, diagnostics, source receipt, and work
+receipt independently of the legacy three-result input. Allocation, cost, and
+combined coordinate requests still use this service: allocation requires
+`LibraryAllocationAnalysisResult`, while cost requires the donor-owned public
+direct-call rows.
+
+The method-analysis-support prerequisite for exact allocation and optimization
+is tracked by
+[#10307](https://github.com/richlander/dotnet-inspect/issues/10307).
+`DeclaredSourceAttribution` now composes the
+[Method Query Source support](method-query-source.md#method-analysis-support)
+used by the legacy builder's method resolver, method-reference resolver,
+generic-constraint classifier, and stable-receiver classifier. The primary
+resolver's memory-safety index is lazy, so allocation and optimization support
+does not silently construct unrelated safety infrastructure. This is a
+composition and ownership transfer, not production QuerySpace adoption:
+allocation, cost, and combined coordinate requests still use this service
+until #10285 moves their shared CLI and Browser/Wasm operation. Final donor
+drainage and deletion remain with #8965 and #9959.
+
 The CLI session adoption moved both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
 command-selected feature and body-scope policy, resolver binding policy, source
@@ -1113,9 +1137,9 @@ The counted implementation path is:
 5. Publish per-body typed outcomes and per-metric coverage in
    `LibraryImplementationMetricAnalysisResult`.
 6. Adapt the complete implementation profile from the focused result and
-   migrate `AssemblyContextImplementationProfileFamilyQuery` and
-   `AssemblyContextLibraryMetricsQuery`, preserving their existing CLI and
-   Inspect Web consumers.
+   migrate `AssemblyContextImplementationProfileFamilyQuery`, preserving its
+   existing CLI and Inspect Web consumers. `AssemblyContextLibraryMetricsQuery`
+   instead consumes the exact structural result described below.
 7. Retire the monolithic feature bit after remaining complete-profile callers
    move, then let #8445 adopt the selective result through
    `MemberMetricsInspect`.
@@ -1153,8 +1177,11 @@ This request publishes `LibraryStructuralAnalysisResult`; it does not publish
 `MethodImplementationProfile` rows. Research consumes the structural result
 directly and preserves the existing Library Metrics document, compatibility
 receipt, population coverage, diagnostics, ordering, and transport bytes.
-Other queries, including Implementation Profiles and exact-family Member
-Metrics, retain their existing result and execution routes.
+The direct CLI route and the host-neutral
+`AssemblyContextLibraryMetricsQuery` used by package and platform Browser/Wasm
+exports both issue this request. Other queries, including Implementation
+Profiles and exact-family Member Metrics, retain their existing result and
+execution routes.
 
 The CLI exact-family Member Metrics route carries the exact TypeDef token and
 complete public overload selectors already issued by its member projection.
@@ -1571,6 +1598,9 @@ The initial Release gates are:
 - existing `AssemblyContextMethodAnalysisQueryTests` for exact physical
   method evidence, visible participant failures, resolver use, and
   cancellation;
+- `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` for the first
+  exact-member producer's one-body source receipt and identity, direct-call,
+  safety, diagnostic, and exception-region parity with this donor;
 - existing `AssemblyContextOptimizationOpportunitiesQueryTests` for ranking,
   public-member attribution, participant isolation, resolver use, and visible
   failure; and
@@ -1590,6 +1620,23 @@ The initial Release gates are:
 
 No source-code absence gate enforces service usage. Consumer migration is
 established by the production call sites and focused behavior gates.
+
+`AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
+`ExactMethodAnalysisProducer` owns semantic identity, safety evidence and
+occurrences, diagnostics, and detached physical exception regions. This
+service still owns the query's public direct-call rows, final `MethodSignals`,
+allocation occurrences, and optimization opportunities. Calls remain a
+focused source input only for call-safety evidence; declared async-source
+attribution, execution multiplicity, and complete external MethodSpec
+definition-token provenance remain donor-owned. Those retained products may
+incidentally perform work that the focused producer also needs; #9832 moves
+only complete result ownership and planning authority and does not claim that
+incidental donor work is retired.
+Recoverable whole-body Calls failure does not erase independent focused
+evidence: exception regions are already detached, and a recovery-only
+owner-issued operand resolver preserves the safety-occurrence prefix while the
+already materialized instructions preserve call-independent operation-safety
+evidence and the diagnostic remains visible.
 
 Each result-type migration additionally gates:
 

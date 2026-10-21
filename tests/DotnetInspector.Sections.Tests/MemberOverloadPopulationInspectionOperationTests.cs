@@ -408,41 +408,6 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
 
     [Fact]
     public async Task
-        RealSerialize_MemberGroupDocumentOwnsCountAndExactRows()
-    {
-        byte[] content =
-            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
-        await using LibraryInspectionTestLibrary library =
-            await LibraryInspectionTestLibrary.CreateAsync(
-                content,
-                LibraryInspectionTestLibrary.Identity(content));
-
-        InspectionEnvelope<MemberGroupDocumentInspectionOutcome> envelope =
-            ExecuteDocument(library, "Serialize");
-        MemberGroupDocument document =
-            Assert.IsType<MemberGroupDocumentInspectionOutcome.Available>(
-                    envelope.Content)
-                .Document;
-
-        Assert.Equal("Serialize", document.Subject.Name);
-        var count =
-            Assert.IsType<MemberOverloadCountOutcome.Counted>(
-                document.Overloads.Count);
-        var rows =
-            Assert.IsType<MemberOverloadRowsOutcome.Read>(
-                document.Overloads.Rows);
-        Assert.Equal(15, count.Value);
-        Assert.Equal(count.Value, rows.Items.Length);
-        Assert.Null(rows.Continuation);
-        Assert.Equal(
-            Enumerable.Range(1, count.Value),
-            rows.Items.Select(static row => row.BaselineOrdinal));
-
-        await library.RetireAsync();
-    }
-
-    [Fact]
-    public async Task
         RealSerialize_MemberDocumentSelectsOneBoundExactDeclaration()
     {
         byte[] content =
@@ -452,13 +417,17 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 content,
                 LibraryInspectionTestLibrary.Identity(content));
 
-        MemberGroupDocument group =
-            Assert.IsType<MemberGroupDocumentInspectionOutcome.Available>(
-                    ExecuteDocument(library, "Serialize").Content)
-                .Document;
         MemberOverloadShape expected =
             Assert.IsType<MemberOverloadRowsOutcome.Read>(
-                    group.Overloads.Rows)
+                    Available(
+                            Execute(
+                                library,
+                                "Serialize",
+                                count: false,
+                                new(
+                                    maximumRows:
+                                        s_bounds.MaxMembers)))
+                        .Overloads.Rows)
                 .Items[5];
 
         MemberDocumentInspectionContent ordinal =
@@ -506,10 +475,15 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 LibraryInspectionTestLibrary.Identity(content));
         MemberOverloadShape expected =
             Assert.IsType<MemberOverloadRowsOutcome.Read>(
-                    Assert.IsType<
-                            MemberGroupDocumentInspectionOutcome.Available>(
-                            ExecuteDocument(library, "Serialize").Content)
-                        .Document.Overloads.Rows)
+                    Available(
+                            Execute(
+                                library,
+                                "Serialize",
+                                count: false,
+                                new(
+                                    maximumRows:
+                                        s_bounds.MaxMembers)))
+                        .Overloads.Rows)
                 .Items[5];
         int calls = 0;
 
@@ -674,10 +648,15 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                 LibraryInspectionTestLibrary.Identity(content));
         MemberOverloadShape expected =
             Assert.IsType<MemberOverloadRowsOutcome.Read>(
-                    Assert.IsType<
-                            MemberGroupDocumentInspectionOutcome.Available>(
-                            ExecuteDocument(library, "Serialize").Content)
-                        .Document.Overloads.Rows)
+                    Available(
+                            Execute(
+                                library,
+                                "Serialize",
+                                count: false,
+                                new(
+                                    maximumRows:
+                                        s_bounds.MaxMembers)))
+                        .Overloads.Rows)
                 .Items[5];
         int calls = 0;
 
@@ -739,122 +718,6 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
         Assert.Equal(
             expected.DocumentationId.ToString(),
             attachment.Outcome.Subject.DocumentationId);
-
-        await library.RetireAsync();
-    }
-
-    [Fact]
-    public async Task
-        RealSerialize_MemberGroupBatchesDocumentationForReturnedRowsOnly()
-    {
-        byte[] content =
-            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
-        await using LibraryInspectionTestLibrary library =
-            await LibraryInspectionTestLibrary.CreateAsync(
-                content,
-                LibraryInspectionTestLibrary.Identity(content));
-        var plan = new MemberOverloadPopulationInspectionPlan(
-            new(
-                Name("System.Text.Json", "JsonSerializer"),
-                "Serialize"),
-            new(
-                new MemberOverloadCountRequest(),
-                new MemberOverloadRowsRequest(maximumRows: 2)),
-            s_bounds);
-        MemberOverloadRowsOutcome.Read expectedRows =
-            Assert.IsType<MemberOverloadRowsOutcome.Read>(
-                Available(
-                        Execute(
-                            library,
-                            "Serialize",
-                            count: false,
-                            new(maximumRows: 2)))
-                    .Overloads.Rows);
-        MemberOverloadPopulationBinding expectedBinding =
-            expectedRows.Items[0].Binding;
-        var request = new MemberGroupDocumentInspectionRequest(
-            library.Reference,
-            plan,
-            new(DocumentationDemand.CompiledXml));
-        int calls = 0;
-
-        using LibraryOperationLease operation = library.IssueOperation();
-        InspectionEnvelope<MemberGroupDocumentInspectionOutcome> inspection =
-            await MemberGroupDocumentInspectionOperation.ExecuteAsync(
-                request,
-                operation,
-                (ids, demand, _) =>
-                {
-                    calls++;
-                    Assert.Equal(
-                        DocumentationDemand.CompiledXml,
-                        demand);
-                    Assert.Equal(2, ids.Count);
-                    IReadOnlyDictionary<
-                        string,
-                        DocumentationQueryOutcome> outcomes =
-                            ids.ToDictionary(
-                                static id => id,
-                                id =>
-                                    (DocumentationQueryOutcome)
-                                        new DocumentationQueryOutcome
-                                            .RequestRejected(
-                                                DocumentationSubject(
-                                                    expectedBinding,
-                                                    id),
-                                                DocumentationQueryRequestRejectionReason
-                                                    .LeaseReferenceMismatch),
-                                StringComparer.Ordinal);
-                    return ValueTask.FromResult(outcomes);
-                },
-                TestContext.Current.CancellationToken);
-
-        MemberGroupDocument document =
-            Assert.IsType<MemberGroupDocumentInspectionOutcome.Available>(
-                    inspection.Content)
-                .Document;
-        MemberOverloadRowsOutcome.Read rows =
-            Assert.IsType<MemberOverloadRowsOutcome.Read>(
-                document.Overloads.Rows);
-        Assert.Equal(1, calls);
-        Assert.Equal(2, rows.Items.Length);
-        Assert.Equal(2, document.ReturnedRowDocumentation.Length);
-        Assert.Equal(
-            rows.Items.Select(
-                static row => row.DocumentationId.ToString()),
-            document.ReturnedRowDocumentation.Select(
-                static attachment =>
-                    attachment.Outcome.Subject.DocumentationId));
-        Assert.All(
-            document.ReturnedRowDocumentation,
-            attachment =>
-                Assert.Equal(
-                    document.Subject,
-                    attachment.Subject.Group));
-
-        await library.RetireAsync();
-    }
-
-    [Fact]
-    public async Task
-        CountOnlyMemberGroupCannotRequestRowDocumentation()
-    {
-        byte[] content =
-            await LibraryInspectionTestLibrary.RealSystemTextJsonAsync();
-        await using LibraryInspectionTestLibrary library =
-            await LibraryInspectionTestLibrary.CreateAsync(
-                content,
-                LibraryInspectionTestLibrary.Identity(content));
-        var plan = new MemberOverloadPopulationInspectionPlan(
-            new(Name("N", "C"), "M"),
-            new(new MemberOverloadCountRequest()),
-            s_bounds);
-
-        Assert.Throws<ArgumentException>(() =>
-            new MemberGroupDocumentInspectionRequest(
-                library.Reference,
-                plan,
-                new(DocumentationDemand.CompiledXml)));
 
         await library.RetireAsync();
     }
@@ -1974,29 +1837,6 @@ public sealed class MemberOverloadPopulationInspectionOperationTests
                         receiver,
                         includeHidden),
                     bounds ?? s_bounds)),
-            library.IssueOperation(),
-            TestContext.Current.CancellationToken);
-
-    private static InspectionEnvelope<
-        MemberGroupDocumentInspectionOutcome> ExecuteDocument(
-            LibraryInspectionTestLibrary library,
-            string methodName) =>
-        MemberGroupDocumentInspectionOperation.Execute(
-            new(
-                library.Reference,
-                new(
-                    new(
-                        Name(
-                            "System.Text.Json",
-                            "JsonSerializer"),
-                        methodName),
-                    new(
-                        new MemberOverloadCountRequest(),
-                        new(maximumRows: s_bounds.MaxMembers),
-                        MemberOverloadAccessibilityFilter.Public,
-                        MemberOverloadReceiverFilter.All,
-                        includeHidden: false),
-                    s_bounds)),
             library.IssueOperation(),
             TestContext.Current.CancellationToken);
 

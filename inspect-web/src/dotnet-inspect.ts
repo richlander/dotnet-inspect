@@ -386,8 +386,18 @@ import {
   createPackageDocumentTitles,
   documentViewerIsOpen,
   normalizeDocumentViewerSnapshot,
+  type PackageDocumentRenderInput,
   type DocumentViewerState,
 } from "./document-inspection.ts";
+import {
+  browserDocumentFragmentPresentationLeaves,
+  completeContainedDocumentFragment,
+  containedDocumentFragmentHtml,
+  prepareContainedDocumentFragment,
+  type ContainedDocumentFragment,
+  type DocumentPresentationTarget,
+  type DocumentTextPolicy,
+} from "./contained-document.ts";
 import {
   renderLibraryOverviewContent,
   renderOverviewSurface,
@@ -866,6 +876,7 @@ import type {
   BrowserPackageHierarchy,
   BrowserPackageDependencyGroup,
   BrowserPackageIconInspection,
+  BrowserReferencePackageSupplier,
   BrowserPlatformForwarderRow,
   BrowserPlatformForwarderView,
   BrowserExactLibraryApiInspection,
@@ -926,8 +937,8 @@ let engineClient: EngineClient;
 let cancelPackageActivity: EngineClient["package"]["cancelPackageActivity"];
 let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
 let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
-let containPackageDocumentHtml:
-  EngineClient["package"]["containPackageDocumentHtml"];
+let containPackageDocumentLeaves:
+  EngineClient["package"]["containPackageDocumentLeaves"];
 let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
 let inspectLoadRuntimePackAssembly:
   EngineClient["package"]["loadRuntimePackAssembly"];
@@ -950,6 +961,8 @@ let inspectLibraryDocument: EngineClient["library"]["inspectLibrary"];
 let inspectLibraryApi: EngineClient["package"]["queryLibraryApi"];
 let inspectPackageDependencies:
   EngineClient["package"]["queryPackageDependencies"];
+let inspectReferencePackageSuppliers:
+  EngineClient["package"]["queryReferencePackageSuppliers"];
 let inspectPackageHierarchy:
   EngineClient["package"]["queryPackageHierarchy"];
 let inspectPackageIcon: EngineClient["package"]["queryPackageIcon"];
@@ -1172,7 +1185,7 @@ async function loadEngineModule() {
       engineClient.source.cancelTypeExplorerQuery(...args);
     ({
       getPackageDocument: inspectPackageDocument,
-      containPackageDocumentHtml,
+      containPackageDocumentLeaves,
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
       getPlatformVersions: inspectPlatformVersions,
@@ -1188,6 +1201,7 @@ async function loadEngineModule() {
       queryPackageRoot: inspectPackageRoot,
       queryPackageSummary: inspectPackageSummary,
       queryPackageDependencies: inspectPackageDependencies,
+      queryReferencePackageSuppliers: inspectReferencePackageSuppliers,
       queryPackageHierarchy: inspectPackageHierarchy,
       queryPackageIcon: inspectPackageIcon,
       queryPackageVulnerabilities: inspectPackageVulnerabilities,
@@ -4164,19 +4178,17 @@ const documentInspection = createDocumentInspectionCoordinator({
     request.packageId,
     request.version,
     request.document.path),
-  renderText: renderDocumentText,
-  renderMarkdown,
-  renderMarkdownInline,
+  renderDocument: renderPackageDocument,
   describeError: errorMessage,
   render,
 });
 
 const packageDocumentTitles = createPackageDocumentTitles({
   queryDocument: request => inspectPackageDocument(request.packageId, request.version, request.document.path),
-  renderMarkdown,
-  firstHeading: html => {
+  renderDocument: renderPackageDocument,
+  firstHeading: fragment => {
     const template = document.createElement("template");
-    template.innerHTML = html;
+    template.innerHTML = containedDocumentFragmentHtml(fragment);
     return template.content.querySelector("h1")?.textContent?.trim() || null;
   },
   describeError: errorMessage,
@@ -4228,6 +4240,9 @@ function captureView(): WorkspaceView | null {
     atLibraryRoot: state.atLibraryRoot,
     packageLens: state.packageLens,
     libraryLens: state.libraryLens,
+    ...(state.atLibraryRoot && state.libraryLens === "analysis"
+      ? { analysisMode: state.analysisMode }
+      : {}),
     libraryScope: captureLibraryScope(state.libraryScope),
     platformLibrary: state.rootKind === "platform" && !state.atPackageRoot
       ? selectedLibraryShareKey() || null
@@ -4442,6 +4457,9 @@ function applyView(view: WorkspaceView) {
     view.workspaceSubjectOpen && state.atPackageRoot;
   state.packageLens = view.packageLens ?? "overview";
   state.libraryLens = view.libraryLens ?? "overview";
+  if (view.atLibraryRoot && view.libraryLens === "analysis") {
+    state.analysisMode = view.analysisMode ?? defaultAnalysisMode;
+  }
   state.memberSource = { status: "idle" };
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
@@ -4961,6 +4979,7 @@ if (initialLocation.atPackageRoot) {
   state.atPackageRoot = false;
   state.atLibraryRoot = true;
   state.libraryLens = initialLocation.libraryLens || "overview";
+  state.analysisMode = initialLocation.analysisMode;
 }
 
 function deepLinkFromLocation(loc: ParsedLocation): DeepLink {
@@ -9435,12 +9454,42 @@ function settingsOwnsHomeFocusTarget(target: HomeFocusTarget | null): boolean {
     || (target?.kind === "id" && target.surface === "settings");
 }
 
-function render(options: { synchronizeUrl?: boolean } = {}) {
+interface RenderOptions {
+  recordNavigation?: boolean;
+  synchronizeUrl?: boolean;
+}
+
+let performanceMemberNavigationPublication: {
+  id: number;
+  view: string;
+} | null = null;
+let performanceMemberNavigationSequence = 0;
+
+function completePerformanceMemberNavigationPublication(
+  publication: number,
+) {
+  if (performanceMemberNavigationPublication?.id !== publication) return false;
+  performanceMemberNavigationPublication = null;
+  return true;
+}
+
+function render(options: RenderOptions = {}) {
+  if (performanceMemberNavigationPublication !== null
+    && performanceMemberNavigationPublication.view !== viewSignature()) {
+    performanceMemberNavigationPublication = null;
+  }
+  const effectiveOptions = performanceMemberNavigationPublication === null
+    ? options
+    : {
+        ...options,
+        recordNavigation: false,
+        synchronizeUrl: false,
+      };
   const navigationScroll = captureContentNavigationScroll(document);
   dataBarFeedback.synchronize(dataBarViewKey());
   productNavigationBinding.beforeRender();
   try {
-    renderCore(options);
+    renderCore(effectiveOptions);
   } finally {
     productNavigationBinding.afterRender();
     restoreContentNavigationScroll(document, navigationScroll);
@@ -9456,7 +9505,7 @@ function render(options: { synchronizeUrl?: boolean } = {}) {
   }
 }
 
-function renderCore(options: { synchronizeUrl?: boolean }) {
+function renderCore(options: RenderOptions) {
   sourceInspection.cancelHiddenRequest();
   reconcileEcosystemPackageDiscovery();
   reconcileTypeAccessibilityVocabulary();
@@ -9661,7 +9710,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
     else if (workbenchSearchHadFocus) focusWorkbenchSearch(document);
     else if (levelOneHeadingHadFocus) focusLevelOneHeading();
     restorePackageRouteReturnFocus();
-    recordNav();
+    if (options.recordNavigation !== false) recordNav();
     if (options.synchronizeUrl !== false) syncUrl();
     return;
   }
@@ -9696,7 +9745,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
         app.removeAttribute("tabindex");
       }
       restorePackageRouteReturnFocus();
-      recordNav();
+      if (options.recordNavigation !== false) recordNav();
       if (!isProductHomeDemosPath(location.pathname) && options.synchronizeUrl !== false) syncUrl();
       return;
     }
@@ -10019,7 +10068,7 @@ function renderCore(options: { synchronizeUrl?: boolean }) {
   restorePackageRouteReturnFocus();
   graphExplorer.afterRender(graphExplorerTarget());
   if (loadingPackageContent) return;
-  recordNav();
+  if (options.recordNavigation !== false) recordNav();
   const productDemosRouteVisible =
     scope() === "workspace"
     && isProductHomeDemosPath(location.pathname);
@@ -11455,6 +11504,15 @@ function platformReferenceSectionHtml(
   return `<div data-platform-reference-slot>${content}</div>`;
 }
 
+function libraryReferencePackageIcon(pkg: AppPackage | null | undefined): string | null {
+  if (!pkg || pkg.isRuntimePack) return null;
+  if (pkg.icon)
+    return `data:${pkg.icon.mediaType};base64,${pkg.icon.base64}`;
+  return pkg.source.kind === "nuget.org" || pkg.source.kind === "feed"
+    ? NUGET_DEFAULT_PACKAGE_ICON
+    : null;
+}
+
 function renderLibraryReferences() {
   const current = packageDependenciesSignature();
   const dependenciesState = state.packageDependencies;
@@ -11474,6 +11532,11 @@ function renderLibraryReferences() {
       packageIdentityKey(candidatePackage),
       packageLibrariesForModel(candidatePackage),
       candidatePackage.assemblies));
+  const referenceDestinations = resolveLibraryReferenceDestinations(
+    references,
+    candidates);
+  const packagesByKey = new Map(state.packages.map(candidatePackage =>
+    [packageIdentityKey(candidatePackage), candidatePackage]));
   return renderLibraryReferencesSurface({
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
@@ -11483,11 +11546,172 @@ function renderLibraryReferences() {
       ? dependenciesState.error
       : "",
     data,
-    referenceDestinations: resolveLibraryReferenceDestinations(
-      references,
-      candidates),
+    referenceDestinations,
+    referenceIcons: referenceDestinations.map(destination => {
+      const candidatePackage = destination
+        ? packagesByKey.get(destination.packageKey)
+        : null;
+      return libraryReferencePackageIcon(candidatePackage);
+    }),
     escapeHtml,
   });
+}
+
+const referenceSupplierRequests = new WeakMap<
+  BrowserPackageDependencies,
+  Promise<ReadonlyArray<BrowserReferencePackageSupplier>>>();
+
+async function renderLibraryReferenceIcons() {
+  const container = document.querySelector<HTMLElement>(
+    ".library-references-surface .reference-list-section");
+  const data = packageDependenciesData();
+  const references = data?.assemblyReferences;
+  if (!container || !data || !references || typeof references === "string") return;
+  const candidates = state.packages.flatMap(candidatePackage =>
+    createWorkspaceLibraryReferenceCandidates(
+      packageIdentityKey(candidatePackage),
+      packageLibrariesForModel(candidatePackage),
+      candidatePackage.assemblies));
+  const destinations = resolveLibraryReferenceDestinations(
+    references.references, candidates);
+  const packagesByKey = new Map(state.packages.map(candidatePackage =>
+    [packageIdentityKey(candidatePackage), candidatePackage]));
+  const requests = new Map<string, Promise<BrowserPackageIconInspection>>();
+  const signature = packageDependenciesSignature();
+  const isCurrent = () =>
+    document.querySelector(".library-references-surface .reference-list-section") === container
+    && packageDependenciesData() === data
+    && packageDependenciesSignature() === signature;
+  let next = 0;
+  const loadNext = async () => {
+    while (true) {
+      if (!isCurrent()) return;
+      const index = next++;
+      if (index >= destinations.length) return;
+      const destination = destinations[index];
+      const candidatePackage = destination
+        ? packagesByKey.get(destination.packageKey)
+        : null;
+      if (!candidatePackage || candidatePackage.icon
+        || candidatePackage.source.kind !== "nuget.org") continue;
+      const image = container.querySelector<HTMLImageElement>(
+        `[data-library-reference-icon="${index}"]`);
+      if (!image) continue;
+      try {
+        const key = `${candidatePackage.id.toLowerCase()}@${candidatePackage.version}`;
+        let request = requests.get(key);
+        if (!request) {
+          request = inspectPackageIcon(candidatePackage.id, candidatePackage.version);
+          requests.set(key, request);
+        }
+        const result = await request;
+        if (!isCurrent()
+          || result.packageId !== candidatePackage.id
+          || result.packageVersion !== candidatePackage.version
+          || result.status !== "Available"
+          || !result.icon) continue;
+        image.src = `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+        updateLibraryReferenceGraphIcon(index, image.src);
+      } catch {
+        // Keep the default package icon when the optional icon read fails.
+      }
+    }
+  };
+  const admittedIcons = Promise.all(Array.from(
+    { length: Math.min(4, destinations.length) }, loadNext));
+
+  if (!isCurrent()
+    || !destinations.some(destination => !destination)
+    || currentPackage().source.kind !== "nuget.org") {
+    await admittedIcons;
+    return;
+  }
+  const currentLibrary = selectedLibrary();
+  if (!currentLibrary) {
+    await admittedIcons;
+    return;
+  }
+  const pkg = currentPackage();
+  try {
+    let request = referenceSupplierRequests.get(data);
+    if (!request) {
+      request = inspectReferencePackageSuppliers(
+        pkg.id,
+        pkg.version,
+        pkg.activeFramework,
+        currentLibrary.id);
+      referenceSupplierRequests.set(data, request);
+    }
+    const suppliers = await request;
+    if (!isCurrent()
+      || suppliers.length !== references.references.length) return;
+    const rows = [...container.querySelectorAll<HTMLLIElement>(
+      ".dep-list > li")];
+    const exact = (value: string | null | undefined) =>
+      (value || "").toLowerCase();
+    const culture = (value: string | null | undefined) => {
+      const normalized = exact(value);
+      return normalized === "neutral" ? "" : normalized;
+    };
+    const external = suppliers.flatMap((supplier, index) => {
+      const reference = references.references[index];
+      const row = rows[index];
+      if (!supplier.packageId || !supplier.packageVersion
+        || !reference || !row || destinations[index]
+        || exact(supplier.name) !== exact(reference.name)
+        || supplier.version !== reference.version
+        || culture(supplier.culture) !== culture(reference.culture)
+        || exact(supplier.publicKeyToken)
+          !== exact(reference.publicKeyToken)) return [];
+      const label = row.querySelector(".library-reference-name");
+      if (!label) return [];
+      const image = document.createElement("img");
+      image.className = "dep-icon";
+      image.src = NUGET_DEFAULT_PACKAGE_ICON;
+      image.alt = "";
+      image.dataset.packageIcon = "";
+      image.dataset.libraryReferenceIcon = String(index);
+      row.insertBefore(image, label);
+      updateLibraryReferenceGraphIcon(index, image.src);
+      return [{ image, id: supplier.packageId,
+        version: supplier.packageVersion }];
+    });
+    bindPackageIconFallbacks(container);
+    let externalNext = 0;
+    const loadExternal = async () => {
+      while (isCurrent()) {
+        const candidate = external[externalNext++];
+        if (!candidate) return;
+        try {
+          const key = `${candidate.id.toLowerCase()}@${candidate.version}`;
+          let iconRequest = requests.get(key);
+          if (!iconRequest) {
+            iconRequest = inspectPackageIcon(candidate.id, candidate.version);
+            requests.set(key, iconRequest);
+          }
+          const result = await iconRequest;
+          if (isCurrent()
+            && result.packageId === candidate.id
+            && result.packageVersion === candidate.version
+            && result.status === "Available"
+            && result.icon) {
+            candidate.image.src =
+              `data:${result.icon.mediaType};base64,${result.icon.base64}`;
+            updateLibraryReferenceGraphIcon(
+              Number(candidate.image.dataset.libraryReferenceIcon),
+              candidate.image.src);
+          }
+        } catch {
+          // Optional icon reads retain the default package icon.
+        }
+      }
+    };
+    await Promise.all(Array.from(
+      { length: Math.min(4, external.length) }, loadExternal));
+  } catch {
+    // Supplier association is optional presentation; direct references remain.
+  }
+  await admittedIcons;
 }
 
 async function uniqueCompatiblePackage(
@@ -11845,6 +12069,7 @@ function maybeAutoLoadPackageDependencies() {
       observeAsync(
         renderLibraryReferenceGraph(),
         "Rendering the assembly-reference graph");
+      observeAsync(renderLibraryReferenceIcons(), "Loading reference package icons");
     }
     return;
   }
@@ -12716,6 +12941,7 @@ function drillToPerfMember(
     return;
   }
   const targetType = retainPerformanceNavigationType(pkg, ranked);
+  const publication = ++performanceMemberNavigationSequence;
 
   state.atPackageRoot = false;
   state.atLibraryRoot = false;
@@ -12731,6 +12957,10 @@ function drillToPerfMember(
   state.selectedOverloadIndex = null;
   resetMemberSectionState();
   state.typeCursor = filteredTypeRows().findIndex(candidate => candidate.id === targetType.id);
+  performanceMemberNavigationPublication = {
+    id: publication,
+    view: viewSignature(),
+  };
   render();
   const expectedView = viewSignature();
   const expectedPopulationKey = typeMemberPopulationKey(targetType);
@@ -12740,7 +12970,9 @@ function drillToPerfMember(
       stableSelector,
       expectedView,
       expectedPopulationKey,
-      expectedPopulationIntent, resourceMethodToken),
+      expectedPopulationIntent,
+      publication,
+      resourceMethodToken),
     "Loading the ranked Member");
 }
 
@@ -12749,6 +12981,7 @@ async function selectPerformanceMember(
   expectedView: string,
   expectedPopulationKey: string,
   expectedPopulationIntent: number,
+  publication: number,
   resourceMethodToken?: number,
 ) {
   const populationReceipt = await loadSelectedTypeMemberPopulation(true);
@@ -12776,7 +13009,6 @@ async function selectPerformanceMember(
       typeId: type.id,
       populationReceipt,
     };
-    render();
     const ranked = state.packagePerformanceKey === packageScopeSignature()
       ? state.packagePerformance?.members.find(candidate => candidate.stableSelector === stableSelector
           && candidate.typeId === type.definitionId && candidate.assembly === type.assembly)
@@ -12788,6 +13020,7 @@ async function selectPerformanceMember(
       if (selector) state.selectedBodyTarget = { memberName: selector.memberName, selectorKey: selector.selectorKey, metadataToken: selector.token };
     }
     state.memberSection = resourceMethodToken === undefined ? "facts" : "resource-triage";
+    completePerformanceMemberNavigationPublication(publication);
     render();
     await loadSelectedMemberAnalysisSurface();
     return;
@@ -18114,6 +18347,9 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     contexts,
     activeTabId: activeTab.id,
     selectedContextId,
+    analysisMode: librarySubjectOpen && state.libraryLens === "analysis"
+      ? state.analysisMode
+      : null,
     view: {
       lens: workspaceSubjectOpen || platformRoot
         ? null
@@ -22639,6 +22875,8 @@ function setTypeMemberPopulationIntent(
   spelling: "csharp" | "metadata",
   source: TypeMemberPopulationSource = "ordinary",
 ) {
+  if (source === "ordinary")
+    performanceMemberNavigationPublication = null;
   typeMemberPopulationIntentGeneration++;
   typeMemberPopulationSource = source;
   state.memberAccessibilityFilter = accessibility;
@@ -23445,6 +23683,55 @@ async function renderPackageHierarchyGraph() {
   }
 }
 
+function updateLibraryReferenceGraphIcon(index: number, source: string) {
+  const svg = document.querySelector<SVGSVGElement>(
+    "#library-reference-graph-diagram .graph-viewport svg");
+  if (!svg) return;
+  const node = svg.querySelector<SVGGElement>(
+    `g.node[id*="-flowchart-r${index + 1}-"]`);
+  const shape = node?.querySelector<SVGRectElement>("rect");
+  if (!node || !shape) return;
+  let icon = node.querySelector<SVGImageElement>(
+    "image[data-reference-package-icon]");
+  if (!icon) {
+    const bounds = shape.getBBox();
+    shape.setAttribute("x", String(bounds.x - 32));
+    shape.setAttribute("width", String(bounds.width + 32));
+    icon = document.createElementNS(
+      "http://www.w3.org/2000/svg", "image");
+    icon.setAttribute("x", String(bounds.x - 24));
+    icon.setAttribute("y", String(bounds.y + (bounds.height - 16) / 2));
+    icon.setAttribute("width", "16");
+    icon.setAttribute("height", "16");
+    icon.setAttribute("data-reference-package-icon", "");
+    icon.style.pointerEvents = "none";
+    icon.addEventListener("error", () => {
+      if (icon?.getAttribute("href") !== NUGET_DEFAULT_PACKAGE_ICON)
+        icon?.setAttribute("href", NUGET_DEFAULT_PACKAGE_ICON);
+    });
+    node.appendChild(icon);
+  }
+  icon.setAttribute("href", source);
+  if (!svg.dataset.referenceIconsPadded) {
+    const viewBox = svg.viewBox.baseVal;
+    svg.setAttribute("viewBox",
+      `${viewBox.x - 36} ${viewBox.y} ${viewBox.width + 72} ${viewBox.height}`);
+    svg.dataset.referenceIconsPadded = "true";
+  }
+}
+
+function applyLibraryReferenceGraphIcons() {
+  const root = libraryReferencePackageIcon(currentPackage());
+  if (root) updateLibraryReferenceGraphIcon(-1, root);
+  document.querySelectorAll<HTMLImageElement>(
+    ".library-references-surface [data-library-reference-icon]")
+    .forEach(image => {
+      const index = Number(image.dataset.libraryReferenceIcon);
+      if (Number.isInteger(index) && index >= 0)
+        updateLibraryReferenceGraphIcon(index, image.src);
+    });
+}
+
 async function renderLibraryReferenceGraph() {
   const container =
     document.querySelector<HTMLElement>("#library-reference-graph-diagram");
@@ -23503,6 +23790,7 @@ async function renderLibraryReferenceGraph() {
       container.querySelector<HTMLElement>(".graph-viewport");
     if (!viewport) return;
     viewport.innerHTML = svg;
+    applyLibraryReferenceGraphIcons();
     container.dataset.graphDef = signature;
     bindGraphPanZoom(container, viewport, { keybindings });
   } catch (error) {
@@ -25169,22 +25457,168 @@ function markdownSanitizeConfig() {
   };
 }
 
-async function renderMarkdown(text: string) {
-  const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parse(text, { gfm: true, breaks: false, async: false });
-  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
-  return (await containPackageDocumentHtml(sanitized)).html;
+const displayedDocumentAttributes = ["alt", "title"] as const;
+
+function sanitizeMarkdownFragment(
+  DOMPurify: DomPurifyModule["default"],
+  html: string,
+): DocumentFragment {
+  const sanitized = DOMPurify.sanitize(html, {
+    ...markdownSanitizeConfig(),
+    RETURN_DOM_FRAGMENT: true,
+  });
+  if (!(sanitized instanceof DocumentFragment)) {
+    throw new TypeError(
+      "Package document sanitization did not produce a document fragment.",
+    );
+  }
+  return sanitized;
 }
 
-async function renderDocumentText(text: string) {
-  return (await containPackageDocumentHtml(escapeHtml(text))).html;
+function appendDocumentPresentationText(
+  parent: Node,
+  text: string,
+  policy: DocumentTextPolicy,
+  targets: DocumentPresentationTarget[],
+) {
+  const node = document.createTextNode(text);
+  parent.appendChild(node);
+  targets.push({ kind: "text", node, policy });
 }
 
-async function renderMarkdownInline(text: string) {
+function collectDocumentPresentationTargets(
+  root: ParentNode,
+  textPolicy: DocumentTextPolicy,
+  targets: DocumentPresentationTarget[],
+) {
+  for (const child of root.childNodes) {
+    if (child instanceof Text) {
+      targets.push({ kind: "text", node: child, policy: textPolicy });
+      continue;
+    }
+    if (!(child instanceof Element)) continue;
+    for (const name of displayedDocumentAttributes) {
+      if (child.hasAttribute(name)) {
+        targets.push({
+          kind: "attribute",
+          element: child,
+          name,
+          policy: "Field",
+        });
+      }
+    }
+    collectDocumentPresentationTargets(child, textPolicy, targets);
+  }
+}
+
+function packageDocumentStructure(
+  input: PackageDocumentRenderInput,
+  body: DocumentFragment,
+  description: DocumentFragment | null,
+) {
+  const template = document.createElement("template");
+  const targets: DocumentPresentationTarget[] = [];
+  const frontmatter = input.frontmatter;
+  if (frontmatter) {
+    const card = document.createElement("div");
+    card.className = "doc-frontmatter";
+    const head = document.createElement("div");
+    head.className = "doc-fm-head";
+    const name = document.createElement("strong");
+    appendDocumentPresentationText(
+      name,
+      frontmatter.name,
+      "Field",
+      targets,
+    );
+    head.appendChild(name);
+    if (frontmatter.version) {
+      const version = document.createElement("span");
+      version.className = "doc-fm-version";
+      version.appendChild(document.createTextNode("v"));
+      appendDocumentPresentationText(
+        version,
+        frontmatter.version,
+        "Field",
+        targets,
+      );
+      head.appendChild(version);
+    }
+    card.appendChild(head);
+    if (description) {
+      const descriptionContainer = document.createElement("div");
+      descriptionContainer.className = "doc-fm-desc";
+      collectDocumentPresentationTargets(description, "Prose", targets);
+      descriptionContainer.appendChild(description);
+      card.appendChild(descriptionContainer);
+    }
+    template.content.appendChild(card);
+  }
+
+  const article = document.createElement("article");
+  article.className = "markdown-body";
+  collectDocumentPresentationTargets(body, "Prose", targets);
+  article.appendChild(body);
+  template.content.appendChild(article);
+  return { template, targets };
+}
+
+async function renderPackageDocument(
+  input: PackageDocumentRenderInput,
+  generation: string,
+  currentGeneration: () => string | null,
+): Promise<ContainedDocumentFragment> {
   const { marked, DOMPurify } = await markdownLibs();
-  const html = marked.parseInline(text, { gfm: true, async: false });
-  const sanitized = DOMPurify.sanitize(html, markdownSanitizeConfig());
-  return (await containPackageDocumentHtml(sanitized)).html;
+  const bodyHtml = marked.parse(input.body, {
+    gfm: true,
+    breaks: false,
+    async: false,
+  });
+  const body = sanitizeMarkdownFragment(DOMPurify, bodyHtml);
+  if (currentGeneration() !== generation) {
+    throw new Error("Package document generation is stale.");
+  }
+  const descriptionHtml = input.frontmatter?.description
+    ? marked.parseInline(input.frontmatter.description, {
+      gfm: true,
+      async: false,
+    })
+    : null;
+  const description = descriptionHtml === null
+    ? null
+    : sanitizeMarkdownFragment(DOMPurify, descriptionHtml);
+  const structure = packageDocumentStructure(input, body, description);
+  const prepared = prepareContainedDocumentFragment(
+    generation,
+    structure.template,
+    structure.targets,
+  );
+  const outcome = await containPackageDocumentLeaves(
+    generation,
+    browserDocumentFragmentPresentationLeaves(prepared),
+  );
+  const completion = completeContainedDocumentFragment(
+    prepared,
+    currentGeneration(),
+    outcome,
+  );
+  if (completion.kind === "rejected") {
+    const identity = completion.identity === null
+      ? ""
+      : ` at leaf ${completion.identity}`;
+    const failure = completion.failure;
+    const managedFailure = failure === null
+      ? ""
+      : ` (${String(failure.kind)}${
+        failure.actual === null ? "" : `; actual ${failure.actual}`
+      }${
+        failure.limit === null ? "" : `; limit ${failure.limit}`
+      })`;
+    throw new Error(
+      `Package document containment rejected ${completion.reason}${identity}${managedFailure}.`,
+    );
+  }
+  return completion.fragment;
 }
 
 function openPackageDocument(path: string) {
@@ -27004,6 +27438,7 @@ function applyLocationView(loc: ParsedLocation) {
   }
   state.packageLens = loc.packageLens || "overview";
   state.libraryLens = loc.libraryLens || "overview";
+  state.analysisMode = loc.analysisMode;
 }
 
 function workspaceFeedActivationCoordinator():

@@ -557,12 +557,6 @@ internal static class BrowserPackageWireProjection
             document.Text);
     }
 
-    internal static BrowserPackageDocumentHtml ProjectDocumentHtml(string html)
-    {
-        ArgumentNullException.ThrowIfNull(html);
-        return new(new(InertText.TextPolicy.Prose, html));
-    }
-
     internal static PresentationLeaf Project(
         BrowserDocumentPresentationLeaf leaf)
     {

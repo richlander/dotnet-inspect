@@ -97,6 +97,45 @@ public sealed class PackageToolDeclarationEvidence
             : new(coordinate, content.GenerationIdentity, packageType);
     }
 
+    internal static PackageToolDeclarationEvidence? TryCreate(
+        PackageSourceCoordinate coordinate,
+        IPackageContent content)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(content);
+        string[] nuspecEntries =
+        [
+            .. content.EnumerateEntries()
+                .Where(static entry =>
+                    !string.IsNullOrWhiteSpace(entry)
+                    && !entry.Contains('/')
+                    && !entry.Contains('\\')
+                    && entry.EndsWith(
+                        ".nuspec",
+                        StringComparison.OrdinalIgnoreCase))
+                .Take(2),
+        ];
+        if (nuspecEntries.Length != 1
+            || !content.TryOpenEntry(
+                nuspecEntries[0],
+                PackageExtractor.MaxNuspecBytes,
+                out Stream? stream))
+        {
+            return null;
+        }
+
+        using (stream)
+        {
+            byte[]? bytes = PackageContentAdmission.ReadBounded(
+                stream,
+                PackageExtractor.MaxNuspecBytes,
+                CancellationToken.None);
+            return bytes is null
+                ? null
+                : TryCreate(coordinate, content, bytes);
+        }
+    }
+
     private static string? ParseDeclaredToolPackageType(
         ReadOnlyMemory<byte> bytes,
         PackageSourceCoordinate coordinate)
@@ -221,6 +260,14 @@ public sealed record PackageToolSliceSelection
     public string? SelectedTargetFramework { get; }
 
     public ImmutableArray<string> SelectedEntries { get; }
+
+    /// <summary>The package-relative selected tool-population root.</summary>
+    internal string? PopulationPath =>
+        SelectedEntries.IsEmpty
+            ? null
+            : PackageEntryPath.GetLibraryPopulationPath(
+                SelectedEntries[0],
+                SelectedTargetFramework!);
 
     public string? Detail { get; }
 }

@@ -125,8 +125,6 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     loadRuntimePackAssembly: () =>
       unexpected("loadRuntimePackAssembly"),
     getPackageDocument: () => unexpected("getPackageDocument"),
-    containPackageDocumentHtml: () =>
-      unexpected("containPackageDocumentHtml"),
     containPackageDocumentLeaves: () =>
       unexpected("containPackageDocumentLeaves"),
     queryLibraries: () => unexpected("queryLibraries"),
@@ -137,6 +135,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformMemberDocumentation"),
     queryPackageDependencies: () =>
       unexpected("queryPackageDependencies"),
+    queryReferencePackageSuppliers: () =>
+      unexpected("queryReferencePackageSuppliers"),
     queryPackageHierarchy: () =>
       unexpected("queryPackageHierarchy"),
     queryPackageIcon: () => unexpected("queryPackageIcon"),
@@ -2489,7 +2489,6 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "classifyPackageGraphIdentities",
       "clearWorkspacePackageOccurrences",
       "closePlatformForwarderView",
-      "containPackageDocumentHtml",
       "containPackageDocumentLeaves",
       "getPackageDocument",
       "getPlatformCatalog",
@@ -2506,6 +2505,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformMemberDocumentation",
       "queryPackage",
       "queryPackageDependencies",
+      "queryReferencePackageSuppliers",
       "queryPackageHierarchy",
       "queryPackageIcon",
       "queryPackageVulnerabilities",

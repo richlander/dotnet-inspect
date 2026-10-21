@@ -24,6 +24,8 @@
     <ProjectReference Include="..\DotnetInspector.Platforms\DotnetInspector.Platforms.csproj" />
     <ProjectReference Include="..\DotnetInspector.SourceSelection\DotnetInspector.SourceSelection.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\InertText\InertText.csproj" />
+    <ProjectReference Include="..\UntrustedDocuments\UntrustedDocuments.csproj" />
     <InternalsVisibleTo Include="DotnetInspector.Ecosystems.Tests" />
   </ItemGroup>
 

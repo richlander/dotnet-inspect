@@ -65,6 +65,7 @@ export function succeeded(
         breakingCount: 1,
         additiveCount: 2,
         potentiallyBreakingCount: 0,
+        nonBreakingCount: 0,
       },
       types: [
         {
@@ -76,6 +77,7 @@ export function succeeded(
           breakingCount: 1,
           additiveCount: 1,
           potentiallyBreakingCount: 0,
+          nonBreakingCount: 0,
           before: {
             identifier: "before-widget",
             namespace: "Example",
@@ -100,6 +102,7 @@ export function succeeded(
           breakingCount: 0,
           additiveCount: 1,
           potentiallyBreakingCount: 0,
+          nonBreakingCount: 0,
           before: null,
           after: {
             identifier: "after-options",

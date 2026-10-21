@@ -36,6 +36,7 @@ export interface LibraryReferencesOptions {
   error: string;
   data: BrowserPackageDependencies | null;
   referenceDestinations: readonly (LibraryReferenceDestination | null)[];
+  referenceIcons: readonly (string | null)[];
   escapeHtml: (value: unknown) => string;
 }
 
@@ -143,7 +144,8 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
             const name = destination
               ? `<button type="button" class="dep-name as-link" data-library-reference-package="${escapeHtml(destination.packageKey)}" data-library-reference-library="${escapeHtml(destination.libraryId)}" title="Open ${escapeHtml(reference.name)} Library">${escapeHtml(reference.name)}</button>`
               : `<span class="dep-name">${escapeHtml(reference.name)}</span>`;
-            return `<li>${name}<code class="dep-version">${escapeHtml(`${reference.version} \u00b7 ${reference.culture || "neutral"} \u00b7 ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`;
+            const icon = options.referenceIcons[index];
+            return `<li>${icon ? `<img class="dep-icon" src="${escapeHtml(icon)}" alt="" data-package-icon data-library-reference-icon="${index}">` : ""}<span class="library-reference-name">${name}</span><code class="dep-version">${escapeHtml(`${reference.version} \u00b7 ${reference.culture || "neutral"} \u00b7 ${reference.publicKeyToken ? `pkt ${reference.publicKeyToken}` : "unsigned"}`)}</code></li>`;
           }).join("")}</ul>
         </section>`
       : `<section class="document-section empty-document"><h2>No direct references</h2><p>This assembly declares no direct AssemblyRef rows.</p></section>`;

@@ -281,7 +281,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         CancellationToken cancellationToken = default,
         IPackagePayloadTransferPolicy? transferPolicy = null,
         NuGetOperationContext? operationContext = null,
-        PackageRangedRead? rangedRead = null) =>
+        PackageRangedRead? rangedRead = null,
+        ConfiguredPackageAuthority? requiredAuthority = null) =>
         AcquireAsync(
             candidate,
             createStore,
@@ -292,7 +293,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
             operationContext,
             failures: [],
             selectionUsesOriginalSources: false,
-            rangedRead);
+            rangedRead,
+            requiredAuthority);
 
     /// <param name="rangedRead">
     /// When supplied, an authority whose client exposes
@@ -314,7 +316,8 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         NuGetOperationContext? operationContext,
         List<PackageAuthorityFailure> failures,
         bool selectionUsesOriginalSources,
-        PackageRangedRead? rangedRead = null)
+        PackageRangedRead? rangedRead = null,
+        ConfiguredPackageAuthority? requiredAuthority = null)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(createStore);
@@ -323,6 +326,16 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
         {
             throw new InvalidOperationException(
                 "The package acquisition candidate belongs to another issuer.");
+        }
+        if (requiredAuthority is not null
+            && !candidate.Authorities.Any(evidence =>
+                ReferenceEquals(
+                    evidence.Authority,
+                    requiredAuthority)))
+        {
+            throw new ArgumentException(
+                "The required payload authority does not belong to the candidate.",
+                nameof(requiredAuthority));
         }
 
         using NuGetOperationContext? ownedOperation =
@@ -348,6 +361,13 @@ internal sealed class PackageAcquisitionCandidatePayloadAcquirer
                      PackageAcquisitionCandidateManifestAcquirer
                          .OrderAuthorities(candidate.Authorities))
             {
+                if (requiredAuthority is not null
+                    && !ReferenceEquals(
+                        evidence.Authority,
+                        requiredAuthority))
+                {
+                    continue;
+                }
                 operation.ThrowIfExpired();
                 ConfiguredPackageAuthority authority = evidence.Authority;
                 IPackageSourceClient client = _getClient(authority)

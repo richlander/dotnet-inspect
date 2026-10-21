@@ -2381,6 +2381,12 @@ kbd {
 .graph-viewport .flowchart-link { stroke: var(--graph-edge) !important; stroke-width: 1.25px !important; }
 .graph-viewport marker path { fill: var(--graph-edge) !important; stroke: var(--graph-edge) !important; }
 .graph-viewport > svg { position: absolute; top: 0; left: 0; transform-origin: 0 0; min-width: 0; max-width: none; height: auto; }
+/* Mermaid gives the root a full-width node but fixes its inner label at 120px. */
+#library-reference-graph-diagram .graph-viewport g.node.inspected .label foreignObject > div {
+  width: 100% !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+}
 .graph-controls { position: absolute; right: 14px; bottom: 14px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel-raised); box-shadow: 0 8px 24px rgb(0 0 0 / 28%); z-index: 2; }
 .graph-controls button { width: 36px; height: 34px; display: grid; place-items: center; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; color: var(--text); font: 15px var(--mono); line-height: 1; cursor: pointer; }
 .graph-controls button:last-child { border-bottom: 0; }
@@ -2855,6 +2861,8 @@ kbd {
 .library-references-scroll > .reference-list-section { padding-top: 24px; }
 .library-references-scroll .reference-list-section > .dep-list { border-top: 0; }
 .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-inline: 16px; }
+.library-references-scroll .dep-list li:has(> .dep-icon) { grid-template-columns: 24px minmax(0, 1fr) minmax(0, 1fr); }
+.library-references-scroll .library-reference-name { min-width: 0; }
 .library-references-scroll .dep-name { overflow: visible; white-space: normal; }
 .library-references-scroll .dep-version { min-width: 0; white-space: normal; text-align: right; }
 .graph-empty { color: var(--muted); font-size: 12px; padding: 24px 12px; text-align: center; }
@@ -3432,6 +3440,8 @@ kbd {
     margin-left: 100px;
   }
   .library-references-scroll .dep-list li { grid-template-columns: minmax(0, 1fr); gap: 4px; padding-inline: 12px; }
+  .library-references-scroll .dep-list li:has(> .dep-icon) { grid-template-columns: 24px minmax(0, 1fr); }
+  .library-references-scroll .dep-list li:has(> .dep-icon) .dep-version { grid-column: 2; }
   .library-references-scroll .dep-version { text-align: left; }
   .library-references-scroll > .document-section { padding-inline: 12px; }
   .library-integrations-controls,

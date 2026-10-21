@@ -104,13 +104,16 @@ Every rung answers per **axis**:
   declarations, such as `EditorBrowsable(Never)` ones, admitted into their
   buckets: `--all` narrowed by an `accessibility` term to those two buckets,
   less `private protected` declarations, which no other assembly can reach.
-  A Type is admitted by its own row's bucket, so a public Member of an
-  internal Type is not on the API axis. That is the visibility
+  A Type is admitted when it and every enclosing Type are in those buckets,
+  so neither a public Member of an internal Type nor a public nested Type of
+  one is on the API axis. That is the visibility
   [Fast Diff's API axis](fast-diff.md#axes) admits; `private protected`
-  declarations belong to Body. Hidden is a facet of the subject, not a reason
-  to skip it; `Obsolete` is a facet already.
-  The ordinary population, the `public` bucket without hidden
-  declarations, becomes a presentation default. This changes that owner's rule
+  declarations belong to Body. `EditorBrowsable` and `Obsolete` do not decide
+  admission: they are the subject of a separate **API status** analysis,
+  which reports each subject's status and its transitions, such as a Member
+  made hidden or obsolete. A host filters by those findings. The ordinary
+  population, the `public` bucket without hidden declarations, becomes a
+  presentation default. This changes that owner's rule
   that API Diff keeps its existing visibility behavior; adoption step 1 makes
   the change there.
 - **Body**: every subject at every accessibility: the IL of every method; the
@@ -179,11 +182,12 @@ document only states that each step names its axes.
    for a subject whose later content the complete diff cannot decode, such as
    a body that differs and then holds an undefined opcode.
 
-   This is the one bounded exception to rule 2: for that subject, the complete
-   diff's visible decode-failure view, the failed inspection the
+   This is the one bounded exception to rule 2 by design: for that subject,
+   the complete diff's visible decode-failure view, the failed inspection the
    [IL diff](il-diff-canonicalization.md) reports for an endpoint it cannot
    decode, stands in for a difference. The view is not empty, and it does not
-   claim the subject is unchanged.
+   claim the subject is unchanged. [Adoption](#adoption) step 1 records a
+   second, interim exception until the declaration view lands.
 
 Rung 4 is read for these rules under each axis's policy, such as the Body
 policy's assembly-scope normalization
@@ -225,7 +229,7 @@ assigns today's kinds:
 | Kind | Decision |
 | --- | --- |
 | Renderable attribute added, removed, or changed | Present (already shown) |
-| Hidden subject | Present: the API axis compares the widened population, with hidden as a facet |
+| Hidden subject | Present: the API axis admits hidden subjects, and the API status analysis reports hidden and obsolete status |
 | Nullable rows and context with no annotated value on either side | Promote |
 | Compiler-emitted attributes (`Intrinsic`, state-machine `typeof`, Type-level `Extension`) | Both: promoted away from the API axis, and presented on the Body axis by the declaration view |
 | Implementation flags (inlining, `InternalCall`, `Async`) | Both: promoted away from the API axis, which never presents them, and presented on the Body axis by the declaration view |
@@ -303,10 +307,10 @@ adoption step named:
 | Owner | Rule today | Change | Step |
 | --- | --- | --- | --- |
 | [API population scope](api-population-scope.md) | API Diff keeps its existing visibility behavior | The API axis compares the `public` and `protected` buckets, less `private protected`, with hidden declarations admitted | 1 |
-| [Fast Diff](fast-diff.md#axes) | Non-public metadata and `beforefieldinit` are not compared; hidden subjects make differences uncertain | Body compares declaration and implementation facts; hidden is an API facet | 1 |
+| [Fast Diff](fast-diff.md#axes) | Body compares non-public declaration facts and `beforefieldinit` ([#10348](https://github.com/richlander/dotnet-inspect/pull/10348)); implementation flags and compiler-emitted attributes of admitted Members are uncertain API facts, and no view presents declaration facts | Those facts move to Body, presented by the declaration view ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 | [Fast Diff](fast-diff.md#type) | The Type level is not run for a one-sided Type | It runs, with each row `Changed` and one-sided | 1 |
 | [Fast Diff](fast-diff.md#axes) | A body that cannot be decoded is `Indeterminate`, never a difference, and the Body exactness gate expects `Indeterminate` for a decode failure | Narrowed to content read before Exists decides, as rule 3 states | 1 |
-| [Annotated Type Map](annotated-type-map.md) | A private field is never listed | Non-public declarations are Body rows | 1 |
+| [Annotated Type Map](annotated-type-map.md) | Non-public declarations are Body rows ([#10350](https://github.com/richlander/dotnet-inspect/pull/10350)); admitted Members' implementation facts are not map facts; a declaration-fact row has no rung-4 view | Admitted Members' implementation facts join the map's Body facts when Fast Diff's census moves them; the declaration view presents both ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
 
 ## Adoption
 
@@ -322,7 +326,11 @@ Each step is its own focused effort:
    residual's rung-4 view is composed as stated above. Fast Diff's Type level
    runs for a one-sided Type
    ([#10224](https://github.com/richlander/dotnet-inspect/issues/10224)),
-   which also resolves its private-field case.
+   which also resolves its private-field case. Until the declaration view
+   lands ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)),
+   a Body `Changed` that a declaration fact alone decides has no view; Fast
+   Diff records that as its known divergence, an interim exception to the
+   [Exists contract](#the-exists-contract)'s second rule.
 2. **Uncertain kinds.** Promote or present each kind in the order the census
    measured, removing every Exists fallback on the six measured pairs.
 3. **Shared Body Exists.** The complete IL diff takes symbolic identity
@@ -353,8 +361,8 @@ Each step is its own focused effort:
   under the Exists contract's third rule.
 - **Expansive:** fixtures with a hidden public Member, a private field, a
   private method, a changed inlining flag, and a gained `Intrinsic` attribute
-  show each one's difference on its axis, with its facets, and the private
-  field, the flag, and the attribute in the declaration view.
+  show each one's difference on its axis, and the private field, the flag,
+  and the attribute in the declaration view.
 - **No fallback:** each Exists measurement reports zero complete-model builds
   on the six measured pairs once adoption step 2 completes.
 - **Latency (design evidence):** the latency bar, measured on NativeAOT.

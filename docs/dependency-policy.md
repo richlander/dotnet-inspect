@@ -191,16 +191,26 @@ The checked-in rules provide full gate coverage for these dependency claims:
     retired direct `ILInspector.SourceLink` dependency. Metadata, Decompiler,
     Queries, and Research project logical-member and physical-MethodDef values
     before the facade boundary, so the assembly rule also rejects the retired
-    `ILInspector.MetadataPrimitives` dependency.
-14. Inspect Web Core cannot expand beyond its current fifteen evaluated project
-    edges or its current twenty-seven repository and external assembly edges.
+    `ILInspector.MetadataPrimitives` dependency. Owner-issued Queries, Sections,
+    Services, SourceHouse, CSharp, Decompiler, Research, Presentation, and
+    Markout operations supply member and Type Source, Type Explorer documents,
+    source and method-body comparisons, Finding census, and Member Body Diff
+    results. Those typed paths and the exact positive ceilings own product
+    semantics. The facade retains only its three focused projected-identity and
+    failure-value compiler bans plus runtime platform hazards.
+14. Inspect Web Core cannot expand beyond its current thirteen evaluated project
+    edges or its current twenty-six repository and external assembly edges.
     Core composes Browser acquisition, workspace lifetime, cancellation,
     navigation policy, and typed host projection over owner-issued product
-    APIs. The separate graph rules reject retired direct `CSharpText` and
-    `ILInspector.Research` dependencies and any new project or emitted assembly
-    edge. Core retains the semantic banned-symbol gate because its intentional
-    Metadata, Analysis, and CallGraph dependencies must not become authority to
-    open images, run producers, or reconstruct product semantics in the host.
+    APIs. Queries owns assembly-context call-graph session and neutral
+    projection production, so both graph rules reject the retired direct
+    `ILInspector.CallGraph` and `ILInspector.Analysis` dependencies. They also
+    reject the previously retired `CSharpText` and `ILInspector.Research`
+    dependencies and any new project or emitted assembly edge. Core retains the
+    semantic banned-symbol gate because its intentional Metadata dependency
+    must not become authority to open images or reconstruct product semantics
+    in the host, and the transitive Analysis ban prevents the retired authority
+    from returning through an admitted owner.
 
 Claims not represented by a JSON rule remain unverified by this gate. Changing
 an allowed set requires changing the rule's cited owner contract or showing

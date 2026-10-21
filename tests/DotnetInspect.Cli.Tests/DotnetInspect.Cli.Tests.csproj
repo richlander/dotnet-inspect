@@ -146,6 +146,8 @@
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FastDiff.V1\ILInspector.Metadata.FastDiff.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FastDiff.V2\ILInspector.Metadata.FastDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\cli\DotnetInspector.HostileNameFixtures\DotnetInspector.HostileNameFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.DocumentationFixtures\InspectWeb.DocumentationFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\queries\DotnetInspector.Queries.EmbeddedFixtures\DotnetInspector.Queries.EmbeddedFixtures.csproj" />

@@ -122,6 +122,14 @@ The composition no longer contains a second version-enumeration loop. Its
 caller-supplied operation-context branch remains compatibility work until those
 callers adopt transferred operation leases.
 
+Package Dependency Traversal now owns one sequentially reused operation lease
+from host issuance through candidate resolution, exact manifest acquisition,
+local projection, and final publication. Its adapters retain authorization,
+not the settlement root or an independently supplied operation context.
+Direct candidate-query consumers and concurrent package-license inventory
+remain compatibility work; license inventory cannot share the traversal lease
+because it intentionally runs several manifest acquisitions concurrently.
+
 These compatibility paths do not claim that ordinary class aliases are
 borrows under [Resource Ownership and Borrowing](resource-ownership-and-borrowing.md).
 No borrow crosses `await`.
@@ -165,6 +173,10 @@ deadlines plus caller cancellation, creates the exact lower-owner
 The operation lease owns that context and the temporary authority needed to use
 the root generation's configured clients and candidate issuer. Its issuance is
 registered with the root settlement; its release removes that registration.
+A successful release completes and disposes the context without publishing a
+new cancellation observation because the lease rejects release while a source
+step remains active. Caller cancellation and operation expiry remain visible
+through the context before that release boundary.
 
 The operation lease:
 
@@ -179,6 +191,12 @@ The operation lease:
   results; and
 - is released synchronously only after its current awaited source step has
   settled.
+
+Explicit-authorized version discovery checks the operation ceiling before
+package-ID source authorization. An already-expired operation returns typed
+failed discovery evidence without invoking the authorization policy or creating
+a source client. This boundary is enforced by
+`PackageSourceOperationOwnershipTests.ExpiredVersionDiscoveryDoesNotAuthorizeSources`.
 
 Public asynchronous Package Source operations use the operation lease rather
 than accepting a root lease, an independently supplied operation context, or

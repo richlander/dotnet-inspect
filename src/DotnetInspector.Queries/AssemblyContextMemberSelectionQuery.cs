@@ -131,20 +131,31 @@ public static class ApiSurfaceMemberSelection
     {
         ArgumentNullException.ThrowIfNull(surface);
         ArgumentNullException.ThrowIfNull(selection);
-        CallGraphMemberResolution resolution =
+        return TrySelectBody(surface, selection)
+            ?? throw new InvalidOperationException(
+                $"The API surface does not contain one exact body for "
+                    + $"'{selection.TypeIdentity}.{selection.MemberName}'.");
+    }
+
+    internal static AssemblyContextMemberBody? TrySelectBody(
+        ApiSurface surface,
+        AssemblyContextMemberSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(selection);
+        CallGraphMemberResolution? resolution =
             CallGraphMemberResolver.ResolveDefinitionIdentity(
                 surface,
                 selection.TypeIdentity,
                 selection.MemberName,
                 selection.SelectorKey,
-                selection.MetadataToken)
-            ?? throw new InvalidOperationException(
-                $"The API surface does not contain one exact body for "
-                    + $"'{selection.TypeIdentity}.{selection.MemberName}'.");
-        return new(
-            resolution.Type,
-            resolution.Member,
-            resolution.BodyToken);
+                selection.MetadataToken);
+        return resolution is null
+            ? null
+            : new(
+                resolution.Type,
+                resolution.Member,
+                resolution.BodyToken);
     }
 }
 
@@ -169,6 +180,13 @@ public static class AssemblyContextMemberSelectionQuery
         BodyDefinition { get; } =
             new(
                 "Assembly context member body selection",
+                InspectionCost.NetworkFree);
+
+    public static InspectionQuery<
+        AssemblyContextEntry<AssemblyContextMemberBody?>>
+        OptionalBodyDefinition { get; } =
+            new(
+                "Optional assembly context member body selection",
                 InspectionCost.NetworkFree);
 
     public static AssemblyContextEntry<ApiType> ExecuteType(
@@ -218,6 +236,24 @@ public static class AssemblyContextMemberSelectionQuery
             participant,
             limits,
             surface => ApiSurfaceMemberSelection.SelectBody(
+                surface,
+                selection));
+    }
+
+    public static AssemblyContextEntry<AssemblyContextMemberBody?>
+        ExecuteOptionalBody(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        AssemblyContextMemberSelection selection,
+        ApiSurfaceProjectionLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return AssemblyContextApiSurfaceSelection.Execute<
+            AssemblyContextMemberBody?>(
+            group,
+            participant,
+            limits,
+            surface => ApiSurfaceMemberSelection.TrySelectBody(
                 surface,
                 selection));
     }

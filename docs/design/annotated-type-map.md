@@ -50,12 +50,25 @@ Nothing sits between them.
 
 A reader of a Type Compare view wants the middle answer first: "`Parse` gained
 an allocation; `TryParse` was added; the base Type changed." That answer is the
-annotated source diff without the source: its fact comparison, kept, and its
+annotated source diff without the source: its admitted fact comparison, kept, and its
 text, dropped. It is small, cheap, and enough to mark a row; the source is
 fetched when a Member is opened.
 
 The same document answers a one-version question, such as which Members of a
 Type use unsafe code: the Type's Members, annotated with their findings.
+
+That fixes the split between the map and the
+[Annotated Source diff document](annotated-source-diff-document.md) by content,
+not only by cost. A request for [admitted findings](#admitted-findings)
+without source, at Library, Type, or Member scope, is answered by the map, in
+its one-version or its diff form. A request for source with its findings is
+answered by the Annotated Source document or its diff document, and only for
+one Member. There is no Type-scope Annotated Source view, and the diff
+document has no text-free form: for the admitted findings of a listed Member,
+the map's row is that form, so a host or an agent that wants those findings
+without the text asks the map for the row. Transitions between Members or
+between Types, such as a callee's signals, belong to
+[Annotated Type Relations](annotated-type-relations.md).
 
 The two forms only agree if one implementation produces both. A two-version
 form built separately from the one-version form is a second definition of
@@ -102,13 +115,47 @@ Shape facts are Fast Diff's two axes at Member grain:
   and
 - **Body facts:** for each method the Member owns that has a body on that
   side, its body's identity under Fast Diff's Body equality: its canonical
-  instructions with symbolic operands. A method with no body owns no Body fact
-  on that side, so a one-sided method without a body is no Body change, and a
-  method on both sides with a body on one side only is a Body change, as Fast
-  Diff's Body axis states.
+  instructions with symbolic operands; and, for a Member the API axis surface
+  does not admit, its **declaration facts**, the row, signature, flags,
+  constants, import, generic parameters, and attributes that Fast Diff's Body
+  census records for it, and, for any Member, the declaration facts of the
+  generated code it owns, and its implementation facts once Fast Diff's Body
+  census records them there under
+  [Diff capabilities](diff-capabilities.md#adoption) step 1. A method with no
+  body owns no body fact on that
+  side, so a one-sided method without a body that the surface admits is an
+  API change only, and a method on both sides with a body on one side only
+  is a Body change,
+  as Fast Diff's Body axis states. The Type's own Body facts are every
+  Body fact Fast Diff's census gives the residual under its rule 1, such as
+  `beforefieldinit` for any Type with a static constructor, the declaration
+  of a Type the surface admits on neither side, and, for each row no Member
+  owns, such as a static constructor or generated code with no single owner,
+  its declaration facts and its IL.
 
-Each shape fact is a function of one version, so two retained maps can be
-compared without reopening either image. The map adds no equality. Two API
+Admission follows Fast Diff's partition. A Type public on either side
+partitions its facts as public on both, so a Type's visibility change is an
+API fact only, as [Fast Diff's Axes](fast-diff.md#axes) state; within that,
+each Member's declaration facts are API or Body by the Member's own
+accessibility on its side, as if the Type were public there. Each map therefore records every Member's declaration facts with
+its version's admission, and the comparison places them.
+
+Those are Fast Diff's [Body axis](fast-diff.md#axes) facts at every
+accessibility. Every Member therefore owns shape facts on at least one axis:
+API facts where the surface admits it, Body declaration facts where it does
+not, and a body fact per method with a body. An added private field is a
+Body `Added` row, an attribute added to an internal method is a Body
+`Changed` row, and a non-admitted Type whose own declaration changed has a
+Body transition on its Type row. The row carries the transition, not the
+fact that differs: the declaration view of
+[Diff capabilities](diff-capabilities.md#axes)
+([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) presents
+that at rung 4. Until that view lands, such a row has no rung-4 view, the
+interim exception Diff capabilities' adoption step 1 records.
+
+Each shape fact is a function of one version, and the axis a declaration
+fact compares on is settled across the pair as above, so two retained maps
+can be compared without reopening either image. The map adds no equality. Two API
 facts are equal exactly when the complete Public API comparison reports no
 change to the Member, which is Fast Diff's API axis, and two Body facts are
 equal exactly when Fast Diff's Body axis would call them equal. Fast Diff's
@@ -187,17 +234,18 @@ The map diff carries, for the Type, its presence: on both sides, or `Added` or
 `Removed`. A one-sided Type's presence is a shape transition of its Type row,
 by Fast Diff's presence rule: Body `Added` or `Removed` whether or not the Type
 declares a body, and API `Added` or `Removed` when the Public API surface admits
-the Type. So a one-sided Type is always listed, even when none of its Members
-owns shape facts, such as an added internal enum. A one-sided Type's map diff
-also lists every Member key of its present side that owns shape facts,
-one-sided, with every fact `Added` or `Removed`, as
-[#10224](https://github.com/richlander/dotnet-inspect/issues/10224) proposes
-for Fast Diff's Type level.
+the Type. So a one-sided Type is always listed by its Type row, and its map
+diff lists every Member key of its present side, one-sided, `Added` or
+`Removed` on each axis where the Member owns shape facts and for each of its
+facts, as Fast Diff's [one-sided Type level](fast-diff.md#type) states: an
+added internal enum lists each of its members as Body `Added`, and an added
+public Type lists a public field as API `Added` and a private field as Body
+`Added`.
 
-A Member that owns no shape facts, such as a private field, has no axis on
-which to be `Added` or `Removed`, so it has no shape transition and is never
-listed, whether it is on one side or both. That is Fast Diff's contract:
-non-public metadata is not compared.
+A paired Member is listed exactly when a shape fact it owns differs or its
+shape comparison is unsettled. A private field whose declaration is the same
+on both sides, or a bodiless Member the surface admits whose API facts are
+equal, has no shape transition and is not listed.
 
 The map diff is not an [Analysis diff](analysis-diff.md): that format is a
 complete partition of both endpoints, and the map diff keeps only what changed.
@@ -231,9 +279,8 @@ It does not admit **Callee instruction**, **Callee method**, or **Member
 header** descriptors, such as `semantics.callee`, `safety.callee`,
 `cost.callee`, and `cost.method`. Their transitions can follow a change in
 another Member, such as a callee that gained a throw, while this Member's own
-IL is unchanged. Those changes are relations between Members and belong to the
-Type graph in
-[#10217](https://github.com/richlander/dotnet-inspect/issues/10217). It does
+IL is unchanged. Those changes are relations between Members and belong to
+[Annotated Type Relations](annotated-type-relations.md). It does
 not admit **Call relationship** descriptors, such as `call.edge`, because the
 fact comparison does not produce them today; they join when the Annotated
 Source owner adds them to it.
@@ -243,7 +290,7 @@ and `alloc.box`, for example, classify a construction or box by the operand
 Type's definition, so a Type that changes from `class` to `struct` changes an
 `alloc.new` finding in a caller whose IL is unchanged. That caller's shape
 facts are equal, so the map diff does not list it, and the transition is a
-relation between Types that belongs to the Type graph. For a listed Member, its
+relation between Types that belongs to Annotated Type Relations. For a listed Member, its
 finding transitions are whatever its fact comparison reports, including such
 transitions. A finding kind the vocabulary lacks, such as a throw, is
 added by the provenance matrix owner, not by this document.
@@ -308,7 +355,7 @@ A host spends cost as the user narrows:
 | --- | --- | --- |
 | Exists per Type | which Types changed | Fast Diff: 0.01–0.8 ms per Type |
 | A Type's map diff | which Members, and what kind of change each | see [Evidence](#evidence) |
-| A Member's annotated source diff | the change itself, in C# and IL | its own owner |
+| A Member's annotated source diff, or its declaration view for a declaration fact | the change itself, in C# and IL, or the declaration that differs | its own owner; [#10347](https://github.com/richlander/dotnet-inspect/issues/10347) |
 
 The ladder works like a bond. A bond pays its holder small, regular coupon
 payments and returns the large principal only once, at the end. The map is the
@@ -406,8 +453,11 @@ implementation and, if adopted, of its QuerySpace operators.
   element and outcome for outcome.
 - **Agreement:** over the Fast Diff fixture pairs and the spike's pairs, each
   Member's API and Body transitions equal Fast Diff's states for that Member,
-  and a Type's Exists equals Fast Diff's Library-level state, including
-  `Indeterminate` for Fast Diff's fixture with two Type rows of one name.
+  where a one-sided key's `Added` or `Removed` is Fast Diff's one-sided
+  `Changed`, including Body `Added` for `PrivateFieldAdded`'s field, and a
+  Type's Exists equals Fast Diff's Library-level state, `true`, `false`, or
+  undecided for `Changed`, `Unchanged`, or `Indeterminate`, including Fast
+  Diff's fixture with two Type rows of one name.
 - **Findings:** for every listed Member of the fixture Types, and for each
   method it owns on both sides, the admitted non-`Present` transitions of that
   method's annotated source diff equal that method's part of the Member's
@@ -422,17 +472,19 @@ implementation and, if adopted, of its QuerySpace operators.
 - **Listing:** in the map diff, a key or the Type is listed exactly when it
   has a shape transition or an unsettled shape comparison; in the one-version
   map, exactly when it has an admitted finding or an unsettled analysis
-  outcome. Fixtures show that a private field is not listed, an unchanged
-  abstract or interface Member is not listed in either form, a caller whose
+  outcome. Fixtures show that an added private field is listed as a Body
+  `Added` row, an unchanged private field and an unchanged abstract or
+  interface Member are not listed in either form, a caller whose
   only transition is `alloc.new` after a `class` to `struct` change is not
   listed, a Type with two rows of one name is an unresolved Type row, and a
   one-sided Type is listed by its Type row, including an added internal enum
   and an internal interface with only abstract members, and lists every
-  Member of its present side that owns shape facts
-  and not its private fields. Fixtures also show that a one-sided method with
-  no body, such as an added member of an internal interface or a private
-  `extern` method, is not listed, and that a return-Type change spells two
-  distinct keys, neither `Indeterminate`.
+  Member of its present side, its private fields included. Fixtures also show
+  that a one-sided method with no body is listed on the axis of its
+  declaration, an added member of an internal interface and a private
+  `extern` method as Body `Added` and a public abstract method of a public
+  Type as API `Added`, and that a return-Type change spells two distinct keys,
+  neither `Indeterminate`.
 - **Exactness:** at each scope, Count equals the number of changed rows with
   unresolved rows reported separately, and Exists is `true` with a changed row,
   undecided with only unresolved rows, and `false` with none and a complete
@@ -464,8 +516,8 @@ implementation and, if adopted, of its QuerySpace operators.
 - It does not decide a host's default at Type scope or the visual design of a
   row.
 - It does not claim complete coverage of relations between Members or Types,
-  such as callers or a callee's signals. Those belong to the Type graph in
-  [#10217](https://github.com/richlander/dotnet-inspect/issues/10217).
+  such as callers or a callee's signals. Those belong to
+  [Annotated Type Relations](annotated-type-relations.md).
 - It does not claim correspondence for a renamed or moved Member; that belongs
   to [API qualified anchor](api-qualified-anchor.md#version-pair-correspondence).
 - It does not approve any background analysis or acquisition.

@@ -485,15 +485,9 @@ public sealed class BrowserMethodBodyOperationTests
                             nameof(Left.Compute)),
                     BrowserMetadataJsonContext.Default
                         .BrowserMemberGroupDocumentInspection)!;
-            BrowserMemberGroupDocumentRow documentRow =
-                Assert.Single(
-                    Assert.IsType<BrowserMemberGroupDocument>(
-                            groupDocument.Document)
-                        .Rows,
-                    static row =>
-                        row.CanonicalSignature.EndsWith(
-                            "(System.Int32)",
-                            StringComparison.Ordinal));
+            BrowserMemberGroupDocument document =
+                Assert.IsType<BrowserMemberGroupDocument>(
+                    groupDocument.Document);
             await using BrowserScopeLease<BrowserInspectionScope> lease =
                 await BrowserPackageWorkspace.OpenScopeAsync(id, "1.0.0", Framework);
             BrowserInspectionScope scope = lease.Scope;
@@ -503,6 +497,31 @@ public sealed class BrowserMethodBodyOperationTests
             ApiType type = Assert.Single(surface.Types, type => type.FullName == typeof(Left).FullName);
             ApiMember method = Assert.Single(type.Members,
                 member => member.Name == nameof(Left.Compute) && member.SignatureModel?.Parameters.Count == 1);
+            int declarationToken =
+                method.DeclarationMetadataToken
+                    ?? method.MetadataToken
+                    ?? throw new InvalidOperationException(
+                        "The selected method has no declaration token.");
+            BrowserMemberGroupDocumentRow documentRow =
+                Assert.Single(
+                    document.Rows,
+                    row => row.MetadataToken == declarationToken);
+            BrowserMemberDocumentInspection exactMemberInspection =
+                JsonSerializer.Deserialize(
+                    await MetadataExports.QueryMemberDocument(
+                        id,
+                        "1.0.0",
+                        Framework,
+                        AssemblyName,
+                        typeof(Left).FullName!,
+                        nameof(Left.Compute),
+                        documentRow.BaselineOrdinal,
+                        ""),
+                    BrowserMetadataJsonContext.Default
+                        .BrowserMemberDocumentInspection)!;
+            BrowserMemberDocument exactMember =
+                Assert.IsType<BrowserMemberDocument>(
+                    exactMemberInspection.Document);
             CallGraphMemberBodySelector body = Assert.Single(CallGraphMemberResolver.CreateBodySelectors(type, method));
             MemberAnchor projectedAnchor =
                 ApiMemberIdentity.GetMemberAnchor(type, method);
@@ -510,7 +529,7 @@ public sealed class BrowserMethodBodyOperationTests
                 body.MemberName, body.SelectorKey, body.BodyToken, "Launch"),
                 documentRow.BaselineOrdinal,
                 projectedAnchor.Fingerprint,
-                documentRow.Fingerprint,
+                exactMember.Fingerprint,
                 implementationModuleVersionId);
         }
 

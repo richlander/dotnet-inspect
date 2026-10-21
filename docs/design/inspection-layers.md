@@ -1671,11 +1671,23 @@ canaries:
   semantics, so its compiler ban input retains only runtime platform hazards.
 - Web Core's direct project and emitted assembly dependencies are separate
   positive ceilings. They admit the owner-issued package, Platform, workspace,
-  query, presentation, call-graph, Metadata identity, and source-acquisition
-  APIs required by Browser composition, while rejecting every unlisted edge.
+  query, presentation, Metadata identity, and source-acquisition APIs required
+  by Browser composition, while rejecting every unlisted edge.
   The semantic Browser banned-symbol gate remains necessary inside that ceiling:
   an admitted owner assembly does not authorize Core to open raw images, invoke
   product producers, or reconstruct identity and correspondence semantics.
+- Queries owns Web Core's assembly-context `MemberCallGraphSession` and
+  `CallGraphProjection` execution and returns one
+  `AssemblyContextMemberCallGraphDocument` with detached member-navigation,
+  tree, and diagnostic facts. Web retains package and Platform scope expansion,
+  Browser rendering, attribution, navigation policy, and wire projection
+  without a direct `ILInspector.CallGraph` or `ILInspector.Analysis` project or
+  emitted assembly edge.
+- Platform call-graph resolution selects the implementation participant in Web,
+  then delegates exact body matching to
+  `AssemblyContextMemberSelectionQuery`. Web retains Platform acquisition,
+  type-resolution expansion, bounds, and scope lifetime without projecting an
+  API surface solely to invoke `CallGraphMemberResolver` itself.
 - Product demo plans resolve their owner-issued member anchor over
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog
@@ -1685,10 +1697,19 @@ canaries:
   without executing Decompiler producers. Its typed paths and positive
   dependency ceilings therefore own product semantics, and its compiler ban
   input retains only runtime platform hazards.
-- PDB source inspections project resolved and attributable browse URLs as
-  detached Services-owned values. The Browser Source facade preserves those
-  values without interpreting SourceLink documents, and its positive project
-  and compiled-assembly ratchets exclude `ILInspector.SourceLink`.
+- Web Core owns package, Platform, retained-workspace, exact Member and Type
+  resolution, cancellation coordination, and operation lifetime. Queries,
+  Sections, Services, SourceHouse, CSharp, Decompiler, Research, Presentation,
+  and Markout own the member and Type Source, Type Explorer document, source
+  and method-body comparison, Finding census, and Member Body Diff results that
+  the Browser Source facade adapts. PDB source inspections project resolved and
+  attributable browse URLs as detached Services-owned values, so the facade
+  does not interpret SourceLink documents and its positive project and
+  compiled-assembly ratchets exclude `ILInspector.SourceLink`. Metadata and
+  Queries project logical-member and physical-MethodDef identity before the
+  boundary. The facade's typed paths plus positive dependency ceilings own
+  product semantics, so its compiler inputs retain only three focused
+  projected-identity and failure-value bans plus runtime platform hazards.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

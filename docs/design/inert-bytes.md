@@ -131,12 +131,14 @@ path. It deliberately changes only the selected result boundary:
 2. After uniqueness is known, `MetadataUtf8TypeDefinitionName` detaches the
    matched root namespace and root-to-leaf metadata-name segments into one
    compact immutable backing. No unmatched candidate Name is copied.
-3. Its `MetadataUtf8Name` views issue `Utf8RangeReader`; projection constructs
-   `InertUtf8String(TextPolicy.Field, reader)` values in a separate
+3. Its `MetadataUtf8Name` views issue `Utf8RangeReader`; containment
+   constructs `InertUtf8String(TextPolicy.Field, reader)` values in a separate
    `MetadataContainedTypeDefinitionName`.
 4. The existing raw `MetadataTypeDefinitionName` remains the exact lookup and
-   binding identity. `TypeSubject` carries the contained presentation beside
-   it without substituting escaped presentation spellings into identity.
+   binding identity. `TypeSubject` carries the byte-native name beside it and
+   contains it on the first read of `ContainedType`, caching the result, so a
+   command whose output never presents the name as bytes does no containment.
+   Escaped presentation spellings never substitute into identity.
 
 The direct command additionally creates one `MetadataExactTypeInput` from the
 validated structured query. That host-owned value retains the raw
@@ -148,18 +150,45 @@ does the metadata operation compare every selected `#Strings` range byte for
 byte with the corresponding host-owned range. The internal
 `MetadataExactTypeMatch` issued by those comparisons permits the result to
 reuse the query backing; a missing input or any byte mismatch falls back to
-selected-range detachment. The exact-Type plan also contains that host-owned
-query once under `TextPolicy.Field`; successful byte proof permits projection
-to reuse the cached contained value, while fallback results contain the
-detached artifact ranges normally.
+selected-range detachment. Either way the subject carries one byte-native name,
+and containment happens only when a sink reads `ContainedType`.
 
-`Utf8RangeReader.ValueTextEquals(OpaqueByteRange, ReadOnlySpan<byte>)` owns the
-closed cross-range comparison. The metadata adapter supplies a scoped view
-over the selected `#Strings` bytes; neither the opaque query range nor the
-artifact bytes become a general raw-byte projection. Listing, fuzzy, prefix,
+`OpaqueByteRange.SequenceEqual(ReadOnlySpan<byte>)` owns the closed cross-range
+comparison. It is a byte operation, not a text query, so it does not require
+text classification. The metadata adapter supplies a scoped view over the
+selected `#Strings` bytes; neither the opaque query range nor the artifact
+bytes become a general raw-byte projection. Listing, fuzzy, prefix,
 case-insensitive, and compatibility paths cannot issue the typed match. This
 optimization is measured against the merged detached-name baseline, not
 against the earlier UTF-16 presentation proxy.
+
+The first end-to-end output adoption is the direct-library, fully qualified
+exact-Type `Type Info` TSV document. It is deliberately narrower than the
+exact-Type inspection boundary:
+
+1. The host creates `MetadataExactTypeInput`; metadata resolution and typed
+   byte-match evidence remain authoritative exactly as above.
+2. `TypeSubject.ContainedType` contains the proven namespace and root-to-leaf
+   Type segments on first read and carries them into Presentation without
+   rebuilding that spelling from `MetadataTypeDefinitionName`.
+3. Presentation writes the Type spelling directly to `IBufferWriter<byte>`,
+   and the CLI writes the completed UTF-8 document to standard output without
+   an intermediate UTF-16 document.
+4. The direct document is admitted only for a clean non-generic Type whose
+   established `Type Info` projection needs no rendered base-Type identity.
+   Generic Types, transformed names, nontrivial base Types, other formats,
+   row or column projections, and every broader command shape retain the
+   established renderer.
+
+That eligibility rule preserves the byte-identical selected document while
+establishing one complete host-input-to-byte-sink path. Diagnostic reach
+follows the work actually performed: the bounded exact-Type path does not
+reproduce warnings or failure status caused only by unrelated metadata rows
+visited by the broader `ApiSurface` traversal. It does not authorize a second
+Type formatter, change raw lookup identity, or claim that the broad
+`ApiSurface` path is byte-native. Performance evidence measures the complete
+one-shot NativeAOT command, including input and plan construction, inspection,
+Presentation, and output.
 
 ## Motivating evidence
 
@@ -209,6 +238,13 @@ hidden immutable backing
     nested range [offset, length]        -> OpaqueByteRange
 ```
 
+Immutable here means that no InertText operation writes a backing once it is
+frozen, and none lends its storage, so no caller can write it through the
+library's surface. It is enforced by encapsulation, not memory protection: the
+storage is an ordinary managed array, and code inside InertText, an assembly
+granted internal access, reflection, or unsafe code can still reach it. Those
+are trusted in-process parties, not adversaries this type defends against.
+
 An opaque range guarantees only owner lifetime, immutability, and bounds. It
 does not claim that its bytes are UTF-8, well-formed text, policy-permitted, or
 safe to render. Those properties are neither checked nor cached when the range
@@ -235,6 +271,25 @@ backing remains mutable. Freezing the population transfers its storage to the
 hidden immutable owner and resolves recorded slots into `OpaqueByteRange`
 snapshots.
 
+`InertText.OpaqueByteRangeBuilder` is the public builder every domain uses:
+
+- its constructor declares the exact population length and reserves one
+  backing;
+- `Append(ReadOnlySpan<byte>)` copies source bytes into that backing and
+  returns an `OpaqueByteRangeSlot`, which records an offset and length but is
+  not a range;
+- `Freeze()` refuses an incomplete population, marks the backing immutable, and
+  returns the complete population as one range; and
+- `OpaqueByteRange.Slice(OpaqueByteRangeSlot)` resolves recorded slots against
+  that frozen range.
+
+The internal range constructor refuses a backing that is not frozen, so no
+range can exist over storage that is still being written. Copies of the builder
+share one write position and frozen state; a copy can neither overwrite
+appended bytes nor append after freezing. Domain assemblies use only this
+public surface; they do not construct backings or ranges through internal
+access.
+
 A domain may use a scoped structural reader to interpret tags, lengths, and
 integer parts within an opaque range. Such a reader returns semantic values,
 checked child ranges, or typed domain views. It does not return a source span
@@ -242,9 +297,13 @@ or invoke caller code with source bytes.
 
 `InertText.Utf8RangeReader` is the scoped UTF-8 query reader for a range that a
 domain has classified as text. It also serves as the input when a contained
-presentation value is required. It has no public constructor or factory from
-`OpaqueByteRange`; a typed domain text view is the ordinary creation surface.
-Binary key and Blob views cannot issue it.
+presentation value is required. It has no public constructor. A typed domain
+text view issues it through
+`InertText.Encoding.Utf8RangeClassification.Read(OpaqueByteRange)`, the single
+public issuer. That conspicuous entry point records the domain's text
+classification at each call site; like the encoders, it is an audit and
+discoverability boundary, not a capability barrier. Binary key and Blob views
+do not call it.
 
 Its initial distinguishing capability is `ValueTextEquals`: evaluate whether
 the stored range equals caller-supplied UTF-8 query bytes without decoding the
@@ -294,6 +353,40 @@ replacement, applies the named `TextPolicy`, and returns `InertUtf8String`.
 Each ill-formed source byte receives its own reversible visible spelling, so
 byte-distinct names remain visibly distinguishable. The encoder is total over
 admitted byte ranges.
+
+The spelling is the surrogate escape popularized by Python's
+[PEP 383](https://peps.python.org/pep-0383/). A byte outside a well-formed
+sequence is always `0x80` or above, and is spelled as the lone low surrogate
+`U+DC80`–`U+DCFF` it maps to, so `0x80` becomes `\uDC80` with form `BmpHex`
+and concern `Surrogate`. An ill-formed UTF-8 value is therefore spelled exactly
+as `VisualEncoder` spells its surrogate-escaped UTF-16 string. That is what
+makes the `InertString` projection lossless and decodable with the existing
+UTF-16 decoder, which recovers the surrogate-escaped string.
+
+Two consequences follow, and both are accepted:
+
+- The same spelling denotes a UTF-8 byte or a UTF-16 lone surrogate. Neither
+  currency records which encoding a value came from, and within one origin each
+  spelling still has exactly one source.
+- Composition happens in the UTF-16 currency, so a projected byte escape can
+  land beside a high-surrogate escape from another fragment, exactly as two
+  separately encoded UTF-16 fragments can. `Join` keeps both escapes visible,
+  but the pair decodes as the one astral scalar it denotes. `EnsurePermitted`
+  re-spells from that decoded text, so under a stricter policy the pair can
+  become one permitted graphic glyph with no surrogate concern. Containment
+  still holds; the record that an ill-formed byte was present does not survive
+  that re-spelling.
+
+`SpellingParityTests` gates parity in the PR lane: every scalar under every
+policy, every ill-formed byte, escape-like backslash text, and generated byte
+strings must produce identical spelling, forms, and concerns from both
+encoders. Both encoders take escape length and form from one internal table and
+keep separate writers.
+
+Equality follows `InertString`: the contained bytes and truncation participate,
+while forms and concerns do not, because the encoder emits one canonical
+spelling from which both follow. No operation bounds a UTF-8 value yet, so its
+truncation flag stays false until a byte budget is introduced.
 
 `InertUtf8String` may write its already-contained bytes to a fixed UTF-8 sink
 and may produce `InertString` through fixed UTF-8-to-UTF-16 conversion. Neither
@@ -619,20 +712,24 @@ the repository threat model.
 | --- | --- | --- |
 | Immutable ownership snapshot | Equal ranges over different backings compare and hash equally; default and explicit empty agree; slices retain their owner | PR-fast |
 | Bounds | Empty, edge, nested, overflowed, and out-of-range operations return the specified result without reading outside the backing | PR-fast |
+| Freeze before issue | A builder refuses overflow, incomplete freeze, and any write or freeze after freezing, including through an earlier copy; no range can be constructed over a writable backing | PR-fast |
+| Public domain boundary | Compiled member references from `ILInspector.Metadata` into `InertText` resolve only to public members, except the named encoded-length preflight; `Utf8RangeClassification.Read` is the only public `Utf8RangeReader` issuer | PR-fast |
 | No raw projection | Compiled public-surface and field-flow gates reject every forbidden return, callback, store shape, and `InertUtf8String` blessing path | PR-fast |
 | Opaque means untreated | Creating ranges and UTF-8 readers performs no UTF-8 scan, normalization, or `TextPolicy` work | PR-fast |
 | `ValueTextEquals` | Ordinary, non-ASCII, concerning, and ill-formed stored names compare byte-exactly with pre-encoded queries without decoding candidates, applying policy, or creating `InertUtf8String` | PR-fast |
 | Domain boundary | Only a typed domain text view can issue `Utf8RangeReader`; ordinary closed queries do not enter containment; `InertUtf8String` construction accepts that reader rather than `OpaqueByteRange`, so binary key and Blob views cannot accidentally take that route | PR-fast |
 | Containing type owns encoding | `new InertUtf8String(policy, reader)` always delegates to `Utf8VisualEncoder`; compiled public-surface and construction tests reject a range constructor, a policy-free reader constructor, or another field-assignment path | PR-fast |
 | Exact-byte encoder | Exact bytes reach destination-owned storage without lending the backing; domain eligibility and destination failures remain visible | PR-fast |
-| Containment parity | Printing is admitted only from constructed `InertUtf8String`; for clean, concerning, and ill-formed inputs, direct UTF-8 and `InertString` output have identical spelling, concern, form, and truncation evidence | PR-fast |
+| Containment parity | Printing is admitted only from constructed `InertUtf8String`; `SpellingParityTests` compares both encoders over every scalar and policy, every ill-formed byte against its surrogate escape, escape-like backslash text, and generated byte strings for identical spelling, concern, and form evidence | PR-fast |
 | Shared backing | A generated population of names and nested domain parts retains one backing rather than one array or class per view | PR-fast |
 | Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, keeps raw lookup identity unchanged, and carries the separately contained presentation without applying identity limits to its expanded spelling | First adoption PR |
 | Exact-Type base/head | NativeAOT exact-command time and allocation comparison preserves result semantics; retained-memory claims include the detached matched Name backing and do not count UTF-16 compatibility output as byte-native savings | First adoption PR |
 | Host-input optimization | Exact query bytes are encoded once, typed match evidence is available only after exact equality, and the candidate is compared with the merged exact-Type baseline | Follow-up adoption PR |
+| Exact-Type direct byte output | Direct-library clean non-generic `Type Info` TSV preserves byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink; ineligible shapes reproduce the established fallback output | End-to-end Type adoption |
+| Exact-Type one-shot cost | Exact-base/head NativeAOT comparison includes command input construction, plan construction, inspection, Presentation, and output; kernel-only measurements remain separately labeled | End-to-end Type adoption |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
 | Fast Diff product path | Exact base/head NativeAOT comparison on all pinned Fast Diff pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
-| Direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
+| Fast Diff direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
 
 Documentation-only design changes require Markdown validation, not product
 builds. Performance claims become implementation claims only when their named
@@ -654,17 +751,22 @@ exact-base/head gates run.
 4. **Exact-Type host-input optimization.** Add the auditable host-created
    exact-input type, return typed evidence from the same successful byte
    comparisons, and compare against the merged step 3 baseline.
-5. **Shared Symbol Key and Fast Diff adoption.** Move Fast Diff's private
+5. **Exact-Type end-to-end output.** Carry the proven contained Type through
+   `TypeSubject` into the first direct Presentation document and write it to a
+   byte-capable CLI sink. Compare the complete one-shot command with the
+   pre-adoption path.
+6. **Shared Symbol Key and Fast Diff adoption.** Move Fast Diff's private
    Symbol Key onto the shared representation and remove the duplicate storage
    owner only with exact base/head NativeAOT parity.
-6. **API qualified anchor adoption.** Carry byte-backed names through
+7. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).
-7. **Byte-native Fast Diff result.** Keep applicable result names as domain
+8. **Byte-native Fast Diff result.** Keep applicable result names as domain
    views under Fast Diff's focused owner.
-8. **Direct Presentation output.** Let Presentation consume those views and
+9. **Direct Fast Diff Presentation output.** Let Presentation consume those
+   views and
    write contained UTF-8 directly at byte-capable sinks.
-9. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
+10. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
    projections in the product paths tracked by their owning issues.
 
 Each adoption is independently reviewable and keeps its domain semantics with

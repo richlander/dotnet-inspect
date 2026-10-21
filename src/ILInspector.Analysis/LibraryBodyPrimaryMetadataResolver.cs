@@ -21,7 +21,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     readonly AssemblyReferenceIdentity? _assemblyIdentity;
     readonly SameImageSignatureComparer _signatureComparer;
     readonly Guid _mvid;
-    readonly MemorySafetyMetadataIndex _memorySafety;
+    readonly Lazy<MemorySafetyMetadataIndex> _memorySafety;
     readonly Func<
         EntityHandle,
         GenericScope,
@@ -85,14 +85,16 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
             isStableReceiverGetter;
         _asyncStateMachineTypesBuilt =
             asyncStateMachineTypesBuilt;
-        _memorySafety = MemorySafetyMetadataIndex.Create(reader);
+        _memorySafety = new(
+            () => MemorySafetyMetadataIndex.Create(reader),
+            LazyThreadSafetyMode.ExecutionAndPublication);
         _localTypeDefinitions = new(
             BuildLocalTypeDefinitions,
             LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     internal MemorySafetyRulesResult MemorySafetyRules =>
-        _memorySafety.Rules;
+        _memorySafety.Value.Rules;
 
     internal string AssemblyName => _assemblyName;
 
@@ -136,7 +138,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 method,
                 workBudget);
             return CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(
+                _memorySafety.Value.GetMemberContract(
                     method));
         }
         if (handle.Kind == HandleKind.MemberReference)
@@ -153,7 +155,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     method,
                     workBudget);
                 return CallerUnsafeModeFromContract(
-                    _memorySafety.GetMemberContract(
+                    _memorySafety.Value.GetMemberContract(
                         method));
             }
         }
@@ -197,7 +199,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         return target.IsNil
             ? null
             : CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(
+                _memorySafety.Value.GetMemberContract(
                     target));
     }
 
@@ -334,7 +336,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                 out _);
         return identity.ToMethodIdentity(
             CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(methodHandle)));
+                _memorySafety.Value.GetMemberContract(methodHandle)));
     }
 
     internal MethodIdentity CreatePresenceMethodIdentity(
@@ -416,7 +418,7 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     method,
                     workBudget: null),
             CallerUnsafeModeFromContract(
-                _memorySafety.GetMemberContract(methodHandle)),
+                _memorySafety.Value.GetMemberContract(methodHandle)),
             genericArity,
             genericParameterNames)
         {
@@ -488,10 +490,13 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
         => CallerUnsafeModeFacts.FromContract(contract);
 
     bool HasAttributeNamed(CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
+        => HasAttributeNamed(_reader, attributes, simpleName, namespaces);
+
+    static bool HasAttributeNamed(MetadataReader reader, CustomAttributeHandleCollection attributes, string simpleName, params string[] namespaces)
     {
         foreach (var handle in attributes)
         {
-            var (ns, name) = AttributeTypeName(_reader.GetCustomAttribute(handle).Constructor);
+            var (ns, name) = AttributeTypeName(reader, reader.GetCustomAttribute(handle).Constructor);
             if (name == simpleName && (namespaces.Length == 0 || Array.IndexOf(namespaces, ns) >= 0))
                 return true;
         }
@@ -511,7 +516,10 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     // (e.g. get_EqualityContract) that the angle-bracket name heuristics miss, yet none
     // are user-actionable source-shape rewrite targets, so exclude them from collection.
     internal bool HasCompilerGeneratedAttribute(CustomAttributeHandleCollection attributes)
-        => HasAttributeNamed(attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
+        => HasCompilerGeneratedAttribute(_reader, attributes);
+
+    internal static bool HasCompilerGeneratedAttribute(MetadataReader reader, CustomAttributeHandleCollection attributes)
+        => HasAttributeNamed(reader, attributes, "CompilerGeneratedAttribute", "System.Runtime.CompilerServices");
 
     internal bool IsCompilerGeneratedTypeOrEnclosing(
         TypeDefinitionHandle handle)
@@ -544,17 +552,20 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
     }
 
     (string Namespace, string Name) AttributeTypeName(EntityHandle constructor)
+        => AttributeTypeName(_reader, constructor);
+
+    static (string Namespace, string Name) AttributeTypeName(MetadataReader reader, EntityHandle constructor)
     {
         if (constructor.Kind == HandleKind.MemberReference
-            && _reader.GetMemberReference((MemberReferenceHandle)constructor).Parent is { Kind: HandleKind.TypeReference } parent)
+            && reader.GetMemberReference((MemberReferenceHandle)constructor).Parent is { Kind: HandleKind.TypeReference } parent)
         {
-            var typeRef = _reader.GetTypeReference((TypeReferenceHandle)parent);
-            return (_reader.GetString(typeRef.Namespace), _reader.GetString(typeRef.Name));
+            var typeRef = reader.GetTypeReference((TypeReferenceHandle)parent);
+            return (reader.GetString(typeRef.Namespace), reader.GetString(typeRef.Name));
         }
         if (constructor.Kind == HandleKind.MethodDefinition)
         {
-            var declType = _reader.GetTypeDefinition(_reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType());
-            return (_reader.GetString(declType.Namespace), _reader.GetString(declType.Name));
+            var declType = reader.GetTypeDefinition(reader.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType());
+            return (reader.GetString(declType.Namespace), reader.GetString(declType.Name));
         }
         return ("", "");
     }

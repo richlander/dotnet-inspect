@@ -114,6 +114,14 @@ public enum MethodDefinitionLayers
     /// It acquires no body and does not imply <see cref="ModuleLookup"/>.
     /// </summary>
     ReferenceAssemblyStatus = 32768,
+
+    /// <summary>
+    /// Execution-scoped method-analysis support: reader-owned allocation and
+    /// optimization judgments, including receipted async-type metadata and
+    /// stable-getter body probes. It does not imply
+    /// <see cref="ModuleLookup"/>.
+    /// </summary>
+    MethodAnalysis = 65536,
 }
 
 /// <summary>
@@ -415,7 +423,8 @@ public readonly ref struct MethodDefinitionView
         | MethodDefinitionLayers.ModuleLookup
         | MethodDefinitionLayers.ReferenceBinding
         | MethodDefinitionLayers.MemorySafetyContracts
-        | MethodDefinitionLayers.CallTargets;
+        | MethodDefinitionLayers.CallTargets
+        | MethodDefinitionLayers.MethodAnalysis;
 
     readonly ref MethodDefinitionUnit _unit;
     readonly MethodDefinitionExecution.ProducerState? _producer;
@@ -642,6 +651,44 @@ public readonly ref struct MethodDefinitionView
         }
     }
 
+    /// <summary>
+    /// The unit's outcome in the declared-source relation, settled before
+    /// traversal over exact breadth. Only a breadth that declares generated-body
+    /// expansion carries the relation; over all-definition breadth it settles
+    /// at source completion, so a visit cannot read it.
+    /// </summary>
+    internal MethodDefinitionDeclaredSource DeclaredSource
+    {
+        get
+        {
+            MethodDefinitionExecution execution = Producer.Execution;
+            if (execution.DeclaredSourcesPending)
+            {
+                throw new ProducerContractException(
+                    $"Producer '{_owner}' read the declared-source relation "
+                    + "during a visit, but over all-definition breadth it "
+                    + "settles at source completion.");
+            }
+            MethodDefinitionDeclaredSources sources =
+                execution.DeclaredSources
+                ?? throw new ProducerContractException(
+                    $"Producer '{_owner}' read the declared-source "
+                    + "relation, but its breadth declares no generated-body "
+                    + "expansion.");
+            return sources.Of(_unit.MethodHandle);
+        }
+    }
+
+    /// <summary>The subject's metadata, for a domain-layer producer's own probes.</summary>
+    internal MetadataReader Reader
+    {
+        get
+        {
+            RequireDomain();
+            return _unit.Reader;
+        }
+    }
+
     /// <summary>The module memory-safety rules, through the declared contract support.</summary>
     internal MemorySafetyRulesResult GetMemorySafetyRules()
     {
@@ -747,6 +794,32 @@ public readonly ref struct MethodDefinitionView
     }
 
     /// <summary>
+    /// Opens one receipted method-analysis query over this unit's owner-issued
+    /// identity and instructions. Allocation and optimization may share the
+    /// returned resolver until the query is disposed.
+    /// </summary>
+    internal MethodAnalysisQuery BeginMethodAnalysis(
+        MethodIdentity method,
+        MethodInstructions instructions)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(instructions);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMethodAnalysisLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "method-analysis support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastMethodAnalysisUnit,
+            Token,
+            ref producer.MethodAnalysisUses);
+        return _unit.BeginMethodAnalysis(method, instructions);
+    }
+
+    /// <summary>
     /// The unit's IL-ordered call sites with resolved member identity and typed
     /// target, decoded once per physical MethodDef.
     /// </summary>
@@ -782,6 +855,26 @@ public readonly ref struct MethodDefinitionView
             Token,
             ref producer.CallsUses);
         return _unit.GetLocalSignature(GetBody());
+    }
+
+    /// <summary>
+    /// Returns recovery-only operand resolution after whole-body Calls
+    /// decoding fails.
+    /// </summary>
+    internal MethodCallRecoveryResolver GetCallRecoveryResolver()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare Method call support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastCallsUnit,
+            Token,
+            ref producer.CallsUses);
+        return new(_unit);
     }
 
     /// <summary>The resolved identity and current-module status of a field operand.</summary>
@@ -1039,6 +1132,83 @@ public readonly ref struct MethodDefinitionCompletionView
         _producer.ReferenceAssemblyStatusReads++;
         return _producer.Execution.ReadReferenceAssemblyStatus();
     }
+
+    /// <summary>
+    /// Whether a declared bound stopped the relation before it settled: over
+    /// exact breadth the producer visited only the retained prefix, and over
+    /// all-definition breadth the outcomes are that prefix. Reading it does
+    /// no source work.
+    /// </summary>
+    internal bool IsSourceBounded => _producer.SourceBounded;
+
+    /// <summary>
+    /// A visited unit's outcome in the settled declared-source relation.
+    /// Reading it does no source work.
+    /// </summary>
+    internal MethodDefinitionDeclaredSource DeclaredSourceOf(
+        MethodDefinitionHandle method)
+    {
+        MethodDefinitionDeclaredSources sources =
+            _producer.Execution.DeclaredSources
+            ?? throw new ProducerContractException(
+                $"Producer '{_producer.Producer.Identity}' read the "
+                + "declared-source relation, but its breadth declares no "
+                + "generated-body expansion.");
+        return sources.Of(method);
+    }
+}
+
+/// <summary>
+/// One scoped method-analysis support query. Disposing it records the support
+/// work performed by every algorithm that shared its resolver.
+/// </summary>
+internal struct MethodAnalysisQuery : IDisposable
+{
+    readonly MethodDefinitionSourceCoverageBuilder _physicalCoverage;
+    readonly MethodDefinitionSourceCoverageBuilder? _requestCoverage;
+    readonly MethodDefinitionHandle _method;
+    readonly MethodAnalysisLookup _lookup;
+    readonly MethodAnalysisSupportWork _before;
+    bool _disposed;
+
+    internal MethodAnalysisQuery(
+        MethodDefinitionSourceCoverageBuilder physicalCoverage,
+        MethodDefinitionSourceCoverageBuilder? requestCoverage,
+        MethodDefinitionHandle method,
+        MethodAnalysisLookup lookup,
+        MethodAnalysisSupportWork before,
+        ILibraryMethodAnalysisResolver resolver)
+    {
+        _physicalCoverage = physicalCoverage;
+        _requestCoverage = requestCoverage;
+        _method = method;
+        _lookup = lookup;
+        _before = before;
+        Resolver = resolver;
+    }
+
+    internal ILibraryMethodAnalysisResolver Resolver { get; }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        MethodAnalysisSupportWork work =
+            _lookup.RecordedWork.Since(_before);
+        _physicalCoverage.RecordMethodAnalysisQuery(
+            _method,
+            work);
+        if (!ReferenceEquals(
+                _requestCoverage,
+                _physicalCoverage))
+        {
+            _requestCoverage?.RecordMethodAnalysisQuery(
+                _method,
+                work);
+        }
+        _disposed = true;
+    }
 }
 
 /// <summary>
@@ -1064,6 +1234,7 @@ internal struct MethodDefinitionUnit(
     SameModuleCallTargetSupport? _callTargets;
     MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
+    MethodAnalysisSupport? _methodAnalysis;
     MethodSemanticIdentityResult? _semanticIdentityResult;
     MethodSemanticIdentityWork _semanticIdentityWork;
     MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
@@ -1124,6 +1295,9 @@ internal struct MethodDefinitionUnit(
 
     public MethodDefinition MethodDefinition { get; private set; }
 
+    /// <summary>The subject's metadata reader.</summary>
+    public readonly MetadataReader Reader => _reader;
+
     /// <summary>The module lookup; present whenever a planned producer declared it.</summary>
     public readonly LibraryMethodAnalysisRunner Lookup =>
         _lookup ?? throw new InvalidOperationException(
@@ -1136,6 +1310,7 @@ internal struct MethodDefinitionUnit(
         SameModuleCallTargetSupport? callTargets,
         MethodCallMetadataSupport? methodCalls,
         MethodSemanticIdentitySupport? semanticIdentity,
+        MethodAnalysisSupport? methodAnalysis,
         MethodDefinitionSourceCoverageBuilder sourceCoverage,
         int ordinal)
     {
@@ -1147,6 +1322,7 @@ internal struct MethodDefinitionUnit(
         _callTargets = callTargets;
         _methodCalls = methodCalls;
         _semanticIdentity = semanticIdentity;
+        _methodAnalysis = methodAnalysis;
         _requestSourceCoverage = sourceCoverage;
         Ordinal = ordinal;
         gate.MoveTo(
@@ -1208,6 +1384,17 @@ internal struct MethodDefinitionUnit(
                 methodDefinition);
         }
     }
+
+    /// <summary>The body a producer already acquired for this unit, if any.</summary>
+    public readonly MethodBodyBlock? AcquiredBody => _body;
+
+    /// <summary>
+    /// Reads the unit's body for the declared-source relation alone. It is
+    /// relation work, receipted with the relation, not terminal admission.
+    /// </summary>
+    public MethodBodyBlock AcquireRelationBody() =>
+        _body ??= _peReader.GetMethodBody(
+            MethodDefinition.RelativeVirtualAddress);
 
     public MethodBodyBlock GetBody()
     {
@@ -1444,6 +1631,28 @@ internal struct MethodDefinitionUnit(
         return _localSignature;
     }
 
+    public MemberRef ResolveCallMember(int operandToken)
+    {
+        MethodCallMetadataLookup calls =
+            BeginMethodCallQuery(out MethodCallMetadataWork before);
+        try
+        {
+            return calls.ResolveCallMember(
+                TypeDefinition,
+                MethodDefinition,
+                operandToken);
+        }
+        finally
+        {
+            EndMethodCallQuery(
+                calls,
+                before,
+                callReads: 0,
+                localSignatureReads: 0,
+                fieldOperandReads: 0);
+        }
+    }
+
     public MethodFieldOperand ResolveFieldOperand(int operandToken)
     {
         _fieldOperands ??= [];
@@ -1550,6 +1759,7 @@ internal struct MethodDefinitionUnit(
                 _requestSourceCoverage?.RecordMemorySafetyConstruction(
                     lookup.ConstructionWork);
             }
+
         }
 
         before = lookup.RecordedWork;
@@ -1571,6 +1781,44 @@ internal struct MethodDefinitionUnit(
                 MethodHandle,
                 work);
         }
+    }
+
+    public MethodAnalysisQuery BeginMethodAnalysis(
+        MethodIdentity method,
+        MethodInstructions instructions)
+    {
+        MethodAnalysisSupport support =
+            _methodAnalysis ?? throw new InvalidOperationException(
+                "Method-analysis support was not declared by any planned "
+                + "producer.");
+        MethodAnalysisLookup lookup =
+            support.Acquire(out bool constructed);
+        if (constructed)
+        {
+            _physicalSourceCoverage.RecordMethodAnalysisConstruction();
+            if (!ReferenceEquals(
+                    _requestSourceCoverage,
+                    _physicalSourceCoverage))
+            {
+                _requestSourceCoverage
+                    ?.RecordMethodAnalysisConstruction();
+            }
+        }
+
+        MethodAnalysisSupportWork before = lookup.RecordedWork;
+        ILibraryMethodAnalysisResolver resolver =
+            lookup.CreateResolver(
+                TypeDefinition,
+                MethodDefinition,
+                method,
+                instructions);
+        return new(
+            _physicalSourceCoverage,
+            _requestSourceCoverage,
+            MethodHandle,
+            lookup,
+            before,
+            resolver);
     }
 
     /// <summary>
@@ -1743,4 +1991,27 @@ internal struct MethodDefinitionUnit(
     /// </summary>
     public readonly string Label =>
         $"MethodDef 0x{MetadataTokens.GetToken(MethodHandle):X8}";
+}
+
+internal sealed class MethodCallRecoveryResolver(
+    MethodDefinitionUnit unit)
+{
+    public MemberRef ResolveMember(int token) =>
+        unit.ResolveCallMember(token);
+
+    public string? CalliReturnDetail(int token)
+    {
+        try
+        {
+            return ResolveMember(token)
+                .ReturnType
+                .ToDisplayString();
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            return null;
+        }
+    }
 }

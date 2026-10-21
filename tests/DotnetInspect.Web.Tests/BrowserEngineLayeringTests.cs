@@ -19,9 +19,9 @@ namespace DotnetInspect.Web.Tests;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The executable boundary is a positive project and compiled-assembly rule plus a narrow platform
-/// hazard list. Core and the capability facades retain the broader list while their positive
-/// boundaries migrate under #8779.
+/// The executable and capability boundaries are positive project and compiled-assembly rules plus
+/// the narrow platform hazard list. Core retains the broader semantic list because it owns Browser
+/// composition. Source additionally retains its focused projected-identity list.
 /// </para>
 /// <para>
 /// A banned identifier that no longer resolves bans nothing, and the analyzer reports no such
@@ -107,6 +107,11 @@ public sealed class BrowserEngineLayeringTests
             banned);
         Assert.Contains(
             "T:ILInspector.Analysis.LibraryBodyAnalysisService",
+            banned);
+        Assert.Contains(
+            "M:ILInspector.Analysis.CallGraphMemberResolver.ResolveDefinitionIdentity"
+                + "(ILInspector.Metadata.ApiSurface,System.String,System.String,"
+                + "System.String,System.Nullable{System.Int32})",
             banned);
         Assert.Contains(
             banned,
@@ -398,6 +403,7 @@ public sealed class BrowserEngineLayeringTests
     {
         foreach (string symbol in BroadBannedSymbols()
             .Concat(PlatformHazards())
+            .Concat(SourceBannedSymbols())
             .Distinct(StringComparer.Ordinal))
         {
             ISymbol? resolved = DocumentationCommentId.GetFirstSymbolForDeclarationId(
@@ -521,40 +527,13 @@ public sealed class BrowserEngineLayeringTests
     }
 
     [Fact]
-    public void CoreAndRemainingCapabilityProjectsPinBroadLayeringGate()
+    public void CorePinsBroadLayeringGate()
     {
-        string[] projects =
-        [
-            CoreProjectPath,
-            .. CapabilityProjectPaths.Where(project =>
-                !project.Equals(
-                    CallGraphProjectPath,
-                    StringComparison.OrdinalIgnoreCase)
-                && !project.Equals(
-                    LibraryProjectPath,
-                    StringComparison.OrdinalIgnoreCase)
-                && !project.Equals(
-                    CatalogProjectPath,
-                    StringComparison.OrdinalIgnoreCase)
-                && !project.Equals(
-                    PackageProjectPath,
-                    StringComparison.OrdinalIgnoreCase)
-                && !project.Equals(
-                    MetadataProjectPath,
-                    StringComparison.OrdinalIgnoreCase)
-                && !project.Equals(
-                    AnalysisProjectPath,
-                    StringComparison.OrdinalIgnoreCase)),
-        ];
-
-        Assert.NotEmpty(projects);
-        Assert.All(
-            projects,
-            project => Assert.Contains(
-                EvaluatedProjectItemPaths(project, "AdditionalFiles"),
-                path => path.Equals(
-                    BroadBanListPath,
-                    StringComparison.OrdinalIgnoreCase)));
+        Assert.Contains(
+            EvaluatedProjectItemPaths(CoreProjectPath, "AdditionalFiles"),
+            path => path.Equals(
+                BroadBanListPath,
+                StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -599,6 +578,24 @@ public sealed class BrowserEngineLayeringTests
         AssertPinsPlatformHazardsNotBroadInventory(AnalysisProjectPath);
     }
 
+    [Fact]
+    public void SourceFacadePinsFocusedHazardsNotBroadInventory()
+    {
+        AssertPinsPlatformHazardsNotBroadInventory(SourceProjectPath);
+        Assert.Contains(
+            EvaluatedProjectItemPaths(SourceProjectPath, "AdditionalFiles"),
+            path => path.Equals(
+                SourceBanListPath,
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(
+            [
+                "T:ILInspector.MetadataPrimitives.MemberAnchor",
+                "T:ILInspector.MetadataPrimitives.MetadataMethodAddress",
+                "T:ILInspector.Metadata.MetadataTypeNameFailureMechanism",
+            ],
+            SourceBannedSymbols());
+    }
+
     static void AssertPinsPlatformHazardsNotBroadInventory(string project)
     {
         IReadOnlyList<string> additionalFiles =
@@ -615,25 +612,6 @@ public sealed class BrowserEngineLayeringTests
                 BroadBanListPath,
                 StringComparison.OrdinalIgnoreCase));
     }
-
-    static IReadOnlyList<string> CapabilityProjectPaths =>
-    [
-        .. new[]
-        {
-            ("DotnetInspect.Web.Interop.Package", "DotnetInspect.Web.Interop.Package.csproj"),
-            ("DotnetInspect.Web.Interop.Library", "DotnetInspect.Web.Interop.Library.csproj"),
-            ("DotnetInspect.Web.Interop.Metadata", "DotnetInspect.Web.Interop.Metadata.csproj"),
-            ("DotnetInspect.Web.Interop.Analysis", "DotnetInspect.Web.Interop.Analysis.csproj"),
-            ("DotnetInspect.Web.Interop.Source", "DotnetInspect.Web.Interop.Source.csproj"),
-            ("DotnetInspect.Web.Interop.CallGraph", "DotnetInspect.Web.Interop.CallGraph.csproj"),
-            ("DotnetInspect.Web.Interop.Catalog", "DotnetInspect.Web.Interop.Catalog.csproj"),
-        }
-            .Select(project => Path.Combine(
-                RepositoryRoot(),
-                "src",
-                project.Item1,
-                project.Item2)),
-    ];
 
     [Fact]
     public void EngineCoreAssembly_HasNoFacadeContracts()
@@ -760,6 +738,9 @@ public sealed class BrowserEngineLayeringTests
     static IReadOnlyList<string> PlatformHazards() =>
         ReadBannedSymbols(PlatformHazardsPath);
 
+    static IReadOnlyList<string> SourceBannedSymbols() =>
+        ReadBannedSymbols(SourceBanListPath);
+
     static IReadOnlyList<string> ReadBannedSymbols(string path) =>
         [
         .. File.ReadAllLines(path)
@@ -804,6 +785,12 @@ public sealed class BrowserEngineLayeringTests
         "DotnetInspect.Web.Interop.Analysis",
         "DotnetInspect.Web.Interop.Analysis.csproj");
 
+    static string SourceProjectPath => Path.Combine(
+        RepositoryRoot(),
+        "src",
+        "DotnetInspect.Web.Interop.Source",
+        "DotnetInspect.Web.Interop.Source.csproj");
+
     static string CallGraphProjectPath => Path.Combine(
         RepositoryRoot(),
         "src",
@@ -824,6 +811,10 @@ public sealed class BrowserEngineLayeringTests
         Path.GetDirectoryName(EngineProjectPath)!,
         "PlatformHazards",
         "BannedSymbols.txt");
+
+    static string SourceBanListPath => Path.Combine(
+        Path.GetDirectoryName(SourceProjectPath)!,
+        "BannedSymbols.Source.txt");
 
     static IReadOnlyList<Assembly> ProductReferenceClosure()
     {

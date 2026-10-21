@@ -64,6 +64,8 @@ using BrowserPackagePerformance = DotnetInspect.Web.Interop.Analysis.BrowserPack
 using BrowserPerformanceMember = DotnetInspect.Web.Interop.Analysis.BrowserPerformanceMember;
 using BrowserOpportunityItem = DotnetInspect.Web.Interop.Analysis.BrowserOpportunityItem;
 using BrowserLibraryMetrics = DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetrics;
+using BrowserLibraryMetricsPopulation =
+    DotnetInspect.Web.Interop.Analysis.BrowserLibraryMetricsPopulation;
 using BrowserLibraryDependencyStructure =
     DotnetInspect.Web.Interop.Analysis.BrowserLibraryDependencyStructure;
 using BrowserLibraryDependencyTypeEdge =
@@ -236,33 +238,6 @@ public sealed partial class BrowserEngineBoundaryTests
             BrowserPackageWireProjection.Project(icon));
         Assert.Null(BrowserPackageWireProjection.Project(
             (BrowserPackageIconPayload?)null));
-    }
-
-    [Fact]
-    public void PackageDocumentHtml_ContainsBidiAfterStructuralSanitization()
-    {
-        const string html =
-            "<p>https://api.\u202Etegun\u202C.org</p>"
-            + "<pre>literal \\u202E</pre>";
-
-        BrowserPackageDocumentHtml document =
-            BrowserPackageWireProjection.ProjectDocumentHtml(html);
-        string contained = document.Html.ToString();
-
-        Assert.Equal(
-            "<p>https://api.\\u202Etegun\\u202C.org</p>"
-            + "<pre>literal \\\\u202E</pre>",
-            contained);
-        Assert.DoesNotContain('\u202E', contained);
-        Assert.DoesNotContain('\u202C', contained);
-
-        string json = JsonSerializer.Serialize(
-            document,
-            BrowserPackageJsonContext.Default.BrowserPackageDocumentHtml);
-        using JsonDocument parsed = JsonDocument.Parse(json);
-        JsonElement htmlProperty = parsed.RootElement.GetProperty("html");
-        Assert.Equal(JsonValueKind.String, htmlProperty.ValueKind);
-        Assert.Equal(contained, htmlProperty.GetString());
     }
 
     [Fact]
@@ -809,11 +784,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserMemberGroupDocumentRow row =
             Assert.Single(
                 Assert.IsType<BrowserMemberGroupDocument>(group.Document)
-                    .Rows,
-                static candidate =>
-                    candidate.CanonicalSignature.Contains(
-                        "System.Int32",
-                        StringComparison.Ordinal));
+                    .Rows);
 
         BrowserMemberDocumentInspection inspection =
             JsonSerializer.Deserialize(
@@ -1402,7 +1373,7 @@ public sealed partial class BrowserEngineBoundaryTests
         BrowserCallGraphDiagnostics diagnostics =
             BrowserCallGraphWireProjection.Project(
                 BrowserCallGraphProjection.Diagnostics(
-                    new CatalogCallGraphDiagnostics(2, 3, 4),
+                    new AssemblyContextMemberCallGraphDiagnostics(2, 3, 4),
                     hasUnexploredTraversalBoundary: true,
                     hasAnalysisFailureBoundary: true));
 
@@ -2497,6 +2468,42 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task ReferencePackageSuppliers_WithoutRouteEvidenceRemainPlain()
+    {
+        const string packageId = "Reference.Icon.Without.Route";
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                        $"<package><metadata><id>{packageId}</id>"
+                        + "<version>1.0.0</version></metadata></package>")),
+                    ($"lib/net11.0/{packageId}.dll",
+                        File.ReadAllBytes(
+                            typeof(BrowserEngineBoundaryTests).Assembly.Location))),
+                fromCache: false));
+
+        BrowserReferencePackageSupplier[] suppliers =
+            Assert.IsType<BrowserReferencePackageSupplier[]>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryReferencePackageSuppliers(
+                        packageId,
+                        "1.0.0",
+                        "net11.0",
+                        $"compile:lib/net11.0/{packageId}.dll"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserReferencePackageSupplierArray));
+
+        Assert.NotEmpty(suppliers);
+        Assert.All(suppliers, supplier =>
+        {
+            Assert.Null(supplier.PackageId);
+            Assert.Null(supplier.PackageVersion);
+        });
+    }
+
+    [Fact]
     public async Task QueryPackage_FirstTransportTruncationReturnsTypedNotice()
     {
         const string packageId = "First.Transport.Truncation";
@@ -2697,6 +2704,25 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             $"{SelectedLibrary}.dll",
             Assert.Single(metadata.Assemblies).Assembly);
+
+        BrowserLibraryMetrics metrics =
+            Assert.IsType<BrowserLibraryMetrics>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports
+                        .QueryPackageLibraryMetrics(
+                            PackageId,
+                            "1.0.0",
+                            "net11.0",
+                            useAssetId
+                                ? $"compile:lib/net11.0/{SelectedLibrary}.dll"
+                                : "selected.library"),
+                    BrowserAnalysisJsonContext.Default
+                        .BrowserLibraryMetrics));
+        Assert.Equal("available", metrics.Outcome);
+        Assert.True(
+            Assert.IsType<BrowserLibraryMetricsPopulation>(
+                metrics.Population)
+                .PhysicalEvidenceBodyCount > 0);
 
         BrowserPackageIntegrations integrations =
             Assert.IsType<BrowserPackageIntegrations>(

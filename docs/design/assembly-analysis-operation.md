@@ -444,13 +444,25 @@ declared execution-scoped source support and receipted separately from sparse
 MethodDef breadth. It never acquires an unrelated body or silently becomes
 successful empty evidence.
 
-[#9832](https://github.com/richlander/dotnet-inspect/issues/9832) composes the
-prerequisites for `AssemblyContextMethodAnalysisQuery`. Allocations,
-optimization opportunities, and final `MethodSignals` composition remain
-explicitly on the old boundary in that mixed slice. The unsafe member census
+[#9832](https://github.com/richlander/dotnet-inspect/issues/9832) adopts those
+prerequisites for `AssemblyContextMethodAnalysisQuery` through
+`ExactMethodAnalysisProducer`. The exact MethodDef source now supplies
+semantic identity, direct calls and same-module caller contracts, local and
+operation safety evidence, unsafe occurrences, diagnostics, and physical
+exception regions from one detached body. Allocations, optimization
+opportunities, and final `MethodSignals` composition remain explicitly on the
+old boundary in this mixed slice. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
-[Unsafe member findings](unsafe-member-findings.md#execution) states. `ILOffsetQuery` follows
-only after an owner can bind its prefetched image without reopening by path.
+[Unsafe member findings](unsafe-member-findings.md#execution) states.
+
+[#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
+same exact producer for safety-only IL-coordinate preparation. Direct CLI and
+host-neutral Library Address execution borrow the already-open prefetched image
+and issue one exact MethodDef request for the deduplicated coordinate methods.
+The resulting source receipt records exact breadth, bounded body acquisition,
+and no module lookup. Allocation, cost, and combined coordinate requests remain
+on `LibraryBodyAnalysisService` because their complete result ownership has
+not moved.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first
@@ -569,13 +581,20 @@ The exact-member successors own their evidence:
 
 - #9830 gates bounded semantic MethodDef identity;
 - #9831 gates memory-safety contract and accessor-association support; and
-- #9832 gates the first consumer's complete public outcome and mixed legacy
-  provenance.
+- #9832 gates the first consumer's complete public outcome, exact one-body
+  source receipt, legacy parity, and mixed legacy provenance.
 
-When #9832 lands, it supplies
-`AssemblyAnalysisService_MixedLegacyAndMigratedProducersUseOneSourcePlan`.
-This design does not predeclare the successors' result or receipt shapes and
-does not claim their implementation evidence.
+`ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` proves that the
+focused producer selects and acquires one requested MethodDef body, declares
+semantic identity, memory-safety contracts, and Calls support, performs no
+module lookup, and preserves the legacy identity, safety, diagnostic, and
+exception-region facts. `AssemblyContextMethodAnalysisQueryTests` gate the
+real mixed consumer while public direct-call rows, signals, allocations, and
+optimization remain on `LibraryBodyAnalysisService`; Calls support serves
+focused call-safety evidence until complete direct-call provenance has
+owner-issued capabilities. The focused producer preserves independent
+exception-region, operation-safety, and safety-occurrence evidence when
+whole-body Calls decoding fails recoverably.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).

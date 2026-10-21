@@ -5,6 +5,7 @@ using DotnetInspector.Ecosystems;
 using DotnetInspector.Networking;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using NuGet.Versioning;
 
@@ -88,9 +89,37 @@ public partial class PackageCommand
         }
 #endif
 
+        string packet = options.WorkspacePacket!;
+        if (options.WorkspaceLibrarySelection is null)
+        {
+            try
+            {
+                WorkspaceSharePacket source = WorkspaceSharePacketCodec.Decode(
+                    WorkspacePacketRestoration.GetPacketInput(packet, "--workspace"));
+                WorkspaceSharePacketProjectionResult derived =
+                    WorkspacePackageScenarioDerivation.Prepare(
+                        source, request!.PackageId, request.Version);
+                if (!derived.Succeeded)
+                {
+                    CommandError.Write(
+                        "The Workspace Package declaration could not be derived.",
+                        [derived.Failure!.Message]);
+                    return 1;
+                }
+                if (!ReferenceEquals(source, derived.Packet))
+                    packet = WorkspaceSharePacketCodec.Encode(derived.Packet!);
+            }
+            catch (Exception error) when (error is WorkspaceSharePacketException
+                or InvalidDataException or ArgumentException)
+            {
+                CommandError.Write("The Workspace packet input is invalid.", [error.Message]);
+                return 1;
+            }
+        }
+
         WorkspacePacketRestorationResult restorationResult =
             await WorkspacePacketRestoration.RestoreAsync(
-                options.WorkspacePacket!,
+                packet,
                 workspaceLoadOptions
                     ?? CreateWorkspaceContextLoadOptions(options),
                 CancellationToken.None).ConfigureAwait(false);
@@ -198,35 +227,49 @@ public partial class PackageCommand
             CommandContext context,
             SelectedContextExactPackageLiveTarget target)
     {
+        return await ExecuteAdmittedPackageAsync(
+            options, context, target.Root, target.ContextTargetFramework)
+            .ConfigureAwait(false);
+    }
+
+    static async Task<WorkspacePackageInspectionContent> ExecuteAdmittedPackageAsync(
+        InspectionOptions options,
+        CommandContext context,
+        PackageRootBinding root,
+        string? contextTargetFramework,
+        bool exactReference = false)
+    {
         string? temporaryPath = null;
         try
         {
             WorkspacePackageResolution workspaceResolution =
-                await target.UseContent(
+                await root.Root.UseContent(
                     content => CreateWorkspaceResolutionAsync(
-                        target,
+                        root,
                         content,
                         path => temporaryPath = path))
                     .ConfigureAwait(false);
             InspectionResult? inspection = null;
             string? requestedTargetFramework =
-                target.ContextTargetFramework
-                ?? target.Root.Root.RequestedTargetFramework
-                ?? target.Root.Root.AssetSelection.TargetFramework;
+                contextTargetFramework
+                ?? root.Root.RequestedTargetFramework
+                ?? root.Root.AssetSelection.TargetFramework;
             InspectionOptions ordinaryOptions = options with
             {
                 WorkspacePacket = null,
                 ShareFormat = null,
                 Tfm = options.WorkspaceLibrarySelection is null
+                    && !exactReference
                     ? requestedTargetFramework
-                    : target.Root.Root.AssetSelection.TargetFramework
+                    : root.Root.AssetSelection.TargetFramework
                         ?? requestedTargetFramework,
                 WorkspaceLibraryAssetPaths =
                     options.WorkspaceLibrarySelection is null
+                        && !exactReference
                         ? null
                         :
                         [
-                            .. target.Root.Root.AssetSelection.Assets.Select(
+                            .. root.Root.AssetSelection.Assets.Select(
                                 static asset => asset.Path),
                         ],
 #if DEBUG
@@ -237,15 +280,15 @@ public partial class PackageCommand
                 ordinaryOptions,
                 context,
                 workspaceResolution.Resolution,
-                target.Root,
+                root,
                 workspaceResolution.ManifestBytes,
                 () => PackageInfoMeasurementInspection.ProjectAdmittedRoot(
-                    target.Root,
+                    root,
                     workspaceResolution.ManifestBytes,
                     ordinaryOptions.Tfm),
                 () => PackageEcosystemDependencyRecognitionInspection
                     .ExecuteAsync(
-                        target.Root,
+                        root,
                         ordinaryOptions.Tfm),
                 result => inspection = result,
                 workspaceLoadOptions: null).ConfigureAwait(false);
@@ -260,7 +303,7 @@ public partial class PackageCommand
 
     static async Task<WorkspacePackageResolution>
         CreateWorkspaceResolutionAsync(
-            SelectedContextExactPackageLiveTarget target,
+            PackageRootBinding root,
             IPackageContent content,
             Action<string> ownsTemporaryPath)
     {
@@ -328,8 +371,8 @@ public partial class PackageCommand
             new PackageExtractionResult(
                 extractPath,
                 TempDir: null,
-                target.Root.Root.PackageId,
-                target.Root.Root.PackageVersion,
+                root.Root.PackageId,
+                root.Root.PackageVersion,
                 content.NupkgPath,
                 content.FromCache,
                 content.ProducerKey),

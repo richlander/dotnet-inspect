@@ -102,6 +102,41 @@ public sealed partial class MethodDefinitionRequestSetTests
             Assert.Single(Assert.Single(plan.Groups).Lanes).Work);
     }
 
+    // A shared traversal carries no declared-source relation, so each
+    // all-definition request that declares one keeps its own lane, and its
+    // relation settles in that lane.
+    [Fact]
+    public void Plan_KeepsAllDefinitionRelationRequestsInTheirOwnLanes()
+    {
+        MethodDefinitionSourceBreadth relation =
+            MethodDefinitionSourceBreadth.AllDefinitions
+                .IncludeGeneratedExecutionBodies();
+        MethodDefinitionSourceAssociation first =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                relation);
+        MethodDefinitionSourceAssociation second =
+            Association(
+                CountingProducer.Instance,
+                ProducerTerminal.Count,
+                relation);
+
+        MethodDefinitionSourceRequestSetPlan plan =
+            AcceptedPlan([first, second]);
+
+        Assert.Equal(2, plan.Groups.Length);
+        Assert.All(plan.Groups, group => Assert.Single(group.Lanes));
+        MethodDefinitionSourceRequestSetExecution execution =
+            Execute(plan);
+        Assert.All(
+            execution.GroupReceipts,
+            group => Assert.NotEqual(
+                0,
+                group.PhysicalCoverage.GeneratedExpansion
+                    .TraversalReferenceBodies));
+    }
+
     [Fact]
     public void
         Plan_SeparatesInstructionSourceKindsWithoutWideningLanes()

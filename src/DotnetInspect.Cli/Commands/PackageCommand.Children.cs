@@ -113,7 +113,8 @@ public partial class PackageCommand
         string extractPath,
         string packageName,
         string version,
-        InspectionOptions options)
+        InspectionOptions options,
+        PackageCompileAssetSelection? admittedSelection)
     {
         PackageChildrenPlan plan = PlanPackageChildren(
             result,
@@ -121,7 +122,8 @@ public partial class PackageCommand
             extractPath,
             packageName,
             version,
-            options);
+            options,
+            admittedSelection);
         if (options.Count && !plan.IsComplete)
         {
             CommandError.Write(
@@ -176,7 +178,8 @@ public partial class PackageCommand
             string extractPath,
             string packageName,
             string version,
-            InspectionOptions options)
+            InspectionOptions options,
+            PackageCompileAssetSelection? admittedSelection)
     {
         ToolWrapperPackage? requestedToolWrapper =
             result.IsRidSpecificPointerPackage
@@ -310,7 +313,7 @@ public partial class PackageCommand
         else
         {
             PackageCompileAssetSelection selection =
-                ResolvePackageCompileSelection(
+                admittedSelection ?? ResolvePackageCompileSelection(
                     extractPath,
                     packageName,
                     resolution,

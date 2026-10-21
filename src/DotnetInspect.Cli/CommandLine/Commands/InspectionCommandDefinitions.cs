@@ -451,6 +451,11 @@ public static class InspectionCommandDefinitions
             Description =
                 "Narrow package inspection to its uniquely named Library",
         };
+        var firstLibraryOption = new Option<bool>("--first-library")
+        {
+            Description =
+                "Narrow package inspection to the first namesake in Library order, otherwise the first Library",
+        };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
         asmPrereleaseOption.Aliases.Add("--prerelease");
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
@@ -505,6 +510,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(workspaceOption);
         assemblyCommand.Options.Add(namesakeLibraryOption);
+        assemblyCommand.Options.Add(firstLibraryOption);
         assemblyCommand.Options.Add(asmPrereleaseOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmVersionOption);
@@ -622,6 +628,7 @@ public static class InspectionCommandDefinitions
                 asmPlatformOption,
                 asmPackageOption,
                 namesakeLibraryOption,
+                firstLibraryOption,
                 asmPrereleaseOption,
                 asmFrameworkOption,
                 asmVersionOption,
@@ -701,6 +708,8 @@ public static class InspectionCommandDefinitions
                 parseResult.GetValue(workspaceOption);
             bool namesakeLibrary =
                 parseResult.GetValue(namesakeLibraryOption);
+            bool firstLibrary =
+                parseResult.GetValue(firstLibraryOption);
 
             // Disambiguate positional arg: local file vs package name
             string? assemblyPath = null;
@@ -714,13 +723,21 @@ public static class InspectionCommandDefinitions
                 && (opts.ParseSchema(parseResult)
                     || discoverDetails);
 
-            if (namesakeLibrary
+            if ((namesakeLibrary || firstLibrary)
                 && (string.IsNullOrWhiteSpace(explicitPackage)
                     || !string.IsNullOrWhiteSpace(source)))
             {
                 CommandError.Write(
-                    "--namesake-library requires --package and cannot be "
-                        + "combined with an exact Library source.");
+                    $"{(namesakeLibrary ? "--namesake-library" : "--first-library")} "
+                        + "requires --package and cannot be combined with an "
+                        + "exact Library source.");
+                return 1;
+            }
+            if (namesakeLibrary && firstLibrary)
+            {
+                CommandError.Write(
+                    "--namesake-library cannot be combined with "
+                        + "--first-library.");
                 return 1;
             }
             bool completeLibraryEnvelope =
@@ -1073,9 +1090,12 @@ public static class InspectionCommandDefinitions
             var options = new LibraryOptions
             {
                 SourceIntent = sourceIntent,
+                PackagePath = PackageReferenceAdmission.IsCandidate(packagePath) ? packagePath : null,
+                PlatformAssembly = PackageReferenceAdmission.IsCandidate(packagePath) ? platformAssembly : null,
                 AssemblyName = assemblyPath,
                 WorkspacePacket = workspacePacket,
                 NamesakeLibrary = namesakeLibrary,
+                FirstLibrary = firstLibrary,
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
@@ -1168,6 +1188,7 @@ public static class InspectionCommandDefinitions
                 asmPlatformOption,
                 asmPackageOption,
                 namesakeLibraryOption,
+                firstLibraryOption,
                 asmPrereleaseOption,
                 asmFrameworkOption,
                 asmVersionOption,

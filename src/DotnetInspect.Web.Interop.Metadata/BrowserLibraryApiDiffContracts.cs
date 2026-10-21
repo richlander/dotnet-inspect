@@ -146,7 +146,8 @@ public sealed record BrowserLibraryApiDiffAggregate(
     int ChangedMemberCount,
     int BreakingCount,
     int AdditiveCount,
-    int PotentiallyBreakingCount);
+    int PotentiallyBreakingCount,
+    int NonBreakingCount);
 
 public sealed record BrowserLibraryApiDiffType(
     string DocumentIdentifier,
@@ -157,6 +158,7 @@ public sealed record BrowserLibraryApiDiffType(
     int BreakingCount,
     int AdditiveCount,
     int PotentiallyBreakingCount,
+    int NonBreakingCount,
     BrowserLibraryApiDiffTypeIdentity? Before,
     BrowserLibraryApiDiffTypeIdentity? After,
     BrowserLibraryApiDiffMember[] Members,
@@ -398,6 +400,8 @@ public enum BrowserLibraryApiDiffChangeKind
     TypeAttributeRemoved,
     MemberAttributeAdded,
     MemberAttributeRemoved,
+    TypeAccessibilityChanged,
+    MemberAccessibilityChanged,
 }
 
 [JsonConverter(
@@ -407,6 +411,7 @@ public enum BrowserLibraryApiDiffChangeClassification
     Additive,
     Breaking,
     PotentiallyBreaking,
+    NonBreaking,
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryApiDiffChangeCategory>))]

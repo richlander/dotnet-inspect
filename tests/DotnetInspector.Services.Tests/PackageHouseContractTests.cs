@@ -123,6 +123,33 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void LibraryPopulationDemandRejectsNamedImplementation()
+    {
+        var target = PackageHouseTargetContext.OwnerDefault();
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize);
+        var demand = new PackageHouseDemand.Exact(Coordinate);
+
+        var request = new PackageHouseRequest(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.LibraryPopulation);
+
+        Assert.Same(target, request.TargetContext);
+        Assert.Equal(
+            PackageHouseAssetSelectionKind.LibraryPopulation,
+            request.AssetSelection);
+        Assert.Throws<ArgumentException>(() =>
+            new PackageHouseRequest(
+                demand,
+                operation,
+                target,
+                PackageHouseAssetSelectionKind.LibraryPopulation,
+                implementationNames: ["Contoso.Json.dll"]));
+    }
+
+    [Fact]
     public void SemanticFilesQueryRetainsOnePackageWideExactDemand()
     {
         var files = new PackageHouseContentTerminal.Files(

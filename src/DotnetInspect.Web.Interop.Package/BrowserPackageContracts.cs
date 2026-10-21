@@ -336,10 +336,6 @@ public sealed record BrowserPackageDocumentContent(
     string Path,
     string Text);
 
-public sealed record BrowserPackageDocumentHtml(
-    [property: JsonConverter(typeof(ProseInertStringJsonConverter))]
-    InertString Html);
-
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserDocumentTextPolicy>))]
 public enum BrowserDocumentTextPolicy
 {
@@ -1459,6 +1455,14 @@ public sealed record BrowserAssemblyReference(
     string? Culture,
     string? PublicKeyToken);
 
+public sealed record BrowserReferencePackageSupplier(
+    string Name,
+    string Version,
+    string? Culture,
+    string? PublicKeyToken,
+    string? PackageId,
+    string? PackageVersion);
+
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserDependencyCoordinateProvenance>))]
 public enum BrowserDependencyCoordinateProvenance
 {
@@ -1514,7 +1518,6 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
-[JsonSerializable(typeof(BrowserPackageDocumentHtml))]
 [JsonSerializable(typeof(BrowserDocumentPresentationLeaf[]))]
 [JsonSerializable(typeof(BrowserDocumentLeafContainmentOutcome))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
@@ -1533,6 +1536,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageQueryCancellation))]
 [JsonSerializable(typeof(BrowserPackageQueryMatchCreditResponse))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserReferencePackageSupplier[]))]
 [JsonSerializable(typeof(BrowserPackageHierarchy))]
 [JsonSerializable(typeof(BrowserLibraryQueryInspection))]
 [JsonSerializable(typeof(BrowserPackageVulnerabilityResult))]

@@ -513,12 +513,8 @@ public static class TypeSubjectInspectionOperation
                                 parameter.MetadataIndex,
                                 parameter.Name,
                                 parameter.Attributes))));
-        MetadataContainedTypeDefinitionName containedType =
-            document.ReusedExactInput
-                ? plan.ContainedExactInput
-                    ?? throw new InvalidOperationException(
-                        "Reused exact input requires its contained query.")
-                : document.MatchedName?.Contain(TextPolicy.Field)
+        MetadataUtf8TypeDefinitionName matchedName =
+            document.MatchedName
             ?? throw new InvalidOperationException(
                 "An available Type document requires its matched byte-native Type identity.");
         TypeSubject subject = libraryCorrespondence is null
@@ -537,12 +533,12 @@ public static class TypeSubjectInspectionOperation
                 document.Subject.DefinesCoreLibraryRoot,
                 document.Subject.DeclaringType?.Definition.Value)
             {
-                ContainedType = containedType,
+                MatchedName = matchedName,
             }
             : ProjectSubject(
                 libraryCorrespondence,
                 plan.Type,
-                containedType,
+                matchedName,
                 document.Subject,
                 assembly);
         var outcome =
@@ -570,7 +566,7 @@ public static class TypeSubjectInspectionOperation
     internal static TypeSubject ProjectSubject(
         LibraryTypeDocumentCorrespondence correspondence,
         MetadataTypeDefinitionName type,
-        MetadataContainedTypeDefinitionName containedType,
+        MetadataUtf8TypeDefinitionName matchedName,
         MetadataTypeDeclarationEvidence subject,
         LibraryAssemblyIdentity assembly) =>
         new(
@@ -597,7 +593,7 @@ public static class TypeSubjectInspectionOperation
             subject.DefinesCoreLibraryRoot,
             subject.DeclaringType?.Definition.Value)
         {
-            ContainedType = containedType,
+            MatchedName = matchedName,
         };
 
     private static TypeSubjectMemberGroups ProjectDeclarations(

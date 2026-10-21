@@ -1019,19 +1019,27 @@ cost.
 gates the shared resolver's group-containment boundary.
 
 `AssemblyContextMethodAnalysisQuery` is the exact method-scoped Analysis seam.
-It accepts one group participant and physical MethodDef token, opens an
-optimization-capable body index over that participant's retained snapshot, and
-returns the matching method identity, signals, allocation and unsafe
-occurrences, physical call sites, unsafe declaration evidence, exception
-regions, optimization opportunities, and Analysis diagnostics. Invalid and
-bodyless tokens are typed participant failures rather than empty success. The
-query does not aggregate a source method with async or lifted implementation
-bodies; callers select each exact physical body explicitly. The query releases
-derived call-graph caches before returning, and group execution remains
-sequential for Browser/Wasm.
+It accepts one group participant and physical MethodDef token and first runs
+one exact Method Query Source operation over the participant's retained
+snapshot. That focused operation supplies the matching method identity,
+physical call sites and same-image caller contracts for call-safety evidence,
+unsafe evidence and occurrences, diagnostics, and detached exception regions.
+One scoped legacy execution still supplies public direct-call rows, final
+signals, allocations, and optimization opportunities until their complete
+semantic inputs move. Invalid and bodyless tokens are typed participant
+failures rather than empty success. The query does not aggregate a source
+method with async or lifted implementation bodies; callers select each exact
+physical body explicitly. The query releases retained legacy call-graph caches
+before returning, and group execution remains sequential for Browser/Wasm.
 `AssemblyContextMethodAnalysisQueryTests` gate exact-token filtering, compiled
 allocation/call/exception/opportunity evidence, visible invalid and bodyless
-failures, and unbounded query cost.
+failures, preservation of independent safety and exception evidence after a
+recoverable Calls failure, one public diagnostic for that failure, and
+unbounded query cost.
+`ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` additionally
+gates exact breadth, one physical body, declared source capabilities, no
+unrelated module lookup, and focused identity, safety, diagnostics, and
+exception-region parity with the retained donor facts.
 
 `AssemblyContextImplementationProfilesQuery` is the participant-scoped
 whole-assembly implementation-profile seam. It borrows one selected

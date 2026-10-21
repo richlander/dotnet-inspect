@@ -1109,15 +1109,14 @@ public partial class CommandExecutionTests
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
         var packageRoot = Path.Combine(tempDir, "content");
-        string? tfm = null;
+        string tfm = $"net{Environment.Version.Major}.0";
 
         foreach (var assemblyName in assemblyNames)
         {
             var (path, _, _, error) = PlatformResolver.ResolveAssembly(assemblyName);
             Assert.True(error == null && path != null, $"Could not resolve platform assembly '{assemblyName}': {error}");
 
-            tfm ??= Path.GetFileName(Path.GetDirectoryName(path!));
-            var targetDir = Path.Combine(packageRoot, "ref", tfm!);
+            var targetDir = Path.Combine(packageRoot, "ref", tfm);
             Directory.CreateDirectory(targetDir);
             File.Copy(path!, Path.Combine(targetDir, Path.GetFileName(path!)));
         }
@@ -1515,6 +1514,49 @@ public partial class CommandExecutionTests
     }
 
     private static (string PackagePath, string TempDir)
+        CreateLocalFirstLibraryPackage(
+            string packageId,
+            string? packageType,
+            params (string SourcePath, string EntryPath)[] libraries)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(packageRoot);
+        foreach ((string sourcePath, string entryPath) in libraries)
+        {
+            string destination = Path.Combine(
+                packageRoot,
+                entryPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+            File.Copy(sourcePath, destination);
+        }
+
+        File.WriteAllText(
+            Path.Combine(packageRoot, $"{packageId}.nuspec"),
+            $$"""
+            <?xml version="1.0"?>
+            <package>
+              <metadata>
+                <id>{{packageId}}</id>
+                <version>1.0.0</version>
+                {{(packageType is null ? "" : $"""
+                <packageTypes>
+                  <packageType name="{packageType}" />
+                </packageTypes>
+                """)}}
+              </metadata>
+            </package>
+            """);
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
         CreateLocalRootLibPackage(
             bool includeRealTfm = false,
             bool uppercaseExtensions = false)
@@ -1564,6 +1606,118 @@ public partial class CommandExecutionTests
             File.Copy(
                 systemRuntime,
                 Path.Combine(frameworkDir, "Preferred.dll"));
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalPackageWithEntries(
+            string packageId,
+            params (string EntryPath, string? SourcePath)[] entries)
+    {
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        foreach ((string entryPath, string? sourcePath) in entries)
+        {
+            string path = Path.Combine(
+                packageRoot,
+                entryPath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (sourcePath is null)
+            {
+                File.WriteAllBytes(path, []);
+            }
+            else
+            {
+                File.Copy(sourcePath, path);
+            }
+        }
+
+        string packagePath = Path.Combine(
+            tempDir,
+            $"{packageId}.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    private static (string PackagePath, string TempDir)
+        CreateLocalRuntimeOnlyPackage(
+            bool includeSecondRuntimeIdentifier = false)
+    {
+        string packageId =
+            typeof(CommandExecutionTests).Assembly.GetName().Name!;
+        string tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"package-test-{Guid.NewGuid():N}");
+        string packageRoot = Path.Combine(tempDir, "content");
+        string runtimeDir = Path.Combine(
+            packageRoot,
+            "runtimes",
+            "linux-x64",
+            "lib",
+            "net10.0");
+        Directory.CreateDirectory(runtimeDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(runtimeDir, "Unexpected.FileName.dll"));
+        var (systemRuntime, _, _, resolveError) =
+            PlatformResolver.ResolveAssembly("System.Runtime");
+        if (resolveError is not null || systemRuntime is null)
+        {
+            throw new InvalidOperationException(
+                resolveError ?? "System.Runtime was not resolved.");
+        }
+
+        File.Copy(
+            systemRuntime,
+            Path.Combine(runtimeDir, "Neighbor.dll"));
+        string analyzerDir = Path.Combine(
+            packageRoot,
+            "analyzers",
+            "dotnet",
+            "cs");
+        Directory.CreateDirectory(analyzerDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(analyzerDir, "Analyzer.dll"));
+        string buildDir = Path.Combine(
+            packageRoot,
+            "build",
+            "net10.0");
+        Directory.CreateDirectory(buildDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(buildDir, "BuildTask.dll"));
+        string nativeDir = Path.Combine(
+            packageRoot,
+            "runtimes",
+            "linux-x64",
+            "native");
+        Directory.CreateDirectory(nativeDir);
+        File.Copy(
+            TestAssemblyPath,
+            Path.Combine(nativeDir, "Native.dll"));
+        if (includeSecondRuntimeIdentifier)
+        {
+            string secondRuntimeDir = Path.Combine(
+                packageRoot,
+                "runtimes",
+                "win-x64",
+                "lib",
+                "net10.0");
+            Directory.CreateDirectory(secondRuntimeDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(
+                    secondRuntimeDir,
+                    "Unexpected.FileName.dll"));
         }
 
         string packagePath = Path.Combine(
@@ -1843,7 +1997,13 @@ public partial class CommandExecutionTests
         return (packagePath, tempDir);
     }
 
-    private static (string PointerPackagePath, string RidPackagePath, string TempDir) CreateLocalToolPackageSet()
+    private static (
+        string PointerPackagePath,
+        string RidPackagePath,
+        string TempDir) CreateLocalToolPackageSet(
+            bool firstLibraryFixture = false,
+            bool includeAnalyzer = false,
+            bool includeCompileLibrary = false)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"tool-package-test-{Guid.NewGuid():N}");
 
@@ -1865,7 +2025,48 @@ public partial class CommandExecutionTests
         var payloadRoot = Path.Combine(tempDir, "payload");
         var payloadToolsDir = Path.Combine(payloadRoot, "tools", "net10.0", "any");
         Directory.CreateDirectory(payloadToolsDir);
-        File.Copy(TestAssemblyPath, Path.Combine(payloadToolsDir, "Test.Tool.dll"));
+        File.WriteAllText(
+            Path.Combine(payloadRoot, "Test.Tool.any.nuspec"),
+            """
+            <package><metadata>
+              <id>Test.Tool.any</id>
+              <version>1.0.0</version>
+              <packageTypes>
+                <packageType name="DotnetToolRidPackage" />
+              </packageTypes>
+            </metadata></package>
+            """);
+        File.Copy(
+            firstLibraryFixture
+                ? typeof(JsonDocument).Assembly.Location
+                : TestAssemblyPath,
+            Path.Combine(payloadToolsDir, "Test.Tool.dll"));
+        if (firstLibraryFixture)
+        {
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(payloadToolsDir, "Support.dll"));
+        }
+        if (includeAnalyzer)
+        {
+            var analyzerDir = Path.Combine(
+                payloadRoot,
+                "analyzers",
+                "dotnet",
+                "cs");
+            Directory.CreateDirectory(analyzerDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(analyzerDir, "Analyzer.dll"));
+        }
+        if (includeCompileLibrary)
+        {
+            var libDir = Path.Combine(payloadRoot, "lib", "net8.0");
+            Directory.CreateDirectory(libDir);
+            File.Copy(
+                TestAssemblyPath,
+                Path.Combine(libDir, "Other.dll"));
+        }
 
         var ridRoot = Path.Combine(tempDir, "rid");
         var ridToolsDir = Path.Combine(ridRoot, "tools", "any", "linux-x64");
@@ -1895,31 +2096,36 @@ public partial class CommandExecutionTests
 
     private static Task<(int Exit, string Output, string Error)> RunAppAsync(params string[] args)
     {
-        return ConsoleCapture.RunAsync(async () =>
+        return ConsoleCapture.RunAsync(
+            () => InvokeAppAsync(args));
+    }
+
+    private static async Task<int> InvokeAppAsync(string[] args)
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+        if (CommandLineBuilder.TryGetRemovedCommandError(
+                args,
+                out var removedCommandError))
         {
-            var root = CommandLineBuilder.CreateRootCommand();
-            if (CommandLineBuilder.TryGetRemovedCommandError(
-                    args,
-                    out var removedCommandError))
-            {
-                CommandError.Write(removedCommandError!);
-                return 1;
-            }
+            CommandError.Write(removedCommandError!);
+            return 1;
+        }
 
-            // Mirror Program.cs: stale spellings are raw-token questions, so
-            // the product answers them before parsing rather than in a validator.
-            if (CommandLineBuilder.TryGetStaleArgumentError(
-                    args,
-                    root,
-                    out var staleArgumentError))
-            {
-                CommandError.Write(staleArgumentError!);
-                return 1;
-            }
+        // Mirror Program.cs: stale spellings are raw-token questions, so
+        // the product answers them before parsing rather than in a validator.
+        if (CommandLineBuilder.TryGetStaleArgumentError(
+                args,
+                root,
+                out var staleArgumentError))
+        {
+            CommandError.Write(staleArgumentError!);
+            return 1;
+        }
 
-            args = CommandLineBuilder.PreprocessArgs(args, root);
-            return await CommandLineBuilder.InvokeAsync(root.Parse(args), args);
-        });
+        args = CommandLineBuilder.PreprocessArgs(args, root);
+        return await CommandLineBuilder.InvokeAsync(
+            root.Parse(args),
+            args);
     }
 
     private static async Task<(int Exit, string Output, string Error)>

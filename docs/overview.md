@@ -839,6 +839,9 @@ rules, this document describes subsystem ownership, and
   bounded-before-prefix scheduling, distinct-source deduplication,
   cross-Ecosystem membership reduction, durable Find blocks, and terminal
   completion for CLI and Browser adoption.
+- [Ecosystem Find Index](design/ecosystem-find-index.md): deterministic
+  scanner-admitted Integration symbols and generation coverage for early
+  Ecosystem prefix Find evaluation before authoritative live search.
 - [Type Find population
   selection](design/type-find-population-selection.md): host-neutral
   first-nonempty Prefix, Substring, and Partial settlement over one complete
@@ -1054,6 +1057,15 @@ rules, this document describes subsystem ownership, and
   keyed collection of its Members' findings at one version, and the map diff
   of two such maps by the same implementation, with Rows as a projection, at
   Library, Type, and Member scope.
+- [Annotated Type Relations](design/annotated-type-relations.md): one Type's
+  exact external logical relations, producer-native occurrences,
+  producer-owned relation color, focus-relative incidence, and independently
+  complete relationship and color-family outcomes, with Rows, Count, and
+  Exists at Library, Type, and Member scope.
+- [Annotated Type Relations planning](design/annotated-type-relations-planning.md):
+  exact relationship and color registration, Type-focus and direction
+  admission, terminal-specialized adapter-query binding, and immutable typed
+  query demand without duplicating QuerySpace or inspection query execution.
 - [Fast Diff](design/fast-diff.md): per-Type API and Body change states for a
   Library image pair, sound for the facts each axis compares, without building
   either complete diff.

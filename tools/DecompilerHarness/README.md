@@ -1213,6 +1213,24 @@ from becoming success-shaped comparisons, and
 `ControlFlowSites_EmptySwitchOutputIdentityRoundTrips` gates the shared
 writer/reader grammar.
 
+Snapshot schema v8 adds the headline populations (#10191). Each method row may
+carry `populations`, a subset of `branching` (the imported CFG holds a
+conditional or switch branch), `state-machine` (the method definition carries a
+classic async, iterator, or async-iterator state-machine attribute), and
+`public-api` (the method and every declaring type in its nesting chain are
+public or protected); the key is absent when none applies. The populations are
+decided from metadata and the imported tree before any pass runs, so a raise
+cannot move a method between them. `metrics.headline` aggregates fully raised
+count, population, and basis points for each, and the quality card, console
+summary, and PR quick gate report the same three measures; the pinned subset
+is computed from the `nuget:` rows. The tolerances
+`branchingRaisedDropBasisPoints`, `stateMachineRaisedDropBasisPoints`, and
+`publicApiRaisedDropBasisPoints` default to 10. A pre-v8 baseline carries no
+population evidence, so the headline measures stay ungated against it and the
+card labels them as context instead of comparing against a missing
+denominator. See [`docs/decompiler-quality.md`](../../docs/decompiler-quality.md)
+for why these three populations are the headline.
+
 Policy v1 rolls multiple causes up per method in this order:
 
 1. **Recoverable roadmap:** every cause is mapped to recoverable work.
@@ -1910,7 +1928,7 @@ in [docs/design/value-typed-emission.md](../../docs/design/value-typed-emission.
 
 *When to use it.* Track the structuring completeness with `--gaps`. Over CoreLib it currently reads ~97% fully raised, the residual dominated by `structuring: conditional-branch` (the forward-branch-to-common-exit work). Add `--by-shape` to sub-classify the `switch-branch` bucket by the structural shape of its residual switch, classifying the imported (pre-pass) tree where the switch is still a block terminator. The buckets, in priority order, are `loop-back-edge` (a section block branches backward — a loop/iterator), `nested-switch` (a case body is itself a switch, or the method has more than one), `default-routes-into-cases` (the default is a case target or branches into one), `external-entry-into-cases` (a block before the switch jumps into a case body), `multi-block-case-section` (a case body carries its own `if`/`?:` — raised by the section-as-region relaxation), and `single-block-clean` (none of the above — a clean switch that nonetheless did not raise, i.e. a pass bug to investigate). A bucket count becomes a per-shape slice docket that scopes the next `SwitchRaisingPass` relaxation.
 
-**Structuring stops** (`--structuring-stops`): the *why-not* companion to `--gaps`. Where `--gaps` reports *that* a method's tree stayed flat (the residual-kind docket), this tallies *why* `StructuringPass` left a container flat — a per-reason histogram of its stop diagnostics across the corpus, each with an example method, plus the `containers structured` vs `left flat across N methods` totals. The dominant reason is the next structuring slice to attack (e.g. the common-exit merge work behind the `conditional-branch` gap). Honors `--cap N` to bound a full-CoreLib sweep, and exits nonzero on any pass bug (a structuring crash). Pair it with `--dump --cfg` on one of its example methods to see the concrete block graph that defeated the pass.
+**Structuring stops** (`--structuring-stops`): the *why-not* companion to `--gaps`. Where `--gaps` reports *that* a method's tree stayed flat (the residual-kind docket), this tallies *why* `StructuringPass` left a container flat — a per-reason histogram of its stop diagnostics across the corpus, each with an example method, plus the `containers structured` vs `left flat across N methods` totals. The dominant reason is the next structuring slice to attack (e.g. the common-exit merge work behind the `conditional-branch` gap). Honors `--cap N` to bound a full-CoreLib sweep, and exits nonzero on any pass bug (a structuring crash). Pair it with `--dump --cfg` on one of its example methods to see the concrete block graph that defeated the pass. The sweep also tallies the primary retained decline per flat method: the retained-label planner records declines in the order it tries candidates, so the first one belongs to the earliest-start, furthest-merge candidate and names why the largest region of that method was not recovered.
 
 **Annotation check** (`--annotation-check`): the hidden-fact annotation check — the analyzer analog of `--fidelity-check`. Where fidelity check grades the decompiler's *C#* against a recompiled contract body, this grades each *annotation* (the allocation/unsafety/lifetime facts from [docs/design/hidden-fact-annotations.md](../../docs/design/hidden-fact-annotations.md)) against the raw IL opcode it claims to describe. The witness is read with the runtime-ported `ILReader` directly over the method's IL bytes — **not** via the IR importer that produced the annotations — so the two paths share only that externally byte-match-validated reader, never the semantic classification logic under test. It measures two directions: **precision** (every annotation's offset carries a consistent opcode — an `alloc.box` sits on a `box`; a violation is an importer-typing or classifier bug) and **recall** (every *unambiguous* witness opcode produced its annotation — a `box`/`newarr`/`localloc`/`calli`, plus every confirmed reference-type `newobj`, always yields its fact). A `newobj`'s constructed type is resolved from metadata (operand token → constructor → declaring-type base chain, or a TypeSpec signature) independently of the importer; the ambiguous remainder stays precision-only and out of the recall gate: a value-type `newobj` (a struct constructor) allocates nothing, a bare cross-assembly `TypeRef` can't be resolved from a single-assembly walk (the documented value-type gap), and a `ldind`/`stind` may be a safe managed-`ref` access. A confirmed value-type `newobj` is additionally held to the *opposite* precision rule — it must **not** carry an allocation fact — catching a false-allocation claim the opcode-precision check is blind to. Recall also excludes partial-import methods, where a stop legitimately leaves later opcodes with no IR node. Exits nonzero on any precision violation (a wrong fact) or import crash.
 

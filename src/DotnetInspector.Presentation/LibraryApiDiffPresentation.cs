@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Queries;
 using Inspector.Findings;
@@ -464,6 +465,14 @@ public sealed record LibraryApiTypeDiff
         CountChanges(ChangeClassification.PotentiallyBreaking);
     public int ChangedMemberCount => Members.Length;
 
+    /// <summary>
+    /// Non-breaking rows, which only a comparison that admits subjects outside the API axis
+    /// produces; omitted from JSON when zero so other comparisons keep their document.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int NonBreakingCount =>
+        CountChanges(ChangeClassification.NonBreaking);
+
     public bool Equals(LibraryApiTypeDiff? other)
         => other is not null
             && Before == other.Before
@@ -528,7 +537,8 @@ public sealed record LibraryApiDiffSummary
         int ChangedMemberCount,
         int BreakingCount,
         int AdditiveCount,
-        int PotentiallyBreakingCount)
+        int PotentiallyBreakingCount,
+        int NonBreakingCount = 0)
     {
         this.ChangedTypeCount = NonNegative(ChangedTypeCount);
         this.AddedTypeCount = NonNegative(AddedTypeCount);
@@ -537,6 +547,7 @@ public sealed record LibraryApiDiffSummary
         this.BreakingCount = NonNegative(BreakingCount);
         this.AdditiveCount = NonNegative(AdditiveCount);
         this.PotentiallyBreakingCount = NonNegative(PotentiallyBreakingCount);
+        this.NonBreakingCount = NonNegative(NonBreakingCount);
         if (AddedTypeCount + RemovedTypeCount > ChangedTypeCount)
         {
             throw new ArgumentException(
@@ -551,6 +562,10 @@ public sealed record LibraryApiDiffSummary
     public int BreakingCount { get; }
     public int AdditiveCount { get; }
     public int PotentiallyBreakingCount { get; }
+
+    /// <inheritdoc cref="LibraryApiTypeDiff.NonBreakingCount"/>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int NonBreakingCount { get; }
 
     static int NonNegative(int value)
         => value >= 0
@@ -813,6 +828,7 @@ public static class LibraryApiDiffPresentationAdapter
         int breakingCount = 0;
         int additiveCount = 0;
         int potentiallyBreakingCount = 0;
+        int nonBreakingCount = 0;
         foreach (TypeDiff typeDiff in comparison.ApiDiff.TypeDiffs)
         {
             foreach (ApiChange change in typeDiff.Changes)
@@ -869,6 +885,9 @@ public static class LibraryApiDiffPresentationAdapter
                     case ChangeClassification.PotentiallyBreaking:
                         potentiallyBreakingCount++;
                         break;
+                    case ChangeClassification.NonBreaking:
+                        nonBreakingCount++;
+                        break;
                     default:
                         throw new InvalidOperationException(
                             "The compatibility change has an unknown classification.");
@@ -922,7 +941,8 @@ public static class LibraryApiDiffPresentationAdapter
             relationOccurrences.Values.Sum(),
             breakingCount,
             additiveCount,
-            potentiallyBreakingCount);
+            potentiallyBreakingCount,
+            nonBreakingCount);
         return new LibraryApiDiffOutcome.Available(
             new LibraryApiDiffDocument(before, after, summary, document));
     }
@@ -1358,7 +1378,8 @@ public static class LibraryApiDiffPresentationAdapter
                 or ChangeKind.TypeParameterConstraintTightened
                 or ChangeKind.TypeParameterConstraintLoosened
                 or ChangeKind.TypeAttributeAdded
-                or ChangeKind.TypeAttributeRemoved => true,
+                or ChangeKind.TypeAttributeRemoved
+                or ChangeKind.TypeAccessibilityChanged => true,
             ChangeKind.MemberAdded
                 or ChangeKind.MemberRemoved
                 or ChangeKind.MemberSignatureChanged
@@ -1366,7 +1387,8 @@ public static class LibraryApiDiffPresentationAdapter
                 or ChangeKind.AbstractMemberAdded
                 or ChangeKind.EnumValueChanged
                 or ChangeKind.MemberAttributeAdded
-                or ChangeKind.MemberAttributeRemoved => false,
+                or ChangeKind.MemberAttributeRemoved
+                or ChangeKind.MemberAccessibilityChanged => false,
             _ => throw new ArgumentOutOfRangeException(nameof(kind)),
         };
 

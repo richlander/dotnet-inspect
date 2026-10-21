@@ -568,16 +568,21 @@ claim that the broad docket, lowered-fidelity, cluster, or printer-precedence
 sweeps are green.
 
 Daily Deep Inspect owns those broad sweeps through `--gate no-corpus`, which
-selects every non-corpus test regardless of `Speed`. Its decompiler step carries
-an explicit post-build condition, so an earlier Test lane suite failure does
-not skip that evidence. The historical weekly arrangement was not sufficient:
-the slow docket and byte-neutrality gates exceeded the job timeout, a
-*cancelled* job did not satisfy the workflow's `failure()` notifier, and five
-regressions (#3489–#3493) accumulated with unbounded detection latency (#3432).
-The dedicated pre-merge job originally closed that entire hole; #6889 narrowed
-the PR claim. Run 37394817789 completed `ci-required` in 10m58s even after
-other expensive work moved daily. Its bounded receipt occupied 1m30s on the
-critical path, so daily Deep Inspect now owns that receipt as well.
+selects every non-corpus test regardless of `Speed`. They run in the dedicated
+`decompiler-test` job with its own time limit, so a host-suite failure or hang
+in the Test lane cannot skip or cancel that evidence. The historical weekly
+arrangement was not sufficient: the slow docket and byte-neutrality gates
+exceeded the job timeout, a *cancelled* job did not satisfy the workflow's
+`failure()` notifier, and five regressions (#3489–#3493) accumulated with
+unbounded detection latency (#3432). The dedicated pre-merge job originally
+closed that entire hole; #6889 narrowed the PR claim. Run 37394817789
+completed `ci-required` in 10m58s even after other expensive work moved daily.
+Its bounded receipt occupied 1m30s on the critical path, so daily Deep Inspect
+now owns that receipt as well. The same hole reopened once the receipt shared
+the Test lane: from 2026-10-09 to 2026-10-15 the CLI suite consumed the six-hour
+host limit, the lane was cancelled before the decompiler step, and the red
+ratchet in #9504 stayed unobserved. The separate job and a notifier that reads
+cancelled results close it again.
 
 Source, test, and tool projects run `decompiler-gates` by default, except for
 measured false positives in
@@ -598,7 +603,7 @@ nested exemption can silently hide sources compiled by a graph project. An
 unreadable, invalid, or vacuous graph or skip list exempts nothing. Global
 build inputs and the gate's own scripts and pins remain
 explicit triggers. The fast job runs separately so it never serializes with the
-hot `test` lane; the daily Linux test lane executes `--gate pre-merge`.
+hot `test` lane; the daily `decompiler-test` job executes `--gate pre-merge`.
 
 ```bash
 dotnet run --project tests/ILInspector.Decompiler.Tests -c Release -- \

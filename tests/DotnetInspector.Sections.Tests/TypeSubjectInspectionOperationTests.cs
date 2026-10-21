@@ -128,6 +128,9 @@ public sealed class TypeSubjectInspectionOperationTests
         TypeSubjectInspectionContent document = Available(envelope);
         Assert.Equal(expected, document.Subject.Type);
         Assert.NotNull(document.Subject.ContainedType);
+        Assert.Same(
+            document.Subject.ContainedType,
+            document.Subject.ContainedType);
         Assert.Equal(
             "DotnetInspector.Sections.Tests",
             document.Subject.ContainedType.Namespace.ToString());

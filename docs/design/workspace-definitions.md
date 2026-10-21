@@ -352,14 +352,14 @@ execution must no longer default to acquiring content for a live inventory.
 Packet and component inspection can describe declared membership, fields and
 configuration without implying that packages or libraries have been inspected.
 
-Ecosystem creation and editing are the primary authoring workflow: compose and
-revise the environment's portable ecosystem declarations, populations and
-configuration. Existing Package component edits remain useful. The current
-`--register-ecosystem` selects a shipped declaration; it does not yet provide
-this editing workflow. #10210 adopts owner-issued ecosystem declarations and
-Workspace's immutable editing boundary, retaining semantic validation and
-non-projectability with their owners. Edits produce a portable Workspace value;
-they do not mutate the compiled product catalog.
+Ecosystem selection and composition are the primary Workspace authoring
+workflow. The ecosystem catalog supplies namespace hints, core-package roots
+and population declarations; Workspace construction consumes that knowledge.
+Workspace edits add or remove those registrations, and may register an
+independent Package prefix without creating or editing an ecosystem. Existing
+Package component edits remain useful. The resource-free composition commands
+below implement #10210 using immutable Workspace values. They preserve owner
+validation and projection outcomes and do not modify the compiled catalog.
 
 Inspection commands retain their subject, query, facet, traversal and result
 semantics. Where admitted by that command, `--package` supplies direct content
@@ -402,20 +402,23 @@ dotnet-inspect find JsonSerializer --workspace "$base"
 
 The first command uses the existing shipped-declaration authoring entrance;
 the Workspace command's authoring target includes one or more ecosystem
-declarations. The Package invocation is a **proposed add-and-activate route**
+declarations. The Package invocation uses the **add-and-activate route**
 under #10211: this base has no direct System.Text.Json contribution, so the
 resulting Workspace includes that Package and makes it active. Ordinary
 inspection content goes to stdout; the requested derived packet is the final
 non-empty stderr line under the Share contract. It can be retained as input to
 later commands. The Find invocation illustrates the search-space role owned by
-[Find Workspace scope](find-workspace-scope.md); its packet/population adoption
-is tracked there. Search matches do not automatically add Package contributions
-or change the active Package. The unchanged base can be reused for either path.
+[Find Workspace scope](find-workspace-scope.md#workspace-packet-admission);
+the admission in #10302 accepts registration-only Ecosystem packets before
+the retirement in #10186 removes the transitional Workspace inspection flags. General content-context search remains
+staged under that owner. Search matches do not automatically add Package
+contributions or change the active Package. The unchanged base can be reused
+for either path.
 
 Package addition and Find search follow their source, target and population
 owners' admission rules; ecosystem registration does not promise arbitrary
-acquisition. The current Package packet route selects an existing member and
-does not yet implement #10211. Descendant commands likewise express their
+acquisition. The Package packet route reuses an existing member or adds a
+declaration under #10211. Descendant commands likewise express their
 subject selection through their ordinary command grammar. This does not
 authorize choosing the first Package or using an unrelated focused tab.
 Ambiguous or failed resolution remains visible rather than triggering an
@@ -470,7 +473,7 @@ The migration preserves useful operations through their owning surfaces:
 | `--type` | Type inspection owns selection and facets within admitted Workspace context. Its existing packet route is the baseline. |
 | `--member`, `--lens` | Member and the selected operation own their query/facet grammar. #10184 adds the missing Member packet-context entrance before this path retires. |
 | `--active-ecosystem` | The Ecosystem command owns declaration description; Find and other operation owners own searches over its populations. The retirement slice must account for any remaining useful data. |
-| `--root-request` | #10185 moves exact Root reopening to its owning inspection/source surface. Preserve the opaque owner-issued request; package ID/version/TFM reconstruction is insufficient. |
+| `--root-request` | `package "$package_ref"`, the bare router and Library/Type/Member `--package "$package_ref"` admit exact Root source under [CLI host admission](../cli-architecture.md#exact-package-reference-admission) (#10185). Preserve the opaque owner-issued request; package ID/version/TFM reconstruction is insufficient. Retire the transitional Workspace entrance in #10186. |
 
 The motivating direct and Workspace-context routes use the same real subject:
 
@@ -532,6 +535,76 @@ Implementation and runtime/performance claims remain **unverified** until those
 adoption gates exist. Each implementation replacement must publish the
 repository-required exact-head NativeAOT comparison, with changed content
 accounted for; declaration output is not a cheaper measurement of live inventory.
+
+### Resource-free registration composition
+
+The `workspace ecosystem add/remove` and `workspace prefix add/remove` commands
+compose portable registrations under #10210. They do not construct a live
+Workspace, resolve package versions, expand a prefix, or invoke a scanner.
+The host-neutral `WorkspaceRegistrationEditor` consumes existing typed
+registrations and produces the same validated packet used by the Browser.
+
+Ecosystem add selects a shipped declaration by its short name or canonical
+identity. That declaration supplies its existing namespace hints, core-package
+roots, populations and capabilities unchanged. The command exposes no
+knowledge-authoring overrides. Ecosystem remove uses the packet identity and
+does not require that identity to remain in the current shipped catalog.
+
+An ecosystem remains a first-class registration with its identity and grouped
+contents intact. The portable packet embeds its declaration for self-contained
+restoration; it does not flatten ecosystem contents into independent Workspace
+registrations or retain only a reference to the current catalog.
+
+Prefix add registers an independent literal Package ID prefix. It requires no
+ecosystem, may coexist with ecosystem registrations, and does not modify an
+ecosystem that happens to declare the same prefix internally. Removing the
+independent registration leaves that ecosystem's declaration unchanged.
+Prefix validation and declaration equality remain with the prefix owner.
+
+If a prefix exists only inside an ecosystem, `workspace prefix remove` fails
+because there is no independent registration to remove. If the same prefix is
+also registered independently, removal deletes only that independent
+registration; the ecosystem still contributes its prefix. These commands do
+not edit an ecosystem's internal populations.
+
+```bash
+base=$(dotnet-inspect workspace ecosystem add runtime)
+derived=$(dotnet-inspect workspace prefix add Microsoft.Extensions. \
+  --packet "$base")
+
+dotnet-inspect workspace prefix remove Microsoft.Extensions. --packet "$derived"
+dotnet-inspect workspace prefix add Polly.
+```
+
+Add without `--packet` creates a registration-only Workspace; add with a packet
+appends, refusing an existing registration of the same identity. Remove
+requires a packet and an existing registration. Every edit produces a new
+value, preserving the input and unrelated registrations, direct Packages,
+contexts, Navigation, query/view state and package sources. Removing the last
+contribution is refused when the resulting empty packet is not supported by
+the codec. No edit silently upgrades packet versions.
+
+Output retains existing immutable-edit scalar behavior: a canonical packet on
+stdout by default, or its website URL with `--share url`. Formats 3, 4 and 5
+are preserved; formats 1 and 2 are refused. The codec validates the complete
+composition and capacity. Scanner-bearing ecosystem selection remains visibly
+non-projectable; the command does not remove the scanner to emit a packet.
+Failure emits no partial scalar. Top-level Workspace defaults and duplicate
+inspection retirement remain #10186.
+
+The motivating base is the shipped Runtime declaration. An independent
+Microsoft.Extensions. or Polly. prefix widens the declared search space without
+inventing an ecosystem. A neighboring System.Text.Json 10.0.0/net10.0 direct
+Package must retain its target, context, focus and source declarations.
+Registration alone does not prove population-search support: selecting
+operations retain their own execution and acquisition policies.
+
+`WorkspaceRegistrationCommandTests` gates CLI composition, invalid input,
+removed metadata options and scanner refusal with a fail-fast source transport.
+`WorkspaceRegistrationEditingTests` gates state/version preservation and
+capacity. `ComposedRegistrations_RoundTripThroughProductionBrowserCodec` gates
+the resulting value through the Browser's production codec facade. Existing
+ecosystem knowledge, realization and search contracts remain unchanged.
 
 ### Schema-version-3 registration-bearing Workspaces
 
@@ -765,7 +838,7 @@ dotnet-inspect type System.Text.Json.JsonSerializer \
 
 For selection-only commands, that packet preserves the input Workspace
 definition and adds only the projectable owner-issued subject, context, facet,
-query, or Navigation state resolved by the noun command. The proposed Package
+query, or Navigation state resolved by the noun command. The Package
 add-and-activate route instead carries the derived definition described above;
 it preserves the base declarations while adding the admitted contribution.
 Bounded acquisition may establish an exact
@@ -892,12 +965,96 @@ work from #7542 before changing those owners. The older root-level replay
 proposal #4647 remains historical context; #7555 supersedes only its
 Type-command portion and adds no root `-W` surface or serialized CLI grammar.
 
+#### Member packet-context adoption
+
+[#10184](https://github.com/richlander/dotnet-inspect/issues/10184) adopts
+`member <Type> -m <Member> --workspace <packet>`. Complete Restoration admits
+the complete packet, and the shared selected-context exact-Type operation
+resolves the ordinary Type selector. Navigation focus never selects the search
+scope. Member selection, overload resolution, sections, output and failures
+remain owned by Member. The packet is the sole location source; Package,
+Library, Platform, project, framework and range source selectors conflict.
+
+Share is independent of Workspace input. Ordinary, Workspace-only, Share-only
+and combined invocations all execute the ordinary Member inspection once.
+Appending Share preserves stdout and writes the scalar as the final stderr
+line. An unsupported facet or an unqualified overload group preserves ordinary
+content and refuses Share visibly. A derived scenario preserves the complete
+input environment and uses the selected occurrence's Library, structured Type
+and Member anchor; it does not add a Package or choose an inventory ordinal.
+
+The motivating asset is `System.Text.Json@10.0.0/net10.0` from nuget.org.
+`JsonSerializer` has an overloaded `Serialize` group: `Serialize:1` establishes
+an exact portable anchor, whereas unqualified `Serialize` must retain its
+ordinary multirow output and refuse Share. Durable CLI gates cover those
+neighbors, selected context versus focus, repeated Packages across contexts,
+missing Type/Member, ambiguity, packet validation and unsupported choices.
+`ExactMemberPreservesContentAndCompleteEnvironment` reopens the derived
+schema-4/5 Member through Complete Restoration. The recorded
+[`input`](../examples/workspace-member-context.json) and
+[`derived packet`](../examples/workspace-member-derived.json) use explicit
+schema 4, because schema-3 authoring has no Member subject representation.
+`MemberDerivedPacket_IsCanonicalForTheBrowserCodec` gates Browser codec
+compatibility; the Browser retained-root entry owner currently admits only
+Workspace/Package views, so deep Member activation through that owner is not
+claimed here.
+
+```console
+packet=$(dotnet-inspect workspace packet encode \
+  docs/examples/workspace-member-context.json)
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
+  --workspace "$packet" --json --share packet
+```
+
 #### Package packet-context adoption
 
-This existing adoption selects members already present in the selected
-context. The proposed #10211 add-and-activate route extends it separately;
-the no-match refusal and unchanged-definition rules below describe the current
-selection-only route, not the complete target Package workflow.
+The #10211 add-and-activate route composes declaration editing with the #7765
+selected-context exact-Package operation. Before restoration, it reuses a
+matching direct Package declaration in the selected context or appends a
+missing declaration through immutable Package component editing. Reuse leaves
+the declaration's version policy intact: a different requested exact version
+does not replace an existing version or pin a floating member. The ordinary
+exact-Package operation validates the restored Root and reports mismatches.
+
+Addition inherits the selected context's TFM and RID. A registration-only base
+with no contexts or Package tabs receives its first context using
+`TraversalTargetFrameworkPolicy.ProductDefault`, the same convention used by
+the Browser's external Package activation. Existing contexts without a selected
+context remain an error; focus never substitutes for context selection. A
+Package already declared elsewhere is subject to the existing component
+identity and context-consistency rules, not silently moved between contexts.
+
+The requested version remains exact or floating as authored. Source authority
+comes from the ordinary receiving-host policy and preserved source
+declarations. Complete Restoration resolves and acquires the resulting
+Workspace once; preparation does not acquire content. Invalid packets,
+context conflicts, unavailable content, authorization failures and restoration
+failures remain failures, never triggers for a fallback addition. Existing
+Library packet-context routes remain selection-only.
+
+After a successful inspection, the existing Package scenario projection makes
+the selected contribution active and captures its supported facet. Share
+preserves base registrations, unrelated contexts, membership, dormant state
+and packet format, carrying the newly added declaration when one was needed.
+It adds no second inspection. A non-projectable choice preserves ordinary
+content and fails the requested Share output visibly.
+
+The motivating real asset is `System.Text.Json@10.0.0` from nuget.org. Starting
+with `workspace ecosystem add runtime`, Package adds that contribution without
+expanding the ecosystem's populations. The pinned NuGet archive is already a
+CLI and Browser test asset. `EcosystemBaseAddsRealPackageAndSharesTheDerivedEnvironment`
+gates the CLI outcome and unchanged input; neighboring gates cover formats
+3/4/5, existing-member reuse, selected-context targets, source declarations,
+version conflicts and Share refusal. The recorded CLI packet is readable in
+[`workspace-package-derived.json`](../examples/workspace-package-derived.json).
+`PackageAddAndActivate_ReopensRecordedCliPacket` activates that value through
+the production Browser retained-Workspace owner using the pinned archive.
+Find continues to search the unchanged
+base rather than promoting matches to contributions.
+
+The following exact-Package operation contract describes selection after that
+preparation. Its no-match failure remains available to selection-only callers;
+it does not describe the Package command's admitted declaration addition.
 
 The second noun-command adoption is implemented under
 [#7765](https://github.com/richlander/dotnet-inspect/issues/7765). Its exact CLI
@@ -4136,18 +4293,24 @@ Definition records and product demos (this slice):
   is mandatory; a lone matching overload does not imply portable intent.
   Platform, project, local package, private-feed, tools-only or otherwise
   non-compile package content, non-public, ambiguous assembly-qualified type,
-  section, analysis, source, caller-scope, and other output modes fail visibly
-  before packet emission. The projection runs after exact overload resolution
-  and before documentation, PDB, source, decompiler, or analysis enrichment.
+  section, analysis, source and caller-scope choices refuse Share visibly.
+  Ordinary content is preserved; successful Share is the final stderr line.
+  Presentation modes such as JSON do not change the portable recipe.
+  #10184 adds selected-context Workspace input and complete-environment derived
+  Member scenarios through the same inspection. The projection runs after
+  exact overload resolution and before documentation, PDB, source, decompiler,
+  or analysis enrichment.
   `MemberShare_PacketProjectsExactPackageMember`,
   `MemberShare_UrlWrapsCanonicalPacket`,
   `MemberShare_NeighboringOverloadsHaveDistinctAnchors`,
   `MemberShare_UsesBrowserCompileAssetsInsteadOfRuntimeCopies`,
   `MemberShare_RejectsToolsOnlyPackageSurface`,
-  `MemberShare_RequiresExactMemberBeforeAcquisition`,
+  `MemberShare_GroupRefusalPreservesOrdinaryOutput`,
   `MemberShare_RejectsPlatformSource`,
   `MemberShare_RejectsLocalPackage`, and
-  `MemberShare_RejectsConflictingModes` gate the production boundary;
+  `MemberShare_UnsupportedChoicesRefuseAfterContent`,
+  `MemberShare_PresentationPreservesPacket`, and `MemberWorkspaceRouteTests`
+  gate the production boundary;
 - the package `dependencies` compatibility token lowers to
   `package.dependencies`; the packet carries the exact package coordinate
   and framework but no graph results, dependency-group indexes, or Browser

@@ -32,9 +32,9 @@ export type BrowserLibraryApiDiffCancellationKind = "Requested" | "AlreadyReques
 
 export type BrowserLibraryApiDiffChangeCategory = "Signature" | "Attribute" | number;
 
-export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | number;
+export type BrowserLibraryApiDiffChangeClassification = "Additive" | "Breaking" | "PotentiallyBreaking" | "NonBreaking" | number;
 
-export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | number;
+export type BrowserLibraryApiDiffChangeKind = "TypeAdded" | "TypeRemoved" | "TypeKindChanged" | "SealedAdded" | "SealedRemoved" | "AbstractAdded" | "AbstractRemoved" | "BaseTypeChanged" | "InterfaceAdded" | "InterfaceRemoved" | "TypeParameterCountChanged" | "TypeParameterVarianceChanged" | "TypeParameterConstraintTightened" | "TypeParameterConstraintLoosened" | "MemberAdded" | "MemberRemoved" | "MemberSignatureChanged" | "VirtualRemoved" | "AbstractMemberAdded" | "EnumValueChanged" | "TypeAttributeAdded" | "TypeAttributeRemoved" | "MemberAttributeAdded" | "MemberAttributeRemoved" | "TypeAccessibilityChanged" | "MemberAccessibilityChanged" | number;
 
 export type BrowserLibraryApiDiffEndpointIssueKind = "Truncated" | "Rejected" | "Failed" | "InspectionFailures" | "DegradedSignatures" | "UnexpectedAssemblyPopulation" | number;
 
@@ -206,6 +206,7 @@ export interface BrowserLibraryApiDiffAggregate {
   readonly breakingCount: number;
   readonly additiveCount: number;
   readonly potentiallyBreakingCount: number;
+  readonly nonBreakingCount: number;
 }
 
 export interface BrowserLibraryApiDiffAssemblyIdentity {
@@ -375,6 +376,7 @@ export interface BrowserLibraryApiDiffType {
   readonly breakingCount: number;
   readonly additiveCount: number;
   readonly potentiallyBreakingCount: number;
+  readonly nonBreakingCount: number;
   readonly before: BrowserLibraryApiDiffTypeIdentity | null;
   readonly after: BrowserLibraryApiDiffTypeIdentity | null;
   readonly members: ReadonlyArray<BrowserLibraryApiDiffMember>;
@@ -483,8 +485,6 @@ export interface BrowserMemberGroupDocumentRow {
   readonly metadataToken: number;
   readonly baselineOrdinal: number;
   readonly displaySignature: string;
-  readonly canonicalSignature: string;
-  readonly fingerprint: string;
   readonly accessibility: string;
   readonly receiver: string;
 }

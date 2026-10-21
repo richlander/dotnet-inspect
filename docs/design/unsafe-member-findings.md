@@ -230,11 +230,19 @@ The census runs as one focused value producer through
 owner-issued Method Query Source request. It does not run on, wrap, or filter
 the Library Body Analysis aggregate that
 [#8965](https://github.com/richlander/dotnet-inspect/issues/8965) retires, and
-no census consumer adopts that aggregate. It uses no Library Body Analysis
-type at all, including the transitional module lookup that the method view
-exposes through that infrastructure; every module-wide input arrives through
-the capabilities below. The accumulator path that builds the census today is
-deleted with that infrastructure, not kept beside the producer.
+no census consumer adopts that aggregate. It reads no Library Body Analysis
+plan, runner, lookup, or aggregate result, including the transitional module
+lookup that the method view exposes through that infrastructure; every
+module-wide input arrives through the capabilities below. The census rules it
+shares with the accumulator live in `UnsafeMemberUseRules` beside the fold.
+The stateless metadata classifiers it shares, namely body availability, the
+extension-declaration shape, the nested compiler-generated-type check, and
+the recoverable-failure gate, still carry Library Body Analysis type names
+and move under
+[#9959](https://github.com/richlander/dotnet-inspect/issues/9959), as the
+[declared-source relation](method-query-source.md#declared-source-relation)
+records for its own classifiers. The accumulator path that builds the census
+today is deleted with that infrastructure, not kept beside the producer.
 
 The producer visits each physical body once and emits a detached per-body
 fact: availability, body roles, explicit-contract calls with their contract
@@ -299,9 +307,42 @@ candidates, as
 Presence and the census therefore agree on those bodies. Its all-definition probe is
 unaffected.
 
-The census moves only after every row of that table has landed. Until then the
-CLI section (step 3) does not ship, because it would land the census's first
-consumer on the retiring aggregate.
+Each scope of the census moves once the rows it needs have landed. The CLI
+section (step 3) ships only after every row has landed, because shipping it
+earlier would land the census's first consumer on the retiring aggregate.
+
+Status: every row has landed. The first row's all-definition reverse
+lowering landed after the exact-type relation, so Type scope moved first. The
+Type-scope census runs on Assembly Analysis Operation:
+
+- `UnsafeMemberCensusProducer` declares Body, Calls, memory-safety contract,
+  semantic identity, public-root, and reference-assembly support, and
+  `UnsafeMemberCensusAnalysis.ForTypes` requests it over the Type-scope
+  breadth above.
+- Each visit reads its unit's declared-source outcome from the
+  [relation](method-query-source.md#declared-source-relation). Completion
+  joins each authenticated owner to its visited identity, so an owner the
+  source did not visit leaves its body unattributed.
+- The per-body evidence rule and the call contract-source rule in
+  `UnsafeMemberUseRules`, and the fold, are the ones the accumulator calls.
+  The producer derives their inputs from the capabilities, and the agreement
+  gates below hold the two paths to the same findings.
+- The Library-scope census still runs on the accumulator. The
+  all-definition relation it needs has landed, and it reads that relation at
+  completion. Moving it to that relation is **unverified**; the accumulator
+  path is deleted when it moves.
+- A reached Type-scope expansion bound keeps the visited prefix's findings
+  and adds the image-level `AttributionBounded` limitation, so the census is
+  available but incomplete.
+- No host consumes the census yet. The CLI section adopts both scopes
+  together, so a member gets one row shape at every scope.
+
+The landed gates in `UnsafeMemberFindingsTests` compare the Type scope with
+the accumulator's census for every source type of the census fixtures, fold
+the #9755 shapes and the iterator bodies, report an unclaimed nested
+generated body as a limitation, keep the retained prefix at a reached bound,
+and keep breadth and terminal work within the selected type and its
+expansion.
 
 Focused gates for the move:
 

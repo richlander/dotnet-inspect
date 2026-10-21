@@ -15,6 +15,31 @@ public static class WorkspaceTypeScenarioProjection
         MetadataTypeDefinitionName type,
         ViewFacetId? facet = null,
         CancellationToken cancellationToken = default)
+        => ProjectCore(activation, selectedContext, definingSource, type,
+            memberAnchor: null, facet, cancellationToken);
+
+    public static WorkspaceSharePacketProjectionResult ProjectMember(
+        CompleteWorkspaceActivation activation,
+        WorkspaceDeclarationContext selectedContext,
+        WorkspaceDeclarationMember definingSource,
+        MetadataTypeDefinitionName type,
+        string memberAnchor,
+        ViewFacetId? facet = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberAnchor);
+        return ProjectCore(activation, selectedContext, definingSource, type,
+            memberAnchor, facet, cancellationToken);
+    }
+
+    static WorkspaceSharePacketProjectionResult ProjectCore(
+        CompleteWorkspaceActivation activation,
+        WorkspaceDeclarationContext selectedContext,
+        WorkspaceDeclarationMember definingSource,
+        MetadataTypeDefinitionName type,
+        string? memberAnchor,
+        ViewFacetId? facet,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(activation);
         ArgumentNullException.ThrowIfNull(selectedContext);
@@ -150,8 +175,13 @@ public static class WorkspaceTypeScenarioProjection
         CommittedViewStateDefinition existing = states[stateIndex];
         states[stateIndex] = new CommittedViewStateDefinition(
             tab.Id,
-            new PortableSubjectRequest.Type(),
-            new PortableRetainedSubjectContext.Type(library, type),
+            memberAnchor is null
+                ? new PortableSubjectRequest.Type()
+                : new PortableSubjectRequest.Member(),
+            memberAnchor is null
+                ? new PortableRetainedSubjectContext.Type(library, type)
+                : new PortableRetainedSubjectContext.Member(
+                    library, type, memberAnchor),
             facet?.Value,
             existing.Queries,
             existing.Libraries);

@@ -56,6 +56,22 @@ annotations — lives; Markout then chooses a lowering per sink. The browser
 prototype generates its own Mermaid from the same projection. The two renderings
 need not agree, and neither layer below the host knows a format exists.
 
+### Assembly-context handoff
+
+`AssemblyContextMemberCallGraphQuery` owns the progressive
+`MemberCallGraphSession` and `CallGraphProjection` execution for one selected
+member in a binding-consistent assembly context. It returns an
+`AssemblyContextMemberCallGraphDocument` containing detached caller and callee
+trees plus Queries-owned member-navigation, node, edge, diagnostic, and
+traversal-limit projection facts. Consumers do not construct either producer
+or consume Analysis identity, tree, or diagnostic types.
+
+The document does not own rendering, acquisition expansion, package or Platform
+attribution, navigation policy, or transport records. Inspect Web retains those
+Browser responsibilities and may spell the typed roots and members differently
+from the CLI. This handoff removes Web Core's direct `ILInspector.CallGraph` and
+`ILInspector.Analysis` dependencies without moving host rendering into Queries.
+
 ## What the projection owns
 
 `CallGraphProjection.Create(callerRoot, calleeRoot)` produces one node/edge graph
@@ -884,10 +900,11 @@ projection's edge-row count. `--rows` selects those same stable edge rows before
 tree/diagram lowering and at the table writer boundary for tabular output, so
 changing the final rendering does not change the addressed relationships.
 
-The browser engine consumes the same projection and generates its own Mermaid; it
-reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI
-and the browser deliberately do not share a Mermaid generator — sharing the
-*graph* is the point, not sharing the *format*.
+The browser engine consumes the same projection and generates its own Mermaid;
+it reconstructs no graph identity, member navigation identity, direction,
+truncation, cycles, diagnostics, or labels from Analysis types. The CLI and the
+browser deliberately do not share a Mermaid generator — sharing the *graph* is
+the point, not sharing the *format*.
 Browser navigation transports the projected display spelling separately from
 the exact metadata type name; the latter preserves nested `+` delimiters and
 generic arity and is the only spelling used to resolve a graph target.
