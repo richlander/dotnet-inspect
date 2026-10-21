@@ -375,7 +375,10 @@ public static class ResourceExplanationCommand
             ? ResourceExplanationCatalog.ComposeRoot(
                 complete,
                 new ResourcePath(ProvisionalRootSegment),
-                [.. StructuralRoutingDeclarations.Create()])
+                [
+                    .. StructuralRoutingDeclarations.Create(),
+                    .. CapabilityRoutingDeclarations.Create(),
+                ])
             : null;
 
     private const string ProvisionalRootSegment = "root";

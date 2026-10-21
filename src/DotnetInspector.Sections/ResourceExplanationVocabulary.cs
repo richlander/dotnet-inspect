@@ -603,6 +603,14 @@ internal static class ResourceExplanationVocabulary
                         "Routing destination",
                         CatalogType),
                     Relationship(
+                        "routing-destination-document",
+                        "Routing destination",
+                        InspectionDocumentType),
+                    Relationship(
+                        "routing-destination-collection",
+                        "Routing destination",
+                        NavigationCollectionType),
+                    Relationship(
                         "accepts-subject-kind",
                         "Accepts subject kind",
                         RoutingEntryType),

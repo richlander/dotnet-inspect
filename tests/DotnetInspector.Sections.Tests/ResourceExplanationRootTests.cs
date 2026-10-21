@@ -116,6 +116,49 @@ public sealed class ResourceExplanationRootTests
     }
 
     [Fact]
+    public void Destination_ProjectsThroughTheRelationshipOfItsType()
+    {
+        // A collection destination routes through the collection
+        // relationship, never through the catalog one.
+        ResourceExplanationCatalog composed = Composed("library");
+        Assert.True(composed.TryResolveExact(
+            new ResourcePath("library/sections"),
+            out ResourcePathResolution.Resolved? sections));
+
+        ResourceExplanationRootComposition composition =
+            ResourceExplanationCatalog.ComposeRoot(
+                composed,
+                RootPath,
+                [
+                    new(
+                        ResourceExplanationRoutingRole.SubjectKind,
+                        "library",
+                        "Library",
+                        "Test owner",
+                        "A library.",
+                        ["What is in it?"],
+                        [
+                            ResourceExplanationCatalog.StructuralCatalogKey(
+                                "library"),
+                            sections.Key,
+                        ]),
+                ]);
+
+        Assert.Equal(
+            ["library"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/library",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            ["library/sections"],
+            Targets(
+                composition.Catalog,
+                "root/subject-kinds/library",
+                "routing-destination-collection"));
+    }
+
+    [Fact]
     public void DuplicateIdentityWithinARole_IsAnInvalidRegistry()
     {
         ArgumentException exception = Assert.Throws<ArgumentException>(() =>
