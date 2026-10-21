@@ -377,8 +377,10 @@ Target walkthrough (the two root activation commands remain proposed):
 environment=$(dotnet-inspect workspace --register-ecosystem runtime)
 dotnet-inspect -w "$environment" --json   # Workspace inventory
 
+package_workspace=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0)
 dotnet-inspect type System.Text.Json.JsonSerializer \
-  --package System.Text.Json@10.0.0 --tfm net10.0 --share packet \
+  --workspace "$package_workspace" --share packet \
   > type-content.md 2> type-handoff.txt
 scenario=$(tail -n 1 type-handoff.txt)     # Final Share scalar, after diagnostics
 dotnet-inspect "$scenario" --json        # Saved Type inspection result
