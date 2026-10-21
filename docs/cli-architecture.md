@@ -48,6 +48,36 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Online Package inspection admission
+
+Ordinary online single-Package inspection acquires through PackageHouse and
+queries one committed content-only Workspace Root. The CLI preserves the
+original target filter and the acquired authority, generation, and House
+evidence when adapting that Root to existing package presentation.
+Package facts remain available when DLLs are unusable or the requested
+framework has no applicable assets; package inspection does not require
+Library realization. Acquisition, admission, and query failures are terminal,
+not reasons to retry through the legacy extractor.
+
+This is the CLI adopter in the two-slice prerequisite/adoption sequence under
+[#6638](https://github.com/richlander/dotnet-inspect/issues/6638).
+[Content-only package admission](design/artifact-acquisition-and-workspaces.md#content-only-package-admission)
+owns the supporting Root contract; [PackageHouse](design/package-house.md)
+owns acquisition and selection. Existing specialized content/inventory routes,
+local/offline inspection, Library inspection, and tool-wrapper redirection
+remain separate routes. Detecting a wrapper after acquisition retains its
+legacy redirect route and can require another acquisition for temporary stores.
+This slice does not retire the extraction result's presentation compatibility
+shape or change archive transfer policy.
+
+The motivating real asset is nuget.org `Microsoft.NETCore.App.Ref` 10.0.0:
+its package facts must remain inspectable with `--tfm net9.0`, despite its
+`net10.0` assets. Reproduce with source CLI `package
+Microsoft.NETCore.App.Ref@10.0.0 --tfm net9.0 -S "Package Info" --json`.
+Deterministic configured-source tests gate admitted inspection with unusable
+DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
+offline, and Library tests remain neighboring controls.
+
 ### Exact Package reference admission
 
 An owner-issued exact Package reference is accepted as positional `package`

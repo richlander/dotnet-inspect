@@ -40,6 +40,41 @@ public record PackageExtractionResult(
     string? ProducerKey = null)
 {
     /// <summary>
+    /// Adapts an acquired filesystem payload for existing presentation readers.
+    /// The caller retains ownership of the acquisition and its content lifetime.
+    /// </summary>
+    public static PackageExtractionResult FromAcquisition(
+        ConfiguredPackagePayloadResult acquisition)
+    {
+        ArgumentNullException.ThrowIfNull(acquisition);
+        AcquiredPackageSourcePayload payload = acquisition.Payload
+            ?? throw new ArgumentException(
+                "An acquired package payload is required.",
+                nameof(acquisition));
+        return new PackageExtractionResult(
+            payload.Content.RootPath
+                ?? throw new InvalidOperationException(
+                    "Desktop package presentation requires filesystem content."),
+            TempDir: null,
+            payload.Coordinate.PackageId,
+            payload.Coordinate.Version,
+            payload.Content.NupkgPath,
+            FromCache: payload.Origin == PackagePayloadOrigin.Cache,
+            payload.ProducerKey)
+        {
+            Authority = acquisition.Authority,
+            AcquiredPayload = payload,
+            HouseSettlement = acquisition.HouseSettlement,
+            SelectedVersionSourceUrls = acquisition.ReportingAuthorities is null
+                ? null
+                : Array.AsReadOnly(acquisition.ReportingAuthorities
+                    .Select(authority => authority.Source.Url).ToArray()),
+            SelectedVersionUsesOriginalSources =
+                acquisition.SelectionUsesOriginalSources,
+        };
+    }
+
+    /// <summary>
     /// Configured-source spellings for a new CLI invocation replaying a selected version.
     /// These URLs are not authority receipts and must not authorize in-process acquisition.
     /// </summary>
