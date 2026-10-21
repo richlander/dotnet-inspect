@@ -317,7 +317,9 @@ The frame renders:
 - changed-member count;
 - compact breaking, additive, and potentially-breaking counts; and
 - a note giving the count of rows outside the ordinary population, when any
-  are.
+  are. When no Type has an ordinary row but some rows were left out, the
+  empty state says the ordinary API has no changes rather than that the
+  Library is unchanged.
 
 For String literals, the frame renders one row per owner-issued Transition:
 

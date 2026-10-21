@@ -613,7 +613,9 @@ transitions; the complete JSON grows from 5.6 MB to 6.8 MB.
   rows outside the ordinary population in Markout, name-only, and table
   output, and the complete unprojected JSON.
 - `BrowserLibraryApiDiffOperationTests` and the inspect-web
-  `library-api-diff` tests gate the wire view, state, marker, and note.
+  `library-api-diff` tests gate the wire view, state, marker, and note, and
+  an empty ordinary view with rows left out does not claim the Library is
+  unchanged.
 
 ## Relationship to shared diff formats and Markout
 

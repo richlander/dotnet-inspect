@@ -661,6 +661,44 @@ test("successful empty results stay distinct from target and endpoint unavailabi
   assert.match(html, /No public API changes/);
   assert.match(html, /Comparison complete/);
   assert.doesNotMatch(html, /unavailable/i);
+  assert.match(html, /is unchanged between these versions/);
+  assert.doesNotMatch(html, /outside the ordinary population/);
+});
+
+test("an empty ordinary view with rows left out does not claim the Library is unchanged", () => {
+  const empty = succeeded("2.0.0");
+  if (empty.value === null) throw new Error("Expected success.");
+  const html = renderLibraryApiDiff({
+    status: "ready",
+    input: {
+      packageModel: {},
+      packageId: "Example.Package",
+      currentVersion: "1.0.0",
+      targetVersion: "2.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+    result: {
+      ...empty,
+      value: {
+        ...empty.value,
+        types: [],
+        aggregate: {
+          ...empty.value.aggregate,
+          changedTypeCount: 0,
+          changedMemberCount: 0,
+          breakingCount: 0,
+          additiveCount: 0,
+          outsideOrdinaryRowCount: 2,
+        },
+      },
+    },
+  }, String);
+  assert.match(html, /No changes in the ordinary API/);
+  assert.match(html, /has no ordinary API changes between these versions/);
+  assert.match(html, /2 API change rows are outside the ordinary population/);
+  assert.doesNotMatch(html, /unchanged/);
+  assert.doesNotMatch(html, /No public API changes/);
 });
 
 test("unavailable rendering discloses retained endpoint failure evidence", () => {

@@ -2023,11 +2023,20 @@ function renderLibrarySubject(
   ].filter(Boolean);
   const outside = outsideOrdinaryNote(value, escapeHtml);
   if (value.types.length === 0) {
+    // Rows outside the ordinary population may still differ, so the empty
+    // state claims no change only when none was left out.
+    const leftOut = aggregate.outsideOrdinaryRowCount > 0;
     return {
-      status: options.resultSummaryInDataBar ? "" : "Comparison complete. No changed Types.",
+      status: options.resultSummaryInDataBar
+        ? ""
+        : leftOut
+          ? "Comparison complete. No changed Types in the ordinary API."
+          : "Comparison complete. No changed Types.",
       content: `${renderCompareEmpty(
-        "No public API changes",
-        "The selected Library is unchanged between these versions.",
+        leftOut ? "No changes in the ordinary API" : "No public API changes",
+        leftOut
+          ? "The selected Library has no ordinary API changes between these versions."
+          : "The selected Library is unchanged between these versions.",
         escapeHtml,
       )}${outside}`,
     };
