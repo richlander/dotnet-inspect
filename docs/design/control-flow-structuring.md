@@ -641,9 +641,9 @@ only when the post-dominator machinery is proven.
    join plan represents and classifies back-edge regions from day one. The
    first retained-label production slice consumes only proven acyclic forward
    regions; raising a non-crossing region whose back-edges target its head as
-   `while`/`while (true)` remains a follow-on, together with continue placement,
-   condition hoisting for effectful latches, labeled break, and conditional
-   rotated entries.
+   `while`/`while (true)` remains a follow-on, together with condition hoisting
+   for effectful latches, labeled break, and conditional rotated entries.
+   Continue placement landed with the loop-continue slice below.
 
    *Status: shared-terminator merge slice landed (partial).* The first slice of
    step 4 relaxes the all-or-nothing invariant for one safe case: a shared
@@ -736,7 +736,6 @@ only when the post-dominator machinery is proven.
    multi-merge and compiler-produced paths.
    `RetainedBodyMergeWithoutRotatedEntryStaysFlat`,
    `RetainedBodyMergeWithMultipleLatchesStaysFlat`,
-   `RetainedBodyMergeAtLatchStaysFlat`,
    `RetainedBodyMergeWithNoncanonicalExitStaysFlat`,
    `RetainedBodyMergeWithExternalInteriorEntryStaysFlat`, and
    `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary;
@@ -833,6 +832,46 @@ only when the post-dominator machinery is proven.
    `SequentialRetainedMergesStructureFurthestRangeAndTail` and
    `RetainedGotoParticipatesInDefiniteAssignment` pin the preserved
    conditional transfer and its definite-assignment reading.
+
+   *Status: loop-continue slice implemented (2026-10-21, #10192 PR 2).* The
+   whole-container structurer now owns `continue` placement. A loop head may
+   have any number of back-edges as long as each is its block's terminator; the
+   last one is the latch (an unconditional goto is the implicit loop edge, a
+   conditional one is the loop's bottom test and raises to `if (!c) break;`),
+   and every earlier back-edge is a `continue` statement. A rotated `while`
+   body receives its own condition block as its continue target, so a nested
+   loop never reads an enclosing loop's transfer as its own: a branch to an
+   outer head from inside an inner loop stays a goto and declines the
+   container (`InnerLoopBranchToOuterHeadIsNotAContinue`). A branch or
+   conditional branch to the enclosing loop's continue target raises to
+   `continue;` or `if (c) continue;` from any nesting depth; at a rotated
+   loop's top level the condition is also the body's join, and the merge-exit
+   guard reading keeps csc's `if (c) { ... }` tail shape instead. Such a
+   `Continue` carries `ContinueOrigin.LoopBodyBranch`: csc lowers `continue`
+   to the same `br`/`brtrue` to the same block, so it is opcode-exact and
+   raises no `DEC0013` remark; the fidelity gate proves it on
+   `WhileTrueWithArmContinue`, `WhileTrueWithArmContinueAndBottomTest`, and
+   `WhileWithNestedContinue`. The merge-exit guard (`if (c) goto JOIN` raised
+   as a guard over the rest of the region) now proves, like every other arm,
+   that no outside transfer enters the region it swallows: the deeper walk
+   this slice enables reached a flattened switch section behind such a guard
+   in `CustomDebugInfoReader::GetCSharpGroupedImportStrings`, and
+   `EarlyExitGuardDoesNotSwallowFlattenedSwitchTargets` pins the decline.
+   `GuardedWhileNestedContinue_RaisesContinue`,
+   `WhileTrueWithArmContinue_RaisesContinuesAtDepth`,
+   `WhileTrueWithArmContinueAndBottomTest_RaisesBreakAtBottom`, and
+   `BodyMergeAtLatchRaisesAsContinue` (formerly a pinned retained-planner
+   decline whose body merge is the loop condition, so the shape is now a plain
+   `continue`) gate the raise. Against exact base `795c3bd79` over the pinned
+   real-world corpus (89,065 methods), `--structuring-stops` moved from 30,251
+   to 30,391 structured containers and 2,468 to 2,328 flat
+   containers (`cond-target-past-region` 1,266 → 1,214,
+   `forward-branch-not-region-exit` 800 → 746, `cond-backward-branch`
+   74 → 31), with the same four pre-existing pass bugs on both sides.
+   Multi-way dispatch whose arms are not terminators (a comparison tree or
+   lowered switch whose arms rejoin or `continue`, as in
+   `JsonTextReader::ParseConstructor` and `JPath::ParsePath`) is the next
+   loop-body residue; it is a dispatch problem, not a continue problem.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
@@ -958,9 +997,11 @@ than something to emit speculatively now.
   without step 4 recovers only ~15% of the bucket — the tracks multiply. Step
   4's join primitive now serves the first canonical retained-loop subset:
   rotated-entry, single-latch `while` regions with one real immediate exit.
-  Retained `while (true)`, continue placement, multi-latch loops, condition
-  hoisting for effectful latches, labeled break, and conditional rotated
-  entries remain follow-on scope. Loops whose bodies return, throw, or
+  The whole-container structurer owns continue placement and multi-latch
+  `while (true)` loops (loop-continue slice, 2026-10-21). Retained
+  `while (true)`, multi-latch retained loops, condition hoisting for effectful
+  latches, labeled break, and conditional rotated entries remain follow-on
+  scope. Loops whose bodies return, throw, or
   otherwise reach the virtual exit, and loops whose exit is the container end,
   also remain flat because this slice requires a real immediate exit
   post-dominator. (The old "`cond-backward-branch`, 61" framing understated

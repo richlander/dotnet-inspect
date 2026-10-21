@@ -274,15 +274,102 @@ public class InfiniteLoopStructuringTests
     }
 
     [Fact]
-    public void GuardedWhileNestedContinue_StaysFlat()
+    public void GuardedWhileNestedContinue_RaisesContinue()
     {
-        var function = Raised(nameof(CfgSampleClass.WhileNestedContinueKeepsArmExclusive));
+        // A `goto` to the rotated loop's condition from inside an if-arm is a
+        // `continue` at that depth; the arm's trailing throw keeps it exclusive.
+        var function = Raised(nameof(CfgSampleClass.WhileWithNestedContinue));
 
-        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.False(IsWhileTrue(loop));
+        var next = Assert.Single(function.Descendants.OfType<Continue>());
+        Assert.Equal(ContinueOrigin.LoopBodyBranch, next.Origin);
+        Assert.Empty(function.Descendants.OfType<Branch>());
 
         var output = DecidedPrint.Print(function).Output!;
-        Assert.Contains("goto IL_", output);
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("continue;", output);
         Assert.Contains("throw new FormatException();", output);
+    }
+
+    [Fact]
+    public void WhileTrueWithArmContinue_RaisesContinuesAtDepth()
+    {
+        var function = Raised(nameof(CfgSampleClass.WhileTrueWithArmContinue));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(IsWhileTrue(loop));
+        var continues = function.Descendants.OfType<Continue>().ToList();
+        Assert.Equal(2, continues.Count);
+        Assert.All(continues, next => Assert.Equal(ContinueOrigin.LoopBodyBranch, next.Origin));
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+
+        var output = DecidedPrint.Print(function).Output!;
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("continue;", output);
+    }
+
+    [Fact]
+    public void WhileTrueWithArmContinueAndBottomTest_RaisesBreakAtBottom()
+    {
+        var function = Raised(nameof(CfgSampleClass.WhileTrueWithArmContinueAndBottomTest));
+
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(IsWhileTrue(loop));
+        Assert.Single(function.Descendants.OfType<Continue>());
+        Assert.Single(function.Descendants.OfType<Break>());
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+
+        var output = DecidedPrint.Print(function).Output!;
+        Assert.DoesNotContain("goto", output);
+        Assert.Contains("continue;", output);
+        Assert.Contains("break;", output);
+    }
+
+    [Fact]
+    public void InnerLoopBranchToOuterHeadIsNotAContinue()
+    {
+        // The inner rotated while's body branches back to the OUTER loop head.
+        // `continue` would bind to the inner loop, so the transfer must not be
+        // raised; the container stays flat with its label.
+        var i32 = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var head = new Block(0x00);
+        head.Add(new StoreLocal(0, i32, new Constant(0, i32)));
+        container.Add(head);
+        var init = new Block(0x04);
+        init.Add(new Branch(0x10));
+        container.Add(init);
+        var innerBody = new Block(0x08);
+        innerBody.Add(new ConditionalBranch(new LoadLocal(0, i32), 0x00));
+        container.Add(innerBody);
+        var innerTail = new Block(0x0C);
+        innerTail.Add(new StoreLocal(0, i32, new Constant(1, i32)));
+        container.Add(innerTail);
+        var innerCondition = new Block(0x10);
+        innerCondition.Add(new ConditionalBranch(new LoadLocal(0, i32), 0x08));
+        container.Add(innerCondition);
+        var outerLatch = new Block(0x14);
+        outerLatch.Add(new Branch(0x00));
+        container.Add(outerLatch);
+        var exit = new Block(0x18);
+        exit.Add(new Return(null));
+        container.Add(exit);
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0),
+            [i32],
+            container);
+
+        function.CheckInvariant();
+        new StructuringPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Continue>());
+        Assert.Contains("goto IL_0000", DecidedPrint.Print(function).Output!);
     }
 
     [Fact]
