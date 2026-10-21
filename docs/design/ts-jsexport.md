@@ -65,6 +65,32 @@ that warning as an error. Canonical facade drift checking remains the gate for
 a refactor that removes all evidence and would otherwise resemble an
 intentional raw-string API.
 
+Export admission keeps caller safety, public memory shape, and implementation
+details separate, using the facts owned by
+[Memory-safety models](memory-safety-models.md):
+
+- a member with an implicit or explicit caller-unsafe contract is rejected
+  because TypeScript/JavaScript cannot represent or enforce C#'s caller
+  obligation;
+- a pointer- or function-pointer-bearing public signature is rejected
+  independently, including when newer C# rules make the member callable from
+  safe C#; JavaScript values do not faithfully represent that raw managed
+  memory shape, and browser JavaScript and managed WebAssembly do not share a
+  C# pointer address space;
+- a safe, pointerless public contract remains eligible when its implementation
+  uses an inner unsafe context, because that implementation detail does not
+  propagate to callers; and
+- production generation fails visibly when either typed caller-contract or
+  pointer-shape evidence is unavailable. The declaration-only builder retains
+  the legacy combined `IsUnsafe` fallback solely for older or hand-composed
+  metadata-focused test surfaces.
+
+This policy is intentionally narrower than an in-process C#-to-Rust binding.
+Rust can represent raw pointers, calling conventions, and an `unsafe fn`
+obligation while sharing the process address space. TypeScript/JavaScript
+cannot preserve those properties, so `ts-jsexport` does not publish a
+weakened approximation.
+
 `ts-jsexport` does not generate derived JavaScript or declarations itself:
 
 ```text
