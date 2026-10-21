@@ -95,19 +95,26 @@ value:
 
 | Field | Value |
 | --- | --- |
-| Kind | One of Fast Diff's fact kinds: the Type's visibility marker, Type row, `beforefieldinit`, interface, nullable context, layout, `MethodImpl` row, field row, method row, parameter, import, property row, event row, generic parameter, constraint, attribute, constant |
+| Kind | One of Fast Diff's fact kinds: the Type's visibility marker, Type row, `beforefieldinit`, interface, nullable context, layout, `MethodImpl` row, field row, method row, parameter, import, property row, event row, generic parameter, constraint, attribute. A constant and a property's accessors are payload of their row fact, not facts |
 | Axis | API or Body, as the census places it on that side |
 | Owner | The row the fact describes under rule 1 of Fast Diff's Type level: the Member's key, or the Type for the residual |
 | Key | The fact's whole census `SymbolKey`, which is its exact identity |
-| Row | For a kind with one fact per row, the row's own key inside the census key: the method, field, property, or event row key; the Type key for the visibility marker, Type row, `beforefieldinit`, nullable context, and layout; the owning row key and sequence number for a parameter; the owning row key and ordinal for a generic parameter; the method key for an import. An interface, constraint, `MethodImpl` row, or attribute fact has no row of its own |
+| Row | For a kind with one fact per row, the row the fact describes: the method, field, property, or event row key, taken from inside the census key; the Type for the visibility marker, whose key holds no Type key, and the Type key for the Type row, `beforefieldinit`, nullable context, and layout; the owning row key and sequence number for a parameter; the owning row key and ordinal for a generic parameter; the method key for an import. An interface, constraint, `MethodImpl` row, or attribute fact has no row of its own |
 | Value | The fact's payload after its row, spelled at the declaration level |
 | Certainty | Presented or uncertain, as the census classifies the kind on that axis |
 
 The key pairs a fact across versions exactly, so two facts are `Present`
 here exactly when the census calls them equal; the view adds no equality and
-no normalization. The row is the fact's one soft identity: a fact whose key is
-on one side only but whose row is on both sides is one `Changed` pair, as the
-[two-version form](#two-versions) states. A kind with no row of its own, such
+no normalization. The kind and the row together are the fact's one soft
+identity: a fact whose key is on one side only but whose kind and row are on
+both sides is one `Changed` pair, as the [two-version form](#two-versions)
+states. The kind is part of the soft identity so that facts of one row never
+pair across kinds: the visibility marker, the Type row, and the nullable
+context of one Type, or a method row and its import, each pair only with
+their own kind. A fact whose key is equal on both sides is `Present` even
+when the census places it on different axes there, as an attribute of a
+Member whose accessibility changed is; the row's own flag fact changes with
+it, and each side's axis is recorded on the fact. A kind with no row of its own, such
 as an attribute, moves only as `Added` or `Removed`: two attributes of one
 constructor that swap places leave the census equal and are `Present`, and a
 changed argument is one `Removed` and one `Added`. An attribute's spelling
@@ -155,8 +162,9 @@ comparison:
 - a `FindingComparison<DeclarationFact>` over the two fact sets, by
   `FindingMatcher` in its identity-set mode, since the facts are unordered.
   Each fact's `FindingKey` has the whole census key as its `IdentityKey` and,
-  for a kind with a row, one soft key whose tier is the row and whose
-  identity is the row key;
+  for a kind with a row, one soft key whose tier is the row tier, whose
+  identity is the kind and the row, and whose variant is the whole census
+  key;
 - each pair a `PairFinding`: `Present` for a matched key, `Added` or
   `Removed` for a key on one side only, and `Changed` for an accepted soft
   candidate, a row on both sides whose keys differ, which the view accepts
@@ -232,10 +240,10 @@ opens.
   `Added` or `Removed`, including the residual's Type row; and for
   `PublicTypeToInternal`, whose census records only the visibility marker
   and the Body facts on the hidden side, the residual shows a `Changed`
-  visibility marker and `Removed` Type row, interface, and nullable context
-  facts, every public Member's API facts are `Removed`, as Fast Diff marks
-  those Members API `Changed`, and every non-public Member's Body facts are
-  `Present`.
+  visibility marker and every Type-level API fact the visible side holds,
+  its Type row and nullable context, `Removed`; every public Member's API
+  facts are `Removed`, as Fast Diff marks those Members API `Changed`, and
+  every non-public Member's Body facts are `Present`.
 - **Residual:** a public Type gaining an explicit static constructor shows a
   `beforefieldinit` transition on the residual and, with field initializers,
   nothing else; a marker interface removed shows a `Removed` interface fact
@@ -271,7 +279,7 @@ opens.
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
-| DV1 | The fact projection from Fast Diff's census, both documents, the identity-set comparison, JSON serialization, and the Exactness, One-sided, Residual, Spelling, Currency, and Undecided gates | CLI `member -S "Declaration Facts"` and `diff -S "Declaration Diff"` as JSON |
+| DV1 | The fact projection from Fast Diff's census, both documents, the identity-set comparison, JSON serialization, and the Exactness, One-sided, Residual, Spelling, Currency, and Undecided gates | CLI `member -S "Declaration Facts"`, `type -S "Declaration Facts"`, and `diff -S "Declaration Diff"` as JSON |
 | DV2 | Markout lowering of both documents | The same CLI sections as text and Markdown |
 | DV3 | The Browser facade export and the Member and Type page panels | Inspect Web Member and Type pages |
 | DV4 | The declaration medium in the Member reader, opened from a Type Compare Member row's Body transition, and the residual's document opened from the Type row | Inspect Web Compare |
