@@ -381,6 +381,27 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.False(ordinary.IsStatic);
         Assert.False(ordinary.IsObsolete);
 
+        BrowserMemberSurface wire =
+            BrowserPackageWireProjection.Project(projected);
+        using JsonDocument memberDocument = JsonSerializer.SerializeToDocument(
+            wire,
+            BrowserPackageJsonContext.Default.BrowserMemberSurface);
+        Assert.False(memberDocument.RootElement.TryGetProperty("summary", out _));
+        Assert.False(memberDocument.RootElement.TryGetProperty("returns", out _));
+        Assert.False(memberDocument.RootElement.TryGetProperty("exceptions", out _));
+
+        using JsonDocument parameterDocument =
+            JsonSerializer.SerializeToDocument(
+                new BrowserParameterSurface(
+                    "value",
+                    "string",
+                    Modifier: null,
+                    HasDefault: false,
+                    DefaultValue: null),
+                BrowserPackageJsonContext.Default.BrowserParameterSurface);
+        Assert.False(
+            parameterDocument.RootElement.TryGetProperty("description", out _));
+
         // The projection carries the Metadata owner's effective
         // accessibility: an explicit implementation of a public interface is
         // public, of an internal interface internal, and a finalizer protected.
