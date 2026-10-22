@@ -260,10 +260,48 @@ reaching the operation. Until that separately reviewed capability exists,
 retained ranges remain the usable match-heavy representation and slots remain
 a demonstrated compact substrate rather than an adoption recommendation.
 
+A declarative-index follow-up tested whether the owner could retain logical
+identity instead of byte coordinates. A validated dense ordinal population
+used one `N+1` 32-bit offset vector and matched retained-range latency on both
+the complete metadata Name census and the repeated method-production shape.
+Its owned payload was 54% to 61% of retained ranges, versus 69% to 74% for
+8-byte slots. This is the optimal measured shape when ordinal position is
+implicit, the owner consumes the population as one ordered sequence, and
+individual identities do not escape.
+
+That result does not generalize to every declarative index. Adding one 4-byte
+handle per occurrence to the offset vector restored essentially the same
+payload as an 8-byte slot and made matching 16% to 20% slower. Interning equal
+Name bytes reduced payload further, to 31% to 47% of retained ranges, at a 12%
+to 18% median match-time cost. It is a candidate for repeated-value
+populations whose retained-space win amortizes construction and indirection,
+not a universal representation.
+
+The metadata source's existing 4-byte `StringHandle` was the smallest borrowed
+descriptor, but resolving it through
+`MetadataReader.GetBlobReader(StringHandle)` repeatedly found the
+null-terminated `#Strings` length and made full-population matching 3.76x to
+4.79x slower. Source handles remain natural while the metadata image lifetime
+and access pattern are acceptable; they are not evidence against a detached
+owner that records boundaries once.
+
+Declarative identity is therefore a semantic improvement only when the owner
+has a matching structural advantage: implicit ordinals, repeated values worth
+interning, fixed-width index arithmetic, or an already-live source heap. A
+one-to-one explicit index over unique variable-length values is neither denser
+nor faster than a checked slot. Arbitrary, overlapping, nested, or
+independently escaping slices still require coordinates or an owner-bound
+range.
+
 The representation recommendation depends on the terminal:
 
 - match-heavy and sparse-presentation paths should retain shared
   `OpaqueByteRange` values;
+- owner-consumed ordered populations may use a validated dense ordinal design
+  after a separately reviewed product operation establishes that identities do
+  not escape;
+- repeated-value populations may use an interned declarative index only after
+  measuring construction and terminal tradeoffs in the adopting consumer;
 - populations written repeatedly to UTF-8 sinks should retain
   `InertUtf8String`, paying containment once and writing contained bytes
   directly;

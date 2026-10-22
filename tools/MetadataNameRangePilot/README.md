@@ -142,6 +142,54 @@ row census. `method-production` repeats declaring-type generic names for every
 method, matching a real retained consumer where value interning may earn its
 additional lookup.
 
+Thirty rotated NativeAOT rounds on the three accepted assets found:
+
+| Shape | Owned payload / retained range | Match time / retained range |
+| --- | ---: | ---: |
+| Checked 8-byte slot | 0.69x-0.74x | 0.99x-1.01x, parity |
+| Checked dense ordinal | 0.54x-0.61x | 1.23x-1.24x, loss |
+| Validated dense ordinal | 0.54x-0.61x | 1.00x-1.05x, parity |
+| Validated explicit index | 0.69x-0.74x | 1.16x-1.20x |
+| Validated interned index | 0.31x-0.47x | 1.12x-1.18x |
+| Borrowed source `StringHandle` | Not comparable | 3.76x-4.79x, loss |
+
+All terminal match operations allocated zero bytes. The checked dense ordinal
+still pays repeated slice validation. The validated owner removes that cost
+and demonstrates the intended result: when ordinal position is implicit, one
+offset per value can retain about 39% to 46% less owned payload than an
+8-byte slot while preserving range match latency.
+
+An explicit index changes that conclusion. One 4-byte handle per occurrence
+plus one 4-byte offset per value has essentially the same payload as one
+8-byte slot and adds an indirection. Declarative identity is still a stronger
+API boundary, but it is not a storage or latency optimization for a one-to-one
+population.
+
+Value interning is a distinct memory/latency trade. Repeated method-production
+Names reduced owned payload to 31% to 43% of ranges, but the additional index
+and offset lookups left median matching 12% to 18% slower. It is a candidate
+only when repeated values make retained space more important and construction
+cost can be amortized; this diagnostic does not measure interning construction.
+
+The source `StringHandle` result is intentionally bounded. Its operation calls
+`MetadataReader.GetBlobReader(StringHandle)`, whose `StringHeap` implementation
+finds the null-terminated length on each resolution. It is compact because the
+metadata image owns the bytes, but repeated full-population matching was about
+four times slower and keeps that image alive.
+
+The measured recommendation is therefore conditional:
+
+- use a validated dense ordinal population when the owner consumes one ordered
+  sequence and individual handles do not need to escape;
+- use an interned index when byte-value identity is valid and repetition earns
+  the measured space/latency trade;
+- do not replace an 8-byte slot with a one-to-one explicit index for
+  performance alone;
+- preserve source handles for source-lifetime operations whose access pattern
+  does not repeatedly rediscover variable-length boundaries; and
+- retain owner-bound ranges for independently escaping or structurally
+  arbitrary slices.
+
 ## Scopes
 
 The default `all` scope reads each TypeDef namespace/name, TypeRef
@@ -191,11 +239,19 @@ dotnet publish tools/MetadataNameRangePilot -c Release -r linux-x64 \
 perf-guard artifacts/metadata-name-range-pilot/metadata-name-range-pilot \
   measure --scope method-production --rounds 30 \
   --target-names 50000 --tsv results.tsv <assembly>...
+perf-guard artifacts/metadata-name-range-pilot/metadata-name-range-pilot \
+  index-pattern --scope all --rounds 30 \
+  --target-names 50000 --tsv index-all.tsv <assembly>...
+perf-guard artifacts/metadata-name-range-pilot/metadata-name-range-pilot \
+  index-pattern --scope method-production --rounds 30 \
+  --target-names 50000 --tsv index-method.tsv <assembly>...
 ```
 
 SPC ratios are candidate divided by `EagerInert`. Values below `1` favor the
 byte-native strategy, values above `1` favor eager containment, and a win or
 loss requires the full paired control interval to clear `1`.
+The `slot-latency` and `index-pattern` diagnostics instead use
+`RetainedRange` as their baseline.
 
 ## Accepted evidence
 
