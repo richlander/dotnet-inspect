@@ -305,9 +305,10 @@ exception to Diff capabilities' rule 2, registered there beside the
 decode-failure exception: for such a row, the view shows the bound failure,
 which is not empty and does not claim the row is unchanged; for an unchanged
 pair beyond the bounds, Exists is `Unchanged` and the view shows the same
-failure, which shows no difference. Today `IlFindings.Inspect` applies the
-operation limit, which would make a large unchanged body `Failed` on both
-sides; adoption step 1 moves it to `Compare`.
+failure, which shows no difference. `IlFindings.Compare` applies the operation
+limit after both drains, so a large unchanged body drains `Complete` on both
+sides and the comparison of the pair is the visible failure, with both
+censuses retained.
 
 The IL kind's fold includes target validation over the match: after the ordered
 matcher aligns operations by their projected keys, each matched branch or
@@ -441,14 +442,25 @@ test class gates its cursor:
 
 1. **IL cursor.** A cursor over one body for the IL kind, placed with the
    kind's canonicalization under the layering of Diff system's layer 1, with
-   `IlFindings.Inspect` draining it. Under IL diff canonicalization's owner,
-   the cursor takes a named policy, the atom's operand identity becomes the
-   `SymbolKey` under it, the atom carries each target's instruction index
-   with the projected key still omitting it, and the operation limit moves
-   from `Inspect` to `Compare`; gated by completeness, canonical order,
-   identity, fault order, and bound. It depends on the Body policy's
-   normalization
-   ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
+   `IlFindings.Inspect` draining it and `IlBodyDiff` canonicalizing through
+   the same drain, so there is one producer of canonical IL. Taken in two
+   slices under IL diff canonicalization's owner:
+   - **1a, landed as `IlCensusCursor`:** the cursor takes a named policy,
+     the atom carries each target's instruction index with the projected key
+     still omitting it, the operation limit moves from `Inspect` to
+     `Compare`, and the cursor yields every atom before a fault and ends
+     `Failed` at the fault's IL offset; gated by completeness, canonical
+     order, fault order, and bound. Its pre-scan reads instruction lengths
+     through the decoder's shallow reader, it decodes one instruction and
+     resolves one operand per advance, and its clause stage validates the
+     table by the decoder's own rules, so an incomplete decode and a failed
+     cursor report one reason. The atom's operand identity is still the
+     formatted identity of `IlFindings`, so the identity gate waits for 1b.
+   - **1b:** the atom's operand identity becomes the `SymbolKey` under the
+     policy, which moves `SymbolKey` and its builder below both
+     `ILInspector.Metadata` and `ILInspector.ILDiff`; gated by identity. It
+     depends on the Body policy's normalization
+     ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`, run
    beside Finding Diff Any's walk for every method of the fixture pairs under
    the Exists agreement gate, and measured against the walk on the perf hosts.
