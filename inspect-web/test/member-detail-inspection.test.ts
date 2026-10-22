@@ -102,10 +102,12 @@ function generatedMemberSurfaceRejectsMutation(
   // @ts-expect-error Parameter documentation is absent from inventory transport.
   surface.parameters[0]!.description = "application state";
   // @ts-expect-error Documentation content is absent from inventory transport.
-  surface.exceptions[0] = {
-    type: "System.InvalidOperationException",
-    description: "application state",
-  };
+  surface.exceptions = [
+    {
+      type: "System.InvalidOperationException",
+      description: "application state",
+    },
+  ];
 }
 void generatedMemberSurfaceRejectsMutation;
 
