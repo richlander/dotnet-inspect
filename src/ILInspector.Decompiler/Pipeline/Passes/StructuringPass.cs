@@ -1472,6 +1472,11 @@ public sealed class StructuringPass : IIrPass
                             ctx.Recorder?.Record("arm-externally-entered");
                             return false;
                         }
+                        if (NextWalkIndex(ctx, i, start, stop) >= stop && stop != joinIndex)
+                        {
+                            ctx.Recorder?.Record("fallthrough-past-region");
+                            return false;
+                        }
                         if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
                             return false;
                         i = stop;
@@ -1879,6 +1884,25 @@ public sealed class StructuringPass : IIrPass
         }
         if (RegionExternallyEntered(ctx, target, stop))
             return false;
+        // The arm's paths may reach its end block only when that block is the
+        // join: once moved, falling off the arm continues after the guard's
+        // if/else, not at the block csc laid out next. A last block that falls
+        // through, or a transfer onto the end block that is not a break,
+        // continue, or inlined terminator, keeps the arm where it is.
+        if (stop != joinIndex)
+        {
+            var lastBlock = ctx.Blocks[stop - 1];
+            if (FallsThrough(lastBlock) && lastBlock.Children.LastOrDefault() is not (Break or Continue))
+                return false;
+            if (stop < ctx.Blocks.Count
+                && stop != breakTarget
+                && stop != continueTarget
+                && !IsInlinableTerminator(ctx, stop)
+                && Enumerable.Range(target, stop - target).Any(index => EndsWithTransferTo(ctx, index, stop)))
+            {
+                return false;
+            }
+        }
 
         // The arm is marked before it validates so its own walk reads its
         // back-edges and homes the same way build will; arms planned while
@@ -2680,6 +2704,21 @@ public sealed class StructuringPass : IIrPass
     static bool IsRegionExitLeave(Ctx ctx, Leave leave)
         => ctx.RegionExitLeaveTarget == leave.TargetOffset;
 
+    /// <summary>The block's last statement is a direct branch or conditional branch to <paramref name="targetIndex"/>.</summary>
+    static bool EndsWithTransferTo(Ctx ctx, int blockIndex, int targetIndex)
+    {
+        var children = ctx.Blocks[blockIndex].Children;
+        int targetOffset = children.Count == 0 ? -1 : children[^1] switch
+        {
+            Branch branch => branch.TargetOffset,
+            ConditionalBranch conditional => conditional.TargetOffset,
+            _ => -1,
+        };
+        return targetOffset >= 0
+            && ctx.FlowFacts.OffsetToIndex.TryGetValue(targetOffset, out int target)
+            && target == targetIndex;
+    }
+
     static bool EndsWithBranchTo(Ctx ctx, int blockIndex, int targetIndex)
     {
         if (blockIndex < 0 || blockIndex >= ctx.Blocks.Count)
@@ -2759,11 +2798,20 @@ public sealed class StructuringPass : IIrPass
             {
                 continue;
             }
-            int lastTrue = PreviousWalkIndex(ctx, sharedJoin, trueStart, sharedJoin);
-            if (lastTrue < trueStart || !FallsThrough(blocks[lastTrue]))
+            if (!SiblingFallsIntoJoin(ctx, trueStart, sharedJoin))
                 continue;
+            // Planning a sibling-arm move can take the very block whose
+            // fallthrough proved the join; the proof is re-read after planning
+            // so validation decides on the same walk build will see.
+            var armsBefore = new Dictionary<int, RelocatedArm>(ctx.RelocatedArms);
+            var ownersBefore = new Dictionary<int, RelocatedArm>(ctx.RelocatedBlockOwners);
             if (HasSiblingArmEntry(ctx, falseStart, trueStart, sharedJoin, sharedJoin, breakTarget, continueTarget, regionExitBreakTarget))
                 return null;
+            if (!SiblingFallsIntoJoin(ctx, trueStart, sharedJoin))
+            {
+                RestoreRelocatedArms(ctx, armsBefore, ownersBefore);
+                continue;
+            }
             return sharedJoin;
         }
         return null;
@@ -2778,6 +2826,13 @@ public sealed class StructuringPass : IIrPass
     /// a blocking entry restores them, since the diamond is then not taken.
     /// Blocks already moved into another guard are not this arm's sources.
     /// </summary>
+    /// <summary>The sibling arm's last walked block falls into the shared join.</summary>
+    static bool SiblingFallsIntoJoin(Ctx ctx, int trueStart, int sharedJoin)
+    {
+        int lastTrue = PreviousWalkIndex(ctx, sharedJoin, trueStart, sharedJoin);
+        return lastTrue >= trueStart && FallsThrough(ctx.Blocks[lastTrue]);
+    }
+
     static bool HasSiblingArmEntry(
         Ctx ctx,
         int falseStart,

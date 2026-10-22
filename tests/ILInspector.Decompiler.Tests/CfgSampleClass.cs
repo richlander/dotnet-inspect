@@ -1145,6 +1145,60 @@ public class CfgSampleClass
         return total;
     }
 
+    // A `goto case` onto the next section: csc drops the branch, so the 'a'
+    // body ends with the `if (q) break;` test and falls into the 'b' body.
+    // The 'a' body is a single-entry arm whose range ends at a block it
+    // reaches by fallthrough, and that block is not the dispatch's merge, so
+    // the arm must not move (round 1 of #10494: the shared-join diamond test
+    // read the fallthrough block before the plan moved it and build disagreed).
+    public static int GotoSharedCaseNoLoop(char c, bool q, int r)
+    {
+        switch (c)
+        {
+            case 'a':
+                r |= 1;
+                if (q)
+                    break;
+                goto case 'b';
+            case 'b':
+                r += 7;
+                break;
+            case 'x':
+                r |= 5;
+                break;
+            case 'z':
+                r |= 9;
+                break;
+        }
+        Console.WriteLine(r);
+        r *= 3;
+        return r;
+    }
+
+    // The same shape with a returning target section.
+    public static int GotoReturnCaseNoLoop(char c, bool q, int r)
+    {
+        switch (c)
+        {
+            case 'a':
+                r |= 1;
+                if (q)
+                    break;
+                goto case 'b';
+            case 'b':
+                return 7;
+            case 'x':
+                r |= 5;
+                break;
+            case 'z':
+                r |= 9;
+                break;
+        }
+        Console.WriteLine(r);
+        r *= 3;
+        return r;
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;

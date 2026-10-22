@@ -79,6 +79,26 @@ public class DispatchArmStructuringTests
         Assert.Equal(1, Occurrences(output, "flags |= 4;"));
     }
 
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.GotoSharedCaseNoLoop), "r += 7;")]
+    [InlineData(nameof(CfgSampleClass.GotoReturnCaseNoLoop), "return 7;")]
+    public void GotoCaseOntoNextSection_KeepsTheFallthroughArmInPlace(string methodName, string nextSection)
+    {
+        // The 'a' body ends with the `if (q) break;` test and falls into the
+        // 'b' body, which is not the dispatch's merge, so it is not a movable
+        // arm; the container keeps its valid goto form and prints each body
+        // once. Round 1 of #10494 crashed here: the shared-join diamond test
+        // read the fallthrough block before the sibling-arm plan moved it.
+        var function = Raised(methodName);
+
+        var output = DecidedPrint.Print(function).Output!;
+        Assert.Contains("goto", output);
+        Assert.Equal(1, Occurrences(output, "r |= 1;"));
+        Assert.Equal(1, Occurrences(output, nextSection));
+        Assert.Equal(1, Occurrences(output, "r |= 5;"));
+        Assert.Equal(1, Occurrences(output, "r |= 9;"));
+    }
+
     [Fact]
     public void SparseSwitchArmsRejoin_KeepsSwitchRaise()
     {
