@@ -116,7 +116,10 @@ static partial class FidelityCheck
     /// under the operand rule, and its extents by aligned instruction. A body whose only
     /// difference is a catch Type or a <c>try</c> boundary compared <c>Exact</c> under v5
     /// and does not under v6, so corpus numbers move, strictly toward fewer <c>Exact</c>
-    /// rows; the rows that move are the EH-blind population #9942 names.
+    /// rows; the rows that move are the EH-blind population #9942 names. The
+    /// contract set does not adopt <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/>
+    /// (#10373): compile-back recompiles against the original's own references, so
+    /// a non-platform reference identity difference is evidence, not noise.
     /// </para>
     /// </remarks>
     internal const int CurrentContractVersion = 6;
