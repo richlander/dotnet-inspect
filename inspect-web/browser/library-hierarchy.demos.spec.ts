@@ -221,10 +221,11 @@ async function installHomeDemo(
   page: Page,
   section: "Methods" | "Call Graph",
   focusKind: "package" | "platform",
-  ecosystemAdmission?: {
+  options?: {
     holdAdmission?: boolean;
     holdPostingRecord?: boolean;
     holdAcknowledgement?: boolean;
+    holdResolution?: boolean;
   },
 ): Promise<string> {
   const id = `${focusKind}-${section === "Methods" ? "methods" : "graph"}`;
@@ -247,12 +248,13 @@ async function installHomeDemo(
         [id]: homeDemoResolution(id, section, focusKind),
       },
       results: { [id]: homeDemoResult(section, focusKind) },
+      ...(options?.holdResolution ? { resolutionPending: true } : {}),
     },
     undefined,
     undefined,
     undefined,
     undefined,
-    ecosystemAdmission);
+    options);
   return id;
 }
 
@@ -763,6 +765,81 @@ test("package Methods demo retains all resolved coordinates and restores its exa
     .toBeVisible();
   await expect(page.getByRole("button", { name: /Inspect Example\.Package/ }))
     .toBeVisible();
+});
+
+test("Methods demo Forward reactivates an inactive retained definition", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package");
+  const demo = page.locator(`[data-workspace-demo="${id}"]`);
+  await page.goto("/demos");
+  await demo.click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await demo.click();
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+
+  await page.goBack();
+  await expect(page).toHaveURL(`/demos?demo=${id}`);
+  await expect(page.locator(".loading-screen")).toHaveCount(0);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+});
+
+test("superseded Methods demo resolution cannot replace Back navigation", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package", {
+    holdResolution: true,
+  });
+  await page.goto("/");
+  await openProductDestination(page, "demos");
+  await expect(page).toHaveURL("/demos");
+  await page.locator(`[data-workspace-demo="${id}"]`).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-resolution-pending",
+    "true",
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await releaseFacade(page, "finish-home-demo-resolution");
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-resolution-pending",
+    "false",
+  );
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-home-demo-prepare");
+  await expect(page.locator("#home-demos")).toBeVisible();
+});
+
+test("Methods demo definition capacity failure restores the catalog", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package");
+  const demo = page.locator(`[data-workspace-demo="${id}"]`);
+  await page.goto("/demos");
+  for (let index = 0; index < 4; index++) {
+    await demo.click();
+    await expect(page).toHaveURL(`/demos?demo=${id}`);
+    await page.getByRole("link", { name: "Demos", exact: true }).click();
+    await expect(page).toHaveURL("/demos");
+  }
+
+  await demo.click();
+
+  await expect(page).toHaveURL("/demos");
+  await expect(page.locator(".loading-screen")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Demos", exact: true }))
+    .toBeVisible();
+  await expect(page.locator(".query-notice-text"))
+    .toContainText("retains at most 4 Workspace definitions");
 });
 
 test("package Call Graph demo applies the returned member and graph", async ({

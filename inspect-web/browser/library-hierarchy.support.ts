@@ -350,6 +350,7 @@ interface HomeDemoFixture {
   resolutions?: Readonly<Record<string, BrowserHomeDemoResolved>>;
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
   catalogPending?: boolean;
+  resolutionPending?: boolean;
 }
 
 interface DiagnosticsFixture {
@@ -3325,6 +3326,8 @@ async function installFacades(
       const homeDemoResolutions =
         ${JSON.stringify(homeDemos?.resolutions ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
+      let holdNextHomeDemoResolution =
+        ${Boolean(homeDemos?.resolutionPending)};
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
       let preparedRetainedWorkspace = null;
@@ -3893,8 +3896,15 @@ async function installFacades(
         }
         return { demos: homeDemos };
       }
-      export function resolveHomeDemo(id) {
+      export async function resolveHomeDemo(id) {
         document.documentElement.dataset.homeDemoResolve = id;
+        if (holdNextHomeDemoResolution) {
+          holdNextHomeDemoResolution = false;
+          document.documentElement.dataset.homeDemoResolutionPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-resolution", resolve, { once: true }));
+          document.documentElement.dataset.homeDemoResolutionPending = "false";
+        }
         return {
           found: homeDemoResolutions[id] !== undefined,
           demo: homeDemoResolutions[id] ?? null,

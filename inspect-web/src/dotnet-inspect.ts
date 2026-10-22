@@ -19638,6 +19638,7 @@ async function resolveAndRunHomeDemo(
   kind: ProductHomeDemoId,
   locationPolicy: HomeDemoLocationPolicy = "push",
 ): Promise<void> {
+  const navigationSeq = navigationSequence.begin();
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
   state.loading = true;
@@ -19649,6 +19650,7 @@ async function resolveAndRunHomeDemo(
   try {
     demo = await resolveProductHomeDemo(kind);
   } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     failWorkspaceCatalogAction(
       `Demo failed: ${errorMessage(error)}`,
       null,
@@ -19658,101 +19660,111 @@ async function resolveAndRunHomeDemo(
     return;
   }
 
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   if (demo.view.section === "Methods") {
-    await activateMethodsHomeDemo(demo, locationPolicy);
+    await activateMethodsHomeDemo(demo, locationPolicy, navigationSeq);
     return;
   }
-  await runCompatibilityHomeDemo(kind);
+  await runCompatibilityHomeDemo(kind, navigationSeq);
 }
 
 async function activateMethodsHomeDemo(
   demo: BrowserHomeDemoResolved,
   locationPolicy: HomeDemoLocationPolicy,
+  navigationSeq: number,
 ): Promise<void> {
   const controller = requireRetainedWorkspaceActivation();
-  const navigationSeq = navigationSequence.begin();
   const destination = homeDemoCanonicalLocation(demo.id);
-  const locationIntent = retainedLocationIntents.admitNonBrowser(
-    locationPolicy,
-    installedRetainedLocation,
-    history,
-  );
-  const definition = controller.retain({
-    label: demo.title,
-    canonicalLocation: destination,
-    homeDemo: { id: demo.id },
-  });
-  issuedManagedRetainedDefinitionIds.add(definition.id);
-
-  let result: BrowserRetainedWorkspaceActivationResult;
+  let definitionId: string | null = null;
+  let locationIntent: LocationIntentDeclaration | null = null;
   try {
+    const admittedLocationIntent = retainedLocationIntents.admitNonBrowser(
+      locationPolicy,
+      installedRetainedLocation,
+      history,
+    );
+    locationIntent = admittedLocationIntent;
+    const definition = controller.retain({
+      label: demo.title,
+      canonicalLocation: destination,
+      homeDemo: { id: demo.id },
+    });
+    definitionId = definition.id;
+    issuedManagedRetainedDefinitionIds.add(definition.id);
     const activation = controller.activate(
       definition.id,
       () => navigationSequence.isCurrent(navigationSeq)
-        && retainedLocationIntents.currentIntentId === locationIntent.id,
+        && retainedLocationIntents.currentIntentId
+          === admittedLocationIntent.id,
       posting => installMethodsHomeDemoPosting(
         posting,
         demo,
-        locationIntent,
+        admittedLocationIntent,
       ),
       undefined,
       undefined,
       posting => navigationSequence.isCurrent(navigationSeq)
         && retainedLocationPresentationCurrent(
-          locationIntent,
+          admittedLocationIntent,
           posting.canonicalLocation,
         ),
     );
     render({ synchronizeUrl: false });
-    result = await activation;
+    const result = await activation;
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (result.status === "failed") {
+      failedManagedRetainedDefinitionId = definition.id;
+      realignRetainedLocationIntent(admittedLocationIntent, "failed");
+      failWorkspaceCatalogAction(
+        `Demo failed: ${
+          result.failure?.message
+            ?? "The product demo Workspace could not be activated."
+        }`,
+        null,
+        () => runHomeDemo(demo.id),
+        () => restoreWorkspaceFocus(document, { kind: "demo", id: demo.id }),
+      );
+      return;
+    }
+    if (result.status === "activated" || result.status === "noEffect") {
+      failedManagedRetainedDefinitionId = null;
+      completeRetainedActivationPresentation(
+        result,
+        admittedLocationIntent,
+        navigationSeq,
+      );
+      clearWorkspaceFeedIdentity();
+    }
   } catch (error) {
-    failedManagedRetainedDefinitionId = definition.id;
-    realignRetainedLocationIntent(locationIntent, "failed");
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    if (definitionId !== null) {
+      failedManagedRetainedDefinitionId = definitionId;
+    }
+    if (locationIntent !== null) {
+      realignRetainedLocationIntent(locationIntent, "failed");
+    }
     failWorkspaceCatalogAction(
       `Demo failed: ${errorMessage(error)}`,
       null,
       () => runHomeDemo(demo.id),
       () => restoreWorkspaceFocus(document, { kind: "demo", id: demo.id }),
     );
-    return;
-  }
-
-  if (result.status === "failed") {
-    failedManagedRetainedDefinitionId = definition.id;
-    realignRetainedLocationIntent(locationIntent, "failed");
-    failWorkspaceCatalogAction(
-      `Demo failed: ${
-        result.failure?.message
-          ?? "The product demo Workspace could not be activated."
-      }`,
-      null,
-      () => runHomeDemo(demo.id),
-      () => restoreWorkspaceFocus(document, { kind: "demo", id: demo.id }),
-    );
-    return;
-  }
-  if (result.status === "activated" || result.status === "noEffect") {
-    failedManagedRetainedDefinitionId = null;
-    completeRetainedActivationPresentation(
-      result,
-      locationIntent,
-      navigationSeq,
-    );
-    clearWorkspaceFeedIdentity();
   }
 }
 
 async function runCompatibilityHomeDemo(
   kind: ProductHomeDemoId,
+  navigationSeq: number,
 ): Promise<void> {
   if (!canPublishRetainedWorkspace()) {
+    state.loading = false;
     appendQueryNotice(retainedWorkspaceCapacityMessage(), null);
     render({ synchronizeUrl: false });
     return;
   }
   state.queryNotice = "";
   state.queryNoticeRetryAction = null;
-  const navigationSeq = beginDemoNavigation(location.href);
+  stageDemoNavigation(navigationSeq, location.href);
   const snapshot = captureCanonicalWorkspaceRestoreSnapshot();
   try {
     state.loading = true;
@@ -29179,6 +29191,9 @@ window.addEventListener("popstate", () => {
             result.failure?.message
               ?? "Could not restore the retained Workspace.",
           );
+        } else if (result.status === "activated"
+          || result.status === "noEffect") {
+          restoredActiveManagedWorkspace = true;
         }
       }
     } catch (error) {

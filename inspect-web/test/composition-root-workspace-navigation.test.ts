@@ -677,6 +677,18 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /typeLensesFor\(pkg, Boolean\(forwarder\)\)[\s\S]*deep\.section && !hasPortableMember/);
 });
 
+test("inactive managed history activation continues to final presentation", () => {
+  const history = appSource.match(
+    /window\.addEventListener\("popstate"[\s\S]*?\n}\);/)?.[0] ?? "";
+
+  assert.match(
+    history,
+    /const result = await requireRetainedWorkspaceActivation\(\)\.activate\([\s\S]*if \(result\.status === "failed"\)[\s\S]*else if \(result\.status === "activated"[\s\S]*restoredActiveManagedWorkspace = true/);
+  assert.match(
+    history,
+    /if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(restoredActiveManagedWorkspace[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*return;/);
+});
+
 test("initial workspace packet resolution waits for the engine phase", () => {
   assert.match(
     appSource,
@@ -913,14 +925,17 @@ test("home demos execute typed results and commit canonical navigation", () => {
     ?? "";
   assert.match(
     resolveDemo,
-    /demo = await resolveProductHomeDemo\(kind\);[\s\S]*if \(demo\.view\.section === "Methods"\) \{\s*await activateMethodsHomeDemo\(demo, locationPolicy\);[\s\S]*await runCompatibilityHomeDemo\(kind\)/);
+    /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*demo = await resolveProductHomeDemo\(kind\);[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(demo\.view\.section === "Methods"\) \{\s*await activateMethodsHomeDemo\(demo, locationPolicy, navigationSeq\);[\s\S]*await runCompatibilityHomeDemo\(kind, navigationSeq\)/);
+  assert.match(
+    resolveDemo,
+    /catch \(error\) \{\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*failWorkspaceCatalogAction\(/);
   assert.match(
     retainedMethods,
-    /const destination = homeDemoCanonicalLocation\(demo\.id\);[\s\S]*controller\.retain\(\{[\s\S]*homeDemo: \{ id: demo\.id \},[\s\S]*controller\.activate\([\s\S]*installMethodsHomeDemoPosting\([\s\S]*completeRetainedActivationPresentation\(/);
+    /navigationSeq: number,[\s\S]*const destination = homeDemoCanonicalLocation\(demo\.id\);[\s\S]*try \{[\s\S]*controller\.retain\(\{[\s\S]*homeDemo: \{ id: demo\.id \},[\s\S]*controller\.activate\([\s\S]*installMethodsHomeDemoPosting\([\s\S]*completeRetainedActivationPresentation\(/);
   assert.doesNotMatch(retainedMethods, /runEngineHomeDemo|inspectRunHomeDemo/);
   assert.match(
     compatibilityDemo,
-    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);[\s\S]*prepareUnpublishedWorkspace\(\);\s*await runEngineHomeDemo\(\s*kind,\s*construction\.rollbackSnapshot \?\? snapshot,\s*construction\.retainedSnapshot,\s*navigationSeq,[\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\)/);
+    /navigationSeq: number,[\s\S]*stageDemoNavigation\(navigationSeq, location\.href\);[\s\S]*const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);[\s\S]*prepareUnpublishedWorkspace\(\);\s*await runEngineHomeDemo\(\s*kind,\s*construction\.rollbackSnapshot \?\? snapshot,\s*construction\.retainedSnapshot,\s*navigationSeq,[\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\)/);
   const restoreWorkspace =
     appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failWorkspaceRoute/)?.[0]
     ?? "";
