@@ -78,42 +78,44 @@ public sealed class EcosystemDependencyRecognitionProfileTests
     }
 
     [Theory]
-    [InlineData("System.Text.Json", true)]
-    [InlineData("Microsoft.Extensions.Logging", true)]
-    [InlineData("Microsoft.AspNetCore.Http", true)]
-    [InlineData("Microsoft.JSInterop", true)]
-    [InlineData("Microsoft.Net.Http.Headers", true)]
-    [InlineData("WindowsBase", true)]
-    [InlineData("Aspire.Hosting", false)]
-    [InlineData("Microsoft.Maui.Controls", false)]
-    [InlineData("Microsoft.Agents.AI", false)]
-    [InlineData("Microsoft.Azure.SignalR", false)]
-    public void AssemblyAssociationQueryExpandsOnlySelectedLineages(
+    [InlineData("System.Text.Json", "ecosystem.runtime", true)]
+    [InlineData("Microsoft.Extensions.Logging", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Microsoft.Extensions.AI", "ecosystem.microsoft-extensions", true)]
+    [InlineData("Microsoft.AspNetCore.Http", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.AspNetCore.Components.WebAssembly", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.JSInterop", "ecosystem.aspnetcore", true)]
+    [InlineData("Microsoft.Net.Http.Headers", "ecosystem.aspnetcore", true)]
+    [InlineData("WindowsBase", "ecosystem.runtime", true)]
+    [InlineData("Aspire.Hosting", "ecosystem.aspire", false)]
+    [InlineData("Microsoft.Maui.Controls", "ecosystem.maui", false)]
+    [InlineData("Microsoft.Agents.AI", "ecosystem.ai", false)]
+    [InlineData("Microsoft.Authentication.WebAssembly", "ecosystem.blazor", false)]
+    [InlineData("Microsoft.Azure.SignalR", null, false)]
+    public void AssemblyNameClaimReturnsFirstEcosystemAndPlatformPolicy(
         string assemblyName,
-        bool expected)
+        string? expectedEcosystem,
+        bool expectedPlatformSearch)
     {
+        EcosystemDependencyDescriptor? claim =
+            EcosystemPackCatalog.FindAssemblyNameClaim(assemblyName);
+
         Assert.Equal(
-            expected,
-            EcosystemPackCatalog.HasAssemblyNameAssociation(
-                assemblyName,
-                [
-                    EcosystemPackIds.Runtime,
-                    EcosystemPackIds.AspNetCore,
-                ]));
+            expectedEcosystem,
+            claim?.Id.Value);
+        Assert.Equal(
+            expectedPlatformSearch,
+            EcosystemPackCatalog.ShouldSearchPlatform(assemblyName));
     }
 
     [Fact]
-    public void AssemblyAssociationQueryCanSelectAdditionalEcosystems()
+    public void EcosystemDirectlyAnswersItsAssemblyNameClaims()
     {
-        Assert.True(EcosystemPackCatalog.HasAssemblyNameAssociation(
-            "Aspire.Hosting",
-            [EcosystemPackIds.Aspire]));
-        Assert.True(EcosystemPackCatalog.HasAssemblyNameAssociation(
-            "Microsoft.Maui.Controls",
-            [EcosystemPackIds.Maui]));
-        Assert.True(EcosystemPackCatalog.HasAssemblyNameAssociation(
-            "Microsoft.Agents.AI",
-            [EcosystemPackIds.AI]));
+        EcosystemDependencyProfileEntry aspire = Assert.Single(
+            EcosystemPackCatalog.DependencyRecognitionProfile.Entries,
+            entry => entry.Ecosystem.Id == EcosystemPackIds.Aspire);
+
+        Assert.True(aspire.ClaimsAssemblyName("Aspire.Hosting"));
+        Assert.False(aspire.ClaimsAssemblyName("System.Text.Json"));
     }
 
     [Fact]

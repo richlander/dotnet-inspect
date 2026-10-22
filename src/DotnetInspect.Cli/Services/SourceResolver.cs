@@ -1,4 +1,5 @@
 using DotnetInspect.Cli.CommandLine;
+using DotnetInspector.Ecosystems;
 using ILInspector.Metadata;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
@@ -282,7 +283,7 @@ public static class SourceResolver
             if (!candidate.Contains('.'))
                 continue;
 
-            if (!PlatformEcosystemAdmission.HasAssemblyName(candidate))
+            if (!EcosystemPackCatalog.ShouldSearchPlatform(candidate))
                 continue;
 
             var (path, _, _, _) = PlatformResolver.ResolveAssembly(candidate);
@@ -586,7 +587,7 @@ public static class SourceResolver
                 var (bareName, explicitVersion) = PackageExtractor.ParsePackageReference(packagePath);
 
                 // Try platform resolution for whole name (can go remote for platform candidates)
-                if (PlatformEcosystemAdmission.HasAssemblyName(bareName))
+                if (EcosystemPackCatalog.ShouldSearchPlatform(bareName))
                 {
                     var client = HttpClientFactory.Shared;
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);

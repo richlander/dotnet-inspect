@@ -5,6 +5,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -2118,13 +2119,13 @@ public class CommandLineTests
     [InlineData("mscorlib", true)]       // legacy runtime assembly
     [InlineData("netstandard", true)]    // netstandard facade
     [InlineData("WindowsBase", true)]    // WPF foundation
-    public void PlatformEcosystemAdmission_ReturnsExpected(
+    public void HostNeutralEcosystemPolicy_ReturnsExpectedPlatformSearch(
         string name,
         bool expected)
     {
         Assert.Equal(
             expected,
-            PlatformEcosystemAdmission.HasAssemblyName(name));
+            EcosystemPackCatalog.ShouldSearchPlatform(name));
     }
 
     [Theory]

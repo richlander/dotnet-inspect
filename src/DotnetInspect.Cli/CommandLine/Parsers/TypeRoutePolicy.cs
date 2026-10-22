@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Services;
+using DotnetInspector.Ecosystems;
 
 namespace DotnetInspect.Cli.CommandLine;
 
@@ -66,5 +67,5 @@ internal static class TypeRoutePolicy
     private static bool IsImplicitPlatformPrefixQuery(string[] args, bool hasExplicitSource)
         => !hasExplicitSource
            && args.Length == 1
-           && PlatformEcosystemAdmission.HasAssemblyName(args[0]);
+           && EcosystemPackCatalog.ShouldSearchPlatform(args[0]);
 }

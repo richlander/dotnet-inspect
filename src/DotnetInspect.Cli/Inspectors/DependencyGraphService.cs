@@ -1,6 +1,7 @@
 using ILInspector.CSharp;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -291,8 +292,7 @@ internal static class DependencyGraphService
                     ownedAssemblySet.Assemblies.FirstOrDefault();
                 assemblyPath = selectedAssembly?.Path;
             }
-            else if (DotnetInspect.Cli.CommandLine.PlatformEcosystemAdmission
-                         .HasAssemblyName(libraryName))
+            else if (EcosystemPackCatalog.ShouldSearchPlatform(libraryName))
             {
                 if (requestedTfm is not null
                     && !PlatformResolver

@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -757,7 +758,7 @@ public class PlatformResolverTests
     /// association in the Ecosystem lineages selected for Platform resolution.
     /// </summary>
     [Fact]
-    public void PlatformEcosystemAdmission_CoversAllRefPackAssemblies()
+    public void EcosystemPlatformSearchPolicy_CoversAllRefPackAssemblies()
     {
         // Check installed packs on disk
         var packsDir = FindAnyRefPacksDirectory();
@@ -790,7 +791,7 @@ public class PlatformResolverTests
         List<string> uncovered = [];
         foreach (var name in dllFiles)
         {
-            if (!PlatformEcosystemAdmission.HasAssemblyName(name))
+            if (!EcosystemPackCatalog.ShouldSearchPlatform(name))
             {
                 uncovered.Add(name);
             }

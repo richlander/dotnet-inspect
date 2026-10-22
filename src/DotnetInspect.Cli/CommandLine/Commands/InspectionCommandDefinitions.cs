@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -802,7 +803,7 @@ public static class InspectionCommandDefinitions
                     assemblyPath = source;
                 }
                 else if (!source.Contains('@')
-                    && PlatformEcosystemAdmission.HasAssemblyName(source))
+                    && EcosystemPackCatalog.ShouldSearchPlatform(source))
                 {
                     // Platform-preferred routing for selected Ecosystem associations.
                     bool verbose = parseResult.GetValue(opts.Verbose);

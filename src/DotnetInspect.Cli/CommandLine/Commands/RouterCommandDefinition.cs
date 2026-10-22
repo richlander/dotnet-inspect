@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
@@ -663,7 +664,7 @@ public static class RouterCommandDefinition
                 || hasLibraryValue;
 
             var context = new CommandContext(verbose: false);
-            if (PlatformEcosystemAdmission.HasAssemblyName(target))
+            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
             {
                 var (resolvedPath, resolvedFramework, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
                     target,
@@ -696,7 +697,7 @@ public static class RouterCommandDefinition
             }
 
             var allowPlatformPrefixFallback =
-                PlatformEcosystemAdmission.HasAssemblyName(target);
+                EcosystemPackCatalog.ShouldSearchPlatform(target);
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
             bool completeLocatorMiss = false;
@@ -1021,7 +1022,7 @@ public static class RouterCommandDefinition
                     tail,
                     completeLocatorMiss);
 
-            if (PlatformEcosystemAdmission.HasAssemblyName(target))
+            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
             {
                 if (await PackageExistsAsync(target, sourceOptions, context))
                     return ["package", .. tokens];
@@ -1370,7 +1371,7 @@ public static class RouterCommandDefinition
             if (!structuralSchema
                 && !ContainsHelpOption(tokens)
                 && target.Contains('.')
-                && !PlatformEcosystemAdmission.HasAssemblyName(target))
+                && !EcosystemPackCatalog.ShouldSearchPlatform(target))
             {
                 rewritten = [PackageCommand.Name, .. tokens];
                 return true;

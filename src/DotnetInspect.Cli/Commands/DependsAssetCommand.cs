@@ -7,6 +7,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -665,7 +666,7 @@ public partial class DependsCommand
     {
         if (File.Exists(library))
             return false;
-        if (!PlatformEcosystemAdmission.HasAssemblyName(library))
+        if (!EcosystemPackCatalog.ShouldSearchPlatform(library))
             return true;
         return !CanResolveInstalledPlatformLibrary(
             library,
@@ -689,7 +690,7 @@ public partial class DependsCommand
         string library,
         string? targetFramework)
     {
-        if (!PlatformEcosystemAdmission.HasAssemblyName(library))
+        if (!EcosystemPackCatalog.ShouldSearchPlatform(library))
             return false;
         if (targetFramework is null)
         {

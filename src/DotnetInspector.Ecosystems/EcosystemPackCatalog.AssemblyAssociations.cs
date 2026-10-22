@@ -3,35 +3,28 @@ namespace DotnetInspector.Ecosystems;
 public static partial class EcosystemPackCatalog
 {
     /// <summary>
-    /// Returns whether an assembly simple name matches an authored association
-    /// in any selected ecosystem lineage.
+    /// Returns the first product-ordered ecosystem that authors an
+    /// assembly-name claim, or null when no shipped ecosystem claims it.
     /// </summary>
-    public static bool HasAssemblyNameAssociation(
-        string assemblyName,
-        IEnumerable<EcosystemPackId> ecosystems)
+    public static EcosystemDependencyDescriptor? FindAssemblyNameClaim(
+        string assemblyName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
-        ArgumentNullException.ThrowIfNull(ecosystems);
-
-        HashSet<EcosystemPackId> selected =
-        [
-            .. ProductEcosystemPacks.Registry.ExpandLineages(ecosystems),
-        ];
         foreach (EcosystemDependencyProfileEntry entry in
                  DependencyRecognitionProfile.Entries)
         {
-            if (!selected.Contains(entry.Ecosystem.Id))
-                continue;
-
-            if (entry.Associations.Any(association =>
-                    association.Matches(
-                        EcosystemDependencyIdentityDomain.AssemblyName,
-                        assemblyName)))
-            {
-                return true;
-            }
+            if (entry.ClaimsAssemblyName(assemblyName))
+                return entry.Ecosystem;
         }
 
-        return false;
+        return null;
     }
+
+    /// <summary>
+    /// Returns whether the first ecosystem claiming an assembly name belongs
+    /// to the product's platform-curated lineage.
+    /// </summary>
+    public static bool ShouldSearchPlatform(string assemblyName) =>
+        FindAssemblyNameClaim(assemblyName) is { } ecosystem
+        && ProductEcosystemPacks.PlatformEcosystems.Contains(ecosystem.Id);
 }

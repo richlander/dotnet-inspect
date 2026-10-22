@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Commands;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
@@ -565,7 +566,7 @@ internal static class PlatformTypeLocatorRouting
             in typeRequests)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!PlatformEcosystemAdmission.TryParseQualifiedTypeName(
+            if (!TrySplitPlatformQualifiedTypeName(
                     request.TypePattern,
                     out string assemblyName,
                     out string pattern)
@@ -601,6 +602,39 @@ internal static class PlatformTypeLocatorRouting
                 new TypeDeclarationLocatorRequest.Pattern(
                     typePattern));
         }
+    }
+
+    private static bool TrySplitPlatformQualifiedTypeName(
+        string qualifiedName,
+        out string assemblyName,
+        out string typeName)
+    {
+        assemblyName = null!;
+        typeName = null!;
+
+        if (qualifiedName.Count(static character => character == '.') < 2)
+            return false;
+
+        for (int index = qualifiedName.Length - 1; index >= 0; index--)
+        {
+            if (qualifiedName[index] != '.')
+                continue;
+
+            string candidateAssembly = qualifiedName[..index];
+            string candidateType = qualifiedName[(index + 1)..];
+            if (candidateAssembly.Length == 0
+                || candidateType.Length == 0
+                || !EcosystemPackCatalog.ShouldSearchPlatform(candidateAssembly))
+            {
+                continue;
+            }
+
+            assemblyName = candidateAssembly;
+            typeName = candidateType;
+            return true;
+        }
+
+        return false;
     }
 
     private static bool IsAssemblyOwnedByTarget(
