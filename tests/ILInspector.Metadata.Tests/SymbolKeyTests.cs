@@ -92,7 +92,7 @@ public sealed class SymbolKeyTests
     {
         using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
         MetadataReader md = pe.GetMetadataReader();
-        var keys = new SymbolKeyBuilder<TestPart> { Names = new MetadataStringHeap(pe, md) };
+        var keys = new SymbolKeyBuilder<TestPart> { Names = new MetadataStringHeap(md) };
         int compared = 0;
         foreach (StringHandle handle in md.TypeDefinitions
             .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])

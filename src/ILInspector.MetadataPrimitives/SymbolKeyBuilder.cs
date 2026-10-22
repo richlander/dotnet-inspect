@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 using InertText;
@@ -195,8 +196,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     {
         MetadataStringHeap names = Names
             ?? throw new InvalidOperationException("The builder has no #Strings heap to copy names from.");
-        int length = names.Length(handle);
-        return Name(names.Bytes(handle, length));
+        return Name(names.Bytes(handle));
     }
 
     /// <summary>A name written as the given UTF-8 bytes.</summary>
@@ -357,6 +357,28 @@ public sealed class SymbolKeyBuilder<TDomain>
         _generation++;
         return population;
     }
+
+    /// <summary>
+    /// Sorts staged keys of this population by their bytes, the order
+    /// <see cref="StagedSymbolKey{TDomain}.CompareTo"/> defines, resolving the
+    /// storage once for the sort rather than once per comparison.
+    /// </summary>
+    public void Sort(List<StagedSymbolKey<TDomain>> keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        Span<StagedSymbolKey<TDomain>> span = CollectionsMarshal.AsSpan(keys);
+        foreach (ref readonly StagedSymbolKey<TDomain> key in span)
+        {
+            if (!key.IsStagedIn(this) || key.Generation != _generation)
+                throw new ArgumentException("Every sorted key is staged in this population.", nameof(keys));
+        }
+        span.Sort(_order ??= CompareStaged);
+    }
+
+    Comparison<StagedSymbolKey<TDomain>>? _order;
+
+    int CompareStaged(StagedSymbolKey<TDomain> x, StagedSymbolKey<TDomain> y)
+        => _scratch.AsSpan(x.Offset, x.Length).SequenceCompareTo(_scratch.AsSpan(y.Offset, y.Length));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ReadOnlySpan<byte> Staged(int generation, int offset, int length)

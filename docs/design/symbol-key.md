@@ -162,15 +162,18 @@ both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A later domain may replace repeated
 embedded keys with `Ref` parts when it adopts interning.
 
-Finding Diff Any keeps two builders per side. Its reference keys, Types,
+Finding Diff Any keeps three builders per side. Its reference keys, Types,
 members, and signature types, memoized per token, are staged in a retained
 builder and frozen into shared backings in chunks at unit boundaries; the
 unit table's lookup keys are resolved to views at each chunk's freeze, and a
 dictionary keyed by frozen keys answers staged lookups through the alternate
-lookup of `SymbolKeyComparer<TDomain>`. Its per-unit census facts and member
-keys are staged in a transient builder, sorted and compared as staged keys
-against the other side's, and discarded after the unit, so no fact key is
-copied into storage of its own.
+lookup of `SymbolKeyComparer<TDomain>`. Signature-type composites built while
+one key decodes are staged in a scratch builder and discarded when that build
+completes. Its per-unit census facts and member keys are staged in a
+transient builder, sorted by that builder, which resolves its storage once
+for the sort rather than once per comparison, compared as staged keys against
+the other side's, and discarded after the unit, so no fact key is copied into
+storage of its own.
 
 Names enter through three sources:
 

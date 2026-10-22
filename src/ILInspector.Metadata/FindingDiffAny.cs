@@ -937,7 +937,7 @@ public static class FindingDiffAny
             Pe = pe;
             Md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
-            Names = new MetadataStringHeap(pe, Md);
+            Names = new MetadataStringHeap(Md);
             Retained = new SymbolKeyBuilder<FindingDiffAnyPart>(RetainedChunkBytes) { Names = Names };
             Transient = new SymbolKeyBuilder<FindingDiffAnyPart>(16 * 1024) { Names = Names };
             Scratch = new SymbolKeyBuilder<FindingDiffAnyPart>(4 * 1024) { Names = Names };
@@ -992,7 +992,7 @@ public static class FindingDiffAny
                 throw new InvalidOperationException("A Finding Diff Any comparison continues over the same images.");
             Pe = pe;
             Md = md;
-            Names = new MetadataStringHeap(pe, md);
+            Names = new MetadataStringHeap(md);
             Retained.Names = Names;
             Transient.Names = Names;
             Scratch.Names = Names;
@@ -1230,7 +1230,7 @@ public static class FindingDiffAny
             if (!visible)
                 return census;
             census.AddRange(VisibleFacts(unit).Where(fact => !IsNonApi(fact)));
-            census.Sort();
+            Transient.Sort(census);
             return census;
         }
 
@@ -1263,7 +1263,7 @@ public static class FindingDiffAny
                 foreach ((KeyRef key, MethodDefinitionHandle method) in generatedMethods)
                     AddMethod(methods, key, method);
             }
-            census.Sort();
+            Transient.Sort(census);
             return census;
         }
 

@@ -253,7 +253,7 @@ public sealed class FindingDiffAnyIdentityTests
     {
         using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
         MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
-        var names = new MetadataStringHeap(pe, md);
+        var names = new MetadataStringHeap(md);
         IEnumerable<StringHandle> handles = md.TypeDefinitions
             .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])
             .Concat(md.MethodDefinitions.Select(method => md.GetMethodDefinition(method).Name))
