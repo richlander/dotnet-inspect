@@ -622,6 +622,60 @@ internal sealed class ExceptionFlowTopology
         ImmutableArray<DecodedInstruction> instructions,
         MethodBodyData body)
     {
+        if (TryDescribe(
+                body,
+                out ImmutableArray<ExceptionFlowClauseDescriptor> descriptors)
+            is { } invalid)
+        {
+            return invalid;
+        }
+
+        return Build(
+            ilLength,
+            instructions,
+            descriptors,
+            body.EvidenceId);
+    }
+
+    /// <summary>
+    /// Whether the body's exception clauses form the topology that
+    /// <see cref="Create(int, ImmutableArray{DecodedInstruction}, MethodBodyData)"/>
+    /// accepts at the admitted instruction boundaries, so the block graph it
+    /// builds can be complete.
+    /// </summary>
+    /// <param name="admitted">
+    /// One bit per IL offset, set at each instruction start that does not
+    /// follow a prefix; the end of the IL is always admitted.
+    /// </param>
+    internal static bool IsValidTopology(
+        MethodBodyData body,
+        ulong[] admitted)
+    {
+        if (TryDescribe(
+                body,
+                out ImmutableArray<ExceptionFlowClauseDescriptor> descriptors)
+            is not null)
+        {
+            return false;
+        }
+        if (descriptors.IsEmpty)
+            return true;
+
+        int length = body.IL.Length;
+        return TryShape(
+                descriptors,
+                offset => offset == length
+                    || ((uint)offset < (uint)length
+                        && (admitted[offset >> 6] & (1UL << (offset & 63))) != 0),
+                out _)
+            is null;
+    }
+
+    static ExceptionFlowTopology? TryDescribe(
+        MethodBodyData body,
+        out ImmutableArray<ExceptionFlowClauseDescriptor> descriptors)
+    {
+        descriptors = [];
         MethodExceptionRegionCatalog catalog = body.ExceptionRegionCatalog;
         if (catalog.Body != body.EvidenceId
             || catalog.Clauses.Any(clause => clause.Id.Body != body.EvidenceId))
@@ -631,7 +685,7 @@ internal sealed class ExceptionFlowTopology
                 "Method body and clause identities do not describe one observation.");
         }
 
-        ImmutableArray<ExceptionFlowClauseDescriptor> descriptors =
+        descriptors =
             [.. catalog.Clauses.Select(clause => new ExceptionFlowClauseDescriptor(
                 clause.Id.Ordinal,
                 clause.Kind,
@@ -645,12 +699,7 @@ internal sealed class ExceptionFlowTopology
                     ? new ExceptionFlowExtent(filter.Start, filter.End)
                     : null,
                 clause))];
-
-        return Build(
-            ilLength,
-            instructions,
-            descriptors,
-            body.EvidenceId);
+        return null;
     }
 
     static ExceptionFlowTopology Build(
@@ -660,6 +709,119 @@ internal sealed class ExceptionFlowTopology
         MethodBodyEvidenceId? body)
     {
         HashSet<int> boundaries = AdmittedBoundaries(instructions, ilLength);
+        if (TryShape(clauses, boundaries.Contains, out TopologyShape shape)
+            is { } invalid)
+        {
+            return invalid;
+        }
+
+        ImmutableArray<ExceptionFlowTopologyRegion> topology = shape.Topology;
+        Dictionary<ExceptionFlowExtent, int> protectedOrdinals = shape.ProtectedOrdinals;
+        Dictionary<int, int> handlerOrdinals = shape.HandlerOrdinals;
+        Dictionary<int, int> filterOrdinals = shape.FilterOrdinals;
+
+        ImmutableArray<ExceptionRegionModel> models =
+            [.. clauses
+                .OrderBy(clause => clause.Ordinal)
+                .Select(clause => new ExceptionRegionModel(
+                    ToHandlerKind(clause.Kind),
+                    clause.Protected.Start,
+                    clause.Protected.End,
+                    clause.Handler.Start,
+                    clause.Handler.End,
+                    clause.Filter?.Start ?? -1,
+                    clause.Filter?.End ?? -1))];
+
+        ImmutableArray<InstructionExceptionRegion> issuedRegions = [];
+        ImmutableArray<InstructionExceptionClause> issuedClauses = [];
+        if (body is { } evidence)
+        {
+            var issuedRegionBuilder =
+                ImmutableArray.CreateBuilder<InstructionExceptionRegion>(topology.Length);
+            foreach (ExceptionFlowTopologyRegion region in topology)
+            {
+                MethodExceptionClause firstClause =
+                    clauses[region.ClauseOrdinals[0]].Clause!;
+                MethodBodyExtent extent = region.Role switch
+                {
+                    InstructionExceptionRegionRole.Protected =>
+                        firstClause.ProtectedExtent,
+                    InstructionExceptionRegionRole.Filter =>
+                        firstClause.FilterExtent!.Value,
+                    _ => firstClause.HandlerExtent,
+                };
+                issuedRegionBuilder.Add(new InstructionExceptionRegion(
+                    new InstructionExceptionRegionId(
+                        evidence,
+                        region.Role,
+                        region.Ordinal),
+                    extent,
+                    [.. region.ClauseOrdinals.Select(ordinal => clauses[ordinal].Clause!.Id)]));
+            }
+            issuedRegions = issuedRegionBuilder.MoveToImmutable();
+
+            var issuedClauseBuilder =
+                ImmutableArray.CreateBuilder<InstructionExceptionClause>(clauses.Length);
+            foreach (ExceptionFlowClauseDescriptor clause in clauses.OrderBy(clause => clause.Ordinal))
+            {
+                issuedClauseBuilder.Add(new InstructionExceptionClause(
+                    clause.Clause!,
+                    issuedRegions[protectedOrdinals[clause.Protected]].Id,
+                    issuedRegions[handlerOrdinals[clause.Ordinal]].Id,
+                    filterOrdinals.TryGetValue(clause.Ordinal, out int filterOrdinal)
+                        ? issuedRegions[filterOrdinal].Id
+                        : null));
+            }
+            issuedClauses = issuedClauseBuilder.MoveToImmutable();
+        }
+
+        var result = new ExceptionFlowTopology(
+            clauses,
+            models,
+            topology,
+            issuedClauses,
+            issuedRegions,
+            unavailableReason: null,
+            incompleteReason: null,
+            blockGraphIncompleteReason: null);
+
+        if (!result.TryValidateAllNormalTransfers(
+                instructions,
+                ilLength,
+                boundaries,
+                out InstructionExceptionFlowUnavailableReason transferUnavailableReason,
+                out string transferReason))
+        {
+            return new ExceptionFlowTopology(
+                clauses,
+                models,
+                topology,
+                issuedClauses: [],
+                issuedRegions: [],
+                transferUnavailableReason,
+                transferReason,
+                blockGraphIncompleteReason: null);
+        }
+
+        return result;
+    }
+
+    readonly record struct TopologyShape(
+        ImmutableArray<ExceptionFlowTopologyRegion> Topology,
+        Dictionary<ExceptionFlowExtent, int> ProtectedOrdinals,
+        Dictionary<int, int> HandlerOrdinals,
+        Dictionary<int, int> FilterOrdinals);
+
+    /// <summary>
+    /// Validates the clauses against the admitted instruction boundaries and
+    /// shapes their regions, or returns the invalid topology that fails them.
+    /// </summary>
+    static ExceptionFlowTopology? TryShape(
+        ImmutableArray<ExceptionFlowClauseDescriptor> clauses,
+        Func<int, bool> isBoundary,
+        out TopologyShape shape)
+    {
+        shape = default;
         foreach (ExceptionFlowClauseDescriptor clause in clauses)
         {
             if (!IsSupportedKind(clause.Kind)
@@ -803,95 +965,13 @@ internal sealed class ExceptionFlowTopology
             }
         }
 
-        ImmutableArray<ExceptionRegionModel> models =
-            [.. clauses
-                .OrderBy(clause => clause.Ordinal)
-                .Select(clause => new ExceptionRegionModel(
-                    ToHandlerKind(clause.Kind),
-                    clause.Protected.Start,
-                    clause.Protected.End,
-                    clause.Handler.Start,
-                    clause.Handler.End,
-                    clause.Filter?.Start ?? -1,
-                    clause.Filter?.End ?? -1))];
-
-        ImmutableArray<InstructionExceptionRegion> issuedRegions = [];
-        ImmutableArray<InstructionExceptionClause> issuedClauses = [];
-        if (body is { } evidence)
-        {
-            var issuedRegionBuilder =
-                ImmutableArray.CreateBuilder<InstructionExceptionRegion>(topology.Length);
-            foreach (ExceptionFlowTopologyRegion region in topology)
-            {
-                MethodExceptionClause firstClause =
-                    clauses[region.ClauseOrdinals[0]].Clause!;
-                MethodBodyExtent extent = region.Role switch
-                {
-                    InstructionExceptionRegionRole.Protected =>
-                        firstClause.ProtectedExtent,
-                    InstructionExceptionRegionRole.Filter =>
-                        firstClause.FilterExtent!.Value,
-                    _ => firstClause.HandlerExtent,
-                };
-                issuedRegionBuilder.Add(new InstructionExceptionRegion(
-                    new InstructionExceptionRegionId(
-                        evidence,
-                        region.Role,
-                        region.Ordinal),
-                    extent,
-                    [.. region.ClauseOrdinals.Select(ordinal => clauses[ordinal].Clause!.Id)]));
-            }
-            issuedRegions = issuedRegionBuilder.MoveToImmutable();
-
-            var issuedClauseBuilder =
-                ImmutableArray.CreateBuilder<InstructionExceptionClause>(clauses.Length);
-            foreach (ExceptionFlowClauseDescriptor clause in clauses.OrderBy(clause => clause.Ordinal))
-            {
-                issuedClauseBuilder.Add(new InstructionExceptionClause(
-                    clause.Clause!,
-                    issuedRegions[protectedOrdinals[clause.Protected]].Id,
-                    issuedRegions[handlerOrdinals[clause.Ordinal]].Id,
-                    filterOrdinals.TryGetValue(clause.Ordinal, out int filterOrdinal)
-                        ? issuedRegions[filterOrdinal].Id
-                        : null));
-            }
-            issuedClauses = issuedClauseBuilder.MoveToImmutable();
-        }
-
-        var result = new ExceptionFlowTopology(
-            clauses,
-            models,
-            topology,
-            issuedClauses,
-            issuedRegions,
-            unavailableReason: null,
-            incompleteReason: null,
-            blockGraphIncompleteReason: null);
-
-        if (!result.TryValidateAllNormalTransfers(
-                instructions,
-                ilLength,
-                boundaries,
-                out InstructionExceptionFlowUnavailableReason transferUnavailableReason,
-                out string transferReason))
-        {
-            return new ExceptionFlowTopology(
-                clauses,
-                models,
-                topology,
-                issuedClauses: [],
-                issuedRegions: [],
-                transferUnavailableReason,
-                transferReason,
-                blockGraphIncompleteReason: null);
-        }
-
-        return result;
+        shape = new(topology, protectedOrdinals, handlerOrdinals, filterOrdinals);
+        return null;
 
         bool IsBoundary(ExceptionFlowExtent extent) =>
             extent.Start < extent.End
-            && boundaries.Contains(extent.Start)
-            && boundaries.Contains(extent.End);
+            && isBoundary(extent.Start)
+            && isBoundary(extent.End);
 
         ImmutableArray<int> EnclosingRegionOrdinals(
             ExceptionFlowTopologyRegion component) =>

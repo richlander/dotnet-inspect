@@ -77,6 +77,15 @@ dependency direction and the assembly owner.
   bounded early-exit consumers; a complete visit enforces the same opcode,
   operand, switch-table, and dangling-prefix structure, while a stopped visit
   deliberately leaves the unseen suffix unvalidated.
+  `InstructionDecoder.VisitBody` is the same visit over Metadata-issued
+  `MethodBodyData` that also reports the body's materialized completeness
+  without materializing it. `Complete` means materialization constructs
+  complete `MethodInstructions`. `Incomplete` means a branch target leaves
+  the body, the exception topology is rejected, or the visit cannot otherwise
+  prove the block graph complete. Structure that materialization rejects,
+  including a branch target inside an instruction or after a prefix, throws as
+  materialization does. The visit and `ExceptionFlowTopology` share one
+  topology validation over the admitted instruction boundaries.
   `InstructionSequence` is the demand-driven retained-prefix primitive.
   Independent cursors advance with `MoveNext`, and indexed access extends the
   same shared scan frontier only through the requested instruction. The
@@ -357,6 +366,12 @@ the bugs it fixes. Two gate kinds instead:
   `Visit_rejects_malformed_or_dangling_input`, and
   `Visit_can_stop_before_a_malformed_suffix` enforce the complete-visit and
   early-stop contracts without requiring an instruction array.
+  `ExceptionFlowFactsTests.VisitBody_AgreesWithMaterializationOverRealBodies`
+  and `VisitBody_AgreesWithMaterializationOverMutatedBodies` hold
+  `VisitBody`'s outcome equal to materialization's: complete, incomplete, or
+  failed. The real bodies are every body in System.Private.CoreLib and the
+  test assembly. The mutated bodies are byte mutations across the IL of the
+  exception-flow samples, and shifted or reordered exception clauses.
 - **Directional differential** vs each replaced decoder over the corpus: classify
   every diff as improvement / neutral / regression; the gate is **zero
   regressions** (not zero diffs), with improvements characterized by an absolute

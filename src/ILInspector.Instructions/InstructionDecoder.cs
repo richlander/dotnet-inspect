@@ -1,7 +1,10 @@
+using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
+
+using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
 
@@ -11,6 +14,28 @@ public delegate bool InstructionVisitor<TState>(
     ILOpCode opcode,
     int operandToken,
     int encodedLength);
+
+/// <summary>The outcome of <see cref="InstructionDecoder.VisitBody{TState}"/>.</summary>
+public enum MethodBodyVisitOutcome
+{
+    /// <summary>
+    /// Every instruction was visited, and materializing the body constructs
+    /// complete <see cref="MethodInstructions"/>.
+    /// </summary>
+    Complete,
+
+    /// <summary>
+    /// Every instruction was visited, but the visit cannot prove that the
+    /// materialized block graph is complete.
+    /// </summary>
+    Incomplete,
+
+    /// <summary>
+    /// The visitor stopped; the unvisited suffix and the block graph are
+    /// unvalidated.
+    /// </summary>
+    Stopped,
+}
 
 /// <summary>
 /// Decodes a raw IL byte stream into a typed <see cref="DecodedInstruction"/> sequence.
@@ -734,6 +759,141 @@ public static class InstructionDecoder
 
         _ => OperandKind.None,
     };
+
+    /// <summary>
+    /// Visits every instruction of a Metadata-issued body without
+    /// materializing it, then reports whether materialization constructs
+    /// complete instructions: <see cref="MethodBodyVisitOutcome.Complete"/>
+    /// only when it does. The visitor receives what <see cref="Visit{TState}"/>
+    /// passes.
+    /// </summary>
+    /// <remarks>
+    /// The visit enforces the materializing decode's opcode, operand,
+    /// switch-table, and dangling-prefix structure, and the block graph's
+    /// branch-target alignment, and throws
+    /// <see cref="BadImageFormatException"/> where they do. A branch target
+    /// outside the body or an exception topology that
+    /// <see cref="ExceptionFlowTopology"/> rejects makes the result
+    /// <see cref="MethodBodyVisitOutcome.Incomplete"/>.
+    /// </remarks>
+    public static MethodBodyVisitOutcome VisitBody<TState>(
+        MethodBodyData body,
+        ref TState state,
+        InstructionVisitor<TState> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(body);
+        ArgumentNullException.ThrowIfNull(visitor);
+
+        ReadOnlySpan<byte> il = body.IL.AsSpan();
+        int length = il.Length;
+        // Admitted boundaries: instruction starts that do not follow a prefix.
+        ulong[] admitted = ArrayPool<ulong>.Shared.Rent((length + 63) >> 6);
+        int[] targets = ArrayPool<int>.Shared.Rent(16);
+        int targetCount = 0;
+        try
+        {
+            Array.Clear(admitted, 0, (length + 63) >> 6);
+            var reader = new ILReader(il);
+            bool afterPrefix = false;
+            while (reader.HasNext)
+            {
+                int offset = reader.Offset;
+                if (!afterPrefix)
+                    admitted[offset >> 6] |= 1UL << (offset & 63);
+                ILOpCode opcode = reader.ReadILOpcode();
+                if (!opcode.IsValid())
+                {
+                    throw new BadImageFormatException(
+                        $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+                }
+
+                int operandToken = 0;
+                if (opcode == ILOpCode.Switch)
+                {
+                    uint count = reader.ReadILUInt32();
+                    long tableEnd = (long)reader.Offset + (long)count * 4;
+                    if (count > int.MaxValue / 4 || tableEnd > length)
+                        throw new BadImageFormatException($"Malformed switch at IL_{offset:X4}");
+                    int baseOffset = (int)tableEnd;
+                    for (uint i = 0; i < count; i++)
+                        AddTarget(ref targets, ref targetCount, baseOffset + (int)reader.ReadILUInt32());
+                }
+                else if (opcode.IsBranch())
+                {
+                    AddTarget(ref targets, ref targetCount, reader.ReadBranchDestination(opcode));
+                }
+                else
+                {
+                    int instructionSize = opcode.GetInstructionSize();
+                    int operandSize = instructionSize - (reader.Offset - offset);
+                    if (instructionSize < 0
+                        || operandSize < 0
+                        || operandSize > length - reader.Offset)
+                    {
+                        throw new BadImageFormatException(
+                            $"Truncated operand at IL_{offset:X4}");
+                    }
+
+                    if (IsMethodOperand(opcode))
+                        operandToken = (int)reader.ReadILUInt32();
+                    else
+                        reader.Seek(reader.Offset + operandSize);
+                }
+
+                afterPrefix = opcode.IsPrefix();
+                if (afterPrefix && !reader.HasNext)
+                {
+                    throw new BadImageFormatException(
+                        $"IL ends with a dangling prefix at IL_{offset:X4}");
+                }
+
+                if (!visitor(ref state, opcode, operandToken, reader.Offset - offset))
+                    return MethodBodyVisitOutcome.Stopped;
+            }
+
+            bool external = false;
+            foreach (int target in targets.AsSpan(0, targetCount))
+            {
+                if ((uint)target >= (uint)length)
+                {
+                    external = true;
+                    continue;
+                }
+                if ((admitted[target >> 6] & (1UL << (target & 63))) == 0)
+                {
+                    throw new BadImageFormatException(
+                        $"Branch target IL_{target:X4} does not align with an instruction.");
+                }
+            }
+
+            if (external)
+                return MethodBodyVisitOutcome.Incomplete;
+            return ExceptionFlowTopology.IsValidTopology(body, admitted)
+                ? MethodBodyVisitOutcome.Complete
+                : MethodBodyVisitOutcome.Incomplete;
+        }
+        catch (InvalidProgramException ex)
+        {
+            throw NormalizeMalformedIl(ex);
+        }
+        finally
+        {
+            ArrayPool<ulong>.Shared.Return(admitted);
+            ArrayPool<int>.Shared.Return(targets);
+        }
+    }
+
+    static void AddTarget(ref int[] targets, ref int count, int target)
+    {
+        if (count == targets.Length)
+        {
+            int[] grown = ArrayPool<int>.Shared.Rent(targets.Length * 2);
+            targets.AsSpan(0, count).CopyTo(grown);
+            ArrayPool<int>.Shared.Return(targets);
+            targets = grown;
+        }
+        targets[count++] = target;
+    }
 
     static bool IsMethodOperand(ILOpCode opcode)
         => opcode is
