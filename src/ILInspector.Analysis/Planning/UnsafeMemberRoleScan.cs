@@ -15,8 +15,6 @@ namespace ILInspector.Analysis.Planning;
 /// </summary>
 internal static class UnsafeMemberRoleScan
 {
-    static readonly InstructionVisitor<BodyScan> s_visit = Visit;
-
     /// <summary>
     /// Whether the body decodes completely, has no occurrence opcode, and makes
     /// no call the full rule could resolve differently or find explicit.
@@ -27,7 +25,7 @@ internal static class UnsafeMemberRoleScan
         var scan = new BodyScan();
         try
         {
-            if (InstructionDecoder.VisitBody(body, ref scan, s_visit)
+            if (InstructionDecoder.VisitBody(body, ref scan)
                 != MethodBodyVisitOutcome.Complete)
             {
                 return false;
@@ -57,31 +55,28 @@ internal static class UnsafeMemberRoleScan
         }
     }
 
-    static bool Visit(
-        ref BodyScan scan,
-        ILOpCode opcode,
-        int operandToken,
-        int encodedLength)
-    {
-        if (MethodSafetyAnalysis.IsOccurrenceOpcode(opcode))
-            return false;
-        if (opcode is ILOpCode.Call
-            or ILOpCode.Callvirt
-            or ILOpCode.Newobj
-            or ILOpCode.Ldftn
-            or ILOpCode.Ldvirtftn)
-        {
-            scan.Add(opcode, operandToken);
-        }
-        return true;
-    }
-
-    // The body's call operands in IL order, in pooled storage.
-    struct BodyScan
+    // The body's call operands in IL order, in pooled storage; an occurrence
+    // opcode stops the visit.
+    struct BodyScan : IInstructionVisitor
     {
         public ILOpCode[] Opcodes;
         public int[] Tokens;
         public int Count;
+
+        public bool Visit(ILOpCode opcode, int operandToken, int encodedLength)
+        {
+            if (MethodSafetyAnalysis.IsOccurrenceOpcode(opcode))
+                return false;
+            if (opcode is ILOpCode.Call
+                or ILOpCode.Callvirt
+                or ILOpCode.Newobj
+                or ILOpCode.Ldftn
+                or ILOpCode.Ldvirtftn)
+            {
+                Add(opcode, operandToken);
+            }
+            return true;
+        }
 
         public void Add(ILOpCode opcode, int token)
         {
