@@ -392,7 +392,13 @@ public partial class DiffCommand
                         cancellationToken);
                 }
                 if (analysisPlan is not null)
-                    return await ExecuteAnalysisSetAsync(inputs, options, analysisPlan, cancellationToken);
+                {
+                    return await ExecuteAnalysisSetAsync(
+                        inputs,
+                        options,
+                        analysisPlan,
+                        cancellationToken);
+                }
                 if (transportOption is not null
                     && !UsesSharedLibraryApiDiff(inputs, options)
                     && !implementationTransport)
@@ -3387,9 +3393,28 @@ public partial class DiffCommand
             DiffInputs inputs,
             DiffOptions options)
     {
-        if (!RequestsWorkspaceImplementationTarget(options)
-            || !HasSinglePackageRoot(inputs.From, inputs.Name)
-            || !HasSinglePackageRoot(inputs.To, inputs.Name))
+        if (!RequestsWorkspaceImplementationTarget(options))
+            return null;
+
+        return TryCreateExactMemberTarget(inputs, options);
+    }
+
+    static WorkspaceImplementationTarget? TryCreateExactMemberTarget(
+        DiffInputs inputs,
+        DiffOptions options,
+        bool allowSingleLocalAssembly = false)
+    {
+        if (options.MemberFilter.Count != 1
+            || options.TypeFilter.Count != 1
+            || options.IncludePdbSource
+            || !HasSingleTargetRoot(
+                inputs.From,
+                inputs.Name,
+                allowSingleLocalAssembly)
+            || !HasSingleTargetRoot(
+                inputs.To,
+                inputs.Name,
+                allowSingleLocalAssembly))
         {
             return null;
         }
@@ -3432,20 +3457,92 @@ public partial class DiffCommand
             $"{typeName}.{selector.RequestedText}");
     }
 
+    static WorkspaceMethodAllocationTarget?
+        TryCreateExactAllocationTarget(
+            DiffInputs inputs,
+            DiffOptions options)
+    {
+        if (TryCreateExactMemberTarget(
+                inputs,
+                options,
+                allowSingleLocalAssembly: true)
+                is not { } target
+            || TryResolveExactMethodToken(
+                inputs.FromSurface,
+                target.DeclaringType,
+                target.Selector)
+                is not { } beforeMethod
+            || TryResolveExactMethodToken(
+                inputs.ToSurface,
+                target.DeclaringType,
+                target.Selector)
+                is not { } afterMethod
+            || inputs.From.PackageScope is not null
+                && (beforeMethod.SurfaceAssetPath is null
+                    || afterMethod.SurfaceAssetPath is null))
+        {
+            return null;
+        }
+
+        return new(
+            beforeMethod,
+            afterMethod);
+    }
+
+    static WorkspaceMethodSurfaceTarget?
+        TryResolveExactMethodToken(
+        ApiSurface surface,
+        MetadataTypeDefinitionName declaringType,
+        MemberTargetSelector selector)
+    {
+        ApiType[] matchingTypes =
+        [
+            .. surface.Types.Where(type =>
+                (type.DefinitionName
+                    ?? ParseWorkspaceImplementationTypeName(
+                        string.IsNullOrEmpty(type.Namespace)
+                            ? type.MetadataName ?? type.Name
+                            : $"{type.Namespace}."
+                                + $"{type.MetadataName ?? type.Name}"))
+                    ?.Equals(declaringType)
+                    == true),
+        ];
+        if (matchingTypes.Length != 1)
+            return null;
+
+        ApiType type = matchingTypes[0];
+        if (MemberTargetResolver.Resolve(
+                    type,
+                    selector).Target?.Body?.MetadataToken
+                is not { } methodToken
+            || (methodToken & unchecked((int)0xff000000))
+                != 0x06000000)
+        {
+            return null;
+        }
+
+        return new(
+            methodToken,
+            type.SourceAssemblyPath);
+    }
+
     /// <summary>
-    /// Whether the endpoint has one package-root assembly: an implementation
-    /// participant of its scope, or an extracted file of its assembly set.
+    /// Whether the endpoint has one package-root assembly, or one local
+    /// assembly when the focused caller explicitly admits that shape.
     /// </summary>
-    static bool HasSinglePackageRoot(
+    static bool HasSingleTargetRoot(
         ApiSurfaceEndpoint endpoint,
-        string packageName)
+        string packageName,
+        bool allowSingleLocalAssembly)
         => endpoint.PackageScope is { } scope
             ? WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
                 scope,
                 packageName)
-            : WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
-                endpoint.AssemblySet,
-                packageName);
+            : (allowSingleLocalAssembly
+                    && endpoint.AssemblySet.Assemblies.Count == 1)
+                || WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
+                    endpoint.AssemblySet,
+                    packageName);
 
     static async Task<int> ExecuteAnnotatedSourceDiffAsync(
         DiffInputs inputs,
@@ -3774,6 +3871,14 @@ public partial class DiffCommand
         MetadataTypeDefinitionName DeclaringType,
         MemberTargetSelector Selector,
         string Display);
+
+    sealed record WorkspaceMethodAllocationTarget(
+        WorkspaceMethodSurfaceTarget Before,
+        WorkspaceMethodSurfaceTarget After);
+
+    sealed record WorkspaceMethodSurfaceTarget(
+        int MethodToken,
+        string? SurfaceAssetPath);
 
     internal sealed record WorkspaceImplementationTypeSelection(
         MetadataTypeDefinitionName DefinitionName,

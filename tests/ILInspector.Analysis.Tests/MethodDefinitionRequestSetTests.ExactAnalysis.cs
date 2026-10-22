@@ -118,6 +118,60 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.True(receipt.Coverage.CallTargets.Queries > 0);
     }
 
+    [Fact]
+    public void ExactMethodAllocations_OmitUnrequestedCallAndOptimizationWork()
+    {
+        string path = typeof(ExactMethodAnalysisFixture).Assembly.Location;
+        int token = typeof(ExactMethodAnalysisFixture)
+            .GetMethod(nameof(ExactMethodAnalysisFixture.Target))!
+            .MetadataToken;
+        MethodDefinitionHandle method =
+            MetadataTokens.MethodDefinitionHandle(token & 0x00FF_FFFF);
+        MethodDefinitionSourceAssociation association =
+            Association(
+                ExactMethodAllocationProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth.ExactMethods(method),
+                new(
+                    maximumBodies: 1,
+                    maximumEncodedIlBytes: int.MaxValue));
+
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        ExactMethodAllocationBody actual = Assert.Single(
+            ResultOf<ExactMethodAllocationProducerResult>(
+                execution,
+                association)
+                .Value!
+                .Bodies);
+        LibraryBodyAnalysisExecution legacy =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                    LibraryBodyAnalysisFeatures.Allocations,
+                    new HashSet<int> { token }));
+        try
+        {
+            Assert.Equal(
+                EmptyIfDefault(
+                    legacy.Allocations.Occurrences.GetValueOrDefault(token)),
+                actual.Allocations);
+        }
+        finally
+        {
+            legacy.CallGraph.ReleaseCaches();
+        }
+
+        MethodDefinitionSourceCoverage coverage =
+            execution.ResultOf(association).SourceReceipt.Coverage;
+        Assert.Equal(1, coverage.BodiesAcquired.Count);
+        Assert.Equal(0, coverage.Calls.CallReads);
+        Assert.Equal(1, coverage.Calls.LocalSignatureReads);
+        Assert.Equal(0, coverage.CallTargets.Queries);
+        Assert.True(coverage.MethodAnalysis.Constructed);
+        Assert.Equal(1, coverage.MethodAnalysis.Queries);
+    }
+
     static ImmutableArray<T> EmptyIfDefault<T>(
         ImmutableArray<T> values) =>
         values.IsDefault ? [] : values;

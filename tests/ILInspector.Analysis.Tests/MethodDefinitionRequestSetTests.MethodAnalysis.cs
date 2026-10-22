@@ -250,24 +250,26 @@ public sealed partial class MethodDefinitionRequestSetTests
             1,
             coverage.InstructionWork.LazyRetainedSourcesOpened);
         Assert.Equal(0, coverage.ModuleLookupMethods.Count);
-        Assert.Equal(1, coverage.Calls.CallReads);
+        Assert.Equal(0, coverage.Calls.CallReads);
         Assert.Equal(1, coverage.Calls.LocalSignatureReads);
-        Assert.True(coverage.CallTargets.Constructed);
-        Assert.Equal(4, coverage.MethodAnalysis.Queries);
+        Assert.False(coverage.CallTargets.Constructed);
+        Assert.Equal(3, coverage.MethodAnalysis.Queries);
         Assert.Equal(
-            1,
+            0,
             coverage.MethodAnalysis.QueryWork
                 .DeclaredSourceQueries);
         Assert.Equal(
             0,
             coverage.MethodAnalysis.QueryWork
                 .DeclaredSourceCandidateDefinitions);
-        Assert.True(
+        Assert.Equal(
+            0,
             coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceTypeDefinitionRows > 0);
-        Assert.True(
+                .DeclaredSourceTypeDefinitionRows);
+        Assert.Equal(
+            0,
             coverage.MethodAnalysis.QueryWork
-                .DeclaredSourceRelationshipNodes > 0);
+                .DeclaredSourceRelationshipNodes);
         Assert.Equal(
             1,
             coverage.MethodAnalysis.QueryWork
@@ -276,28 +278,21 @@ public sealed partial class MethodDefinitionRequestSetTests
         ProducerParticipation allocation =
             request.WorkReceipt.For(
                 ExactMethodAllocationProducer.Instance);
-        Assert.DoesNotContain(
-            allocation.Layers,
-            layer => layer.Layer
-                == nameof(MethodDefinitionLayers.LocalSignature));
-        Assert.DoesNotContain(
-            allocation.Layers,
-            layer => layer.Layer
-                == nameof(MethodDefinitionLayers.Calls));
-        ProducerParticipation methodAnalysis =
-            request.WorkReceipt.For(
-                ExactMethodAnalysisProducer.Instance);
         Assert.Contains(
-            methodAnalysis.Layers,
+            allocation.Layers,
             layer => layer
                 == new ProducerLayerParticipation(
                     nameof(MethodDefinitionLayers.LocalSignature),
                     1));
+        Assert.DoesNotContain(
+            allocation.Layers,
+            layer => layer.Layer
+                == nameof(MethodDefinitionLayers.Calls));
         Assert.Contains(
-            methodAnalysis.Layers,
+            allocation.Layers,
             layer => layer
                 == new ProducerLayerParticipation(
-                    nameof(MethodDefinitionLayers.Calls),
+                    nameof(MethodDefinitionLayers.MethodAnalysis),
                     1));
         ProducerParticipation optimization =
             request.WorkReceipt.For(
@@ -348,12 +343,9 @@ public sealed partial class MethodDefinitionRequestSetTests
                             .Nested.Target))!);
 
         Assert.True(actual.SuppressesDerivedOpportunities);
-        Assert.True(
-            work.DeclaredSourceTypeDefinitionRows >= 2);
-        Assert.True(
-            work.DeclaredSourceTypeAttributeRows > 0);
-        Assert.True(
-            work.DeclaredSourceRelationshipNodes > 0);
+        Assert.Equal(0, work.DeclaredSourceTypeDefinitionRows);
+        Assert.Equal(0, work.DeclaredSourceTypeAttributeRows);
+        Assert.Equal(0, work.DeclaredSourceRelationshipNodes);
         Assert.Equal(1, work.OptimizationSuppressionQueries);
         Assert.True(
             work.OptimizationSuppressionTypeDefinitionRows >= 2);
@@ -381,7 +373,7 @@ public sealed partial class MethodDefinitionRequestSetTests
                 lifted.MetadataToken & 0x00FF_FFFF);
         MethodDefinitionSourceAssociation exact =
             Association(
-                ExactMethodOptimizationProducer.Instance,
+                ExactMethodAnalysisBundleProducer.Instance,
                 ProducerTerminal.Rows,
                 MethodDefinitionSourceBreadth.ExactMethods(method),
                 new(

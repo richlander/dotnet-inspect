@@ -884,7 +884,14 @@ the same method-analysis support rather than reading metadata from the visit:
 method and enclosing-type generated-code attributes, bounded enclosing TypeDefs,
 and declaring-type relationships are separately reported even when suppression
 returns before intrinsic opportunity collection.
-Its performance case is
+Allocation-only matched-member requests plan
+`ExactMethodAllocationProducer` instead, so they do not collect direct calls,
+safety, signals, string materialization, or optimization opportunities. The
+exact single-member CLI Diff allocation route also selects the two MethodDef
+tokens from the endpoint API surfaces and executes that producer once per
+endpoint. It bypasses the complete body-analysis session only when both sides
+publish one direct managed body; mixed analysis sets and unsupported target
+shapes retain the shared body-signal route. The performance case is
 `System.Text.Json@10.0.0`
 `System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose
 allocation-hotspot result reports 20 `newobj`, `newarr`, or `box`
@@ -1319,6 +1326,12 @@ Migration is incremental:
     and attribution IL probes; caller attribution and owner suppression consume
     that answer. Final opportunity enrichment consumes only the exact evidence,
     and the query has no `LibraryBodyAnalysisService` execution.
+    `MatchedApiMemberAnalysisQuery.InspectAllocations` and exact
+    single-member, allocation-only CLI Diff instead select
+    `ExactMethodAllocationProducer`. That request retains only semantic
+    identity, memory-safety contracts, local signatures, allocation analyzers,
+    and Method-analysis support; calls, safety, signals, and optimization do
+    not participate.
 13. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

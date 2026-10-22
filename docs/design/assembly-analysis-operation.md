@@ -475,7 +475,19 @@ provenance reports its TypeDef, attribute, and enclosing-relationship reads
 in the same support receipt. Caller attribution and generated-owner
 suppression consume the authenticated owner result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
-`LibraryBodyAnalysisService`. The unsafe member census
+`LibraryBodyAnalysisService`. The allocation-only matched-member route instead
+plans
+`ExactMethodAllocationProducer`, which publishes the same exact allocation
+rows without collecting calls, safety, signals, or optimization. Exact
+single-member CLI Diff requests for allocation alone use the same producer
+for the MethodDef selected from each endpoint's API surface. Package execution
+uses the endpoint's surface-to-implementation role correspondence and maps that
+surface MethodDef to the exact managed implementation body before analysis;
+local execution likewise validates that the selected MethodDef has a managed
+body. Their comparison does not construct `MethodBodyInspectionSession` or
+`LibraryBodyAnalysisService`. Mixed analysis sets, bodyless, forwarded, or
+absent declarations, and other target shapes retain the established
+body-signal fallback. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
@@ -620,6 +632,10 @@ generated-owner suppression, and exact publication parity without an LBA
 donor. The focused producers preserve the resolved direct-call prefix and
 independent exception-region, operation-safety, allocation, and
 safety-occurrence evidence when a later call operand fails recoverably.
+`ExactMethodAllocations_OmitUnrequestedCallAndOptimizationWork` separately
+proves that the allocation-only route acquires one body and local signature,
+publishes legacy-equivalent allocation rows, performs no call read or
+same-module call-target query, and executes one Method-analysis query.
 
 The positive session path inherits the Release gates owned by
 [session-owned format admission](assembly-inspection-query.md#session-owned-format-admission).
