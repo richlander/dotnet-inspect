@@ -4,10 +4,13 @@
 // Body policy: the whole-assembly canonical IL comparison, the per-method
 // census of each image through IlFindings.Inspect, the per-pair census
 // comparison through IlFindings.Compare, and the Member Body Diff endpoint
-// path through IlAssemblyDiff.CompareMemberEndpoints. Reports the median and
-// p95 wall time and the median bytes allocated per run, so a change to the
-// census producer (docs/design/il-diff-canonicalization.md#census-cursor) is
-// compared base against head on the same pair.
+// path through IlAssemblyDiff.CompareMemberEndpoints. Methods are paired by
+// their declaring Type, name, and decoded signature, so a renumbered token in
+// a signature does not unpair them. Reports the median and p95 wall time and
+// the median bytes allocated per run, and every sample so runs can be pooled,
+// so a change to the census producer
+// (docs/design/il-diff-canonicalization.md#census-cursor) is compared base
+// against head on the same pair.
 // Usage: measure-il-diff-exhaustive <before.dll> <after.dll> [iterations]
 
 using System.Diagnostics;
@@ -154,6 +157,8 @@ T Measure<T>(string name, Func<T> run)
     Console.WriteLine(
         $"{name}\tmedian={times[times.Count / 2]:F2}ms\tp95={times[(int)(times.Count * 0.95)]:F2}ms"
             + $"\tmin={times[0]:F2}ms\tallocMedian={allocations[allocations.Count / 2] / 1_048_576.0:F1}MB");
+    Console.WriteLine($"  samples-ms\t{name}\t{string.Join(",", times.Select(t => t.ToString("F2")))}");
+    Console.WriteLine($"  samples-bytes\t{name}\t{string.Join(",", allocations)}");
     return result;
 }
 
@@ -168,7 +173,8 @@ static Method[] Methods(MetadataReader reader)
         {
             MethodDefinition method = reader.GetMethodDefinition(handle);
             string name = reader.GetString(method.Name);
-            string key = $"{typeName}::{name}({Convert.ToHexString(reader.GetBlobBytes(method.Signature))})";
+            MethodSignature<string> signature = method.DecodeSignature(NameProvider.Instance, genericContext: null);
+            string key = $"{typeName}::{name}<{signature.GenericParameterCount}>({string.Join(",", signature.ParameterTypes)}):{signature.ReturnType}";
             string display = $"{typeName}::{name}";
             methods.Add(new Method(
                 handle,
@@ -192,3 +198,61 @@ static string TypeName(MetadataReader reader, TypeDefinitionHandle handle)
 }
 
 sealed record Method(MethodDefinitionHandle Handle, string Key, FindingSubject Subject, IlMemberDiffSubject MemberSubject);
+
+/// <summary>
+/// Names signature types by namespace and name without their token or
+/// assembly, so two versions pair by what the signature says.
+/// </summary>
+sealed class NameProvider : ISignatureTypeProvider<string, object?>
+{
+    public static NameProvider Instance { get; } = new();
+
+    public string GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode.ToString();
+
+    public string GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+    {
+        TypeDefinition type = reader.GetTypeDefinition(handle);
+        string name = reader.GetString(type.Name);
+        TypeDefinitionHandle declaring = type.GetDeclaringType();
+        if (!declaring.IsNil)
+            return $"{GetTypeFromDefinition(reader, declaring, rawTypeKind)}/{name}";
+        string ns = reader.GetString(type.Namespace);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
+    }
+
+    public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+    {
+        TypeReference type = reader.GetTypeReference(handle);
+        string name = reader.GetString(type.Name);
+        if (type.ResolutionScope.Kind == HandleKind.TypeReference)
+            return $"{GetTypeFromReference(reader, (TypeReferenceHandle)type.ResolutionScope, rawTypeKind)}/{name}";
+        string ns = reader.GetString(type.Namespace);
+        return ns.Length == 0 ? name : $"{ns}.{name}";
+    }
+
+    public string GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+        => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+
+    public string GetSZArrayType(string elementType) => $"{elementType}[]";
+
+    public string GetArrayType(string elementType, ArrayShape shape) => $"{elementType}[{new string(',', shape.Rank - 1)}]";
+
+    public string GetByReferenceType(string elementType) => $"{elementType}&";
+
+    public string GetPointerType(string elementType) => $"{elementType}*";
+
+    public string GetPinnedType(string elementType) => $"{elementType} pinned";
+
+    public string GetGenericInstantiation(string genericType, System.Collections.Immutable.ImmutableArray<string> typeArguments)
+        => $"{genericType}<{string.Join(",", typeArguments)}>";
+
+    public string GetGenericTypeParameter(object? genericContext, int index) => $"!{index}";
+
+    public string GetGenericMethodParameter(object? genericContext, int index) => $"!!{index}";
+
+    public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
+        => $"{unmodifiedType} {(isRequired ? "modreq" : "modopt")}({modifier})";
+
+    public string GetFunctionPointerType(MethodSignature<string> signature)
+        => $"delegate*<{string.Join(",", signature.ParameterTypes)}:{signature.ReturnType}>";
+}
