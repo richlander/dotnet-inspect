@@ -1008,6 +1008,143 @@ public class CfgSampleClass
         return total;
     }
 
+    // A `switch` over a char with sparse cases: csc lowers it to a comparison
+    // tree (`c > 'm'` split, then equality tests) whose case bodies are laid
+    // out after the tree, each a single-entry block that rejoins the loop
+    // increment. The dispatch-arm slice relocates each body into its selecting
+    // guard as an if/else diamond.
+    public static int SwitchTreeWithMergingArms(string text)
+    {
+        int flags = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            switch (text[i])
+            {
+                case 'i':
+                    flags |= 1;
+                    break;
+                case 'm':
+                    flags |= 2;
+                    break;
+                case 's':
+                    flags |= 16;
+                    break;
+                case 'x':
+                    flags |= 4;
+                    break;
+            }
+        }
+        return flags;
+    }
+
+    // Three sparse int cases outside any loop: a linear equality cascade whose
+    // arms rejoin a live computation (the merge is not a terminator).
+    public static int SparseSwitchArmsRejoin(int kind, int value)
+    {
+        int result = value;
+        switch (kind)
+        {
+            case 1:
+                result += 10;
+                break;
+            case 10:
+                result *= 2;
+                break;
+            case 100:
+                result -= 1;
+                break;
+        }
+        return result * 3;
+    }
+
+    // Two case labels share one body, so that body has two conditional
+    // predecessors and is not a single-entry arm; the slice must not move it.
+    public static int SwitchTreeWithSharedArm(string text)
+    {
+        int flags = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            switch (text[i])
+            {
+                case 'a':
+                case 'b':
+                    flags |= 1;
+                    break;
+                case 'x':
+                    flags |= 4;
+                    break;
+            }
+        }
+        return flags;
+    }
+
+    // Two non-adjacent case labels share one body: csc's comparison tree puts
+    // 'a' and 'x' in different subtrees, so the body keeps two conditional
+    // predecessors that no guard combine can fold. It is not a single-entry
+    // arm, so the dispatch-arm slice must leave it where it is.
+    public static int SwitchTreeWithScatteredSharedArm(string text)
+    {
+        int flags = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            switch (text[i])
+            {
+                case 'a':
+                case 'x':
+                    flags |= 1;
+                    break;
+                case 'i':
+                    flags |= 2;
+                    break;
+                case 'm':
+                    flags |= 4;
+                    break;
+            }
+        }
+        return flags;
+    }
+
+    // An if/else-if chain inside `while (true)` whose second arm falls to the
+    // loop end: csc chains that arm's end-of-body goto straight into the back
+    // edge, so the last back-edge (the latch) sits before the remaining arms,
+    // which break or throw, while the first arm already breaks to the real
+    // loop exit. The loop body extends past the latch to that exit.
+    public static int LoopTailAfterLatch(int[] values)
+    {
+        int i = 0;
+        int end;
+        while (true)
+        {
+            int v = values[i];
+            if (v == 0)
+            {
+                if (i + 1 < values.Length)
+                {
+                    end = i;
+                    break;
+                }
+                throw new InvalidOperationException("end");
+            }
+            else if (v > 0)
+            {
+                i++;
+            }
+            else if (v == -1)
+            {
+                end = i + 1;
+                break;
+            }
+            else
+            {
+                throw new ArgumentException("negative");
+            }
+        }
+        int total = 0;
+        for (int j = 0; j < end; j++)
+            total += values[j];
+        return total;
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;

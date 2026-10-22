@@ -888,10 +888,62 @@ only when the post-dominator machinery is proven.
    containers (`cond-target-past-region` 1,266 → 1,214,
    `forward-branch-not-region-exit` 800 → 746, `cond-backward-branch`
    74 → 36), with the same four pre-existing pass bugs on both sides.
-   Multi-way dispatch whose arms are not terminators (a comparison tree or
-   lowered switch whose arms rejoin or `continue`, as in
-   `JsonTextReader::ParseConstructor` and `JPath::ParsePath`) is the next
-   loop-body residue; it is a dispatch problem, not a continue problem.
+
+   *Status: dispatch-arm slice implemented (2026-10-21, #10192 PR 3).* Two
+   rules. **Moved arms.** csc lays a comparison tree's or lowered switch's
+   case bodies out after the tree, each reached by exactly one conditional
+   and rejoining the dispatch's merge (`MiscellaneousUtils::GetRegexOptions`,
+   a four-case `switch` on a `char` inside a `for`). A conditional whose
+   target lies past the current region and is a *single-entry arm* — one
+   transfer predecessor, that guard; not fallen into; running from the target
+   to the first later block entered from outside it, bounded by the join,
+   break and continue targets and the candidate range; not entered by a
+   surviving transfer — now reads as `if (c) { arm } else { rest }`, both
+   validated against the region's join, break and continue targets (the arm
+   may also break, continue, return or throw). The arm is moved, never
+   cloned, so every statement prints once: its blocks leave the linear walk
+   of every region that does not lie inside the arm, a region-exit goto
+   dissolves when only moved blocks separate it from the region end, and a
+   diamond's fallthrough arm ends at the last block its walk visits. A guard
+   inside a diamond's fallthrough arm that targets such an arm inside the
+   sibling no longer blocks the diamond (`HasSiblingArmEntry` plans the move
+   and restores its plans when another entry blocks). A back-edge inside a
+   moved arm is always an explicit `continue` (the arm's end is not the loop
+   body's end), and a moved arm's bottom test gains an explicit `break` for
+   its fallthrough. Plans are cached per guard; a retained range built on a
+   context that never validated plans again over the same intact blocks
+   ahead of its walk. **Loop exit past the latch.** csc chains an arm's
+   end-of-body goto straight into the back-edge, so an if/else-if chain in
+   `while (true)` whose later arms all break or throw leaves them after the
+   last back-edge (`JsonTextReader::ParseConstructor`). The body now extends
+   over them: the exit is the first block at or past the latch that every
+   forward transfer from the body reaches (short terminators excepted), the
+   extension must be entered only from the body, a latch that no longer ends
+   the body is an explicit `continue`, and a body whose last block falls into
+   the exit ends with a synthesized `break`. Fixtures:
+   `SwitchTreeWithMergingArms` (the `GetRegexOptions` shape),
+   `SwitchTreeWithSharedArm` (an `||`-combined guard owns the shared body),
+   `SwitchTreeWithScatteredSharedArm` (two labels in different subtrees keep
+   two entries, so the body is not moved and the container keeps its goto
+   form), `SparseSwitchArmsRejoin` (still raised as `switch`), and
+   `LoopTailAfterLatch`; `DispatchArmStructuringTests`,
+   `LoopTailAfterLatch_ExtendsBodyToTheLoopExit` and
+   `PastRegionTargetContainingOuterContinue_BecomesLoopExit` (formerly a
+   pinned clone decline: the past-region target is now the loop's exit and
+   the outer `continue` stays outside the raised loop) gate the rules; the
+   fidelity gate dockets the moved-arm fixtures as the sparse-switch
+   over-render (csc re-lowers the if/else tree with `bgt`/`bne.un`). Against
+   exact base `1bb00c652` over the pinned real-world corpus (89,065 methods),
+   `--structuring-stops` moved from 30,388 to 30,577 structured containers,
+   211 to 226 retained-label regions, and 2,331 to 2,142 flat containers
+   (`cond-target-past-region` 1,214 → 620, `forward-branch-not-region-exit`
+   746 → 971 and `fallthrough-past-region` 0 → 159 as the deeper walk reaches
+   later stops, `arm-externally-entered` 187 → 198), with the same four
+   pre-existing pass bugs on both sides. Multi-entry case bodies — two case
+   labels whose tests sit in different subtrees (`JPath::ParsePath`,
+   `JsonTextReader::ParseValue` behind its lowered `switch` instructions) —
+   remain flat: they need a switch raise from the comparison tree, not a
+   move, and belong to the switch track.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
@@ -1017,8 +1069,9 @@ than something to emit speculatively now.
   without step 4 recovers only ~15% of the bucket — the tracks multiply. Step
   4's join primitive now serves the first canonical retained-loop subset:
   rotated-entry, single-latch `while` regions with one real immediate exit.
-  The whole-container structurer owns continue placement and multi-latch
-  `while (true)` loops (loop-continue slice, 2026-10-21). Retained
+  The whole-container structurer owns continue placement, multi-latch
+  `while (true)` loops, and `while (true)` bodies that extend past their
+  last back-edge (loop-continue and dispatch-arm slices, 2026-10-21). Retained
   `while (true)`, multi-latch retained loops, condition hoisting for effectful
   latches, labeled break, and conditional rotated entries remain follow-on
   scope. Loops whose bodies return, throw, or
