@@ -189,6 +189,7 @@ async function measure(
       input.scenario.packageId,
       input.scenario.version,
       input.scenario.targetFramework,
+      "",
     );
     const surface = surfaceResult.surface;
     if (surface === null) {
@@ -267,6 +268,7 @@ async function measure(
         type.definitionId,
         input.scenario.spelling,
         input.scenario.accessibility,
+        surfaceResult.runtimePopulation?.selectedRuntimeIdentifier ?? null,
       );
       const milliseconds = performance.now() - started;
       if (inspection.outcome !== "Available" || inspection.document === null) {
