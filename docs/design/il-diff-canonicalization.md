@@ -90,9 +90,21 @@ Each instruction becomes a `CanonicalIlOperation`:
 - `Offset`: the original IL offset, retained as evidence and display context.
 - `OpcodeFamily`: the opcode name after limited macro folding.
 - `Operand`: an optional typed operand identity.
+- `Targets`: the IL offsets the operation points at, which are not part of
+  its identity and are validated over the alignment: a branch's target, a
+  switch's arms, or an exception clause's extent boundaries.
+
+After the last instruction, each exception clause of the body becomes one
+more operation in declaration order, the order ECMA-335 fixes for nested
+clauses: its kind is the family (`catch`, `filter`, `finally`, `fault`), its
+catch Type is a token operand resolved under the same normalization as any
+type operand, and its try, handler, and filter boundaries are its targets.
+The decoder has already rejected a clause whose boundary is not a whole
+instruction, so a clause atom never carries a boundary the alignment cannot
+place.
 
 Two operations match when their opcode family and operand identity match, with
-special target-handling rules for branches and switches. Unmatched operations
+target validation for branches, switches, and clauses. Unmatched operations
 become `IlDiffRow` entries. Rows retain the original offset so display and
 diagnostics can point back to the body, but the offset is not the row's durable
 identity.
@@ -125,6 +137,22 @@ Switch operands are similar but coarser. The canonical equality rule aligns
 switches with the same target count, then target validation checks each target
 against the aligned instruction map. A target-count change is a shape change and
 does not align as the same canonical switch operation.
+
+### Exception clauses
+
+The exception-clause table is compared as part of the body
+([#9942](https://github.com/richlander/dotnet-inspect/issues/9942)). Two
+clause atoms match when their kinds match and, for a catch, their catch Types
+resolve to the same identity under the requested normalization; the catch Type
+follows every scope mechanic a type operand follows. A matched clause is then
+validated as a branch is: each of its boundaries must start the instruction
+the aligned boundary starts, with the end of the body aligning only with the
+end of the body. A clause whose kind or catch Type changed, a `try` that now
+starts or ends at a different aligned instruction, and a clause added or
+removed are emitted as remove/add rows of the clause atom. A boundary shifted
+only by re-encoded or inserted instructions before it is not reported, as a
+branch target shifted the same way is not. Nested clauses keep their
+declaration order, so a reordered table is a difference.
 
 ### Symbolic metadata token operands
 
@@ -161,17 +189,18 @@ Every body comparison produces one total outcome:
 | `Exact` | Both bodies are equal after applying the requested normalization. |
 | `OperandDiff` | Normalized opcode-family sequences match, but one or more operands differ. |
 | `OpcodeDiff` | Normalized opcode-family sequences differ; operand differences may also exist. |
+| `ExceptionRegionDiff` | Every operation matches and only exception clauses differ: a kind, a catch Type, an extent that no longer aligns, or a clause present on one side. A body whose operations and clauses both differ reads as `OperandDiff` or `OpcodeDiff`, since clause families are part of the family sequence. |
 
 `Exact` is relational: it describes equality between both bodies, not the
 quality or provenance of either side. `Unavailable` is not the opposite of
 `Exact`; it means that no equality verdict could be produced. Typed failure
 rows retain the reason.
 
-Assembly comparison aggregates exact, operand-diff, opcode-diff, and
-unavailable counts. `ChangedBodyCount` is the sum of operand and opcode
-differences; it excludes unavailable comparisons. `FailureCount` also includes
-independent self-diff and identity-resolution failures, so it need not equal
-the unavailable count.
+Assembly comparison aggregates exact, operand-diff, opcode-diff, exception-
+region-diff, and unavailable counts. `ChangedBodyCount` is the sum of the three
+difference counts; it excludes unavailable comparisons. `FailureCount` also
+includes independent self-diff and identity-resolution failures, so it need not
+equal the unavailable count.
 
 ## Current non-guarantees
 
@@ -194,11 +223,11 @@ request it.
 ### Exception-region shape
 
 The body decoder is EH-aware, and malformed EH regions fail closed through
-`MethodInstructions`. `IlBodyDiff` does not currently emit producer-owned EH
-region rows. Catch/finally availability or protected-range changes surface only
-through operation-level rows unless a future substrate layer adds explicit EH
-row kinds. No `IlBodyDiffNormalization` value adds EH comparison, so consumers
-must not present an exact body result as a semantic-equivalence claim.
+`MethodInstructions`. The clause table is compared as
+[Exception clauses](#exception-clauses) states; what a clause protects at run
+time beyond its kind, catch Type, and extents, such as the stack state at its
+boundaries, is not, so an exact body result is still not a semantic-equivalence
+claim.
 
 ### Offset identity
 

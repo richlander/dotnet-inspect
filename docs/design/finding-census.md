@@ -103,7 +103,7 @@ side. It is what makes positional equality meaningful across two images:
 
 | Kind | Atom | Order | Matcher mode | Owner |
 | --- | --- | --- | --- | --- |
-| IL operations | A canonical operation, as IL diff canonicalization shapes it: the folded opcode family, its operand as a `SymbolKey` for a metadata token, a value for an immediate or a user string, and each branch or switch target as the target's instruction index within its own body | Instruction order | `Ordered`, with the move pass, then the kind's target validation over the match | IL diff canonicalization; `IlFindings` |
+| IL operations | A canonical operation, as IL diff canonicalization shapes it: the folded opcode family, its operand as a `SymbolKey` for a metadata token, a value for an immediate or a user string, and each branch or switch target as the target's instruction index within its own body; then, after the last instruction, each exception clause in declaration order as an atom of its kind, with its catch Type as the operand and its extent boundaries as targets | Instruction order, then clause order | `Ordered`, with the move pass, then the kind's target validation over the match | IL diff canonicalization; `IlFindings` |
 | Declaration facts | One census fact, keyed by its whole `SymbolKey` | Ascending key bytes | `IdentitySet` | Declaration view for the atom; Finding Diff Any for the census it compares today |
 
 For an ordered kind, positional equality is sequence equality. For an

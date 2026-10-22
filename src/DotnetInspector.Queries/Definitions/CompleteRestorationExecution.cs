@@ -23,6 +23,9 @@ public sealed record CompleteRestorationExecutionOptions
 
     public bool CaptureInventory { get; init; }
 
+    /// <summary>Retain exact saved-subject associations for borrowed execution.</summary>
+    public bool CaptureSelectedSubject { get; init; }
+
     public ApiSurfaceProjectionLimits PlatformSurfaceLimits { get; init; } =
         NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
 
@@ -377,8 +380,10 @@ public sealed record CompleteWorkspaceActivation
         InspectionWorkspaceIdentity workspace,
         ImmutableArray<WorkspaceDeclarationContext> contexts,
         CompleteWorkspaceSnapshot snapshot,
-        CompleteRestorationProjection projection)
+        CompleteRestorationProjection projection,
+        CompleteRestorationSubjectPreparation? selectedSubject = null)
     {
+        SelectedSubject = selectedSubject;
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         Request = request ?? throw new ArgumentNullException(nameof(request));
         Workspace = workspace
@@ -469,6 +474,8 @@ public sealed record CompleteWorkspaceActivation
     public CompleteWorkspaceSnapshot Snapshot { get; }
 
     public CompleteRestorationProjection Projection { get; }
+
+    internal CompleteRestorationSubjectPreparation? SelectedSubject { get; }
 }
 
 public abstract record CompleteWorkspacePreparationResult
@@ -1215,7 +1222,20 @@ public static class CompleteRestorationCoordinator
                 workspace.Identity,
                 contexts.MoveToImmutable(),
                 snapshot,
-                projection);
+                projection,
+                options.CaptureSelectedSubject
+                    ? CompleteRestorationSelectedSubjectOperation.Prepare(
+                        snapshot,
+                        resolved.SelectedPackageState,
+                        resolved.SelectedPackageState is { } selected
+                            ? ReadyPackageBinding(
+                                selected.NavigationId!,
+                                new CompleteRestorationInvocation(
+                                    roots,
+                                    packageRequests.Requests!,
+                                    resolved.PackageEvaluations!))
+                            : null)
+                    : null);
             if (operation is not null)
             {
                 await operation(
@@ -1296,27 +1316,8 @@ public static class CompleteRestorationCoordinator
 
             string navigationId = evaluations[0].Key;
             NavigationPackageEvaluation evaluation = evaluations[0].Value;
-            if (!invocation.PackageRequests.TryGetValue(
-                    navigationId,
-                    out PackageArtifactRootRequest request))
-            {
-                throw new InvalidOperationException(
-                    $"Restored Navigation row '{navigationId}' omitted its "
-                        + "exact Package request.");
-            }
-
-            PackageRootBinding[] bindings =
-            [
-                .. invocation.PackageRoots.Where(
-                    binding => PackageArtifactRootRequest.From(binding)
-                        == request),
-            ];
-            if (bindings.Length != 1)
-            {
-                throw new InvalidOperationException(
-                    $"Restored Navigation row '{navigationId}' did not retain "
-                        + "one exact Package Root binding.");
-            }
+            PackageRootBinding binding = ReadyPackageBinding(
+                navigationId, invocation);
 
             NavigationConsumerPackageDescriptor[] consumers =
             [
@@ -1333,7 +1334,7 @@ public static class CompleteRestorationCoordinator
             ready.Add(new(
                 navigationId,
                 consumers[0].Subject.Id,
-                bindings[0],
+                binding,
                 evaluation));
         }
         if (ready.Count != invocation.PackageEvaluations.Count)
@@ -1343,6 +1344,29 @@ public static class CompleteRestorationCoordinator
                     + "from the projection.");
         }
         return new(ready.MoveToImmutable());
+    }
+
+    private static PackageRootBinding ReadyPackageBinding(
+        string navigationId,
+        CompleteRestorationInvocation invocation)
+    {
+        if (!invocation.PackageRequests.TryGetValue(
+                navigationId, out PackageArtifactRootRequest request))
+        {
+            throw new InvalidOperationException(
+                $"Restored Navigation row '{navigationId}' omitted its exact Package request.");
+        }
+        PackageRootBinding[] bindings =
+        [
+            .. invocation.PackageRoots.Where(
+                binding => PackageArtifactRootRequest.From(binding) == request),
+        ];
+        if (bindings.Length != 1)
+        {
+            throw new InvalidOperationException(
+                $"Restored Navigation row '{navigationId}' did not retain one exact Package Root binding.");
+        }
+        return bindings[0];
     }
 
     private static PackageNavigationRequestResolution
@@ -1565,7 +1589,11 @@ public static class CompleteRestorationCoordinator
             package,
             detached.State,
             packageEvaluations,
-            null);
+            null)
+        {
+            SelectedPackageState = resolution.ActiveState
+                as ResolvedCommittedPackageViewState,
+        };
     }
 
     private static ResolvedPreparation ResolveRegistrationOnlyEcosystem(
@@ -1939,6 +1967,12 @@ public static class CompleteRestorationCoordinator
         CompleteRestorationFailure? Failure)
     {
         public NavigationEcosystemEvaluation? Ecosystem { get; init; }
+
+        public ResolvedCommittedPackageViewState? SelectedPackageState
+        {
+            get;
+            init;
+        }
     }
 
     private sealed record PackageEvaluationResult(

@@ -111,8 +111,18 @@ static partial class FidelityCheck
     /// change that is not monotone, or that moves a corpus number, does not get this
     /// argument and must bump.
     /// </para>
+    /// <para>
+    /// v6 (#9942) compares the exception-clause table: each clause's kind, its catch Type
+    /// under the operand rule, and its extents by aligned instruction. A body whose only
+    /// difference is a catch Type or a <c>try</c> boundary compared <c>Exact</c> under v5
+    /// and does not under v6, so corpus numbers move, strictly toward fewer <c>Exact</c>
+    /// rows; the rows that move are the EH-blind population #9942 names. The
+    /// contract set does not adopt <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/>
+    /// (#10373): compile-back recompiles against the original's own references, so
+    /// a non-platform reference identity difference is evidence, not noise.
+    /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 5;
+    internal const int CurrentContractVersion = 6;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
@@ -3219,7 +3229,7 @@ static partial class FidelityCheck
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
         Console.WriteLine($"COMPILE-BACK over {total} rendered methods ({full} Full)");
         Console.WriteLine();
-        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact, total)}) — EH-blind");
+        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact, total)})");
         Console.WriteLine($"  opcode diff (Full) : {opcodeDiff} — recompiled to a different opcode stream");
         Console.WriteLine($"  operand diff (Full): {operandDiff} — opcode names matched; operand or target differed");
         Console.WriteLine($"  fidelity unavailable: {fidelityUnavailable} — body comparison produced no verdict");
@@ -3243,7 +3253,7 @@ static partial class FidelityCheck
         {
             Console.WriteLine();
             Console.WriteLine(ExampleHeading(
-                "Operand-diff examples (Full; EH-blind)",
+                "Operand-diff examples (Full)",
                 operandDiffExamples.Count,
                 operandDiff));
             foreach (var e in operandDiffExamples)

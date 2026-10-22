@@ -3786,10 +3786,15 @@ Realization](models/inspect-web-retained-workspace-realization/README.md).
 
 ### Saved-subject execution handoff
 
-This is the proposed prerequisite for
+The shared handoff is implemented under
 [#10408](https://github.com/richlander/dotnet-inspect/issues/10408).
-It does not claim an implemented execution entrance. The CLI bindings remain
-under [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+Set `CompleteRestorationExecutionOptions.CaptureSelectedSubject` to retain
+its live associations, then use
+`CompleteRestorationSelectedSubjectOperation.ExecuteAsync` under the paired
+Workspace or realization operation lease. Omission is explicit `NotCaptured`;
+Workspace/Ecosystem landings remain with their existing operations. The CLI
+saved-inspection bindings remain under
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
 
 Complete restoration must let a consumer inspect its exact saved subject in
 the same realization. The selected declaration context describes the
@@ -3832,7 +3837,7 @@ Neither case substitutes an inspection or silently drops query intent.
 Live targets remain bounded by the existing operation borrow and realization
 lifetime. They are not portable or detached snapshot fields. Only the
 inspection owner's detached result may outlive that borrow. Closing or
-superseding an activation uses the existing host lifecycle; this proposal adds
+superseding an activation uses the existing host lifecycle; this handoff adds
 no controller, session registry, new lease protocol, or restoration phase.
 Consumers do not restore again, reacquire the source, reconstruct argv, or
 interpret consumer-facing Navigation IDs to recover live targets.
@@ -3871,13 +3876,13 @@ candidate `18c37a5a26abe016f70a03fc4cd6448fa709203e`.
 
 #### Saved-subject adoption and evidence
 
-Implementation first adds the shared handoff and gates its exact association
-under #10408. CLI bindings then adopt it individually under #4647, beginning
+The shared handoff and exact association gates are implemented under #10408.
+CLI bindings then adopt it individually under #4647, beginning
 with Package Libraries, followed by Type API and Member overview. Browser
 restoration remains a consumer of the same owner-issued preparation; gate
 same-packet subject, facet, query and target preservation through its
 production activation facade. There is no Browser rendering redesign or
-command-wide migration in this proposal. The complete counted sequence remains
+command-wide migration in this handoff. The complete counted sequence remains
 in [#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
 
 Required runtime evidence includes the worked Package round-trip; a saved
@@ -3889,12 +3894,22 @@ not only displayed names. Gate aggregate preservation, attached query intent,
 unsupported-binding refusal, ordinary output/Count parity, and use within the
 paired lifetime. Inactive views are not additional execution requests.
 
-Those runtime properties remain unverified until the corresponding gates and
-production consumers land. This proposal has no new state machine: selection
-is a projection of one already prepared activation under its existing borrow.
-The complete-restoration model above retains lifecycle ownership; it does not
-prove the proposed subject association. Markdown lint and diff validation gate
-the specification, while implementation tests must establish that association.
+`CompleteRestorationExecutionTests.SelectedSubject_*` gates exact Package,
+Library/aggregate, Type and Member targets; omission and unsupported landing;
+closed/foreign Workspace refusal; and two same-name Library/Type assets across
+net8.0/net9.0 contexts with repeated query definitions bound to distinct targets.
+The Type gate establishes that the Navigation defining registration differs
+from declaration-context registrations. The handoff reuses the existing exact
+Root-generation query borrow and performs no content inspection itself.
+`SelectedSubjectCapture_PreservesBrowserPackageActivation` runs the production
+Browser retained-activation owner with capture enabled and preserves the same
+Package, facet and canonical packet.
+
+CLI rendering, Count and complete save/replay parity remain unverified until
+the command bindings land. Selection is a projection of one already prepared
+activation under its existing borrow, with no new state machine. The
+complete-restoration model above retains lifecycle ownership; the focused
+runtime tests establish the new subject association.
 
 ### Complete-restoration inventory
 

@@ -46,8 +46,8 @@ public class StringLiteralOnly
     public string Value() => "after";
 }
 
-// A catch Type is not an IL operation: canonical IL comparison does not
-// show its change (#9942), so the Body axis compares it Unchanged.
+// A catch Type is an exception clause fact: canonical IL comparison shows
+// its change (#9942), so the Body axis compares it.
 public class CatchTypeOnly
 {
     public int Value(Func<int> action)
