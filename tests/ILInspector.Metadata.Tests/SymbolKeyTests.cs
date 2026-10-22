@@ -1,4 +1,7 @@
+using System.Buffers.Binary;
+using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -233,7 +236,7 @@ public sealed class SymbolKeyTests
     }
 
     [Fact]
-    public void Slots_SortCompareAndResolveAsTheirStagedKeys_AndAStaleSlotIsRefused()
+    public void Slots_SortCompareAndResolveAsTheirStagedKeys_AndASlotPastTheStagedLengthIsRefused()
     {
         var a = new SymbolKeyBuilder<TestPart>();
         var b = new SymbolKeyBuilder<TestPart>();
@@ -264,6 +267,86 @@ public sealed class SymbolKeyTests
         Assert.Throws<ArgumentException>(() => a.Resolve(last));
         Assert.Throws<ArgumentException>(() => a.Kind(last));
         Assert.Throws<ArgumentException>(() => a.Sort([last]));
+    }
+
+    [Fact]
+    public void StringsHeap_RefusesAnOffsetOutsideTheHeap_AndAnUnterminatedEntry()
+    {
+        byte[] image = BuildNamedImage();
+        using (var pe = new PEReader(new MemoryStream(image)))
+        {
+            MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
+            var names = new MetadataStringHeap(md);
+            int heapSize = md.GetHeapSize(HeapIndex.String);
+            Assert.Throws<BadImageFormatException>(() => names.Length(MetadataTokens.StringHandle(heapSize)));
+            Assert.Throws<BadImageFormatException>(() => names.Length(MetadataTokens.StringHandle(heapSize + 1)));
+            Assert.Equal("Named"u8.Length, names.Length(md.GetTypeDefinition(md.TypeDefinitions.Last()).Name));
+        }
+
+        // Overwrite from the Type name's terminator through the end of the raw
+        // #Strings stream, padding included: the reader trims a heap to one
+        // trailing terminator, so only a stream whose last byte is not zero
+        // leaves an entry unterminated.
+        byte[] patched = (byte[])image.Clone();
+        using (var pe = new PEReader(new MemoryStream(patched)))
+        {
+            MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
+            (int streamOffset, int streamSize) = StringsStream(patched, pe.PEHeaders.MetadataStartOffset);
+            Assert.Equal(md.GetHeapMetadataOffset(HeapIndex.String), streamOffset);
+            int heapStart = pe.PEHeaders.MetadataStartOffset + streamOffset;
+            StringHandle last = md.GetTypeDefinition(md.TypeDefinitions.Last()).Name;
+            int terminator = MetadataTokens.GetHeapOffset(last) + "Named"u8.Length;
+            Assert.Equal(0, patched[heapStart + terminator]);
+            patched.AsSpan(heapStart + terminator, streamSize - terminator).Fill((byte)'x');
+        }
+        using (var pe = new PEReader(new MemoryStream(patched)))
+        {
+            MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
+            var names = new MetadataStringHeap(md);
+            StringHandle last = md.GetTypeDefinition(md.TypeDefinitions.Last()).Name;
+            Assert.Throws<BadImageFormatException>(() => names.Length(last));
+            var keys = new SymbolKeyBuilder<TestPart> { Names = names };
+            keys.Begin();
+            Assert.Throws<BadImageFormatException>(() => keys.Mark(TestPart.Type).Name(last));
+        }
+    }
+
+    // The #Strings stream header: offset from the metadata root, and raw size.
+    static (int Offset, int Size) StringsStream(byte[] image, int metadataStart)
+    {
+        ReadOnlySpan<byte> root = image.AsSpan(metadataStart);
+        int versionLength = BinaryPrimitives.ReadInt32LittleEndian(root[12..]);
+        int position = 16 + versionLength;
+        int streams = BinaryPrimitives.ReadUInt16LittleEndian(root[(position + 2)..]);
+        position += 4;
+        for (int i = 0; i < streams; i++)
+        {
+            int offset = BinaryPrimitives.ReadInt32LittleEndian(root[position..]);
+            int size = BinaryPrimitives.ReadInt32LittleEndian(root[(position + 4)..]);
+            int nameStart = position + 8;
+            int nameLength = root[nameStart..].IndexOf((byte)0);
+            if (root.Slice(nameStart, nameLength).SequenceEqual("#Strings"u8))
+                return (offset, size);
+            position = nameStart + ((nameLength + 1 + 3) & ~3);
+        }
+        throw new InvalidOperationException("The image has no #Strings stream.");
+    }
+
+    // One module with a Type named "Named".
+    static byte[] BuildNamedImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(0, metadata.GetOrAddString("Named.dll"), metadata.GetOrAddGuid(Guid.NewGuid()), default, default);
+        metadata.AddAssembly(metadata.GetOrAddString("Named.dll"), new Version(1, 0), default, default, default, default);
+        metadata.AddTypeDefinition(TypeAttributes.NotPublic, default, metadata.GetOrAddString("<Module>"), default,
+            MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed, default,
+            metadata.GetOrAddString("Named"), default,
+            MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(PEHeaderBuilder.CreateLibraryHeader(), new MetadataRootBuilder(metadata), new BlobBuilder(),
+            flags: CorFlags.ILOnly).Serialize(image);
+        return image.ToArray();
     }
 
     [Fact]

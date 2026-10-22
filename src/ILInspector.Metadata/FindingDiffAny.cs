@@ -2125,10 +2125,6 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 }
 
 /// <summary>
-/// A signature type while one key is decoded: a retained key, or a composite
-/// built in the side's scratch population and embedded by its consumer.
-/// </summary>
-/// <summary>
 /// A signature type as the provider yields it: the slot of a retained key in
 /// its side's retained population (a chunk generation at or above zero), or
 /// of a scratch key (its scratch generation, complemented, below zero). Twelve

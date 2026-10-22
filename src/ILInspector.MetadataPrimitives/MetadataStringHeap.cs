@@ -8,7 +8,8 @@ namespace ILInspector.Metadata;
 /// source that copies a name's exact UTF-8 into a key without decoding or
 /// Windows Runtime projection. A name offset outside the heap, or an
 /// unterminated entry, is malformed. Names are read through the metadata
-/// reader's own heap view; the type never touches the metadata root.
+/// reader's own heap view; the type never touches the metadata root, and it
+/// refuses a reader that would project Windows Metadata names.
 /// </summary>
 public sealed class MetadataStringHeap
 {
@@ -18,6 +19,12 @@ public sealed class MetadataStringHeap
     public MetadataStringHeap(MetadataReader md)
     {
         ArgumentNullException.ThrowIfNull(md);
+        if (md.MetadataKind != MetadataKind.Ecma335
+            && (md.Options & MetadataReaderOptions.ApplyWindowsRuntimeProjections) != 0)
+        {
+            throw new ArgumentException(
+                "Stored names of Windows Metadata require a reader without Windows Runtime projections.", nameof(md));
+        }
         _md = md;
         _heapSize = md.GetHeapSize(HeapIndex.String);
     }
