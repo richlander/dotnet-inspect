@@ -237,6 +237,7 @@ Focused tests prove:
 - conjunctive predicate-filtered Rows, Count, and Exists;
 - complete-empty versus incomplete-empty outcomes;
 - unresolved focused calls qualify topology absence;
+- admitted source-relative participant binding choices are preserved;
 - unavailable and malformed target metadata qualify color absence;
 - exact source receipts show only the focus Type's bodies were acquired;
 - target receipts show no target method body was acquired;

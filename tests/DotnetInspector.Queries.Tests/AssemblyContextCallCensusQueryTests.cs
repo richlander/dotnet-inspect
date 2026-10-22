@@ -1,6 +1,10 @@
+using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
@@ -244,6 +248,67 @@ public sealed class AssemblyContextCallCensusQueryTests
                 occurrence =>
                     occurrence.SourceMethod.Name == "Run"
                     && occurrence.Call.Callee.Name == "Ping");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeCallCompatibilityPreservesExactParticipantPolicySelection()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference selected,
+            ResolvedAssemblyReference shadow) =
+                BuildSameIdentityCallFixture();
+        try
+        {
+            var policy = new SelectedAssemblyPolicy(
+                [caller, selected, shadow],
+                selected);
+            await using CensusContext context =
+                CensusContext.Create(
+                    policy,
+                    caller,
+                    selected,
+                    shadow);
+
+            AssemblyContextTypeCallCompatibilityResult result =
+                AssemblyContextTypeCallCompatibilityQuery.Execute(
+                    context.Group,
+                    caller.Registration,
+                    Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
+                        MetadataTypeDefinitionName.Create(
+                            "Consumer",
+                            ["Entry"])).Name,
+                    TestContext.Current.CancellationToken);
+
+            Assert.True(
+                result.TopologyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.UnresolvedOccurrences.Select(occurrence =>
+                        occurrence.Limitation)));
+            TypeCallCompatibilityOccurrence occurrence =
+                Assert.Single(
+                    result.Occurrences,
+                    occurrence =>
+                        occurrence.SourceMethod.Name == "Run"
+                        && occurrence.TargetMethod.Name == "Ping");
+            Assert.Same(
+                selected.Registration,
+                occurrence.Target.Registration);
+            Assert.Empty(result.UnresolvedOccurrences);
+            TypeCallCompatibilityAcquisitionReceipt receipt =
+                Assert.IsType<TypeCallCompatibilityAcquisitionReceipt>(
+                    result.Receipt);
+            Assert.All(
+                receipt.TargetSources,
+                targetReceipt =>
+                    Assert.Equal(
+                        0,
+                        targetReceipt.Receipt.BodiesAcquired));
         }
         finally
         {
@@ -668,6 +733,111 @@ public sealed class AssemblyContextCallCensusQueryTests
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    [Fact]
+    public async Task TypeCallCompatibilityMalformedTargetAttributesKeepColorAbsenceUndecided()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference target) =
+                BuildCompatibilityCallFixture();
+        try
+        {
+            CorruptTargetAttributeConstructor(target.Path!);
+            await using CensusContext context =
+                CensusContext.Create(caller, target);
+            MetadataTypeDefinitionName focusType = CompatibilityFocusType();
+
+            AssemblyContextTypeCallCompatibilityResult result =
+                AssemblyContextTypeCallCompatibilityQuery.Execute(
+                    context.Group,
+                    caller.Registration,
+                    focusType,
+                    TestContext.Current.CancellationToken);
+
+            Assert.True(result.TopologyComplete);
+            Assert.Empty(result.UnresolvedOccurrences);
+            Assert.Contains(
+                result.Targets,
+                candidate =>
+                    candidate.Method.Name == "Dangerous"
+                    && candidate.Disposition
+                        == TypeCallCompatibilityTargetDisposition.Limited);
+            (SubjectRelationFocusAuthority focus,
+                SubjectRelationPopulationAuthority population) =
+                    Authorities(caller, focusType, context.Group);
+            AnnotatedTypeRelationsContribution exists =
+                AnnotatedTypeRelationsCallAdoption.Exists(
+                    new(
+                        focus,
+                        population,
+                        result,
+                        [
+                            CompatibilityInspectionGraphCatalog
+                                .RequiresUnreferencedCode,
+                        ],
+                        [
+                            CompatibilityInspectionGraphCatalog
+                                .RequiresUnreferencedCode,
+                        ]));
+
+            AnnotatedTypeRelationsColorContribution color =
+                Assert.Single(exists.Colors);
+            Assert.Equal(
+                SubjectRelationProducerDisposition.Partial,
+                color.Disposition);
+            Assert.Equal(
+                AnnotatedTypeRelationsExistsValue.Undecided,
+                Assert.IsType<
+                    AnnotatedTypeRelationsFamilyTerminal.Exists>(
+                        Assert.Single(exists.Relationships).Terminal)
+                    .Value);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static void CorruptTargetAttributeConstructor(string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        using (var image = new PEReader(
+            new MemoryStream(bytes, writable: false)))
+        {
+            MetadataReader reader = image.GetMetadataReader();
+            MethodDefinitionHandle dangerous =
+                Assert.Single(
+                    reader.MethodDefinitions,
+                    handle =>
+                        reader.GetString(
+                            reader.GetMethodDefinition(handle).Name)
+                        == "Dangerous");
+            CustomAttributeHandle attribute =
+                Assert.Single(
+                    reader.GetMethodDefinition(dangerous)
+                        .GetCustomAttributes());
+            int rowSize =
+                reader.GetTableRowSize(TableIndex.CustomAttribute);
+            Assert.Equal(6, rowSize);
+            Assert.True(
+                reader.GetHeapSize(HeapIndex.Blob)
+                    < ushort.MaxValue);
+            int rowOffset =
+                image.PEHeaders.MetadataStartOffset
+                + reader.GetTableMetadataOffset(
+                    TableIndex.CustomAttribute)
+                + ((MetadataTokens.GetRowNumber(attribute) - 1)
+                    * rowSize);
+            const ushort invalidMemberReference =
+                (0x1fff << 3) | 0x3;
+            BinaryPrimitives.WriteUInt16LittleEndian(
+                bytes.AsSpan(
+                    rowOffset + sizeof(ushort),
+                    sizeof(ushort)),
+                invalidMemberReference);
+        }
+        File.WriteAllBytes(path, bytes);
     }
 
     static string MemberName(InspectionGraphSubject subject) =>

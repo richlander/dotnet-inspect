@@ -5,6 +5,7 @@ using System.Reflection.PortableExecutable;
 
 using Analysis = ILInspector.Analysis;
 using Planning = ILInspector.Analysis.Planning;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 using DeclaringTypeOutcome =
@@ -715,19 +716,48 @@ public static class AssemblyContextTypeCallCompatibilityQuery
                 continue;
             }
 
+            results.AddRange(
+                InspectTargetSnapshot(
+                    snapshot,
+                    group,
+                    cancellationToken));
+        }
+        return results.ToImmutable();
+    }
+
+    static ImmutableArray<TypeCallCompatibilityTarget> InspectTargetSnapshot(
+        AssemblyImageSnapshot snapshot,
+        IEnumerable<ResolvedTarget> targets,
+        CancellationToken cancellationToken)
+    {
+        ResolvedTarget[] targetSnapshot = [.. targets];
+        try
+        {
             using var image = new PEReader(snapshot.Content);
             MetadataReader reader =
                 MetadataFormatAdmission.GetMetadataReader(image);
-            foreach (ResolvedTarget target in group)
+            var results =
+                ImmutableArray.CreateBuilder<TypeCallCompatibilityTarget>(
+                    targetSnapshot.Length);
+            foreach (ResolvedTarget target in targetSnapshot)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 results.Add(
                     InspectTarget(
                         reader,
                         snapshot.ModuleVersionId,
                         target));
             }
+            return results.MoveToImmutable();
         }
-        return results.ToImmutable();
+        catch (BadImageFormatException error)
+        {
+            return
+            [
+                .. targetSnapshot.Select(target =>
+                    Limited(target, error.Message)),
+            ];
+        }
     }
 
     static TypeCallCompatibilityTarget InspectTarget(
@@ -928,11 +958,12 @@ public static class AssemblyContextTypeCallCompatibilityQuery
                             participant.Assembly)
                         : participant.Assembly)),
         ];
-        IAcquisitionFreeAssemblyBindingPolicy policy =
-            new PackageAssemblyContextRoles.RoleBindingPolicy(
-                retained.Select(static item => item.Assembly)
-                    .ToImmutableArray(),
-                coreLibrary: null);
+        IAssemblyBindingPolicy policy =
+            SourceRelativeAssemblyGroupBindingPolicy
+                .CreateParticipantBoundSelections(
+                    retained.Select(item => (
+                        item.Assembly,
+                        item.Participant.BindingPolicy)));
         ResolvedAssemblyReference focus = retained
             .Single(item => ReferenceEquals(
                 item.Participant.Assembly.Registration,
@@ -1038,7 +1069,7 @@ public static class AssemblyContextTypeCallCompatibilityQuery
         ImmutableArray<(
             AssemblyContextParticipant Participant,
             ResolvedAssemblyReference Assembly)> participants,
-        IAcquisitionFreeAssemblyBindingPolicy policy,
+        IAssemblyBindingPolicy policy,
         ResolvedAssemblyReference focusAssembly)
     {
         public ResolvedAssemblyReference FocusAssembly { get; } =
