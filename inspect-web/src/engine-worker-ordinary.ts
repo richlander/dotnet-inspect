@@ -1139,7 +1139,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackage: valueOperation(
       "ordinary-package-query-package",
-      3,
+      4,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackage"]>
@@ -1155,7 +1155,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackageSummary: valueOperation(
       "ordinary-package-query-package-summary",
-      3,
+      4,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackageSummary"]>

@@ -1606,6 +1606,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    runtimePopulation: null,
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -1642,6 +1643,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     packageInfo: null,
     packageChildren: null,
+    runtimePopulation: null,
     documents: [],
     surface: null,
     defaultLibraryId: null,
@@ -1659,11 +1661,13 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     "System.Text.Json",
     "latest",
     "net10.0",
+    "",
   );
   const notSettledResult = state.client.package.queryPackage(
     "Missing.Package",
     "latest",
     "net10.0",
+    "",
   );
   await state.environment.flushAsync();
 

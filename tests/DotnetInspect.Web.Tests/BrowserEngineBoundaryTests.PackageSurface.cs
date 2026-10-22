@@ -241,6 +241,61 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageRuntimePopulationWireProjectionPreservesChoiceState()
+    {
+        PackageRuntimePopulationChoiceResult selectedChoice = Choice(
+            "runtimes/win-x64/lib/net10.0/Windows.dll",
+            "runtimes/linux-x64/lib/net10.0/Linux.dll");
+        BrowserPackageRuntimePopulationChoice selected =
+            Assert.IsType<BrowserPackageRuntimePopulationChoice>(
+                BrowserPackageWireProjection.Project(selectedChoice));
+
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            selected.Status);
+        Assert.Equal("linux-x64", selected.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            selected.AvailableRuntimeIdentifiers);
+
+        PackageRuntimePopulationChoiceResult ambiguousChoice = Choice(
+            "runtimes/win-x64/lib/net10.0/Windows.dll",
+            "runtimes/osx-arm64/lib/net10.0/Mac.dll");
+        BrowserPackageRuntimePopulationChoice ambiguous =
+            Assert.IsType<BrowserPackageRuntimePopulationChoice>(
+                BrowserPackageWireProjection.Project(ambiguousChoice));
+
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+            ambiguous.Status);
+        Assert.Null(ambiguous.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            ["osx-arm64", "win-x64"],
+            ambiguous.AvailableRuntimeIdentifiers);
+        Assert.Null(BrowserPackageWireProjection.Project(
+            (PackageRuntimePopulationChoiceResult?)null));
+
+        static PackageRuntimePopulationChoiceResult Choice(
+            params string[] entries) =>
+            PackageRuntimePopulationChoice.Evaluate(
+                new PackageRuntimePopulationChoiceRequest(
+                    PackageRuntimePopulationChoiceOperationAssociation
+                        .Create(),
+                    PackageSourceCoordinate.Create(
+                        "runtime.projection",
+                        "1.0.0"),
+                    PackageAssetSelector.EvaluateSingleRuntime(
+                        new InMemoryPackageContent(
+                            PackageEntries(
+                                entries.Select(entry =>
+                                    (entry, Array.Empty<byte>()))
+                                .ToArray()),
+                            fromCache: true,
+                            "test-source")),
+                    new PackageRuntimePopulationAuthority.None()));
+    }
+
+    [Fact]
     public void PackageDocumentLeaves_PreserveIdentityPolicyAndInertBrand()
     {
         const string leavesJson =

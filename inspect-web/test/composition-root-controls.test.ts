@@ -598,7 +598,7 @@ test("data bar has no expansion state or interaction binding", () => {
   assert.doesNotMatch(dataBarSource, /addEventListener|querySelector/);
 });
 
-test("typed package controls own framework and version selection bindings", () => {
+test("typed package controls own framework, runtime, and version selection bindings", () => {
   const packageControlsCreation =
     appSource.match(/const packageControls = createPackageControls\(\{[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -622,7 +622,7 @@ test("typed package controls own framework and version selection bindings", () =
     /function packageFrameworkField|function packageCoordinateFields/);
   assert.match(
     packageControlsBinding,
-    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
+    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onRuntimeIdentifierSelect: selectRuntimeIdentifier,\s*onVersionSelect: selectVersion,\s*\}\)/);
   assert.equal(
     workspaceBinding.match(/\bpackageControls\.bind\(document\)/g)?.length,
     1);

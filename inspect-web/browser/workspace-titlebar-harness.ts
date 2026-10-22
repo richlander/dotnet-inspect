@@ -1264,7 +1264,11 @@ function bindHarnessWorkspace() {
 
 bindHarnessScopeBar();
 bindHarnessWorkspace();
-bindPackageSelections(document, { onFrameworkSelect: () => {}, onVersionSelect: () => {} });
+bindPackageSelections(document, {
+  onFrameworkSelect: () => {},
+  onRuntimeIdentifierSelect: () => {},
+  onVersionSelect: () => {},
+});
 bindContentFrame(document, {
   onShowDetail: () => {
     contentFramePane = "detail";

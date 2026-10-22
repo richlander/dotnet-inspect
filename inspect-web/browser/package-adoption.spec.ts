@@ -714,7 +714,7 @@ async function boot(page: Page): Promise<void> {
     window.__adoption = {
       encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
       queryPackage: (packageId, pkgVersion, framework) =>
-        client.package.queryPackage(packageId, pkgVersion, framework),
+        client.package.queryPackage(packageId, pkgVersion, framework, ""),
       queryVersions: (packageId, currentVersion) =>
         client.package.queryPackageVersions(packageId, currentVersion),
       cacheStats: () => client.package.packageCacheStats(),

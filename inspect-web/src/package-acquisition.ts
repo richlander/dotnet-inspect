@@ -17,6 +17,7 @@ import type {
   BrowserPackageInfoMeasurementInspection,
   BrowserPackageLoadResult,
   BrowserPackageRootLoadResult,
+  BrowserPackageRuntimePopulationChoice,
   BrowserPackageSurface as PackageSurfaceFromPackageFacade,
   BrowserPackageVersionSettlementInspection,
   BrowserParameterSurface as ParameterSurfaceFromPackageFacade,
@@ -148,6 +149,8 @@ export interface AppPackage {
   frameworks: string[];
   activeFramework: string;
   runtimeIdentifier?: string | null;
+  runtimeIdentifiers?: string[];
+  runtimePopulation?: BrowserPackageRuntimePopulationChoice | null;
   assembly: string;
   assemblyId: string;
   assemblyAsset: string;
@@ -1113,6 +1116,7 @@ export interface PackageAcquisitionDependencies {
     packageId: string,
     version: string,
     framework: string,
+    runtimeIdentifier: string,
   ): Promise<BrowserPackageLoadResult>;
   loadRuntimePack(
     framework: string,
@@ -1138,6 +1142,7 @@ export interface NuGetPackageRequest {
   packageId: string;
   version: string;
   framework: string;
+  runtimeIdentifier?: string | null;
   rootRequest?: string;
   replacePackage?: AppPackage | null;
   isCurrent?: () => boolean;
@@ -1238,6 +1243,7 @@ export function createPackageAcquisition(
         BrowserPackageChildrenInspection | undefined;
       let documents: readonly InspectedPackageDocument[] = [];
       let defaultLibraryId: string | null | undefined;
+      let runtimePopulation: BrowserPackageRuntimePopulationChoice | null = null;
       if (request.rootRequest !== undefined) {
         if (!dependencies.queryPackageRoot) {
           throw new Error("Exact package Root opening is unavailable.");
@@ -1245,13 +1251,15 @@ export function createPackageAcquisition(
         const rootLoad =
           await dependencies.queryPackageRoot(request.rootRequest);
         packageChildren = rootLoad.packageChildren;
+        runtimePopulation = rootLoad.runtimePopulation;
         documents = rootLoad.documents;
         defaultLibraryId = rootLoad.defaultLibraryId;
       } else {
         const loadResult = await dependencies.queryPackageSummary(
           request.packageId,
           request.version,
-          request.framework);
+          request.framework,
+          request.runtimeIdentifier ?? "");
         versionSettlement = loadResult.versionSettlement;
         if (loadResult.versionSettlement.content.kind === "NotSettled") {
           throw new PackageVersionSettlementError(
@@ -1267,6 +1275,7 @@ export function createPackageAcquisition(
             "A settled package surface must carry Package Info measurements.");
         }
         packageInfo = loadResult.packageInfo;
+        runtimePopulation = loadResult.runtimePopulation;
         if (loadResult.packageChildren === null) {
           throw new Error(
             "A settled package surface must carry Package children.");
@@ -1304,6 +1313,13 @@ export function createPackageAcquisition(
         throw new Error(
           "A Package load requires either a surface or Package children.");
       }
+      packageModel.runtimePopulation = runtimePopulation;
+      packageModel.runtimeIdentifiers =
+        runtimePopulation?.availableRuntimeIdentifiers
+        ? [...runtimePopulation.availableRuntimeIdentifiers]
+        : [];
+      packageModel.runtimeIdentifier =
+        runtimePopulation?.selectedRuntimeIdentifier ?? null;
       dependencies.retainPackage(packageModel, request.replacePackage);
       dependencies.recordRecentPackage(
         packageModel.id,

@@ -75,12 +75,29 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageChildrenInspection? PackageChildren,
     BrowserPackageDocument[] Documents,
     BrowserPackageSurface? Surface,
-    string? DefaultLibraryId = null);
+    string? DefaultLibraryId = null,
+    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
 
 public sealed record BrowserPackageRootLoadResult(
     BrowserPackageChildrenInspection PackageChildren,
     BrowserPackageDocument[] Documents,
-    string? DefaultLibraryId = null);
+    string? DefaultLibraryId = null,
+    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageRuntimePopulationChoiceStatus>))]
+public enum BrowserPackageRuntimePopulationChoiceStatus
+{
+    Selected,
+    NoMatch,
+    Ambiguous,
+    Refused,
+    Failed,
+}
+
+public sealed record BrowserPackageRuntimePopulationChoice(
+    BrowserPackageRuntimePopulationChoiceStatus Status,
+    string? SelectedRuntimeIdentifier,
+    string[] AvailableRuntimeIdentifiers);
 
 public sealed record BrowserPackageChildrenInspection(
     BrowserPackageChildren Content,

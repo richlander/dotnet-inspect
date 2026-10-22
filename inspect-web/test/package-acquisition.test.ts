@@ -399,6 +399,7 @@ function packageRootLoad(
 ): BrowserPackageRootLoadResult {
   return {
     packageChildren: packageChildren(surface),
+    runtimePopulation: null,
     documents: surface.documents,
     defaultLibraryId: surface.defaultAssemblyId,
   };
@@ -1047,6 +1048,7 @@ function acquisitionDependencies(
       },
       packageInfo: packageInfo(),
       packageChildren: packageChildren(packageSurface()),
+      runtimePopulation: null,
       documents: [],
       surface: packageSurface(),
     }),
@@ -1164,7 +1166,8 @@ test("missing exact Root capability never falls back to coordinate opening", asy
       return acquisitionDependencies().queryPackageSummary(
         "Example.Package",
         "1.2.3",
-        "net10.0");
+        "net10.0",
+        "");
     },
   }));
 
@@ -1213,6 +1216,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
       versionSettlement,
       packageInfo: null,
       packageChildren: null,
+      runtimePopulation: null,
       documents: [],
       surface: null,
     }),
