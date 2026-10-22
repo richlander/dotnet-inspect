@@ -262,17 +262,19 @@ a demonstrated compact substrate rather than an adoption recommendation.
 
 A declarative-index follow-up tested whether the owner could retain logical
 identity instead of byte coordinates. A validated dense ordinal population
-used one `N+1` 32-bit offset vector and matched retained-range latency on both
-the complete metadata Name census and the repeated method-production shape.
-Its owned payload was 54% to 61% of retained ranges, versus 69% to 74% for
-8-byte slots. This is the optimal measured shape when ordinal position is
-implicit, the owner consumes the population as one ordered sequence, and
-individual identities do not escape.
+used one `N+1` 32-bit offset vector and remained within 5% of retained-range
+latency on the complete metadata Name census and repeated method-production
+shape. Five asset/scope cells were statistically inconclusive around parity;
+the complete CoreLib census measured a small 5% loss. Its owned payload was
+54% to 61% of retained ranges, versus 69% to 74% for 8-byte slots. This is the
+best measured payload/latency shape when ordinal position is implicit, the
+owner consumes the population as one ordered sequence, and individual
+identities do not escape.
 
 That result does not generalize to every declarative index. Adding one 4-byte
 handle per occurrence to the offset vector restored essentially the same
-payload as an 8-byte slot and made matching 16% to 20% slower. Interning equal
-Name bytes reduced payload further, to 31% to 47% of retained ranges, at a 14%
+payload as an 8-byte slot and made matching 15% to 43% slower. Interning equal
+Name bytes reduced payload further, to 31% to 47% of retained ranges, at a 12%
 to 19% median match-time cost. It is a candidate for repeated-value
 populations whose retained-space win amortizes construction and indirection,
 not a universal representation.
@@ -280,8 +282,8 @@ not a universal representation.
 The metadata source's existing 4-byte `StringHandle` was the smallest borrowed
 descriptor, but resolving it through
 `MetadataReader.GetBlobReader(StringHandle)` repeatedly found the
-null-terminated `#Strings` length and made full-population matching 3.76x to
-4.78x slower. Source handles remain natural while the metadata image lifetime
+null-terminated `#Strings` length and made full-population matching 3.74x to
+4.85x slower. Source handles remain natural while the metadata image lifetime
 and access pattern are acceptable; they are not evidence against a detached
 owner that records boundaries once.
 

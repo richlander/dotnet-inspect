@@ -147,27 +147,31 @@ Thirty rotated NativeAOT rounds on the three accepted assets found:
 | Shape | Owned payload / retained range | Match time / retained range |
 | --- | ---: | ---: |
 | Checked 8-byte slot | 0.69x-0.74x | 0.99x-1.01x, parity |
-| Checked dense ordinal | 0.54x-0.61x | 1.23x-1.24x, loss |
-| Validated dense ordinal | 0.54x-0.61x | 1.00x-1.05x, parity |
-| Validated explicit index | 0.69x-0.74x | 1.16x-1.20x |
-| Validated interned index | 0.31x-0.47x | 1.14x-1.19x |
-| Borrowed source `StringHandle` | Not comparable | 3.76x-4.78x, loss |
+| Checked dense ordinal | 0.54x-0.61x | 1.22x-1.25x, loss |
+| Validated dense ordinal | 0.54x-0.61x | 1.00x-1.05x, near parity |
+| Validated explicit index | 0.69x-0.74x | 1.15x-1.43x |
+| Validated interned index | 0.31x-0.47x | 1.12x-1.19x |
+| Borrowed source `StringHandle` | Not comparable | 3.74x-4.85x, loss |
 
 All terminal match operations allocated zero bytes. The checked dense ordinal
 still pays repeated slice validation. The validated owner removes that cost
 and demonstrates the intended result: when ordinal position is implicit, one
 offset per value can retain about 39% to 46% less owned payload than an
-8-byte slot while preserving range match latency.
+8-byte slot while remaining within 5% of range match latency. Five
+asset/scope cells were statistically inconclusive around parity; the complete
+CoreLib census measured a small 5% loss.
 
 An explicit index changes that conclusion. One 4-byte handle per occurrence
 plus one 4-byte offset per value has essentially the same payload as one
 8-byte slot and adds an indirection. Declarative identity is still a stronger
 API boundary, but it is not a storage or latency optimization for a one-to-one
-population.
+population. Median matching ranged from 15% to 43% slower across exact
+NativeAOT runs, with the largest variation in the smallest repeated
+Configuration kernel.
 
 Value interning is a distinct memory/latency trade. Repeated method-production
 Names reduced owned payload to 31% to 43% of ranges, but the additional index
-and offset lookups left median matching 14% to 19% slower. It is a candidate
+and offset lookups left median matching 12% to 19% slower. It is a candidate
 only when repeated values make retained space more important and construction
 cost can be amortized; this diagnostic does not measure interning construction.
 
