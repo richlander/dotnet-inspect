@@ -318,7 +318,7 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(OutsideNote, namesError.Trim());
         Assert.Equal(OutsideNote, tableError.Trim());
         // Summary counts describe the displayed rows.
-        Assert.Contains("25 breaking, 16 additive, 5 non-breaking across 33 types", output);
+        Assert.Contains("25 breaking, 16 additive, 5 non-breaking across 35 types", output);
 
         // The unprojected document keeps the complete API axis population.
         using JsonDocument document = await FindingDiffAnyJson();
@@ -349,9 +349,9 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        // 33 displayed Types plus the eight whose one row is outside the ordinary
+        // 35 displayed Types plus the eight whose one row is outside the ordinary
         // population; the CLI JSON spells a nested Type with '+'.
-        Assert.Equal(41, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        Assert.Equal(43, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
         JsonElement nested = Subject(document, "FindingDiffAnyFixture.NestedPublicToProtected+Nested");
         JsonElement after = nested.GetProperty("comparison").GetProperty("after");
         Assert.False(after.GetProperty("status").GetProperty("isOrdinary").GetBoolean());
