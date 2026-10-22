@@ -117,13 +117,16 @@ public class IlBodyDiffExceptionRegionTests
     [Fact]
     public void NearLimitBodyWithClauses_IsATypedInspectionFailure()
     {
+        // The nested shape is six instructions; the padding brings the body to
+        // one instruction under the limit, and its two clauses cross it.
+        const int ShapeInstructions = 6;
         int instructions = IlFindings.MaxCanonicalOperations - 1;
-        (byte[] image, int body) = Image(Shape.NestedCatchInFinally, paddingNops: instructions - 8);
+        (byte[] image, int body) = Image(Shape.NestedCatchInFinally, paddingNops: instructions - ShapeInstructions);
         using var pe = new PEReader(new MemoryStream(image));
         MethodInstructions decoded = MethodInstructions.Decode(pe.GetMethodBody(body));
-        Assert.True(decoded.IsComplete);
+        Assert.True(decoded.IsComplete, decoded.Blocks.IncompleteReason);
+        Assert.Equal(instructions, decoded.Instructions.Length);
         Assert.Equal(2, decoded.Blocks.Regions.Length);
-        Assert.True(decoded.Instructions.Length + 2 > IlFindings.MaxCanonicalOperations);
 
         var inspection = IlFindings.Inspect(decoded, pe.GetMetadataReader(), new FindingSubject("C::M", "M"));
         var failed = Assert.IsAssignableFrom<FindingInspection<CanonicalIlOperation>.Failed>(inspection);

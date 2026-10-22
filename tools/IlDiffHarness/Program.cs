@@ -200,7 +200,8 @@ static IlDiffCard BuildCard(IlAssemblyDiffResult result)
         [.. result.Examples.Select(example => new IlDiffExample(
             example.Method,
             example.Diff.Outcome,
-            IlDiffPrinter.RenderUnified(example.Diff)))]);
+            IlDiffPrinter.RenderUnified(example.Diff)))],
+        result.PairExceptionRegionDiffCount);
 }
 
 static ImmutableArray<CardBucket> Buckets(Dictionary<string, int> counts)
@@ -225,8 +226,7 @@ static string FormatCard(ImmutableArray<IlDiffPairCard> pairs, int maxExamples, 
             output,
             new MarkdownFormatter(),
             IlDiffCardViewContext.Default,
-            new MarkoutWriterOptions(),
-        result.PairExceptionRegionDiffCount);
+            new MarkoutWriterOptions());
     }
     else
     {
