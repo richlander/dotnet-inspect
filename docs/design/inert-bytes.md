@@ -770,7 +770,9 @@ exact-base/head gates run.
    pre-adoption path.
 6. **Shared Symbol Key and Finding Diff Any adoption.** Move Finding Diff
    Any's private Symbol Key onto the shared representation and remove the
-   duplicate storage owner only with exact base/head NativeAOT parity.
+   duplicate storage owner only with exact base/head NativeAOT parity
+   (implemented as Symbol Key step 5,
+   [#10476](https://github.com/richlander/dotnet-inspect/issues/10476)).
 7. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).
