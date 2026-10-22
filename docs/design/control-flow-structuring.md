@@ -934,13 +934,23 @@ only when the post-dominator machinery is proven.
    fidelity gate dockets the moved-arm fixtures as the sparse-switch
    over-render (csc re-lowers the if/else tree with `bgt`/`bne.un`). Against
    exact base `1bb00c652` over the pinned real-world corpus (89,065 methods),
-   `--structuring-stops` moved from 30,388 to 30,577 structured containers,
-   211 to 226 retained-label regions, and 2,331 to 2,142 flat containers
-   (`cond-target-past-region` 1,214 → 620, `forward-branch-not-region-exit`
-   746 → 971 and `fallthrough-past-region` 0 → 159 as the deeper walk reaches
-   later stops, `arm-externally-entered` 187 → 198), with the same four
-   pre-existing pass bugs on both sides; the census moved branching fully
-   raised 23,017 → 23,136 and forward-merge stops 1,959 → 1,590. Seven pinned
+   `--structuring-stops` moved from 30,388 to 30,569 structured containers,
+   211 to 222 retained-label regions, and 2,331 to 2,150 flat containers
+   (`cond-target-past-region` 1,214 → 794, `forward-branch-not-region-exit`
+   746 → 965 as the deeper walk reaches later stops, `arm-externally-entered`
+   187 → 198), with the same four pre-existing pass bugs on both sides; the
+   census moved branching fully raised 23,017 → 23,132 and forward-merge
+   stops 1,959 → 1,758. A moved arm must not reach its own end block unless
+   that block is the join (its last block may not fall through and nothing
+   inside may transfer onto the end block that is not a break, continue, or
+   inlined terminator): once moved, falling off the arm continues after the
+   guard's if/else, not at the block csc laid out next; `GotoSharedCaseNoLoop`
+   and `GotoReturnCaseNoLoop` (a `goto case` onto the next section, whose
+   body csc reaches by fallthrough) pin that such an arm stays in place and
+   the container keeps its goto form. Because planning a sibling-arm move can
+   take the very block whose fallthrough proved a shared join, that proof is
+   re-read after planning so validation decides on the walk build will see.
+   Seven pinned
    methods lost exact PDB local names (`DEC0009`, `unspellable-local-name`)
    because a sibling-scope pattern local whose scope-entry label the
    structuring dissolved is now declared at its first store and encloses its
