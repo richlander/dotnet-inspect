@@ -24,6 +24,7 @@ public static partial class TypeCommand
         {
             TypeName = selected.Subject.Identity.Type.ToEscapedFullName(),
             Format = presentation.Format,
+            MarkdownExplicitlySet = presentation.MarkdownExplicitlySet,
             JsonOutput = presentation.Format == OutputFormat.Json,
             PlainText = presentation.Format == OutputFormat.PlainText,
             Tabular = presentation.Format is OutputFormat.Table or OutputFormat.Tsv or OutputFormat.Jsonl,

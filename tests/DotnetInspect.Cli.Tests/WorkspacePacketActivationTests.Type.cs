@@ -13,14 +13,15 @@ public sealed partial class WorkspacePacketActivationTests
 {
     // PR-fast: pinned real archive, two contexts, no feed access.
     [Theory]
-    [InlineData(OutputFormat.Markdown, false)]
-    [InlineData(OutputFormat.PlainText, false)]
-    [InlineData(OutputFormat.Table, false)]
-    [InlineData(OutputFormat.Tsv, false)]
-    [InlineData(OutputFormat.Json, false)]
-    [InlineData(OutputFormat.Jsonl, false)]
-    [InlineData(OutputFormat.Markdown, true)]
-    public async Task SavedTypeReplaysOrdinaryApi(OutputFormat format, bool count)
+    [InlineData(OutputFormat.Markdown, false, false)]
+    [InlineData(OutputFormat.PlainText, false, false)]
+    [InlineData(OutputFormat.Table, false, false)]
+    [InlineData(OutputFormat.Tsv, false, false)]
+    [InlineData(OutputFormat.Json, false, false)]
+    [InlineData(OutputFormat.Jsonl, false, false)]
+    [InlineData(OutputFormat.Markdown, true, false)]
+    [InlineData(OutputFormat.Markdown, false, true)]
+    public async Task SavedTypeReplaysOrdinaryApi(OutputFormat format, bool count, bool markdownExplicit)
     {
         string input = MemberWorkspaceRouteTests.Packet(5);
         using var client = new HttpClient(new FailingHandler());
@@ -29,12 +30,13 @@ public sealed partial class WorkspacePacketActivationTests
             TypeReplayOptions(format, false) with
             {
                 WorkspacePacket = input, ShareFormat = WorkspaceShareFormat.Packet,
+                MarkdownExplicitlySet = markdownExplicit,
             }, load));
         Assert.True(savedOutput.ExitCode == 0, savedOutput.Error);
         string packet = savedOutput.Error.Trim();
         var ordinary = count
             ? await ConsoleCapture.RunAsync(() => ExecuteOrdinaryTypeAsync(
-                TypeReplayOptions(format, true) with { WorkspacePacket = packet }, load))
+                TypeReplayOptions(format, true) with { WorkspacePacket = packet, MarkdownExplicitlySet = markdownExplicit }, load))
             : savedOutput;
         Assert.True(ordinary.ExitCode == 0, ordinary.Error);
         WorkspaceSharePacket saved = WorkspaceSharePacketCodec.Decode(packet,
@@ -45,11 +47,15 @@ public sealed partial class WorkspacePacketActivationTests
         Assert.Equal(2, saved.Contexts.Count);
         Assert.Equal("type.api", saved.ViewStates[1].Facet);
         var actual = await ConsoleCapture.RunAsync(() => WorkspacePacketActivation.ExecuteAsync(
-            new WorkspaceOptions { Packet = packet, Format = format, Count = count },
+            new WorkspaceOptions { Packet = packet, Format = format, Count = count, MarkdownExplicitlySet = markdownExplicit },
             TestContext.Current.CancellationToken, load));
         Assert.True(actual.ExitCode == 0, actual.Error);
         Assert.Equal(NormalizeTypePaths(ordinary.Output), NormalizeTypePaths(actual.Output));
         Assert.Empty(actual.Error);
+        if (markdownExplicit)
+            Assert.StartsWith("# System.Text.Json.JsonSerializer", actual.Output, StringComparison.Ordinal);
+        else if (format == OutputFormat.Markdown && !count)
+            Assert.StartsWith("static class System.Text.Json.JsonSerializer", actual.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("net8.0", actual.Output, StringComparison.Ordinal);
         if (count)
             Assert.True(int.Parse(actual.Output.Trim(), System.Globalization.CultureInfo.InvariantCulture) > 100);
@@ -129,7 +135,7 @@ public sealed partial class WorkspacePacketActivationTests
 
     static string NormalizeTypePaths(string value) =>
         System.Text.RegularExpressions.Regex.Replace(value,
-            @"inspect-type-workspace[^/\\s]+", "inspect-type-workspaceTEMP");
+            @"inspect-type-workspace[^/\\\s]+", "inspect-type-workspaceTEMP");
 
     static Task<int> ExecuteOrdinaryTypeAsync(TypeOptions options, WorkspaceContextLoadOptions load) =>
         TypeCommand.ExecuteAsync(options, ResolvedMemberInspectionPlan.FromCompatibilityOptions(options), load);

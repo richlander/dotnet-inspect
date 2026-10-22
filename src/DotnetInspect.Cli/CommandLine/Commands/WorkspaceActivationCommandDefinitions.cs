@@ -62,6 +62,7 @@ internal static class WorkspaceActivationCommandDefinitions
                     Packet = result.GetValue(packetOption) ?? result.GetValue(packet),
                     Inventory = true,
                     Format = opts.ResolveFormat(result),
+                    MarkdownExplicitlySet = result.GetResult(opts.Markdown) is { Implicit: false },
                     Count = result.GetValue(opts.Count),
                     RowSelection = RenderedLines(result) ? null : rows,
                     Rows = RenderedLines(result) ? opts.ParseRows(result) : null,
