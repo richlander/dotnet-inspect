@@ -270,10 +270,12 @@ public static class FindingDiffAny
         if (methodA.RelativeVirtualAddress == 0)
             return true;
 
-        BlobReader readerA = a.Pe.GetMethodBody(methodA.RelativeVirtualAddress).GetILReader();
-        BlobReader readerB = b.Pe.GetMethodBody(methodB.RelativeVirtualAddress).GetILReader();
+        MethodBodyBlock bodyA = a.Pe.GetMethodBody(methodA.RelativeVirtualAddress);
+        MethodBodyBlock bodyB = b.Pe.GetMethodBody(methodB.RelativeVirtualAddress);
+        BlobReader readerA = bodyA.GetILReader();
+        BlobReader readerB = bodyB.GetILReader();
         work.IlBytes += readerA.Length;
-        return work.Walk.Equal(a, readerA, b, readerB);
+        return work.Walk.Equal(a, readerA, bodyA.ExceptionRegions, b, readerB, bodyB.ExceptionRegions);
     }
 
     /// <summary>
@@ -354,8 +356,13 @@ public static class FindingDiffAny
     /// before any difference the end decides, as a census cursor ends
     /// <c>Failed</c> before <c>Complete</c>.
     /// A <c>calli</c> stand-alone signature compares by its bytes, as
-    /// canonical comparison compares it. Body size, the local signature,
-    /// stack size, <c>init locals</c>, and exception regions are not read.
+    /// canonical comparison compares it. Once both streams are complete and
+    /// aligned, the exception clauses compare as canonical comparison's
+    /// clause atoms compare: clause by clause in declaration order, by kind,
+    /// by catch Type as a symbolic name, and by each extent boundary as the
+    /// instruction it starts, where the end of the body aligns with the end
+    /// of the body. Body size, the local signature, stack size, and
+    /// <c>init locals</c> are not read.
     /// An undefined opcode, a truncated operand, an operand whose token kind
     /// its opcode does not take, a target that starts no instruction (one
     /// inside an instruction, at the end of the body, or outside it) or
@@ -373,7 +380,13 @@ public static class FindingDiffAny
         int[] _targetsA = new int[64];
         int[] _targetsB = new int[64];
 
-        public bool Equal(Side a, BlobReader readerA, Side b, BlobReader readerB)
+        public bool Equal(
+            Side a,
+            BlobReader readerA,
+            ImmutableArray<ExceptionRegion> regionsA,
+            Side b,
+            BlobReader readerB,
+            ImmutableArray<ExceptionRegion> regionsB)
         {
             int count = 0;
             int targets = 0;
@@ -502,7 +515,84 @@ public static class FindingDiffAny
                 if (TargetIndex(_startsA, count, _targetsA[i]) != TargetIndex(_startsB, count, _targetsB[i]))
                     return false;
             }
+            return ClausesEqual(a, regionsA, readerA.Length, b, regionsB, readerB.Length, count);
+        }
+
+        /// <summary>
+        /// The exception clauses of two bodies whose streams are complete and
+        /// aligned. Every boundary of both tables is checked for an
+        /// instruction start first, so a table with such a boundary is
+        /// undecidable before any difference it holds. The decoder's further
+        /// topology rules (nesting, ordering, empty extents) are canonical
+        /// comparison's to reject; a table they reject and this walk decides
+        /// is a contained disagreement on malformed input.
+        /// </summary>
+        bool ClausesEqual(
+            Side a,
+            ImmutableArray<ExceptionRegion> regionsA,
+            int lengthA,
+            Side b,
+            ImmutableArray<ExceptionRegion> regionsB,
+            int lengthB,
+            int count)
+        {
+            foreach (ExceptionRegion region in regionsA)
+                RequireBoundaries(_startsA, count, lengthA, region);
+            foreach (ExceptionRegion region in regionsB)
+                RequireBoundaries(_startsB, count, lengthB, region);
+            if (regionsA.Length != regionsB.Length)
+                return false;
+            for (int i = 0; i < regionsA.Length; i++)
+            {
+                ExceptionRegion x = regionsA[i];
+                ExceptionRegion y = regionsB[i];
+                if (x.Kind != y.Kind)
+                    return false;
+                if (x.Kind == ExceptionRegionKind.Catch)
+                {
+                    RequireOperandKind(Operand.Type, a, x.CatchType);
+                    RequireOperandKind(Operand.Type, b, y.CatchType);
+                    if (a.ReferenceKey(x.CatchType) != b.ReferenceKey(y.CatchType))
+                        return false;
+                }
+                if (BoundaryIndex(_startsA, count, lengthA, x.TryOffset) != BoundaryIndex(_startsB, count, lengthB, y.TryOffset)
+                    || BoundaryIndex(_startsA, count, lengthA, x.TryOffset + x.TryLength) != BoundaryIndex(_startsB, count, lengthB, y.TryOffset + y.TryLength)
+                    || BoundaryIndex(_startsA, count, lengthA, x.HandlerOffset) != BoundaryIndex(_startsB, count, lengthB, y.HandlerOffset)
+                    || BoundaryIndex(_startsA, count, lengthA, x.HandlerOffset + x.HandlerLength) != BoundaryIndex(_startsB, count, lengthB, y.HandlerOffset + y.HandlerLength))
+                {
+                    return false;
+                }
+                if (x.Kind == ExceptionRegionKind.Filter
+                    && BoundaryIndex(_startsA, count, lengthA, x.FilterOffset) != BoundaryIndex(_startsB, count, lengthB, y.FilterOffset))
+                {
+                    return false;
+                }
+            }
             return true;
+        }
+
+        void RequireBoundaries(int[] starts, int count, int length, ExceptionRegion region)
+        {
+            BoundaryIndex(starts, count, length, region.TryOffset);
+            BoundaryIndex(starts, count, length, region.TryOffset + region.TryLength);
+            BoundaryIndex(starts, count, length, region.HandlerOffset);
+            BoundaryIndex(starts, count, length, region.HandlerOffset + region.HandlerLength);
+            if (region.Kind == ExceptionRegionKind.Filter)
+                BoundaryIndex(starts, count, length, region.FilterOffset);
+        }
+
+        /// <summary>
+        /// The index of the instruction an extent boundary starts, or the
+        /// instruction count for the end of the body; any other boundary is
+        /// one the decoder rejects.
+        /// </summary>
+        int BoundaryIndex(int[] starts, int count, int length, int offset)
+        {
+            if (offset == length)
+                return count;
+            if (offset < 0 || offset > length)
+                throw new BadImageFormatException($"Exception clause boundary IL_{offset:X4} lies outside the body.");
+            return TargetIndex(starts, count, offset);
         }
 
         void PushTarget(int index, int targetA, int targetB)

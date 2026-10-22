@@ -1,7 +1,7 @@
 {
   "schemaVersion": 8,
   "description": "#1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies.",
-  "generatedUtc": "2026-10-21T21:35:39.4513675+00:00",
+  "generatedUtc": "2026-10-22T01:21:32.0680998+00:00",
   "validityCompileCap": 4000,
   "fidelityCompileCap": 50,
   "methodCap": null,
@@ -1560556,7 +1560556,7 @@
       }
     },
     "fidelity": {
-      "contractVersion": 5,
+      "contractVersion": 6,
       "checkedMethods": 682,
       "exactMethods": 447,
       "opcodeDiffMethods": 68,
@@ -1560602,7 +1560602,7 @@
   "featureCoverage": {},
   "classicStateMachineCoverage": null,
   "runIdentity": {
-    "sourceRevision": "56e00012d2e815a04592d3b4669484e7fab77979",
+    "sourceRevision": "26572f1bdd5a4765b80ba3c0899bcb4e3e897c0e",
     "sourceState": "clean",
     "compiler": "Microsoft.CodeAnalysis.CSharp, Version=5.9.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35",
     "runtime": ".NET 11.0.0-rc.1.26425.128",
