@@ -1188,6 +1188,10 @@ public sealed partial class MethodDefinitionRequestSetTests
             AssemblyInspectionSession.Open(path);
         AssemblyAnalysisRequestSetOperation operation =
             AssemblyAnalysisRequestSetOperation.Create(path, plan);
+        Assert.Same(plan, operation.Source);
+        Assert.Same(
+            MethodDefinitionSourceRequest.SourceIdentity,
+            operation.Source.Identity);
 
         var result = session.SnapshotOperation(
             operation,
@@ -1253,7 +1257,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                             AssemblyAnalysisService.Instance.Execute(
                                 operation,
                                 access)))
-            .Execution;
+            .Execution
+            .MethodDefinitionExecution();
     }
 
     static MethodDefinitionSourceRequestSetExecution Execute(
@@ -1277,7 +1282,8 @@ public sealed partial class MethodDefinitionRequestSetTests
                             AssemblyAnalysisService.Instance.Execute(
                                 operation,
                                 access)))
-            .Execution;
+            .Execution
+            .MethodDefinitionExecution();
     }
 
     static ImmutableArray<byte> TwoMethodsInExcludedTypeWithFirstBody(
