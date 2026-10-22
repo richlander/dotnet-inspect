@@ -567,7 +567,23 @@ public sealed class MatchCommandTests
             var findings = il.GetProperty("findings");
             Assert.Equal("Failed", findings.GetProperty("outcome").GetString());
             Assert.Contains("comparison: IL comparison skipped", findings.GetProperty("failure").GetString());
+            Assert.Contains("IL comparison skipped", findings.GetProperty("comparison_failure").GetString());
             Assert.False(il.TryGetProperty("il", out _));
+
+            // The text output names the refusal as a diagnostic, not a bare Failed.
+            var (textExit, text, textError) = await ConsoleCapture.RunAsync(
+                () => MatchCommand.ExecuteAsync(new MatchOptions
+                {
+                    LeftSelector = "N.C.M1",
+                    RightSelector = "N.C.M2",
+                    AssemblyPath = path,
+                    IncludeAll = true,
+                    IncludeBody = true,
+                }));
+            Assert.NotEqual(0, textExit);
+            Assert.Contains("Method body comparison did not complete successfully", textError);
+            Assert.Contains("Unavailable", text);
+            Assert.Contains("IL comparison skipped", text);
         }
         finally
         {

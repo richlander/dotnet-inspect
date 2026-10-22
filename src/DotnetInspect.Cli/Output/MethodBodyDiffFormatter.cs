@@ -108,6 +108,11 @@ public static class MethodBodyDiffFormatter
                 if (endpoint.Error is { } error)
                     diagnostics.Add(DiagnosticRow(
                         name, endpoint.Side.ToString(), error.Descriptor.Id, error.Reason));
+            // A comparison that refused two non-failed inspections names its
+            // reason here, as the endpoints name theirs, so the view is never
+            // a bare Failed.
+            if (producer.Findings?.ComparisonFailure is { } refused)
+                diagnostics.Add(DiagnosticRow(name, side: null, "comparison", refused));
 
             if (producer.NativeCSharp is { } csharp)
             {
@@ -280,7 +285,7 @@ public static class MethodBodyDiffFormatter
             FindingComparison<T>.Complete complete => new(
                 "Complete", complete.IsExact, complete.Transition, complete.Match, complete.Pairs.Length, null),
             FindingComparison<T>.Failed failed => new(
-                "Failed", null, null, null, null, failed.Failure),
+                "Failed", null, null, null, null, failed.Failure, failed.ComparisonFailure),
             _ => throw new ArgumentOutOfRangeException(nameof(comparison)),
         };
 
