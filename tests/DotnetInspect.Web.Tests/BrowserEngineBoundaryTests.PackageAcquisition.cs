@@ -591,6 +591,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 Assert.Equal(packageId, occurrence.Package);
                 Assert.Equal(version, occurrence.Version);
                 Assert.Equal("net11.0", occurrence.Framework);
+                Assert.Equal("", occurrence.RuntimeIdentifier);
                 Assert.DoesNotContain(
                     packageId,
                     occurrence.Action,
@@ -619,6 +620,62 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Null(
             BrowserWorkspaceOccurrenceOperations.Activate(
                 replacement.Occurrences[0].Action));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_QueryRetainsRuntimeIdentifier()
+    {
+        string packageId = $"Gallery.Workspace.Runtime.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        const string runtimeIdentifier = "linux-x64";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                Package(
+                    File.ReadAllBytes(
+                        typeof(BrowserPackage).Assembly.Location),
+                    $"runtimes/{runtimeIdentifier}/lib/net11.0/{packageId}.dll"),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+        string request = JsonSerializer.Serialize(
+            [
+                new BrowserWorkspacePackage(
+                    packageId,
+                    version,
+                    "net11.0",
+                    runtimeIdentifier),
+            ],
+            BrowserPackageJsonContext.Default
+                .BrowserWorkspacePackageArray);
+
+        BrowserWorkspacePackageOccurrenceView view =
+            Assert.IsType<BrowserWorkspacePackageOccurrenceView>(
+                JsonSerializer.Deserialize(
+                    await PackageExports
+                        .QueryWorkspacePackageOccurrences(request),
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceView));
+        BrowserWorkspacePackageOccurrence occurrence =
+            Assert.Single(view.Occurrences);
+        Assert.Equal(runtimeIdentifier, occurrence.RuntimeIdentifier);
+
+        BrowserWorkspacePackageOccurrenceActivation activation =
+            Assert.IsType<BrowserWorkspacePackageOccurrenceActivation>(
+                JsonSerializer.Deserialize(
+                    await PackageExports
+                        .ActivateWorkspacePackageOccurrence(
+                            occurrence.Action),
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceActivation));
+        Assert.True(activation.Activated);
+        Assert.False(activation.Superseded);
+        Assert.NotNull(activation.Package);
+        Assert.Equal(
+            runtimeIdentifier,
+            activation.RuntimeIdentifier);
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
     }
 
     [Fact]

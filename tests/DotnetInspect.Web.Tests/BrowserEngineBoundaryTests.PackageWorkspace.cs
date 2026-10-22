@@ -151,6 +151,40 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public void PackageCoordinateKeyIncludesRuntimeIdentifier()
+    {
+        const string packageId = "Rid.Key";
+        var package = new BrowserPackage(
+            packageId,
+            "1.0.0",
+            PackageEntries(
+                ($"runtimes/linux-x64/lib/net11.0/{packageId}.dll", [0x01]),
+                ($"runtimes/win-x64/lib/net11.0/{packageId}.dll", [0x02])),
+            fromCache: false);
+        var linux = new BrowserPackageCoordinate(
+            package,
+            new PackageRootRealization(
+                package.Content,
+                packageId,
+                package.Version,
+                "net11.0",
+                "linux-x64"));
+        var windows = new BrowserPackageCoordinate(
+            package,
+            new PackageRootRealization(
+                package.Content,
+                packageId,
+                package.Version,
+                "net11.0",
+                "win-x64"));
+
+        Assert.Equal("linux-x64", linux.RuntimeIdentifier);
+        Assert.Equal("win-x64", windows.RuntimeIdentifier);
+        Assert.NotEqual(linux.Key, windows.Key);
+        Assert.False(linux.HasExactContentAs(windows));
+    }
+
+    [Fact]
     public async Task PackageFrameworkUnavailability_DoesNotEmitArtifactFramework()
     {
         const char bidi = '\u202E';
