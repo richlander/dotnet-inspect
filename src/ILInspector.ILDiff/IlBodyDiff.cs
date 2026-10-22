@@ -373,7 +373,7 @@ public static partial class IlBodyDiff
         out string? failure)
     {
         var instructions = body.Instructions;
-        var clauses = body.Blocks.Models;
+        var clauses = body.Blocks.Regions;
         var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(instructions.Length + clauses.Length);
         foreach (var instruction in instructions)
         {
