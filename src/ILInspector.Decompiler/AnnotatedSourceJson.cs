@@ -631,12 +631,14 @@ internal sealed class StrictIlBodyDiffOutcomeJsonConverter
             nameof(IlBodyDiffOutcome.Exact) => IlBodyDiffOutcome.Exact,
             nameof(IlBodyDiffOutcome.OperandDiff) => IlBodyDiffOutcome.OperandDiff,
             nameof(IlBodyDiffOutcome.OpcodeDiff) => IlBodyDiffOutcome.OpcodeDiff,
+            nameof(IlBodyDiffOutcome.ExceptionRegionDiff) => IlBodyDiffOutcome.ExceptionRegionDiff,
             _ => default,
         };
         return name is nameof(IlBodyDiffOutcome.Unavailable)
             or nameof(IlBodyDiffOutcome.Exact)
             or nameof(IlBodyDiffOutcome.OperandDiff)
-            or nameof(IlBodyDiffOutcome.OpcodeDiff);
+            or nameof(IlBodyDiffOutcome.OpcodeDiff)
+            or nameof(IlBodyDiffOutcome.ExceptionRegionDiff);
     }
 
     protected override string? GetName(IlBodyDiffOutcome value)
@@ -646,6 +648,7 @@ internal sealed class StrictIlBodyDiffOutcomeJsonConverter
             IlBodyDiffOutcome.Exact => nameof(IlBodyDiffOutcome.Exact),
             IlBodyDiffOutcome.OperandDiff => nameof(IlBodyDiffOutcome.OperandDiff),
             IlBodyDiffOutcome.OpcodeDiff => nameof(IlBodyDiffOutcome.OpcodeDiff),
+            IlBodyDiffOutcome.ExceptionRegionDiff => nameof(IlBodyDiffOutcome.ExceptionRegionDiff),
             _ => null,
         };
 }

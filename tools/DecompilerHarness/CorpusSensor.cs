@@ -2781,7 +2781,7 @@ internal static class CorpusSensor
         {
             var report = fidelityReports[0];
             Console.WriteLine(
-                $"Fidelity contract v{report.Metrics.ContractVersion} ({fidelityOracle}, cap {report.Cap}; EH-blind): "
+                $"Fidelity contract v{report.Metrics.ContractVersion} ({fidelityOracle}, cap {report.Cap}): "
                 + $"{report.Metrics.ExactMethods} exact, {report.Metrics.OpcodeDiffMethods} opcode diffs, "
                 + $"{report.Metrics.OperandDiffMethods} operand diffs, "
                 + $"{report.Metrics.FidelityUnavailableMethods} unavailable, "
@@ -3642,7 +3642,7 @@ internal static class CorpusSensor
                 countDeltaKnown: comparableFidelitySamples));
             fidelityExactRow = ShareChangeRow(
                 comparableFidelitySamples
-                    ? $"Fidelity exact (contract v{current.Metrics.Fidelity.ContractVersion}; EH-blind)"
+                    ? $"Fidelity exact (contract v{current.Metrics.Fidelity.ContractVersion})"
                     : $"Fidelity exact ({fidelityDifference})",
                 baseline.Metrics.Fidelity.ExactMethods,
                 baseline.Metrics.Fidelity.CheckedMethods,

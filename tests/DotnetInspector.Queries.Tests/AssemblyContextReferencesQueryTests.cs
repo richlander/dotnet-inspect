@@ -40,6 +40,67 @@ public sealed class AssemblyContextReferencesQueryTests
     }
 
     [Fact]
+    public async Task
+        ExecuteParticipantBindingEvidence_RetainsExactRequestAndContextDecision()
+    {
+        var policy = new NoNameOwnerBindingPolicy();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            workspace.CreateAssemblyContextGroup(
+                [
+                    new AssemblyContextParticipant(
+                        ResolvedAssemblyReference.CreateFromPath(
+                            typeof(AssemblyContextReferencesQueryTests)
+                                .Assembly.Location,
+                            AssemblyResolutionProvenance.Local(
+                                "reference binding evidence tests")),
+                        policy),
+                ]);
+        AssemblyContextParticipant participant = group.Participants[0];
+
+        var available = Assert.IsType<
+            AssemblyContextEntry<
+                ImmutableArray<AssemblyContextReferenceBindingEvidence>>
+                .Available>(
+                    AssemblyContextReferencesQuery
+                        .ExecuteParticipantBindingEvidence(
+                            group,
+                            participant));
+
+        AssemblyContextReferenceBindingEvidence evidence =
+            Assert.Single(
+                available.Value,
+                candidate =>
+                    candidate.Reference.Name == "System.Runtime");
+        var target = Assert.IsType<
+            AssemblyBindingTarget.AssemblyReference>(
+                evidence.Request.Target);
+        Assert.Equal(
+            evidence.Reference.Name,
+            target.Identity.Name);
+        Assert.Equal(
+            evidence.Reference.Version,
+            target.Identity.Version?.ToString());
+        var origin = Assert.IsType<
+            AssemblyBindingOrigin.RequestingAssembly>(
+                evidence.Request.Origin);
+        Assert.Same(
+            participant.Assembly.Registration,
+            origin.Registration);
+        Assert.Equal(
+            AssemblyResolutionScope.Any,
+            evidence.Request.Scope);
+        Assert.Same(
+            policy.Version,
+            evidence.ReferencingContext.Version);
+        var missing = Assert.IsType<AssemblyBindingSelection.Missing>(
+            evidence.ReferencingContext.Selection);
+        Assert.Equal(
+            AssemblyBindingMissDisposition.NoNameOwner,
+            missing.Disposition);
+    }
+
+    [Fact]
     public async Task Execute_CarriesAcquisitionFailureBesideHealthyReferences()
     {
         string path = typeof(AssemblyContextReferencesQueryTests).Assembly.Location;
@@ -101,6 +162,11 @@ public sealed class AssemblyContextReferencesQueryTests
             () => AssemblyContextReferencesQuery.ExecuteParticipant(
                 first,
                 second.Participants[0]));
+        Assert.Throws<ArgumentException>(
+            () => AssemblyContextReferencesQuery
+                .ExecuteParticipantBindingEvidence(
+                    first,
+                    second.Participants[0]));
     }
 
     static AssemblyContextGroup Group(
@@ -130,5 +196,16 @@ public sealed class AssemblyContextReferencesQueryTests
                 new AssemblyBindingFailure(
                 AssemblyBindingFailureKind.CandidateUnavailable));
         }
+    }
+
+    sealed class NoNameOwnerBindingPolicy : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            new(
+                Version,
+                AssemblyBindingSelection.NameNotOwned());
     }
 }

@@ -49,6 +49,176 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
+    public async Task IndexedPhaseRunsBeforeBoundedAndLiveWithoutConsumingCandidates()
+    {
+        var layer = Layer("first", "First.Core", "Contoso.");
+        List<string> observations = [];
+        using var session = new EcosystemFindSearchSession<string>(
+            Request([layer], maximumRows: 4, maximumCandidates: 1),
+            (_, _) =>
+            {
+                observations.Add("bounded");
+                return Task.FromResult(
+                    new EcosystemFindBlock<string>("bounded", 1));
+            },
+            (_, _, token) =>
+            {
+                observations.Add("enumerate");
+                return Pages(
+                    new([new("Contoso.Widget", "1.0.0")]),
+                    token);
+            },
+            (candidate, _, _) =>
+            {
+                observations.Add($"candidate:{candidate.PackageId}");
+                return Task.FromResult(
+                    new EcosystemFindBlock<string>("live", 1));
+            },
+            publish: block => observations.Add(
+                $"publish:{block.Content}"),
+            indexed: (remaining, _) =>
+            {
+                observations.Add($"index:{remaining}");
+                return Task.FromResult(
+                    new EcosystemFindIndexedOutcome<string>(
+                        [new("indexed", 1)],
+                        EcosystemFindIndexedCompletion.Exhausted,
+                        []));
+            });
+
+        EcosystemFindSearchSummary<string> result =
+            await session.ExecuteAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            [
+                "index:4",
+                "publish:indexed",
+                "bounded",
+                "publish:bounded",
+                "enumerate",
+                "candidate:Contoso.Widget",
+                "publish:live",
+            ],
+            observations);
+        Assert.Equal("indexed", Assert.Single(result.IndexedBlocks).Content);
+        Assert.Equal("live", Assert.Single(result.PrefixBlocks).Content);
+        Assert.Equal(EcosystemFindCompletion.Exhausted, result.Completion);
+    }
+
+    [Fact]
+    public async Task IndexedPhaseCanFillWindowWithoutStartingLaterWork()
+    {
+        var layer = Layer("first", "First.Core", "Contoso.");
+        int boundedEvaluations = 0;
+        int enumerations = 0;
+        using var session = new EcosystemFindSearchSession<int>(
+            Request([layer], maximumRows: 1),
+            (_, _) =>
+            {
+                boundedEvaluations++;
+                return Task.FromResult(
+                    new EcosystemFindBlock<int>(1, 1));
+            },
+            (_, _, token) =>
+            {
+                enumerations++;
+                return Pages(new([]), token);
+            },
+            (_, _, _) => Task.FromResult(
+                new EcosystemFindBlock<int>(0, 0)),
+            indexed: (_, _) => Task.FromResult(
+                new EcosystemFindIndexedOutcome<int>(
+                    [new(1, 1)],
+                    EcosystemFindIndexedCompletion.RowLimitReached,
+                    [])));
+
+        EcosystemFindSearchSummary<int> result =
+            await session.ExecuteAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, boundedEvaluations);
+        Assert.Equal(0, enumerations);
+        Assert.Equal(
+            EcosystemFindCompletion.RowLimitReached,
+            result.Completion);
+        Assert.Equal(
+            ["ecosystem.first", "Contoso."],
+            result.Unsearched);
+        Assert.Single(result.IndexedBlocks);
+        Assert.Empty(result.PrefixBlocks);
+    }
+
+    [Fact]
+    public async Task IndexedFailureRemainsVisibleAndLiveWorkContinues()
+    {
+        var layer = Layer("first", "First.Core", "Contoso.");
+        int candidates = 0;
+        using var session = new EcosystemFindSearchSession<int>(
+            Request([layer]),
+            (_, _) => Task.FromResult(
+                new EcosystemFindBlock<int>(0, 0)),
+            (_, _, token) => Pages(
+                new([new("Contoso.Widget", "1.0.0")]),
+                token),
+            (_, _, _) =>
+            {
+                candidates++;
+                return Task.FromResult(
+                    new EcosystemFindBlock<int>(1, 1));
+            },
+            indexed: (_, _) => Task.FromResult(
+                new EcosystemFindIndexedOutcome<int>(
+                    [],
+                    EcosystemFindIndexedCompletion.Exhausted,
+                    [new("Indexed", "ecosystem.first",
+                        "Artifact schema mismatch.")])));
+
+        EcosystemFindSearchSummary<int> result =
+            await session.ExecuteAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, candidates);
+        EcosystemFindSourceFailure failure =
+            Assert.Single(result.Failures);
+        Assert.Equal("Indexed", failure.Phase);
+        Assert.Equal(EcosystemFindCompletion.Partial, result.Completion);
+        Assert.True(result.HasFailures);
+        Assert.True(result.Incomplete);
+    }
+
+    [Fact]
+    public async Task IndexedCancellationBeforeAcceptanceDoesNotPublish()
+    {
+        var layer = Layer("first", "First.Core", "Contoso.");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        List<int> published = [];
+        using var session = new EcosystemFindSearchSession<int>(
+            Request([layer]),
+            (_, _) => Task.FromResult(
+                new EcosystemFindBlock<int>(0, 0)),
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(
+                new EcosystemFindBlock<int>(0, 0)),
+            publish: block => published.Add(block.Content),
+            indexed: (_, _) =>
+            {
+                cancellation.Cancel();
+                return Task.FromResult(
+                    new EcosystemFindIndexedOutcome<int>(
+                        [new(1, 1)],
+                        EcosystemFindIndexedCompletion.Exhausted,
+                        []));
+            });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            session.ExecuteAsync(cancellation.Token));
+
+        Assert.Empty(published);
+    }
+
+    [Fact]
     public async Task BoundedBarrierIssuesExactContinuationWithoutEnumeratingPrefixes()
     {
         EcosystemFindLayer[] layers =

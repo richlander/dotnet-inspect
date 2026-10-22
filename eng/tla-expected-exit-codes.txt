@@ -4,6 +4,15 @@
 # entry only when the configuration's exact outcome is a named repository gate.
 # Format: one canonical `<path-to-cfg>=<TLC-exit-code>` pair per line.
 
+docs/design/models/package-dependency-traversal-concurrency/BrokenBudget.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/BrokenCapacity.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/BrokenOrder.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/BrokenRelease.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/Concurrent.cfg=0
+docs/design/models/package-dependency-traversal-concurrency/OverlapReachability.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/RefillReachability.cfg=12
+docs/design/models/package-dependency-traversal-concurrency/Sequential.cfg=0
+
 docs/design/models/package-source-operation-concurrency/BrokenAdmission.cfg=12
 docs/design/models/package-source-operation-concurrency/BrokenDuplicateFetch.cfg=12
 docs/design/models/package-source-operation-concurrency/BrokenRelease.cfg=12

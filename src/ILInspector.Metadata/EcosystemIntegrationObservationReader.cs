@@ -107,6 +107,7 @@ internal static class EcosystemIntegrationObservationReader
                             "The Integration API display signature is degraded.");
                     evidence = new EcosystemIntegrationApiEvidence(
                         anchor.Anchor,
+                        name,
                         definitionName,
                         anchor.ExtendedTypeReference,
                         anchor.ReturnTypeReference,

@@ -1397,7 +1397,7 @@ Release gates:
 | `ClassicInverseNestedInitializerRequiresExactEntries` | A nested entry's member, dispatch, or order changes. |
 | `ClassicInverseDeferredAwaitSpillRetainsItsOrderingWitness` | A deferred await spill is reordered without its imported evaluation-order evidence. |
 | `ClassicInverseExtendedExpressionPlansAreDetached` and `ClassicInverseExtendedExpressionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or budget exhaustion stops being visible failure. |
-| `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseExtendedExpressionOutputsCompileBack` | Any of the sixteen covered repaired outputs and neighboring expressions, including a resolved nested collection initializer, stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInversePreservesSinkAndCompositionExpressions` | Sink coercions, typed literals, primitive receivers, or composed selections lose supported reconstructed source. |
 | `ClassicInverseSinkLiteralCannotBeHealedByPlanning` | Planning hides a changed literal value/type, an out-of-range coercion, or a checked/unsigned enum conversion. |
 | `ClassicInverseCoerceRetainsExactTarget` and `ClassicInverseCoerceRequiresAnActualSink` | A coercion changes its target or appears without an exact raw typed consumer. |
@@ -1405,7 +1405,7 @@ Release gates:
 | `ClassicInversePrimitiveReceiverCannotBorrowAnAwaiterSlot` | An unnamed primitive receiver acquires a protocol local's address. |
 | `ClassicInverseSinkAndCompositionPlansAreDetached` and `ClassicInverseSinkAndCompositionBudgetsRemainLoadBearing` | Added expression forms retain mutable inputs or lose visible budget failure. |
 | `ClassicInverseSinkMatchingBudgetExhaustionCannotDecline` | Exhaustion inside a sink-directed value comparison is reported as a semantic mismatch rather than `Failed(BudgetExhausted)`. |
-| `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseSinkAndCompositionOutputsCompileBack` | A covered sink/receiver/composition witness or neighbor stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInversePreservesRetainedExpressionConsumers` and `ClassicInverseRetainedInitializerSinksCannotBeHealed` | A retained initializer consumer loses supported source or licenses a changed value, type, field, or member. |
 | `ClassicInverseGenericOutputKeepsDeclaredContext` and `ClassicInverseGenericContainerBindsDistinctParameterKinds` | A generic method or enclosing generic type loses its exact request-local type-parameter binding in the body or output-effect receipts. |
 | `ClassicInverseGenericBindingRejectsIncompleteContext`, `ClassicInverseGenericBindingRequiresItsKickoffInstantiation`, `ClassicInverseGenericBindingKeepsExactMachineModule`, and `ClassicInverseGenericFieldContextCannotBeHealed` | A missing coordinate, wrong parameter kind/index, contradictory kickoff instantiation/module, or unrelated typed field licenses reconstruction. |
@@ -1416,7 +1416,7 @@ Release gates:
 | `ClassicInverseRetainedValuesRequireTheirOrigins` and `ClassicInverseRetainedOutputKeepsExactValueType` | A tuple or default value loses its raw origin or exact published type. |
 | `ClassicInverseComposedPredicateRawControlCannotBeHealed` and `ClassicInverseComposedPredicatePlanningKeepsExactControl` | A changed guard edge, predicate, arm, joined slot, or effect licenses short-circuit reconstruction. |
 | `ClassicInverseRetainedExpressionPlansAreDetached`, `ClassicInverseRetainedExpressionBudgetsRemainLoadBearing`, and `ClassicInverseRetainedExpressionBudgetCutsNeverDecline` | A retained form aliases mutable input or exhaustion becomes decline instead of visible failure. |
-| `ClassicInverseRetainedExpressionOutputsCompileBack` and `ClassicInverseGenericContainerOutputsCompileBack` | A covered retained-sink, generic-context, nullable, tuple, default, or short-circuit witness stops compiling back Exact under the current EH-blind comparison contract. |
+| `ClassicInverseRetainedExpressionOutputsCompileBack` and `ClassicInverseGenericContainerOutputsCompileBack` | A covered retained-sink, generic-context, nullable, tuple, default, or short-circuit witness stops compiling back Exact under the current comparison contract (v6, exception clauses compared). |
 | `ClassicInverseExpressionFamiliesCarryCompleteEvidence` | An admitted family lacks typed capture, raw value/construction, primitive effects, or consumed origins/ownership. |
 | `ClassicInverseChildCorrespondenceComposes` | A proved child fails in an admitted context, or a parent accepts one without exact occurrence association and closed combined ownership. |
 | `ClassicInverseTransfersPreserveEvaluationContext` | A composed transfer changes reaching definition, use multiplicity, sibling order, exception behavior or protected context. |

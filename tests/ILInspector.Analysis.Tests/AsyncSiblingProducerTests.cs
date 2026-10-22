@@ -89,7 +89,8 @@ public class AsyncSiblingProducerTests
             MethodDefinitionSourceRequest<AsyncSiblingProducerResult>.Create(
                 work,
                 producer,
-                MethodDefinitionSourceBreadth.AllDefinitions));
+                MethodDefinitionSourceBreadth.AllDefinitions)
+            .AsAssemblyAnalysisSource());
     }
 
     static AssemblyReferenceBindingAccess CreateBinding()

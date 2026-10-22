@@ -131,7 +131,9 @@ public sealed class DeclaredSourceRelationTests
                 MethodDefinitionSourceBreadth.AllDefinitions
                     .IncludeGeneratedExecutionBodies(
                         roles: MethodDefinitionGeneratedBodyRoles.All));
-        var operation = AssemblyAnalysisOperation<int>.Create(path, request);
+        var operation = AssemblyAnalysisOperation<int>.Create(
+            path,
+            request.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session = OpenSession(path);
         AssemblyAnalysisExecution<int> execution =
             Assert.IsType<AssemblyAnalysisServiceResult<int>.Completed>(
@@ -143,7 +145,7 @@ public sealed class DeclaredSourceRelationTests
                 .Execution;
         Assert.True(execution.ResultOf(BodyReader.Instance).HasValue);
         MethodDefinitionGeneratedExpansionCoverage relation =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
 
         int bodies = ManagedBodies(path, out _, out int unacquirable);
         Assert.Equal(bodies, relation.TraversalReferenceBodies);
@@ -187,7 +189,9 @@ public sealed class DeclaredSourceRelationTests
                     .IncludeGeneratedExecutionBodies(
                         limits,
                         MethodDefinitionGeneratedBodyRoles.All));
-        var operation = AssemblyAnalysisOperation<bool>.Create(path, request);
+        var operation = AssemblyAnalysisOperation<bool>.Create(
+            path,
+            request.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session = OpenSession(path);
         AssemblyAnalysisExecution<bool> execution =
             Assert.IsType<AssemblyAnalysisServiceResult<bool>.Completed>(
@@ -198,7 +202,7 @@ public sealed class DeclaredSourceRelationTests
                             access)))
                 .Execution;
 
-        Assert.True(execution.SourceReceipt.Coverage.GeneratedExpansion.IsBounded);
+        Assert.True(execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion.IsBounded);
         ProducerResult<bool> result = execution.ResultOf(StoppingReader.Instance);
         Assert.Equal(ProducerOutcome.SourceBounded, result.Outcome);
         Assert.False(result.HasValue);
@@ -216,7 +220,9 @@ public sealed class DeclaredSourceRelationTests
                 VisitReader.Instance,
                 MethodDefinitionSourceBreadth.AllDefinitions
                     .IncludeGeneratedExecutionBodies());
-        var operation = AssemblyAnalysisOperation<int>.Create(path, request);
+        var operation = AssemblyAnalysisOperation<int>.Create(
+            path,
+            request.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session = OpenSession(path);
 
         var exception = Assert.ThrowsAny<Exception>(
@@ -262,7 +268,7 @@ public sealed class DeclaredSourceRelationTests
     {
         var operation = AssemblyAnalysisOperation<RelationRead>.Create(
             path,
-            Request(breadth));
+            Request(breadth).AsAssemblyAnalysisSource());
         AssemblyAnalysisExecution<RelationRead> execution =
             Assert.IsType<AssemblyAnalysisServiceResult<RelationRead>.Completed>(
                     session.SnapshotOperation(
@@ -274,7 +280,7 @@ public sealed class DeclaredSourceRelationTests
         ProducerResult<RelationRead> result =
             execution.ResultOf(RelationReader.Instance);
         Assert.True(result.HasValue, result.Failure?.Message);
-        return result.Value! with { Coverage = execution.SourceReceipt.Coverage };
+        return result.Value! with { Coverage = execution.MethodDefinitionReceipt().Coverage };
     }
 
     static WorkDescription Plan<TResult>(ProducerDeclaration<TResult> producer) =>

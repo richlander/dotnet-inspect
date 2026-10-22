@@ -3784,6 +3784,133 @@ preservation are modeled separately by
 [Inspect Web Retained Workspace
 Realization](models/inspect-web-retained-workspace-realization/README.md).
 
+### Saved-subject execution handoff
+
+The shared handoff is implemented under
+[#10408](https://github.com/richlander/dotnet-inspect/issues/10408).
+Set `CompleteRestorationExecutionOptions.CaptureSelectedSubject` to retain
+its live associations, then use
+`CompleteRestorationSelectedSubjectOperation.ExecuteAsync` under the paired
+Workspace or realization operation lease. Omission is explicit `NotCaptured`;
+Workspace/Ecosystem landings remain with their existing operations. The CLI
+saved-inspection bindings remain under
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+
+Complete restoration must let a consumer inspect its exact saved subject in
+the same realization. The selected declaration context describes the
+environment; the restored Navigation subject identifies what to inspect.
+They are different inputs. In particular, a Type's Navigation Library may use
+a Package Root surface participant rather than a declaration-context
+participant. Matching their Package IDs, assembly names, or Type names does
+not establish correspondence between those registrations.
+
+Definitions supplies a typed selection handoff under the host's existing
+operation borrow over the paired activation. The handoff retains the resolved
+saved subject, effective facet, and attached query intent from the committed
+selected view. It also supplies the exact ready Package association used to
+resolve that subject, preserving its Scope occurrence, Root binding, producer,
+target, and Library asset/participant associations. It derives that association
+from the same restoration's prepared evidence, not a search by display
+coordinate in the selected context. A Library, Type, or Member target retains
+its existing structured ancestry and identity; an aggregate Library remains
+an aggregate, rather than becoming its first Library.
+
+The operation receives only the target shape appropriate to that subject:
+Package operations consume its exact Root/occurrence; Library operations its
+owner-issued asset associations; Type operations its exact defining Library
+and structured metadata Type identity; Member operations additionally its
+structured Member anchor. This describes the handoff's information boundary,
+not a new inspection request schema. Existing inspection owners decide whether
+and how they consume these inputs. Definitions neither rewrites a Navigation
+registration into a declaration-context registration nor defines such an
+adapter on their behalf.
+
+Selection performs no additional acquisition, Type search, or content
+inspection. It reuses the exact association established during restoration.
+The receiving inspection retains its own capability admission, query planning,
+cost permissions, typed result, Share, diagnostics, and rendering contracts.
+Facet availability is insufficient to establish an execution binding. A host
+rejects a known missing binding before restoration; a realization-dependent
+unavailable subject or association remains a typed failure after restoration.
+Neither case substitutes an inspection or silently drops query intent.
+
+Live targets remain bounded by the existing operation borrow and realization
+lifetime. They are not portable or detached snapshot fields. Only the
+inspection owner's detached result may outlive that borrow. Closing or
+superseding an activation uses the existing host lifecycle; this handoff adds
+no controller, session registry, new lease protocol, or restoration phase.
+Consumers do not restore again, reacquire the source, reconstruct argv, or
+interpret consumer-facing Navigation IDs to recover live targets.
+
+#### Worked Package replay
+
+The first consumer is the CLI Package replay requested by the user:
+
+```bash
+environment=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dotnet-inspect package System.Text.Json \
+  --workspace "$environment" --share packet \
+  > package-content.txt 2> package-share.txt
+package_packet=$(tail -n 1 package-share.txt)
+dotnet-inspect "$package_packet"
+```
+
+The source query emits this hierarchy and a format-5 packet selecting
+`Package` with facet `package.libraries`:
+
+```text
+System.Text.Json 10.0.0 (NuGet; net10.0; lib)
+└─ System.Text.Json.dll
+```
+
+Replay must restore once, hand that exact selected Package to the admitted
+Libraries inspection, and print its ordinary default hierarchy above. It does
+not print Workspace inventory. The equivalent entrance is
+`dotnet-inspect -w "$package_packet"`. These are target replay gestures:
+PR #10409 currently refuses both with no stdout and the error
+`The saved Package facet 'package.libraries' has no CLI activation execution binding.`
+The source query and current refusal were reproduced with its NativeAOT
+candidate `18c37a5a26abe016f70a03fc4cd6448fa709203e`.
+
+#### Saved-subject adoption and evidence
+
+The shared handoff and exact association gates are implemented under #10408.
+CLI bindings then adopt it individually under #4647, beginning
+with Package Libraries, followed by Type API and Member overview. Browser
+restoration remains a consumer of the same owner-issued preparation; gate
+same-packet subject, facet, query and target preservation through its
+production activation facade. There is no Browser rendering redesign or
+command-wide migration in this handoff. The complete counted sequence remains
+in [#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
+
+Required runtime evidence includes the worked Package round-trip; a saved
+JsonSerializer Type whose Navigation and declaration registrations differ;
+exact Member overloads; same-name Libraries/Types from neighboring assets;
+multiple contexts; and a source command whose selected subject differs from
+the input packet's focused tab. Compare exact occurrences and registrations,
+not only displayed names. Gate aggregate preservation, attached query intent,
+unsupported-binding refusal, ordinary output/Count parity, and use within the
+paired lifetime. Inactive views are not additional execution requests.
+
+`CompleteRestorationExecutionTests.SelectedSubject_*` gates exact Package,
+Library/aggregate, Type and Member targets; omission and unsupported landing;
+closed/foreign Workspace refusal; and two same-name Library/Type assets across
+net8.0/net9.0 contexts with repeated query definitions bound to distinct targets.
+The Type gate establishes that the Navigation defining registration differs
+from declaration-context registrations. The handoff reuses the existing exact
+Root-generation query borrow and performs no content inspection itself.
+`SelectedSubjectCapture_PreservesBrowserPackageActivation` runs the production
+Browser retained-activation owner with capture enabled and preserves the same
+Package, facet and canonical packet.
+
+CLI rendering, Count and complete save/replay parity remain unverified until
+the command bindings land. Selection is a projection of one already prepared
+activation under its existing borrow, with no new state machine. The
+complete-restoration model above retains lifecycle ownership; the focused
+runtime tests establish the new subject association.
+
 ### Complete-restoration inventory
 
 Complete restoration may explicitly capture a detached inventory from its

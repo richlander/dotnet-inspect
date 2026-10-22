@@ -15,6 +15,10 @@ public enum HandlerKind
 }
 
 /// <summary>A normalized, instruction-boundary-aligned exception region.</summary>
+/// <param name="CatchTypeToken">
+/// The metadata token of a catch clause's Type, or 0 for a clause of another
+/// kind, so a comparison can resolve the Type the clause names.
+/// </param>
 public sealed record ExceptionRegionModel(
     HandlerKind Kind,
     int TryStart,
@@ -22,7 +26,8 @@ public sealed record ExceptionRegionModel(
     int HandlerStart,
     int HandlerEnd,
     int FilterStart,
-    int FilterEnd)
+    int FilterEnd,
+    int CatchTypeToken = 0)
 {
     public bool ContainsTry(int offset) => offset >= TryStart && offset < TryEnd;
     public bool ContainsHandler(int offset) => offset >= HandlerStart && offset < HandlerEnd;

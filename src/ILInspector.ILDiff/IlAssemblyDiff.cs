@@ -28,7 +28,8 @@ public sealed record IlAssemblyDiffResult(
     ImmutableArray<IlDiffBucket> TopHunkKinds,
     ImmutableArray<IlDiffBucket> TopOpcodeFamilies,
     ImmutableArray<IlAssemblyDiffExample> Examples,
-    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default);
+    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default,
+    int PairExceptionRegionDiffCount = 0);
 
 public sealed record IlIdentityResolutionFailure(
     string Side,
@@ -347,6 +348,7 @@ public static class IlAssemblyDiff
         int pairExact = 0;
         int pairOperandDiff = 0;
         int pairOpcodeDiff = 0;
+        int pairExceptionRegionDiff = 0;
         int pairUnavailable = 0;
         int changed = 0;
         int selfDiffExact = 0;
@@ -438,6 +440,8 @@ public static class IlAssemblyDiff
             changed++;
             if (diff.Outcome == IlBodyDiffOutcome.OperandDiff)
                 pairOperandDiff++;
+            else if (diff.Outcome == IlBodyDiffOutcome.ExceptionRegionDiff)
+                pairExceptionRegionDiff++;
             else
                 pairOpcodeDiff++;
             foreach (var row in diff.Rows)
@@ -463,7 +467,8 @@ public static class IlAssemblyDiff
             Buckets(hunkKinds),
             Buckets(opcodeFamilies),
             examples.ToImmutable(),
-            identityFailures.ToImmutable());
+            identityFailures.ToImmutable(),
+            pairExceptionRegionDiff);
     }
 
     public static IlMemberDiffResult CompareMembers(

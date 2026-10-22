@@ -130,7 +130,7 @@ producers that will extend that space.
   settlement while retaining exact caller associations; Metadata retains
   candidate facts and the command retains presentation.
   [Ecosystem Find Search](design/ecosystem-find-search.md) owns the
-  host-neutral bounded-before-prefix scheduler that deduplicates concrete
+  host-neutral index-before-bounded-before-live scheduler that deduplicates concrete
   source work, reduces owner-issued Find blocks to every admitting Ecosystem,
   and preserves phase, membership, failure, and completion evidence for CLI
   and Browser adoption.
@@ -843,7 +843,7 @@ rules, this document describes subsystem ownership, and
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Ecosystem Find Search](design/ecosystem-find-search.md): host-neutral
-  bounded-before-prefix scheduling, distinct-source deduplication,
+  index-before-bounded-before-live scheduling, distinct-source deduplication,
   cross-Ecosystem membership reduction, durable Find blocks, and terminal
   completion for CLI and Browser adoption.
 - [Ecosystem Find Index](design/ecosystem-find-index.md): deterministic
@@ -1077,6 +1077,11 @@ rules, this document describes subsystem ownership, and
   concrete typed contribution correspondence, independent relationship and
   color-family settlement, and canonical Rows/Count/Exists document generation
   without execution or acquisition.
+- [Annotated Type Relations call adoption](design/annotated-type-relations-call-adoption.md):
+  exact outgoing call relations from one Type, physical call-site receipts,
+  direct trimming and NativeAOT compatibility color on external callees, and
+  producer-native terminal settlement over independently qualified topology
+  and color evidence.
 - [Finding Diff Any](design/finding-diff-any.md): per-Type API and Body change
   states for a Library image pair, sound for the facts each axis compares,
   without building either complete diff.

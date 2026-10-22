@@ -70,6 +70,23 @@ public static partial class IlBodyDiff
             };
         }
 
+        /// <summary>Resolves a catch clause's Type as a type operand is resolved.</summary>
+        public bool TryResolveCatchType(int token, int tryOffset, out IlOperandIdentity? operand, out string? failure)
+        {
+            try
+            {
+                operand = new IlOperandIdentity(IlOperandIdentityKind.Token, ResolveType(token));
+                failure = null;
+                return true;
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
+            {
+                operand = null;
+                failure = $"catch Type of the clause at IL_{tryOffset:X4} could not be resolved: {ex.Message}";
+                return false;
+            }
+        }
+
         string ResolveType(int token)
             => FormatType(MetadataTokens.EntityHandle(token));
 
