@@ -127,18 +127,26 @@ public class IlCensusCursorTests
     [Fact]
     public void BranchTargets_AreInstructionIndexes_AndShiftedOffsetsAlign()
     {
-        // br.s +1 over nop: the target is the second ret, index 3 of 5 instructions.
+        // br.s +1 over nop: the target is the first ret at offset 3, index 2.
         var old = Drain([BrS, 0x01, Nop, Ret, Nop, Ret]);
-        var shifted = Drain([Nop, BrS, 0x01, Nop, Ret, Nop, Ret]);
+        // The same body with a nop inserted first: the target's offset and
+        // index both move, and only the alignment relates them.
+        var inserted = Drain([Nop, BrS, 0x01, Nop, Ret, Nop, Ret]);
+        // The same body with the branch re-encoded long: the offset moves,
+        // the index does not, so the atoms are equal in canonical bytes.
+        var reencoded = Drain([0x38, 0x01, 0x00, 0x00, 0x00, Nop, Ret, Nop, Ret]);
 
-        Assert.Equal<int>([3], old.Findings[0].Payload.TargetIndexes);
+        Assert.Equal<int>([2], old.Findings[0].Payload.TargetIndexes);
         Assert.Equal<int>([3], old.Findings[0].Payload.Targets);
-        Assert.Equal<int>([4], shifted.Findings[1].Payload.TargetIndexes);
-        Assert.Equal<int>([5], shifted.Findings[1].Payload.Targets);
-        Assert.True(IlBodyDiff.AtomsEqual(old.Findings[0].Payload, shifted.Findings[1].Payload));
-        Assert.False(IlBodyDiff.AtomsEqual(old.Findings[0].Payload, Drain([BrS, 0x01, Nop, Nop, Ret, Nop, Ret]).Findings[0].Payload));
+        Assert.Equal<int>([3], inserted.Findings[1].Payload.TargetIndexes);
+        Assert.Equal<int>([4], inserted.Findings[1].Payload.Targets);
+        Assert.Equal<int>([2], reencoded.Findings[0].Payload.TargetIndexes);
+        Assert.Equal<int>([6], reencoded.Findings[0].Payload.Targets);
+        Assert.True(IlBodyDiff.AtomsEqual(old.Findings[0].Payload, reencoded.Findings[0].Payload));
+        Assert.False(IlBodyDiff.AtomsEqual(old.Findings[0].Payload, inserted.Findings[1].Payload));
+        Assert.True(IlFindings.Compare(old, reencoded).IsExact);
 
-        var comparison = Assert.IsType<FindingComparison<CanonicalIlOperation>.Complete>(IlFindings.Compare(old, shifted).Value);
+        var comparison = Assert.IsType<FindingComparison<CanonicalIlOperation>.Complete>(IlFindings.Compare(old, inserted).Value);
         Assert.DoesNotContain(comparison.Pairs, pair => pair.Kind == PairKind.Changed);
         Assert.Equal(1, comparison.Pairs.Count(pair => pair.Kind == PairKind.Added));
     }
