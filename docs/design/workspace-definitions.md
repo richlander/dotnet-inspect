@@ -3868,10 +3868,13 @@ System.Text.Json 10.0.0 (NuGet; net10.0; lib)
 Replay must restore once, hand that exact selected Package to the admitted
 Libraries inspection, and print its ordinary default hierarchy above. It does
 not print Workspace inventory. The equivalent entrance is
-`dotnet-inspect -w "$package_packet"`. These are target replay gestures:
-PR #10409 currently refuses both with no stdout and the error
+`dotnet-inspect -w "$package_packet"`. Package Libraries now binds both
+entrances to the ordinary CLI inspection.
+The recorded [format-5 packet](../examples/workspace-package-replay.json)
+replays its hierarchy and Count; other saved facets and attached queries remain
+staged under #4647. Historically, PR #10409 refused both with no stdout and the error
 `The saved Package facet 'package.libraries' has no CLI activation execution binding.`
-The source query and current refusal were reproduced with its NativeAOT
+The source query and historical refusal were reproduced with its NativeAOT
 candidate `18c37a5a26abe016f70a03fc4cd6448fa709203e`.
 
 #### Saved-subject adoption and evidence
@@ -3905,8 +3908,11 @@ Root-generation query borrow and performs no content inspection itself.
 Browser retained-activation owner with capture enabled and preserves the same
 Package, facet and canonical packet.
 
-CLI rendering, Count and complete save/replay parity remain unverified until
-the command bindings land. Selection is a projection of one already prepared
+CLI Package Libraries rendering, Count and save/replay parity are gated by
+`WorkspacePacketActivationTests.SavedPackageReplaysOrdinaryLibraries` and the
+recorded packet's production Browser activation test. Type, Member and attached
+query CLI bindings remain staged. Selection is a projection of one already
+prepared
 activation under its existing borrow, with no new state machine. The
 complete-restoration model above retains lifecycle ownership; the focused
 runtime tests establish the new subject association.
