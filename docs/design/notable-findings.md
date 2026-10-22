@@ -658,17 +658,22 @@ chips, and the profile line, each as a separately staged slice below.
   reached only through a producer-issued loop attribute; the slow link test
   resolves every entry; the ordinary gates do not touch the network.
 - **Hosts:** CLI Facts with `--focus` and no argument equals the Browser's
-  notable set for the same Member, and `-v:d` prints each admitted finding's
-  guidance line and link.
+  notable set for the same Member, and `-v:d` prints the guidance line and
+  link of each admitted finding that has a matching catalog row and nothing
+  for one that does not.
 - **Guidance delivery:** for a fixture Member with one admitted body
-  finding, the Findings row, the Annotated Source finding inspector, and
+  finding that has a matching catalog row, the Findings row, the Annotated Source finding inspector, and
   the mark's tooltip each render that finding's catalog line and link, and
   the Markout JSON and TSV lowerings of CLI Facts at `-v:d` carry the same
   URL as a field; for a fixture Member whose only finding is a Member-header
   finding, the Findings row and tooltip render the catalog line and link,
   the row offers no Annotated Source action and says so, and the Current
-  mark is still present; a descriptor without an entry renders no guidance
-  and no placeholder at each of those boundaries.
+  mark is still present; a finding without a matching catalog row, whether
+  its descriptor has no entry or only rows for an attribute the finding
+  lacks, such as a straight-line `alloc.new` admitted to the map, renders no
+  guidance and no placeholder at each of those boundaries, in the Findings
+  row, the inspector, the tooltip, and the `-v:d` line and its Markout
+  field.
 - **Profile:** Library Overview for a Debug, a runtime-async, and an unsafe
   fixture states each profile fact on one line.
 
