@@ -927,6 +927,7 @@ public static class FindingDiffAny
             new(SymbolKeyComparer<FindingDiffAnyPart>.Instance);
         readonly SignatureKeys _signatures;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
+        int _buildDepth;
 
         const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
 
@@ -938,6 +939,7 @@ public static class FindingDiffAny
             Names = new MetadataStringHeap(pe, Md);
             Retained = new SymbolKeyBuilder<FindingDiffAnyPart>(RetainedChunkBytes) { Names = Names };
             Transient = new SymbolKeyBuilder<FindingDiffAnyPart>(16 * 1024) { Names = Names };
+            Scratch = new SymbolKeyBuilder<FindingDiffAnyPart>(4 * 1024) { Names = Names };
             Strings = new UserStrings(pe, Md);
             _signatures = new SignatureKeys(this);
         }
@@ -947,6 +949,34 @@ public static class FindingDiffAny
 
         /// <summary>One unit's census facts and member keys, discarded after the unit.</summary>
         public SymbolKeyBuilder<FindingDiffAnyPart> Transient { get; }
+
+        /// <summary>
+        /// Signature types built while one key is decoded (arrays, pointers,
+        /// generic instances, modifiers, function pointers, parameters), embedded
+        /// into that key and discarded when its outermost build completes, so a
+        /// retained chunk holds only the keys a token memoizes.
+        /// </summary>
+        public SymbolKeyBuilder<FindingDiffAnyPart> Scratch { get; }
+
+        /// <summary>Enters one key build; the outermost exit discards the scratch population.</summary>
+        BuildScope EnterBuild() => new(this);
+
+        readonly struct BuildScope : IDisposable
+        {
+            readonly Side _side;
+
+            public BuildScope(Side side)
+            {
+                _side = side;
+                _side._buildDepth++;
+            }
+
+            public void Dispose()
+            {
+                if (--_side._buildDepth == 0)
+                    _side.Scratch.Reset();
+            }
+        }
 
         public MetadataStringHeap Names { get; private set; }
 
@@ -964,6 +994,7 @@ public static class FindingDiffAny
             Names = new MetadataStringHeap(pe, md);
             Retained.Names = Names;
             Transient.Names = Names;
+            Scratch.Names = Names;
             Strings = new UserStrings(pe, md);
         }
 
@@ -972,6 +1003,8 @@ public static class FindingDiffAny
         {
             Retained.Abandon();
             Transient.Abandon();
+            Scratch.Reset();
+            _buildDepth = 0;
         }
 
         /// <summary>Ends a unit: its facts are discarded, and a large retained chunk freezes.</summary>
@@ -1480,6 +1513,7 @@ public static class FindingDiffAny
 
         StagedSymbolKey<FindingDiffAnyPart> PropertyKey(KeyRef type, PropertyDefinition property)
         {
+            using BuildScope scope = EnterBuild();
             Guard(property.Signature, SignatureBlobGuard.Kind.Property);
             MethodSignature<KeyRef> signature = property.DecodeSignature(_signatures, null);
             int mark = Transient.Begin();
@@ -1628,6 +1662,7 @@ public static class FindingDiffAny
             int token = MetadataTokens.GetToken(handle);
             if (_keys.TryGetValue(token, out KeyRef key))
                 return key;
+            using BuildScope scope = EnterBuild();
             return handle.Kind switch
             {
                 HandleKind.TypeDefinition => TypeKey((TypeDefinitionHandle)handle),
@@ -1643,7 +1678,8 @@ public static class FindingDiffAny
             };
         }
 
-        // A Type specification decodes to a signature type's key, which may already be memoized.
+        // A Type specification decodes to a signature type's key: one already memoized and
+        // retained, or one built in scratch, which is copied into the retained population.
         KeyRef MemoizeRef(int token, KeyRef key)
         {
             if (key.IsFrozen)
@@ -1651,7 +1687,15 @@ public static class FindingDiffAny
                 _keys[token] = key;
                 return key;
             }
-            return Memoize(token, key.Staged);
+            if (key.Staged.IsStagedIn(Scratch))
+                return Memoize(token, Retained.Copy(key.Staged));
+            if (key.Staged.IsStagedIn(Retained))
+            {
+                _keys[token] = key;
+                _stagedTokens.Add(token);
+                return key;
+            }
+            throw new InvalidOperationException("A signature type's key is staged outside the retained and scratch populations.");
         }
 
         void Guard(BlobHandle signature, SignatureBlobGuard.Kind kind)
@@ -1830,7 +1874,9 @@ public static class FindingDiffAny
         // Primitive keys are memoized under tokens no metadata row uses.
         const int PrimitiveTokenBase = -1;
 
-        SymbolKeyBuilder<FindingDiffAnyPart> Keys => side.Retained;
+        // Composite signature types are built in scratch storage and embedded by their consumer;
+        // only a memoized key (a primitive, or a Type specification's result) is retained.
+        SymbolKeyBuilder<FindingDiffAnyPart> Keys => side.Scratch;
 
         public KeyRef GetArrayType(KeyRef elementType, ArrayShape shape)
         {

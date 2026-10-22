@@ -33,6 +33,9 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
 
     public bool IsDefault => _builder is null;
 
+    /// <summary>Whether this key is staged in <paramref name="builder"/>.</summary>
+    public bool IsStagedIn(SymbolKeyBuilder<TDomain> builder) => ReferenceEquals(_builder, builder);
+
     internal int Generation => _generation;
 
     internal int Offset => _offset;
@@ -254,6 +257,25 @@ public sealed class SymbolKeyBuilder<TDomain> : IBufferWriter<byte>
             throw new InvalidOperationException("A Symbol Key begins with a domain marker.");
         _open = NotOpen;
         return new StagedSymbolKey<TDomain>(this, _generation, mark, _length - mark);
+    }
+
+    /// <summary>
+    /// Copies a staged key of another builder into this population as a staged
+    /// key of its own, byte for byte: how a key built in scratch storage is
+    /// retained.
+    /// </summary>
+    public StagedSymbolKey<TDomain> Copy(StagedSymbolKey<TDomain> key)
+    {
+        if (_open != NotOpen)
+            throw new InvalidOperationException("A Symbol Key is open; complete it before copying another.");
+        if (key.IsDefault)
+            throw new ArgumentException("The default staged key cannot be copied.", nameof(key));
+        int length = key.Length;
+        Ensure(length);
+        int offset = _length;
+        key.Bytes.CopyTo(_scratch.AsSpan(offset));
+        _length += length;
+        return new StagedSymbolKey<TDomain>(this, _generation, offset, length);
     }
 
     /// <summary>Discards an open key after a build was abandoned by an exception; staged keys stay valid.</summary>
