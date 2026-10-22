@@ -446,7 +446,9 @@ Eight steps, tracked by
 3. **Symbol Key representation pilot.** Compare current private Symbol Key
    with an `OpaqueByteRange`/`ValueTextEquals` prototype using time and memory
    SPC. A neutral or negative result changes the implementation plan rather
-   than being hidden.
+   than being hidden. The pilot tool retired with step 5, which deleted its
+   baseline; its evidence stays recorded on
+   [#10035](https://github.com/richlander/dotnet-inspect/pull/10035).
 4. **Exact-Type baseline and host-input comparison.** The parent design first
    lands the shared primitives with one uniquely matched Type identity, then
    measures the separately reviewable host-input exact-match optimization
