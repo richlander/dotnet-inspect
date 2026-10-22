@@ -64,6 +64,12 @@ public class LoweredFidelityGateTests
         "SwitchTreeWithSharedArm",
         "SwitchTreeWithScatteredSharedArm",
         "LoopTailAfterLatch",
+        // #10494 round 1: the `goto case` fixtures keep their valid goto form
+        // (the fallthrough arm is not movable), and ReturnMergePass duplicates
+        // the short return tail into each arm, so the recompiled switch inlines
+        // the tail per arm like GotoCommonExit above. Valid C#, not opcode-exact.
+        "GotoSharedCaseNoLoop",
+        "GotoReturnCaseNoLoop",
         // #3514: the restored trailing default makes the reference-type switch
         // witness valid, while the lowered nested-if form recompiles through
         // direct returns instead of the original result-temp convergence.

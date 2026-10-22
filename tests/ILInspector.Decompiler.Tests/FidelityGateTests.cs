@@ -77,6 +77,12 @@ public class FidelityGateTests
         "SwitchTreeWithSharedArm",
         "SwitchTreeWithScatteredSharedArm",
         "LoopTailAfterLatch",
+        // #10494 round 1: the `goto case` fixtures keep their valid goto form
+        // (the fallthrough arm is not movable), and ReturnMergePass duplicates
+        // the short return tail into each arm, so the recompiled switch inlines
+        // the tail per arm like GotoCommonExit above. Valid C#, not opcode-exact.
+        "GotoSharedCaseNoLoop",
+        "GotoReturnCaseNoLoop",
         // #3514: the compiler-backed reference-type switch witness proves the
         // missing shared default is restored and the body compiles, but the
         // valid nested-if form re-lowers with direct returns rather than csc's
