@@ -154,8 +154,10 @@ T Measure<T>(string name, Func<T> run)
     }
     times.Sort();
     allocations.Sort();
+    // Nearest-rank p95: the smallest sample at or above the 95th percentile.
+    int p95 = Math.Max(0, (int)Math.Ceiling(times.Count * 0.95) - 1);
     Console.WriteLine(
-        $"{name}\tmedian={times[times.Count / 2]:F2}ms\tp95={times[(int)(times.Count * 0.95)]:F2}ms"
+        $"{name}\tmedian={times[times.Count / 2]:F2}ms\tp95={times[p95]:F2}ms"
             + $"\tmin={times[0]:F2}ms\tallocMedian={allocations[allocations.Count / 2] / 1_048_576.0:F1}MB");
     Console.WriteLine($"  samples-ms\t{name}\t{string.Join(",", times.Select(t => t.ToString("F2")))}");
     Console.WriteLine($"  samples-bytes\t{name}\t{string.Join(",", allocations)}");
