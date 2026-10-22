@@ -166,6 +166,17 @@ public static class PackageDependencyTraversalQuery
         int ProjectionIndex,
         PackageDependencyTraversalManifestFailureDetail Detail);
 
+    private abstract record PreparedManifest
+    {
+        internal sealed record Projected(
+            PackageDependencyEvidenceRoot? Root,
+            PackageManifestFailure? Failure,
+            ImmutableArray<PackageAuthorityFailure> Diagnostics) : PreparedManifest;
+
+        internal sealed record Failed(
+            PackageDependencyTraversalManifestFailureDetail Failure) : PreparedManifest;
+    }
+
     /// <summary>
     /// The deterministic distance-major traversal engine for one request.
     /// </summary>
@@ -195,7 +206,7 @@ public static class PackageDependencyTraversalQuery
         private readonly Dictionary<int, List<int>> _depthBoundaryRoots = [];
         private readonly HashSet<int> _manifestBudgetFailureProjections = [];
         private readonly HashSet<int> _operationDeadlineFailureProjections = [];
-        private readonly Dictionary<int, PackageDependencyTraversalManifestResult>
+        private readonly Dictionary<int, PreparedManifest>
             _preparedManifests = [];
         private bool _operationDeadlineObserved;
 
@@ -355,7 +366,7 @@ public static class PackageDependencyTraversalQuery
             {
                 if (_preparedManifests.Remove(
                         projectionIndex,
-                        out PackageDependencyTraversalManifestResult? prepared))
+                        out PreparedManifest? prepared))
                 {
                     ApplyManifestResult(projection, projectionIndex, prepared);
                 }
@@ -400,46 +411,61 @@ public static class PackageDependencyTraversalQuery
             MutableProjection projection,
             int projectionIndex)
         {
-            PackageDependencyTraversalManifestResult manifestResult =
-                await request.ManifestAcquirer.AcquireAsync(
-                    projection.Candidate!,
-                    operation).ConfigureAwait(false);
+            PreparedManifest manifestResult =
+                await AcquireManifestProjectionAsync(projection.Candidate!)
+                    .ConfigureAwait(false);
             ApplyManifestResult(projection, projectionIndex, manifestResult);
+        }
+
+        private async Task<PreparedManifest> AcquireManifestProjectionAsync(
+            PackageAcquisitionCandidate candidate)
+        {
+            PackageDependencyTraversalManifestResult result =
+                await request.ManifestAcquirer.AcquireAsync(
+                    candidate,
+                    operation).ConfigureAwait(false);
+            switch (result)
+            {
+                case PackageDependencyTraversalManifestResult.Acquired acquired:
+                    if (!candidate.Authorities.Any(
+                            evidence => ReferenceEquals(
+                                evidence.Authority.Association,
+                                acquired.Manifest.Source.Association)))
+                    {
+                        return new PreparedManifest.Failed(
+                            new PackageDependencyTraversalManifestFailureDetail.Identity(
+                                new PackageManifestFailure(
+                                    PackageManifestFailureReason.InvalidIdentityContract)));
+                    }
+                    (PackageDependencyEvidenceRoot? root, PackageManifestFailure? failure) =
+                        ProjectManifestBytes(
+                            acquired.Manifest,
+                            candidate.Coordinate,
+                            request.TraversalTargetPolicy);
+                    return new PreparedManifest.Projected(root, failure, acquired.Diagnostics);
+                case PackageDependencyTraversalManifestResult.Failed failed:
+                    return new PreparedManifest.Failed(
+                        new PackageDependencyTraversalManifestFailureDetail.Acquisition(
+                            failed.Failures));
+                case PackageDependencyTraversalManifestResult.Incomplete incomplete:
+                    return new PreparedManifest.Failed(
+                        new PackageDependencyTraversalManifestFailureDetail.IncompleteAcquisition(
+                            incomplete.Failures));
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown package dependency traversal manifest result.");
+            }
         }
 
         private void ApplyManifestResult(
             MutableProjection projection,
             int projectionIndex,
-            PackageDependencyTraversalManifestResult manifestResult)
+            PreparedManifest manifestResult)
         {
             switch (manifestResult)
             {
-                case PackageDependencyTraversalManifestResult.Acquired acquired:
-                    if (!projection.Candidate!.Authorities.Any(
-                            evidence => ReferenceEquals(
-                                evidence.Authority.Association,
-                                acquired.Manifest.Source.Association)))
-                    {
-                        RecordFailure(
-                            projection.NodeIndex,
-                            projectionIndex,
-                            new PackageDependencyTraversalManifestFailureDetail
-                                .Identity(
-                                    new PackageManifestFailure(
-                                        PackageManifestFailureReason
-                                            .InvalidIdentityContract)));
-                        projection.Expansion =
-                            PackageDependencyTraversalProjectionExpansion.Expanded;
-                        return;
-                    }
-
-                    projection.Diagnostics = acquired.Diagnostics;
-                    (PackageDependencyEvidenceRoot? projectedRoot,
-                        PackageManifestFailure? manifestFailure) =
-                        ProjectManifestBytes(
-                            acquired.Manifest,
-                            projection.Candidate!.Coordinate,
-                            request.TraversalTargetPolicy);
+                case PreparedManifest.Projected projected:
+                    projection.Diagnostics = projected.Diagnostics;
                     if (RecordOperationDeadlineIfExpired(
                             projection.NodeIndex,
                             projectionIndex))
@@ -449,38 +475,31 @@ public static class PackageDependencyTraversalQuery
                         return;
                     }
                     token.ThrowIfCancellationRequested();
-                    if (manifestFailure is not null)
+                    if (projected.Failure is not null)
                     {
                         RecordFailure(
                             projection.NodeIndex,
                             projectionIndex,
                             new PackageDependencyTraversalManifestFailureDetail
-                                .Identity(manifestFailure));
+                                .Identity(projected.Failure));
                         projection.Expansion =
                             PackageDependencyTraversalProjectionExpansion.Expanded;
                         return;
                     }
 
-                    projection.Evidence = projectedRoot;
+                    projection.Evidence = projected.Root;
                     return;
-                case PackageDependencyTraversalManifestResult.Failed failedResult:
+                case PreparedManifest.Failed failed:
+                    if (failed.Failure is PackageDependencyTraversalManifestFailureDetail
+                            .IncompleteAcquisition incomplete)
+                    {
+                        ObserveOperationDeadlineFailure(
+                            projectionIndex, incomplete.Failures);
+                    }
                     RecordFailure(
                         projection.NodeIndex,
                         projectionIndex,
-                        new PackageDependencyTraversalManifestFailureDetail
-                            .Acquisition(failedResult.Failures));
-                    projection.Expansion =
-                        PackageDependencyTraversalProjectionExpansion.Expanded;
-                    return;
-                case PackageDependencyTraversalManifestResult.Incomplete incomplete:
-                    ObserveOperationDeadlineFailure(
-                        projectionIndex,
-                        incomplete.Failures);
-                    RecordFailure(
-                        projection.NodeIndex,
-                        projectionIndex,
-                        new PackageDependencyTraversalManifestFailureDetail
-                            .IncompleteAcquisition(incomplete.Failures));
+                        failed.Failure);
                     projection.Expansion =
                         PackageDependencyTraversalProjectionExpansion.Expanded;
                     return;
@@ -655,12 +674,11 @@ public static class PackageDependencyTraversalQuery
                 indexes.Add(projectionIndex);
             }
 
-            PackageDependencyTraversalManifestResult[] results =
+            PreparedManifest[] results =
                 await RunBoundedJobsAsync(
                     indexes.Count,
-                    index => request.ManifestAcquirer.AcquireAsync(
-                        _projections[indexes[index]].Candidate!,
-                        operation)).ConfigureAwait(false);
+                    index => AcquireManifestProjectionAsync(
+                        _projections[indexes[index]].Candidate!)).ConfigureAwait(false);
             for (int index = 0; index < indexes.Count; index++)
                 _preparedManifests.Add(indexes[index], results[index]);
         }

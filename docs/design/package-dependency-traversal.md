@@ -787,7 +787,9 @@ correspondence still admits only one manifest acquisition. Completion of any
 job can free capacity for the next admitted job while an earlier job remains
 pending; completed evidence is applied only in its stable graph slot. Graph
 collections and traversal memoization remain coordinator-owned, not worker
-mutation targets.
+mutation targets. Pure manifest projection may precede graph admission; the
+scheduler retains projected evidence rather than buffering the frontier's raw
+manifest bytes.
 
 The [scheduling model](models/package-dependency-traversal-concurrency/README.md)
 checks bounded admission, stable replay, refill past a pending head, and drain
