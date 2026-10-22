@@ -305,13 +305,17 @@ public sealed class SymbolKeyBuilder<TDomain>
         Trim();
     }
 
-    // Staging storage that grew for one large population shrinks back, so a
-    // long-lived builder retains only its initial capacity between populations.
+    // Staging storage that grew for one unusually large population shrinks back,
+    // so a long-lived builder does not retain that population's size; ordinary
+    // growth is kept, since reallocating per population would cost more than
+    // it saves.
     void Trim()
     {
-        if (_scratch.Length > 4 * _initialCapacity)
+        if (_scratch.Length > TrimThreshold && _scratch.Length > 4 * _initialCapacity)
             _scratch = new byte[_initialCapacity];
     }
+
+    const int TrimThreshold = 1 << 20;
 
     /// <summary>
     /// Transfers the staged population to one immutable backing and starts a new
