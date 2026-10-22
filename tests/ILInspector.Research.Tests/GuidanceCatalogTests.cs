@@ -1,5 +1,7 @@
 using ILInspector.Analysis;
+using ILInspector.Analysis.UnsafeMemberFindingFixtures;
 using ILInspector.Decompiler.Annotations;
+using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Research.Tests;
 
@@ -89,8 +91,15 @@ public class GuidanceCatalogTests
         Assert.NotNull(async);
         Assert.Equal(GuidanceRefinement.Async, async.Refinement);
         Assert.NotNull(iterator);
+        Assert.Equal(GuidanceRefinement.Iterator, iterator.Refinement);
         Assert.NotNull(unknown);
-        Assert.Equal(iterator.Advice, unknown.Advice);
+        Assert.Equal(GuidanceRefinement.None, unknown.Refinement);
+        // The base entry must be true of both classifications, so it is neither
+        // refinement's advice and links to both pages.
+        Assert.NotEqual(iterator.Advice, unknown.Advice);
+        Assert.NotEqual(async.Advice, unknown.Advice);
+        Assert.Contains(unknown.Links, link => iterator.Links.Contains(link));
+        Assert.Contains(unknown.Links, link => async.Links.Contains(link));
         Assert.NotNull(boxInLoop);
         Assert.Equal(GuidanceRefinement.None, boxInLoop.Refinement);
     }
@@ -131,15 +140,65 @@ public class GuidanceCatalogTests
     }
 
     /// <summary>
+    /// The real producer-to-lookup path: a <c>stackalloc</c> inside a loop in a
+    /// fixture Library reaches the loop-refined entry through the unsafety
+    /// producer's own loop attribute, and the same operation on a straight-line
+    /// path reaches the base entry.
+    /// </summary>
+    [Fact]
+    public void StackallocInLoop_ReachesTheLoopRefinedEntry_ThroughTheProducer()
+    {
+        using var source = MetadataSource.Open(
+            typeof(StackallocLoopFixtures).Assembly.Location);
+
+        var inLoop = StackallocFact(source, nameof(StackallocLoopFixtures.SumInLoop));
+        var once = StackallocFact(source, nameof(StackallocLoopFixtures.SumOnce));
+
+        Assert.True(inLoop.Payload.InLoop);
+        Assert.True(NotableFindingPreset.IsLoopMultiplied(inLoop));
+        var refined = GuidanceCatalog.For(inLoop);
+        Assert.NotNull(refined);
+        Assert.Equal(GuidanceRefinement.InLoop, refined.Refinement);
+        Assert.Equal("Move the allocation outside the loop.", refined.Advice);
+
+        Assert.False(once.Payload.InLoop);
+        Assert.False(NotableFindingPreset.IsLoopMultiplied(once));
+        var baseEntry = GuidanceCatalog.For(once);
+        Assert.NotNull(baseEntry);
+        Assert.Equal(GuidanceRefinement.None, baseEntry.Refinement);
+        Assert.Equal("Cap the length and assign to a span.", baseEntry.Advice);
+
+        Assert.Equal(
+            NotableClassification.Admit(NotableCriterion.Contract),
+            NotableFindingPreset.Classify(inLoop));
+    }
+
+    static Annotation<UnsafetyOccurrence> StackallocFact(MetadataSource source, string method)
+    {
+        var facts = ResearchViews.CollectFacts(
+            source,
+            typeof(StackallocLoopFixtures).FullName!,
+            method);
+        var fact = Assert.Single(facts, fact => fact.Descriptor.Id == "unsafe.stackalloc");
+        return Assert.IsType<Annotation<UnsafetyOccurrence>>(fact);
+    }
+
+    /// <summary>
     /// Resolves every catalog link against the live network. Excluded from
-    /// every CI gate by <c>Network=Live</c>; run on demand with
-    /// <c>dotnet run --project tests/ILInspector.Research.Tests -c Release -- --filter-trait "Network=Live"</c>.
+    /// every CI gate by <c>Network=Live</c> and skipped unless
+    /// <c>DOTNET_INSPECT_TEST_LIVE_LINKS</c> opts in, so an unfiltered local
+    /// run stays offline; run on demand with
+    /// <c>DOTNET_INSPECT_TEST_LIVE_LINKS=1 dotnet run --project tests/ILInspector.Research.Tests -c Release -- --filter-trait "Network=Live"</c>.
     /// </summary>
     [Fact]
     [Trait("Speed", "Slow")]
     [Trait("Network", "Live")]
     public async Task EveryLink_Resolves()
     {
+        Assert.SkipWhen(
+            string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DOTNET_INSPECT_TEST_LIVE_LINKS")),
+            "Set DOTNET_INSPECT_TEST_LIVE_LINKS=1 to resolve the catalog links against the live network.");
+
         using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("dotnet-inspect-guidance-link-check/1.0");
         var urls = GuidanceCatalog.Entries

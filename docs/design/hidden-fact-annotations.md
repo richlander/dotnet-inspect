@@ -166,18 +166,22 @@ descriptor id with an optional `GuidanceRefinement`, each entry one line of
 advice and at least one upstream link. Lookup prefers the refinement and falls
 back to the key's base entry; a key with no entry yields null, so a host
 renders no guidance and no placeholder. `For(IAnnotation)` derives the loop
-refinement from the finding itself; the iterator and async refinements of
+refinement from the finding itself: the allocation occurrence's path context
+and multiplicity, or the unsafety occurrence's producer-supplied `InLoop`,
+which `MethodSafetyAnalysis` reads from the body's loop regions exactly as the
+allocation producer does. The iterator and async refinements of
 `alloc.statemachine` need the Member's classification, which no finding
 carries, so a caller that knows it passes it to `Find` and one that does not
-receives the base entry. Three keys are not descriptors and never will be:
+receives the base entry, written to be true of both. Three keys are not descriptors and never will be:
 the Expectation finding, the Debug Library mark, and the throw count column.
 
 The ordinary gates read the catalog offline. One slow test tagged
-`Network=Live` resolves every link; it is excluded from every CI gate and runs
-on demand:
+`Network=Live` resolves every link; it is excluded from every CI gate, skips
+unless the environment opts in, and runs on demand:
 
 ```sh
-dotnet run --project tests/ILInspector.Research.Tests -c Release -- \
+DOTNET_INSPECT_TEST_LIVE_LINKS=1 \
+  dotnet run --project tests/ILInspector.Research.Tests -c Release -- \
   --filter-trait "Network=Live"
 ```
 

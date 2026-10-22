@@ -116,7 +116,11 @@ public static class GuidanceCatalog
         Entry("alloc.box", "Avoid the conversion to object or an interface; use generics or a span.", Boxing),
         Entry("alloc.closure", "Make the lambda static or pass the captured state as a parameter.", Capture),
         Entry("alloc.delegate", "Cache the delegate in a static field or use a static lambda.", Lambda),
-        Entry("alloc.statemachine", IteratorAdvice, Iterators),
+        Entry(
+            "alloc.statemachine",
+            "A class state machine allocates on every call; an iterator's does in every build, an async method's only in a Debug build or with a non-Task return. The Member's classification selects the specific advice.",
+            Iterators,
+            ValueTask),
         Entry("alloc.statemachine", GuidanceRefinement.Iterator, IteratorAdvice, Iterators),
         Entry(
             "alloc.statemachine",
@@ -174,7 +178,8 @@ public static class GuidanceCatalog
     /// the finding itself carries. Loop context is read from the finding; the
     /// iterator and async refinements need the Member's classification, which
     /// the finding does not carry, so callers that know it pass it to
-    /// <see cref="Find"/> instead.
+    /// <see cref="Find"/> instead and callers that do not receive the base
+    /// entry, which is written to be true of both.
     /// </summary>
     public static GuidanceEntry? For(IAnnotation annotation)
     {

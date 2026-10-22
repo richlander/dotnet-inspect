@@ -203,9 +203,10 @@ public static class NotableFindingPreset
 
     /// <summary>
     /// True when a loop multiplies the fact: conditionality
-    /// <see cref="AnnotationConditionality.PerIteration"/>, path context
-    /// <see cref="AllocationPathContext.LoopBody"/>, or multiplicity
-    /// <see cref="AllocationMultiplicity.Loop"/>.
+    /// <see cref="AnnotationConditionality.PerIteration"/>, an allocation's
+    /// path context <see cref="AllocationPathContext.LoopBody"/> or
+    /// multiplicity <see cref="AllocationMultiplicity.Loop"/>, or an unsafe
+    /// operation's producer-supplied <see cref="UnsafetyOccurrence.InLoop"/>.
     /// </summary>
     public static bool IsLoopMultiplied(IAnnotation annotation)
     {
@@ -218,5 +219,6 @@ public static class NotableFindingPreset
     static bool IsLoopMultiplied(IAnnotation annotation, AllocationOccurrence? occurrence) =>
         annotation.Conditionality == AnnotationConditionality.PerIteration
         || occurrence is { PathContext: AllocationPathContext.LoopBody }
-        || occurrence is { Multiplicity: AllocationMultiplicity.Loop };
+        || occurrence is { Multiplicity: AllocationMultiplicity.Loop }
+        || annotation is Annotation<UnsafetyOccurrence> { Payload.InLoop: true };
 }

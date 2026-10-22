@@ -26,4 +26,11 @@ public sealed record UnsafetyOccurrence(
     /// lowering, not a source call to the constructor's caller-unsafe contract.
     /// </summary>
     internal int? SpanConstructorOffset { get; init; }
+
+    /// <summary>
+    /// True when the operation sits inside a loop region of its method body,
+    /// so it runs once per iteration. Supplied by the producer from the body's
+    /// loop regions; presentation reads it, never derives it.
+    /// </summary>
+    public bool InLoop { get; init; }
 }
