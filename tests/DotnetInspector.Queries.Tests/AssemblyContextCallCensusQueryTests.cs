@@ -603,6 +603,85 @@ public sealed class AssemblyContextCallCensusQueryTests
     }
 
     [Fact]
+    public async Task TypeCallCompatibilityDoesNotOpenUnrelatedParticipants()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference target) =
+                BuildCompatibilityCallFixture();
+        try
+        {
+            ResolvedAssemblyReference unrelatedSource =
+                ResolvedAssemblyReference.CreateFromPath(
+                    IndirectPath,
+                    AssemblyResolutionProvenance.Local(
+                        "unrelated focused-call participant"));
+            int opens = 0;
+            ResolvedAssemblyReference unrelated =
+                ResolvedAssemblyReference.Create(
+                    unrelatedSource.Identity,
+                    unrelatedSource.Path,
+                    () =>
+                    {
+                        opens++;
+                        return File.OpenRead(IndirectPath);
+                    },
+                    unrelatedSource.Provenance);
+            await using CensusContext context =
+                CensusContext.Create(caller, target, unrelated);
+
+            AssemblyContextTypeCallCompatibilityResult result =
+                AssemblyContextTypeCallCompatibilityQuery.Execute(
+                    context.Group,
+                    caller.Registration,
+                    CompatibilityFocusType(),
+                    TestContext.Current.CancellationToken);
+
+            Assert.True(result.TopologyComplete);
+            Assert.Equal(0, opens);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TypeCallCompatibilityMissingSignatureDependencyQualifiesTopology()
+    {
+        (string directory, ResolvedAssemblyReference caller,
+            ResolvedAssemblyReference target) =
+                BuildMissingSignatureDependencyCallFixture();
+        try
+        {
+            await using CensusContext context =
+                CensusContext.Create(caller, target);
+
+            AssemblyContextTypeCallCompatibilityResult result =
+                AssemblyContextTypeCallCompatibilityQuery.Execute(
+                    context.Group,
+                    caller.Registration,
+                    CompatibilityFocusType(),
+                    TestContext.Current.CancellationToken);
+
+            Assert.Equal(
+                TypeCallCompatibilityTopologyDisposition.Partial,
+                result.TopologyDisposition);
+            Assert.Empty(result.Occurrences);
+            Assert.Contains(
+                result.UnresolvedOccurrences,
+                occurrence =>
+                    occurrence.Call.Callee.Name == "Ping"
+                    && occurrence.Limitation.Contains(
+                        "signature",
+                        StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task TypeCallCompatibilityUnresolvedFocusCallsKeepExistsUndecided()
     {
         (string directory, ResolvedAssemblyReference caller,
@@ -1116,6 +1195,88 @@ public sealed class AssemblyContextCallCensusQueryTests
                 path,
                 AssemblyResolutionProvenance.Local(
                     "Type call compatibility test"));
+    }
+
+    static (string Directory, ResolvedAssemblyReference Caller,
+        ResolvedAssemblyReference Target)
+        BuildMissingSignatureDependencyCallFixture()
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            "dotnet-inspect-call-signature-dependency-"
+                + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+
+        var dependencyName = new AssemblyName("CallSignatureDependency");
+        var dependencyAssembly = new PersistedAssemblyBuilder(
+            dependencyName,
+            typeof(object).Assembly);
+        ModuleBuilder dependencyModule =
+            dependencyAssembly.DefineDynamicModule(dependencyName.Name!);
+        Type dependencyType = dependencyModule.DefineType(
+                "Contracts.Payload",
+                TypeAttributes.Public)
+            .CreateType()!;
+        dependencyAssembly.Save(
+            Path.Combine(directory, "CallSignatureDependency.dll"));
+
+        var targetName = new AssemblyName("CallSignatureTarget");
+        var targetAssembly = new PersistedAssemblyBuilder(
+            targetName,
+            typeof(object).Assembly);
+        ModuleBuilder targetModule =
+            targetAssembly.DefineDynamicModule(targetName.Name!);
+        TypeBuilder targetType = targetModule.DefineType(
+            "Target.Api",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        MethodBuilder ping = targetType.DefineMethod(
+            "Ping",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            [dependencyType]);
+        ping.GetILGenerator().Emit(OpCodes.Ret);
+        _ = targetType.CreateType();
+        string targetPath =
+            Path.Combine(directory, "CallSignatureTarget.dll");
+        targetAssembly.Save(targetPath);
+
+        var callerName = new AssemblyName("CallSignatureCaller");
+        var callerAssembly = new PersistedAssemblyBuilder(
+            callerName,
+            typeof(object).Assembly);
+        ModuleBuilder callerModule =
+            callerAssembly.DefineDynamicModule(callerName.Name!);
+        TypeBuilder callerType = callerModule.DefineType(
+            "Consumer.Entry",
+            TypeAttributes.Public
+                | TypeAttributes.Abstract
+                | TypeAttributes.Sealed);
+        MethodBuilder run = callerType.DefineMethod(
+            "Run",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            Type.EmptyTypes);
+        ILGenerator il = run.GetILGenerator();
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Call, ping);
+        il.Emit(OpCodes.Ret);
+        _ = callerType.CreateType();
+        string callerPath =
+            Path.Combine(directory, "CallSignatureCaller.dll");
+        callerAssembly.Save(callerPath);
+
+        return (
+            directory,
+            Reference(callerPath),
+            Reference(targetPath));
+
+        static ResolvedAssemblyReference Reference(string path) =>
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "call signature dependency test"));
     }
 
     sealed class SelectedAssemblyPolicy(

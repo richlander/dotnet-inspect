@@ -238,6 +238,8 @@ Focused tests prove:
 - complete-empty versus incomplete-empty outcomes;
 - unresolved focused calls qualify topology absence;
 - admitted source-relative participant binding choices are preserved;
+- unrelated assembly-context participants remain unopened;
+- incomplete non-intrinsic signature dependencies qualify topology absence;
 - unavailable and malformed target metadata qualify color absence;
 - exact source receipts show only the focus Type's bodies were acquired;
 - target receipts show no target method body was acquired;

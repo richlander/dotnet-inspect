@@ -449,6 +449,9 @@ public static class AssemblyContextTypeCallCompatibilityQuery
         AssemblyContextSubject focusSubject)
     {
         ExternalCallPlan[] snapshot = [.. plans];
+        if (snapshot.Length == 0)
+            return;
+
         ImmutableArray<TypeResolutionRequest> requests =
         [
             .. snapshot.SelectMany(plan => plan.DeclaringType.Requests)
@@ -642,7 +645,10 @@ public static class AssemblyContextTypeCallCompatibilityQuery
                 .Distinct(TypeResolutionRequestComparer.Instance),
         ];
         using TypeResolutionContext context =
-            resolution.CreateContext(requests);
+            resolution.CreateContext(
+                requests,
+                selectionPlans.Select(item =>
+                    item.Call.TargetAssembly!));
         foreach ((ExternalCallPlan plan, SelectionPlan selection,
             TargetImage image) in selectionPlans)
         {
@@ -969,7 +975,7 @@ public static class AssemblyContextTypeCallCompatibilityQuery
                 item.Participant.Assembly.Registration,
                 focusAssembly))
             .Assembly;
-        return new(retained, policy, focus);
+        return new(policy, focus);
     }
 
     static Planning.WorkDescription CreateFocusedWork<TResult>(
@@ -1066,9 +1072,6 @@ public static class AssemblyContextTypeCallCompatibilityQuery
         ResolvedTarget Target);
 
     sealed class ResolutionContextInputs(
-        ImmutableArray<(
-            AssemblyContextParticipant Participant,
-            ResolvedAssemblyReference Assembly)> participants,
         IAssemblyBindingPolicy policy,
         ResolvedAssemblyReference focusAssembly)
     {
@@ -1076,10 +1079,14 @@ public static class AssemblyContextTypeCallCompatibilityQuery
             focusAssembly;
 
         public TypeResolutionContext CreateContext(
-            IEnumerable<TypeResolutionRequest> requests) =>
+            IEnumerable<TypeResolutionRequest> requests,
+            IEnumerable<ResolvedAssemblyReference>? demandedRoots = null) =>
             TypeResolutionContext.Create(
                 policy,
-                participants.Select(static item => item.Assembly),
+                Enumerable.Repeat(FocusAssembly, 1)
+                    .Concat(demandedRoots ?? [])
+                    .DistinctBy(assembly =>
+                        assembly.Registration),
                 requests);
     }
 }

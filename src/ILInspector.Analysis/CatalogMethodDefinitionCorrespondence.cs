@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+
+using CSharpText;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 
@@ -436,6 +438,11 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
                 return new CatalogMemberDefinitionSelectionOutcome.Unavailable(
                     "The call member reference signature was incomplete.");
             }
+            if (!IsExactSignatureProjection(issuedSource))
+            {
+                return new CatalogMemberDefinitionSelectionOutcome.Unavailable(
+                    "The call member reference signature was indeterminate.");
+            }
             if (!ResolvesToTargetType(_source, context))
             {
                 return new CatalogMemberDefinitionSelectionOutcome.Unavailable(
@@ -443,16 +450,24 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
             }
 
             var matches = ImmutableArray.CreateBuilder<MethodIdentity>();
+            bool incompleteCandidate = false;
             foreach (TargetCandidate target in _targets)
             {
                 CatalogMemberJoinProjection targetProjection =
                     target.Plan.Project(context);
                 if (targetProjection is not CatalogMemberJoinProjection.Issued
-                        issuedTarget
-                    || !ResolvesToTargetType(target.Plan, context))
+                        issuedTarget)
                 {
+                    incompleteCandidate = true;
                     continue;
                 }
+                if (!IsExactSignatureProjection(issuedTarget))
+                {
+                    incompleteCandidate = true;
+                    continue;
+                }
+                if (!ResolvesToTargetType(target.Plan, context))
+                    continue;
 
                 if (_source.CorrespondsToEstablished(
                         target.Plan,
@@ -470,6 +485,12 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
                 }
             }
 
+            if (incompleteCandidate)
+            {
+                return new CatalogMemberDefinitionSelectionOutcome.Unavailable(
+                    "At least one candidate target signature was incomplete.");
+            }
+
             return matches.Count switch
             {
                 0 => new CatalogMemberDefinitionSelectionOutcome.Missing(),
@@ -478,6 +499,46 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
                 _ => new CatalogMemberDefinitionSelectionOutcome.Ambiguous(
                     matches.ToImmutable()),
             };
+        }
+
+        static bool IsExactSignatureProjection(
+            CatalogMemberJoinProjection.Issued projection) =>
+            projection.Key.Kind == CatalogMemberCorrespondenceKind.Exact
+            || (!projection.Evidence.IsEmpty
+                && projection.Evidence.All(
+                    IsIntrinsicPrimitiveEvidence));
+
+        static bool IsIntrinsicPrimitiveEvidence(
+            MemberCorrespondenceEvidence evidence)
+        {
+            if (evidence
+                    is not MemberCorrespondenceEvidence.UnresolvedBinding
+                    {
+                        Type:
+                        {
+                            Namespace: "System",
+                            Segments.Length: 1,
+                        } type,
+                        Outcome: var outcome,
+                    }
+                || !PrimitiveTypeNames.TryToKeywordForSystemType(
+                    type.Segments[0],
+                    out _))
+            {
+                return false;
+            }
+
+            return outcome
+                is TypeResolutionOutcome.UnboundBinding
+                {
+                    Target:
+                        AssemblyBindingTarget.IntrinsicCoreLibrary,
+                }
+                    or TypeResolutionOutcome.Unavailable
+                    {
+                        Target:
+                            AssemblyBindingTarget.IntrinsicCoreLibrary,
+                    };
         }
 
         bool IsDeclaringTypePair(
