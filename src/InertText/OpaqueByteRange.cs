@@ -91,6 +91,18 @@ public readonly struct OpaqueByteRange :
         Slice(slot.Offset, slot.Length);
 
     /// <summary>
+    /// One byte of the range, for a domain's bounded structural reader that
+    /// interprets tags and lengths. A reader that needs a run of bytes slices
+    /// a child range instead; this never lends the backing.
+    /// </summary>
+    public byte ByteAt(int offset)
+    {
+        if ((uint)offset >= (uint)Length)
+            throw new ArgumentOutOfRangeException(nameof(offset));
+        return _backing!.Bytes[_offset + offset];
+    }
+
+    /// <summary>
     /// Tests byte-exact equality with a caller-supplied sequence without lending this range.
     /// </summary>
     /// <remarks>
