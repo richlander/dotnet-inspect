@@ -920,8 +920,9 @@ public static class FindingDiffAny
         const int RetainedChunkBytes = 64 * 1024;
 
         readonly Guid _mvid;
-        readonly Dictionary<int, KeyRef> _keys = [];
-        readonly List<int> _stagedTokens = [];
+        // Memoized reference keys by token: frozen views, and the staged keys of the current chunk.
+        readonly Dictionary<int, SymbolKey<FindingDiffAnyPart>> _frozenKeys = [];
+        readonly Dictionary<int, StagedSymbolKey<FindingDiffAnyPart>> _stagedKeys = [];
         readonly Dictionary<int, string> _displayNames = [];
         readonly HashSet<SymbolKey<FindingDiffAnyPart>> _duplicateTypeKeys =
             new(SymbolKeyComparer<FindingDiffAnyPart>.Instance);
@@ -1024,18 +1025,32 @@ public static class FindingDiffAny
             if (Retained.Length == 0)
                 return null;
             SymbolKeyPopulation<FindingDiffAnyPart> population = Retained.Freeze();
-            foreach (int token in _stagedTokens)
-                _keys[token] = new KeyRef(population.Resolve(_keys[token].Staged));
-            _stagedTokens.Clear();
+            foreach ((int token, StagedSymbolKey<FindingDiffAnyPart> staged) in _stagedKeys)
+                _frozenKeys[token] = population.Resolve(staged);
+            _stagedKeys.Clear();
             return population;
+        }
+
+        bool TryGetKey(int token, out KeyRef key)
+        {
+            if (_frozenKeys.TryGetValue(token, out SymbolKey<FindingDiffAnyPart> frozen))
+            {
+                key = new KeyRef(frozen);
+                return true;
+            }
+            if (_stagedKeys.TryGetValue(token, out StagedSymbolKey<FindingDiffAnyPart> staged))
+            {
+                key = new KeyRef(staged);
+                return true;
+            }
+            key = default;
+            return false;
         }
 
         KeyRef Memoize(int token, StagedSymbolKey<FindingDiffAnyPart> staged)
         {
-            var key = new KeyRef(staged);
-            _keys[token] = key;
-            _stagedTokens.Add(token);
-            return key;
+            _stagedKeys[token] = staged;
+            return new KeyRef(staged);
         }
 
         HashSet<MethodDefinitionHandle> ExplicitImplementations(TypeDefinitionHandle type)
@@ -1537,7 +1552,7 @@ public static class FindingDiffAny
         /// <summary>A primitive type's key, memoized under a token no row uses.</summary>
         public KeyRef Primitive(int token, PrimitiveTypeCode typeCode)
         {
-            if (_keys.TryGetValue(token, out KeyRef key))
+            if (TryGetKey(token, out KeyRef key))
                 return key;
             int mark = Retained.Begin();
             return Memoize(token, Retained.Mark(FindingDiffAnyPart.Primitive).Int((byte)typeCode).End(mark));
@@ -1546,7 +1561,7 @@ public static class FindingDiffAny
         public KeyRef TypeKey(TypeDefinitionHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (_keys.TryGetValue(token, out KeyRef key))
+            if (TryGetKey(token, out KeyRef key))
                 return key;
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1660,7 +1675,7 @@ public static class FindingDiffAny
         public KeyRef Key(EntityHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (_keys.TryGetValue(token, out KeyRef key))
+            if (TryGetKey(token, out KeyRef key))
                 return key;
             using BuildScope scope = EnterBuild();
             return handle.Kind switch
@@ -1684,17 +1699,13 @@ public static class FindingDiffAny
         {
             if (key.IsFrozen)
             {
-                _keys[token] = key;
+                _frozenKeys[token] = key.Frozen;
                 return key;
             }
             if (key.Staged.IsStagedIn(Scratch))
                 return Memoize(token, Retained.Copy(key.Staged));
             if (key.Staged.IsStagedIn(Retained))
-            {
-                _keys[token] = key;
-                _stagedTokens.Add(token);
-                return key;
-            }
+                return Memoize(token, key.Staged);
             throw new InvalidOperationException("A signature type's key is staged outside the retained and scratch populations.");
         }
 

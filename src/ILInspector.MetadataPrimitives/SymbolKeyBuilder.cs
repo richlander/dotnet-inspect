@@ -1,5 +1,5 @@
-using System.Buffers;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 using InertText;
@@ -44,9 +44,12 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
 
     /// <summary>The staged bytes, borrowed from the builder; invalid after a freeze or reset.</summary>
     internal ReadOnlySpan<byte> Bytes
-        => _builder is null
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _builder is null
             ? throw new InvalidOperationException("The default staged key has no bytes.")
             : _builder.Staged(_generation, _offset, _length);
+    }
 
     public TDomain Kind => SymbolKeyDomain.FromMarker<TDomain>(Bytes[0]);
 
@@ -119,11 +122,12 @@ public sealed class SymbolKeyPopulation<TDomain>
 /// embedded in another is completed first, as a staged key of this or another
 /// builder, or a frozen key.
 /// </summary>
-public sealed class SymbolKeyBuilder<TDomain> : IBufferWriter<byte>
+public sealed class SymbolKeyBuilder<TDomain>
     where TDomain : unmanaged, Enum
 {
     const int NotOpen = -1;
 
+    readonly int _initialCapacity;
     byte[] _scratch;
     int _length;
     int _generation;
@@ -133,7 +137,8 @@ public sealed class SymbolKeyBuilder<TDomain> : IBufferWriter<byte>
     {
         ArgumentOutOfRangeException.ThrowIfNegative(initialCapacity);
         SymbolKeyDomain.Validate<TDomain>();
-        _scratch = new byte[Math.Max(16, initialCapacity)];
+        _initialCapacity = Math.Max(16, initialCapacity);
+        _scratch = new byte[_initialCapacity];
     }
 
     /// <summary>The <c>#Strings</c> heap <see cref="Name(StringHandle)"/> copies from; rebound with the image.</summary>
@@ -236,10 +241,12 @@ public sealed class SymbolKeyBuilder<TDomain> : IBufferWriter<byte>
         RequireOpen();
         if (key.IsDefault)
             throw new ArgumentException("The default key cannot be embedded.", nameof(key));
-        Ensure(1 + 10 + key.Length);
+        int length = key.Length;
+        Ensure(1 + 10 + length);
         _scratch[_length++] = (byte)SymbolKeyTag.Key;
-        WriteVarint((uint)key.Length);
-        OpaqueByteRangeEncoder.Encode(key.Range, this);
+        WriteVarint((uint)length);
+        OpaqueByteRangeEncoder.Encode(key.Range, _scratch.AsSpan(_length, length));
+        _length += length;
         return this;
     }
 
@@ -294,6 +301,15 @@ public sealed class SymbolKeyBuilder<TDomain> : IBufferWriter<byte>
         _length = 0;
         _open = NotOpen;
         _generation++;
+        Trim();
+    }
+
+    // Staging storage that grew for one large population shrinks back, so a
+    // long-lived builder retains only its initial capacity between populations.
+    void Trim()
+    {
+        if (_scratch.Length > 4 * _initialCapacity)
+            _scratch = new byte[_initialCapacity];
     }
 
     /// <summary>
@@ -309,15 +325,20 @@ public sealed class SymbolKeyBuilder<TDomain> : IBufferWriter<byte>
         var population = new SymbolKeyPopulation<TDomain>(backing.Freeze(), _generation);
         _length = 0;
         _generation++;
+        Trim();
         return population;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ReadOnlySpan<byte> Staged(int generation, int offset, int length)
     {
         if (generation != _generation)
-            throw new InvalidOperationException("The staged key's population was frozen or reset.");
+            ThrowStale();
         return _scratch.AsSpan(offset, length);
     }
+
+    static void ThrowStale()
+        => throw new InvalidOperationException("The staged key's population was frozen or reset.");
 
     SymbolKeyBuilder<TDomain> Framed(SymbolKeyTag tag, ReadOnlySpan<byte> payload)
     {
@@ -350,21 +371,6 @@ public sealed class SymbolKeyBuilder<TDomain> : IBufferWriter<byte>
     {
         if (_scratch.Length - _length < count)
             Array.Resize(ref _scratch, Math.Max(_scratch.Length * 2, _length + count));
-    }
-
-    // The encoder's destination for a frozen key's bytes: this builder's staging storage.
-    void IBufferWriter<byte>.Advance(int count) => _length += count;
-
-    Memory<byte> IBufferWriter<byte>.GetMemory(int sizeHint)
-    {
-        Ensure(Math.Max(sizeHint, 1));
-        return _scratch.AsMemory(_length);
-    }
-
-    Span<byte> IBufferWriter<byte>.GetSpan(int sizeHint)
-    {
-        Ensure(Math.Max(sizeHint, 1));
-        return _scratch.AsSpan(_length);
     }
 }
 
