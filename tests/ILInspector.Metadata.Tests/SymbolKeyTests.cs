@@ -1,5 +1,6 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Text;
 
 using InertText;
@@ -229,6 +230,40 @@ public sealed class SymbolKeyTests
         Assert.True(index.GetAlternateLookup<StagedSymbolKey<TestPart>>().TryGetValue(probe, out int value));
         Assert.Equal(1, value);
         Assert.False(index.GetAlternateLookup<StagedSymbolKey<TestPart>>().ContainsKey(Build(b, k => k.Int(7))));
+    }
+
+    [Fact]
+    public void Slots_SortCompareAndResolveAsTheirStagedKeys_AndAStaleSlotIsRefused()
+    {
+        var a = new SymbolKeyBuilder<TestPart>();
+        var b = new SymbolKeyBuilder<TestPart>();
+        List<StagedSymbolKey<TestPart>> keysA =
+        [
+            Build(a, k => k.Name("zeta"u8).Int(1)),
+            Build(a, k => k.Name("alpha"u8).Int(2)),
+            Build(a, k => k.Name("alpha"u8)),
+            Build(a, k => k.Int(-3)),
+        ];
+        List<SymbolKeySlot> slotsA = keysA.ConvertAll(key => key.Slot);
+        Assert.All(slotsA, slot => Assert.Equal(TestPart.Type, a.Kind(slot)));
+        Assert.Equal(keysA, slotsA.ConvertAll(a.Resolve));
+
+        a.Sort(slotsA);
+        keysA.Sort();
+        Assert.Equal(keysA, slotsA.ConvertAll(a.Resolve));
+
+        // Slots of two populations compare by their keys' bytes, in order.
+        List<SymbolKeySlot> nestedB = keysA.ConvertAll(key => Build(b, k => k.Key(key)).Slot);
+        Assert.False(a.SequenceEqual(CollectionsMarshal.AsSpan(slotsA), b, CollectionsMarshal.AsSpan(nestedB)));
+        List<SymbolKeySlot> copiesB = keysA.ConvertAll(key => b.Copy(key).Slot);
+        Assert.True(a.SequenceEqual(CollectionsMarshal.AsSpan(slotsA), b, CollectionsMarshal.AsSpan(copiesB)));
+        Assert.False(a.SequenceEqual(CollectionsMarshal.AsSpan(slotsA), b, CollectionsMarshal.AsSpan(copiesB)[..^1]));
+
+        SymbolKeySlot last = slotsA[^1];
+        a.Reset();
+        Assert.Throws<ArgumentException>(() => a.Resolve(last));
+        Assert.Throws<ArgumentException>(() => a.Kind(last));
+        Assert.Throws<ArgumentException>(() => a.Sort([last]));
     }
 
     [Fact]

@@ -44,6 +44,9 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
 
     public int Length => _length;
 
+    /// <summary>This key's place in its population, for a consumer that holds many keys of one population.</summary>
+    public SymbolKeySlot Slot => new(_offset, _length);
+
     /// <summary>The staged bytes, borrowed from the builder; invalid after a freeze or reset.</summary>
     internal ReadOnlySpan<byte> Bytes
     {
@@ -263,6 +266,25 @@ public sealed class SymbolKeyBuilder<TDomain>
         return this;
     }
 
+    /// <summary>
+    /// Embeds a key given as the range a consumer resolved from a frozen
+    /// population it holds, without the view's construction; the range was a
+    /// key when it was staged.
+    /// </summary>
+    internal SymbolKeyBuilder<TDomain> KeyRange(OpaqueByteRange key)
+    {
+        RequireOpen();
+        int length = key.Length;
+        if (length == 0)
+            throw new ArgumentException("An empty key cannot be embedded.", nameof(key));
+        Ensure(1 + 10 + length);
+        _scratch[_length++] = (byte)SymbolKeyTag.Key;
+        WriteVarint((uint)length);
+        OpaqueByteRangeEncoder.Encode(key, _scratch.AsSpan(_length, length));
+        _length += length;
+        return this;
+    }
+
     /// <summary>Embeds a frozen key as a nested Key part.</summary>
     public SymbolKeyBuilder<TDomain> Key(SymbolKey<TDomain> key)
     {
@@ -358,27 +380,66 @@ public sealed class SymbolKeyBuilder<TDomain>
         return population;
     }
 
-    /// <summary>
-    /// Sorts staged keys of this population by their bytes, the order
-    /// <see cref="StagedSymbolKey{TDomain}.CompareTo"/> defines, resolving the
-    /// storage once for the sort rather than once per comparison.
-    /// </summary>
-    public void Sort(List<StagedSymbolKey<TDomain>> keys)
+    /// <summary>Resolves a slot of this population to its staged key.</summary>
+    public StagedSymbolKey<TDomain> Resolve(SymbolKeySlot slot)
     {
-        ArgumentNullException.ThrowIfNull(keys);
-        Span<StagedSymbolKey<TDomain>> span = CollectionsMarshal.AsSpan(keys);
-        foreach (ref readonly StagedSymbolKey<TDomain> key in span)
-        {
-            if (!key.IsStagedIn(this) || key.Generation != _generation)
-                throw new ArgumentException("Every sorted key is staged in this population.", nameof(keys));
-        }
-        span.Sort(_order ??= CompareStaged);
+        Require(slot);
+        return new StagedSymbolKey<TDomain>(this, _generation, slot.Offset, slot.Length);
     }
 
-    Comparison<StagedSymbolKey<TDomain>>? _order;
+    /// <summary>The kind of the key at a slot of this population.</summary>
+    public TDomain Kind(SymbolKeySlot slot)
+    {
+        Require(slot);
+        return SymbolKeyDomain.FromMarker<TDomain>(_scratch[slot.Offset]);
+    }
 
-    int CompareStaged(StagedSymbolKey<TDomain> x, StagedSymbolKey<TDomain> y)
+    /// <summary>
+    /// Sorts slots of this population by their keys' bytes, the order
+    /// <see cref="StagedSymbolKey{TDomain}.CompareTo"/> defines, with the
+    /// storage resolved once for the sort rather than once per comparison.
+    /// </summary>
+    public void Sort(List<SymbolKeySlot> slots)
+    {
+        ArgumentNullException.ThrowIfNull(slots);
+        Span<SymbolKeySlot> span = CollectionsMarshal.AsSpan(slots);
+        foreach (ref readonly SymbolKeySlot slot in span)
+            Require(slot);
+        span.Sort(_order ??= CompareSlots);
+    }
+
+    /// <summary>
+    /// Whether two slot sequences, of this population and another builder's,
+    /// hold equal keys in order: the element-wise
+    /// <see cref="StagedSymbolKey{TDomain}.Equals(StagedSymbolKey{TDomain})"/>.
+    /// </summary>
+    public bool SequenceEqual(ReadOnlySpan<SymbolKeySlot> slots, SymbolKeyBuilder<TDomain> other, ReadOnlySpan<SymbolKeySlot> otherSlots)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        if (slots.Length != otherSlots.Length)
+            return false;
+        for (int i = 0; i < slots.Length; i++)
+        {
+            SymbolKeySlot mine = slots[i];
+            SymbolKeySlot theirs = otherSlots[i];
+            Require(mine);
+            other.Require(theirs);
+            if (!_scratch.AsSpan(mine.Offset, mine.Length).SequenceEqual(other._scratch.AsSpan(theirs.Offset, theirs.Length)))
+                return false;
+        }
+        return true;
+    }
+
+    Comparison<SymbolKeySlot>? _order;
+
+    int CompareSlots(SymbolKeySlot x, SymbolKeySlot y)
         => _scratch.AsSpan(x.Offset, x.Length).SequenceCompareTo(_scratch.AsSpan(y.Offset, y.Length));
+
+    void Require(SymbolKeySlot slot)
+    {
+        if (slot.Length <= 0 || (uint)slot.Offset > (uint)_length || (uint)slot.Length > (uint)(_length - slot.Offset))
+            throw new ArgumentException("The slot lies outside this population's staged keys.", nameof(slot));
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal ReadOnlySpan<byte> Staged(int generation, int offset, int length)
@@ -423,6 +484,33 @@ public sealed class SymbolKeyBuilder<TDomain>
         if (_scratch.Length - _length < count)
             Array.Resize(ref _scratch, Math.Max(_scratch.Length * 2, _length + count));
     }
+}
+
+/// <summary>
+/// A staged key's place in its population: offset and length alone, eight
+/// bytes, for a consumer that holds many keys of one population and sorts,
+/// compares, or resolves them through that population's builder. A slot
+/// carries no builder or generation, so the consumer uses it only within the
+/// generation that staged it; the builder refuses a slot outside its staged
+/// keys.
+/// </summary>
+public readonly struct SymbolKeySlot : IEquatable<SymbolKeySlot>
+{
+    internal SymbolKeySlot(int offset, int length)
+    {
+        Offset = offset;
+        Length = length;
+    }
+
+    internal int Offset { get; }
+
+    public int Length { get; }
+
+    public bool Equals(SymbolKeySlot other) => Offset == other.Offset && Length == other.Length;
+
+    public override bool Equals(object? obj) => obj is SymbolKeySlot other && Equals(other);
+
+    public override int GetHashCode() => HashCode.Combine(Offset, Length);
 }
 
 /// <summary>

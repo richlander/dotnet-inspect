@@ -170,10 +170,10 @@ dictionary keyed by frozen keys answers staged lookups through the alternate
 lookup of `SymbolKeyComparer<TDomain>`. Signature-type composites built while
 one key decodes are staged in a scratch builder and discarded when that build
 completes. Its per-unit census facts and member keys are staged in a
-transient builder, sorted by that builder, which resolves its storage once
-for the sort rather than once per comparison, compared as staged keys against
-the other side's, and discarded after the unit, so no fact key is copied into
-storage of its own.
+transient builder and held as eight-byte slots, which that builder sorts and
+compares against the other side's with its storage resolved once rather than
+once per comparison, and discarded after the unit, so no fact key is copied
+into storage of its own.
 
 Names enter through three sources:
 

@@ -6,6 +6,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 
 using InertText;
 
@@ -140,10 +141,12 @@ public static class FindingDiffAny
         if (unitA is null || unitB is null)
             return ("one-sided", "one-sided");
 
-        string? api = FirstDifference(a.ApiCensus(unitA), b.ApiCensus(unitB));
+        string? api = FirstDifference(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB));
         bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
         string? body = FirstDifference(
+            a,
             a.BodyCensus(unitA, ownerVisible, out var methodsA),
+            b,
             b.BodyCensus(unitB, ownerVisible, out var methodsB));
         if (body is null)
         {
@@ -161,12 +164,21 @@ public static class FindingDiffAny
         return (api, body);
     }
 
+    // Each side's census is staged in its transient builder; the slots compare
+    // through those builders, as the staged keys they name would.
+    static bool CensusesEqual(Side a, List<SymbolKeySlot> censusA, Side b, List<SymbolKeySlot> censusB)
+        => a.Transient.SequenceEqual(CollectionsMarshal.AsSpan(censusA), b.Transient, CollectionsMarshal.AsSpan(censusB));
+
     static string? FirstDifference(
-        List<StagedSymbolKey<FindingDiffAnyPart>> before,
-        List<StagedSymbolKey<FindingDiffAnyPart>> after)
+        Side a,
+        List<SymbolKeySlot> before,
+        Side b,
+        List<SymbolKeySlot> after)
     {
-        string? onlyBefore = before.Except(after).Select(SymbolKeyText.Describe).FirstOrDefault();
-        string? onlyAfter = after.Except(before).Select(SymbolKeyText.Describe).FirstOrDefault();
+        List<StagedSymbolKey<FindingDiffAnyPart>> keysBefore = before.ConvertAll(a.Transient.Resolve);
+        List<StagedSymbolKey<FindingDiffAnyPart>> keysAfter = after.ConvertAll(b.Transient.Resolve);
+        string? onlyBefore = keysBefore.Except(keysAfter).Select(SymbolKeyText.Describe).FirstOrDefault();
+        string? onlyAfter = keysAfter.Except(keysBefore).Select(SymbolKeyText.Describe).FirstOrDefault();
         return onlyBefore is null && onlyAfter is null
             ? null
             : $"- {onlyBefore}\n+ {onlyAfter}";
@@ -218,7 +230,7 @@ public static class FindingDiffAny
             return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
         {
-            api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB))
+            api = CensusesEqual(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB))
                 ? FindingDiffAnyState.Unchanged
                 : FindingDiffAnyState.Changed;
             if (axes is FindingDiffAnyAxes.Api)
@@ -245,11 +257,10 @@ public static class FindingDiffAny
         // A Type visible on either side partitions its facts as visible on
         // both, so a visibility change is an API fact only.
         bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
-        if (!a.BodyCensus(unitA, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsA)
-                .SequenceEqual(b.BodyCensus(unitB, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsB)))
-        {
+        List<SymbolKeySlot> censusA = a.BodyCensus(unitA, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsA);
+        List<SymbolKeySlot> censusB = b.BodyCensus(unitB, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsB);
+        if (!CensusesEqual(a, censusA, b, censusB))
             return false;
-        }
 
         // Equal censuses declare the same non-public members. A public method
         // on one side only is an API fact; its body is not compared.
@@ -1219,14 +1230,14 @@ public static class FindingDiffAny
                 or (int)MethodAttributes.Family
                 or (int)MethodAttributes.FamORAssem;
 
-        static bool IsNonApi(StagedSymbolKey<FindingDiffAnyPart> fact) => fact.Kind is FindingDiffAnyPart.NonApi;
+        bool IsNonApi(SymbolKeySlot fact) => Transient.Kind(fact) is FindingDiffAnyPart.NonApi;
 
-        public List<StagedSymbolKey<FindingDiffAnyPart>> ApiCensus(Unit unit)
+        public List<SymbolKeySlot> ApiCensus(Unit unit)
         {
-            var census = new List<StagedSymbolKey<FindingDiffAnyPart>>();
+            var census = new List<SymbolKeySlot>();
             bool visible = IsVisible(unit.Owner);
             int mark = Transient.Begin();
-            census.Add(Transient.Mark(visible ? FindingDiffAnyPart.Visible : FindingDiffAnyPart.Hidden).End(mark));
+            census.Add(Transient.Mark(visible ? FindingDiffAnyPart.Visible : FindingDiffAnyPart.Hidden).End(mark).Slot);
             if (!visible)
                 return census;
             census.AddRange(VisibleFacts(unit).Where(fact => !IsNonApi(fact)));
@@ -1234,20 +1245,20 @@ public static class FindingDiffAny
             return census;
         }
 
-        List<StagedSymbolKey<FindingDiffAnyPart>> VisibleFacts(Unit unit)
+        List<SymbolKeySlot> VisibleFacts(Unit unit)
         {
-            var facts = new List<StagedSymbolKey<FindingDiffAnyPart>>();
+            var facts = new List<SymbolKeySlot>();
             TypeFacts(facts, unit.Owner);
             MemberFacts(facts, unit.Owner, api: true, out _);
             return facts;
         }
 
-        public List<StagedSymbolKey<FindingDiffAnyPart>> BodyCensus(
+        public List<SymbolKeySlot> BodyCensus(
             Unit unit,
             bool visible,
             out Dictionary<KeyRef, MethodDefinitionHandle> methods)
         {
-            var census = new List<StagedSymbolKey<FindingDiffAnyPart>>();
+            var census = new List<SymbolKeySlot>();
             methods = [];
             if (!visible)
                 TypeFacts(census, unit.Owner);
@@ -1278,21 +1289,21 @@ public static class FindingDiffAny
                 throw new BadImageFormatException($"Two methods share the compared key {Describe(key)}.");
         }
 
-        void TypeFacts(List<StagedSymbolKey<FindingDiffAnyPart>> census, TypeDefinitionHandle handle)
+        void TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
             KeyRef name = TypeKey(handle);
             int mark = Transient.Begin();
             Transient.Mark(FindingDiffAnyPart.TypeFact).Key(name).Int((int)(type.Attributes & ~TypeAttributes.BeforeFieldInit));
             OptionalKey(type.BaseType);
-            census.Add(Transient.End(mark));
+            census.Add(Transient.End(mark).Slot);
             // beforefieldinit only changes when a static constructor runs.
             if ((type.Attributes & TypeAttributes.BeforeFieldInit) != 0
                 && type.GetMethods().Any(method =>
                     Md.StringComparer.Equals(Md.GetMethodDefinition(method).Name, ".cctor")))
             {
                 mark = Transient.Begin();
-                census.Add(Transient.Mark(FindingDiffAnyPart.NonApi).Mark(FindingDiffAnyPart.BeforeFieldInit).Key(name).End(mark));
+                census.Add(Transient.Mark(FindingDiffAnyPart.NonApi).Mark(FindingDiffAnyPart.BeforeFieldInit).Key(name).End(mark).Slot);
             }
             foreach (InterfaceImplementationHandle implementation in type.GetInterfaceImplementations())
             {
@@ -1301,7 +1312,7 @@ public static class FindingDiffAny
                 mark = Transient.Begin();
                 StagedSymbolKey<FindingDiffAnyPart> fact =
                     Transient.Mark(FindingDiffAnyPart.InterfaceFact).Key(name).Key(@interface).End(mark);
-                census.Add(fact);
+                census.Add(fact.Slot);
                 Attributes(census, value.GetCustomAttributes(), fact);
             }
             GenericParameters(census, type.GetGenericParameters(), name);
@@ -1311,12 +1322,12 @@ public static class FindingDiffAny
             // the rendered signatures of every member that does not override it.
             mark = Transient.Begin();
             census.Add(Transient.Mark(FindingDiffAnyPart.NullableContext).Key(name)
-                .Int(NullabilityReader.GetTypeNullableContext(Md, handle)).End(mark));
+                .Int(NullabilityReader.GetTypeNullableContext(Md, handle)).End(mark).Slot);
             TypeLayout layout = type.GetLayout();
             if (!layout.IsDefault)
             {
                 mark = Transient.Begin();
-                census.Add(Transient.Mark(FindingDiffAnyPart.Layout).Key(name).Int(layout.PackingSize).Int(layout.Size).End(mark));
+                census.Add(Transient.Mark(FindingDiffAnyPart.Layout).Key(name).Int(layout.PackingSize).Int(layout.Size).End(mark).Slot);
             }
             foreach (MethodImplementationHandle implementation in type.GetMethodImplementations())
             {
@@ -1325,12 +1336,12 @@ public static class FindingDiffAny
                 KeyRef declaration = Key(value.MethodDeclaration);
                 mark = Transient.Begin();
                 census.Add(Transient.Mark(FindingDiffAnyPart.MethodImplementation).Key(name)
-                    .Key(body).Key(declaration).End(mark));
+                    .Key(body).Key(declaration).End(mark).Slot);
             }
         }
 
         void MemberFacts(
-            List<StagedSymbolKey<FindingDiffAnyPart>> census,
+            List<SymbolKeySlot> census,
             TypeDefinitionHandle handle,
             bool? api,
             out List<(KeyRef Key, MethodDefinitionHandle Method)> methods)
@@ -1347,7 +1358,7 @@ public static class FindingDiffAny
                 int mark = Transient.Begin();
                 Transient.Mark(FindingDiffAnyPart.FieldFact).Key(key).Int((int)field.Attributes);
                 Constant(field.GetDefaultValue());
-                census.Add(Transient.Int(field.GetOffset()).End(mark));
+                census.Add(Transient.Int(field.GetOffset()).End(mark).Slot);
                 Attributes(census, field.GetCustomAttributes(), key);
             }
             foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
@@ -1359,7 +1370,7 @@ public static class FindingDiffAny
                     continue;
                 int mark = Transient.Begin();
                 census.Add(Transient.Mark(FindingDiffAnyPart.MethodFact).Key(key)
-                    .Int((int)method.Attributes).Int((int)method.ImplAttributes).End(mark));
+                    .Int((int)method.Attributes).Int((int)method.ImplAttributes).End(mark).Slot);
                 GenericParameters(census, method.GetGenericParameters(), key);
                 Attributes(census, method.GetCustomAttributes(), key);
                 foreach (ParameterHandle parameterHandle in method.GetParameters())
@@ -1372,7 +1383,7 @@ public static class FindingDiffAny
                     Transient.Mark(FindingDiffAnyPart.ParameterFact).Key(parameterKey)
                         .Name(parameter.Name).Int((int)parameter.Attributes);
                     Constant(parameter.GetDefaultValue());
-                    census.Add(Transient.End(mark));
+                    census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
                 }
                 MethodImport import = method.GetImport();
@@ -1380,7 +1391,7 @@ public static class FindingDiffAny
                 {
                     mark = Transient.Begin();
                     census.Add(Transient.Mark(FindingDiffAnyPart.Import).Key(key).Name(import.Name)
-                        .Name(Md.GetModuleReference(import.Module).Name).Int((int)import.Attributes).End(mark));
+                        .Name(Md.GetModuleReference(import.Module).Name).Int((int)import.Attributes).End(mark).Slot);
                 }
             }
             foreach (PropertyDefinitionHandle propertyHandle in type.GetProperties())
@@ -1398,7 +1409,7 @@ public static class FindingDiffAny
                 Constant(property.GetDefaultValue());
                 Accessor(accessors.Getter);
                 Accessor(accessors.Setter);
-                census.Add(Transient.End(mark));
+                census.Add(Transient.End(mark).Slot);
                 Attributes(census, property.GetCustomAttributes(), key);
             }
             foreach (EventDefinitionHandle eventHandle in type.GetEvents())
@@ -1420,7 +1431,7 @@ public static class FindingDiffAny
                 Accessor(accessors.Adder);
                 Accessor(accessors.Remover);
                 Accessor(accessors.Raiser);
-                census.Add(Transient.End(mark));
+                census.Add(Transient.End(mark).Slot);
                 Attributes(census, value.GetCustomAttributes(), key);
             }
         }
@@ -1453,7 +1464,7 @@ public static class FindingDiffAny
         }
 
         void GenericParameters(
-            List<StagedSymbolKey<FindingDiffAnyPart>> census,
+            List<SymbolKeySlot> census,
             GenericParameterHandleCollection parameters,
             KeyRef owner)
         {
@@ -1465,7 +1476,7 @@ public static class FindingDiffAny
                     Transient.Mark(FindingDiffAnyPart.GenericParameter).Key(owner).Int(parameter.Index).End(mark);
                 mark = Transient.Begin();
                 census.Add(Transient.Mark(FindingDiffAnyPart.GenericParameterFact).Key(key)
-                    .Name(parameter.Name).Int((int)parameter.Attributes).End(mark));
+                    .Name(parameter.Name).Int((int)parameter.Attributes).End(mark).Slot);
                 foreach (GenericParameterConstraintHandle constraintHandle in parameter.GetConstraints())
                 {
                     GenericParameterConstraint constraint = Md.GetGenericParameterConstraint(constraintHandle);
@@ -1473,7 +1484,7 @@ public static class FindingDiffAny
                     mark = Transient.Begin();
                     StagedSymbolKey<FindingDiffAnyPart> fact =
                         Transient.Mark(FindingDiffAnyPart.Constraint).Key(key).Key(constraintType).End(mark);
-                    census.Add(fact);
+                    census.Add(fact.Slot);
                     Attributes(census, constraint.GetCustomAttributes(), fact);
                 }
                 Attributes(census, parameter.GetCustomAttributes(), key);
@@ -1481,7 +1492,7 @@ public static class FindingDiffAny
         }
 
         void Attributes(
-            List<StagedSymbolKey<FindingDiffAnyPart>> census,
+            List<SymbolKeySlot> census,
             CustomAttributeHandleCollection attributes,
             KeyRef owner)
         {
@@ -1492,12 +1503,12 @@ public static class FindingDiffAny
                 int mark = Transient.Begin();
                 Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(constructor);
                 Blob(attribute.Value);
-                census.Add(Transient.End(mark));
+                census.Add(Transient.End(mark).Slot);
             }
         }
 
         void Attributes(
-            List<StagedSymbolKey<FindingDiffAnyPart>> census,
+            List<SymbolKeySlot> census,
             CustomAttributeHandleCollection attributes,
             StagedSymbolKey<FindingDiffAnyPart> owner)
         {
@@ -1508,7 +1519,7 @@ public static class FindingDiffAny
                 int mark = Transient.Begin();
                 Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(constructor);
                 Blob(attribute.Value);
-                census.Add(Transient.End(mark));
+                census.Add(Transient.End(mark).Slot);
             }
         }
 
@@ -2052,7 +2063,7 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
     /// <summary>The key's view, once its chunk froze.</summary>
     public SymbolKey<FindingDiffAnyPart> Frozen => _owner.Chunk(_generation).Resolve(_offset, _length);
 
-    OpaqueByteRange FrozenRange => _owner.Chunk(_generation).RangeAt(_offset, _length);
+    internal OpaqueByteRange FrozenRange => _owner.Chunk(_generation).RangeAt(_offset, _length);
 
     /// <summary>The key's bytes while its chunk is staged.</summary>
     public ReadOnlySpan<byte> Bytes => _owner.Retained.Staged(_generation, _offset, _length);
@@ -2115,7 +2126,7 @@ internal static class FindingDiffAnyKeyBuilderExtensions
 {
     /// <summary>Embeds a retained key, frozen or staged, as a nested Key part.</summary>
     public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, KeyRef key)
-        => key.IsFrozen ? builder.Key(key.Frozen) : builder.KeyBytes(key.Bytes);
+        => key.IsFrozen ? builder.KeyRange(key.FrozenRange) : builder.KeyBytes(key.Bytes);
 
     /// <summary>Embeds a signature type, retained or scratch, as a nested Key part.</summary>
     public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, SignatureKey key)
