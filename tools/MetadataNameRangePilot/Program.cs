@@ -70,7 +70,7 @@ try
                 samples);
             Console.Write(NamePilot.Report(result));
         }
-        else
+        else if (options.Command == PilotCommand.SlotLatency)
         {
             SlotLatencyResult result =
                 SlotLatencyPilot.Measure(
@@ -79,6 +79,16 @@ try
                     copies,
                     samples);
             Console.Write(SlotLatencyPilot.Report(result));
+        }
+        else
+        {
+            IndexPatternResult result =
+                IndexPatternPilot.Measure(
+                    asset,
+                    options.Rounds,
+                    copies,
+                    samples);
+            Console.Write(IndexPatternPilot.Report(result));
         }
     }
 

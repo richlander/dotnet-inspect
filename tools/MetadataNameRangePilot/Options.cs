@@ -8,6 +8,7 @@ internal enum PilotCommand
     Check,
     Measure,
     SlotLatency,
+    IndexPattern,
 }
 
 internal enum NameScope
@@ -30,6 +31,8 @@ internal sealed record Options(
         + "| measure [--scope all|method-production] [--rounds N] "
         + "[--copies N | --target-names N] [--tsv path] <assembly>... "
         + "| slot-latency [--scope all|method-production] [--rounds N] "
+        + "[--copies N | --target-names N] [--tsv path] <assembly>... "
+        + "| index-pattern [--scope all|method-production] [--rounds N] "
         + "[--copies N | --target-names N] [--tsv path] <assembly>...";
 
     internal static bool TryParse(
@@ -40,7 +43,11 @@ internal sealed record Options(
         options = null;
         error = null;
         if (args.Length == 0
-            || args[0] is not ("check" or "measure" or "slot-latency"))
+            || args[0] is not (
+                "check"
+                or "measure"
+                or "slot-latency"
+                or "index-pattern"))
         {
             error = Usage;
             return false;
@@ -50,7 +57,8 @@ internal sealed record Options(
         {
             "check" => PilotCommand.Check,
             "measure" => PilotCommand.Measure,
-            _ => PilotCommand.SlotLatency,
+            "slot-latency" => PilotCommand.SlotLatency,
+            _ => PilotCommand.IndexPattern,
         };
         NameScope scope = NameScope.All;
         int rounds = 30;
@@ -132,7 +140,8 @@ internal sealed record Options(
                 || targetNames != 50_000
                 || tsvPath is not null))
         {
-            error = "Measurement options are valid only for measure.";
+            error =
+                "Measurement options are valid only for measurement commands.";
             return false;
         }
         if (copies is not null && targetNamesSpecified)

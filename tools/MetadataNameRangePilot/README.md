@@ -97,6 +97,51 @@ collection-private invariant that prevents foreign or otherwise unvalidated
 slots from reaching the operation; this pilot does not recommend an unsafe
 public slot API.
 
+## Declarative index diagnostic
+
+The `index-pattern` command tests a smaller claim: whether a retained Name can
+identify one logical value in an immutable population rather than carrying its
+byte coordinates. It compares:
+
+- a 16-byte retained range;
+- an 8-byte checked offset/length slot;
+- a dense ordered population represented by one `N+1` 32-bit offset vector;
+- a 4-byte explicit index plus that offset vector;
+- a 4-byte index into a per-scope value-interned population; and
+- the metadata source's existing 4-byte `StringHandle`.
+
+Each offset-vector shape has an ordinary checked operation and a
+collection-private validated operation. The latter checks an explicit
+declarative index, but trusts the private offset table after the population
+constructor has proved that it starts at zero, is monotonic, and exactly
+bounds the immutable byte array. It uses `Unsafe` only when forming the final
+span. This is the stronger owner invariant that an arbitrary public
+offset/length slot cannot provide; it remains a diagnostic until a product
+population and operation justify that implementation.
+
+Payload rows count array element payloads and the owned byte population, not
+managed object headers. The source-handle row is marked `borrowed` because it
+requires the original metadata image and reader to remain alive; its bytes
+cannot be compared directly with detached owned populations.
+
+The candidate patterns apply to different metadata structures:
+
+| Structure | Natural identity | Candidate |
+| --- | --- | --- |
+| Fixed-width metadata table or GUID heap | Row or fixed-width index | Direct index arithmetic; no offset vector |
+| Live `#Strings`, `#Blob`, or `#US` heap | Existing heap offset | Preserve the source handle while the reader lifetime is acceptable |
+| Detached ordered values consumed as one sequence | Ordinal position | `N+1` offsets; no per-value handle |
+| Detached rows that retain references to values | Population-relative index | 4-byte index plus offsets |
+| Repeated values whose byte equality is their identity | Interned population-relative index | 4-byte index plus unique offsets and bytes |
+| Arbitrary, overlapping, or nested binary slices | Offset and length | 8-byte slot or 16-byte independent range |
+| Value that must escape its population independently | Owner-bound range | 16-byte retained range |
+
+The two pilot scopes distinguish structures that matter to the choice.
+`all` reads metadata table Names once and therefore approximates a detached
+row census. `method-production` repeats declaring-type generic names for every
+method, matching a real retained consumer where value interning may earn its
+additional lookup.
+
 ## Scopes
 
 The default `all` scope reads each TypeDef namespace/name, TypeRef
@@ -128,6 +173,12 @@ dotnet run --project tools/MetadataNameRangePilot -c Release -- \
   --target-names 5000 <assembly>...
 dotnet run --project tools/MetadataNameRangePilot -c Release -- \
   slot-latency --scope method-production --rounds 3 \
+  --target-names 5000 <assembly>...
+dotnet run --project tools/MetadataNameRangePilot -c Release -- \
+  index-pattern --scope all --rounds 3 \
+  --target-names 5000 <assembly>...
+dotnet run --project tools/MetadataNameRangePilot -c Release -- \
+  index-pattern --scope method-production --rounds 3 \
   --target-names 5000 <assembly>...
 ```
 

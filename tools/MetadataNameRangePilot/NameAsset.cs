@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Unicode;
 
@@ -158,6 +159,18 @@ internal sealed class NameAsset : IDisposable
             reader.StartPointer,
             reader.Length)
         .CopyTo(destination);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal unsafe bool ValueTextEquals(
+        StringHandle handle,
+        ReadOnlySpan<byte> query)
+    {
+        BlobReader reader = _reader.GetBlobReader(handle);
+        return new ReadOnlySpan<byte>(
+                reader.StartPointer,
+                reader.Length)
+            .SequenceEqual(query);
     }
 
     internal static NameAsset Open(
