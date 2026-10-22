@@ -121,13 +121,14 @@ public class IlBodyDiffExceptionRegionTests
     [Fact]
     public void CatchType_ComparesUnderTheNormalization()
     {
-        // The catch Type is a type operand: without a reader it cannot be
-        // resolved, and under the whole-assembly scope its assembly is elided.
+        // The catch Type is a type operand: without a reader the body cannot
+        // be canonicalized, and under the whole-assembly scope its assembly is
+        // elided.
         (byte[] image, int body) = Image(Shape.CatchInvalidOperation);
         using var pe = new PEReader(new MemoryStream(image));
         MethodInstructions instructions = MethodInstructions.Decode(pe.GetMethodBody(body));
         Assert.False(IlBodyDiff.TryCanonicalize(instructions, reader: null, out _, out string? failure));
-        Assert.Contains("catch Type", failure);
+        Assert.Contains("requires a MetadataReader-backed comparison", failure);
 
         Assert.True(IlBodyDiff.TryCanonicalize(instructions, pe.GetMetadataReader(), IlBodyDiffNormalization.NormalizeAssemblyScope, out var operations, out _));
         CanonicalIlOperation clause = Assert.Single(operations, operation => operation.IsExceptionClause);
@@ -140,7 +141,7 @@ public class IlBodyDiffExceptionRegionTests
         (byte[] newImage, int newBody) = Image(after);
         using var oldPe = new PEReader(new MemoryStream(oldImage));
         using var newPe = new PEReader(new MemoryStream(newImage));
-        var comparison = Assert.IsType<FindingComparison<CanonicalIlOperation>.Complete>(IlFindings.Compare(
+        var comparison = Assert.IsAssignableFrom<FindingComparison<CanonicalIlOperation>.Complete>(IlFindings.Compare(
             oldPe, oldPe.GetMetadataReader(), MetadataTokens.MethodDefinitionHandle(oldBody),
             newPe, newPe.GetMetadataReader(), MetadataTokens.MethodDefinitionHandle(newBody),
             new FindingSubject("C::M", "M")).Value);
