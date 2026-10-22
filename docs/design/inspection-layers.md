@@ -1610,8 +1610,13 @@ canaries:
 - `AssemblyContextReferencesQuery` owns session access for every participant in
   a binding-consistent group. Its participant entry point also issues detached
   `AssemblyReferenceRow` values for hosts that need reference fields but do not
-  own Metadata identity semantics, plus a typed detached rejection for hosts
-  that do not own Metadata candidate-open failures.
+  own Metadata identity semantics, exact owner-issued binding evidence with the
+  participant's completed current-context selection, plus a typed detached
+  rejection for hosts that do not own Metadata candidate-open failures.
+  Inspect Web orders and projects the detached rows; Package Queries alone
+  enters external supplier association for an owner-issued `NoNameOwner`,
+  without Web reconstructing Metadata identities, binding requests, origins,
+  scopes, or selection outcomes.
   `PackageDependencyGroupsQuery` reads one bounded root manifest through
   `IPackageContent`, validates its package ID and version, retains its groups as
   declared, and reports exact-framework absence separately from an empty
