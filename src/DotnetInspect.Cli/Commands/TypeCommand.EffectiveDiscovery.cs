@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata.Ecma335;
 
@@ -10,6 +11,7 @@ using DotnetInspect.Cli.Views;
 using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
+using InertText;
 using Markout;
 
 namespace DotnetInspect.Cli.Commands;
@@ -244,7 +246,8 @@ public static partial class TypeCommand
                 options.IncludeAll)
             || !CanWriteDirectTypeInfo(
                 document,
-                assemblyPath))
+                assemblyPath,
+                out MetadataContainedTypeDefinitionName? displayType))
         {
             return null;
         }
@@ -270,12 +273,19 @@ public static partial class TypeCommand
             ILInspector.Research.ResearchViews.TypeModifiers(
                 modifierBasis);
         var presentation = new ExactTypeInfoTsvDocument(
-            subject.ContainedType!,
+            displayType,
             kind,
             modifiers,
             document.InterfaceCount,
             assemblyPath,
-            SourceKind.Library);
+            SourceKind.Library)
+        {
+            TypeParameters = DirectTypeParameters(subject),
+            IntroducedTypeParameterCounts =
+                subject.Signature.GenericParameters.IsEmpty
+                    ? []
+                    : IntroducedTypeParameterCounts(subject),
+        };
 
         WriteInspectionDiagnostics(envelope.Diagnostics);
         writeUtf8(
@@ -517,21 +527,114 @@ public static partial class TypeCommand
 
     static bool CanWriteDirectTypeInfo(
         TypeSubjectInspectionContent document,
-        string assemblyPath)
+        string assemblyPath,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)]
+        out MetadataContainedTypeDefinitionName? displayType)
     {
         TypeSubject subject = document.Subject;
-        MetadataContainedTypeDefinitionName? contained =
-            subject.ContainedType;
-        return document.BaseKind
-                is not MetadataTypeDeclarationBaseKind.Other
-            && subject.Signature.GenericParameters.IsEmpty
-            && subject.Type.Segments.All(
-                segment => !segment.Contains('`'))
-            && contained is not null
-            && !contained.Namespace.RequiredContainment
-            && contained.Segments.All(
-                segment => !segment.RequiredContainment)
-            && IsTsvField(assemblyPath);
+        displayType = null;
+        if (document.BaseKind
+                is MetadataTypeDeclarationBaseKind.Other
+            || subject.DeclarationSignature is not { } signature
+            || !CanWriteDirectTypeParameters(subject, signature)
+            || !IsTsvField(assemblyPath))
+        {
+            return false;
+        }
+
+        List<int> introduced = IntroducedTypeParameterCounts(subject);
+        for (int i = 0; i < introduced.Count; i++)
+        {
+            string segment = subject.Type.Segments[i];
+            string display = introduced[i] > 0
+                && MetadataNameArity.OfSegment(segment) == introduced[i]
+                    ? MetadataNameArity.StripFromSegment(segment)
+                    : segment;
+            if (display.Contains('`'))
+                return false;
+        }
+
+        displayType = subject.ContainDisplayType();
+        return displayType is not null
+            && !displayType.Namespace.RequiredContainment
+            && displayType.Segments.All(
+                segment => !segment.RequiredContainment);
+    }
+
+    // Type Info lists the selected TypeDef's own GenericParam rows, which for a Type nested
+    // in a generic Type repeat the enclosing rows; the post retains the declaring owner's
+    // rows. Only parameters the leaf introduces are therefore the same rows. Constraint
+    // rows, non-canonical annotations, and names the constraint spelling would escape keep
+    // the established renderer.
+    static bool CanWriteDirectTypeParameters(
+        TypeSubject subject,
+        MetadataTypeDeclarationSignature signature)
+    {
+        int leaf = subject.Type.Segments.Length - 1;
+        foreach (MetadataTypeGenericParameterDeclarationEvidence parameter
+            in signature.GenericParameters)
+        {
+            if (parameter.DefinitionSegmentIndex != leaf
+                || parameter.ConstraintCount != 0
+                || !parameter.Annotations.IsCanonical
+                || IsConstraintKeyword(parameter.Name)
+                || parameter.Name.Contain(TextPolicy.Field)
+                    .RequiredContainment)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // The established constraint spelling escapes a parameter name that is also a reserved
+    // keyword wherever that name appears in the constraint text.
+    static bool IsConstraintKeyword(MetadataUtf8Name name) =>
+        name.ValueTextEquals("class"u8)
+        || name.ValueTextEquals("struct"u8)
+        || name.ValueTextEquals("new"u8)
+        || name.ValueTextEquals("ref"u8)
+        || name.ValueTextEquals("unmanaged"u8)
+        || name.ValueTextEquals("notnull"u8)
+        || name.ValueTextEquals("allows"u8);
+
+    static List<ExactTypeInfoTsvTypeParameter> DirectTypeParameters(
+        TypeSubject subject)
+    {
+        ImmutableArray<MetadataTypeGenericParameterDeclarationEvidence>
+            parameters = subject.DeclarationSignature!.GenericParameters;
+        var result =
+            new List<ExactTypeInfoTsvTypeParameter>(parameters.Length);
+        foreach (MetadataTypeGenericParameterDeclarationEvidence parameter
+            in parameters)
+        {
+            GenericParameterAttributes attributes = parameter.Attributes;
+            List<string> constraints = [];
+            if (GenericConstraintKeywords.PrimaryKeyword(
+                    attributes,
+                    parameter.Annotations.NullableFlag,
+                    parameter.Annotations.IsUnmanaged)
+                is { } primary)
+            {
+                constraints.Add(primary);
+            }
+            if (GenericConstraintKeywords.NewConstraintKeyword(attributes)
+                is { } newConstraint)
+            {
+                constraints.Add(newConstraint);
+            }
+            if (GenericConstraintKeywords.AllowsRefStructKeyword(attributes)
+                is { } allowsRefStruct)
+            {
+                constraints.Add(allowsRefStruct);
+            }
+            result.Add(
+                new(
+                    GenericConstraintKeywords.VarianceKeyword(attributes),
+                    parameter.Name.Contain(TextPolicy.Field),
+                    constraints));
+        }
+        return result;
     }
 
     static bool IsTsvField(string value) =>
