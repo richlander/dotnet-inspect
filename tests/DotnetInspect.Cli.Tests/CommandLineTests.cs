@@ -2118,14 +2118,21 @@ public class CommandLineTests
     [InlineData("mscorlib", true)]       // legacy runtime assembly
     [InlineData("netstandard", true)]    // netstandard facade
     [InlineData("WindowsBase", true)]    // WPF foundation
-    public void IsPlatformCandidate_ReturnsExpected(string name, bool expected)
+    public void PlatformEcosystemAdmission_ReturnsExpected(
+        string name,
+        bool expected)
     {
-        Assert.Equal(expected, PlatformResolver.IsPlatformCandidate(name));
+        Assert.Equal(
+            expected,
+            PlatformEcosystemAdmission.HasAssemblyName(name));
     }
 
     [Theory]
     [InlineData("Microsoft.Azure.SignalR", true)]
     [InlineData("Microsoft.Maui.Controls", true)]
+    [InlineData("Microsoft.Agents.AI", true)]
+    [InlineData("Microsoft.Authentication.WebAssembly", true)]
+    [InlineData("Aspire.Hosting", true)]
     [InlineData("Newtonsoft.Json", true)]
     [InlineData("Microsoft.Extensions.Logging", false)]
     [InlineData("System.Text.Json.JsonSerializer", false)]

@@ -1,5 +1,5 @@
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Output;
-using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.CSharp;
 
@@ -32,7 +32,7 @@ internal static class NamespacePrefixHints
         => value.Contains('.')
            && !value.Contains('*')
            && !value.Contains('?')
-           && PlatformResolver.IsPlatformCandidate(value);
+           && PlatformEcosystemAdmission.HasAssemblyName(value);
 
     private static bool LooksLikeBareTypeName(string value)
         => value.Length > 0

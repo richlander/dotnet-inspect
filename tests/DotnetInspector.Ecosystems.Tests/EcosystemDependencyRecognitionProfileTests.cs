@@ -13,7 +13,7 @@ public sealed class EcosystemDependencyRecognitionProfileTests
 
         Assert.Equal(7, profile.Entries.Length);
         Assert.Equal(15, profile.PackageAssociationCount);
-        Assert.Equal(20, profile.AssemblyAssociationCount);
+        Assert.Equal(23, profile.AssemblyAssociationCount);
         Assert.Equal(15, profile.AssemblyEvidenceCount);
         Assert.Equal(
             [
@@ -75,6 +75,45 @@ public sealed class EcosystemDependencyRecognitionProfileTests
             ai.Associations.Select(
                 association =>
                     $"{association.Domain} {association.Kind} {association.Value}"));
+    }
+
+    [Theory]
+    [InlineData("System.Text.Json", true)]
+    [InlineData("Microsoft.Extensions.Logging", true)]
+    [InlineData("Microsoft.AspNetCore.Http", true)]
+    [InlineData("Microsoft.JSInterop", true)]
+    [InlineData("Microsoft.Net.Http.Headers", true)]
+    [InlineData("WindowsBase", true)]
+    [InlineData("Aspire.Hosting", false)]
+    [InlineData("Microsoft.Maui.Controls", false)]
+    [InlineData("Microsoft.Agents.AI", false)]
+    [InlineData("Microsoft.Azure.SignalR", false)]
+    public void AssemblyAssociationQueryExpandsOnlySelectedLineages(
+        string assemblyName,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            EcosystemPackCatalog.HasAssemblyNameAssociation(
+                assemblyName,
+                [
+                    EcosystemPackIds.Runtime,
+                    EcosystemPackIds.AspNetCore,
+                ]));
+    }
+
+    [Fact]
+    public void AssemblyAssociationQueryCanSelectAdditionalEcosystems()
+    {
+        Assert.True(EcosystemPackCatalog.HasAssemblyNameAssociation(
+            "Aspire.Hosting",
+            [EcosystemPackIds.Aspire]));
+        Assert.True(EcosystemPackCatalog.HasAssemblyNameAssociation(
+            "Microsoft.Maui.Controls",
+            [EcosystemPackIds.Maui]));
+        Assert.True(EcosystemPackCatalog.HasAssemblyNameAssociation(
+            "Microsoft.Agents.AI",
+            [EcosystemPackIds.AI]));
     }
 
     [Fact]

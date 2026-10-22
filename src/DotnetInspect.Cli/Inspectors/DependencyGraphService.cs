@@ -291,7 +291,8 @@ internal static class DependencyGraphService
                     ownedAssemblySet.Assemblies.FirstOrDefault();
                 assemblyPath = selectedAssembly?.Path;
             }
-            else if (PlatformResolver.IsPlatformCandidate(libraryName))
+            else if (DotnetInspect.Cli.CommandLine.PlatformEcosystemAdmission
+                         .HasAssemblyName(libraryName))
             {
                 if (requestedTfm is not null
                     && !PlatformResolver

@@ -12,13 +12,15 @@ areas: [routing, resolution, platform]
 > `System.Text.Json` defaults to **platform**. An explicit package version
 > selects NuGet, as does the `package` command.
 >
-> Platform overlap uses the closed name families present in the supported
-> reference populations: `System`, `Microsoft.AspNetCore`,
-> `Microsoft.Extensions`, `Microsoft.CSharp`, `Microsoft.JSInterop`,
-> `Microsoft.Net.Http.Headers`, `Microsoft.VisualBasic`, and `Microsoft.Win32`,
-> plus the legacy facade names. Other `Microsoft.*` names, such as
+> Platform overlap queries the assembly associations authored by the
+> [Ecosystem Dependency Recognition](../../design/ecosystem-dependency-recognition.md)
+> profile for the .NET Runtime and ASP.NET Core Ecosystems. Ecosystem lineage
+> expansion includes Microsoft.Extensions; additional indexed Ecosystems do
+> not widen Platform admission. Other names, such as
 > `Microsoft.Azure.SignalR`, are ordinary NuGet candidates and do not start
-> Platform discovery.
+> Platform discovery. Association is only the routing candidate: an actual
+> Platform source is claimed only after installed or acquired Platform
+> resolution succeeds.
 
 ## Preconditions
 

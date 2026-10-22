@@ -282,7 +282,7 @@ public static class SourceResolver
             if (!candidate.Contains('.'))
                 continue;
 
-            if (!PlatformResolver.IsPlatformCandidate(candidate))
+            if (!PlatformEcosystemAdmission.HasAssemblyName(candidate))
                 continue;
 
             var (path, _, _, _) = PlatformResolver.ResolveAssembly(candidate);
@@ -586,7 +586,7 @@ public static class SourceResolver
                 var (bareName, explicitVersion) = PackageExtractor.ParsePackageReference(packagePath);
 
                 // Try platform resolution for whole name (can go remote for platform candidates)
-                if (PlatformResolver.IsPlatformCandidate(bareName))
+                if (PlatformEcosystemAdmission.HasAssemblyName(bareName))
                 {
                     var client = HttpClientFactory.Shared;
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);

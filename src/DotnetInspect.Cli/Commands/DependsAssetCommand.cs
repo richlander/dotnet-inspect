@@ -665,7 +665,7 @@ public partial class DependsCommand
     {
         if (File.Exists(library))
             return false;
-        if (!PlatformResolver.IsPlatformCandidate(library))
+        if (!PlatformEcosystemAdmission.HasAssemblyName(library))
             return true;
         return !CanResolveInstalledPlatformLibrary(
             library,
@@ -689,7 +689,7 @@ public partial class DependsCommand
         string library,
         string? targetFramework)
     {
-        if (!PlatformResolver.IsPlatformCandidate(library))
+        if (!PlatformEcosystemAdmission.HasAssemblyName(library))
             return false;
         if (targetFramework is null)
         {

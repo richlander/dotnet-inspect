@@ -565,7 +565,7 @@ internal static class PlatformTypeLocatorRouting
             in typeRequests)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!PlatformResolver.TryParseQualifiedTypeName(
+            if (!PlatformEcosystemAdmission.TryParseQualifiedTypeName(
                     request.TypePattern,
                     out string assemblyName,
                     out string pattern)

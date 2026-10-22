@@ -801,9 +801,10 @@ public static class InspectionCommandDefinitions
                     // than misclassified as a NuGet package. See #1690.
                     assemblyPath = source;
                 }
-                else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
+                else if (!source.Contains('@')
+                    && PlatformEcosystemAdmission.HasAssemblyName(source))
                 {
-                    // Platform-preferred routing for supported platform name families
+                    // Platform-preferred routing for selected Ecosystem associations.
                     bool verbose = parseResult.GetValue(opts.Verbose);
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
                     var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(

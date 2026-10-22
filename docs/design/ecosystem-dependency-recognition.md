@@ -37,6 +37,8 @@ The **Ecosystem Dependency Recognition** owner in
   `EcosystemPackId` values;
 - distinct Package ID and assembly simple-name association domains;
 - exact and family association semantics in each domain;
+- one resource-free assembly-association query over selected Ecosystem
+  lineages, without AssemblyDef corroboration or dependency recognition;
 - exact immutable Package-asset AssemblyDef evidence for assembly recognition;
 - classification of one bounded direct-dependency observation batch;
 - one owner-issued Package or Library semantic subject for every batch;
@@ -64,7 +66,9 @@ Its exact claim is:
 > classification. For one Package or Library subject-bound batch, also
 > preserve the semantic subject, applicable target selection, and input
 > completion in one detached product-relative Document, without traversing or
-> resolving dependencies.
+> resolving dependencies. Separately, for one selected Ecosystem set, expand
+> its lineages and answer whether one assembly simple name matches an authored
+> assembly association without claiming recognition or source availability.
 
 The answer is deliberately product-relative. An unrecognized dependency means
 that no association in the supplied product profile matched it. It does not
@@ -247,6 +251,23 @@ binding can cross versions. This correspondence says that the shipped catalog
 contains a credible same-identity AssemblyDef; it does not prove which file a
 runtime will bind.
 
+### Selected-lineage assembly association
+
+The application catalog exposes one resource-free assembly simple-name query
+over selected Ecosystems. Selection expands through the
+[Ecosystem hierarchy](ecosystem-hierarchy.md), then matches only assembly
+associations authored by the resulting lineage. The query does not inspect an
+assembly, require AssemblyDef corroboration, or claim dependency recognition.
+It answers only whether the supplied name is an authored candidate for one of
+the selected Ecosystems.
+
+Platform routing selects the .NET Runtime and ASP.NET Core Ecosystems.
+Lineage expansion includes Microsoft.Extensions. Additional shipped
+Ecosystems remain present in the same product profile and can be selected by
+other consumers without widening Platform admission. A positive association
+still requires actual Platform resolution before any Platform source is
+claimed.
+
 ### Exact associations
 
 An exact association matches one complete identity under the comparison rules
@@ -297,9 +318,9 @@ entries are exact associations.
 
 | Ecosystem | Package ID associations | Assembly-name associations |
 | --- | --- | --- |
-| .NET Runtime | `System` | `System`, `Microsoft.Win32`, `Microsoft.CSharp`, `Microsoft.VisualBasic`, exact: `mscorlib`, exact: `netstandard` |
+| .NET Runtime | `System` | `System`, `Microsoft.Win32`, `Microsoft.CSharp`, `Microsoft.VisualBasic`, exact: `mscorlib`, exact: `netstandard`, exact: `WindowsBase` |
 | Microsoft.Extensions | `Microsoft.Extensions` | `Microsoft.Extensions` |
-| ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore` |
+| ASP.NET Core | `Microsoft.AspNetCore` | `Microsoft.AspNetCore`, `Microsoft.JSInterop`, `Microsoft.Net.Http.Headers` |
 | Aspire | `Aspire` | `Aspire` |
 | AI | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` | `Microsoft.Extensions.AI`, exact: `OpenAI`, exact: `Anthropic`, exact: `Google.GenAI`, exact: `ModelContextProtocol`, exact: `Microsoft.Agents.AI` |
 | Blazor | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` | `Microsoft.AspNetCore.Components`, `Microsoft.Authentication.WebAssembly` |

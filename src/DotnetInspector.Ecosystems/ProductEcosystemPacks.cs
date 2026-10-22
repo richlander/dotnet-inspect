@@ -220,6 +220,7 @@ internal static class ProductEcosystemPacks
                         AssemblyFamily("Microsoft.VisualBasic"),
                         ExactAssembly("mscorlib"),
                         ExactAssembly("netstandard"),
+                        ExactAssembly("WindowsBase"),
                     ],
                     [
                         RuntimeEvidence("System.Net.Http"),
@@ -250,6 +251,8 @@ internal static class ProductEcosystemPacks
                     [
                         PackageFamily("Microsoft.AspNetCore"),
                         AssemblyFamily("Microsoft.AspNetCore"),
+                        AssemblyFamily("Microsoft.JSInterop"),
+                        AssemblyFamily("Microsoft.Net.Http.Headers"),
                     ],
                     [
                         WebViewMauiEvidence(),
