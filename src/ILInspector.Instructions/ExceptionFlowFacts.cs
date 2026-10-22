@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using ILInspector.Metadata;
 
 namespace ILInspector.Instructions;
@@ -525,7 +526,8 @@ internal sealed record ExceptionFlowClauseDescriptor(
     ExceptionFlowExtent Protected,
     ExceptionFlowExtent Handler,
     ExceptionFlowExtent? Filter,
-    MethodExceptionClause? Clause);
+    MethodExceptionClause? Clause,
+    int CatchTypeToken = 0);
 
 internal sealed class ExceptionFlowTopology
 {
@@ -607,7 +609,8 @@ internal sealed class ExceptionFlowTopology
                 protectedExtent,
                 handlerExtent,
                 filterExtent,
-                Clause: null));
+                Clause: null,
+                region.CatchType.IsNil ? 0 : MetadataTokens.GetToken(region.CatchType)));
         }
 
         return Build(
@@ -644,7 +647,8 @@ internal sealed class ExceptionFlowTopology
                 clause.FilterExtent is { } filter
                     ? new ExceptionFlowExtent(filter.Start, filter.End)
                     : null,
-                clause))];
+                clause,
+                clause.CatchType?.MetadataToken ?? 0))];
 
         return Build(
             ilLength,
@@ -813,7 +817,8 @@ internal sealed class ExceptionFlowTopology
                     clause.Handler.Start,
                     clause.Handler.End,
                     clause.Filter?.Start ?? -1,
-                    clause.Filter?.End ?? -1))];
+                    clause.Filter?.End ?? -1,
+                    clause.CatchTypeToken))];
 
         ImmutableArray<InstructionExceptionRegion> issuedRegions = [];
         ImmutableArray<InstructionExceptionClause> issuedClauses = [];

@@ -240,9 +240,10 @@ public static class IlFindings
         }
     }
 
-    // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
-    // so a matched branch whose target was retargeted would otherwise read as unchanged. Reuse
-    // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation),
+    // IdentityKey deliberately ignores an operation's targets (matching CanonicalEquals): a branch's
+    // target, a switch's arms, and an exception clause's extents. A matched branch whose target was
+    // retargeted, or a clause whose extent moved, would otherwise read as unchanged. Reuse
+    // IlBodyDiff's own alignment map and target decision verbatim (not a reimplementation),
     // then overlay the finding Moved mappings so a branch that targets a relocated instruction is
     // judged in the finding frame (its target moved with it) rather than being falsely retargeted.
     // On move-free inputs there are no Moved pairs, so the map is exactly IlBodyDiff's.
@@ -264,11 +265,13 @@ public static class IlFindings
         foreach (var pair in pairs)
         {
             if (pair is PairFinding<CanonicalIlOperation>.Present present
-                && !IlBodyDiff.BranchTargetsMatch(
-                    oldInstructions,
+                && !IlBodyDiff.TargetsMatch(
+                    oldOps,
                     RequiredOrdinal(present.Old),
-                    newInstructions,
+                    oldInstructions,
+                    newOps,
                     RequiredOrdinal(present.New),
+                    newInstructions,
                     alignment))
             {
                 // A moved-and-retargeted operation keeps its move Detail; append the retarget so

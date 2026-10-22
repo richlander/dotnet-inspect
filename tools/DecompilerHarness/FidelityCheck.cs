@@ -111,8 +111,15 @@ static partial class FidelityCheck
     /// change that is not monotone, or that moves a corpus number, does not get this
     /// argument and must bump.
     /// </para>
+    /// <para>
+    /// v6 (#9942) compares the exception-clause table: each clause's kind, its catch Type
+    /// under the operand rule, and its extents by aligned instruction. A body whose only
+    /// difference is a catch Type or a <c>try</c> boundary compared <c>Exact</c> under v5
+    /// and does not under v6, so corpus numbers move, strictly toward fewer <c>Exact</c>
+    /// rows; the rows that move are the EH-blind population #9942 names.
+    /// </para>
     /// </remarks>
-    internal const int CurrentContractVersion = 5;
+    internal const int CurrentContractVersion = 6;
 
     internal const IlBodyDiffNormalization ContractBodyDiffNormalization =
         IlBodyDiffNormalization.NormalizeVariableLayout
