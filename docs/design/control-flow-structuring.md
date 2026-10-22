@@ -939,11 +939,18 @@ only when the post-dominator machinery is proven.
    (`cond-target-past-region` 1,214 → 620, `forward-branch-not-region-exit`
    746 → 971 and `fallthrough-past-region` 0 → 159 as the deeper walk reaches
    later stops, `arm-externally-entered` 187 → 198), with the same four
-   pre-existing pass bugs on both sides. Multi-entry case bodies — two case
-   labels whose tests sit in different subtrees (`JPath::ParsePath`,
-   `JsonTextReader::ParseValue` behind its lowered `switch` instructions) —
-   remain flat: they need a switch raise from the comparison tree, not a
-   move, and belong to the switch track.
+   pre-existing pass bugs on both sides; the census moved branching fully
+   raised 23,017 → 23,136 and forward-merge stops 1,959 → 1,590. Seven pinned
+   methods lost exact PDB local names (`DEC0009`, `unspellable-local-name`)
+   because a sibling-scope pattern local whose scope-entry label the
+   structuring dissolved is now declared at its first store and encloses its
+   namesakes; the exact-local scope-entry owner tracks that in
+   [#10493](https://github.com/richlander/dotnet-inspect/issues/10493)
+   (seven other pinned methods moved Partial → Full the same way). Multi-entry
+   case bodies — two case labels whose tests sit in different subtrees
+   (`JPath::ParsePath`, `JsonTextReader::ParseValue` behind its lowered
+   `switch` instructions) — remain flat: they need a switch raise from the
+   comparison tree, not a move, and belong to the switch track.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
