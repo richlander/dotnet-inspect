@@ -456,8 +456,9 @@ test class gates its cursor:
      table by the decoder's own rules, so an incomplete decode and a failed
      cursor report one reason. The atom's operand identity is still the
      formatted identity of `IlFindings`, so the identity gate waits for 1b.
-   - **1b:** the atom's operand identity becomes the `SymbolKey` under the
-     policy, which moves `SymbolKey` and its builder below both
+   - **1b** ([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)):
+     the atom's operand identity becomes the `SymbolKey` under the policy,
+     which moves `SymbolKey` and its builder below both
      `ILInspector.Metadata` and `ILInspector.ILDiff`; gated by identity. It
      depends on the Body policy's normalization
      ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
