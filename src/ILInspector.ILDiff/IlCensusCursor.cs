@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -365,8 +366,8 @@ public sealed class IlCensusCursor
     }
 
     bool TryNextInstruction(
-        out DecodedInstruction? instruction,
-        out string? failure,
+        [NotNullWhen(true)] out DecodedInstruction? instruction,
+        [NotNullWhen(false)] out string? failure,
         out int failureOffset)
     {
         if (_il is null)
@@ -399,7 +400,7 @@ public sealed class IlCensusCursor
         return false;
     }
 
-    bool TryValidateClauses(out string? failure)
+    bool TryValidateClauses([NotNullWhen(false)] out string? failure)
     {
         if (_il is null)
         {
