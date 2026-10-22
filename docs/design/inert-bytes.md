@@ -737,8 +737,8 @@ the repository threat model.
 | Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, keeps raw lookup identity unchanged, and carries the separately contained presentation without applying identity limits to its expanded spelling | First adoption PR |
 | Exact-Type base/head | NativeAOT exact-command time and allocation comparison preserves result semantics; retained-memory claims include the detached matched Name backing and do not count UTF-16 compatibility output as byte-native savings | First adoption PR |
 | Host-input optimization | Exact query bytes are encoded once, typed match evidence is available only after exact equality, and the candidate is compared with the merged exact-Type baseline | Follow-up adoption PR |
-| Exact-Type direct byte output | Direct-library clean non-generic `Type Info` TSV preserves byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink; ineligible shapes reproduce the established fallback output | End-to-end Type adoption |
-| Exact-Type one-shot cost | Exact-base/head NativeAOT comparison includes command input construction, plan construction, inspection, Presentation, and output; kernel-only measurements remain separately labeled | End-to-end Type adoption |
+| Exact-Type direct byte output | `docs/workflows/perf/cli-byte-publication.md` compares the direct-library clean non-generic `Type Info` TSV with a neighboring rich-renderer fallback and requires byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink | Exact-build workflow |
+| Exact-Type one-shot cost | The same exact-build workflow measures the complete NativeAOT command through standard output and uses the exact-source NativeAOT allocation probe for public command construction, parsing, inspection, Presentation, and output; kernel-only measurements remain separately labeled | Exact-build workflow |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
 | Finding Diff Any product path | Exact base/head NativeAOT comparison on all pinned Finding Diff Any pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
 | Finding Diff Any direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
@@ -779,9 +779,11 @@ exact-base/head gates run.
    those views and write contained UTF-8 directly at byte-capable sinks.
 10. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
    projections in the product paths tracked by their owning issues.
-11. **Host publication scenarios.** Track exact-build CLI byte publication in
-   [#10468](https://github.com/richlander/dotnet-inspect/issues/10468) and
-   published-runtime Browser/Wasm text publication in
+11. **Host publication scenarios.** Validate exact-build CLI byte publication
+   with
+   [`cli-byte-publication.md`](../workflows/perf/cli-byte-publication.md) under
+   [#10468](https://github.com/richlander/dotnet-inspect/issues/10468), then
+   track published-runtime Browser/Wasm text publication in
    [#10469](https://github.com/richlander/dotnet-inspect/issues/10469) before
    broader representation migration.
 
