@@ -511,7 +511,8 @@ public sealed partial class UnsafeMemberFindingsTests
                 UnsafeMemberCensusAnalysis.Description,
                 UnsafeMemberCensusProducer.Instance,
                 MethodDefinitionSourceBreadth.ExactTypes(
-                    FixtureType(path, "TypeScopeDirect"))));
+                    FixtureType(path, "TypeScopeDirect")))
+            .AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(
                 new MemoryStream(File.ReadAllBytes(path), writable: false));
@@ -558,7 +559,9 @@ public sealed partial class UnsafeMemberFindingsTests
     {
         var operation = AssemblyAnalysisOperation<UnsafeMemberCensus>.Create(
             path,
-            UnsafeMemberCensusAnalysis.ForTypes(types, limits));
+            UnsafeMemberCensusAnalysis
+                .ForTypes(types, limits)
+                .AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(
                 new MemoryStream(File.ReadAllBytes(path), writable: false));
@@ -577,7 +580,9 @@ public sealed partial class UnsafeMemberFindingsTests
     {
         var operation = AssemblyAnalysisOperation<UnsafeMemberCensus>.Create(
             path,
-            UnsafeMemberCensusAnalysis.ForLibrary());
+            UnsafeMemberCensusAnalysis
+                .ForLibrary()
+                .AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(
                 new MemoryStream(File.ReadAllBytes(path), writable: false));

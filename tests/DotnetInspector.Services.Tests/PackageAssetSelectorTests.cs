@@ -28,6 +28,7 @@ public sealed class PackageAssetSelectorTests
         Assert.Same(content.GenerationIdentity, receipt.Generation);
         Assert.Equal("net10.0", receipt.RequestedTargetFramework);
         Assert.Equal("linux-x64", receipt.RequestedRuntimeIdentifier);
+        Assert.Empty(receipt.AvailableRuntimePopulations);
         Assert.Equal(
             "net8.0",
             Selected(receipt.Selection).TargetFramework);
@@ -63,6 +64,24 @@ public sealed class PackageAssetSelectorTests
                 .SelectMany(InstanceTypeGraph),
             .. InstanceTypeGraph(typeof(PackageAssetUniverse)),
             .. InstanceTypeGraph(typeof(PackageAssetEntry)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimeAssetPopulation)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationChoiceOperationAssociation)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationChoiceRequest)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationCoordinateAssociation)),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationAuthority)),
+            .. typeof(PackageRuntimePopulationAuthority)
+                .GetNestedTypes(BindingFlags.Public)
+                .SelectMany(InstanceTypeGraph),
+            .. InstanceTypeGraph(
+                typeof(PackageRuntimePopulationChoiceResult)),
+            .. typeof(PackageRuntimePopulationChoiceResult)
+                .GetNestedTypes(BindingFlags.Public)
+                .SelectMany(InstanceTypeGraph),
             .. InstanceTypeGraph(
                 typeof(PackageCompileAssetSelectionReceipt)),
             .. InstanceTypeGraph(typeof(PackageCompileAssetSelection)),
@@ -403,6 +422,14 @@ public sealed class PackageAssetSelectorTests
             "runtimes/linux-x64/lib/net10.0/Sample.dll",
             asset.EntryPath);
         Assert.Equal("linux-x64", asset.RuntimeIdentifier);
+        PackageRuntimeAssetPopulation population =
+            Assert.Single(receipt.AvailableRuntimePopulations);
+        Assert.Equal("linux-x64", population.RuntimeIdentifier);
+        Assert.Equal("net10.0", population.TargetFramework);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net10.0/",
+            population.PopulationPath);
+        Assert.Same(asset, Assert.Single(population.Assets));
     }
 
     [Fact]
@@ -445,6 +472,66 @@ public sealed class PackageAssetSelectorTests
             "explicit runtime identifier",
             ambiguous.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void
+        EvaluateSingleRuntime_RetainsCompleteOrderedPopulationInventory()
+    {
+        var content = new InMemoryPackageContent(
+            TestPackageArchive.Create(
+                "runtimes/win-x64/lib/net10.0/Windows.dll",
+                "runtimes/linux-x64/lib/net8.0/Older.dll",
+                "runtimes/linux-x64/lib/net10.0/Linux.dll",
+                "runtimes/osx-arm64/lib/net9.0/Mac.dll",
+                "runtimes/linux-x64/native/Native.dll"),
+            fromCache: true,
+            "test-source");
+
+        PackageAssetSelectionReceipt receipt =
+            PackageAssetSelector.EvaluateSingleRuntime(
+                content,
+                "net10.0",
+                "win-x64");
+
+        Assert.Equal(
+            "win-x64",
+            Selected(receipt.Selection).RuntimeIdentifier);
+        Assert.Collection(
+            receipt.AvailableRuntimePopulations,
+            linux =>
+            {
+                Assert.Equal("linux-x64", linux.RuntimeIdentifier);
+                Assert.Equal("net10.0", linux.TargetFramework);
+                Assert.Equal(
+                    "runtimes/linux-x64/lib/net10.0/",
+                    linux.PopulationPath);
+                Assert.Equal(
+                    "runtimes/linux-x64/lib/net10.0/Linux.dll",
+                    Assert.Single(linux.Assets).EntryPath);
+            },
+            osx =>
+            {
+                Assert.Equal("osx-arm64", osx.RuntimeIdentifier);
+                Assert.Equal("net9.0", osx.TargetFramework);
+                Assert.Equal(
+                    "runtimes/osx-arm64/lib/net9.0/",
+                    osx.PopulationPath);
+                Assert.Equal(
+                    "runtimes/osx-arm64/lib/net9.0/Mac.dll",
+                    Assert.Single(osx.Assets).EntryPath);
+            },
+            windows =>
+            {
+                Assert.Equal("win-x64", windows.RuntimeIdentifier);
+                Assert.Equal("net10.0", windows.TargetFramework);
+                Assert.Equal(
+                    "runtimes/win-x64/lib/net10.0/",
+                    windows.PopulationPath);
+                Assert.Equal(
+                    "runtimes/win-x64/lib/net10.0/Windows.dll",
+                    Assert.Single(windows.Assets).EntryPath);
+            });
     }
 
     [Theory]

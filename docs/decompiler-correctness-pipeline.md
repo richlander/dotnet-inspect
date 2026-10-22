@@ -872,9 +872,9 @@ families, immediate values, symbolic member/type/string identities, and branch
 topology while tolerating local/argument macro and slot-layout changes.
 `OpcodeDiff` means opcode names differ; `OperandDiff` means the opcode names
 match but the body comparison differs; `FidelityUnavailable` means the
-comparison could not return a verdict. The contract is explicitly EH-blind and
-is not a semantic-equivalence claim. Its version is independent from the corpus
-snapshot schema version.
+comparison could not return a verdict. The contract compares exception
+clauses since v6 and is still not a semantic-equivalence claim. Its version is
+independent from the corpus snapshot schema version.
 
 Issue #4810's target contract strengthens `Exact` to require a complete
 compile-context receipt for the exact artifact and member. Under that contract,

@@ -38,7 +38,7 @@ It consumes and does not redefine:
 | --- | --- |
 | [Subject Relations](subject-relations-workflows.md) | Canonical one-hop logical rows, exact focus and candidate-population binding, producer outcomes, focus-relative direction, and relation forms |
 | [Inspection graph document](inspection-graph-document.md) | Producer-owned relationship descriptors, exact semantic endpoints, occurrences, characteristics, derivation, endpoint projection, and semantic direction |
-| [Annotated Type Map](annotated-type-map.md) and [Fast Diff](fast-diff.md) | Type, Member, accessor, and generated-body ownership |
+| [Annotated Type Map](annotated-type-map.md) and [Finding Diff Any](finding-diff-any.md) | Type, Member, accessor, and generated-body ownership |
 | [Scope symmetry](scope-symmetry.md) | Library, Type, and Member targets; Rows, Count, and exact Exists; no rows within rows |
 | [Finding nomenclature](finding-nomenclature.md) and [Finding coordinates](finding-coordinates.md) | Producer-owned findings, descriptors, subjects, evidence, and outcomes used as annotations |
 | [Memory-safety models](memory-safety-models.md) | Independent propagation, unsafe-use, and safe-boundary vocabulary and evidence |

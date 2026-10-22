@@ -24,7 +24,7 @@ public enum ImplementationDiffMechanism
 
 /// <param name="IlNormalization">
 /// The normalization the IL body mechanism compares under; Member Body Diff
-/// names Fast Diff's Body policy, Implementation Diff none.
+/// names Finding Diff Any's Body policy, Implementation Diff none.
 /// </param>
 public sealed record ImplementationDiffOptions(
     ImplementationDiffMechanism Mechanisms = ImplementationDiffMechanism.All,

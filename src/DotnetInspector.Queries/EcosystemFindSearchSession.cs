@@ -116,6 +116,7 @@ public sealed record EcosystemFindPrefixCoverage(
 public sealed record EcosystemFindSearchSummary<T>(
     Guid RequestIdentity,
     IReadOnlyList<EcosystemFindBlock<T>> BoundedBlocks,
+    IReadOnlyList<EcosystemFindBlock<T>> IndexedBlocks,
     IReadOnlyList<EcosystemFindBlock<T>> PrefixBlocks,
     EcosystemFindCompletion Completion,
     IReadOnlyList<string> Unsearched,
@@ -128,7 +129,18 @@ public sealed record EcosystemFindBoundedOutcome<T>(
     EcosystemFindSearchSummary<T>? Completed,
     EcosystemFindPrefixContinuation<T>? Continuation);
 
-/// <summary>A single-use capability issued by exactly one bounded session.</summary>
+public enum EcosystemFindIndexedCompletion
+{
+    Exhausted,
+    RowLimitReached,
+}
+
+public sealed record EcosystemFindIndexedOutcome<T>(
+    IReadOnlyList<EcosystemFindBlock<T>> Blocks,
+    EcosystemFindIndexedCompletion Completion,
+    IReadOnlyList<EcosystemFindSourceFailure> Failures);
+
+/// <summary>A single-use capability issued by exactly one staged session.</summary>
 public sealed class EcosystemFindPrefixContinuation<T>
 {
     internal EcosystemFindPrefixContinuation(
@@ -151,7 +163,7 @@ public sealed class EcosystemFindPrefixContinuation<T>
 }
 
 /// <summary>
-/// Owns the bounded barrier, one-shot continuation, package work and row bounds.
+/// Owns index-first staging, the bounded barrier, continuation, and work bounds.
 /// Adopters supply source acquisition and Find evaluation without host output policy.
 /// </summary>
 public sealed class EcosystemFindSearchSession<T> : IDisposable
@@ -162,6 +174,8 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         IAsyncEnumerable<EcosystemFindPrefixPage>> _enumerate;
     private readonly Func<EcosystemFindCandidate, IReadOnlyList<WorkspaceEcosystemRegistrationId>,
         CancellationToken, Task<EcosystemFindBlock<T>>> _candidate;
+    private readonly Func<int?, CancellationToken,
+        Task<EcosystemFindIndexedOutcome<T>>>? _indexed;
     private readonly Action<EcosystemFindBlock<T>>? _publish;
     private readonly Func<EcosystemFindLayer, EcosystemFindBlock<T>, CancellationToken,
         EcosystemFindBlock<T>>? _reuseCore;
@@ -172,6 +186,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
     private readonly CancellationToken _lifetimeToken;
     private CancellationTokenRegistration _cancellationRegistration;
     private readonly List<EcosystemFindBlock<T>> _boundedBlocks = [];
+    private readonly List<EcosystemFindBlock<T>> _indexedBlocks = [];
     private readonly List<EcosystemFindBlock<T>> _prefixBlocks = [];
     private readonly List<EcosystemFindSourceFailure> _sourceFailures = [];
     private readonly List<EcosystemFindPrefixCoverage> _prefixCoverage = [];
@@ -191,13 +206,16 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         Action<EcosystemFindBlock<T>>? publish = null,
         Func<EcosystemFindLayer, EcosystemFindBlock<T>, CancellationToken,
             EcosystemFindBlock<T>>? reuseCore = null,
-        Func<IReadOnlyList<EcosystemFindBlock<T>>, T>? combineCore = null)
+        Func<IReadOnlyList<EcosystemFindBlock<T>>, T>? combineCore = null,
+        Func<int?, CancellationToken,
+            Task<EcosystemFindIndexedOutcome<T>>>? indexed = null)
     {
         Request = request ?? throw new ArgumentNullException(nameof(request));
         _lifetimeToken = _lifetime.Token;
         _bounded = bounded ?? throw new ArgumentNullException(nameof(bounded));
         _enumerate = enumerate ?? throw new ArgumentNullException(nameof(enumerate));
         _candidate = candidate ?? throw new ArgumentNullException(nameof(candidate));
+        _indexed = indexed;
         _publish = publish;
         if ((reuseCore is null) != (combineCore is null))
             throw new ArgumentException(
@@ -220,6 +238,22 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken, _lifetimeToken);
         CancellationToken token = linked.Token;
+        if (_indexed is not null)
+        {
+            (int indexedRows, bool rowLimitReached) =
+                await RunIndexedAsync(Request.MaximumRows, token);
+            if (rowLimitReached
+                || Request.MaximumRows is int indexedLimit
+                    && indexedRows >= indexedLimit)
+            {
+                return new(Complete(
+                    EcosystemFindCompletion.RowLimitReached,
+                    [.. Request.Layers.Select(
+                            layer => layer.Registration.Id.Value),
+                     .. Request.Prefixes.Select(prefix => prefix.Prefix)]), null);
+            }
+        }
+
         for (int index = 0; index < Request.Layers.Length; index++)
         {
             token.ThrowIfCancellationRequested();
@@ -428,6 +462,47 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             : EcosystemFindCompletion.Exhausted), []);
     }
 
+    private async Task<(int Rows, bool RowLimitReached)> RunIndexedAsync(
+        int? maximumRows, CancellationToken token)
+    {
+        EcosystemFindIndexedOutcome<T> indexed =
+            await _indexed!(maximumRows, token);
+        token.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(indexed);
+        ArgumentNullException.ThrowIfNull(indexed.Blocks);
+        ArgumentNullException.ThrowIfNull(indexed.Failures);
+        if (indexed.Blocks.Any(static block => block is null)
+            || indexed.Failures.Any(static failure => failure is null))
+        {
+            throw new InvalidOperationException(
+                "Indexed Find outcomes cannot contain null entries.");
+        }
+        int indexedRows = 0;
+        foreach (EcosystemFindBlock<T> block in indexed.Blocks)
+        {
+            if (block.RowCount < 0)
+            {
+                throw new InvalidOperationException(
+                    "Indexed Find blocks cannot have negative row counts.");
+            }
+            indexedRows = checked(indexedRows + block.RowCount);
+        }
+        if (maximumRows is int indexedLimit
+            && indexedRows > indexedLimit)
+        {
+            throw new InvalidOperationException(
+                "Indexed Find exceeded its row window.");
+        }
+        foreach (EcosystemFindSourceFailure failure in indexed.Failures)
+            _sourceFailures.Add(failure);
+        if (indexed.Failures.Count > 0)
+            _failures = _incomplete = true;
+        foreach (EcosystemFindBlock<T> block in indexed.Blocks)
+            Accept(block, _indexedBlocks, token);
+        return (indexedRows,
+            indexed.Completion is EcosystemFindIndexedCompletion.RowLimitReached);
+    }
+
     private WorkspaceEcosystemRegistrationId[] PackageMemberships(string packageId) =>
     [
         .. Request.Layers.Where(layer =>
@@ -486,7 +561,8 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             && _prefixCoverage.All(source =>
                 source.Completion == EcosystemFindPrefixPageCompletion.Failed))
             completion = EcosystemFindCompletion.Failed;
-        return new(Request.Identity, [.. _boundedBlocks], [.. _prefixBlocks],
+        return new(Request.Identity, [.. _boundedBlocks],
+            [.. _indexedBlocks], [.. _prefixBlocks],
             completion, unsearched, [.. _sourceFailures],
             [.. _prefixCoverage], _failures,
             _incomplete || unsearched.Count > 0);

@@ -26,7 +26,7 @@ public static class ResourceExplanationCommand
         facetKeys: facetKeys is { Length: > 0 } ? facetKeys : null);
 
     public static int Execute(
-        string operand,
+        string? operand,
         int depth,
         bool depthExplicitlySet,
         int? maximumResults,
@@ -49,7 +49,11 @@ public static class ResourceExplanationCommand
             return 1;
         }
         const string resourcePrefix = "inspect-resource:/";
-        string normalizedOperand = operand.Trim();
+        // Bare explain reads the root, expanded through its entries unless
+        // the caller chose a depth.
+        if (operand is null && !depthExplicitlySet)
+            depth = BareRootDepth;
+        string normalizedOperand = (operand ?? RootSegmentName).Trim();
         bool resourceAddress = normalizedOperand.StartsWith(resourcePrefix, StringComparison.Ordinal);
         if (resourceAddress)
         {
@@ -108,6 +112,35 @@ public static class ResourceExplanationCommand
 
                 return ExplainFromCatalog(
                     structuralCatalog,
+                    canonicalPath,
+                    depth,
+                    maximumResults,
+                    format,
+                    envelopeOutput,
+                    outputPath,
+                    contract, selection, valueIds: valueIds);
+            }
+
+            if (IsRootPath(root))
+            {
+                if (CreatePublishedRootCatalog() is not { } rootCatalog)
+                    return 1;
+                if (format is OutputFormat.Table
+                    or OutputFormat.Tsv
+                    or OutputFormat.Jsonl)
+                {
+                    return WriteRoutingTable(
+                        rootCatalog,
+                        canonicalPath,
+                        depthExplicitlySet,
+                        maximumResults,
+                        format,
+                        envelopeOutput,
+                        noHeaders,
+                        outputPath);
+                }
+                return ExplainFromCatalog(
+                    rootCatalog,
                     canonicalPath,
                     depth,
                     maximumResults,
@@ -365,16 +398,16 @@ public static class ResourceExplanationCommand
 
     /// <summary>
     /// The CLI's explanation root over its complete catalog, from the
-    /// routing declarations of the owners the CLI admits. The CLI withholds
-    /// the root while any resource is unreachable from it; until the CLI
-    /// host adoption assigns its public address (#10139), the root's path is
-    /// provisional and the root is composed only for that gate.
+    /// routing declarations of the owners the CLI admits. Bare
+    /// <c>explain</c> reads the root at <see cref="RootSegment"/>; its role
+    /// collections and entries are top-level paths. The CLI withholds the
+    /// root while any resource is unreachable from it.
     /// </summary>
     internal static ResourceExplanationRootComposition? CreateRootComposition() =>
         CreateCompleteCatalog() is { } complete
             ? ResourceExplanationCatalog.ComposeRoot(
                 complete,
-                new ResourcePath(ProvisionalRootSegment),
+                new ResourcePath(RootSegmentName),
                 [
                     .. StructuralRoutingDeclarations.Create(),
                     .. CapabilityRoutingDeclarations.Create(),
@@ -382,7 +415,42 @@ public static class ResourceExplanationCommand
                 ])
             : null;
 
-    private const string ProvisionalRootSegment = "root";
+    /// <summary>The explanation root's path, which bare <c>explain</c> reads.</summary>
+    internal const string RootSegmentName = "root";
+
+    /// <summary>
+    /// The default traversal depth of bare <c>explain</c>: the root, its role
+    /// collections, and every routing entry, in one Document.
+    /// </summary>
+    internal const int BareRootDepth = 2;
+
+    private static bool IsRootPath(string root) =>
+        root is RootSegmentName
+            or ResourceExplanationCatalog.RoutingSubjectKindsSegment
+            or ResourceExplanationCatalog.RoutingOperationsSegment
+            or ResourceExplanationCatalog.RoutingReferencesSegment;
+
+    /// <summary>
+    /// The complete catalog with its root, or a visible error while the root
+    /// is withheld because a resource is unreachable from it.
+    /// </summary>
+    private static ResourceExplanationCatalog? CreatePublishedRootCatalog()
+    {
+        ResourceExplanationRootComposition composition =
+            CreateRootComposition()
+            ?? throw new InvalidOperationException(
+                "The complete resource explanation catalog could not "
+                + "be built.");
+        if (composition.IsPublishable)
+            return composition.Catalog;
+
+        CommandError.Write(
+            "The explanation root is withheld: "
+            + $"{composition.Unreachable.Length} installed resources are not "
+            + "reachable from it, starting with "
+            + $"'{composition.Unreachable[0].Value}'.");
+        return null;
+    }
 
     internal static ResourceExplanationCatalog? CreateCompleteCatalog()
     {
@@ -556,6 +624,64 @@ public static class ResourceExplanationCommand
                         : new MarkdownFormatter(),
                     ResourceExplanationViewContext.Default);
             });
+        return 0;
+    }
+
+    /// <summary>
+    /// The routing-table selection of a root path: one row per routing entry
+    /// the path reaches. The root reaches every entry, a collection its own,
+    /// and an entry itself, so traversal depth does not apply.
+    /// </summary>
+    private static int WriteRoutingTable(
+        ResourceExplanationCatalog catalog,
+        ResourcePath path,
+        bool depthExplicitlySet,
+        int? maximumResults,
+        OutputFormat format,
+        bool envelopeOutput,
+        bool noHeaders,
+        string? outputPath)
+    {
+        if (depthExplicitlySet || maximumResults is not null || envelopeOutput)
+        {
+            CommandError.Write(
+                "The routing table selects every entry the path reaches; "
+                + "--depth, -n, and --envelope do not apply. Add --markdown "
+                + "or --json for the Document reading.");
+            return 1;
+        }
+        if (!catalog.TryResolveExact(
+                path,
+                out ResourcePathResolution.Resolved? resolved))
+        {
+            return WriteResolutionFailure(catalog.Resolve(path.Value));
+        }
+
+        int depth = path.Value.Count(static character => character == '/')
+            switch
+            {
+                0 when path.Value == RootSegmentName => BareRootDepth,
+                0 => 1,
+                _ => 0,
+            };
+        ResourceExplanationDocument document = catalog.Explain(
+                resolved,
+                ResourceExplanationRequest.ForHost(depth))
+            .Content;
+        OutputDestination.Write(
+            outputPath,
+            rowWindow: null,
+            output => MarkoutSerializer.Serialize(
+                new ResourceExplanationRoutingTableView
+                {
+                    Routing = ResourceExplanationRoutingRow.Create(document),
+                },
+                output,
+                new TableFormatter(!noHeaders),
+                ResourceExplanationViewContext.Default,
+                OutputFormatter.CreateTableWriterOptions(
+                    tsv: format == OutputFormat.Tsv,
+                    jsonl: format == OutputFormat.Jsonl)));
         return 0;
     }
 

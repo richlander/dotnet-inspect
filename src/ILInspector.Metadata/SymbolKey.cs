@@ -6,7 +6,7 @@ using System.Text;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// One compared Fast Diff key or fact: a byte string that only
+/// One compared Finding Diff Any key or fact: a byte string that only
 /// <see cref="Builder"/> can make.
 /// </summary>
 /// <remarks>

@@ -58,8 +58,8 @@ public static class FixtureIds
         "metadata.api-correspondence.v1";
     public const string MetadataApiCorrespondenceV2 =
         "metadata.api-correspondence.v2";
-    public const string MetadataFastDiffV1 = "metadata.fast-diff.v1";
-    public const string MetadataFastDiffV2 = "metadata.fast-diff.v2";
+    public const string MetadataFindingDiffAnyV1 = "metadata.finding-diff-any.v1";
+    public const string MetadataFindingDiffAnyV2 = "metadata.finding-diff-any.v2";
     public const string MetadataMemorySafety = "metadata.memory-safety";
     public const string MetadataEnablements = "metadata.enablements";
     public const string MetadataSourceProvenance =
@@ -253,21 +253,21 @@ public static class FixtureCatalog
             Boundaries(FixtureBoundary.VersionPair),
             "metadata", "api-correspondence", "version-pair");
 
-    public static readonly FixtureDefinition MetadataFastDiffV1 =
+    public static readonly FixtureDefinition MetadataFindingDiffAnyV1 =
         Fixture(
-            FixtureIds.MetadataFastDiffV1,
-            "ILInspector.Metadata.FastDiff.V1",
-            "ILInspector.Metadata.FastDiff.dll",
+            FixtureIds.MetadataFindingDiffAnyV1,
+            "ILInspector.Metadata.FindingDiffAny.V1",
+            "ILInspector.Metadata.FindingDiffAny.dll",
             Boundaries(FixtureBoundary.VersionPair),
-            "metadata", "fast-diff", "version-pair");
+            "metadata", "finding-diff-any", "version-pair");
 
-    public static readonly FixtureDefinition MetadataFastDiffV2 =
+    public static readonly FixtureDefinition MetadataFindingDiffAnyV2 =
         Fixture(
-            FixtureIds.MetadataFastDiffV2,
-            "ILInspector.Metadata.FastDiff.V2",
-            "ILInspector.Metadata.FastDiff.dll",
+            FixtureIds.MetadataFindingDiffAnyV2,
+            "ILInspector.Metadata.FindingDiffAny.V2",
+            "ILInspector.Metadata.FindingDiffAny.dll",
             Boundaries(FixtureBoundary.VersionPair),
-            "metadata", "fast-diff", "version-pair");
+            "metadata", "finding-diff-any", "version-pair");
 
     public static readonly FixtureDefinition MetadataPublicMethodRoots =
         Fixture(
@@ -1252,8 +1252,8 @@ public static class FixtureCatalog
         MetadataAttributeEnums,
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2,
-        MetadataFastDiffV1,
-        MetadataFastDiffV2,
+        MetadataFindingDiffAnyV1,
+        MetadataFindingDiffAnyV2,
         MetadataMemorySafety,
         MetadataEnablements,
         MetadataSourceProvenance,
@@ -1379,10 +1379,10 @@ public static class FixtureCatalog
         "metadata.api-correspondence",
         MetadataApiCorrespondenceV1,
         MetadataApiCorrespondenceV2);
-    public static readonly FixturePair MetadataFastDiffPair = new(
-        "metadata.fast-diff",
-        MetadataFastDiffV1,
-        MetadataFastDiffV2);
+    public static readonly FixturePair MetadataFindingDiffAnyPair = new(
+        "metadata.finding-diff-any",
+        MetadataFindingDiffAnyV1,
+        MetadataFindingDiffAnyV2);
     public static readonly FixturePair SourceDiffPair = new("source-diff", SourceDiffV1, SourceDiffV2);
     public static readonly FixturePair LibraryApiDiffPair = new(
         "library-api-diff",
@@ -1701,10 +1701,10 @@ public static class FixtureCatalog
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1",
             "ILInspector.Metadata.ApiDeclarationCorrespondence.V2" =>
                 "fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2",
-            "ILInspector.Metadata.FastDiff.V1" =>
-                "fixtures/metadata/ILInspector.Metadata.FastDiff.V1",
-            "ILInspector.Metadata.FastDiff.V2" =>
-                "fixtures/metadata/ILInspector.Metadata.FastDiff.V2",
+            "ILInspector.Metadata.FindingDiffAny.V1" =>
+                "fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1",
+            "ILInspector.Metadata.FindingDiffAny.V2" =>
+                "fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V2",
             "ILInspector.Metadata.MemorySafetyFixtures" =>
                 "fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures",
             "ILInspector.Metadata.EnablementFixtures" =>

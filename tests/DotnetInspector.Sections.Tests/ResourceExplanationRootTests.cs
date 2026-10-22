@@ -28,28 +28,28 @@ public sealed class ResourceExplanationRootTests
             Targets(catalog, "root", "root-collection")
                 .Select(path => path.Split('/')[^1]));
         Assert.Equal(
-            ["root/subject-kinds/library", "root/subject-kinds/package"],
+            ["subject-kinds/library", "subject-kinds/package"],
             Targets(
                 catalog,
-                "root/subject-kinds",
+                "subject-kinds",
                 "collection-routing-entry"));
         Assert.Equal(
             ["library"],
             Targets(
                 catalog,
-                "root/subject-kinds/library",
+                "subject-kinds/library",
                 "routing-destination-catalog"));
         Assert.Equal(
-            ["root/subject-kinds/library", "root/subject-kinds/package"],
+            ["subject-kinds/library", "subject-kinds/package"],
             Targets(
                 catalog,
-                "root/operations/diff",
+                "operations/diff",
                 "accepts-subject-kind"));
         Assert.Equal(
-            ["root/operations/diff"],
+            ["operations/diff"],
             Targets(
                 catalog,
-                "root/subject-kinds/package",
+                "subject-kinds/package",
                 "accepted-by-operation"));
     }
 
@@ -104,14 +104,14 @@ public sealed class ResourceExplanationRootTests
 
         Assert.True(composition.IsPublishable);
         Assert.Contains(
-            "root/subject-kinds/workspace",
+            "subject-kinds/workspace",
             Targets(
                 composition.Catalog,
-                "root/subject-kinds",
+                "subject-kinds",
                 "collection-routing-entry"));
         Assert.Empty(Targets(
             composition.Catalog,
-            "root/subject-kinds/workspace",
+            "subject-kinds/workspace",
             "routing-destination-catalog"));
     }
 
@@ -148,13 +148,13 @@ public sealed class ResourceExplanationRootTests
             ["library"],
             Targets(
                 composition.Catalog,
-                "root/subject-kinds/library",
+                "subject-kinds/library",
                 "routing-destination-catalog"));
         Assert.Equal(
             ["library/sections"],
             Targets(
                 composition.Catalog,
-                "root/subject-kinds/library",
+                "subject-kinds/library",
                 "routing-destination-collection"));
     }
 
@@ -182,7 +182,7 @@ public sealed class ResourceExplanationRootTests
                 ]);
 
         Assert.True(composition.Catalog.TryResolveExact(
-            new ResourcePath("root/operations/library"),
+            new ResourcePath("operations/library"),
             out _));
     }
 

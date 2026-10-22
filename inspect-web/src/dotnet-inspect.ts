@@ -330,14 +330,14 @@ import {
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import { createBackgroundAnalysisQueue } from "./background-analysis.ts";
 import {
-  bindLibraryFastDiffRetry,
-  createLibraryFastDiff,
-  fastDiffAxisReported,
-  libraryFastDiffAchievement,
-  libraryFastDiffKey,
-  renderLibraryFastDiffStatus,
-  type LibraryFastDiffBaseline,
-} from "./library-fast-diff.ts";
+  bindLibraryFindingDiffAnyRetry,
+  createLibraryFindingDiffAny,
+  findingDiffAnyAxisReported,
+  libraryFindingDiffAnyAchievement,
+  libraryFindingDiffAnyKey,
+  renderLibraryFindingDiffAnyStatus,
+  type LibraryFindingDiffAnyBaseline,
+} from "./library-finding-diff-any.ts";
 import {
   bindTypeChangeActions,
   createTypeApiDiffCues,
@@ -5214,19 +5214,19 @@ const backgroundAnalysis = createBackgroundAnalysisQueue({
     console.error("Background analysis failure.", error);
   },
 });
-const libraryFastDiff = createLibraryFastDiff({
+const libraryFindingDiffAny = createLibraryFindingDiffAny({
   queue: backgroundAnalysis,
   operationAuthority,
   query: (operationId, request) =>
-    engineClient.metadata.queryLibraryFastDiff(operationId, request),
+    engineClient.metadata.queryLibraryFindingDiffAny(operationId, request),
   cancel: (operationId, reason) => {
     observeAsync(
-      engineClient.metadata.cancelLibraryFastDiff(operationId, reason),
-      "Canceling Fast Diff");
+      engineClient.metadata.cancelLibraryFindingDiffAny(operationId, reason),
+      "Canceling Finding Diff Any");
   },
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
-    console.error("Fast Diff operation authority failure.", diagnostic);
+    console.error("Finding Diff Any operation authority failure.", diagnostic);
     return undefined;
   },
   render,
@@ -8432,10 +8432,10 @@ function currentTypeHeatState(): TypeHeatState {
     : { status: "idle" };
 }
 
-// The last-patch Fast Diff baseline for the open Gallery Library, or null
+// The last-patch Finding Diff Any baseline for the open Gallery Library, or null
 // until its version inventory names one
 // (inspect-web-background-analysis.md#default-baselines).
-function currentLibraryFastDiffBaseline(): LibraryFastDiffBaseline | null {
+function currentLibraryFindingDiffAnyBaseline(): LibraryFindingDiffAnyBaseline | null {
   const pkg = state.package;
   if (pkg?.source.kind !== "nuget.org"
     || state.home
@@ -8464,19 +8464,19 @@ function currentLibraryFastDiffBaseline(): LibraryFastDiffBaseline | null {
   };
 }
 
-function libraryFastDiffBaselineIsCurrent(baseline: LibraryFastDiffBaseline) {
-  const current = currentLibraryFastDiffBaseline();
+function libraryFindingDiffAnyBaselineIsCurrent(baseline: LibraryFindingDiffAnyBaseline) {
+  const current = currentLibraryFindingDiffAnyBaseline();
   return current !== null
-    && libraryFastDiffKey(current) === libraryFastDiffKey(baseline);
+    && libraryFindingDiffAnyKey(current) === libraryFindingDiffAnyKey(baseline);
 }
 
-function scheduleLibraryFastDiff() {
+function scheduleLibraryFindingDiffAny() {
   backgroundAnalysis.reconcile();
-  const baseline = currentLibraryFastDiffBaseline();
+  const baseline = currentLibraryFindingDiffAnyBaseline();
   if (baseline) {
-    libraryFastDiff.ensure(
+    libraryFindingDiffAny.ensure(
       baseline,
-      () => libraryFastDiffBaselineIsCurrent(baseline));
+      () => libraryFindingDiffAnyBaselineIsCurrent(baseline));
   }
   const request = currentTypeApiDiffCueRequest();
   if (request) typeApiDiffCues.ensure(request, () => typeApiDiffCueIsCurrent(request));
@@ -8488,17 +8488,17 @@ function typeApiDiffCueIsCurrent(request: TypeApiDiffCueRequest) {
     && typeApiDiffCueKey(current) === typeApiDiffCueKey(request);
 }
 
-// The last-patch Fast Diff state of the Type on screen, outside Library
+// The last-patch Finding Diff Any state of the Type on screen, outside Library
 // Compare, when that Type has a change cue.
 function selectedTypeChangeCue() {
-  const source = libraryFastDiffCueSource();
+  const source = libraryFindingDiffAnyCueSource();
   const type = selectedType();
   if (source?.entry?.status !== "ready" || !type || isForwardedType(type))
     return null;
-  const fastDiff = source.entry.value.get(typeIdentifierOf(type));
-  const cue = libraryFastDiffAchievement(fastDiff, source.baseline.targetVersion);
-  return fastDiff && cue
-    ? { baseline: source.baseline, type, fastDiff, cue }
+  const findingDiffAny = source.entry.value.get(typeIdentifierOf(type));
+  const cue = libraryFindingDiffAnyAchievement(findingDiffAny, source.baseline.targetVersion);
+  return findingDiffAny && cue
+    ? { baseline: source.baseline, type, findingDiffAny, cue }
     : null;
 }
 
@@ -8506,7 +8506,7 @@ function selectedTypeChangeCue() {
 // whose API axis is reported (inspect-web-background-analysis.md#navigation-cues).
 function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
   const change = selectedTypeChangeCue();
-  if (!change || !fastDiffAxisReported(change.fastDiff.api) || !state.package) return null;
+  if (!change || !findingDiffAnyAxisReported(change.findingDiffAny.api) || !state.package) return null;
   return {
     packageModel: state.package,
     baseline: change.baseline,
@@ -8546,8 +8546,8 @@ function selectedTypeChangeStatus(type: AppTypeSurface): string {
   return renderTypeChangeStatus(
     {
       description: change.cue.description,
-      api: fastDiffAxisReported(change.fastDiff.api),
-      body: fastDiffAxisReported(change.fastDiff.body),
+      api: findingDiffAnyAxisReported(change.findingDiffAny.api),
+      body: findingDiffAnyAxisReported(change.findingDiffAny.body),
     },
     request ? typeApiDiffCues.entry(request) : null,
     escapeHtml);
@@ -8575,22 +8575,22 @@ function retryTypeApiDiffCues() {
   render();
 }
 
-function retryLibraryFastDiff() {
-  const baseline = currentLibraryFastDiffBaseline();
+function retryLibraryFindingDiffAny() {
+  const baseline = currentLibraryFindingDiffAnyBaseline();
   if (!baseline) return;
-  libraryFastDiff.retry(
+  libraryFindingDiffAny.retry(
     baseline,
-    () => libraryFastDiffBaselineIsCurrent(baseline));
+    () => libraryFindingDiffAnyBaselineIsCurrent(baseline));
   render();
 }
 
 // Outside Library Compare, Type cues come from the last-patch baseline;
 // inside it, from the Compare result for the user's target.
-function libraryFastDiffCueSource() {
+function libraryFindingDiffAnyCueSource() {
   if (currentCompareSubject() !== null) return null;
-  const baseline = currentLibraryFastDiffBaseline();
+  const baseline = currentLibraryFindingDiffAnyBaseline();
   if (!baseline) return null;
-  return { baseline, entry: libraryFastDiff.entry(baseline) };
+  return { baseline, entry: libraryFindingDiffAny.entry(baseline) };
 }
 
 function scheduleTypeHeat() {
@@ -9492,7 +9492,7 @@ function render(options: RenderOptions = {}) {
     schedulePackageDocumentTitles();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
-    scheduleLibraryFastDiff();
+    scheduleLibraryFindingDiffAny();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),
@@ -10849,9 +10849,9 @@ function renderTypeNavPane(
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
   const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
-  const fastDiffCues = libraryFastDiffCueSource();
-  const fastDiffTypes = fastDiffCues?.entry?.status === "ready"
-    ? fastDiffCues.entry.value
+  const findingDiffAnyCues = libraryFindingDiffAnyCueSource();
+  const findingDiffAnyTypes = findingDiffAnyCues?.entry?.status === "ready"
+    ? findingDiffAnyCues.entry.value
     : null;
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
@@ -10912,10 +10912,10 @@ function renderTypeNavPane(
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
       const identifier = item.definitionId ?? item.id;
-      const diff = fastDiffCues
-        ? libraryFastDiffAchievement(
-            fastDiffTypes?.get(identifier),
-            fastDiffCues.baseline.targetVersion)
+      const diff = findingDiffAnyCues
+        ? libraryFindingDiffAnyAchievement(
+            findingDiffAnyTypes?.get(identifier),
+            findingDiffAnyCues.baseline.targetVersion)
         : diffPresence.typeIdentifiers.has(identifier)
           ? typeApiDiffAchievement
           : null;
@@ -10924,10 +10924,10 @@ function renderTypeNavPane(
         diff);
     },
     statusHtml: platformForwarderInventoryStatus()
-      + (fastDiffCues
-        ? renderLibraryFastDiffStatus(
-            fastDiffCues.entry,
-            fastDiffCues.baseline.targetVersion,
+      + (findingDiffAnyCues
+        ? renderLibraryFindingDiffAnyStatus(
+            findingDiffAnyCues.entry,
+            findingDiffAnyCues.baseline.targetVersion,
             escapeHtml)
         : ""),
   });
@@ -15603,8 +15603,8 @@ function bindWorkspaceSubjectEvents() {
   });
 }
 
-function bindLibraryFastDiffEvents() {
-  bindLibraryFastDiffRetry(document, retryLibraryFastDiff);
+function bindLibraryFindingDiffAnyEvents() {
+  bindLibraryFindingDiffAnyRetry(document, retryLibraryFindingDiffAny);
   bindTypeChangeActions(document, {
     compare: openTypeChangeCompare,
     retry: retryTypeApiDiffCues,
@@ -15717,7 +15717,7 @@ function bindEvents() {
   });
   bindContentFrameEvents();
   bindPlatformForwarderEvents();
-  bindLibraryFastDiffEvents();
+  bindLibraryFindingDiffAnyEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
