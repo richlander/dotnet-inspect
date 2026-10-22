@@ -63,7 +63,8 @@ internal static class AsyncSiblingTestExecution
                     AsyncSiblingProducerResult>.Create(
                         work,
                         producer,
-                        MethodDefinitionSourceBreadth.AllDefinitions));
+                        MethodDefinitionSourceBreadth.AllDefinitions)
+                    .AsAssemblyAnalysisSource());
 
         return session.SnapshotOperation(
             operation,

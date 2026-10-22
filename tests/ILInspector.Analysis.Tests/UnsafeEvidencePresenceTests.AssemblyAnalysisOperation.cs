@@ -22,7 +22,7 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisOperation<int> operation =
             CreateOperation(nonexistent);
         MethodDefinitionSourceRequest<int> request =
-            operation.MethodDefinitions;
+            operation.MethodDefinitionRequest();
 
         Assert.Equal(nonexistent, operation.SourceName);
         Assert.Equal(
@@ -60,12 +60,17 @@ public partial class UnsafeEvidencePresenceTests
                     methods));
         var operation = AssemblyAnalysisOperation<int>.Create(
             "DependencyClosure.dll",
-            request);
+            request.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session = OpenSession(image);
 
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
+        Assert.Same(
+            MethodDefinitionSourceRequest.SourceIdentity,
+            execution.SourceReceipt.Source);
+        Assert.IsType<MethodDefinitionSourceReceipt>(
+            execution.SourceReceipt);
         Assert.Equal(2, work.Producers.Length);
         Assert.False(work.WasRequested(prerequisite));
         Assert.True(work.WasRequested(focused));
@@ -83,7 +88,7 @@ public partial class UnsafeEvidencePresenceTests
                 participation => participation.Producer));
         AssertCoverage(
             methods,
-            execution.SourceReceipt.Coverage);
+            execution.MethodDefinitionReceipt().Coverage);
     }
 
     [Fact]
@@ -156,22 +161,22 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceBreadthKind.ExactMethods,
-            methods.MethodDefinitions.Breadth.Kind);
+            methods.MethodDefinitionRequest().Breadth.Kind);
         Assert.Equal(
             [method2, method9],
-            methods.MethodDefinitions.Breadth.Methods);
+            methods.MethodDefinitionRequest().Breadth.Methods);
         Assert.Equal(
             MethodDefinitionSourceBreadthKind.ExactTypes,
-            types.MethodDefinitions.Breadth.Kind);
+            types.MethodDefinitionRequest().Breadth.Kind);
         Assert.Equal(
             [type3, type7],
-            types.MethodDefinitions.Breadth.Types);
+            types.MethodDefinitionRequest().Breadth.Types);
         Assert.Equal(
             MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
-            generated.MethodDefinitions.Breadth.Expansion);
+            generated.MethodDefinitionRequest().Breadth.Expansion);
         Assert.Same(
             limits,
-            generated.MethodDefinitions.Breadth
+            generated.MethodDefinitionRequest().Breadth
                 .GeneratedExpansionLimits);
         Assert.Throws<ArgumentException>(
             () => MethodDefinitionSourceBreadth.ExactMethods(
@@ -217,17 +222,17 @@ public partial class UnsafeEvidencePresenceTests
                     .Outcome);
             Assert.Equal(
                 MethodDefinitionSourceCompletion.Exhausted,
-                execution.SourceReceipt.Completion);
+                execution.MethodDefinitionReceipt().Completion);
             Assert.Empty(
-                execution.SourceReceipt.Coverage
+                execution.MethodDefinitionReceipt().Coverage
                     .DefinitionsExamined.Ranges);
             Assert.Empty(
-                execution.SourceReceipt.Coverage
+                execution.MethodDefinitionReceipt().Coverage
                     .MethodsSelected.Ranges);
             Assert.Empty(
-                execution.SourceReceipt.Coverage
+                execution.MethodDefinitionReceipt().Coverage
                     .BodiesAcquired.Ranges);
-            Assert.Equal(0, execution.SourceReceipt.ModuleLookups);
+            Assert.Equal(0, execution.MethodDefinitionReceipt().ModuleLookups);
         }
     }
 
@@ -273,22 +278,22 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Equal(7, coordinates.ParseMethods.Length);
         AssertCoverage(
             [first],
-            oneExecution.SourceReceipt.Coverage);
+            oneExecution.MethodDefinitionReceipt().Coverage);
         AssertCoverage(
             coordinates.ParseMethods,
-            parseExecution.SourceReceipt.Coverage);
+            parseExecution.MethodDefinitionReceipt().Coverage);
         Assert.Equal(
             coordinates.ParseMethods,
-            parseMethods.MethodDefinitions.Breadth.Methods);
+            parseMethods.MethodDefinitionRequest().Breadth.Methods);
         Assert.All(
-            parseExecution.SourceReceipt.Coverage.BodiesAcquired.Ranges,
+            parseExecution.MethodDefinitionReceipt().Coverage.BodiesAcquired.Ranges,
             range =>
             {
                 Assert.True(
-                    parseExecution.SourceReceipt.Coverage
+                    parseExecution.MethodDefinitionReceipt().Coverage
                         .MethodsSelected.Contains(range.First));
                 Assert.True(
-                    parseExecution.SourceReceipt.Coverage
+                    parseExecution.MethodDefinitionReceipt().Coverage
                         .MethodsSelected.Contains(range.Last));
             });
     }
@@ -320,11 +325,11 @@ public partial class UnsafeEvidencePresenceTests
             coordinates.TypeMethods.Length
             > coordinates.ParseMethods.Length);
         Assert.True(
-            execution.SourceReceipt.Coverage
+            execution.MethodDefinitionReceipt().Coverage
                 .BodiesAcquired.Count > 0);
         AssertCoverage(
             coordinates.TypeMethods,
-            execution.SourceReceipt.Coverage);
+            execution.MethodDefinitionReceipt().Coverage);
     }
 
     [Fact]
@@ -352,9 +357,9 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
-        Assert.Null(execution.SourceReceipt.SourceFailure);
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
         MethodDefinitionGeneratedExpansionCoverage expansion =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
         ImmutableArray<MethodDefinitionHandle> generated =
         [
             .. expansion.Origins
@@ -392,7 +397,7 @@ public partial class UnsafeEvidencePresenceTests
             });
         Assert.Equal(
             expected,
-            Expand(execution.SourceReceipt.Coverage.MethodsSelected));
+            Expand(execution.MethodDefinitionReceipt().Coverage.MethodsSelected));
     }
 
     [Fact]
@@ -419,7 +424,7 @@ public partial class UnsafeEvidencePresenceTests
             Execute(session, operation);
 
         MethodDefinitionGeneratedExpansionCoverage expansion =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
         Assert.True(
             expansion.CandidateDefinitionsExamined.Count
             > expansion.Origins
@@ -558,9 +563,9 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
-        Assert.Null(execution.SourceReceipt.SourceFailure);
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
         MethodDefinitionGeneratedExpansionCoverage expansion =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
         Assert.Equal(8, expansion.RelationshipNodes);
         Assert.True(
             expansion.Origins.Count(origin => origin.Kind
@@ -603,17 +608,17 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.SourceIncomplete,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         MethodDefinitionSourceFailure failure =
             Assert.IsType<MethodDefinitionSourceFailure>(
-                execution.SourceReceipt.SourceFailure);
+                execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Contains(
             "relationship-node limit",
             failure.Message,
             StringComparison.Ordinal);
         Assert.Equal(
             2,
-            execution.SourceReceipt.Coverage.GeneratedExpansion
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
                 .RelationshipNodes);
     }
 
@@ -648,17 +653,17 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.SourceIncomplete,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         MethodDefinitionSourceFailure failure =
             Assert.IsType<MethodDefinitionSourceFailure>(
-                execution.SourceReceipt.SourceFailure);
+                execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Contains(
             "relationship-node limit",
             failure.Message,
             StringComparison.Ordinal);
         Assert.Equal(
             3,
-            execution.SourceReceipt.Coverage.GeneratedExpansion
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
                 .RelationshipNodes);
     }
 
@@ -691,12 +696,12 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
-        Assert.Null(execution.SourceReceipt.SourceFailure);
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Equal(
             MethodDefinitionSourceCompletion.Exhausted,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         Assert.Contains(
-            execution.SourceReceipt.Coverage.GeneratedExpansion.Origins,
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion.Origins,
             origin => origin.Kind
                 == MethodDefinitionGeneratedExpansionOriginKind
                     .LiftedExecutionBody);
@@ -705,7 +710,7 @@ public partial class UnsafeEvidencePresenceTests
         // closure and the declared First, and stops at First, so the
         // declared Second and Third are never visited.
         MethodDefinitionGeneratedExpansionCoverage expansion =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
         Assert.Equal(5, expansion.RelationshipNodes);
         // The closure constructor has no owner edge, and First's methods are
         // never classified.
@@ -725,7 +730,7 @@ public partial class UnsafeEvidencePresenceTests
                         constructor.GetDeclaringType()).Name));
         }
         Assert.False(
-            execution.SourceReceipt.Coverage.MethodsSelected
+            execution.MethodDefinitionReceipt().Coverage.MethodsSelected
                 .Contains(closureConstructor));
     }
 
@@ -764,17 +769,17 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.SourceIncomplete,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         MethodDefinitionSourceFailure failure =
             Assert.IsType<MethodDefinitionSourceFailure>(
-                execution.SourceReceipt.SourceFailure);
+                execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Contains(
             "relationship-node limit",
             failure.Message,
             StringComparison.Ordinal);
         Assert.Equal(
             2,
-            execution.SourceReceipt.Coverage.GeneratedExpansion
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
                 .RelationshipNodes);
     }
 
@@ -901,17 +906,17 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.SourceIncomplete,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         MethodDefinitionSourceFailure failure =
             Assert.IsType<MethodDefinitionSourceFailure>(
-                execution.SourceReceipt.SourceFailure);
+                execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Contains(
             "relationship-node limit",
             failure.Message,
             StringComparison.Ordinal);
         Assert.Equal(
             3,
-            execution.SourceReceipt.Coverage.GeneratedExpansion
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
                 .RelationshipNodes);
     }
 
@@ -950,17 +955,17 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.SourceIncomplete,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         MethodDefinitionSourceFailure failure =
             Assert.IsType<MethodDefinitionSourceFailure>(
-                execution.SourceReceipt.SourceFailure);
+                execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Contains(
             "relationship-node limit",
             failure.Message,
             StringComparison.Ordinal);
         Assert.Equal(
             4,
-            execution.SourceReceipt.Coverage.GeneratedExpansion
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
                 .RelationshipNodes);
     }
 
@@ -1034,17 +1039,17 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.SourceIncomplete,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         MethodDefinitionSourceFailure failure =
             Assert.IsType<MethodDefinitionSourceFailure>(
-                execution.SourceReceipt.SourceFailure);
+                execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Contains(
             "probe-body limit",
             failure.Message,
             StringComparison.Ordinal);
         Assert.Equal(
             1,
-            execution.SourceReceipt.Coverage.GeneratedExpansion
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion
                 .ProbeBodiesAttempted.Count);
         AssertRetainedPrefix(
             execution,
@@ -1063,7 +1068,7 @@ public partial class UnsafeEvidencePresenceTests
         MethodDefinitionGeneratedExpansionLimitKind limit)
     {
         MethodDefinitionGeneratedExpansionCoverage expansion =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
         Assert.True(expansion.IsBounded);
         Assert.Equal(limit, expansion.ReachedLimit);
         Assert.NotNull(expansion.ReachedAtToken);
@@ -1076,7 +1081,7 @@ public partial class UnsafeEvidencePresenceTests
         Assert.All(
             direct,
             method => Assert.True(
-                execution.SourceReceipt.Coverage.MethodsSelected
+                execution.MethodDefinitionReceipt().Coverage.MethodsSelected
                     .Contains(method)));
 
         ProducerResult<int> result =
@@ -1121,16 +1126,16 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.SourceIncomplete,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         MethodDefinitionSourceFailure failure =
             Assert.IsType<MethodDefinitionSourceFailure>(
-                execution.SourceReceipt.SourceFailure);
+                execution.MethodDefinitionReceipt().SourceFailure);
         Assert.Contains(
             "encoded-IL-byte limit",
             failure.Message,
             StringComparison.Ordinal);
         MethodDefinitionGeneratedExpansionCoverage expansion =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
         Assert.Equal(1, expansion.ProbeBodiesAttempted.Count);
         Assert.True(expansion.ProbeEncodedIlBytes > 1);
         AssertRetainedPrefix(
@@ -1165,19 +1170,19 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisOperation<int> operation =
             AssemblyAnalysisOperation<int>.Create(
                 "ExactCoverage.dll",
-                source);
+                source.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session = OpenSession(image);
 
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
-        AssertCoverage(methods, execution.SourceReceipt.Coverage);
+        AssertCoverage(methods, execution.MethodDefinitionReceipt().Coverage);
         Assert.Equal(
             methods.Length,
             execution.ResultOf(CoverageOnlyProducer.Instance).Value);
         Assert.Equal(
             0,
-            execution.SourceReceipt.Coverage.BodiesAcquired.Count);
+            execution.MethodDefinitionReceipt().Coverage.BodiesAcquired.Count);
         Assert.DoesNotContain(
             execution.WorkReceipt
                 .For(CoverageOnlyProducer.Instance)
@@ -1201,11 +1206,11 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
         MethodDefinitionSourceCoverage coverage =
-            execution.SourceReceipt.Coverage;
+            execution.MethodDefinitionReceipt().Coverage;
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.Satisfied,
-            execution.SourceReceipt.Completion);
+            execution.MethodDefinitionReceipt().Completion);
         Assert.Equal(1, coverage.DefinitionsExamined.Count);
         Assert.Equal(1, coverage.MethodsSelected.Count);
         Assert.True(coverage.MethodsSelected.Contains(methods[0]));
@@ -1277,14 +1282,14 @@ public partial class UnsafeEvidencePresenceTests
             });
 
         Assert.Same(
-            operation.MethodDefinitions.Identity,
-            observed.execution.SourceReceipt.Request);
+            operation.MethodDefinitionRequest().Identity,
+            observed.execution.MethodDefinitionReceipt().Request);
         Assert.Same(
             observed.Subject,
-            observed.execution.SourceReceipt.Subject);
+            observed.execution.MethodDefinitionReceipt().Subject);
         Assert.Equal(
             MethodDefinitionSourceBreadth.AllDefinitions,
-            observed.execution.SourceReceipt.Breadth);
+            observed.execution.MethodDefinitionReceipt().Breadth);
     }
 
     [Fact]
@@ -1359,8 +1364,8 @@ public partial class UnsafeEvidencePresenceTests
 
         Assert.Equal(
             MethodDefinitionSourceCompletion.Satisfied,
-            execution.SourceReceipt.Completion);
-        Assert.True(execution.SourceReceipt.DefinitionsVisited > 0);
+            execution.MethodDefinitionReceipt().Completion);
+        Assert.True(execution.MethodDefinitionReceipt().DefinitionsVisited > 0);
     }
 
     [Fact]
@@ -1442,15 +1447,15 @@ public partial class UnsafeEvidencePresenceTests
             Assert.Same(operation, execution.Operation);
             Assert.Same(subject, execution.Subject);
             Assert.Same(
-                operation.MethodDefinitions.Identity,
-                execution.SourceReceipt.Request);
+                operation.MethodDefinitionRequest().Identity,
+                execution.MethodDefinitionReceipt().Request);
             Assert.Same(
                 subject,
-                execution.SourceReceipt.Subject);
+                execution.MethodDefinitionReceipt().Subject);
             Assert.Equal(
                 MethodDefinitionSourceCompletion.Satisfied,
-                execution.SourceReceipt.Completion);
-            Assert.True(execution.SourceReceipt.DefinitionsVisited > 0);
+                execution.MethodDefinitionReceipt().Completion);
+            Assert.True(execution.MethodDefinitionReceipt().DefinitionsVisited > 0);
             Assert.Equal(
                 new ProducerResult<int>(
                     ProducerOutcome.Stopped,
@@ -1573,18 +1578,18 @@ public partial class UnsafeEvidencePresenceTests
                 UnsafeEvidencePresenceProducer.Instance));
         Assert.Equal(
             MethodDefinitionSourceCompletion.Satisfied,
-            execution.SourceReceipt.Completion);
-        Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+            execution.MethodDefinitionReceipt().Completion);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().DefinitionsVisited);
         Assert.Equal(
             1,
-            execution.SourceReceipt.Coverage.BodiesAttempted.Count);
-        Assert.Equal(1, execution.SourceReceipt.BodiesAcquired);
+            execution.MethodDefinitionReceipt().Coverage.BodiesAttempted.Count);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().BodiesAcquired);
         Assert.Equal(
             1,
-            execution.SourceReceipt.Coverage.ModuleLookupMethods.Count);
-        Assert.Equal(1, execution.SourceReceipt.ModuleLookups);
+            execution.MethodDefinitionReceipt().Coverage.ModuleLookupMethods.Count);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().ModuleLookups);
         Assert.True(
-            execution.SourceReceipt.Coverage.ModuleLookupMethods.Contains(
+            execution.MethodDefinitionReceipt().Coverage.ModuleLookupMethods.Contains(
                 MetadataTokens.MethodDefinitionHandle(1)));
     }
 
@@ -1615,12 +1620,12 @@ public partial class UnsafeEvidencePresenceTests
         Assert.Equal(ProducerOutcome.Failed, result.Outcome);
         Assert.Equal(
             MethodDefinitionSourceCompletion.ProducerFailed,
-            execution.SourceReceipt.Completion);
-        Assert.Null(execution.SourceReceipt.SourceFailure);
-        Assert.Equal(1, execution.SourceReceipt.DefinitionsVisited);
+            execution.MethodDefinitionReceipt().Completion);
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
+        Assert.Equal(1, execution.MethodDefinitionReceipt().DefinitionsVisited);
         Assert.Equal(
             1,
-            execution.SourceReceipt.Coverage.BodiesAcquired.Count);
+            execution.MethodDefinitionReceipt().Coverage.BodiesAcquired.Count);
         Assert.Equal(
             1,
             execution.WorkReceipt
@@ -1633,21 +1638,23 @@ public partial class UnsafeEvidencePresenceTests
 
     [Fact]
     public void
-        AssemblyAnalysisOperation_PreservesOwnerIssuedSourceKinds()
+        AssemblyAnalysisOperation_PreservesOwnerIssuedSourceIdentity()
     {
         MethodDefinitionSourceRequest<int> request =
             MethodDefinitionSourceRequest<int>.Create(
                 UnsafeEvidencePresence.Description,
                 UnsafeEvidencePresenceProducer.Instance);
+        AssemblyAnalysisSourceRequest<int> source =
+            request.AsAssemblyAnalysisSource();
         AssemblyAnalysisOperation<int> operation =
             AssemblyAnalysisOperation<int>.Create(
                 "Sources.dll",
-                request);
+                source);
 
-        Assert.Equal(
-            [AssemblyAnalysisSourceKind.MethodDefinitions],
-            operation.SourceKinds);
-        Assert.Same(request, operation.MethodDefinitions);
+        Assert.Same(
+            MethodDefinitionSourceRequest.SourceIdentity,
+            operation.Source.Identity);
+        Assert.Same(source, operation.Source);
         Assert.Equal(
             MethodDefinitionSourceBreadth.AllDefinitions,
             request.Breadth);
@@ -1677,7 +1684,7 @@ public partial class UnsafeEvidencePresenceTests
                 breadth);
         return AssemblyAnalysisOperation<int>.Create(
             sourceName,
-            source);
+            source.AsAssemblyAnalysisSource());
     }
 
     static AssemblyAnalysisExecution<int> Execute(
@@ -1801,8 +1808,8 @@ public partial class UnsafeEvidencePresenceTests
             AssemblyInspectionSession.Borrow(context);
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
-        Assert.Null(execution.SourceReceipt.SourceFailure);
-        return execution.SourceReceipt.Coverage.GeneratedExpansion;
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
+        return execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
     }
 
     static void AssertCoverage(

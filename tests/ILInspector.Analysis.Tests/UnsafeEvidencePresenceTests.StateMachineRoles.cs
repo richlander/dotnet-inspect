@@ -183,15 +183,15 @@ public partial class UnsafeEvidencePresenceTests
         AssemblyAnalysisExecution<int> execution =
             Execute(session, operation);
 
-        Assert.Null(execution.SourceReceipt.SourceFailure);
+        Assert.Null(execution.MethodDefinitionReceipt().SourceFailure);
         MethodDefinitionGeneratedExpansionCoverage expansion =
-            execution.SourceReceipt.Coverage.GeneratedExpansion;
+            execution.MethodDefinitionReceipt().Coverage.GeneratedExpansion;
         Assert.All(
             expansion.Origins,
             origin => Assert.True(
-                execution.SourceReceipt.Coverage.MethodsSelected
+                execution.MethodDefinitionReceipt().Coverage.MethodsSelected
                     .Contains(origin.Method)));
-        methodsSelected = execution.SourceReceipt.Coverage.MethodsSelected;
+        methodsSelected = execution.MethodDefinitionReceipt().Coverage.MethodsSelected;
         return expansion;
     }
 
