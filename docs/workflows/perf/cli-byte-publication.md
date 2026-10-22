@@ -51,6 +51,7 @@ mkdir -p "$BYTE_PUBLICATION_WORK"
 Warm both routes:
 
 ```bash
+set -e -o pipefail
 "$INSPECT" type System.Linq.Enumerable \
   --library "$ASSEMBLY" -S "Type Info" --tsv > /dev/null
 "$INSPECT" type System.Linq.Enumerable \
@@ -63,6 +64,7 @@ Warm both routes:
 > the selected user document.
 
 ```bash
+set -e -o pipefail
 direct="$BYTE_PUBLICATION_WORK/direct.tsv"
 fallback="$BYTE_PUBLICATION_WORK/fallback.tsv"
 "$INSPECT" type System.Linq.Enumerable \
@@ -97,6 +99,7 @@ Source
 > and UTF-8 standard-output publication together.
 
 ```bash
+set -e -o pipefail
 for iteration in 1 2 3 4 5; do
   "$INSPECT" type System.Linq.Enumerable \
     --library "$ASSEMBLY" -S "Type Info" --tsv > /dev/null
@@ -118,6 +121,7 @@ to standard error. Redirecting standard output to `/dev/null` preserves the
 real CLI sink while keeping the metrics machine-readable.
 
 ```bash
+set -e -o pipefail
 metrics="$BYTE_PUBLICATION_WORK/allocation.tsv"
 "$ALLOCATION_PROBE" \
   "$ASSEMBLY" \
