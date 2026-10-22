@@ -553,7 +553,7 @@ public sealed class MatchCommandTests
                     JsonOutput = true,
                 }));
 
-            Assert.Empty(error);
+            Assert.True(error.Length == 0, $"stderr: {error}\nstdout: {output}");
             using var document = JsonDocument.Parse(output);
             var body = document.RootElement.GetProperty("body");
             Assert.True(body.GetProperty("has_failures").GetBoolean());
