@@ -103,6 +103,14 @@ The referencing-context `NoNameOwner` establishes only that the already
 selected Library context does not supply the name. It neither chooses an
 external package nor makes Platform applicable.
 
+Queries therefore issues each exact binding request directly from the
+realized participant's decoded `AssemblyRef` and completes that participant's
+binding-policy selection. A host may order or present the resulting detached
+reference rows, but it does not reconstruct `AssemblyReferenceIdentity`, mint
+the binding origin, or substitute `NoNameOwner`. Package Queries enters the
+external Package association only for owner-issued evidence whose completed
+context selection is `NoNameOwner`.
+
 Package and Platform routes use the same evidence pattern:
 
 | Stage | Ordinary Package route | Platform specialization |
