@@ -2,6 +2,7 @@ using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspect.Web;
+using DotnetInspector.PackageQueries;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -58,7 +59,7 @@ public static partial class PackageExports
         if (!retained.Selection.IsSelected)
             return [];
 
-        BrowserReferencePackageSupplierCoordinate[] selected =
+        PackageAssemblyReferenceSupplierCoordinate[] selected =
             await BrowserReferencePackageSuppliers.ResolveAsync(
                 scope,
                 retained,
@@ -68,14 +69,15 @@ public static partial class PackageExports
         var suppliers = new BrowserReferencePackageSupplier[selected.Length];
         for (int index = 0; index < selected.Length; index++)
         {
-            BrowserReferencePackageSupplierCoordinate supplier = selected[index];
+            PackageAssemblyReferenceSupplierCoordinate supplier =
+                selected[index];
             suppliers[index] = new(
                 supplier.Name,
                 supplier.Version,
                 supplier.Culture,
                 supplier.PublicKeyToken,
-                supplier.PackageId,
-                supplier.PackageVersion);
+                supplier.Supplier?.PackageId,
+                supplier.Supplier?.Version);
         }
         return suppliers;
     }
