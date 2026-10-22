@@ -11,7 +11,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Dependency-free metadata and name-matching primitives shared by inspection layers</Description>
+    <Description>Metadata, name-matching, and Symbol Key primitives shared by inspection layers</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

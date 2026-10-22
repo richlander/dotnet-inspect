@@ -276,7 +276,7 @@ public sealed class LayeringTests
     }
 
     [Fact]
-    public void MetadataPrimitives_RemainsLeaf()
+    public void MetadataPrimitives_FloorIsInertTextOnly()
     {
         string root = CommandErrorOwnershipTests.RepositoryRoot();
         string project = Path.Combine(
@@ -284,11 +284,13 @@ public sealed class LayeringTests
             "src",
             "ILInspector.MetadataPrimitives",
             "ILInspector.MetadataPrimitives.csproj");
+        string inertText = Path.Combine(root, "src", "InertText", "InertText.csproj");
         HashSet<string> closure =
             CommandErrorOwnershipTests.EvaluatedProjectClosure(project);
 
+        // The Symbol Key's opaque-range backing is the floor's one repository edge.
         Assert.Equal(
-            [Path.GetFullPath(project)],
+            new[] { Path.GetFullPath(project), Path.GetFullPath(inertText) }.Order(StringComparer.Ordinal),
             closure.Order(StringComparer.Ordinal));
         Assert.Equal(
             [

@@ -103,7 +103,9 @@ out of that default rule.
 The checked-in rules provide full gate coverage for these dependency claims:
 
 1. The documented contract floors remain free of repository and external
-   dependencies.
+   dependencies. `ILInspector.MetadataPrimitives` is the one floor with a
+   repository edge: it reaches `InertText` alone, for the Symbol Key's
+   opaque-range backing.
 2. IL and other engine libraries do not acquire tool-layer
    `DotnetInspector.*` dependencies. Source-neutral `Inspector.*` contracts
    remain outside that tool family.
