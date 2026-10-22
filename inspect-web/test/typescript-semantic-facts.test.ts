@@ -242,6 +242,8 @@ const fakeMatcher = {
 };
 export const fakeMatchFallback = fakeMatcher.match(/a/) ?? [];
 export const stringMatchFallback = "a".match(/a/g) ?? [];
+declare const optionalText: string | undefined;
+export const optionalStringMatchFallback = optionalText?.match(/a/g) ?? [];
 
 export async function loadDynamically(name: string): Promise<unknown> {
   return import(name);
@@ -1013,6 +1015,7 @@ test("contains pinned checker failures before they poison scalar or batched type
     };
     const safeFallback = emptyArrayAfter("fakeMatchFallback");
     const toxicFallback = emptyArrayAfter("stringMatchFallback");
+    const optionalFallback = emptyArrayAfter("optionalStringMatchFallback");
     const unavailableType = {
       kind: "Unavailable",
       reason: "MissingApiFact",
@@ -1021,12 +1024,15 @@ test("contains pinned checker failures before they poison scalar or batched type
 
     assert.equal(session.getTypeAtNode(safeFallback.handle).kind, "Resolved");
     assert.deepEqual(session.getTypeAtNode(toxicFallback.handle), unavailableType);
+    assert.deepEqual(session.getTypeAtNode(optionalFallback.handle), unavailableType);
     const batch = expectResolved(session.getTypesAtNodes([
       safeFallback.handle,
       toxicFallback.handle,
+      optionalFallback.handle,
     ]));
     assert.equal(batch[0]?.kind, "Resolved");
     assert.deepEqual(batch[1], unavailableType);
+    assert.deepEqual(batch[2], unavailableType);
     assert.equal(session.getSourceFiles().kind, "Resolved");
   } finally {
     session.dispose();

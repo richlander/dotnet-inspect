@@ -2592,6 +2592,21 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     return this.#run("getType", () => resolved(this.#typeFact(this.#requireType(handle))));
   }
 
+  #isStringMatchReceiver(type: TypeScriptType): boolean {
+    if ((type.flags & TypeFlags.StringLike) !== 0) {
+      return true;
+    }
+    if (!type.isUnionType()) {
+      return false;
+    }
+    const members = type.getTypes();
+    const nullishFlags = TypeFlags.Null | TypeFlags.Undefined;
+    return members.some(member => (member.flags & TypeFlags.StringLike) !== 0)
+      && members.every(member =>
+        (member.flags & TypeFlags.StringLike) !== 0
+        || (member.flags & nullishFlags) !== 0);
+  }
+
   #missingTypeFact(rawNode: TypeScriptNode): string | undefined {
     if (
       isImportClause(rawNode)
@@ -2615,7 +2630,7 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     const receiverType =
       this.#checker.getTypeAtLocation(parent.left.expression.expression);
     return receiverType !== undefined
-      && (receiverType.flags & TypeFlags.StringLike) !== 0
+      && this.#isStringMatchReceiver(receiverType)
       ? "TypeScript 7.0.2 cannot type an empty String.match fallback"
       : undefined;
   }

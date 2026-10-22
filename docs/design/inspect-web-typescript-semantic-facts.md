@@ -300,7 +300,8 @@ fact returns `Unavailable(MissingApiFact)`.
 
 The pinned TypeScript 7.0.2 checker panics when asked for the type of a
 type-only import-clause node. Its protocol encoder also panics while serializing
-the empty array in a string `.match(...) ?? []` fallback: the returned
+the empty array in a string `.match(...) ?? []` fallback, including a
+nullish string receiver reached through optional chaining: the returned
 `TypeReference` is incorrectly handled as a tuple. Those nodes remain valid
 syntax subjects, but the adapter recognizes them before the toxic checker call
 and returns `Unavailable(MissingApiFact)`. The implementation gate covers both
