@@ -181,7 +181,7 @@ public static class MethodBodyDiffFormatter
                 before = Inspection(before, csharp.Findings.OldInspection) with { CSharpSubject = csharp.Old };
                 after = Inspection(after, csharp.Findings.NewInspection) with { CSharpSubject = csharp.New };
                 document = new(work.Item.Producer, basis, "ProducedCSharp",
-                    csharp.BodyDiff is { } body ? body.IsExact ? "Exact" : "NotExact" : MissingBodyVerdict(before, after),
+                    csharp.BodyDiff is { } body ? body.IsExact ? "Exact" : "NotExact" : MissingBodyVerdict(csharp.Findings),
                     before, after)
                 {
                     Findings = Findings(csharp.Findings),
@@ -195,7 +195,7 @@ public static class MethodBodyDiffFormatter
                 before = Inspection(before, il.Findings.OldInspection) with { IlSubject = il.Old };
                 after = Inspection(after, il.Findings.NewInspection) with { IlSubject = il.New };
                 document = new(work.Item.Producer, basis, "ProducedIlBody",
-                    il.MemberDiff?.Diff.Outcome.ToString() ?? MissingBodyVerdict(before, after),
+                    il.MemberDiff?.Diff.Outcome.ToString() ?? MissingBodyVerdict(il.Findings),
                     before, after)
                 {
                     Findings = Findings(il.Findings),
@@ -284,10 +284,11 @@ public static class MethodBodyDiffFormatter
             _ => throw new ArgumentOutOfRangeException(nameof(comparison)),
         };
 
-    static string MissingBodyVerdict(MethodBodyEndpointDocument before, MethodBodyEndpointDocument after)
-        => before.State == MethodBodyEndpointState.Failed || after.State == MethodBodyEndpointState.Failed
-            ? "Unavailable"
-            : "NotApplicable";
+    // Without native evidence, a failed Findings comparison, for an inspection
+    // failure or for a comparison that refused to run (a pair beyond the ordered
+    // matcher's bound), is Unavailable; the Findings document carries its reason.
+    static string MissingBodyVerdict<T>(FindingComparison<T> findings) where T : notnull
+        => findings is FindingComparison<T>.Failed ? "Unavailable" : "NotApplicable";
 
     static ImmutableArray<MethodBodyCleanupDocument> BuildCleanup(
         ImmutableArray<ResearchProducerCleanupOutcome> cleanup)

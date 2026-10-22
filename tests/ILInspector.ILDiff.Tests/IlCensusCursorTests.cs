@@ -261,6 +261,35 @@ public class IlCensusCursorTests
         Assert.Contains("requires a MetadataReader-backed comparison", cursor.Terminal.Reason);
     }
 
+    /// <summary>
+    /// A body the image cannot read after a non-zero RVA is present and
+    /// unreadable: a Reading failure at position zero, never an identity one,
+    /// so a lockstep reader decides Changed against an absent side.
+    /// </summary>
+    [Fact]
+    public void UnreadableBodyHeader_IsAReadingFailure_NotAnIdentityFailure()
+    {
+        (byte[] image, int rva) = IlBodyDiffExceptionRegionTests.Image(IlBodyDiffExceptionRegionTests.Shape.CatchInvalidOperation);
+        using (var probe = new PEReader(new MemoryStream(image)))
+        {
+            var section = probe.PEHeaders.SectionHeaders.Single(section =>
+                rva >= section.VirtualAddress && rva < section.VirtualAddress + section.SizeOfRawData);
+            image[section.PointerToRawData + rva - section.VirtualAddress] = 0; // neither a tiny nor a fat header
+        }
+        using var pe = new PEReader(new MemoryStream(image));
+        MetadataReader reader = pe.GetMetadataReader();
+        MethodDefinitionHandle method = MetadataTokens.MethodDefinitionHandle(2);
+        Assert.Throws<BadImageFormatException>(() => pe.GetMethodBody(reader.GetMethodDefinition(method).RelativeVirtualAddress));
+
+        IlCensusCursor cursor = IlCensusCursor.Create(pe, reader, method, Subject);
+
+        Assert.False(cursor.Advance());
+        Assert.Equal(IlCensusTerminalKind.Failed, cursor.Terminal!.Kind);
+        Assert.Equal(IlCensusFailureStage.Reading, cursor.Terminal.Stage);
+        Assert.Equal(0, cursor.Terminal.Position);
+        Assert.IsType<FindingInspection<CanonicalIlOperation>.Failed>(IlFindings.Inspect(pe, reader, method, Subject).Value);
+    }
+
     [Fact]
     public void NoBody_IsAbsentBeforeAnyAtom()
     {

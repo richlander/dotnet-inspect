@@ -1124,6 +1124,11 @@ public class FindingPilotTests
         Assert.Equal("comparison: bounded", comparison.Failure);
         Assert.False(comparison.IsExact);
         Assert.Throws<ArgumentException>(() => FindingComparison.Failed(inspection, inspection, " "));
+
+        // Narrowing a refused comparison does not make it run.
+        var focused = Assert.IsType<FindingComparison<string>.Failed>(
+            comparison.Focus(new FindingCorrelationKey(Subject, Descriptor, new FindingKey("same"))).Value);
+        Assert.Equal("bounded", focused.ComparisonFailure);
     }
 
     [Fact]

@@ -223,17 +223,29 @@ public sealed class IlCensusCursor
         if (method.IsNil)
             throw new ArgumentException("Method handle must not be nil.", nameof(method));
 
-        MethodBodyBlock methodBody;
+        // The row's identity is its definition row; its presence is the RVA,
+        // read before the body. A body the image cannot read after a non-zero
+        // RVA is present and unreadable: a Reading failure, never an identity one.
+        int rva;
         try
         {
-            var definition = reader.GetMethodDefinition(method);
-            if (definition.RelativeVirtualAddress == 0)
-                return new IlCensusCursor(subject, IlCensusTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
-            methodBody = pe.GetMethodBody(definition.RelativeVirtualAddress);
+            rva = reader.GetMethodDefinition(method).RelativeVirtualAddress;
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
             return new IlCensusCursor(subject, IlCensusTerminal.Failed(IlCensusFailureStage.Identity, position: 0, ex.Message));
+        }
+        if (rva == 0)
+            return new IlCensusCursor(subject, IlCensusTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
+
+        MethodBodyBlock methodBody;
+        try
+        {
+            methodBody = pe.GetMethodBody(rva);
+        }
+        catch (Exception ex) when (IsMalformed(ex))
+        {
+            return new IlCensusCursor(subject, IlCensusTerminal.Failed(IlCensusFailureStage.Reading, position: 0, ex.Message));
         }
 
         return Create(methodBody.GetILBytes() ?? [], methodBody.ExceptionRegions, reader, subject, policy);

@@ -134,6 +134,15 @@ public sealed record FindingComparison<T> where T : notnull
     public FindingComparison<T> Focus(FindingCorrelationKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
+        if (Value is Failed { ComparisonFailure: { } comparisonFailure })
+        {
+            // The comparison refused to run; narrowing its inspections does not
+            // make it run, and the reason stays with the focused failure.
+            return new Failed(
+                FocusInspection(OldInspection, key),
+                FocusInspection(NewInspection, key),
+                comparisonFailure);
+        }
         if (Value is Failed)
         {
             return FindingComparison.Compare(

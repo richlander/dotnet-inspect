@@ -141,11 +141,16 @@ branch or switch target that starts no instruction of the body, starts one
 that follows a prefix, or lies at or past the body's end is carried as
 `UndecidedTarget`, and a stream that completes with one ends `Failed` by the
 decoder's own rule rather than `Complete`. Once every instruction is read, the
-clause stage validates the exception-clause table by the decoder's rules, so
-an incomplete decode and a failed cursor report one reason, and a clause atom
-never carries a boundary the alignment cannot place. Over an already decoded
-body the pre-scan is that decode; an incomplete decode retains no prefix, so
-the cursor fails at position zero with the decode's reason.
+clause stage, a second non-lazy step, builds the decoder's block graph over the
+retained instructions to validate the exception-clause table by the decoder's
+rules, so a clause-table failure reports the decode's reason and a clause atom
+never carries a boundary the alignment cannot place; a pre-scan fault reports
+the shallow reader's reason, which can differ in wording from the full
+decoder's for the same body. Over an already decoded body the pre-scan is that
+decode; an incomplete decode retains no prefix, so the cursor fails at position
+zero with the decode's reason. Failing to read a present body, one whose RVA is
+non-zero, is a `Reading` failure at position zero; only a definition row the
+image cannot read is an `Identity` failure.
 
 `IlBodyDiff.AtomsEqual` is the equality of two atoms' canonical bytes: the
 family, the operand identity under the policy, and each target as an

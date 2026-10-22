@@ -451,11 +451,16 @@ test class gates its cursor:
      `Compare`, and the cursor yields every atom before a fault and ends
      `Failed` at the fault's IL offset; gated by completeness, canonical
      order, fault order, and bound. Its pre-scan reads instruction lengths
-     through the decoder's shallow reader, it decodes one instruction and
-     resolves one operand per advance, and its clause stage validates the
-     table by the decoder's own rules, so an incomplete decode and a failed
-     cursor report one reason. The atom's operand identity is still the
-     formatted identity of `IlFindings`, so the identity gate waits for 1b.
+     through the decoder's shallow reader, and it decodes one instruction
+     and resolves one operand per advance. Its clause stage is a second
+     non-lazy step: it builds the decoder's block graph over the retained
+     instructions to validate the table by the decoder's own rules, so a
+     clause-table failure reports the decode's reason; a pre-scan fault
+     reports the shallow reader's reason, which can differ in wording from
+     the full decoder's for the same body. Step 2's laziness, allocation,
+     and cost gates measure that clause stage. The atom's operand identity
+     is still the formatted identity of `IlFindings`, so the identity gate
+     waits for 1b.
    - **1b** ([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)):
      the atom's operand identity becomes the `SymbolKey` under the policy,
      which moves `SymbolKey` and its builder below both
