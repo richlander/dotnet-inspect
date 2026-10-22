@@ -272,8 +272,8 @@ individual identities do not escape.
 That result does not generalize to every declarative index. Adding one 4-byte
 handle per occurrence to the offset vector restored essentially the same
 payload as an 8-byte slot and made matching 16% to 20% slower. Interning equal
-Name bytes reduced payload further, to 31% to 47% of retained ranges, at a 12%
-to 18% median match-time cost. It is a candidate for repeated-value
+Name bytes reduced payload further, to 31% to 47% of retained ranges, at a 14%
+to 19% median match-time cost. It is a candidate for repeated-value
 populations whose retained-space win amortizes construction and indirection,
 not a universal representation.
 
@@ -281,7 +281,7 @@ The metadata source's existing 4-byte `StringHandle` was the smallest borrowed
 descriptor, but resolving it through
 `MetadataReader.GetBlobReader(StringHandle)` repeatedly found the
 null-terminated `#Strings` length and made full-population matching 3.76x to
-4.79x slower. Source handles remain natural while the metadata image lifetime
+4.78x slower. Source handles remain natural while the metadata image lifetime
 and access pattern are acceptable; they are not evidence against a detached
 owner that records boundaries once.
 
