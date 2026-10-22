@@ -141,9 +141,10 @@ public class IlBodyDiffExceptionRegionTests
         (byte[] newImage, int newBody) = Image(after);
         using var oldPe = new PEReader(new MemoryStream(oldImage));
         using var newPe = new PEReader(new MemoryStream(newImage));
+        // M is the second method row of every image; the body RVA is for the diff.
         var comparison = Assert.IsAssignableFrom<FindingComparison<CanonicalIlOperation>.Complete>(IlFindings.Compare(
-            oldPe, oldPe.GetMetadataReader(), MetadataTokens.MethodDefinitionHandle(oldBody),
-            newPe, newPe.GetMetadataReader(), MetadataTokens.MethodDefinitionHandle(newBody),
+            oldPe, oldPe.GetMetadataReader(), MetadataTokens.MethodDefinitionHandle(2),
+            newPe, newPe.GetMetadataReader(), MetadataTokens.MethodDefinitionHandle(2),
             new FindingSubject("C::M", "M")).Value);
         bool censusExact = comparison.Pairs.All(pair => pair.Kind == PairKind.Present
             && pair is PairFinding<CanonicalIlOperation>.Present { Difference: FindingDifferenceKind.None });
