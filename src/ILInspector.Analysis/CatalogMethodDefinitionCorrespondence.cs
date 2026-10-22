@@ -238,6 +238,284 @@ public sealed class CatalogMethodDefinitionCorrespondencePlan
         _ownershipFailures = ownershipFailures;
     }
 
+    /// <summary>
+    /// Demand-scoped declaring-Type resolution for one decoded member reference.
+    /// </summary>
+    public sealed class CatalogMemberDeclaringTypePlan
+    {
+        readonly CatalogMemberCorrespondencePlan _member;
+
+        CatalogMemberDeclaringTypePlan(
+            CatalogMemberCorrespondencePlan member) =>
+            _member = member;
+
+        public ImmutableArray<TypeResolutionRequest> Requests =>
+            _member.Requests;
+
+        public static CatalogMemberDeclaringTypePlan Create(
+            ResolvedAssemblyReference source,
+            MemberRef member)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(member);
+            return new(CatalogMemberCorrespondencePlan.Create(source, member));
+        }
+
+        public CatalogMemberDeclaringTypeOutcome Project(
+            TypeResolutionContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            if (!_member.IsStructurallyComplete)
+            {
+                return new CatalogMemberDeclaringTypeOutcome.Unavailable([]);
+            }
+
+            TypeResolutionOutcome.Resolved? resolved =
+                _member.DeclaringTypeResolution(context);
+            return resolved is null
+                ? new CatalogMemberDeclaringTypeOutcome.Unresolved()
+                : new CatalogMemberDeclaringTypeOutcome.Resolved(
+                    resolved.Definition.Assembly.Assembly,
+                    resolved.Definition.Address);
+        }
+    }
+
+    public abstract record CatalogMemberDeclaringTypeOutcome
+    {
+        private protected CatalogMemberDeclaringTypeOutcome()
+        {
+        }
+
+        public sealed record Resolved(
+            ResolvedAssemblyReference Assembly,
+            MetadataTypeDefinitionAddress Address)
+            : CatalogMemberDeclaringTypeOutcome;
+
+        public sealed record Unresolved : CatalogMemberDeclaringTypeOutcome;
+
+        public sealed record Unavailable(
+            ImmutableArray<MemberCorrespondenceFailure> Failures)
+            : CatalogMemberDeclaringTypeOutcome;
+    }
+
+    public abstract record CatalogMemberDefinitionSelectionOutcome
+    {
+        private protected CatalogMemberDefinitionSelectionOutcome()
+        {
+        }
+
+        public sealed record Exact(MethodIdentity Method)
+            : CatalogMemberDefinitionSelectionOutcome;
+
+        public sealed record Missing : CatalogMemberDefinitionSelectionOutcome;
+
+        public sealed record Ambiguous(
+            ImmutableArray<MethodIdentity> Candidates)
+            : CatalogMemberDefinitionSelectionOutcome;
+
+        public sealed record Unavailable(string Detail)
+            : CatalogMemberDefinitionSelectionOutcome;
+    }
+
+    /// <summary>
+    /// Selects one exact MethodDef for a decoded member reference within one
+    /// already-resolved declaring TypeDef.
+    /// </summary>
+    public sealed class CatalogMemberDefinitionSelectionPlan
+    {
+        readonly CatalogMemberCorrespondencePlan _source;
+        readonly ResolvedAssemblyReference _targetAssembly;
+        readonly MetadataTypeDefinitionAddress _targetType;
+        readonly ImmutableArray<TargetCandidate> _targets;
+        readonly string? _limitation;
+
+        CatalogMemberDefinitionSelectionPlan(
+            CatalogMemberCorrespondencePlan source,
+            ResolvedAssemblyReference targetAssembly,
+            MetadataTypeDefinitionAddress targetType,
+            ImmutableArray<TargetCandidate> targets,
+            ImmutableArray<TypeResolutionRequest> requests,
+            string? limitation)
+        {
+            _source = source;
+            _targetAssembly = targetAssembly;
+            _targetType = targetType;
+            _targets = targets;
+            Requests = requests;
+            _limitation = limitation;
+        }
+
+        public ImmutableArray<TypeResolutionRequest> Requests { get; }
+
+        public static CatalogMemberDefinitionSelectionPlan Create(
+            ResolvedAssemblyReference sourceAssembly,
+            MemberRef source,
+            ResolvedAssemblyReference targetAssembly,
+            AssemblyImageSnapshot targetImage,
+            MetadataTypeDefinitionAddress targetType,
+            IEnumerable<MethodIdentity> targetMethods)
+        {
+            ArgumentNullException.ThrowIfNull(sourceAssembly);
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(targetAssembly);
+            ArgumentNullException.ThrowIfNull(targetImage);
+            ArgumentNullException.ThrowIfNull(targetMethods);
+
+            CatalogMemberCorrespondencePlan sourcePlan =
+                CatalogMemberCorrespondencePlan.Create(
+                    sourceAssembly,
+                    source);
+            string? limitation = null;
+            if (!ReferenceEquals(
+                    targetAssembly.Registration,
+                    targetImage.Registration)
+                || targetType.ModuleVersionId != targetImage.ModuleVersionId)
+            {
+                limitation =
+                    "The resolved target Type did not match its acquired image.";
+            }
+
+            var targets = ImmutableArray.CreateBuilder<TargetCandidate>();
+            foreach (MethodIdentity target in targetMethods)
+            {
+                ArgumentNullException.ThrowIfNull(target);
+                if (!string.Equals(
+                        source.Name,
+                        target.Name,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (target.ModuleVersionId != targetImage.ModuleVersionId)
+                {
+                    limitation =
+                        "A candidate target Method did not match its acquired image.";
+                    break;
+                }
+                targets.Add(
+                    new(
+                        target,
+                        CatalogMemberCorrespondencePlan.Create(
+                            targetAssembly,
+                            target)));
+            }
+
+            ImmutableArray<TargetCandidate> targetSnapshot =
+                targets.ToImmutable();
+            ImmutableArray<TypeResolutionRequest> requests =
+            [
+                .. sourcePlan.Requests
+                    .Concat(targetSnapshot.SelectMany(
+                        static target => target.Plan.Requests))
+                    .Distinct(TypeResolutionRequestComparer.Instance),
+            ];
+            return new(
+                sourcePlan,
+                targetAssembly,
+                targetType,
+                targetSnapshot,
+                requests,
+                limitation);
+        }
+
+        public CatalogMemberDefinitionSelectionOutcome Project(
+            TypeResolutionContext context)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            if (_limitation is not null)
+            {
+                return new CatalogMemberDefinitionSelectionOutcome.Unavailable(
+                    _limitation);
+            }
+
+            CatalogMemberJoinProjection sourceProjection =
+                _source.Project(context);
+            if (sourceProjection is not CatalogMemberJoinProjection.Issued
+                issuedSource)
+            {
+                return new CatalogMemberDefinitionSelectionOutcome.Unavailable(
+                    "The call member reference signature was incomplete.");
+            }
+            if (!ResolvesToTargetType(_source, context))
+            {
+                return new CatalogMemberDefinitionSelectionOutcome.Unavailable(
+                    "The call member reference resolved to another Type.");
+            }
+
+            var matches = ImmutableArray.CreateBuilder<MethodIdentity>();
+            foreach (TargetCandidate target in _targets)
+            {
+                CatalogMemberJoinProjection targetProjection =
+                    target.Plan.Project(context);
+                if (targetProjection is not CatalogMemberJoinProjection.Issued
+                        issuedTarget
+                    || !ResolvesToTargetType(target.Plan, context))
+                {
+                    continue;
+                }
+
+                if (_source.CorrespondsToEstablished(
+                        target.Plan,
+                        issuedSource,
+                        issuedTarget,
+                        (sourceRequest, targetRequest) =>
+                            IsDeclaringTypePair(
+                                target.Plan,
+                                sourceRequest,
+                                targetRequest)
+                            && ResolvesToTargetType(sourceRequest, context)
+                            && ResolvesToTargetType(targetRequest, context)))
+                {
+                    matches.Add(target.Method);
+                }
+            }
+
+            return matches.Count switch
+            {
+                0 => new CatalogMemberDefinitionSelectionOutcome.Missing(),
+                1 => new CatalogMemberDefinitionSelectionOutcome.Exact(
+                    matches[0]),
+                _ => new CatalogMemberDefinitionSelectionOutcome.Ambiguous(
+                    matches.ToImmutable()),
+            };
+        }
+
+        bool IsDeclaringTypePair(
+            CatalogMemberCorrespondencePlan target,
+            TypeResolutionRequest sourceRequest,
+            TypeResolutionRequest targetRequest) =>
+            _source.DeclaringTypeResolutionRequest is { } sourceDeclaring
+            && target.DeclaringTypeResolutionRequest is { } targetDeclaring
+            && TypeResolutionRequestComparer.Instance.Equals(
+                sourceRequest,
+                sourceDeclaring)
+            && TypeResolutionRequestComparer.Instance.Equals(
+                targetRequest,
+                targetDeclaring);
+
+        bool ResolvesToTargetType(
+            CatalogMemberCorrespondencePlan plan,
+            TypeResolutionContext context) =>
+            plan.DeclaringTypeResolution(context) is { } resolution
+            && MatchesTarget(resolution.Definition);
+
+        bool ResolvesToTargetType(
+            TypeResolutionRequest request,
+            TypeResolutionContext context) =>
+            context.Resolve(request) is TypeResolutionOutcome.Resolved resolution
+            && MatchesTarget(resolution.Definition);
+
+        bool MatchesTarget(ResolvedTypeDefinition definition) =>
+            ReferenceEquals(
+                definition.Assembly.Assembly.Registration,
+                _targetAssembly.Registration)
+            && definition.Address == _targetType;
+
+        sealed record TargetCandidate(
+            MethodIdentity Method,
+            CatalogMemberCorrespondencePlan Plan);
+    }
+
     public ImmutableArray<TypeResolutionRequest> Requests { get; }
 
     public static CatalogMethodDefinitionCorrespondencePlan Create(

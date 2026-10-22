@@ -5,6 +5,7 @@ using System.Reflection.Emit;
 using DotnetInspector.Fixtures;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using ILInspector.Analysis.Planning;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Tests;
@@ -260,10 +261,6 @@ public sealed class AssemblyContextCallCensusQueryTests
         {
             await using CensusContext context =
                 CensusContext.Create(caller, target);
-            AssemblyContextCallCensusResult census =
-                AssemblyContextCallCensusQuery.Execute(
-                    context.Group,
-                    TestContext.Current.CancellationToken);
             MetadataTypeDefinitionName focusType =
                 Assert.IsType<MetadataTypeDefinitionNameResult.Valid>(
                     MetadataTypeDefinitionName.Create(
@@ -273,15 +270,39 @@ public sealed class AssemblyContextCallCensusQueryTests
             AssemblyContextTypeCallCompatibilityResult result =
                 AssemblyContextTypeCallCompatibilityQuery.Execute(
                     context.Group,
-                    census,
                     caller.Registration,
                     focusType,
                     TestContext.Current.CancellationToken);
 
-            Assert.True(result.TopologyComplete);
+            Assert.True(
+                result.TopologyComplete,
+                string.Join(
+                    Environment.NewLine,
+                    result.UnresolvedOccurrences.Select(occurrence =>
+                        occurrence.Limitation)));
             Assert.Empty(result.UnresolvedOccurrences);
             Assert.Equal(4, result.Occurrences.Length);
             Assert.Equal(3, result.Targets.Length);
+            TypeCallCompatibilityAcquisitionReceipt receipt =
+                Assert.IsType<TypeCallCompatibilityAcquisitionReceipt>(
+                    result.Receipt);
+            Assert.Equal(
+                MethodDefinitionSourceBreadthKind.ExactTypes,
+                receipt.FocusSource.Breadth.Kind);
+            Assert.Equal(2, receipt.FocusSource.DefinitionsVisited);
+            Assert.Equal(2, receipt.FocusSource.BodiesAcquired);
+            Assert.Equal(4, receipt.DistinctCallees);
+            Assert.Equal(3, receipt.TargetMethodsInspected);
+            Assert.Equal(
+                3,
+                receipt.TargetSources.Sum(targetReceipt =>
+                    targetReceipt.Receipt.DefinitionsVisited));
+            Assert.All(
+                receipt.TargetSources,
+                targetReceipt =>
+                    Assert.Equal(
+                        0,
+                        targetReceipt.Receipt.BodiesAcquired));
             TypeCallCompatibilityTarget dangerous = Assert.Single(
                 result.Targets,
                 candidate => candidate.Method.Name == "Dangerous");
@@ -526,16 +547,11 @@ public sealed class AssemblyContextCallCensusQueryTests
         {
             await using CensusContext context =
                 CensusContext.Create(caller);
-            AssemblyContextCallCensusResult census =
-                AssemblyContextCallCensusQuery.Execute(
-                    context.Group,
-                    TestContext.Current.CancellationToken);
             MetadataTypeDefinitionName focusType = CompatibilityFocusType();
 
             AssemblyContextTypeCallCompatibilityResult result =
                 AssemblyContextTypeCallCompatibilityQuery.Execute(
                     context.Group,
-                    census,
                     caller.Registration,
                     focusType,
                     TestContext.Current.CancellationToken);
@@ -602,16 +618,6 @@ public sealed class AssemblyContextCallCensusQueryTests
                         ? new MemoryStream([0x00, 0x01, 0x02])
                         : File.OpenRead(target.Path!),
                     target.Provenance);
-            AssemblyContextCallCensusResult census;
-            await using (CensusContext censusContext =
-                CensusContext.Create(caller, conditionalTarget))
-            {
-                census = AssemblyContextCallCensusQuery.Execute(
-                    censusContext.Group,
-                    TestContext.Current.CancellationToken);
-                Assert.True(census.IsComplete);
-            }
-
             rejectTarget = true;
             await using CensusContext context =
                 CensusContext.Create(caller, conditionalTarget);
@@ -619,18 +625,14 @@ public sealed class AssemblyContextCallCensusQueryTests
             AssemblyContextTypeCallCompatibilityResult result =
                 AssemblyContextTypeCallCompatibilityQuery.Execute(
                     context.Group,
-                    census,
                     caller.Registration,
                     focusType,
                     TestContext.Current.CancellationToken);
 
-            Assert.True(result.TopologyComplete);
+            Assert.False(result.TopologyComplete);
             Assert.Equal(
                 2,
-                result.Targets.Count(targetResult =>
-                    targetResult.Disposition
-                        == TypeCallCompatibilityTargetDisposition
-                            .Unavailable));
+                result.UnavailableTargetMetadata);
             (SubjectRelationFocusAuthority focus,
                 SubjectRelationPopulationAuthority population) =
                     Authorities(caller, focusType, context.Group);
