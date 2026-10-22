@@ -373,3 +373,17 @@ public static partial class Int52MarshalFixture
     public static long EchoInt52(
         [JSMarshalAs<JSType.Number>] long value) => value;
 }
+
+/// <summary>
+/// A nested BigInt descriptor remains unsupported until the surface retains
+/// the complete descriptor tree rather than only direct export slots.
+/// </summary>
+[SupportedOSPlatform("browser")]
+public static partial class NestedBigIntMarshalFixture
+{
+    [JSExport]
+    [return: JSMarshalAs<JSType.Promise<JSType.BigInt>>]
+    public static Task<long> EchoBigIntAsync(
+        [JSMarshalAs<JSType.BigInt>] long value) =>
+        Task.FromResult(value);
+}

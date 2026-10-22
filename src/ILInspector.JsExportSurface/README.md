@@ -350,8 +350,9 @@ attributes. Nested BigInt descriptors remain visibly unsupported until the
 surface models the complete nested descriptor tree.
 `JsExportSurfaceBuilderTests.Build_PublishesBigIntMarshaledLongExport`,
 `Build_PublishesNumberMarshaledLongExport`, and
-`Emit_UsesAuthenticatedLongMarshaling` gate the pair against compiler output,
-not hand-composed metadata.
+`Build_RejectsNestedBigIntMarshaledLongExport` gate direct publication and the
+nested rejection boundary against compiler output, not hand-composed metadata.
+`Emit_UsesAuthenticatedLongMarshaling` gates the resulting TypeScript pair.
 
 Generated serializer-root properties use System.Text.Json's default name
 grammar: a vector appends `Array`, while a rank-*N* multidimensional array

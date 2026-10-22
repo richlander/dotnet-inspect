@@ -2218,6 +2218,27 @@ public sealed partial class JsExportSurfaceBuilderTests
             parameter.Marshaling);
     }
 
+    [Fact]
+    public void Build_RejectsNestedBigIntMarshaledLongExport()
+    {
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => BuildMarshaledLongSurface(
+                    nameof(NestedBigIntMarshalFixture),
+                    nameof(
+                        NestedBigIntMarshalFixture
+                            .EchoBigIntAsync)));
+
+        Assert.Contains(
+            "get_BigInt64",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "nested BigInt descriptor projection is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(
         nameof(BigIntMarshalFixture),
