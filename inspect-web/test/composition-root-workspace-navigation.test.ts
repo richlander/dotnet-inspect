@@ -902,22 +902,25 @@ test("foreground package reload resets filters before selecting its first type",
 });
 
 test("home demos execute typed results and commit canonical navigation", () => {
-  const runHomeDemo =
-    appSource.match(/function runHomeDemo\([\s\S]*?\n}\n\n\/\/ Return to the intro/)?.[0]
-    ?? "";
   const resolveDemo =
-    appSource.match(/async function resolveAndRunHomeDemo\([\s\S]*?\n}\n\nfunction openWorkspacePackagePicker/)?.[0]
+    appSource.match(/async function resolveAndRunHomeDemo\([\s\S]*?\n}\n\nasync function activateMethodsHomeDemo/)?.[0]
+    ?? "";
+  const retainedMethods =
+    appSource.match(/async function activateMethodsHomeDemo\([\s\S]*?\n}\n\nasync function runCompatibilityHomeDemo/)?.[0]
+    ?? "";
+  const compatibilityDemo =
+    appSource.match(/async function runCompatibilityHomeDemo\([\s\S]*?\n}\n\nfunction openWorkspacePackagePicker/)?.[0]
     ?? "";
   assert.match(
     resolveDemo,
-    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);[\s\S]*prepareUnpublishedWorkspace\(\);\s*await runEngineHomeDemo\(\s*kind,\s*construction\.rollbackSnapshot \?\? snapshot,\s*construction\.retainedSnapshot,\s*navigationSeq,/);
+    /demo = await resolveProductHomeDemo\(kind\);[\s\S]*if \(demo\.view\.section === "Methods"\) \{\s*await activateMethodsHomeDemo\(demo, locationPolicy\);[\s\S]*await runCompatibilityHomeDemo\(kind\)/);
   assert.match(
-    runHomeDemo,
-    /finally \{\s*cancelDemoNavigation\(navigationSeq\);[\s\S]*function failDemoWorkspaceOpen\([\s\S]*failWorkspaceCatalogAction\(\s*`Demo failed: \$\{message\}`,\s*snapshot,\s*retryable \? \(\) => runHomeDemo\(demoId\) : null,\s*\(\) => restoreWorkspaceFocus\(document, \{ kind: "demo", id: demoId \}\)/);
-  assert.doesNotMatch(runHomeDemo, /workspaceLocation\.replace\("\/demos"/);
-  assert.doesNotMatch(
-    resolveDemo,
-    /\bresolveHomeDemo\(|productHomeDemoLocationHref|parseWorkspaceHref/);
+    retainedMethods,
+    /const destination = homeDemoCanonicalLocation\(demo\.id\);[\s\S]*controller\.retain\(\{[\s\S]*homeDemo: \{ id: demo\.id \},[\s\S]*controller\.activate\([\s\S]*installMethodsHomeDemoPosting\([\s\S]*completeRetainedActivationPresentation\(/);
+  assert.doesNotMatch(retainedMethods, /runEngineHomeDemo|inspectRunHomeDemo/);
+  assert.match(
+    compatibilityDemo,
+    /const snapshot = captureCanonicalWorkspaceRestoreSnapshot\(\);[\s\S]*const construction =\s*captureWorkspaceConstructionSnapshots\(navigationSeq\);[\s\S]*prepareUnpublishedWorkspace\(\);\s*await runEngineHomeDemo\(\s*kind,\s*construction\.rollbackSnapshot \?\? snapshot,\s*construction\.retainedSnapshot,\s*navigationSeq,[\s\S]*finally \{\s*cancelDemoNavigation\(navigationSeq\)/);
   const restoreWorkspace =
     appSource.match(/async function restoreWorkspaceFromLocation\([\s\S]*?\n}\n\nfunction failWorkspaceRoute/)?.[0]
     ?? "";
@@ -950,7 +953,7 @@ test("home demos execute typed results and commit canonical navigation", () => {
   assert.doesNotMatch(engineDemo, /publishCurrentWorkspace\(/);
   assert.match(
     appSource,
-    /function applyProductHomeDemoSelection\([\s\S]*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);[\s\S]*revealTypeInFilters\(type\);[\s\S]*state\.selectedTypeId = type\.id;[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = false;[\s\S]*resetMemberSectionState\(\);[\s\S]*state\.memberBrowseTypeId = member \? type\.id : "";[\s\S]*state\.selectedMemberKey = member\?\.key \?\? "";[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberCallGraph = result\.callGraph/);
+    /function applyProductHomeDemoSelection\([\s\S]*state\.libraryScope = new Set\(\[libraryKey\(type\)\]\);[\s\S]*revealTypeInFilters\(type\);[\s\S]*state\.selectedTypeId = type\.id;[\s\S]*state\.atPackageRoot = false;[\s\S]*state\.atLibraryRoot = false;[\s\S]*resetMemberSectionState\(\);[\s\S]*state\.memberBrowseTypeId = member \? type\.id : "";[\s\S]*state\.selectedMemberKey = member\?\.key \?\? "";[\s\S]*state\.selectedOverloadIndex = overloadIndex;[\s\S]*state\.memberCallGraph = callGraph/);
   assert.match(
     restoreWorkspace,
     /await loadSelectionData\(\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;\s*if \(!commitRestoredWorkspaceNavigation\(navigationSeq, failureHandler, commitHistory\)\) return;\s*if \(focusResult\) \{\s*focusInspectionResult\(navigationSeq\);/);

@@ -160,7 +160,8 @@ const hostNames = new Set([
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "friendlyLoadError", "isRecord",
-  "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
+  "runHomeDemo", "resolveAndRunHomeDemo", "runCompatibilityHomeDemo",
+  "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
   "openPlatformSubject", "openPlatformLibrary", "platformCoordinateCapacityError",
   "canRestoreWorkbenchFocus", "isTextEntry",
@@ -861,6 +862,21 @@ function harness() {
       demoRuns.push({ id, navigationSeq });
       return controls.demo();
     },
+    resolveProductHomeDemo: async (id: string) => ({
+      id,
+      title: id,
+      summary: "",
+      workspaceMembers: [],
+      tabs: [],
+      focusTabIndex: 0,
+      view: {
+        library: null,
+        type: null,
+        memberAnchor: null,
+        memberKey: null,
+        section: "Call Graph",
+      },
+    }),
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
     platformCoordinate: (tab: BrowserWorkspaceShareState["tabs"][number]) =>
       tab.kind === "group" && tab.source === ":Platform"
@@ -2271,7 +2287,11 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   const declaration = app.program.body.find(node =>
     node.type === "FunctionDeclaration"
     && node.id?.name === "publishSourceBearingWorkspace");
+  const installer = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "installRetainedWorkspaceModels");
   assert.ok(declaration);
+  assert.ok(installer);
   Object.assign(h.context, {
     createNavigationDescriptorPresentation: () => ({
       packages: [],
@@ -2299,7 +2319,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   });
   runInNewContext(
     stripTypeScriptTypes(
-      appSource.slice(declaration.start, declaration.end)),
+      [
+        appSource.slice(declaration.start, declaration.end),
+        appSource.slice(installer.start, installer.end),
+      ].join("\n")),
     h.context);
 
   const packageModel = structuredClone(h.state.package!);
@@ -2544,6 +2567,7 @@ test("demo execution starts under one observed navigation sequence", async () =>
   const href = h.location.href;
   const entryState = h.history.state;
   h.demo();
+  await new Promise(resolve => setImmediate(resolve));
   const sequence = h.navigationSequence.current();
   assert.equal(h.state.loading, true);
   assert.equal(h.state.package, sourcePackage);
@@ -2580,6 +2604,7 @@ for (const rejected of [false, true]) {
     const selection = deferred<void>();
     h.controls.demo = () => execution.promise;
     h.demo();
+    await new Promise(resolve => setImmediate(resolve));
     h.controls.selection = () => selection.promise;
     h.open();
     await new Promise(resolve => setImmediate(resolve));
