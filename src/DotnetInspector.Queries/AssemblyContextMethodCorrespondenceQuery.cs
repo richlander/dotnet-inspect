@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
@@ -198,7 +199,7 @@ public static class AssemblyContextMethodCorrespondenceQuery
 
         MethodDefinition definition =
             implementationReader.GetMethodDefinition(target.Handle);
-        return definition.RelativeVirtualAddress == 0
+        return !HasManagedBody(definition)
             ? new AssemblyContextMethodCorrespondenceResult.Bodyless(
                 target.ModuleVersionId,
                 target.Token)
@@ -207,6 +208,15 @@ public static class AssemblyContextMethodCorrespondenceQuery
                 target.ModuleVersionId,
                 status);
     }
+
+    static bool HasManagedBody(MethodDefinition definition) =>
+        definition.RelativeVirtualAddress != 0
+        && (definition.ImplAttributes
+                & MethodImplAttributes.CodeTypeMask)
+            == MethodImplAttributes.IL
+        && (definition.ImplAttributes
+                & MethodImplAttributes.ManagedMask)
+            == MethodImplAttributes.Managed;
 
     static bool ValidMethod(
         MetadataReader reader,

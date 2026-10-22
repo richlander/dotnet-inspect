@@ -846,7 +846,9 @@ public partial class DiffCommand
                         inputs.From.AssemblySet,
                         inputs.To.AssemblySet,
                         inputs.Name,
+                        target.Before.SurfaceAssetPath!,
                         target.Before.MethodToken,
+                        target.After.SurfaceAssetPath!,
                         target.After.MethodToken,
                         cancellationToken);
         return result is WorkspaceMethodAllocationComparisonResult.Compared

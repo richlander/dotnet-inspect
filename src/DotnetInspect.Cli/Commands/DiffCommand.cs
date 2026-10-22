@@ -3477,9 +3477,8 @@ public partial class DiffCommand
                 target.DeclaringType,
                 target.Selector)
                 is not { } afterMethod
-            || inputs.From.PackageScope is not null
-                && (beforeMethod.SurfaceAssetPath is null
-                    || afterMethod.SurfaceAssetPath is null))
+            || beforeMethod.SurfaceAssetPath is null
+            || afterMethod.SurfaceAssetPath is null)
         {
             return null;
         }

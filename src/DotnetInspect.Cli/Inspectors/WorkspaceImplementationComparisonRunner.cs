@@ -51,28 +51,44 @@ internal static class WorkspaceImplementationComparisonRunner
         AssemblySet before,
         AssemblySet after,
         string packageName,
+        string beforeSurfaceAssetPath,
         int beforeMethodToken,
+        string afterSurfaceAssetPath,
         int afterMethodToken,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
+        ArgumentException.ThrowIfNullOrWhiteSpace(beforeSurfaceAssetPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(afterSurfaceAssetPath);
         cancellationToken.ThrowIfCancellationRequested();
 
-        AssemblySetEntry beforeRoot = SingleAllocationRoot(before, packageName);
-        AssemblySetEntry afterRoot = SingleAllocationRoot(after, packageName);
+        if (ExactAllocationAssembly(
+                before,
+                beforeSurfaceAssetPath)
+                is not { } beforeRoot
+            || ExactAllocationAssembly(
+                after,
+                afterSurfaceAssetPath)
+                is not { } afterRoot)
+        {
+            return new WorkspaceMethodAllocationComparisonResult.Fallback(
+                "The exact allocation target does not identify one assembly "
+                    + "at each endpoint.");
+        }
+
         ResolvedAssemblyReference beforeAssembly =
             ResolvedAssemblyReference.CreateFromPathIfManaged(
                 beforeRoot.Path,
                 AssemblySetInspectionWorkspace.ProvenanceFor(beforeRoot))
             ?? throw new InvalidOperationException(
-                $"The package-root assembly '{beforeRoot.Path}' does not contain managed metadata.");
+                $"The selected assembly '{beforeRoot.Path}' does not contain managed metadata.");
         ResolvedAssemblyReference afterAssembly =
             ResolvedAssemblyReference.CreateFromPathIfManaged(
                 afterRoot.Path,
                 AssemblySetInspectionWorkspace.ProvenanceFor(afterRoot))
             ?? throw new InvalidOperationException(
-                $"The package-root assembly '{afterRoot.Path}' does not contain managed metadata.");
+                $"The selected assembly '{afterRoot.Path}' does not contain managed metadata.");
         await using var workspace = new InspectionWorkspace();
         var beforeParticipant = new AssemblyContextParticipant(
             beforeAssembly,
@@ -212,27 +228,24 @@ internal static class WorkspaceImplementationComparisonRunner
         }
     }
 
-    static AssemblySetEntry SingleAllocationRoot(
+    static AssemblySetEntry? ExactAllocationAssembly(
         AssemblySet assemblySet,
-        string packageName)
+        string surfaceAssetPath)
     {
-        AssemblySetEntry[] packageRoots =
+        string selectedPath = Path.GetFullPath(surfaceAssetPath);
+        StringComparer comparer =
+            LibraryMetadataService.ReferenceTreePathComparer(
+                OperatingSystem.IsWindows());
+        AssemblySetEntry[] matches =
         [
             .. assemblySet.Assemblies.Where(entry =>
-                IsPackageRoot(entry, packageName)),
+                comparer.Equals(
+                    Path.GetFullPath(entry.Path),
+                    selectedPath)),
         ];
-        if (packageRoots.Length == 1)
-            return packageRoots[0];
-        if (packageRoots.Length == 0
-            && assemblySet.Assemblies.Count == 1)
-        {
-            return assemblySet.Assemblies[0];
-        }
-
-        throw new InvalidOperationException(
-            packageRoots.Length == 0
-                ? $"The exact allocation endpoint did not resolve one assembly."
-                : $"Package '{packageName}' resolved more than one package-root assembly.");
+        return matches.Length == 1
+            ? matches[0]
+            : null;
     }
 
     /// <summary>

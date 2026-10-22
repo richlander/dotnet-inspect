@@ -1,3 +1,5 @@
+using System.Reflection;
+
 using DotnetInspector.Fixtures;
 using Inspector.Findings;
 using ILInspector.Analysis;
@@ -79,6 +81,30 @@ public sealed class WorkspaceMethodAllocationComparisonQueryTests
                     TestContext.Current.CancellationToken));
 
         Assert.NotEqual(0, bodyless.MethodToken);
+    }
+
+    [Fact]
+    public async Task NonIlImplementationIsRejectedBeforeAnalysis()
+    {
+        await using var fixture = new WorkspaceResearchTargetFixture(
+            WorkspaceResearchTargetFixture.BuildAssembly(
+                "NonIlMethod",
+                methodImplementation:
+                    MethodImplAttributes.Native));
+        WorkspaceResearchTargetFixture.ImageNode node =
+            Assert.Single(fixture.Nodes);
+
+        var bodyless = Assert.IsType<
+            AssemblyContextMethodCorrespondenceResult.Bodyless>(
+                AssemblyContextMethodCorrespondenceQuery.Execute(
+                    fixture.Group,
+                    node.Participant,
+                    0x06000001,
+                    fixture.Group,
+                    node.Participant,
+                    TestContext.Current.CancellationToken));
+
+        Assert.Equal(0x06000001, bodyless.MethodToken);
     }
 
     [Fact]
