@@ -20,15 +20,15 @@ probe distinguishes the implementations through their observable cost.
 
 Point `INSPECT` at the exact published NativeAOT product apphost. Point
 `ALLOCATION_PROBE` at `eng/measure-cli-byte-publication.cs` published as
-NativeAOT from the same revision. Pin one real `System.Text.Json.dll` by path
-and SHA-256:
+NativeAOT from the same revision. Pin one real `System.Linq.dll` by path and
+SHA-256:
 
 ```bash
 set -e -o pipefail
 : "${DOTNET_INSPECT_WORKFLOW_BINARY:?set the exact published apphost path}"
 : "${DOTNET_INSPECT_WORKFLOW_VERSION:?set the expected --version output}"
 : "${DOTNET_INSPECT_WORKFLOW_ALLOCATION_BINARY:?set the exact allocation probe path}"
-: "${DOTNET_INSPECT_WORKFLOW_ASSEMBLY:?set the pinned System.Text.Json.dll path}"
+: "${DOTNET_INSPECT_WORKFLOW_ASSEMBLY:?set the pinned System.Linq.dll path}"
 : "${DOTNET_INSPECT_WORKFLOW_ASSEMBLY_SHA256:?set its expected SHA-256}"
 export INSPECT="$DOTNET_INSPECT_WORKFLOW_BINARY"
 export ALLOCATION_PROBE="$DOTNET_INSPECT_WORKFLOW_ALLOCATION_BINARY"
@@ -51,10 +51,10 @@ mkdir -p "$BYTE_PUBLICATION_WORK"
 Warm both routes:
 
 ```bash
-"$INSPECT" type System.Text.Json.JsonSerializer \
+"$INSPECT" type System.Linq.Enumerable \
   --library "$ASSEMBLY" -S "Type Info" --tsv > /dev/null
-"$INSPECT" type System.Text.Json.JsonSerializer \
-  --library "$ASSEMBLY" -m Serialize -S "Type Info" --tsv > /dev/null
+"$INSPECT" type System.Linq.Enumerable \
+  --library "$ASSEMBLY" -m Any -S "Type Info" --tsv > /dev/null
 ```
 
 ## 1. Preserve exact output across the direct and fallback routes
@@ -65,10 +65,10 @@ Warm both routes:
 ```bash
 direct="$BYTE_PUBLICATION_WORK/direct.tsv"
 fallback="$BYTE_PUBLICATION_WORK/fallback.tsv"
-"$INSPECT" type System.Text.Json.JsonSerializer \
+"$INSPECT" type System.Linq.Enumerable \
   --library "$ASSEMBLY" -S "Type Info" --tsv > "$direct"
-"$INSPECT" type System.Text.Json.JsonSerializer \
-  --library "$ASSEMBLY" -m Serialize -S "Type Info" --tsv > "$fallback"
+"$INSPECT" type System.Linq.Enumerable \
+  --library "$ASSEMBLY" -m Any -S "Type Info" --tsv > "$fallback"
 cmp "$direct" "$fallback"
 normalized_sha256=$(
   sed $'s#^Library\\t.*#Library\\t<assembly>#' "$direct" \
@@ -76,15 +76,15 @@ normalized_sha256=$(
     | awk '{print $1}'
 )
 test "$normalized_sha256" = \
-  "f28145561f65614cbd59dd98341fc55a79d4316d518247eafd64b59c5df29a35"
+  "83128eba37c9b8735192dcb6180b87075280861e511dcd613c8a0ec7bc1cf445"
 printf 'output-equal\nnormalized-sha256=%s\n' "$normalized_sha256"
 cat "$direct"
 ```
 
 ```expect
 output-equal
-normalized-sha256=f28145561f65614cbd59dd98341fc55a79d4316d518247eafd64b59c5df29a35
-System.Text.Json.JsonSerializer
+normalized-sha256=83128eba37c9b8735192dcb6180b87075280861e511dcd613c8a0ec7bc1cf445
+System.Linq.Enumerable
 Kind
 class
 Library
@@ -98,7 +98,7 @@ Source
 
 ```bash
 for iteration in 1 2 3 4 5; do
-  "$INSPECT" type System.Text.Json.JsonSerializer \
+  "$INSPECT" type System.Linq.Enumerable \
     --library "$ASSEMBLY" -S "Type Info" --tsv > /dev/null
 done
 ```
@@ -121,8 +121,8 @@ real CLI sink while keeping the metrics machine-readable.
 metrics="$BYTE_PUBLICATION_WORK/allocation.tsv"
 "$ALLOCATION_PROBE" \
   "$ASSEMBLY" \
-  System.Text.Json.JsonSerializer \
-  Serialize \
+  System.Linq.Enumerable \
+  Any \
   --samples 20 \
   > /dev/null \
   2> "$metrics"
