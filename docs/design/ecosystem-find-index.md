@@ -120,9 +120,9 @@ controls are:
 
 | Ecosystem | Exact package | Integration symbol |
 | --- | --- | --- |
-| Aspire | `Aspire.Hosting.Redis@13.6.2` | `AddRedis` |
-| Aspire | `Aspire.Hosting.PostgreSQL@13.6.2` | `AddPostgres` |
-| Aspire | `Aspire.StackExchange.Redis@13.6.2` | `AddRedisClient` |
+| Aspire | `Aspire.Hosting.Redis@13.6.3` | `AddRedis` |
+| Aspire | `Aspire.Hosting.PostgreSQL@13.6.3` | `AddPostgres` |
+| Aspire | `Aspire.StackExchange.Redis@13.6.3` | `AddRedisClient` |
 | Microsoft.Extensions | `Microsoft.Extensions.Http@10.0.13` | `AddHttpClient` |
 
 Generation fails rather than publishing an artifact that omits a control when

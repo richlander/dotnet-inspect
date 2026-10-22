@@ -12,6 +12,7 @@ public sealed record EcosystemIntegrationApiEvidence
 {
     public EcosystemIntegrationApiEvidence(
         MemberAnchor member,
+        string metadataName,
         MetadataTypeDefinitionName declaringType,
         MetadataNamedTypeReference? receiverType,
         MetadataNamedTypeReference? returnType,
@@ -21,11 +22,13 @@ public sealed record EcosystemIntegrationApiEvidence
         bool isEditorBrowsableNever)
     {
         ArgumentNullException.ThrowIfNull(member);
+        ArgumentException.ThrowIfNullOrWhiteSpace(metadataName);
         ArgumentNullException.ThrowIfNull(declaringType);
         ArgumentException.ThrowIfNullOrWhiteSpace(displayKind);
         ArgumentException.ThrowIfNullOrWhiteSpace(displaySignature);
         ArgumentNullException.ThrowIfNull(declaringTypeDiscoveryAttributes);
         Member = member;
+        MetadataName = metadataName;
         DeclaringType = declaringType;
         ReceiverType = receiverType;
         ReturnType = returnType;
@@ -37,6 +40,7 @@ public sealed record EcosystemIntegrationApiEvidence
     }
 
     public MemberAnchor Member { get; }
+    public string MetadataName { get; }
     public MetadataTypeDefinitionName DeclaringType { get; }
     public MetadataNamedTypeReference? ReceiverType { get; }
     public MetadataNamedTypeReference? ReturnType { get; }

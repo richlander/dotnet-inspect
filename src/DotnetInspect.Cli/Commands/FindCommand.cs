@@ -915,6 +915,8 @@ public partial class FindCommand
         else
         {
             var typeQuestion = (TypeFindQuestion)search.Question;
+            bool mayRunMemberFallback =
+                patterns.Any(MayRunImplicitMemberFallback);
             EcosystemFindIndexedIntegrationResult.Type typeResult =
                 (EcosystemFindIndexedIntegrationResult.Type)
                     EcosystemFindIndexedIntegration.Evaluate(
@@ -922,25 +924,26 @@ public partial class FindCommand
                             artifacts,
                             demands,
                             typeQuestion,
-                            remainingRows),
+                            mayRunMemberFallback ? null : remainingRows,
+                            options.TypeFilter),
                         cancellationToken);
             types.AddRange(
                 TypeSearchService.ProjectIndexedSemanticMatches(
                     typeQuestion,
                     typeResult.Matches,
                     source => sourceProjection[source.Coordinate].Source));
-            RecordPublished(
-                typeResult,
-                indexedTypes,
-                indexedMembers);
+            types = KeepStrongTypesWithinWindow(types, remainingRows);
             completion = MapCompletion(typeResult.Completion);
 
             int? memberCapacity = remainingRows is int finite
-                ? finite - types.Count
+                ? finite - types.Count(static row =>
+                    IsStrongTypeMatch(row.Match))
                 : null;
             HashSet<string> settled =
             [
-                .. types.Select(static row => row.Pattern),
+                .. types
+                    .Where(static row => IsStrongTypeMatch(row.Match))
+                    .Select(static row => row.Pattern),
             ];
             string[] memberPatterns =
             [
@@ -978,6 +981,22 @@ public partial class FindCommand
             }
         }
 
+        types = WithoutSupersededWeakRows(types, members);
+        int? weakTypeCapacity = remainingRows is int finiteRows
+            ? finiteRows
+                - acceptedMembers
+                - types.Count(static row =>
+                    IsStrongTypeMatch(row.Match))
+            : null;
+        types = KeepWeakTypesWithinWindow(types, weakTypeCapacity);
+        foreach (TypeFindResult row in types)
+        {
+            if (row.ExactSource is { } source
+                && row.ExactType is { } type)
+            {
+                indexedTypes.Add(new(source, type));
+            }
+        }
         types = [.. types.Select(row => row with
         {
             Ecosystem = sourceProjection[row.ExactSource!].Ecosystem,
@@ -1370,11 +1389,7 @@ public partial class FindCommand
 
         HashSet<string> settled = new(
             typeRows
-                .Where(static row => row.Match is TypeFindMatchKind.Exact
-                    or TypeFindMatchKind.Direct
-                    or TypeFindMatchKind.Glob
-                    or TypeFindMatchKind.Namespace
-                    or TypeFindMatchKind.Prefix)
+                .Where(static row => IsStrongTypeMatch(row.Match))
                 .Select(static row => row.Pattern),
             StringComparer.Ordinal);
         string[] memberPatterns =
@@ -1400,6 +1415,45 @@ public partial class FindCommand
         string pattern) =>
         !pattern.Contains('.')
         && TypeNameMatchRanking.IsBroadenable(pattern);
+
+    private static bool IsStrongTypeMatch(TypeFindMatchKind match) =>
+        match is TypeFindMatchKind.Exact
+            or TypeFindMatchKind.Direct
+            or TypeFindMatchKind.Glob
+            or TypeFindMatchKind.Namespace
+            or TypeFindMatchKind.Prefix;
+
+    private static List<TypeFindResult> KeepStrongTypesWithinWindow(
+        List<TypeFindResult> rows,
+        int? maximumRows)
+    {
+        if (maximumRows is null)
+            return rows;
+
+        int accepted = 0;
+        return
+        [
+            .. rows.Where(row =>
+                !IsStrongTypeMatch(row.Match)
+                || accepted++ < maximumRows),
+        ];
+    }
+
+    private static List<TypeFindResult> KeepWeakTypesWithinWindow(
+        List<TypeFindResult> rows,
+        int? maximumWeakRows)
+    {
+        if (maximumWeakRows is null)
+            return rows;
+
+        int accepted = 0;
+        return
+        [
+            .. rows.Where(row =>
+                IsStrongTypeMatch(row.Match)
+                || accepted++ < maximumWeakRows),
+        ];
+    }
 
     /// <summary>
     /// Applies semantic row selection to the answer in presented order: the
@@ -1473,8 +1527,7 @@ public partial class FindCommand
         return
         [
             .. typeRows.Where(row =>
-                row.Match is not (TypeFindMatchKind.Partial
-                    or TypeFindMatchKind.NotFound)
+                IsStrongTypeMatch(row.Match)
                 || !answered.Contains(row.Pattern)),
         ];
     }

@@ -227,8 +227,8 @@ public partial class EcosystemFindIndexTests
         byte[] valid = EcosystemFindIndexJson.Serialize(
             EcosystemFindIndexBuilder.Build(Request([])));
         string duplicate = Encoding.UTF8.GetString(valid).Replace(
-            "{\"schemaVersion\":3",
-            "{\"schemaVersion\":3,\"schemaVersion\":3",
+            "{\"schemaVersion\":4",
+            "{\"schemaVersion\":4,\"schemaVersion\":4",
             StringComparison.Ordinal);
 
         Assert.IsType<EcosystemFindIndexLoadResult.Invalid>(
@@ -286,13 +286,13 @@ public partial class EcosystemFindIndexTests
         {
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
-                    "{\"schemaVersion\":3,",
-                    "{\"schemaVersion\":3,\"schemaVersion\":3,",
+                    "{\"schemaVersion\":4,",
+                    "{\"schemaVersion\":4,\"schemaVersion\":4,",
                     StringComparison.Ordinal)),
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(
-                    "{\"schemaVersion\":3,",
-                    "{\"unexpected\":true,\"schemaVersion\":3,",
+                    "{\"schemaVersion\":4,",
+                    "{\"unexpected\":true,\"schemaVersion\":4,",
                     StringComparison.Ordinal)),
             bytes => Encoding.UTF8.GetBytes(
                 Encoding.UTF8.GetString(bytes).Replace(

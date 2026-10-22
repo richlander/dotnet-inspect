@@ -233,6 +233,7 @@ public static class EcosystemFindIndexJson
             },
             IsEditorBrowsableNever =
                 evidence.IsEditorBrowsableNever,
+            MetadataName = evidence.MetadataName,
         };
 
     private static EcosystemFindIndexNamedTypeDocument ToNamedType(
@@ -435,6 +436,7 @@ public static class EcosystemFindIndexJson
                 evidence.Member.Fingerprint,
                 evidence.Member.TypeFullName,
                 evidence.Member.MemberName),
+            evidence.MetadataName,
             FromType(evidence.DeclaringType),
             evidence.ReceiverType is null ? null : FromNamedType(evidence.ReceiverType),
             evidence.ReturnType is null ? null : FromNamedType(evidence.ReturnType),
@@ -588,6 +590,7 @@ internal sealed record EcosystemFindIndexEvidenceDocument
     public required EcosystemFindIndexTypeDiscoveryDocument
         DeclaringTypeDiscoveryAttributes { get; init; }
     public required bool IsEditorBrowsableNever { get; init; }
+    public required string MetadataName { get; init; }
 }
 
 internal sealed record EcosystemFindIndexNamedTypeDocument
