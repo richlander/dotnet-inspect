@@ -350,7 +350,7 @@ interface HomeDemoFixture {
   resolutions?: Readonly<Record<string, BrowserHomeDemoResolved>>;
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
   catalogPending?: boolean;
-  resolutionPending?: boolean;
+  resolutionPendingOrdinal?: number;
 }
 
 interface DiagnosticsFixture {
@@ -3326,8 +3326,9 @@ async function installFacades(
       const homeDemoResolutions =
         ${JSON.stringify(homeDemos?.resolutions ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
-      let holdNextHomeDemoResolution =
-        ${Boolean(homeDemos?.resolutionPending)};
+      const homeDemoResolutionPendingOrdinal =
+        ${homeDemos?.resolutionPendingOrdinal ?? 0};
+      let homeDemoResolutionOrdinal = 0;
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
       let preparedRetainedWorkspace = null;
@@ -3898,8 +3899,9 @@ async function installFacades(
       }
       export async function resolveHomeDemo(id) {
         document.documentElement.dataset.homeDemoResolve = id;
-        if (holdNextHomeDemoResolution) {
-          holdNextHomeDemoResolution = false;
+        homeDemoResolutionOrdinal++;
+        if (homeDemoResolutionOrdinal
+            === homeDemoResolutionPendingOrdinal) {
           document.documentElement.dataset.homeDemoResolutionPending = "true";
           await new Promise(resolve => document.addEventListener(
             "finish-home-demo-resolution", resolve, { once: true }));

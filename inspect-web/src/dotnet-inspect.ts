@@ -3215,11 +3215,11 @@ function prepareUnpublishedWorkspace(): void {
 }
 
 function selectRetainedWorkspace(workspaceId: string): void {
-  navigationSequence.begin();
+  const navigationSeq = navigationSequence.begin();
   if (retainedWorkspaceActivation?.state.definitions.some(
     definition => definition.id === workspaceId)) {
     observeAsync(
-      activateManagedRetainedWorkspace(workspaceId, "push"),
+      activateManagedRetainedWorkspace(workspaceId, "push", navigationSeq),
       "Activating retained Workspace",
     );
     return;
@@ -3330,6 +3330,7 @@ async function activateCompatibilityRetainedWorkspace(
 async function activateManagedRetainedWorkspace(
   retainedDefinitionId: string,
   locationPolicy: "push" | "replace" | "none",
+  navigationSeq: number,
 ): Promise<void> {
     const controller = requireRetainedWorkspaceActivation();
     const definition = controller.state.definitions.find(
@@ -3340,6 +3341,7 @@ async function activateManagedRetainedWorkspace(
     }
     const initial =
       await retainedDefinitionInitialPresentation(definition);
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (controller.state.activeDefinitionId === retainedDefinitionId) {
       if (initial.homeDemo !== undefined) {
         applyActiveRetainedDefinitionPresentation(initial);
@@ -3358,31 +3360,34 @@ async function activateManagedRetainedWorkspace(
       installedRetainedLocation,
       history,
     );
-    const activationNavigationSeq = navigationSequence.current();
     let result: BrowserRetainedWorkspaceActivationResult;
     try {
       const activation = controller.activate(
         retainedDefinitionId,
-        () => retainedLocationIntents.currentIntentId === locationIntent.id,
+        () => navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationIntents.currentIntentId === locationIntent.id,
         posting => installRetainedDefinitionPosting(
           posting,
           locationIntent,
           initial),
         undefined,
         undefined,
-        posting => retainedLocationPresentationCurrent(
-          locationIntent,
-          posting.canonicalLocation,
-        ),
+        posting => navigationSequence.isCurrent(navigationSeq)
+          && retainedLocationPresentationCurrent(
+            locationIntent,
+            posting.canonicalLocation,
+          ),
       );
       render({ synchronizeUrl: false });
       result = await activation;
     } catch (error) {
+      if (!navigationSequence.isCurrent(navigationSeq)) return;
       failedManagedRetainedDefinitionId = retainedDefinitionId;
       realignRetainedLocationIntent(locationIntent, "failed");
       render({ synchronizeUrl: false });
       throw error;
     }
+    if (!navigationSequence.isCurrent(navigationSeq)) return;
     if (result.status === "failed") {
       failedManagedRetainedDefinitionId = retainedDefinitionId;
       realignRetainedLocationIntent(locationIntent, "failed");
@@ -3396,7 +3401,7 @@ async function activateManagedRetainedWorkspace(
       completeRetainedActivationPresentation(
         result,
         locationIntent,
-        activationNavigationSeq,
+        navigationSeq,
       );
       clearWorkspaceFeedIdentity();
     }
@@ -3560,8 +3565,9 @@ function applyActiveRetainedDefinitionPresentation(
 function deleteRetainedWorkspace(workspaceId: string): void {
   if (retainedWorkspaceActivation?.state.definitions.some(
     definition => definition.id === workspaceId)) {
+    const navigationSeq = navigationSequence.begin();
     observeAsync(
-      deleteManagedRetainedWorkspace(workspaceId),
+      deleteManagedRetainedWorkspace(workspaceId, navigationSeq),
       "Deleting retained Workspace",
     );
     return;
@@ -3614,6 +3620,7 @@ function deleteRetainedWorkspace(workspaceId: string): void {
 
 async function deleteManagedRetainedWorkspace(
   retainedDefinitionId: string,
+  navigationSeq: number,
 ): Promise<void> {
   const controller = requireRetainedWorkspaceActivation();
   const wasActive =
@@ -3624,9 +3631,10 @@ async function deleteManagedRetainedWorkspace(
     ? undefined
     : controller.state.definitions[definitionIndex + 1]
       ?? controller.state.definitions[definitionIndex - 1];
-  const successorInitialPresentation = successor === undefined
+  const successorInitialPresentation = !wasActive || successor === undefined
     ? undefined
     : await retainedDefinitionInitialPresentation(successor);
+  if (!navigationSequence.isCurrent(navigationSeq)) return;
   const compatibilitySuccessor =
     successor === undefined
       ? retainedWorkspaces.workspaces.at(-1)
@@ -3644,14 +3652,16 @@ async function deleteManagedRetainedWorkspace(
     ? {
       successorDefinitionId: successor.id,
       acceptSuccessor: () =>
-        retainedLocationIntents.currentIntentId === locationIntent.id,
+        navigationSequence.isCurrent(navigationSeq)
+        && retainedLocationIntents.currentIntentId === locationIntent.id,
       completeSuccessor: posting =>
         installRetainedDefinitionPosting(
           posting,
           locationIntent,
           successorInitialPresentation),
       isSuccessorPresentationCurrent: posting =>
-        retainedLocationPresentationCurrent(
+        navigationSequence.isCurrent(navigationSeq)
+        && retainedLocationPresentationCurrent(
           locationIntent,
           posting.canonicalLocation,
         ),

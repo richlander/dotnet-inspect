@@ -689,6 +689,34 @@ test("inactive managed history activation continues to final presentation", () =
     /if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(restoredActiveManagedWorkspace[\s\S]*render\(\{ synchronizeUrl: false \}\);\s*return;/);
 });
 
+test("retained selection and deletion preserve initiating navigation authority", () => {
+  const select = appSource.match(
+    /function selectRetainedWorkspace\([\s\S]*?\n}\n\nasync function activateCompatibilityRetainedWorkspace/,
+  )?.[0] ?? "";
+  const activate = appSource.match(
+    /async function activateManagedRetainedWorkspace\([\s\S]*?\n}\n\nfunction activateRetainedWorkspaceProjection/,
+  )?.[0] ?? "";
+  const deleteWorkspace = appSource.match(
+    /function deleteRetainedWorkspace\([\s\S]*?\n}\n\nasync function deleteManagedRetainedWorkspace/,
+  )?.[0] ?? "";
+  const deleteManaged = appSource.match(
+    /async function deleteManagedRetainedWorkspace\([\s\S]*?\n}\n\n\/\/ Idle resolves/,
+  )?.[0] ?? "";
+
+  assert.match(
+    select,
+    /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*activateManagedRetainedWorkspace\(workspaceId, "push", navigationSeq\)/);
+  assert.match(
+    activate,
+    /navigationSeq: number,[\s\S]*await retainedDefinitionInitialPresentation\(definition\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*\(\) => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationIntents\.currentIntentId === locationIntent\.id[\s\S]*posting => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationPresentationCurrent\([\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*navigationSeq,\s*\)/);
+  assert.match(
+    deleteWorkspace,
+    /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*deleteManagedRetainedWorkspace\(workspaceId, navigationSeq\)/);
+  assert.match(
+    deleteManaged,
+    /navigationSeq: number,[\s\S]*await retainedDefinitionInitialPresentation\(successor\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*isSuccessorPresentationCurrent: posting =>\s*navigationSequence\.isCurrent\(navigationSeq\)/);
+});
+
 test("initial workspace packet resolution waits for the engine phase", () => {
   assert.match(
     appSource,
@@ -1703,19 +1731,19 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /async function openSavedWorkspaceEntry\([\s\S]*const activationNavigationSeq = navigationSequence\.begin\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
   assert.match(
     appSource,
-    /async function activateManagedRetainedWorkspace\([\s\S]*controller\.state\.definitions\.find\([\s\S]*retainedDefinitionPackageLens\(definition\)[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*initialPackageLens\)/);
+    /async function activateManagedRetainedWorkspace\([\s\S]*navigationSeq: number,[\s\S]*const initial =\s*await retainedDefinitionInitialPresentation\(definition\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*initial\)/);
   assert.match(
     appSource,
-    /async function retainedDefinitionPackageLens\([\s\S]*"packageQuery" in definition[\s\S]*parseWorkspaceHref\(definition\.canonicalLocation\)[\s\S]*packageLens/);
+    /async function retainedDefinitionInitialPresentation\([\s\S]*"homeDemo" in definition[\s\S]*resolveProductHomeDemo\(definition\.homeDemo\.id\)[\s\S]*"packageQuery" in definition[\s\S]*parseWorkspaceHref\(definition\.canonicalLocation\)[\s\S]*packageLens/);
   assert.match(
     appSource,
-    /managedHistoryWorkspaceDefinition[\s\S]*retainedDefinitionPackageLens\(\s*managedHistoryWorkspaceDefinition\)[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*state\.rootKind === "package"[\s\S]*state\.packageLens = initialPackageLens[\s\S]*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*posting\.canonicalLocation === location\.href \? "exact" : "changed",\s*initialPackageLens/);
+    /managedHistoryWorkspaceDefinition[\s\S]*retainedDefinitionInitialPresentation\(\s*managedHistoryWorkspaceDefinition\)[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*applyActiveRetainedDefinitionPresentation\(initial\)[\s\S]*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*initial,\s*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
   assert.match(
     appSource,
-    /async function deleteManagedRetainedWorkspace\([\s\S]*successorPackageLens[\s\S]*retainedDefinitionPackageLens\(successor\)[\s\S]*completeSuccessor: posting =>\s*installRetainedWorkspacePosting\(\s*posting,\s*locationIntent,\s*undefined,\s*successorPackageLens\)/);
+    /async function deleteManagedRetainedWorkspace\([\s\S]*navigationSeq: number,[\s\S]*successorInitialPresentation = !wasActive \|\| successor === undefined[\s\S]*await retainedDefinitionInitialPresentation\(successor\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*completeSuccessor: posting =>\s*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*successorInitialPresentation\)/);
   assert.match(
     appSource,
-    /async function activateManagedRetainedWorkspace\([\s\S]*const activationNavigationSeq = navigationSequence\.current\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
+    /async function activateManagedRetainedWorkspace\([\s\S]*\(\) => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationIntents\.currentIntentId === locationIntent\.id[\s\S]*posting => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationPresentationCurrent\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*navigationSeq,\s*\)/);
   assert.match(
     packageAction,
     /catch \(error\) \{[\s\S]*withNavigationPackageDetailFailure\([\s\S]*render\(\{ synchronizeUrl: false \}\);[\s\S]*return;/);
