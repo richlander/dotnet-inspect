@@ -163,7 +163,7 @@ public sealed class SymbolKeyTests
     {
         var keys = new SymbolKeyBuilder<TestPart>();
         keys.Begin();
-        Assert.Throws<InvalidOperationException>(keys.Begin);
+        Assert.Throws<InvalidOperationException>(() => keys.Begin());
         Assert.Throws<InvalidOperationException>(() => keys.End(1));
         Assert.Throws<InvalidOperationException>(keys.Freeze);
         keys.Abandon();
