@@ -1017,6 +1017,19 @@ public static class FindingDiffAny
         }
 
         /// <summary>
+        /// Ends the comparison: the last chunk freezes and the builders release
+        /// their storage, so a completed comparison retains only its frozen
+        /// chunks, memo, and tables.
+        /// </summary>
+        public void Complete()
+        {
+            FreezeRetained();
+            Retained.Release();
+            Transient.Release();
+            Scratch.Release();
+        }
+
+        /// <summary>
         /// Freezes the staged retained keys into one shared backing, the chunk
         /// every slot of that generation resolves through from now on.
         /// </summary>
@@ -2039,6 +2052,8 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
     /// <summary>The key's view, once its chunk froze.</summary>
     public SymbolKey<FindingDiffAnyPart> Frozen => _owner.Chunk(_generation).Resolve(_offset, _length);
 
+    OpaqueByteRange FrozenRange => _owner.Chunk(_generation).RangeAt(_offset, _length);
+
     /// <summary>The key's bytes while its chunk is staged.</summary>
     public ReadOnlySpan<byte> Bytes => _owner.Retained.Staged(_generation, _offset, _length);
 
@@ -2054,11 +2069,11 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
         bool frozen = IsFrozen;
         bool otherFrozen = other.IsFrozen;
         if (frozen && otherFrozen)
-            return Frozen.Equals(other.Frozen);
+            return FrozenRange.Equals(other.FrozenRange);
         if (frozen)
-            return Frozen.Range.SequenceEqual(other.Bytes);
+            return FrozenRange.SequenceEqual(other.Bytes);
         if (otherFrozen)
-            return other.Frozen.Range.SequenceEqual(Bytes);
+            return other.FrozenRange.SequenceEqual(Bytes);
         return Bytes.SequenceEqual(other.Bytes);
     }
 
@@ -2068,7 +2083,7 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
     public override int GetHashCode()
     {
         if (IsFrozen)
-            return Frozen.GetHashCode();
+            return FrozenRange.GetHashCode();
         var hash = new HashCode();
         hash.AddBytes(Bytes);
         return hash.ToHashCode();
@@ -2195,6 +2210,8 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
             }
         }
 
+        _a.Complete();
+        _b.Complete();
         _states.Sort((x, y) => string.CompareOrdinal(x.FullName, y.FullName));
         Result = new FindingDiffAnyResult(
             _states.ToImmutable(),

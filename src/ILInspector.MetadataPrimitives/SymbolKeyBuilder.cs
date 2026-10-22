@@ -116,6 +116,9 @@ public sealed class SymbolKeyPopulation<TDomain>
     /// <summary>The key staged at <paramref name="offset"/> before the freeze, for a consumer that recorded its slot.</summary>
     public SymbolKey<TDomain> Resolve(int offset, int length)
         => new(_range.Slice(offset, length));
+
+    /// <summary>A slot's range without the key view's validation, for a consumer's hot equality.</summary>
+    internal OpaqueByteRange RangeAt(int offset, int length) => _range.Slice(offset, length);
 }
 
 /// <summary>
@@ -320,26 +323,24 @@ public sealed class SymbolKeyBuilder<TDomain>
         }
     }
 
-    /// <summary>Discards the staged population; its staged keys become invalid.</summary>
+    /// <summary>Discards the staged population; its staged keys become invalid. Storage is kept for the next population.</summary>
     public void Reset()
     {
         _length = 0;
         _open = NotOpen;
         _generation++;
-        Trim();
     }
 
-    // Staging storage that grew for one unusually large population shrinks back,
-    // so a long-lived builder does not retain that population's size; ordinary
-    // growth is kept, since reallocating per population would cost more than
-    // it saves.
-    void Trim()
+    /// <summary>
+    /// Discards the staged population and its storage: what a consumer calls
+    /// when no population will follow, so a completed comparison retains only
+    /// its frozen chunks.
+    /// </summary>
+    public void Release()
     {
-        if (_scratch.Length > TrimThreshold && _scratch.Length > 4 * _initialCapacity)
-            _scratch = new byte[_initialCapacity];
+        Reset();
+        _scratch = [];
     }
-
-    const int TrimThreshold = 256 * 1024;
 
     /// <summary>
     /// Transfers the staged population to one immutable backing and starts a new
@@ -354,7 +355,6 @@ public sealed class SymbolKeyBuilder<TDomain>
         var population = new SymbolKeyPopulation<TDomain>(backing.Freeze(), _generation);
         _length = 0;
         _generation++;
-        Trim();
         return population;
     }
 
