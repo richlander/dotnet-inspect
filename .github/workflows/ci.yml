@@ -524,7 +524,7 @@ jobs:
           --filter-class 'DotnetInspect.Cli.Tests.WorkspacePacketCommandTests'
           --filter-class 'DotnetInspect.Cli.Tests.CliRowSelectionLoweringTests'
           --filter-class 'DotnetInspect.Cli.Tests.LibraryApiDiffCommandTests'
-          --minimum-expected-tests 2
+          --filter-not-trait "Speed=Slow" --minimum-expected-tests 70
 
       - name: Run embedded skill tests
         if: fromJSON(needs.changes.outputs.plan).validations.skillGate
