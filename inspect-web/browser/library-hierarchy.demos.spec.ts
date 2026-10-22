@@ -226,6 +226,8 @@ async function installHomeDemo(
     holdPostingRecord?: boolean;
     holdAcknowledgement?: boolean;
     holdResolutionAt?: number;
+    failResolutionAt?: number;
+    holdSurfaceAdmissionAt?: number;
   },
 ): Promise<string> {
   const id = `${focusKind}-${section === "Methods" ? "methods" : "graph"}`;
@@ -251,6 +253,15 @@ async function installHomeDemo(
       ...(options?.holdResolutionAt === undefined
         ? {}
         : { resolutionPendingOrdinal: options.holdResolutionAt }),
+      ...(options?.failResolutionAt === undefined
+        ? {}
+        : { resolutionFailureOrdinal: options.failResolutionAt }),
+      ...(options?.holdSurfaceAdmissionAt === undefined
+        ? {}
+        : {
+          surfaceAdmissionPendingOrdinal:
+            options.holdSurfaceAdmissionAt,
+        }),
     },
     undefined,
     undefined,
@@ -263,6 +274,7 @@ async function installHomeDemo(
 async function installMethodsHomeDemos(
   page: Page,
   resolutionPendingOrdinal: number,
+  resolutionFailureOrdinal?: number,
 ): Promise<{ packageId: string; platformId: string }> {
   const packageId = "package-methods";
   const platformId = "platform-methods";
@@ -297,6 +309,9 @@ async function installMethodsHomeDemos(
         [platformId]: homeDemoResult("Methods", "platform"),
       },
       resolutionPendingOrdinal,
+      ...(resolutionFailureOrdinal === undefined
+        ? {}
+        : { resolutionFailureOrdinal }),
     });
   return { packageId, platformId };
 }
@@ -862,6 +877,42 @@ test("superseded Methods demo resolution cannot replace Back navigation", async 
   await expect(page.locator("#home-demos")).toBeVisible();
 });
 
+test("accepted Methods completion cannot replace Back navigation", async ({
+  page,
+}) => {
+  const id = await installHomeDemo(page, "Methods", "package", {
+    holdSurfaceAdmissionAt: 1,
+  });
+  await page.goto("/");
+  await openProductDestination(page, "demos");
+  await page.locator(`[data-workspace-demo="${id}"]`).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-surface-admission-pending",
+    "true",
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL("/");
+  await releaseFacade(page, "finish-home-demo-surface-admission");
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-surface-admission-pending",
+    "false",
+  );
+  await expect(page).toHaveURL("/");
+  await expect(page.locator("#home-demos")).toBeVisible();
+
+  await openProductDestination(page, "workspace");
+  const activeWorkspace = page.locator(".workspace-card.active");
+  await expect(activeWorkspace).toContainText("package Methods");
+  await activeWorkspace.click();
+  await expect(page).toHaveURL(`/demos?demo=${id}`);
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+});
+
 test("superseded retained Methods selection cannot replace Back navigation", async ({
   page,
 }) => {
@@ -939,6 +990,55 @@ test("superseded retained Methods deletion cannot activate its successor", async
   await expect(page.locator(".workspace-card.active"))
     .toContainText("platform Methods");
 });
+
+for (const staleOperation of ["selection", "deletion"] as const) {
+  test(`superseded retained Methods ${staleOperation} suppresses resolution failure`, async ({
+    page,
+  }) => {
+    const { packageId, platformId } =
+      await installMethodsHomeDemos(page, 3, 3);
+    await page.goto("/demos");
+    await page.locator(`[data-workspace-demo="${packageId}"]`).click();
+    await page.getByRole("link", { name: "Demos", exact: true }).click();
+    await page.locator(`[data-workspace-demo="${platformId}"]`).click();
+    await expect(page).toHaveURL(
+      new RegExp(`/demos\\?demo=${platformId}$`),
+    );
+    const platformUrl = page.url();
+    await openProductDestination(page, "workspace");
+
+    if (staleOperation === "selection") {
+      await page.locator("[data-workspace-switch]").click();
+    } else {
+      const activeRow = page.locator(".workspace-row").filter({
+        has: page.locator(".workspace-card.active"),
+      });
+      await activeRow.locator("[data-workspace-delete]").click();
+    }
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-home-demo-resolution-pending",
+      "true",
+    );
+
+    await page.goBack();
+    await expect(page).toHaveURL(platformUrl);
+    await releaseFacade(page, "finish-home-demo-resolution");
+
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-home-demo-resolution-pending",
+      "false",
+    );
+    await expect(page).toHaveURL(platformUrl);
+    await expect(page.getByText("Fixture product demo resolution failed."))
+      .toHaveCount(0);
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-home-demo-prepare", platformId);
+    await openProductDestination(page, "workspace");
+    await expect(page.locator("[data-workspace-delete]")).toHaveCount(2);
+    await expect(page.locator(".workspace-card.active"))
+      .toContainText("platform Methods");
+  });
+}
 
 test("Methods demo definition capacity failure restores the catalog", async ({
   page,

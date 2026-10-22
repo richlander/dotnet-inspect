@@ -3339,12 +3339,34 @@ async function activateManagedRetainedWorkspace(
       throw new Error(
         `Unknown retained Workspace definition '${retainedDefinitionId}'.`);
     }
-    const initial =
-      await retainedDefinitionInitialPresentation(definition);
-    if (!navigationSequence.isCurrent(navigationSeq)) return;
+    const initial = await currentRetainedDefinitionInitialPresentation(
+      definition,
+      navigationSeq,
+    );
+    if (initial === null) return;
     if (controller.state.activeDefinitionId === retainedDefinitionId) {
       if (initial.homeDemo !== undefined) {
-        applyActiveRetainedDefinitionPresentation(initial);
+        const posting = retainedWorkspacePostings.get(retainedDefinitionId);
+        if (posting === undefined) {
+          throw new Error(
+            "The active retained product demo omitted its posting.");
+        }
+        if (!retainedHomeDemoPresentationInstalled(posting)) {
+          const locationIntent = retainedLocationIntents.admitNonBrowser(
+            locationPolicy,
+            installedRetainedLocation,
+            history,
+          );
+          const installed = await installMethodsHomeDemoPosting(
+            posting,
+            initial.homeDemo,
+            locationIntent,
+            navigationSeq,
+          );
+          if (!installed) return;
+        } else {
+          applyActiveRetainedDefinitionPresentation(initial);
+        }
         render({ synchronizeUrl: false });
       } else {
         openDefaultWorkspace();
@@ -3369,7 +3391,8 @@ async function activateManagedRetainedWorkspace(
         posting => installRetainedDefinitionPosting(
           posting,
           locationIntent,
-          initial),
+          initial,
+          navigationSeq),
         undefined,
         undefined,
         posting => navigationSequence.isCurrent(navigationSeq)
@@ -3528,10 +3551,26 @@ async function retainedDefinitionInitialPresentation(
   return {};
 }
 
+async function currentRetainedDefinitionInitialPresentation(
+  definition: RetainedWorkspaceActivationController[
+    "state"
+  ]["definitions"][number],
+  navigationSeq: number,
+): Promise<RetainedDefinitionInitialPresentation | null> {
+  try {
+    const initial = await retainedDefinitionInitialPresentation(definition);
+    return navigationSequence.isCurrent(navigationSeq) ? initial : null;
+  } catch (error) {
+    if (!navigationSequence.isCurrent(navigationSeq)) return null;
+    throw error;
+  }
+}
+
 async function installRetainedDefinitionPosting(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
   initial: RetainedDefinitionInitialPresentation,
+  navigationSeq: number,
   browserRestoration?: "exact" | "changed",
 ): Promise<void> {
   if (initial.homeDemo !== undefined) {
@@ -3539,6 +3578,7 @@ async function installRetainedDefinitionPosting(
       posting,
       initial.homeDemo,
       locationIntent,
+      navigationSeq,
       browserRestoration,
     );
     return;
@@ -3560,6 +3600,15 @@ function applyActiveRetainedDefinitionPresentation(
     && state.rootKind === "package") {
     state.packageLens = initial.packageLens;
   }
+}
+
+function retainedHomeDemoPresentationInstalled(
+  posting: BrowserRetainedWorkspacePosting,
+): boolean {
+  return activeRetainedWorkspacePosting?.realizationId === posting.realizationId
+    && installedRetainedLocation?.canonicalLocation
+      === posting.canonicalLocation
+    && activeWorkspaceUrl === posting.canonicalLocation;
 }
 
 function deleteRetainedWorkspace(workspaceId: string): void {
@@ -3633,8 +3682,12 @@ async function deleteManagedRetainedWorkspace(
       ?? controller.state.definitions[definitionIndex - 1];
   const successorInitialPresentation = !wasActive || successor === undefined
     ? undefined
-    : await retainedDefinitionInitialPresentation(successor);
-  if (!navigationSequence.isCurrent(navigationSeq)) return;
+    : await currentRetainedDefinitionInitialPresentation(
+      successor,
+      navigationSeq,
+    );
+  if (wasActive && successor !== undefined
+    && successorInitialPresentation === null) return;
   const compatibilitySuccessor =
     successor === undefined
       ? retainedWorkspaces.workspaces.at(-1)
@@ -3658,7 +3711,8 @@ async function deleteManagedRetainedWorkspace(
         installRetainedDefinitionPosting(
           posting,
           locationIntent,
-          successorInitialPresentation),
+          successorInitialPresentation,
+          navigationSeq),
       isSuccessorPresentationCurrent: posting =>
         navigationSequence.isCurrent(navigationSeq)
         && retainedLocationPresentationCurrent(
@@ -19706,11 +19760,14 @@ async function activateMethodsHomeDemo(
       () => navigationSequence.isCurrent(navigationSeq)
         && retainedLocationIntents.currentIntentId
           === admittedLocationIntent.id,
-      posting => installMethodsHomeDemoPosting(
-        posting,
-        demo,
-        admittedLocationIntent,
-      ),
+      async posting => {
+        await installMethodsHomeDemoPosting(
+          posting,
+          demo,
+          admittedLocationIntent,
+          navigationSeq,
+        );
+      },
       undefined,
       undefined,
       posting => navigationSequence.isCurrent(navigationSeq)
@@ -20323,7 +20380,8 @@ function productNavigationUnavailableReason(
 ): string | null {
   if (destination === "workspace"
     && state.package === null
-    && state.platformSelection === null) {
+    && state.platformSelection === null
+    && activeRetainedWorkspacePosting === null) {
     return "No workspace is open";
   }
   if (destination !== "query" && destination !== "activity") return null;
@@ -21823,7 +21881,8 @@ async function openWorkspaceProductDestination(): Promise<{
   readonly restoreDestinationFocus: boolean;
 } | null> {
   const pkg = state.package;
-  if (!pkg && !state.platformSelection) return null;
+  if (!pkg && !state.platformSelection
+    && activeRetainedWorkspacePosting === null) return null;
   const fallbackPackage = pkg?.source.kind === "platform" ? null : pkg;
 
   dismissModalsForRoutedNavigation();
@@ -27086,8 +27145,13 @@ async function installMethodsHomeDemoPosting(
   posting: BrowserRetainedWorkspacePosting,
   demo: BrowserHomeDemoResolved,
   locationIntent: LocationIntentDeclaration,
+  navigationSeq: number,
   browserRestoration?: "exact" | "changed",
-): Promise<void> {
+): Promise<boolean> {
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || retainedLocationIntents.currentIntentId !== locationIntent.id) {
+    return false;
+  }
   const models = await loadRetainedWorkspaceModels(
     engineClient.catalog,
     posting,
@@ -27097,6 +27161,10 @@ async function installMethodsHomeDemoPosting(
     throw new Error(
       "A newer retained Workspace replaced this product demo.");
   }
+  if (!navigationSequence.isCurrent(navigationSeq)
+    || retainedLocationIntents.currentIntentId !== locationIntent.id) {
+    return false;
+  }
   installRetainedWorkspaceModels(posting, models, null, false);
   publishRetainedLocationAssociation(
     posting,
@@ -27104,6 +27172,7 @@ async function installMethodsHomeDemoPosting(
     browserRestoration,
   );
   applyMethodsHomeDemoSelection(demo);
+  return true;
 }
 
 function retainPackageHomeDemoShareBasis(
@@ -29165,18 +29234,39 @@ window.addEventListener("popstate", () => {
       incumbent: installedRetainedLocation,
     });
     try {
-      const initial = await retainedDefinitionInitialPresentation(
-        managedHistoryWorkspaceDefinition);
+      const initial = await currentRetainedDefinitionInitialPresentation(
+        managedHistoryWorkspaceDefinition,
+        navigationSeq,
+      );
+      if (initial === null) return;
       if (retainedWorkspaceActivation?.state.activeDefinitionId
           === historyWorkspaceId) {
-        const effect = retainedLocationIntents.classify(locationIntent, {
-          outcome: "applied",
-          synchronization: "current",
-          association: retainedLocationFallbackAssociation(),
-          browserRestoration: "exact",
-        });
-        retainedLocationIntents.publish(effect, history);
-        applyActiveRetainedDefinitionPresentation(initial);
+        const posting = retainedWorkspacePostings.get(historyWorkspaceId);
+        if (initial.homeDemo !== undefined && posting === undefined) {
+          throw new Error(
+            "The active retained product demo omitted its posting.");
+        }
+        if (initial.homeDemo !== undefined
+          && posting !== undefined
+          && !retainedHomeDemoPresentationInstalled(posting)) {
+          const installed = await installMethodsHomeDemoPosting(
+            posting,
+            initial.homeDemo,
+            locationIntent,
+            navigationSeq,
+            posting.canonicalLocation === location.href ? "exact" : "changed",
+          );
+          if (!installed) return;
+        } else {
+          const effect = retainedLocationIntents.classify(locationIntent, {
+            outcome: "applied",
+            synchronization: "current",
+            association: retainedLocationFallbackAssociation(),
+            browserRestoration: "exact",
+          });
+          retainedLocationIntents.publish(effect, history);
+          applyActiveRetainedDefinitionPresentation(initial);
+        }
         restoredActiveManagedWorkspace = true;
       } else {
         const result = await requireRetainedWorkspaceActivation().activate(
@@ -29186,6 +29276,7 @@ window.addEventListener("popstate", () => {
             posting,
             locationIntent,
             initial,
+            navigationSeq,
             posting.canonicalLocation === location.href ? "exact" : "changed",
           ),
           undefined,

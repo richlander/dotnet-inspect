@@ -702,19 +702,31 @@ test("retained selection and deletion preserve initiating navigation authority",
   const deleteManaged = appSource.match(
     /async function deleteManagedRetainedWorkspace\([\s\S]*?\n}\n\n\/\/ Idle resolves/,
   )?.[0] ?? "";
+  const initialPresentation = appSource.match(
+    /async function currentRetainedDefinitionInitialPresentation\([\s\S]*?\n}\n\nasync function installRetainedDefinitionPosting/,
+  )?.[0] ?? "";
+  const installMethods = appSource.match(
+    /async function installMethodsHomeDemoPosting\([\s\S]*?\n}\n\nfunction retainPackageHomeDemoShareBasis/,
+  )?.[0] ?? "";
 
   assert.match(
     select,
     /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*activateManagedRetainedWorkspace\(workspaceId, "push", navigationSeq\)/);
   assert.match(
     activate,
-    /navigationSeq: number,[\s\S]*await retainedDefinitionInitialPresentation\(definition\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*\(\) => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationIntents\.currentIntentId === locationIntent\.id[\s\S]*posting => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationPresentationCurrent\([\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*navigationSeq,\s*\)/);
+    /navigationSeq: number,[\s\S]*await currentRetainedDefinitionInitialPresentation\(\s*definition,\s*navigationSeq,[\s\S]*if \(initial === null\) return;[\s\S]*\(\) => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationIntents\.currentIntentId === locationIntent\.id[\s\S]*posting => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationPresentationCurrent\([\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*navigationSeq,\s*\)/);
   assert.match(
     deleteWorkspace,
     /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*deleteManagedRetainedWorkspace\(workspaceId, navigationSeq\)/);
   assert.match(
     deleteManaged,
-    /navigationSeq: number,[\s\S]*await retainedDefinitionInitialPresentation\(successor\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*isSuccessorPresentationCurrent: posting =>\s*navigationSequence\.isCurrent\(navigationSeq\)/);
+    /navigationSeq: number,[\s\S]*await currentRetainedDefinitionInitialPresentation\(\s*successor,\s*navigationSeq,[\s\S]*successorInitialPresentation === null\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*isSuccessorPresentationCurrent: posting =>\s*navigationSequence\.isCurrent\(navigationSeq\)/);
+  assert.match(
+    initialPresentation,
+    /try \{[\s\S]*await retainedDefinitionInitialPresentation\(definition\);[\s\S]*navigationSequence\.isCurrent\(navigationSeq\) \? initial : null;[\s\S]*catch \(error\) \{\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return null;\s*throw error;/);
+  assert.match(
+    installMethods,
+    /!navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*return false;[\s\S]*await loadRetainedWorkspaceModels\([\s\S]*!navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*return false;[\s\S]*installRetainedWorkspaceModels[\s\S]*publishRetainedLocationAssociation[\s\S]*applyMethodsHomeDemoSelection[\s\S]*return true;/);
 });
 
 test("initial workspace packet resolution waits for the engine phase", () => {
@@ -1731,16 +1743,16 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /async function openSavedWorkspaceEntry\([\s\S]*const activationNavigationSeq = navigationSequence\.begin\(\)[\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*activationNavigationSeq,\s*\)/);
   assert.match(
     appSource,
-    /async function activateManagedRetainedWorkspace\([\s\S]*navigationSeq: number,[\s\S]*const initial =\s*await retainedDefinitionInitialPresentation\(definition\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*initial\)/);
+    /async function activateManagedRetainedWorkspace\([\s\S]*navigationSeq: number,[\s\S]*const initial = await currentRetainedDefinitionInitialPresentation\(\s*definition,\s*navigationSeq,[\s\S]*if \(initial === null\) return;[\s\S]*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*initial,\s*navigationSeq\)/);
   assert.match(
     appSource,
     /async function retainedDefinitionInitialPresentation\([\s\S]*"homeDemo" in definition[\s\S]*resolveProductHomeDemo\(definition\.homeDemo\.id\)[\s\S]*"packageQuery" in definition[\s\S]*parseWorkspaceHref\(definition\.canonicalLocation\)[\s\S]*packageLens/);
   assert.match(
     appSource,
-    /managedHistoryWorkspaceDefinition[\s\S]*retainedDefinitionInitialPresentation\(\s*managedHistoryWorkspaceDefinition\)[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*applyActiveRetainedDefinitionPresentation\(initial\)[\s\S]*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*initial,\s*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
+    /managedHistoryWorkspaceDefinition[\s\S]*currentRetainedDefinitionInitialPresentation\(\s*managedHistoryWorkspaceDefinition,\s*navigationSeq,[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*applyActiveRetainedDefinitionPresentation\(initial\)[\s\S]*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*initial,\s*navigationSeq,\s*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
   assert.match(
     appSource,
-    /async function deleteManagedRetainedWorkspace\([\s\S]*navigationSeq: number,[\s\S]*successorInitialPresentation = !wasActive \|\| successor === undefined[\s\S]*await retainedDefinitionInitialPresentation\(successor\);\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*completeSuccessor: posting =>\s*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*successorInitialPresentation\)/);
+    /async function deleteManagedRetainedWorkspace\([\s\S]*navigationSeq: number,[\s\S]*successorInitialPresentation = !wasActive \|\| successor === undefined[\s\S]*await currentRetainedDefinitionInitialPresentation\(\s*successor,\s*navigationSeq,[\s\S]*successorInitialPresentation === null\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*completeSuccessor: posting =>\s*installRetainedDefinitionPosting\(\s*posting,\s*locationIntent,\s*successorInitialPresentation,\s*navigationSeq\)/);
   assert.match(
     appSource,
     /async function activateManagedRetainedWorkspace\([\s\S]*\(\) => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationIntents\.currentIntentId === locationIntent\.id[\s\S]*posting => navigationSequence\.isCurrent\(navigationSeq\)\s*&& retainedLocationPresentationCurrent\([\s\S]*result\.status === "activated" \|\| result\.status === "noEffect"[\s\S]*completeRetainedActivationPresentation\(\s*result,\s*locationIntent,\s*navigationSeq,\s*\)/);

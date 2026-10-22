@@ -351,6 +351,8 @@ interface HomeDemoFixture {
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
   catalogPending?: boolean;
   resolutionPendingOrdinal?: number;
+  resolutionFailureOrdinal?: number;
+  surfaceAdmissionPendingOrdinal?: number;
 }
 
 interface DiagnosticsFixture {
@@ -3328,7 +3330,12 @@ async function installFacades(
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
       const homeDemoResolutionPendingOrdinal =
         ${homeDemos?.resolutionPendingOrdinal ?? 0};
+      const homeDemoResolutionFailureOrdinal =
+        ${homeDemos?.resolutionFailureOrdinal ?? 0};
+      const homeDemoSurfaceAdmissionPendingOrdinal =
+        ${homeDemos?.surfaceAdmissionPendingOrdinal ?? 0};
       let homeDemoResolutionOrdinal = 0;
+      let homeDemoSurfaceAdmissionOrdinal = 0;
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
       let preparedRetainedWorkspace = null;
@@ -3907,6 +3914,10 @@ async function installFacades(
             "finish-home-demo-resolution", resolve, { once: true }));
           document.documentElement.dataset.homeDemoResolutionPending = "false";
         }
+        if (homeDemoResolutionOrdinal
+            === homeDemoResolutionFailureOrdinal) {
+          throw new Error("Fixture product demo resolution failed.");
+        }
         return {
           found: homeDemoResolutions[id] !== undefined,
           demo: homeDemoResolutions[id] ?? null,
@@ -4330,11 +4341,23 @@ async function installFacades(
       export function abandonRetainedWorkspaceNavigation() {
         return "accepted";
       }
+      async function holdHomeDemoSurfaceAdmission() {
+        homeDemoSurfaceAdmissionOrdinal++;
+        if (homeDemoSurfaceAdmissionOrdinal
+            !== homeDemoSurfaceAdmissionPendingOrdinal) return;
+        document.documentElement.dataset.homeDemoSurfaceAdmissionPending =
+          "true";
+        await new Promise(resolve => document.addEventListener(
+          "finish-home-demo-surface-admission", resolve, { once: true }));
+        document.documentElement.dataset.homeDemoSurfaceAdmissionPending =
+          "false";
+      }
       export async function admitRetainedWorkspacePackage(
         _retainedDefinitionId,
         _realizationId,
         navigationId,
       ) {
+        await holdHomeDemoSurfaceAdmission();
         const surface =
           preparedRetainedWorkspace?.fixturePackageSurfaces?.[navigationId]
           ?? retainedWorkspaceSurface;
@@ -4362,6 +4385,7 @@ async function installFacades(
         _realizationId,
         navigationId,
       ) {
+        await holdHomeDemoSurfaceAdmission();
         const surface =
           preparedRetainedWorkspace?.fixturePlatformSurface
           ?? platformFocusSurface;
