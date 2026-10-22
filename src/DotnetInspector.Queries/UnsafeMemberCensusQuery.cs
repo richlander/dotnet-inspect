@@ -80,7 +80,7 @@ public static class UnsafeMemberCensusQuery
     {
         var operation = AssemblyAnalysisOperation<UnsafeMemberCensus>.Create(
             path,
-            methodSource);
+            methodSource.AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Borrow(context);
         return session.SnapshotOperation<

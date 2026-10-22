@@ -15,7 +15,17 @@ public delegate bool InstructionVisitor<TState>(
     int operandToken,
     int encodedLength);
 
-/// <summary>The outcome of <see cref="InstructionDecoder.VisitBody{TState}"/>.</summary>
+/// <summary>
+/// A struct instruction visitor: it receives what an
+/// <see cref="InstructionVisitor{TState}"/> receives and returns whether the
+/// visit continues.
+/// </summary>
+public interface IInstructionVisitor
+{
+    bool Visit(ILOpCode opcode, int operandToken, int encodedLength);
+}
+
+/// <summary>The outcome of <see cref="InstructionDecoder.VisitBody{TVisitor}(MethodBodyData, ref TVisitor)"/>.</summary>
 public enum MethodBodyVisitOutcome
 {
     /// <summary>
@@ -781,18 +791,39 @@ public static class InstructionDecoder
         ref TState state,
         InstructionVisitor<TState> visitor)
     {
-        ArgumentNullException.ThrowIfNull(body);
         ArgumentNullException.ThrowIfNull(visitor);
+        var adapter = new DelegateVisitor<TState>(state, visitor);
+        MethodBodyVisitOutcome outcome = VisitBody(body, ref adapter);
+        state = adapter.State;
+        return outcome;
+    }
+
+    /// <summary>
+    /// <see cref="VisitBody{TState}(MethodBodyData, ref TState, InstructionVisitor{TState})"/>
+    /// with a struct visitor that the visit calls directly.
+    /// </summary>
+    public static MethodBodyVisitOutcome VisitBody<TVisitor>(
+        MethodBodyData body,
+        ref TVisitor visitor)
+        where TVisitor : struct, IInstructionVisitor
+    {
+        ArgumentNullException.ThrowIfNull(body);
 
         ReadOnlySpan<byte> il = body.IL.AsSpan();
         int length = il.Length;
+        int words = (length + 63) >> 6;
         // Admitted boundaries: instruction starts that do not follow a prefix.
-        ulong[] admitted = ArrayPool<ulong>.Shared.Rent((length + 63) >> 6);
-        int[] targets = ArrayPool<int>.Shared.Rent(16);
+        ulong[]? rentedBits = words > 256 ? ArrayPool<ulong>.Shared.Rent(words) : null;
+        Span<ulong> admitted = rentedBits is null
+            ? stackalloc ulong[256]
+            : rentedBits;
+        admitted = admitted[..words];
+        admitted.Clear();
+        Span<int> targets = stackalloc int[64];
+        int[]? rentedTargets = null;
         int targetCount = 0;
         try
         {
-            Array.Clear(admitted, 0, (length + 63) >> 6);
             var reader = new ILReader(il);
             bool afterPrefix = false;
             while (reader.HasNext)
@@ -816,11 +847,21 @@ public static class InstructionDecoder
                         throw new BadImageFormatException($"Malformed switch at IL_{offset:X4}");
                     int baseOffset = (int)tableEnd;
                     for (uint i = 0; i < count; i++)
-                        AddTarget(ref targets, ref targetCount, baseOffset + (int)reader.ReadILUInt32());
+                    {
+                        AddTarget(
+                            ref targets,
+                            ref rentedTargets,
+                            ref targetCount,
+                            baseOffset + (int)reader.ReadILUInt32());
+                    }
                 }
                 else if (opcode.IsBranch())
                 {
-                    AddTarget(ref targets, ref targetCount, reader.ReadBranchDestination(opcode));
+                    AddTarget(
+                        ref targets,
+                        ref rentedTargets,
+                        ref targetCount,
+                        reader.ReadBranchDestination(opcode));
                 }
                 else
                 {
@@ -847,12 +888,12 @@ public static class InstructionDecoder
                         $"IL ends with a dangling prefix at IL_{offset:X4}");
                 }
 
-                if (!visitor(ref state, opcode, operandToken, reader.Offset - offset))
+                if (!visitor.Visit(opcode, operandToken, reader.Offset - offset))
                     return MethodBodyVisitOutcome.Stopped;
             }
 
             bool external = false;
-            foreach (int target in targets.AsSpan(0, targetCount))
+            foreach (int target in targets[..targetCount])
             {
                 if ((uint)target >= (uint)length)
                 {
@@ -868,9 +909,26 @@ public static class InstructionDecoder
 
             if (external)
                 return MethodBodyVisitOutcome.Incomplete;
-            return ExceptionFlowTopology.IsValidTopology(body, admitted)
-                ? MethodBodyVisitOutcome.Complete
-                : MethodBodyVisitOutcome.Incomplete;
+            if (!body.ExceptionRegionCatalog.HasExceptionRegions
+                && body.ExceptionRegionCatalog.Body == body.EvidenceId)
+            {
+                return MethodBodyVisitOutcome.Complete;
+            }
+
+            ulong[] bits = rentedBits ?? ArrayPool<ulong>.Shared.Rent(words);
+            try
+            {
+                if (rentedBits is null)
+                    admitted.CopyTo(bits);
+                return ExceptionFlowTopology.IsValidTopology(body, bits)
+                    ? MethodBodyVisitOutcome.Complete
+                    : MethodBodyVisitOutcome.Incomplete;
+            }
+            finally
+            {
+                if (rentedBits is null)
+                    ArrayPool<ulong>.Shared.Return(bits);
+            }
         }
         catch (InvalidProgramException ex)
         {
@@ -878,21 +936,38 @@ public static class InstructionDecoder
         }
         finally
         {
-            ArrayPool<ulong>.Shared.Return(admitted);
-            ArrayPool<int>.Shared.Return(targets);
+            if (rentedBits is not null)
+                ArrayPool<ulong>.Shared.Return(rentedBits);
+            if (rentedTargets is not null)
+                ArrayPool<int>.Shared.Return(rentedTargets);
         }
     }
 
-    static void AddTarget(ref int[] targets, ref int count, int target)
+    static void AddTarget(
+        ref Span<int> targets,
+        ref int[]? rented,
+        ref int count,
+        int target)
     {
         if (count == targets.Length)
         {
             int[] grown = ArrayPool<int>.Shared.Rent(targets.Length * 2);
-            targets.AsSpan(0, count).CopyTo(grown);
-            ArrayPool<int>.Shared.Return(targets);
+            targets.CopyTo(grown);
+            if (rented is not null)
+                ArrayPool<int>.Shared.Return(rented);
+            rented = grown;
             targets = grown;
         }
         targets[count++] = target;
+    }
+
+    struct DelegateVisitor<TState>(TState state, InstructionVisitor<TState> visitor)
+        : IInstructionVisitor
+    {
+        public TState State = state;
+
+        public bool Visit(ILOpCode opcode, int operandToken, int encodedLength) =>
+            visitor(ref State, opcode, operandToken, encodedLength);
     }
 
     static bool IsMethodOperand(ILOpCode opcode)

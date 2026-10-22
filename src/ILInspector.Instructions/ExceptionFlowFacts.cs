@@ -665,12 +665,11 @@ internal sealed class ExceptionFlowTopology
             return true;
 
         int length = body.IL.Length;
-        return TryShape(
+        return ValidateTopology(
                 descriptors,
                 offset => offset == length
                     || ((uint)offset < (uint)length
-                        && (admitted[offset >> 6] & (1UL << (offset & 63))) != 0),
-                out _)
+                        && (admitted[offset >> 6] & (1UL << (offset & 63))) != 0))
             is null;
     }
 
@@ -827,70 +826,8 @@ internal sealed class ExceptionFlowTopology
         out TopologyShape shape)
     {
         shape = default;
-        foreach (ExceptionFlowClauseDescriptor clause in clauses)
-        {
-            if (!IsSupportedKind(clause.Kind)
-                || !IsBoundary(clause.Protected)
-                || !IsBoundary(clause.Handler)
-                || clause.Filter is { } filter && !IsBoundary(filter))
-            {
-                return Invalid(
-                    InstructionExceptionFlowUnavailableReason.InvalidRegionBoundary,
-                    "Exception regions must use supported kinds and whole-instruction boundaries.");
-            }
-
-            if (clause.Protected.Overlaps(clause.Handler)
-                || clause.Filter is { } ownFilter
-                    && (clause.Protected.Overlaps(ownFilter)
-                        || ownFilter.Overlaps(clause.Handler)))
-            {
-                return Invalid(
-                    InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
-                    "A clause's protected, filter, and handler extents must be disjoint.");
-            }
-        }
-
-        var protectedGroups = clauses
-            .GroupBy(clause => clause.Protected)
-            .OrderBy(group => group.Min(clause => clause.Ordinal))
-            .ToArray();
-        foreach (IGrouping<ExceptionFlowExtent, ExceptionFlowClauseDescriptor> group in protectedGroups)
-        {
-            ExceptionFlowClauseDescriptor[] groupClauses =
-                [.. group.OrderBy(clause => clause.Ordinal)];
-            if (groupClauses.Length > 1
-                && groupClauses.Any(clause =>
-                    clause.Kind is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault))
-            {
-                return Invalid(
-                    InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
-                    "A shared protected extent cannot combine finally or fault with another clause.");
-            }
-        }
-
-        for (int left = 0; left < protectedGroups.Length; left++)
-        {
-            ExceptionFlowExtent leftExtent = protectedGroups[left].Key;
-            int leftFirst = protectedGroups[left].Min(clause => clause.Ordinal);
-            int leftLast = protectedGroups[left].Max(clause => clause.Ordinal);
-            for (int right = left + 1; right < protectedGroups.Length; right++)
-            {
-                ExceptionFlowExtent rightExtent = protectedGroups[right].Key;
-                int rightFirst = protectedGroups[right].Min(clause => clause.Ordinal);
-                int rightLast = protectedGroups[right].Max(clause => clause.Ordinal);
-                if (leftExtent.Contains(rightExtent)
-                    && leftExtent != rightExtent
-                    && rightLast >= leftFirst
-                    || rightExtent.Contains(leftExtent)
-                    && rightExtent != leftExtent
-                    && leftLast >= rightFirst)
-                {
-                    return Invalid(
-                        InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
-                        "Nested protected extents must preserve inner-before-outer metadata order.");
-                }
-            }
-        }
+        if (ValidateTopology(clauses, isBoundary) is { } invalid)
+            return Invalid(invalid.Reason, invalid.Detail);
 
         var topologyRegions = ImmutableArray.CreateBuilder<ExceptionFlowTopologyRegion>();
         var protectedOrdinals = new Dictionary<ExceptionFlowExtent, int>();
@@ -933,59 +870,211 @@ internal sealed class ExceptionFlowTopology
         }
 
         ImmutableArray<ExceptionFlowTopologyRegion> topology = topologyRegions.ToImmutable();
-        for (int left = 0; left < topology.Length; left++)
+        shape = new(topology, protectedOrdinals, handlerOrdinals, filterOrdinals);
+        return null;
+    }
+
+    /// <summary>
+    /// The topology rules, checked in order: each clause's kind, boundaries,
+    /// and disjoint extents; shared protected extents; inner-before-outer
+    /// nesting; non-crossing regions; and one enclosing context per clause.
+    /// Null when the clauses, in metadata order, form a valid topology.
+    /// </summary>
+    static (InstructionExceptionFlowUnavailableReason Reason, string Detail)? ValidateTopology(
+        ImmutableArray<ExceptionFlowClauseDescriptor> clauses,
+        Func<int, bool> isBoundary)
+    {
+        foreach (ExceptionFlowClauseDescriptor clause in clauses)
         {
-            for (int right = left + 1; right < topology.Length; right++)
+            if (!IsSupportedKind(clause.Kind)
+                || !IsBoundary(clause.Protected)
+                || !IsBoundary(clause.Handler)
+                || clause.Filter is { } filter && !IsBoundary(filter))
             {
-                ExceptionFlowExtent a = topology[left].Extent;
-                ExceptionFlowExtent b = topology[right].Extent;
+                return (
+                    InstructionExceptionFlowUnavailableReason.InvalidRegionBoundary,
+                    "Exception regions must use supported kinds and whole-instruction boundaries.");
+            }
+
+            if (clause.Protected.Overlaps(clause.Handler)
+                || clause.Filter is { } ownFilter
+                    && (clause.Protected.Overlaps(ownFilter)
+                        || ownFilter.Overlaps(clause.Handler)))
+            {
+                return (
+                    InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
+                    "A clause's protected, filter, and handler extents must be disjoint.");
+            }
+        }
+
+        int count = clauses.Length;
+        // The index of the first clause that shares each clause's protected
+        // extent, so each distinct extent is one protected group.
+        Span<int> group = count <= 64 ? stackalloc int[count] : new int[count];
+        for (int i = 0; i < count; i++)
+        {
+            group[i] = i;
+            for (int j = 0; j < i; j++)
+            {
+                if (clauses[j].Protected == clauses[i].Protected)
+                {
+                    group[i] = group[j];
+                    break;
+                }
+            }
+        }
+
+        for (int leader = 0; leader < count; leader++)
+        {
+            if (group[leader] != leader)
+                continue;
+            int members = 0;
+            bool hasFinallyOrFault = false;
+            for (int i = leader; i < count; i++)
+            {
+                if (group[i] != leader)
+                    continue;
+                members++;
+                hasFinallyOrFault |= clauses[i].Kind
+                    is ExceptionRegionKind.Finally or ExceptionRegionKind.Fault;
+            }
+            if (members > 1 && hasFinallyOrFault)
+            {
+                return (
+                    InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
+                    "A shared protected extent cannot combine finally or fault with another clause.");
+            }
+        }
+
+        for (int left = 0; left < count; left++)
+        {
+            if (group[left] != left)
+                continue;
+            (int leftFirst, int leftLast) = OrdinalRange(clauses, group, left);
+            for (int right = left + 1; right < count; right++)
+            {
+                if (group[right] != right)
+                    continue;
+                (int rightFirst, int rightLast) = OrdinalRange(clauses, group, right);
+                ExceptionFlowExtent leftExtent = clauses[left].Protected;
+                ExceptionFlowExtent rightExtent = clauses[right].Protected;
+                if (leftExtent.Contains(rightExtent)
+                    && leftExtent != rightExtent
+                    && rightLast >= leftFirst
+                    || rightExtent.Contains(leftExtent)
+                    && rightExtent != leftExtent
+                    && leftLast >= rightFirst)
+                {
+                    return (
+                        InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
+                        "Nested protected extents must preserve inner-before-outer metadata order.");
+                }
+            }
+        }
+
+        // Regions in the order TryShape issues them: each distinct protected
+        // extent once, then each clause's filter and handler.
+        int capacity = count * 3;
+        Span<ExceptionFlowExtent> regions = capacity <= 96
+            ? stackalloc ExceptionFlowExtent[capacity]
+            : new ExceptionFlowExtent[capacity];
+        Span<int> protectedRegion = count <= 64 ? stackalloc int[count] : new int[count];
+        Span<int> filterRegion = count <= 64 ? stackalloc int[count] : new int[count];
+        Span<int> handlerRegion = count <= 64 ? stackalloc int[count] : new int[count];
+        int regionCount = 0;
+        for (int i = 0; i < count; i++)
+        {
+            ExceptionFlowClauseDescriptor clause = clauses[i];
+            if (group[i] == i)
+            {
+                protectedRegion[i] = regionCount;
+                regions[regionCount++] = clause.Protected;
+            }
+            else
+            {
+                protectedRegion[i] = protectedRegion[group[i]];
+            }
+            filterRegion[i] = -1;
+            if (clause.Filter is { } filter)
+            {
+                filterRegion[i] = regionCount;
+                regions[regionCount++] = filter;
+            }
+            handlerRegion[i] = regionCount;
+            regions[regionCount++] = clause.Handler;
+        }
+        regions = regions[..regionCount];
+
+        for (int left = 0; left < regionCount; left++)
+        {
+            for (int right = left + 1; right < regionCount; right++)
+            {
+                ExceptionFlowExtent a = regions[left];
+                ExceptionFlowExtent b = regions[right];
                 if (!a.Overlaps(b))
                     continue;
                 if (a == b || !a.Contains(b) && !b.Contains(a))
                 {
-                    return Invalid(
+                    return (
                         InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
                         "Exception regions must form a strict non-crossing topology.");
                 }
             }
         }
 
-        foreach (ExceptionFlowClauseDescriptor clause in clauses)
+        for (int i = 0; i < count; i++)
         {
-            var components =
-                ImmutableArray.CreateBuilder<ExceptionFlowTopologyRegion>(3);
-            components.Add(topology[protectedOrdinals[clause.Protected]]);
-            if (clause.Filter is not null)
-                components.Add(topology[filterOrdinals[clause.Ordinal]]);
-            components.Add(topology[handlerOrdinals[clause.Ordinal]]);
-            ImmutableArray<int> enclosingContext =
-                EnclosingRegionOrdinals(components[0]);
-            if (components.Skip(1).Any(
-                    component => !EnclosingRegionOrdinals(component)
-                        .SequenceEqual(enclosingContext)))
+            ExceptionFlowExtent protectedExtent = regions[protectedRegion[i]];
+            if (filterRegion[i] >= 0
+                    && !SameEnclosingContext(regions, protectedExtent, regions[filterRegion[i]])
+                || !SameEnclosingContext(regions, protectedExtent, regions[handlerRegion[i]]))
             {
-                return Invalid(
+                return (
                     InstructionExceptionFlowUnavailableReason.InvalidRegionTopology,
                     "A clause's protected, filter, and handler extents must share one enclosing context.");
             }
         }
 
-        shape = new(topology, protectedOrdinals, handlerOrdinals, filterOrdinals);
         return null;
 
         bool IsBoundary(ExceptionFlowExtent extent) =>
             extent.Start < extent.End
             && isBoundary(extent.Start)
             && isBoundary(extent.End);
+    }
 
-        ImmutableArray<int> EnclosingRegionOrdinals(
-            ExceptionFlowTopologyRegion component) =>
-            [.. topology
-                .Where(candidate =>
-                    candidate.Extent != component.Extent
-                    && candidate.Extent.Contains(component.Extent))
-                .Select(candidate => candidate.Ordinal)
-                .Order()];
+    // The first and last ordinals of one protected group's clauses.
+    static (int First, int Last) OrdinalRange(
+        ImmutableArray<ExceptionFlowClauseDescriptor> clauses,
+        ReadOnlySpan<int> group,
+        int leader)
+    {
+        int first = int.MaxValue;
+        int last = int.MinValue;
+        for (int i = leader; i < clauses.Length; i++)
+        {
+            if (group[i] != leader)
+                continue;
+            first = Math.Min(first, clauses[i].Ordinal);
+            last = Math.Max(last, clauses[i].Ordinal);
+        }
+        return (first, last);
+    }
+
+    // Whether the same regions strictly enclose both extents.
+    static bool SameEnclosingContext(
+        ReadOnlySpan<ExceptionFlowExtent> regions,
+        ExceptionFlowExtent left,
+        ExceptionFlowExtent right)
+    {
+        foreach (ExceptionFlowExtent region in regions)
+        {
+            bool enclosesLeft = region != left && region.Contains(left);
+            bool enclosesRight = region != right && region.Contains(right);
+            if (enclosesLeft != enclosesRight)
+                return false;
+        }
+        return true;
     }
 
     internal ImmutableArray<ExceptionFlowTopologyRegion> ContextAt(int offset) =>

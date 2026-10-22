@@ -140,7 +140,8 @@ internal static class UnsafeMemberRoleScanAgreementAnalysis
             MethodDefinitionSourceRequest<UnsafeMemberRoleScanAgreement>.Create(
                 s_description,
                 UnsafeMemberRoleScanAgreementProducer.Instance,
-                MethodDefinitionSourceBreadth.AllDefinitions));
+                MethodDefinitionSourceBreadth.AllDefinitions)
+                .AsAssemblyAnalysisSource());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.OpenPrefetched(
                 new MemoryStream(image, writable: false));
