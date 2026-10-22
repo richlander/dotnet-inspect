@@ -130,7 +130,7 @@ producers that will extend that space.
   settlement while retaining exact caller associations; Metadata retains
   candidate facts and the command retains presentation.
   [Ecosystem Find Search](design/ecosystem-find-search.md) owns the
-  host-neutral bounded-before-prefix scheduler that deduplicates concrete
+  host-neutral index-before-bounded-before-live scheduler that deduplicates concrete
   source work, reduces owner-issued Find blocks to every admitting Ecosystem,
   and preserves phase, membership, failure, and completion evidence for CLI
   and Browser adoption.
@@ -843,7 +843,7 @@ rules, this document describes subsystem ownership, and
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Ecosystem Find Search](design/ecosystem-find-search.md): host-neutral
-  bounded-before-prefix scheduling, distinct-source deduplication,
+  index-before-bounded-before-live scheduling, distinct-source deduplication,
   cross-Ecosystem membership reduction, durable Find blocks, and terminal
   completion for CLI and Browser adoption.
 - [Ecosystem Find Index](design/ecosystem-find-index.md): deterministic

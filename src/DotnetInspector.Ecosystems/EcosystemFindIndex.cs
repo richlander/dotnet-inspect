@@ -272,7 +272,7 @@ public sealed class EcosystemFindIndexArtifact
 
 public static class EcosystemFindIndexBuilder
 {
-    public const int SchemaVersion = 3;
+    public const int SchemaVersion = 4;
     public const int AlgorithmVersion = 3;
 
     public static EcosystemFindIndexArtifact Build(
@@ -661,6 +661,7 @@ public static class EcosystemFindIndexBuilder
         ArgumentException.ThrowIfNullOrWhiteSpace(member.Fingerprint);
         ArgumentException.ThrowIfNullOrWhiteSpace(member.TypeFullName);
         ArgumentException.ThrowIfNullOrWhiteSpace(member.MemberName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(evidence.MetadataName);
         if (!string.Equals(
                 member.Fingerprint,
                 MemberAnchor.ComputeFingerprint(member.CanonicalSignature),
@@ -1315,6 +1316,7 @@ internal static class EcosystemFindIndexValidation
             || string.IsNullOrWhiteSpace(member.Fingerprint)
             || string.IsNullOrWhiteSpace(member.TypeFullName)
             || string.IsNullOrWhiteSpace(member.MemberName)
+            || string.IsNullOrWhiteSpace(evidence.MetadataName)
             || !string.Equals(
                 member.Fingerprint,
                 MemberAnchor.ComputeFingerprint(member.CanonicalSignature),

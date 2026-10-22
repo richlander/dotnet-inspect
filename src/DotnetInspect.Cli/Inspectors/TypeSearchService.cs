@@ -11,6 +11,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using DotnetInspect.Cli.Services;
 
 namespace DotnetInspect.Cli.Inspectors;
@@ -395,7 +396,12 @@ internal static class TypeSearchService
                         match.EffectivePattern,
                         ToCliMatchKind(match.Match),
                         match.Similarity,
-                        candidate));
+                        candidate) with
+                    {
+                        ExactSource =
+                            match.Declaration.Source.Coordinate,
+                        ExactType = match.Declaration.Name,
+                    });
             }
 
             TypeFindPatternSettlement settlement =
@@ -409,6 +415,44 @@ internal static class TypeSearchService
                         Match = TypeFindMatchKind.NotFound,
                     });
             }
+        }
+        return results;
+    }
+
+    internal static List<TypeFindResult> ProjectIndexedSemanticMatches(
+        TypeFindQuestion question,
+        IReadOnlyList<TypeFindSemanticMatch> matches,
+        Func<FindSourceIdentity, SearchAssemblySource> sourceFor)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(matches);
+        ArgumentNullException.ThrowIfNull(sourceFor);
+        var results = new List<TypeFindResult>(matches.Count);
+        foreach (TypeFindSemanticMatch match in matches)
+        {
+            MetadataTypeDefinitionName name = match.Declaration.Name;
+            SearchAssemblySource source = sourceFor(match.Declaration.Source);
+            results.Add(
+                new TypeFindResult
+                {
+                    Pattern = match.EffectivePattern,
+                    Match = ToCliMatchKind(match.Match),
+                    Similarity = match.Similarity,
+                    Type = name.Segments.Length == 1
+                        ? name.Segments[0]
+                        : string.Join(".", name.Segments),
+                    Namespace = name.Namespace,
+                    FullName = name.ToMetadataFullName(),
+                    Kind = question.Visibility is FindVisibility.Public
+                            && match.DiscoveryAttributes is null
+                        ? ""
+                        : DisplayTypeKind(match.DefinitionKind),
+                    Library = source.Library,
+                    Source = source.Source,
+                    SourceVersion = source.SourceVersion,
+                    ExactSource = match.Declaration.Source.Coordinate,
+                    ExactType = name,
+                });
         }
         return results;
     }
@@ -664,6 +708,15 @@ internal static class TypeSearchService
                 Source = candidate.Source ?? "",
                 SourceVersion = candidate.SourceVersion,
                 Location = candidate.Location,
+                ExactSource = candidate.Location?.Coordinate
+                    is TypeDeclarationLocatorSectionCoordinate.PackageCoordinate
+                        package
+                    ? new ExactLibrarySourceCoordinate.Package(
+                        package.Package,
+                        new ManagedMetadataIdentity.Assembly(
+                            package.LibraryIdentity))
+                    : null,
+                ExactType = candidate.Location?.Name,
             };
 
     private static bool CanUseImplicitPlatformNamespacePath(
