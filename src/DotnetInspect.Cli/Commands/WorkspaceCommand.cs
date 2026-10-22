@@ -24,9 +24,22 @@ public static partial class WorkspaceCommand
 {
     public const string Name = "workspace";
 
-    public static async Task<int> ExecuteAsync(
+    public static Task<int> ExecuteAsync(
         WorkspaceOptions options,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ExecuteConfiguredAsync(options, cancellationToken);
+
+    // Root activation uses the same credentials and source lifetime as inventory.
+    internal static Task<int> ExecutePacketOperationAsync(
+        WorkspaceOptions options,
+        Func<WorkspaceContextLoadOptions, Task<int>> operation,
+        CancellationToken cancellationToken) =>
+        ExecuteConfiguredAsync(options, cancellationToken, operation);
+
+    static async Task<int> ExecuteConfiguredAsync(
+        WorkspaceOptions options,
+        CancellationToken cancellationToken,
+        Func<WorkspaceContextLoadOptions, Task<int>>? packetOperation = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         if (OptionError(options) is { } optionError)
@@ -125,6 +138,9 @@ public static partial class WorkspaceCommand
 
         await using WorkspacePackageSourceRuntime? ownedSourceRuntime =
             sourceRuntime;
+        if (packetOperation is not null)
+            return await packetOperation(loadOptions).ConfigureAwait(false);
+
         if (options.MakePackageDependenciesExplicit)
         {
             await using var composition =
