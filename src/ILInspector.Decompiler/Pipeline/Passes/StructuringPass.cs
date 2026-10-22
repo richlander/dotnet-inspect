@@ -2817,6 +2817,13 @@ public sealed class StructuringPass : IIrPass
         return null;
     }
 
+    /// <summary>The sibling arm's last walked block falls into the shared join.</summary>
+    static bool SiblingFallsIntoJoin(Ctx ctx, int trueStart, int sharedJoin)
+    {
+        int lastTrue = PreviousWalkIndex(ctx, sharedJoin, trueStart, sharedJoin);
+        return lastTrue >= trueStart && FallsThrough(ctx.Blocks[lastTrue]);
+    }
+
     /// <summary>
     /// True when a transfer from the fallthrough arm <c>[falseStart, trueStart)</c>
     /// enters the sibling arm <c>[trueStart, join)</c> and cannot dissolve: by
@@ -2826,13 +2833,6 @@ public sealed class StructuringPass : IIrPass
     /// a blocking entry restores them, since the diamond is then not taken.
     /// Blocks already moved into another guard are not this arm's sources.
     /// </summary>
-    /// <summary>The sibling arm's last walked block falls into the shared join.</summary>
-    static bool SiblingFallsIntoJoin(Ctx ctx, int trueStart, int sharedJoin)
-    {
-        int lastTrue = PreviousWalkIndex(ctx, sharedJoin, trueStart, sharedJoin);
-        return lastTrue >= trueStart && FallsThrough(ctx.Blocks[lastTrue]);
-    }
-
     static bool HasSiblingArmEntry(
         Ctx ctx,
         int falseStart,
