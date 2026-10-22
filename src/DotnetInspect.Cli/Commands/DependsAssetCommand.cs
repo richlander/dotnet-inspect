@@ -989,7 +989,9 @@ public partial class DependsCommand
                     ? CreateTraversalTargetPolicy(framework)
                     : TraversalTargetFrameworkPolicy.ProductDefault;
             using PackageSourceOperationLease traversalOperation =
-                composition.IssueSettlementOperation(cancellationToken);
+                composition.IssueSettlementOperation(
+                    cancellationToken,
+                    PackageDependencyTraversalQuery.DefaultMaximumConcurrentSteps);
             packageTraversal =
                 await PackageDependencyTraversalQuery.ExecuteAsync(
                     new PackageDependencyTraversalRequest(
