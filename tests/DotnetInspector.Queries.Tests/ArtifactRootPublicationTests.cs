@@ -158,6 +158,31 @@ public sealed class ArtifactRootPublicationTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence(
+        bool hasReferenceAssembly)
+    {
+        int enumerations = 0;
+        PackageRootBinding library = Binding(
+            "Content.Candidates",
+            malformed: true,
+            onEnumerate: () => enumerations++,
+            hasReferenceAssembly: hasReferenceAssembly);
+        Assert.Equal(
+            hasReferenceAssembly,
+            library.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+        int before = enumerations;
+
+        PackageRootBinding content = library.ForContentInspection();
+
+        Assert.Equal(before, enumerations);
+        Assert.Equal(
+            hasReferenceAssembly,
+            content.Root.HasUnselectedTargetFrameworkAssemblyCandidates);
+    }
+
     [Fact]
     public async Task ContentOnlyPackageAdmission_PreservesSelectionWithoutOpeningDlls()
     {
@@ -986,24 +1011,35 @@ public sealed class ArtifactRootPublicationTests
     }
 
     static PackageRootBinding Binding(
-        string packageId, bool malformed = false, string? entry = null, Action? onOpen = null)
+        string packageId, bool malformed = false, string? entry = null, Action? onOpen = null,
+        Action? onEnumerate = null, bool hasReferenceAssembly = false)
     {
         using var bytes = new MemoryStream();
         using (var archive = new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
         {
-            using Stream destination = archive.CreateEntry(entry ?? $"lib/net11.0/{packageId}.dll").Open();
-            destination.Write(malformed ? [1, 2, 3] :
-                File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location));
+            using (Stream destination = archive.CreateEntry(
+                entry ?? $"lib/net11.0/{packageId}.dll").Open())
+            {
+                destination.Write(malformed ? [1, 2, 3] :
+                    File.ReadAllBytes(typeof(AssemblyReferenceIdentity).Assembly.Location));
+            }
+            if (hasReferenceAssembly)
+            {
+                using Stream reference = archive.CreateEntry(
+                    $"ref/net11.0/{packageId}.dll").Open();
+                reference.Write([1, 2, 3]);
+            }
         }
         IPackageContent content = new InMemoryPackageContent(bytes.ToArray(), fromCache: false, producerKey: "tests");
-        if (onOpen is not null)
-            content = new CallbackPackageContent(content, onOpen);
+        if (onOpen is not null || onEnumerate is not null)
+            content = new CallbackPackageContent(content, onOpen, onEnumerate);
         return PackageRootBinding.CreateFromSource(new AcquiredPackageSourcePayload(
             PackageSourceCoordinate.Create(packageId, "1.0.0"), content, "tests", PackagePayloadOrigin.Download),
             "net11.0");
     }
 
-    sealed class CallbackPackageContent(IPackageContent inner, Action onOpen) : IPackageContent
+    sealed class CallbackPackageContent(
+        IPackageContent inner, Action? onOpen, Action? onEnumerate = null) : IPackageContent
     {
         Action? _onOpen = onOpen;
         public string? RootPath => inner.RootPath;
@@ -1023,7 +1059,11 @@ public sealed class ArtifactRootPublicationTests
             Interlocked.Exchange(ref _onOpen, null)?.Invoke();
             return inner.TryOpenEntry(relativePath, maxExpandedBytes, out stream);
         }
-        public IEnumerable<string> EnumerateEntries() => inner.EnumerateEntries();
+        public IEnumerable<string> EnumerateEntries()
+        {
+            onEnumerate?.Invoke();
+            return inner.EnumerateEntries();
+        }
     }
 
     sealed class ScopeState(InspectionWorkspaceIdentity workspace)
