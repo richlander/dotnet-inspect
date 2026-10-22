@@ -80,9 +80,9 @@ npm run benchmark:text-publication -- \
 
 ```expect
 text-publication-ok
-semantic-sha256=
-groups=
-complete-members=
+semantic-sha256=cb83c2acb4e09990016d7b77d1d340b4ba86dd8c9726f39bcea0b8793b6d81d3
+groups=38
+complete-members=55
 retained-results=20
 ```
 
@@ -97,18 +97,28 @@ set -e -o pipefail
 report="$BROWSER_TEXT_PUBLICATION_WORK/report.json"
 jq -e '
   .schema == 1
+  and .harness.dirty == false
+  and .harness.commit == .buildIdentity.commit
   and .configuration.samples == 20
   and .configuration.packageWarmup == "excluded"
   and .payload.retainedResults == 20
   and .payload.browserHeapBytes == null
+  and .semanticSha256
+    == "cb83c2acb4e09990016d7b77d1d340b4ba86dd8c9726f39bcea0b8793b6d81d3"
   and .resultIdentity.typeIdentity
     == "Microsoft.Extensions.Primitives.StringSegment"
-  and .resultIdentity.groups > 0
-  and .resultIdentity.completeMembers > 0
-  and .payload.perResult.strings > 0
-  and .payload.perResult.utf16CodeUnits > 0
-  and .payload.perResult.utf8Bytes > 0
-  and .payload.perResult.serializedUtf8Bytes > 0
+  and .resultIdentity.moduleVersionId
+    == "02251bb3-2215-4b77-b5a0-f1e67f7ba93c"
+  and .resultIdentity.groups == 38
+  and .resultIdentity.completeMembers == 55
+  and .payload.perResult.strings == 209
+  and .payload.perResult.utf16CodeUnits == 2011
+  and .payload.perResult.utf8Bytes == 2011
+  and .payload.perResult.serializedUtf8Bytes == 10463
+  and .payload.retained.strings == 4180
+  and .payload.retained.utf16CodeUnits == 40220
+  and .payload.retained.utf8Bytes == 40220
+  and .payload.retained.serializedUtf8Bytes == 209281
   and .latency.firstMilliseconds > 0
   and .latency.warmMilliseconds.count == 19
   and .latency.warmMilliseconds.median > 0
