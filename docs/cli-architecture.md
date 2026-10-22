@@ -363,16 +363,14 @@ reusable owners produce the facts.
 
 ### Planned Workspace packet activation
 
-The first runtime adoption, [#10407](https://github.com/richlander/dotnet-inspect/issues/10407),
-admits the root entrances below for Workspace inventory landings. Saved
-inspection facets and queries are explicitly refused before acquisition.
-[#10408](https://github.com/richlander/dotnet-inspect/issues/10408) supplies the
-missing exact-subject execution/correspondence boundary: restored Navigation
-uses Package Root surface registrations, while the selected declaration context
-retains different acquisition registrations. The existing selected-context
-Type executor cannot accept the saved Navigation registration unchanged.
-[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) remains the
-subsequent CLI saved-inspection adoption. The full target contract follows.
+Root activation admits Workspace inventory and query-free saved Package
+`package.libraries` views. The latter consumes the exact selected-subject
+handoff implemented under [#10408](https://github.com/richlander/dotnet-inspect/issues/10408)
+and invokes the ordinary Package inspection over that admitted Root. Both raw
+and `-w` entrances preserve its Hierarchy, structured formats and Count.
+Other saved facets and attached queries are refused before acquisition.
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) continues with
+individual Type, Member and saved-query bindings. The full target contract follows.
 
 This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
 partially implemented as described above. The CLI owns command admission,
@@ -498,6 +496,13 @@ packets through `workspace`; obtain scenario packets through the ordinary
 inspection command's admitted `--share packet` projection. The packet is the
 complete emitted value, not a shortened `ey...` sample.
 
+Compatible-target controls use `System.ValueTuple@4.5.0/net10.0` (an empty
+compile group) and `NUnit@4.2.2/net10.0` (two Libraries selected from net6.0).
+Replay must retain the Root's original framework request for dependency evidence
+while rendering its frozen compile selection; replacing that request with the
+selected asset folder can make the two owner-issued observations disagree.
+Their producer/replay JSON and Count gates retain zero and two children.
+
 Target walkthrough (saved Type execution remains staged under #4647):
 
 ```bash
@@ -528,9 +533,13 @@ preserve non-packet routing, option-value ownership, help and local policy.
 Recognized invalid, unsupported and limit failures must not trigger fallback
 acquisition or publish partial results. `WorkspacePacketActivationTests` gates
 the admitted inventory entrances,
-ordinary output/row parity and early refusals. Saved-inspection execution and
-its cross-host parity remain adoption requirements, not current validation
-claims.
+ordinary output/row parity and early refusals. Its Package cases save a real
+System.Text.Json query, replay identical ordinary output across formats and
+Count, preserve a different input focus and all-context environment, and refuse
+unsupported facets/source denial without output. The recorded format-5
+[Package replay packet](examples/workspace-package-replay.json) is also opened
+through the production Browser activation owner. Type, Member and attached-query
+execution remain staged.
 
 [#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
 production path: this focused CLI contract, owner-issued packet recognition,
