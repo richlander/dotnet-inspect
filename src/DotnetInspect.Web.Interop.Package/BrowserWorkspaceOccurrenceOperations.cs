@@ -464,7 +464,8 @@ public static partial class PackageExports
             return new BrowserWorkspacePackageOccurrenceActivation(
                 Activated: false,
                 Superseded: true,
-                Package: null);
+                Package: null,
+                RuntimeIdentifier: "");
         }
 
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
@@ -477,7 +478,8 @@ public static partial class PackageExports
             return new BrowserWorkspacePackageOccurrenceActivation(
                 Activated: false,
                 Superseded: true,
-                Package: null);
+                Package: null,
+                RuntimeIdentifier: "");
         }
 
         BrowserInspectionScope scope = scopeLease.Scope;
@@ -489,7 +491,8 @@ public static partial class PackageExports
         return new BrowserWorkspacePackageOccurrenceActivation(
             Activated: true,
             Superseded: false,
-            package);
+            package,
+            selection.Coordinate.RuntimeIdentifier ?? "");
     }
 }
 }

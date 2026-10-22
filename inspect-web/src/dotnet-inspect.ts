@@ -6766,6 +6766,7 @@ async function activateWorkspacePackageOccurrence(action: string) {
 
   const packageModel = createWorkspaceOccurrencePackageModel(
     result.package,
+    result.runtimeIdentifier,
     state.package,
     state.packages);
   retainPackageModel(packageModel);

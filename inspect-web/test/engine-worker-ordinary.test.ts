@@ -1212,6 +1212,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     activated: false,
     superseded: false,
     package: null,
+    runtimeIdentifier: "",
     future: { message: "preserved" },
   };
   let cleared = 0;

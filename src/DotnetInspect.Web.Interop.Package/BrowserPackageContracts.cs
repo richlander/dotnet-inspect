@@ -481,7 +481,8 @@ public sealed record BrowserWorkspacePackageOccurrenceView(
 public sealed record BrowserWorkspacePackageOccurrenceActivation(
     bool Activated,
     bool Superseded,
-    BrowserPackageSurface? Package);
+    BrowserPackageSurface? Package,
+    string RuntimeIdentifier);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryAcquisitionTier>))]
 public enum BrowserPackageQueryAcquisitionTier

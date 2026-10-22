@@ -810,6 +810,7 @@ export function createNuGetPackageModelWithDefaultLibrary(
 
 export function createWorkspaceOccurrencePackageModel(
   result: InspectedPackageSurface,
+  runtimeIdentifier: string,
   activePackage: AppPackage | null | undefined,
   retainedPackages: readonly AppPackage[],
 ): AppPackage {
@@ -817,6 +818,7 @@ export function createWorkspaceOccurrencePackageModel(
     id: result.package,
     version: result.version,
     activeFramework: result.activeFramework,
+    runtimeIdentifier,
   });
   const retained = activePackage
     && packageIdentityKey(activePackage) === identity
@@ -828,6 +830,13 @@ export function createWorkspaceOccurrencePackageModel(
     : createNuGetPackageModel(result);
   return {
     ...model,
+    ...(runtimeIdentifier ? { runtimeIdentifier } : {}),
+    ...(retained?.runtimeIdentifiers
+      ? { runtimeIdentifiers: retained.runtimeIdentifiers }
+      : {}),
+    ...(retained?.runtimePopulation !== undefined
+      ? { runtimePopulation: retained.runtimePopulation }
+      : {}),
     ...(retained?.versionSettlement
       ? { versionSettlement: retained.versionSettlement }
       : {}),

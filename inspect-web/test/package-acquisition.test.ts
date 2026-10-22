@@ -847,16 +847,30 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
   const children = packageChildren(packageSurface());
-  const retained = createNuGetPackageModel(
-    packageSurface(),
-    versionSettlement,
-    measurements,
-    children);
+  const runtimePopulation = {
+    status: "Selected",
+    selectedRuntimeIdentifier: "win-x64",
+    availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
+  } as const;
+  const retained = {
+    ...createNuGetPackageModel(
+      packageSurface(),
+      versionSettlement,
+      measurements,
+      children),
+    runtimeIdentifier: "win-x64",
+    runtimeIdentifiers: ["linux-x64", "win-x64"],
+    runtimePopulation,
+  };
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ totalMembers: 12 }),
+    "win-x64",
     retained,
     [retained]);
 
+  assert.equal(activated.runtimeIdentifier, "win-x64");
+  assert.equal(activated.runtimeIdentifiers, retained.runtimeIdentifiers);
+  assert.equal(activated.runtimePopulation, runtimePopulation);
   assert.equal(activated.totalMembers, 6);
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
@@ -895,6 +909,7 @@ test("Workspace occurrence activation does not copy envelopes across TFMs", () =
     packageInfo());
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ activeFramework: "net9.0" }),
+    "",
     retained,
     [retained]);
 

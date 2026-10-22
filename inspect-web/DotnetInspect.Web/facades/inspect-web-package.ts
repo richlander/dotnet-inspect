@@ -1319,6 +1319,7 @@ export interface BrowserWorkspacePackageOccurrenceActivation {
   readonly activated: boolean;
   readonly superseded: boolean;
   readonly package: BrowserPackageSurface | null;
+  readonly runtimeIdentifier: string;
 }
 
 export interface BrowserWorkspacePackageOccurrenceView {

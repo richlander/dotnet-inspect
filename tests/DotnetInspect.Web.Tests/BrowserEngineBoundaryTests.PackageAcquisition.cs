@@ -672,6 +672,9 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(activation.Activated);
         Assert.False(activation.Superseded);
         Assert.NotNull(activation.Package);
+        Assert.Equal(
+            runtimeIdentifier,
+            activation.RuntimeIdentifier);
         await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
     }
 
