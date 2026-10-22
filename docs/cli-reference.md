@@ -1471,7 +1471,7 @@ Packet activation selects a single subject and its view. The CLI prints that
 view using its ordinary default presentation: a Hierarchy, Table, or Document.
 Supported output options can select another format.
 
-The currently supported subject is Workspace. Its default presentation is an
+A Workspace landing defaults to an
 inventory Table with Kind, Location, and State columns, listing Packages and
 registrations across the packet's contexts. For the Runtime packet above,
 without an output option, the CLI prints:
@@ -1493,8 +1493,28 @@ inventory retains the formats, semantic row selection and Count of
 Activation does not persist a current Workspace for later commands. Ordinary
 `--workspace` supplies context to the new query selected by that command instead.
 
-Saved inspection facets/queries currently fail explicitly before acquisition;
-exact saved-subject execution is tracked in #10408 and CLI binding in #4647.
+Query-free saved Package Libraries (`package.libraries`) views also replay,
+using their ordinary hierarchy, output formats, row controls and Count:
+
+```bash
+environment=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dotnet-inspect package System.Text.Json --workspace "$environment" \
+  --share packet > package-content.txt 2> package-share.txt
+saved_package=$(tail -n 1 package-share.txt)
+dotnet-inspect "$saved_package"              # Same Package Libraries hierarchy
+dotnet-inspect -w "$saved_package" --count    # 1
+```
+
+The readable [saved packet](examples/workspace-package-replay.json) retains
+its exact version, target, source and selected facet. Replay restores once and
+uses the selected Root; it does not print the environment's inventory. Package
+row controls retain ordinary semantics: `--rows` selects children, while `-n`
+limits rendered lines and is refused for a JSON document.
+
+Other saved inspection facets and attached queries fail explicitly before
+acquisition; their individual CLI bindings remain tracked in #4647.
 Activation accepts one canonical Base64URL packet, rather than a website URL,
 file, JSON text or implicit stdin. Source replacements, new subject/query
 controls and a second target are errors. Use `-w "$packet" --help` to see its
