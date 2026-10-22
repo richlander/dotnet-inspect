@@ -1367,6 +1367,7 @@ public static class RouterCommandDefinition
             }
 
             if (!structuralSchema
+                && !ContainsHelpOption(tokens)
                 && target.Contains('.')
                 && !PlatformResolver.IsPlatformCandidate(target))
             {
