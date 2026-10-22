@@ -163,6 +163,97 @@ of such a pair is a `FindingComparison<T>.Failed` with its
 `ComparisonFailure` stated and both inspections retained, never a matcher
 exception and never an empty diff.
 
+### Cost of the cursor
+
+`eng/measure-il-diff-exhaustive.cs` measures the exhaustive paths over one
+image pair under the Body policy: the whole-assembly comparison
+(`IlAssemblyDiff.CompareStreams`, fresh readers each run), the census of
+every method of each image (`IlFindings.Inspect` from the image, the raw-IL
+cursor), the census comparison of every paired method (`IlFindings.Compare`,
+paired by declaring Type, name, and decoded signature; it runs the raw-IL
+census of both sides), and the Member Body Diff endpoint path
+(`IlAssemblyDiff.CompareMemberEndpoints`, which decodes once). The last three
+reuse long-lived readers, so the per-reader generated-ordinal index is warm
+there and cold on the assembly path, as a host's single member diff pays it.
+
+The cursor's introduction
+([#10477](https://github.com/richlander/dotnet-inspect/pull/10477), merge
+`b282641e0`) was measured against its base `1bb00c652` on the six pairs of
+Finding Diff Any's gates, with a third binary, head with the operand memo
+neither read nor written, as the ablation: NativeAOT linux-x64, SDK
+11.0.100-rc.1, one development server (AMD Ryzen 9 9900X, 59 GB; one-minute
+load 0.4–2.8 across the runs, written into each output), binaries `1331be6e`
+(base), `7dd8d3af` (head), and `e773bd44` (memo-off). Each pair ran two rounds
+of base, head, and memo-off in that fixed order, each process two warmup runs
+and ten timed runs, so every cell pools twenty samples per side; p95 is the
+nearest-rank 95th percentile of those twenty. Verdict counts are identical on
+all three binaries for every pair. Cells read base → head; Inspect is the sum
+of the two images' statistics. The raw outputs, the ablation diff, the binary
+hashes, and the pooling script are attached to the PR that recorded this
+([#10497](https://github.com/richlander/dotnet-inspect/pull/10497)). The
+order is fixed and not counterbalanced; base's per-round medians moved by up
+to 3.4% between rounds (Newtonsoft.Json 13.0.3 to 13.0.4 Inspect, with most
+cells within 1.5%), so a difference of that size on one pair is within the
+run-to-run band.
+
+Median wall time in ms, with the paired methods of the before/after images:
+
+| Pair | Assembly | Inspect | Compare | Endpoints | Paired |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 1,863 → 1,786 | 612 → 603 | 1,267 → 1,239 | 2,209 → 2,142 | 13,647 of 13,649/13,649 |
+| System.Text.Json 9.0.0 to 10.0.0 | 278 → 272 | 118 → 116 | 199 → 199 | 335 → 321 | 3,756 of 3,871/4,066 |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 444 → 424 | 161 → 154 | 317 → 306 | 537 → 516 | 4,162 of 4,208/4,228 |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 401 → 384 | 152 → 153 | 281 → 279 | 481 → 470 | 3,798 of 4,119/4,222 |
+| System.Private.Xml 10 to 11 | 1,992 → 1,876 | 696 → 669 | 1,434 → 1,394 | 2,423 → 2,333 | 16,779 of 17,599/17,006 |
+| System.Private.CoreLib 10 to 11 | 2,184 → 2,146 | 870 → 869 | 1,497 → 1,495 | 2,533 → 2,482 | 40,490 of 41,564/44,865 |
+
+p95 wall time in ms (Inspect: the sum of the two images' p95s):
+
+| Pair | Assembly | Inspect | Compare | Endpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 1,885 → 1,804 | 634 → 623 | 1,287 → 1,253 | 2,238 → 2,169 |
+| System.Text.Json 9.0.0 to 10.0.0 | 285 → 280 | 126 → 121 | 205 → 203 | 344 → 329 |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 453 → 431 | 170 → 162 | 324 → 322 | 548 → 525 |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 411 → 392 | 163 → 162 | 288 → 285 | 490 → 479 |
+| System.Private.Xml 10 to 11 | 2,003 → 1,891 | 713 → 687 | 1,455 → 1,407 | 2,452 → 2,351 |
+| System.Private.CoreLib 10 to 11 | 2,210 → 2,166 | 896 → 896 | 1,513 → 1,510 | 2,567 → 2,505 |
+
+Median bytes allocated per run, in MB:
+
+| Pair | Assembly | Inspect | Compare | Endpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 4,540 → 4,290 | 2,231 → 2,101 | 2,901 → 2,770 | 5,139 → 4,890 |
+| System.Text.Json 9.0.0 to 10.0.0 | 755 → 732 | 433 → 417 | 493 → 479 | 861 → 837 |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 1,156 → 1,103 | 590 → 562 | 746 → 718 | 1,315 → 1,262 |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 1,029 → 985 | 579 → 552 | 666 → 642 | 1,173 → 1,129 |
+| System.Private.Xml 10 to 11 | 4,574 → 4,345 | 2,563 → 2,417 | 3,142 → 3,018 | 5,424 → 5,192 |
+| System.Private.CoreLib 10 to 11 | 5,739 → 5,641 | 3,211 → 3,137 | 3,757 → 3,693 | 6,521 → 6,422 |
+
+Reading. Head's median is below base's on every path of every pair except
+four cells within their own p95 spread: Inspect on Newtonsoft.Json 11.0.2 to
+13.0.4 (+0.6%) and on CoreLib (−0.2%), and Compare on System.Text.Json and on
+CoreLib (−0.1% each). Allocation is 1.5–5.8% lower in every cell. The memo-off
+binary separates the two parts of the change. Without the memo, head is above
+base on every path: 1.0–2.8% on Assembly and 1.5–3.1% on Endpoints, which
+decode once and pay the index map and the `TargetIndexes` array per branch,
+switch, and clause atom; 1.5–4.2% on Compare; and 1.6–7.1% on Inspect, the
+raw-IL census, which reads every body twice (the pre-scan and the per-advance
+decode). The memo then saves, as a share of base, 4.6–7.2% on Assembly,
+5.4–10.6% on Inspect, 3.9–5.6% on Compare, and 4.8–6.3% on Endpoints. The
+second read's own cost is not measured in isolation; taking Inspect's memo-off
+excess less Assembly's as its estimate, an upper-leaning one since Assembly's
+base includes work Inspect's does not, gives 0.5–5.5% of the image-backed
+census. Inspect's memo saving exceeds that estimate on every pair, by 0.5
+points on Newtonsoft.Json 11.0.2 to 13.0.4 and by 3–5 points on the others.
+Inspect's result against base is Assembly's memo-off excess less that margin:
+within 0.6% of base where the margin is small (that Newtonsoft.Json pair) or
+Assembly's excess is largest (CoreLib, 2.8%), and 1.4–4.2% below base on the
+other four pairs. Whether the pre-scan should become the one decode, retaining
+the prefix so a body is read once, is a hypothesis this baseline
+leaves to step 2's laziness and cost gates, which measure lockstep over two
+cursors against Finding Diff Any's walk and are recorded on #10227; this
+table is the baseline of the exhaustive paths those gates leave unchanged.
+
 ## Guarantees
 
 ### Opcode macro folding
