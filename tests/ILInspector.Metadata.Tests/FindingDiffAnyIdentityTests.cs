@@ -9,7 +9,7 @@ namespace ILInspector.Metadata.Tests;
 /// Distinct metadata declarations never share a compared identity, and IL
 /// that cannot be decoded is never <c>Unchanged</c>.
 /// </summary>
-public sealed class FastDiffIdentityTests
+public sealed class FindingDiffAnyIdentityTests
 {
     static readonly byte[] ReturnOne = [0x17, 0x26, 0x2A]; // ldc.i4.1; pop; ret
     static readonly byte[] ReturnTwo = [0x18, 0x26, 0x2A]; // ldc.i4.2; pop; ret
@@ -17,25 +17,25 @@ public sealed class FastDiffIdentityTests
     [Fact]
     public void TopLevelNameWithSlash_DoesNotHideNestedTypeChange()
     {
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "A", null, ReturnOne), new("N", "A/B", null, ReturnOne), new(null, "B", 0, ReturnOne)],
             [new("N", "A", null, ReturnOne), new("N", "A/B", null, ReturnOne), new(null, "B", 0, ReturnTwo)]);
 
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.A.B").Body);
-        Assert.Equal(FastDiffState.Unchanged, Single(result, "N.A/B").Body);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.A.B").Body);
+        Assert.Equal(FindingDiffAnyState.Unchanged, Single(result, "N.A/B").Body);
     }
 
     [Fact]
     public void NamespaceAndDottedName_DoNotHideEachOthersChange()
     {
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "A.B", null, ReturnOne), new("N.A", "B", null, ReturnOne)],
             [new("N", "A.B", null, ReturnOne), new("N.A", "B", null, ReturnTwo)]);
 
-        FastDiffTypeState[] rows = [.. result.Types.Where(type => type.FullName == "N.A.B")];
+        FindingDiffAnyTypeState[] rows = [.. result.Types.Where(type => type.FullName == "N.A.B")];
         Assert.Equal(2, rows.Length);
         Assert.Equal(
-            [FastDiffState.Unchanged, FastDiffState.Changed],
+            [FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed],
             rows.Select(row => row.Body).Order());
     }
 
@@ -47,22 +47,22 @@ public sealed class FastDiffIdentityTests
         byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
         byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
         TypeSpec[] callees = [new("N", "C", null, ReturnOne, ["D::M"]), new("N", "C::D", null, ReturnOne)];
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [.. callees, new("N", "Caller", null, callFirst)],
             [.. callees, new("N", "Caller", null, callSecond)]);
 
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.Caller").Body);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.Caller").Body);
     }
 
     [Fact]
     public void PrimitiveAndGlobalTypeOfOneName_AreDistinct()
     {
         // M(int) and M(global::Int32) are different public signatures.
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new(null, "Int32", null, ReturnOne), new("N", "C", null, ReturnOne, Parameter: Int32Primitive)],
             [new(null, "Int32", null, ReturnOne), new("N", "C", null, ReturnOne, Parameter: 0)]);
 
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Api);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Api);
     }
 
     [Fact]
@@ -70,11 +70,11 @@ public sealed class FastDiffIdentityTests
     {
         // M(delegate*<void*>) and M(delegate*<void>*) are different public
         // signatures.
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "C", null, ReturnOne, Parameter: FunctionPointerToVoidPointer)],
             [new("N", "C", null, ReturnOne, Parameter: PointerToFunctionPointer)]);
 
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Api);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Api);
     }
 
     [Fact]
@@ -83,11 +83,11 @@ public sealed class FastDiffIdentityTests
         // A field-like event E and its backing field E share a name and Type;
         // [field: A] becoming [A] on the event moves the attribute between
         // two declarations of an internal Type.
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "C", null, ReturnOne, Public: false, FieldLikeEventAttribute: AttributeTarget.Field)],
             [new("N", "C", null, ReturnOne, Public: false, FieldLikeEventAttribute: AttributeTarget.Event)]);
 
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Body);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Body);
     }
 
     [Fact]
@@ -97,11 +97,11 @@ public sealed class FastDiffIdentityTests
         // __arglist) called with nothing: both call sites carry (int, long),
         // and only the sentinel position differs.
         byte[] callExternal = [0x28, 0x01, 0x00, 0x00, 0x0A, 0x2A]; // call MemberRef 1; ret
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "Caller", null, callExternal, VarargRequired: 1)],
             [new("N", "Caller", null, callExternal, VarargRequired: 2)]);
 
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.Caller").Body);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.Caller").Body);
     }
 
     [Fact]
@@ -112,11 +112,11 @@ public sealed class FastDiffIdentityTests
         byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
         byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
         TypeSpec callee = new("N", "C", null, ReturnOne, ["M", "M"], PrivateScope: true);
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [callee, new("N", "D", null, callFirst)],
             [callee, new("N", "D", null, callSecond)]);
 
-        Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.D").Body);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.D").Body);
     }
 
     [Fact]
@@ -126,11 +126,11 @@ public sealed class FastDiffIdentityTests
         byte[] callFirst = [0x28, 0x01, 0x00, 0x00, 0x06, 0x2A];
         byte[] callSecond = [0x28, 0x02, 0x00, 0x00, 0x06, 0x2A];
         TypeSpec callee = new("N", "C", null, ReturnOne);
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [callee, callee, new("N", "D", null, callFirst)],
             [callee, callee, new("N", "D", null, callSecond)]);
 
-        Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.D").Body);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.D").Body);
     }
 
     [Fact]
@@ -139,25 +139,25 @@ public sealed class FastDiffIdentityTests
         // Two nested <>c rows spell one key, so neither lambda body can be
         // told apart from the other.
         TypeSpec owner = new("N", "C", null, ReturnOne);
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [owner, new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"]), new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"])],
             [owner, new(null, "<>c", 0, ReturnTwo, ["<M>b__0_0"]), new(null, "<>c", 0, ReturnOne, ["<M>b__0_0"])]);
 
-        Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.C").Body);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.C").Body);
     }
 
     [Fact]
     public void DuplicateTypeNames_AreIndeterminate()
     {
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "C", null, ReturnOne), new("N", "C", null, ReturnOne)],
             [new("N", "C", null, ReturnOne), new("N", "C", null, ReturnTwo)]);
 
         Assert.NotEmpty(result.Types);
         Assert.All(result.Types.Where(type => type.FullName == "N.C"), type =>
         {
-            Assert.Equal(FastDiffState.Indeterminate, type.Api);
-            Assert.Equal(FastDiffState.Indeterminate, type.Body);
+            Assert.Equal(FindingDiffAnyState.Indeterminate, type.Api);
+            Assert.Equal(FindingDiffAnyState.Indeterminate, type.Body);
         });
     }
 
@@ -165,24 +165,24 @@ public sealed class FastDiffIdentityTests
     public void UnknownOpcode_IsIndeterminate()
     {
         byte[] invalid = [0x24, 0x2A]; // 0x24 is not an opcode; ret
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "C", null, invalid)],
             [new("N", "C", null, invalid)]);
 
-        FastDiffTypeState state = Single(result, "N.C");
-        Assert.Equal(FastDiffState.Unchanged, state.Api);
-        Assert.Equal(FastDiffState.Indeterminate, state.Body);
+        FindingDiffAnyTypeState state = Single(result, "N.C");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
     }
 
     [Fact]
     public void UnknownTwoByteOpcode_IsIndeterminate()
     {
         byte[] invalid = [0xFE, 0x08, 0x2A]; // 0xFE 0x08 is not an opcode; ret
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "C", null, invalid)],
             [new("N", "C", null, invalid)]);
 
-        Assert.Equal(FastDiffState.Indeterminate, Single(result, "N.C").Body);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Single(result, "N.C").Body);
     }
 
     [Fact]
@@ -192,13 +192,13 @@ public sealed class FastDiffIdentityTests
         // and never reads the undefined opcode that follows.
         byte[] before = [0x17, 0x24, 0x2A]; // ldc.i4.1; 0x24 is not an opcode; ret
         byte[] after = [0x18, 0x24, 0x2A]; // ldc.i4.2; 0x24 is not an opcode; ret
-        FastDiffResult result = Compare(
+        FindingDiffAnyResult result = Compare(
             [new("N", "C", null, before)],
             [new("N", "C", null, after)]);
 
-        FastDiffTypeState state = Single(result, "N.C");
-        Assert.Equal(FastDiffState.Unchanged, state.Api);
-        Assert.Equal(FastDiffState.Changed, state.Body);
+        FindingDiffAnyTypeState state = Single(result, "N.C");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Changed, state.Body);
     }
 
     enum AttributeTarget { Field, Event }
@@ -212,11 +212,11 @@ public sealed class FastDiffIdentityTests
     {
         // Both names decode to U+FFFD U+FFFD X; their stored bytes differ.
         TypeSpec[] types = [new("N", "C", null, ReturnOne, ["M", "QQX"])];
-        FastDiffResult result = CompareImages(
+        FindingDiffAnyResult result = CompareImages(
             Patch(Image(types), "QQX"u8, [0xFF, 0xFE, (byte)'X']),
             Patch(Image(types), "QQX"u8, [0xFE, 0xFF, (byte)'X']));
 
-        Assert.Equal(FastDiffState.Changed, Single(result, "N.C").Api);
+        Assert.Equal(FindingDiffAnyState.Changed, Single(result, "N.C").Api);
     }
 
     [Fact]
@@ -227,25 +227,25 @@ public sealed class FastDiffIdentityTests
             Patch(Image([new("N", "QQX", null, ReturnOne), new("N", "QQY", null, ReturnOne)]),
                 "QQX"u8, [0xFF, 0xFE, (byte)'X']),
             "QQY"u8, [0xFE, 0xFF, (byte)'X']);
-        FastDiffResult result = CompareImages(image, image);
+        FindingDiffAnyResult result = CompareImages(image, image);
 
         Assert.Equal(2, result.Types.Count(type => type.FullName == "N.\uFFFD\uFFFDX"));
         Assert.Equal(result.Types.Length, result.Types.Select(type => type.Identifier).Distinct().Count());
         Assert.All(
             result.Types.Where(type => type.FullName == "N.\uFFFD\uFFFDX"),
-            type => Assert.Equal((FastDiffState.Indeterminate, FastDiffState.Indeterminate), (type.Api, type.Body)));
+            type => Assert.Equal((FindingDiffAnyState.Indeterminate, FindingDiffAnyState.Indeterminate), (type.Api, type.Body)));
     }
 
     [Fact]
     public void IllFormedTypeNameChangedBetweenVersions_IsOneIndeterminateRow()
     {
         TypeSpec[] types = [new("N", "QQX", null, ReturnOne)];
-        FastDiffResult result = CompareImages(
+        FindingDiffAnyResult result = CompareImages(
             Patch(Image(types), "QQX"u8, [0xFF, 0xFE, (byte)'X']),
             Patch(Image(types), "QQX"u8, [0xFE, 0xFF, (byte)'X']));
 
-        FastDiffTypeState type = Single(result, "N.\uFFFD\uFFFDX");
-        Assert.Equal((FastDiffState.Indeterminate, FastDiffState.Indeterminate), (type.Api, type.Body));
+        FindingDiffAnyTypeState type = Single(result, "N.\uFFFD\uFFFDX");
+        Assert.Equal((FindingDiffAnyState.Indeterminate, FindingDiffAnyState.Indeterminate), (type.Api, type.Body));
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public sealed class FastDiffIdentityTests
         return image;
     }
 
-    static FastDiffTypeState Single(FastDiffResult result, string fullName)
+    static FindingDiffAnyTypeState Single(FindingDiffAnyResult result, string fullName)
         => Assert.Single(result.Types, type => type.FullName == fullName);
 
     /// <summary>
@@ -299,16 +299,16 @@ public sealed class FastDiffIdentityTests
         int? VarargRequired = null,
         bool PrivateScope = false);
 
-    static FastDiffResult Compare(TypeSpec[] before, TypeSpec[] after)
+    static FindingDiffAnyResult Compare(TypeSpec[] before, TypeSpec[] after)
         => CompareImages(Image(before), Image(after));
 
-    static FastDiffResult CompareImages(byte[] beforeImage, byte[] afterImage)
+    static FindingDiffAnyResult CompareImages(byte[] beforeImage, byte[] afterImage)
     {
         using var beforeReader = new PEReader(new MemoryStream(beforeImage, writable: false));
         using var afterReader = new PEReader(new MemoryStream(afterImage, writable: false));
-        FastDiffResult whole = FastDiff.Compare(beforeReader, afterReader);
+        FindingDiffAnyResult whole = FindingDiffAny.Compare(beforeReader, afterReader);
 
-        var stepped = new FastDiffComparison();
+        var stepped = new FindingDiffAnyComparison();
         bool complete = false;
         while (!complete)
         {

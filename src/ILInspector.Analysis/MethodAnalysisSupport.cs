@@ -27,6 +27,10 @@ public sealed record MethodAnalysisSupportWork(
 
     public long DeclaredSourceProbeEncodedIlBytes { get; init; }
 
+    public int DeclaredSourceTypeDefinitionRows { get; init; }
+
+    public int DeclaredSourceTypeAttributeRows { get; init; }
+
     public int DeclaredSourceRelationshipNodes { get; init; }
 
     public int DeclaredSourceContractQueries { get; init; }
@@ -85,6 +89,12 @@ public sealed record MethodAnalysisSupportWork(
             DeclaredSourceProbeEncodedIlBytes =
                 DeclaredSourceProbeEncodedIlBytes
                 - before.DeclaredSourceProbeEncodedIlBytes,
+            DeclaredSourceTypeDefinitionRows =
+                DeclaredSourceTypeDefinitionRows
+                - before.DeclaredSourceTypeDefinitionRows,
+            DeclaredSourceTypeAttributeRows =
+                DeclaredSourceTypeAttributeRows
+                - before.DeclaredSourceTypeAttributeRows,
             DeclaredSourceRelationshipNodes =
                 DeclaredSourceRelationshipNodes
                 - before.DeclaredSourceRelationshipNodes,
@@ -155,6 +165,12 @@ public sealed record MethodAnalysisSupportWork(
             DeclaredSourceProbeEncodedIlBytes =
                 checked(DeclaredSourceProbeEncodedIlBytes
                     + other.DeclaredSourceProbeEncodedIlBytes),
+            DeclaredSourceTypeDefinitionRows =
+                checked(DeclaredSourceTypeDefinitionRows
+                    + other.DeclaredSourceTypeDefinitionRows),
+            DeclaredSourceTypeAttributeRows =
+                checked(DeclaredSourceTypeAttributeRows
+                    + other.DeclaredSourceTypeAttributeRows),
             DeclaredSourceRelationshipNodes =
                 checked(DeclaredSourceRelationshipNodes
                     + other.DeclaredSourceRelationshipNodes),
@@ -238,6 +254,8 @@ internal sealed class MethodAnalysisLookup
     long _stableGetterEncodedIlBytes;
     int _asyncStateMachineTypeRows;
     int _declaredSourceQueries;
+    int _declaredSourceTypeDefinitionRows;
+    int _declaredSourceTypeAttributeRows;
     int _declaredSourceContractQueries;
     MemorySafetyMetadataWork
         _declaredSourceContractConstructionWork =
@@ -400,6 +418,12 @@ internal sealed class MethodAnalysisLookup
                     declaredSource.ProbeBodiesAttempted.Count,
                 DeclaredSourceProbeEncodedIlBytes =
                     declaredSource.ProbeEncodedIlBytes,
+                DeclaredSourceTypeDefinitionRows =
+                    Volatile.Read(
+                        ref _declaredSourceTypeDefinitionRows),
+                DeclaredSourceTypeAttributeRows =
+                    Volatile.Read(
+                        ref _declaredSourceTypeAttributeRows),
                 DeclaredSourceRelationshipNodes =
                     declaredSource.RelationshipNodes,
                 DeclaredSourceContractQueries =
@@ -504,15 +528,24 @@ internal sealed class MethodAnalysisLookup
                 _peReader,
                 generatedExpansionWork:
                     _declaredSourceWork,
-                methodAnalysis: this);
-        bool typeSourceGenerated =
-            attribution.GeneratedProvenanceClassifier
-                .IsSourceGeneratedTypeOrEnclosing(
-                    methodDefinition.GetDeclaringType());
+                methodAnalysis: this,
+                declaredSourceTypeDefinitionRead:
+                    _ => Interlocked.Increment(
+                        ref _declaredSourceTypeDefinitionRows),
+                declaredSourceAttributeRead:
+                    () => Interlocked.Increment(
+                        ref _declaredSourceTypeAttributeRows),
+                declaredSourceRelationshipRead:
+                    handle => _declaredSourceWork
+                        .RecordRelationshipNode(handle));
         DeclaredOwnerResolution resolution;
         AuthenticatedSourceOwner? ultimateOwner;
         try
         {
+            bool typeSourceGenerated =
+                attribution.GeneratedProvenanceClassifier
+                    .IsSourceGeneratedTypeOrEnclosing(
+                        methodDefinition.GetDeclaringType());
             resolution =
                 attribution.DeclaredSourceResolver
                     .ResolveUltimateDeclaredMethod(
@@ -522,7 +555,9 @@ internal sealed class MethodAnalysisLookup
                         typeSourceGenerated,
                         out _,
                         out ultimateOwner,
-                        exactAttribution: true);
+                        exactAttribution: true,
+                        exactAttributionWork:
+                            _declaredSourceWork);
         }
         catch (MethodDefinitionGeneratedExpansionBoundException)
         {

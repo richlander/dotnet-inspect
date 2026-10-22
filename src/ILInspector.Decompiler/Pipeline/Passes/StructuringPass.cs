@@ -1164,9 +1164,11 @@ public sealed class StructuringPass : IIrPass
     /// whole function fits the slice. <paramref name="breakTarget"/> is the
     /// block index of the enclosing loop's exit (null outside a loop body): a
     /// forward branch there is a <c>break</c>, in or out of nested ifs.
-    /// <paramref name="continueTarget"/> is the head index of the enclosing
-    /// infinite (<c>while (true)</c>) loop, whose latch is an unconditional
-    /// backward branch to that head (null outside such a loop body).
+    /// <paramref name="continueTarget"/> is the block index the enclosing
+    /// loop's <c>continue</c> re-enters: the head of an infinite
+    /// (<c>while (true)</c>) loop, or the condition block of a rotated
+    /// <c>while</c> (null outside a loop body). A branch there is a
+    /// <c>continue</c> at any nesting depth; a nested loop supplies its own.
     /// </summary>
     static bool Validate(Ctx ctx, int start, int stop, int joinIndex, int? breakTarget, int? continueTarget, int? regionExitBreakTarget = null)
     {
@@ -1269,7 +1271,7 @@ public sealed class StructuringPass : IIrPass
                     // The latch of the enclosing infinite loop: an unconditional
                     // back-edge to the head, as the loop body's last block. It is
                     // the while-loop's implicit back-edge, not an exit goto.
-                    if (continueTarget == branchTarget && i + 1 == stop)
+                    if (continueTarget == branchTarget && i + 1 == stop && stop == breakTarget)
                     {
                         i = stop;
                         break;
@@ -1277,11 +1279,10 @@ public sealed class StructuringPass : IIrPass
                     // csc's guarded while: br COND; BODY...; COND: brtrue BODY.
                     if (FindWhileShape(ctx, i, branchTarget, stop) is { } loop)
                     {
-                        // The body's breaks target the block after the loop.
-                        // EH retry leaves to the condition are converted after
-                        // the body is built; ordinary branches to the condition
-                        // remain outside this slice so nested arm exclusivity is
-                        // not lost.
+                        // The body's breaks target the block after the loop and
+                        // its branches to the condition are its `continue`
+                        // statements. EH retry leaves to the condition are
+                        // converted after the body is built.
                         // RegionExitLeaveWithDescendantBodyEntry_DoesNotBecomeBreak
                         // keeps this proof latch-only before cloned leaves lose
                         // their original TryFinally ancestry.
@@ -1292,7 +1293,7 @@ public sealed class StructuringPass : IIrPass
                             stop)
                             ? loop.ContinueAt
                             : (int?)null;
-                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget))
+                        if (!Validate(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget: branchTarget, loopRegionExitBreakTarget))
                             return false;
                         i = loop.ContinueAt;
                         break;
@@ -1301,6 +1302,13 @@ public sealed class StructuringPass : IIrPass
                     if (branchTarget == joinIndex && i + 1 == stop)
                     {
                         i = stop;
+                        break;
+                    }
+                    // Any other branch to the enclosing loop's continue target
+                    // is a `continue` statement, whatever its nesting depth.
+                    if (continueTarget == branchTarget)
+                    {
+                        i++;
                         break;
                     }
                     // A branch to the retained merge from a nested lexical range
@@ -1359,6 +1367,17 @@ public sealed class StructuringPass : IIrPass
                         i++;
                         break;
                     }
+                    // A conditional branch to the enclosing loop's continue
+                    // target is `if (c) continue;` from any nesting depth (or
+                    // the loop's bottom test when it is the body's last block).
+                    // At a rotated loop's top level the condition is also the
+                    // body's join, and the merge-exit guard reading below keeps
+                    // csc's `if (c) { ... }` tail shape instead.
+                    if (continueTarget == target && target != joinIndex)
+                    {
+                        i++;
+                        break;
+                    }
                     if (target <= i)
                     {
                         ctx.Recorder?.Record("cond-backward-branch");
@@ -1406,6 +1425,15 @@ public sealed class StructuringPass : IIrPass
                     // the region; the merge stays reached by fallthrough.
                     if (target == joinIndex)
                     {
+                        // The guarded rest of the region becomes an if-arm; a
+                        // block inside it that an outside transfer still
+                        // targets (a flattened switch section, a surviving
+                        // leave) would print as a goto into the arm's braces.
+                        if (RegionExternallyEntered(ctx, i + 1, stop))
+                        {
+                            ctx.Recorder?.Record("arm-externally-entered");
+                            return false;
+                        }
                         if (!Validate(ctx, i + 1, stop, joinIndex, breakTarget, continueTarget, regionExitBreakTarget))
                             return false;
                         i = stop;
@@ -1792,15 +1820,18 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>
     /// An infinite (<c>while (true)</c>) loop headed at <paramref name="head"/>:
-    /// a single later block in <c>(head, stop)</c> ends with an unconditional
-    /// <see cref="Branch"/> back to the head, or one or more safe EH
-    /// <see cref="Leave"/> nodes target the head from a recovered protected
-    /// region. Returns the latch index; the loop body is <c>[head, latch]</c>
-    /// and execution continues at <c>latch + 1</c>.
+    /// one or more later blocks in <c>(head, stop)</c> end with a
+    /// <see cref="Branch"/> or <see cref="ConditionalBranch"/> back to the
+    /// head, or one or more safe EH <see cref="Leave"/> nodes target the head
+    /// from a recovered protected region. Returns the latch index, the last
+    /// back-edge; the loop body is <c>[head, latch]</c> and execution
+    /// continues at <c>latch + 1</c>.
     ///
-    /// A conditional back-edge (a do-while, already raised, or a mid-body
-    /// <c>continue</c>) keeps the container flat. Ordinary branches still require
-    /// one latch; EH retry loops may have multiple retry leaves, all converted to
+    /// An unconditional latch is the implicit loop edge and a conditional one
+    /// is the loop's bottom test (<c>if (!c) break;</c>); every earlier
+    /// back-edge is a <c>continue</c>. A mid-block back-edge, or a transfer
+    /// from outside the loop into <c>(head, latch]</c>, keeps the container
+    /// flat. EH retry loops may have multiple retry leaves, all converted to
     /// <c>continue</c> after the loop body is built.
     /// </summary>
     static int? FindInfiniteLoopShape(Ctx ctx, int head, int stop)
@@ -1825,16 +1856,26 @@ public sealed class StructuringPass : IIrPass
                 };
                 if (targetOffset != headOffset)
                     continue;
-                // The only branch back to the head must be the latch: an
-                // unconditional goto that is its block's last statement. A
-                // conditional or mid-block back-edge, or a second one, is outside
-                // this slice.
-                if (latch != -1 || children[s] is not Branch || s != children.Count - 1)
+                // Every back-edge must be its block's terminator; a mid-block
+                // one sits inside an already-structured statement and is
+                // outside this slice. The last back-edge is the latch: an
+                // unconditional goto is the implicit loop edge, a conditional
+                // one is the loop's bottom test. Earlier back-edges are the
+                // body's `continue` statements.
+                if (s != children.Count - 1)
                     return null;
                 latch = j;
             }
         }
-        return latch == -1 ? null : latch;
+        if (latch == -1)
+            return null;
+        // The body must be entered only at its head: a transfer from outside
+        // the loop into (head, latch] (a leave from a preceding protected
+        // region onto a bottom test, a switch section) would print as a goto
+        // into the loop's braces.
+        if (RegionExternallyEntered(ctx, head + 1, latch + 1))
+            return null;
+        return latch;
     }
 
     static int? FindLeaveRetryLoopShape(Ctx ctx, int head, int stop)
@@ -3001,7 +3042,7 @@ public sealed class StructuringPass : IIrPass
                     && continueTarget == leaveTarget
                     && CanRaiseRetryLeave(ctx, leave):
                 {
-                    var next = new Continue();
+                    var next = new Continue(ContinueOrigin.LoopBodyBranch);
                     next.InheritSourceOffset(leave);
                     ctx.GeneratedLoopTransfers.Add(next);
                     result.Add(next);
@@ -3037,7 +3078,7 @@ public sealed class StructuringPass : IIrPass
                     }
                     // The infinite loop's latch: drop the back-edge goto; the
                     // enclosing WhileLoop carries the loop edge.
-                    if (continueTarget == branchTarget && i + 1 == stop)
+                    if (continueTarget == branchTarget && i + 1 == stop && stop == breakTarget)
                     {
                         i = stop;
                         break;
@@ -3051,7 +3092,7 @@ public sealed class StructuringPass : IIrPass
                             stop)
                             ? loop.ContinueAt
                             : (int?)null;
-                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget, loopRegionExitBreakTarget);
+                        var body = BuildRegion(ctx, i + 1, branchTarget, joinIndex: branchTarget, breakTarget: loop.ContinueAt, continueTarget: branchTarget, loopRegionExitBreakTarget);
                         var breakTargetOffsets = new HashSet<int>();
                         if (loop.ContinueAt < blocks.Count)
                             breakTargetOffsets.Add(blocks[loop.ContinueAt].StartOffset);
@@ -3094,6 +3135,17 @@ public sealed class StructuringPass : IIrPass
                     if (branchTarget == joinIndex && i + 1 == stop)
                     {
                         i = stop;  // the region-exit goto disappears into structure
+                        break;
+                    }
+                    // A branch to the enclosing loop's continue target from any
+                    // other position is a `continue` (mirrors Validate).
+                    if (continueTarget == branchTarget)
+                    {
+                        var next = new Continue(ContinueOrigin.LoopBodyBranch);
+                        next.InheritSourceOffset(branch);
+                        ctx.GeneratedLoopTransfers.Add(next);
+                        result.Add(next);
+                        i++;
                         break;
                     }
                     if (ctx.RetainedMergeIndices.Contains(branchTarget))
@@ -3156,6 +3208,34 @@ public sealed class StructuringPass : IIrPass
                     {
                         var guardArm = CloneTerminatorSnapshot(ctx, target, block.StartOffset);
                         result.Add(new IfStatement(condition, guardArm, null));
+                        i++;
+                        break;
+                    }
+                    // A conditional branch to the enclosing loop's continue
+                    // target (mirrors Validate). As the infinite loop's last
+                    // block it is the bottom test: the taken path is the
+                    // implicit loop edge and the fallthrough exits, so it
+                    // raises to `if (!c) break;`. Elsewhere it is
+                    // `if (c) continue;`.
+                    if (continueTarget == target && target != joinIndex)
+                    {
+                        var transferArm = new Block(block.StartOffset);
+                        IrNode next;
+                        IrExpression transferCondition;
+                        if (i + 1 == stop && stop == breakTarget)
+                        {
+                            next = new Break();
+                            transferCondition = Negate(condition);
+                        }
+                        else
+                        {
+                            next = new Continue(ContinueOrigin.LoopBodyBranch);
+                            transferCondition = condition;
+                        }
+                        next.InheritSourceOffset(conditional);
+                        ctx.GeneratedLoopTransfers.Add(next);
+                        transferArm.Add(next);
+                        result.Add(new IfStatement(transferCondition, transferArm, null));
                         i++;
                         break;
                     }
@@ -3346,7 +3426,7 @@ public sealed class StructuringPass : IIrPass
                      targetOffset,
                      replacementIsContinue: true))
         {
-            var next = new Continue();
+            var next = new Continue(ContinueOrigin.LoopBodyBranch);
             next.InheritSourceOffset(leave);
             leave.ReplaceWith(next);
         }

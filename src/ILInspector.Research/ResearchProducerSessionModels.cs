@@ -32,7 +32,7 @@ public sealed class ResearchProducerSessionRequest
 
     /// <param name="ilNormalization">
     /// The normalization the IL producer compares under. Member Body Diff
-    /// requests Fast Diff's Body policy (<see cref="IlBodyDiffPolicy.Body"/>);
+    /// requests Finding Diff Any's Body policy (<see cref="IlBodyDiffPolicy.Body"/>);
     /// every other consumer compares with none.
     /// </param>
     public ResearchProducerSessionRequest(

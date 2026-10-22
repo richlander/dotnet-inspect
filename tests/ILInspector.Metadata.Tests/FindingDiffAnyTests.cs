@@ -8,99 +8,99 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Metadata.Tests;
 
-public sealed class FastDiffTests
+public sealed class FindingDiffAnyTests
 {
     static readonly FindingSubject Subject = new("api", "API");
 
     [Theory]
-    [InlineData("FastDiffFixture.Unchanged", FastDiffState.Unchanged, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.BodyOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.LambdaOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.AsyncOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.LocalFunctionOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.StringLiteralOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
+    [InlineData("FindingDiffAnyFixture.Unchanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.BodyOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.LambdaOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.AsyncOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.LocalFunctionOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.StringLiteralOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     // A catch Type is not an IL operation, so canonical IL comparison shows
     // no change for it (#9942) and the Body axis compares it Unchanged.
-    [InlineData("FastDiffFixture.CatchTypeOnly", FastDiffState.Unchanged, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.AbstractToVirtual", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.IDefaultImplementationAdded", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PrivateMemberAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PrivateFieldAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PrivateCalleeChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PublicMemberAdded", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.MethodConstraint", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ConstraintType", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ConstantValue", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.DefaultParameter", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ParameterName", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.PublicAttribute", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.InterfaceAdded", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.BecomesPublic", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.Outer.Inner", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.NullableOuter", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.NullableOuter.Inner", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.Outer", FastDiffState.Unchanged, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.Generic`1", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.InternalBodyOnly", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.Added", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.Removed", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.HiddenMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.HiddenTypeChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ProtectedMemberChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.PrivateProtectedMemberAdded", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PublicToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.PublicToProtectedInternal", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ProtectedInternalToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ProtectedToProtectedInternal", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ProtectedInternalToPublic", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.SetterToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.NestedPublicToProtected", FastDiffState.Unchanged, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.NestedPublicToProtected.Nested", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.NestedProtectedToPublic", FastDiffState.Unchanged, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.NestedProtectedToPublic.Nested", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.PublicToInternal", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PublicToPrivate", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.ProtectedToInternal", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.InternalToPrivate", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.ProtectedToPrivateProtected", FastDiffState.Changed, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PublicTypeToInternal", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.PropertyPublicToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.PropertyWithPrivateSetterPublicToProtected", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.PrivateMemberRemoved", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.PrivateMemberChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.InternalTypeRemoved", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.InternalTypeMemberChanged", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.InternalOuterNestedMemberChanged.Nested", FastDiffState.Unchanged, FastDiffState.Changed)]
-    [InlineData("FastDiffFixture.MemberBecomesHidden", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.MemberBecomesVisible", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.TypeBecomesHidden", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.MemberBecomesObsolete", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ObsoleteWarningToError", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.TypeBecomesObsolete", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.ObsoleteMessageChanged", FastDiffState.Changed, FastDiffState.Unchanged)]
-    [InlineData("FastDiffFixture.MemberBecomesObsoleteError", FastDiffState.Changed, FastDiffState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.CatchTypeOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.AbstractToVirtual", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.IDefaultImplementationAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PrivateMemberAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PrivateFieldAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PrivateCalleeChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PublicMemberAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.MethodConstraint", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ConstraintType", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ConstantValue", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.DefaultParameter", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ParameterName", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PublicAttribute", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.InterfaceAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.BecomesPublic", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.Outer.Inner", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.NullableOuter", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.NullableOuter.Inner", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.Outer", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.Generic`1", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.InternalBodyOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.Added", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.Removed", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.HiddenMemberChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.HiddenTypeChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ProtectedMemberChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PrivateProtectedMemberAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtectedInternal", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToProtectedInternal", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToPublic", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.SetterToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.NestedPublicToProtected", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.NestedPublicToProtected.Nested", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.NestedProtectedToPublic", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.NestedProtectedToPublic.Nested", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PublicToInternal", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PublicToPrivate", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToInternal", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.InternalToPrivate", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToPrivateProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PublicTypeToInternal", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PropertyPublicToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PropertyWithPrivateSetterPublicToProtected", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PrivateMemberRemoved", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.PrivateMemberChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.InternalTypeRemoved", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.InternalTypeMemberChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.InternalOuterNestedMemberChanged.Nested", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesHidden", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesVisible", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.TypeBecomesHidden", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesObsolete", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ObsoleteWarningToError", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.TypeBecomesObsolete", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.ObsoleteMessageChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesObsoleteError", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     public void TypeStates_SeparateApiAndBodyChanges(
         string fullName,
-        FastDiffState api,
-        FastDiffState body)
+        FindingDiffAnyState api,
+        FindingDiffAnyState body)
     {
-        FastDiffTypeState state = Assert.Single(
-            Compare(FixtureCatalog.MetadataFastDiffPair).Types,
+        FindingDiffAnyTypeState state = Assert.Single(
+            Compare(FixtureCatalog.MetadataFindingDiffAnyPair).Types,
             type => type.FullName == fullName);
 
         Assert.Equal((api, body), (state.Api, state.Body));
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.Outer.Inner", "FastDiffFixture.Outer+Inner")]
-    [InlineData("FastDiffFixture.Generic`1", "FastDiffFixture.Generic`1")]
-    [InlineData("FastDiffFixture.Added", "FastDiffFixture.Added")]
+    [InlineData("FindingDiffAnyFixture.Outer.Inner", "FindingDiffAnyFixture.Outer+Inner")]
+    [InlineData("FindingDiffAnyFixture.Generic`1", "FindingDiffAnyFixture.Generic`1")]
+    [InlineData("FindingDiffAnyFixture.Added", "FindingDiffAnyFixture.Added")]
     public void TypeStates_CarryTheEscapedDefinitionIdentifier(
         string fullName,
         string identifier)
     {
-        FastDiffTypeState state = Assert.Single(
-            Compare(FixtureCatalog.MetadataFastDiffPair).Types,
+        FindingDiffAnyTypeState state = Assert.Single(
+            Compare(FixtureCatalog.MetadataFindingDiffAnyPair).Types,
             type => type.FullName == fullName);
 
         Assert.Equal(identifier, state.Identifier);
@@ -109,13 +109,13 @@ public sealed class FastDiffTests
     [Fact]
     public void GeneratedTypes_FoldIntoTheirDeclaredOwner()
     {
-        FastDiffResult result = Compare(FixtureCatalog.MetadataFastDiffPair);
+        FindingDiffAnyResult result = Compare(FixtureCatalog.MetadataFindingDiffAnyPair);
 
         Assert.DoesNotContain(result.Types, type => type.FullName.Contains('<'));
     }
 
     [Theory]
-    [InlineData("fast-diff")]
+    [InlineData("finding-diff-any")]
     [InlineData("diff")]
     [InlineData("library-api-diff")]
     public void ApiUnchanged_IsSoundAgainstTheCompletePublicApiComparison(string pairName)
@@ -128,39 +128,39 @@ public sealed class FastDiffTests
                 before, after, Subject, new ApiDiffOptions(ApiDiffScope.All));
         HashSet<string> changed = ChangedTypes(comparison);
 
-        FastDiffResult result = Compare(pair);
+        FindingDiffAnyResult result = Compare(pair);
 
         Assert.NotEmpty(changed);
         Assert.All(changed, typeName =>
         {
-            FastDiffTypeState? state = result.Types.FirstOrDefault(
+            FindingDiffAnyTypeState? state = result.Types.FirstOrDefault(
                 type => type.FullName == typeName);
             Assert.True(
-                state is { Api: not FastDiffState.Unchanged },
-                $"{typeName} changes in the complete API comparison but Fast Diff reports {state?.Api}.");
+                state is { Api: not FindingDiffAnyState.Unchanged },
+                $"{typeName} changes in the complete API comparison but Finding Diff Any reports {state?.Api}.");
         });
         Assert.All(
-            result.Types.Where(type => type.Api == FastDiffState.Changed
+            result.Types.Where(type => type.Api == FindingDiffAnyState.Changed
                 && !KnownApiOverReports.Contains((pairName, type.FullName))),
             type => Assert.True(
                 changed.Contains(type.FullName),
-                $"Fast Diff reports {type.FullName} API Changed but the complete API comparison does not."));
+                $"Finding Diff Any reports {type.FullName} API Changed but the complete API comparison does not."));
     }
 
     /// <summary>
-    /// Types Fast Diff reports API <c>Changed</c> that the complete API axis comparison
+    /// Types Finding Diff Any reports API <c>Changed</c> that the complete API axis comparison
     /// does not, each a known pre-existing divergence filed for follow-up rather than an
     /// accepted difference.
     /// </summary>
     static readonly HashSet<(string Pair, string Type)> KnownApiOverReports =
     [
-        // A non-enum constant's value: Fast Diff compares the Constant row, while the
+        // A non-enum constant's value: Finding Diff Any compares the Constant row, while the
         // complete comparison does not compare ApiMember.ConstantValueLiteral.
-        ("fast-diff", "FastDiffFixture.ConstantValue"),
+        ("finding-diff-any", "FindingDiffAnyFixture.ConstantValue"),
     ];
 
     [Theory]
-    [InlineData("fast-diff")]
+    [InlineData("finding-diff-any")]
     [InlineData("diff")]
     [InlineData("library-api-diff")]
     public void BodyUnchanged_IsSoundAgainstCanonicalIlComparison(string pairName)
@@ -171,31 +171,31 @@ public sealed class FastDiffTests
             pair.NewAssemblyPath(),
             maxExamples: int.MaxValue,
             normalization: IlBodyDiffPolicy.Body).Diff;
-        FastDiffResult result = Compare(pair);
+        FindingDiffAnyResult result = Compare(pair);
 
         Assert.NotEmpty(il.Examples);
         Assert.All(il.Examples, example =>
         {
             string owner = DeclaredOwner(example.Method);
-            FastDiffTypeState? state = result.Types.FirstOrDefault(
+            FindingDiffAnyTypeState? state = result.Types.FirstOrDefault(
                 type => type.FullName == owner);
             Assert.True(
-                state is { Body: not FastDiffState.Unchanged },
-                $"{example.Method} (owner {owner}) changes in canonical IL but Fast Diff reports {state?.Body}.");
+                state is { Body: not FindingDiffAnyState.Unchanged },
+                $"{example.Method} (owner {owner}) changes in canonical IL but Finding Diff Any reports {state?.Body}.");
         });
     }
 
     /// <summary>
-    /// Body exactness: every method pair's Body verdict, under Fast Diff's own
+    /// Body exactness: every method pair's Body verdict, under Finding Diff Any's own
     /// pairing, equals canonical IL comparison's verdict for the same two
     /// bodies under the Body policy. <c>Exact</c> is <c>Unchanged</c>, a body
     /// on one side only or any other available verdict is <c>Changed</c>, and
     /// a body canonical comparison cannot decide is <c>Indeterminate</c>. The
     /// one designed departure, a difference decided before a decode fault, has
-    /// its own generated case in <c>FastDiffIdentityTests</c>.
+    /// its own generated case in <c>FindingDiffAnyIdentityTests</c>.
     /// </summary>
     [Theory]
-    [InlineData("fast-diff")]
+    [InlineData("finding-diff-any")]
     [InlineData("diff")]
     [InlineData("library-api-diff")]
     public void Body_EqualsCanonicalIlComparisonPerMethod(string pairName)
@@ -203,34 +203,34 @@ public sealed class FastDiffTests
         FixturePair pair = PairOf(pairName);
         using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
         using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
-        List<FastDiff.BodyVerdict> verdicts = FastDiff.BodyVerdicts(before, after);
+        List<FindingDiffAny.BodyVerdict> verdicts = FindingDiffAny.BodyVerdicts(before, after);
 
-        Assert.Contains(verdicts, verdict => verdict.Body == FastDiffState.Unchanged);
-        Assert.Contains(verdicts, verdict => verdict.Body == FastDiffState.Changed);
+        Assert.Contains(verdicts, verdict => verdict.Body == FindingDiffAnyState.Unchanged);
+        Assert.Contains(verdicts, verdict => verdict.Body == FindingDiffAnyState.Changed);
         Assert.All(verdicts, verdict =>
         {
-            FastDiffState canonical = CanonicalBodyVerdict(before, after, verdict);
-            Assert.True(canonical == verdict.Body, $"{verdict.Type} {verdict.Method}: canonical {canonical}, Fast Diff {verdict.Body}.");
+            FindingDiffAnyState canonical = CanonicalBodyVerdict(before, after, verdict);
+            Assert.True(canonical == verdict.Body, $"{verdict.Type} {verdict.Method}: canonical {canonical}, Finding Diff Any {verdict.Body}.");
         });
     }
 
     /// <summary>
-    /// Canonical IL comparison's verdict for one of Fast Diff's method pairs
-    /// under the Body policy, in Fast Diff's states.
+    /// Canonical IL comparison's verdict for one of Finding Diff Any's method pairs
+    /// under the Body policy, in Finding Diff Any's states.
     /// </summary>
-    internal static FastDiffState CanonicalBodyVerdict(PEReader before, PEReader after, FastDiff.BodyVerdict verdict)
+    internal static FindingDiffAnyState CanonicalBodyVerdict(PEReader before, PEReader after, FindingDiffAny.BodyVerdict verdict)
     {
         MetadataReader a = before.GetMetadataReader();
         MetadataReader b = after.GetMetadataReader();
         int rvaA = a.GetMethodDefinition(verdict.Before).RelativeVirtualAddress;
         int rvaB = b.GetMethodDefinition(verdict.After).RelativeVirtualAddress;
         if (rvaA == 0 || rvaB == 0)
-            return rvaA == rvaB ? FastDiffState.Unchanged : FastDiffState.Changed;
+            return rvaA == rvaB ? FindingDiffAnyState.Unchanged : FindingDiffAnyState.Changed;
         IlBodyDiffResult result = IlBodyDiff.Compare(
             a, before.GetMethodBody(rvaA), b, after.GetMethodBody(rvaB), IlBodyDiffPolicy.Body);
         return result.IsExact
-            ? FastDiffState.Unchanged
-            : result.IsAvailable ? FastDiffState.Changed : FastDiffState.Indeterminate;
+            ? FindingDiffAnyState.Unchanged
+            : result.IsAvailable ? FindingDiffAnyState.Changed : FindingDiffAnyState.Indeterminate;
     }
 
     /// <summary>
@@ -277,7 +277,7 @@ public sealed class FastDiffTests
 
     static FixturePair PairOf(string name) => name switch
     {
-        "fast-diff" => FixtureCatalog.MetadataFastDiffPair,
+        "finding-diff-any" => FixtureCatalog.MetadataFindingDiffAnyPair,
         "diff" => FixtureCatalog.DiffPair,
         _ => FixtureCatalog.LibraryApiDiffPair,
     };
@@ -289,9 +289,9 @@ public sealed class FastDiffTests
         return ApiSurfaceExtractor.Extract(reader, scope);
     }
 
-    static ApiFindingComparison CompareFastDiffPair(ApiSurfaceExtractionScope scope)
+    static ApiFindingComparison CompareFindingDiffAnyPair(ApiSurfaceExtractionScope scope)
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         return MetadataFindings.CompareApi(
             Surface(pair.OldAssemblyPath(), scope),
             Surface(pair.NewAssemblyPath(), scope),
@@ -300,27 +300,27 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.HiddenMemberChanged")]
-    [InlineData("FastDiffFixture.HiddenTypeChanged")]
-    [InlineData("FastDiffFixture.ProtectedMemberChanged")]
+    [InlineData("FindingDiffAnyFixture.HiddenMemberChanged")]
+    [InlineData("FindingDiffAnyFixture.HiddenTypeChanged")]
+    [InlineData("FindingDiffAnyFixture.ProtectedMemberChanged")]
     public void ApiAxis_ComparesHiddenAndProtectedMembers(string typeName)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis);
 
         Assert.Contains(typeName, ChangedTypes(comparison));
         Assert.Equal(
-            FastDiffState.Changed,
-            Assert.Single(Compare(FixtureCatalog.MetadataFastDiffPair).Types, type => type.FullName == typeName).Api);
+            FindingDiffAnyState.Changed,
+            Assert.Single(Compare(FixtureCatalog.MetadataFindingDiffAnyPair).Types, type => type.FullName == typeName).Api);
     }
 
     [Fact]
     public void ApiAxis_MarksAHiddenMemberHidden()
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
-            diff => diff.TypeFullName == "FastDiffFixture.HiddenMemberChanged");
+            diff => diff.TypeFullName == "FindingDiffAnyFixture.HiddenMemberChanged");
         Assert.NotEmpty(type.Changes);
         Assert.All(type.Changes, change =>
         {
@@ -331,31 +331,31 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.HiddenMemberChanged")]
-    [InlineData("FastDiffFixture.HiddenTypeChanged")]
-    [InlineData("FastDiffFixture.ProtectedMemberChanged")]
+    [InlineData("FindingDiffAnyFixture.HiddenMemberChanged")]
+    [InlineData("FindingDiffAnyFixture.HiddenTypeChanged")]
+    [InlineData("FindingDiffAnyFixture.ProtectedMemberChanged")]
     public void OrdinaryPresentation_OmitsHiddenAndProtectedMembers(string typeName)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.Public);
 
         Assert.DoesNotContain(typeName, ChangedTypes(comparison));
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.PublicToProtected", "public", "protected", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.PublicToProtectedInternal", "public", "protected internal", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.ProtectedInternalToProtected", "protected internal", "protected", ChangeClassification.NonBreaking)]
-    [InlineData("FastDiffFixture.ProtectedToProtectedInternal", "protected", "protected internal", ChangeClassification.NonBreaking)]
-    [InlineData("FastDiffFixture.ProtectedInternalToPublic", "protected internal", "public", ChangeClassification.Additive)]
-    [InlineData("FastDiffFixture.PropertyPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.PropertyWithPrivateSetterPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtected", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtectedInternal", "public", "protected internal", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToProtected", "protected internal", "protected", ChangeClassification.NonBreaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToProtectedInternal", "protected", "protected internal", ChangeClassification.NonBreaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToPublic", "protected internal", "public", ChangeClassification.Additive)]
+    [InlineData("FindingDiffAnyFixture.PropertyPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.PropertyWithPrivateSetterPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
     public void ApiAxis_ReportsMemberAccessibilityChanges(
         string typeName,
         string oldAccessibility,
         string newAccessibility,
         ChangeClassification classification)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
@@ -367,20 +367,20 @@ public sealed class FastDiffTests
         Assert.Equal(newAccessibility, change.NewValue);
         Assert.Equal("Value", change.Subject?.NewMember?.Member.Name);
         Assert.Equal(
-            FastDiffState.Changed,
-            Assert.Single(Compare(FixtureCatalog.MetadataFastDiffPair).Types, state => state.FullName == typeName).Api);
+            FindingDiffAnyState.Changed,
+            Assert.Single(Compare(FixtureCatalog.MetadataFindingDiffAnyPair).Types, state => state.FullName == typeName).Api);
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.NestedPublicToProtected.Nested", "public", "protected", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.NestedProtectedToPublic.Nested", "protected", "public", ChangeClassification.Additive)]
+    [InlineData("FindingDiffAnyFixture.NestedPublicToProtected.Nested", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.NestedProtectedToPublic.Nested", "protected", "public", ChangeClassification.Additive)]
     public void ApiAxis_ReportsNestedTypeAccessibilityChanges(
         string typeName,
         string oldAccessibility,
         string newAccessibility,
         ChangeClassification classification)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
@@ -395,11 +395,11 @@ public sealed class FastDiffTests
     [Fact]
     public void ApiAxis_ReportsAnAccessorAccessibilityChangeAsASignatureChange()
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
-            diff => diff.TypeFullName == "FastDiffFixture.SetterToProtected");
+            diff => diff.TypeFullName == "FindingDiffAnyFixture.SetterToProtected");
         ApiChange change = Assert.Single(type.Changes);
         Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
@@ -410,11 +410,11 @@ public sealed class FastDiffTests
     [Fact]
     public void OrdinaryPresentation_ReportsAnAccessorAccessibilityChangeAsASignatureChange()
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.Public);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
-            diff => diff.TypeFullName == "FastDiffFixture.SetterToProtected");
+            diff => diff.TypeFullName == "FindingDiffAnyFixture.SetterToProtected");
         ApiChange change = Assert.Single(type.Changes);
         Assert.Equal(ChangeKind.MemberSignatureChanged, change.Kind);
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
@@ -425,10 +425,10 @@ public sealed class FastDiffTests
     [Fact]
     public void ApiAxis_MarksAHiddenTypeHidden()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         ApiType type = Assert.Single(
             Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis).Types,
-            type => type.FullName == "FastDiffFixture.HiddenTypeChanged");
+            type => type.FullName == "FindingDiffAnyFixture.HiddenTypeChanged");
 
         Assert.True(type.IsHidden);
     }
@@ -480,25 +480,25 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.PublicToProtected", "public", "protected", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.PublicToProtectedInternal", "public", "protected internal", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.ProtectedInternalToProtected", "protected internal", "protected", ChangeClassification.NonBreaking)]
-    [InlineData("FastDiffFixture.ProtectedToProtectedInternal", "protected", "protected internal", ChangeClassification.NonBreaking)]
-    [InlineData("FastDiffFixture.ProtectedInternalToPublic", "protected internal", "public", ChangeClassification.Additive)]
-    [InlineData("FastDiffFixture.PublicToInternal", "public", "internal", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.PublicToPrivate", "public", "private", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.ProtectedToInternal", "protected", "internal", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.ProtectedToPrivateProtected", "protected", "private protected", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.InternalToPrivate", "internal", "private", ChangeClassification.NonBreaking)]
-    [InlineData("FastDiffFixture.PropertyPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.PropertyWithPrivateSetterPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtected", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtectedInternal", "public", "protected internal", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToProtected", "protected internal", "protected", ChangeClassification.NonBreaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToProtectedInternal", "protected", "protected internal", ChangeClassification.NonBreaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToPublic", "protected internal", "public", ChangeClassification.Additive)]
+    [InlineData("FindingDiffAnyFixture.PublicToInternal", "public", "internal", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.PublicToPrivate", "public", "private", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToInternal", "protected", "internal", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToPrivateProtected", "protected", "private protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.InternalToPrivate", "internal", "private", ChangeClassification.NonBreaking)]
+    [InlineData("FindingDiffAnyFixture.PropertyPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.PropertyWithPrivateSetterPublicToProtected", "public", "protected", ChangeClassification.Breaking)]
     public void IncludeAll_ReportsEveryMemberAccessibilityMove(
         string typeName,
         string oldAccessibility,
         string newAccessibility,
         ChangeClassification classification)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.IncludeAll);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.IncludeAll);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
@@ -512,16 +512,16 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.NestedPublicToProtected.Nested", "public", "protected", ChangeClassification.Breaking)]
-    [InlineData("FastDiffFixture.NestedProtectedToPublic.Nested", "protected", "public", ChangeClassification.Additive)]
-    [InlineData("FastDiffFixture.PublicTypeToInternal", "public", "internal", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.NestedPublicToProtected.Nested", "public", "protected", ChangeClassification.Breaking)]
+    [InlineData("FindingDiffAnyFixture.NestedProtectedToPublic.Nested", "protected", "public", ChangeClassification.Additive)]
+    [InlineData("FindingDiffAnyFixture.PublicTypeToInternal", "public", "internal", ChangeClassification.Breaking)]
     public void IncludeAll_ReportsEveryTypeAccessibilityMove(
         string typeName,
         string oldAccessibility,
         string newAccessibility,
         ChangeClassification classification)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.IncludeAll);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.IncludeAll);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
@@ -534,18 +534,18 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.PrivateMemberAdded", ChangeKind.MemberAdded)]
-    [InlineData("FastDiffFixture.PrivateMemberRemoved", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.PrivateMemberChanged", ChangeKind.MemberSignatureChanged)]
-    [InlineData("FastDiffFixture.PrivateProtectedMemberAdded", ChangeKind.MemberAdded)]
-    [InlineData("FastDiffFixture.InternalTypeRemoved", ChangeKind.TypeRemoved)]
-    [InlineData("FastDiffFixture.InternalTypeMemberChanged", ChangeKind.MemberSignatureChanged)]
-    [InlineData("FastDiffFixture.InternalOuterNestedMemberChanged.Nested", ChangeKind.MemberSignatureChanged)]
+    [InlineData("FindingDiffAnyFixture.PrivateMemberAdded", ChangeKind.MemberAdded)]
+    [InlineData("FindingDiffAnyFixture.PrivateMemberRemoved", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.PrivateMemberChanged", ChangeKind.MemberSignatureChanged)]
+    [InlineData("FindingDiffAnyFixture.PrivateProtectedMemberAdded", ChangeKind.MemberAdded)]
+    [InlineData("FindingDiffAnyFixture.InternalTypeRemoved", ChangeKind.TypeRemoved)]
+    [InlineData("FindingDiffAnyFixture.InternalTypeMemberChanged", ChangeKind.MemberSignatureChanged)]
+    [InlineData("FindingDiffAnyFixture.InternalOuterNestedMemberChanged.Nested", ChangeKind.MemberSignatureChanged)]
     public void IncludeAll_ClassifiesAChangeOutsideTheApiAxisAsNonBreaking(
         string typeName,
         ChangeKind kind)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.IncludeAll);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.IncludeAll);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
@@ -556,16 +556,16 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.PublicToInternal", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.PublicToPrivate", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.ProtectedToInternal", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.ProtectedToPrivateProtected", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.PublicTypeToInternal", ChangeKind.TypeRemoved)]
+    [InlineData("FindingDiffAnyFixture.PublicToInternal", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.PublicToPrivate", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToInternal", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.ProtectedToPrivateProtected", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.PublicTypeToInternal", ChangeKind.TypeRemoved)]
     public void ApiAxis_ReportsAMoveOffTheAxisAsPopulation(
         string typeName,
         ChangeKind kind)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
@@ -581,24 +581,24 @@ public sealed class FastDiffTests
         // No other assembly can reach a public nested Type of an internal Type, so
         // the API axis admits neither it nor its Members
         // (docs/design/api-population-scope.md).
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis);
 
         Assert.DoesNotContain(
             comparison.ApiDiff.TypeDiffs,
             diff => diff.TypeFullName.StartsWith(
-                "FastDiffFixture.InternalOuterNestedMemberChanged",
+                "FindingDiffAnyFixture.InternalOuterNestedMemberChanged",
                 StringComparison.Ordinal));
     }
 
     [Fact]
     public void FocusedComparison_KeepsTheExtractionScope()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         FindingComparison<ApiMemberHandle> members = MetadataFindings.CompareApiMembers(
             Surface(pair.OldAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis),
             Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis),
             Subject,
-            "FastDiffFixture.PublicToProtected",
+            "FindingDiffAnyFixture.PublicToProtected",
             new ApiDiffOptions(ApiDiffScope.All));
 
         var complete = Assert.IsType<FindingComparison<ApiMemberHandle>.Complete>(members.Value);
@@ -617,7 +617,7 @@ public sealed class FastDiffTests
         ApiSurfaceExtractionScope contributor,
         ApiSurfaceExtractionScope? merged)
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         var surface = new ApiSurface { ExtractionScope = requested };
 
         surface.MergeAssemblySurface(Surface(pair.OldAssemblyPath(), contributor));
@@ -628,7 +628,7 @@ public sealed class FastDiffTests
     [Fact]
     public void MergedIncludeAllSurfaces_ReportAccessibilityMoves()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         ApiSurface Merged(string path)
         {
             var merged = new ApiSurface { ExtractionScope = ApiSurfaceExtractionScope.IncludeAll };
@@ -644,7 +644,7 @@ public sealed class FastDiffTests
 
         ApiChange change = Assert.Single(Assert.Single(
             diff.TypeDiffs,
-            type => type.TypeFullName == "FastDiffFixture.PublicToInternal").Changes);
+            type => type.TypeFullName == "FindingDiffAnyFixture.PublicToInternal").Changes);
         Assert.Equal(ChangeKind.MemberAccessibilityChanged, change.Kind);
         Assert.Equal(ChangeClassification.Breaking, change.Classification);
     }
@@ -653,21 +653,21 @@ public sealed class FastDiffTests
     public void ApiAxis_OmitsAMoveOutsideTheAxis()
     {
         Assert.DoesNotContain(
-            "FastDiffFixture.InternalToPrivate",
-            ChangedTypes(CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis)));
+            "FindingDiffAnyFixture.InternalToPrivate",
+            ChangedTypes(CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis)));
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.PublicToProtected", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.PublicToProtectedInternal", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.ProtectedInternalToPublic", ChangeKind.MemberAdded)]
-    [InlineData("FastDiffFixture.NestedPublicToProtected.Nested", ChangeKind.TypeRemoved)]
-    [InlineData("FastDiffFixture.NestedProtectedToPublic.Nested", ChangeKind.TypeAdded)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtected", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.PublicToProtectedInternal", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToPublic", ChangeKind.MemberAdded)]
+    [InlineData("FindingDiffAnyFixture.NestedPublicToProtected.Nested", ChangeKind.TypeRemoved)]
+    [InlineData("FindingDiffAnyFixture.NestedProtectedToPublic.Nested", ChangeKind.TypeAdded)]
     public void OrdinaryPresentation_ReportsAccessibilityAcrossThePublicBoundaryAsPopulation(
         string typeName,
         ChangeKind kind)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.Public);
 
         TypeDiff type = Assert.Single(
             comparison.ApiDiff.TypeDiffs,
@@ -676,11 +676,11 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.ProtectedInternalToProtected")]
-    [InlineData("FastDiffFixture.ProtectedToProtectedInternal")]
+    [InlineData("FindingDiffAnyFixture.ProtectedInternalToProtected")]
+    [InlineData("FindingDiffAnyFixture.ProtectedToProtectedInternal")]
     public void OrdinaryPresentation_OmitsProtectedAccessibilityChanges(string typeName)
     {
-        ApiFindingComparison comparison = CompareFastDiffPair(ApiSurfaceExtractionScope.Public);
+        ApiFindingComparison comparison = CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.Public);
 
         Assert.DoesNotContain(typeName, ChangedTypes(comparison));
     }
@@ -688,16 +688,16 @@ public sealed class FastDiffTests
     [Fact]
     public void ApiAxis_ExcludesPrivateProtectedMembers()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         ApiSurface after = Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
         ApiType type = Assert.Single(
             after.Types,
-            type => type.FullName == "FastDiffFixture.PrivateProtectedMemberAdded");
+            type => type.FullName == "FindingDiffAnyFixture.PrivateProtectedMemberAdded");
 
         Assert.DoesNotContain(type.Members, member => member.Name == "Added");
         Assert.DoesNotContain(
-            "FastDiffFixture.PrivateProtectedMemberAdded",
-            ChangedTypes(CompareFastDiffPair(ApiSurfaceExtractionScope.ApiAxis)));
+            "FindingDiffAnyFixture.PrivateProtectedMemberAdded",
+            ChangedTypes(CompareFindingDiffAnyPair(ApiSurfaceExtractionScope.ApiAxis)));
     }
 
     /// <summary>
@@ -706,14 +706,14 @@ public sealed class FastDiffTests
     /// </summary>
     public static TheoryData<string, ChangeKind, ChangeClassification, string, string> StatusTransitions => new()
     {
-        { "FastDiffFixture.MemberBecomesHidden", ChangeKind.MemberHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden" },
-        { "FastDiffFixture.MemberBecomesVisible", ChangeKind.MemberHiddenChanged, ChangeClassification.NonBreaking, "hidden", "visible" },
-        { "FastDiffFixture.TypeBecomesHidden", ChangeKind.TypeHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden" },
-        { "FastDiffFixture.MemberBecomesObsolete", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]" },
-        { "FastDiffFixture.ObsoleteWarningToError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "[Obsolete(\"m\")]", "[Obsolete(\"m\", true)]" },
-        { "FastDiffFixture.TypeBecomesObsolete", ChangeKind.TypeObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]" },
-        { "FastDiffFixture.ObsoleteMessageChanged", ChangeKind.MemberObsoleteChanged, ChangeClassification.NonBreaking, "[Obsolete(\"before\")]", "[Obsolete(\"after\")]" },
-        { "FastDiffFixture.MemberBecomesObsoleteError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\", true)]" },
+        { "FindingDiffAnyFixture.MemberBecomesHidden", ChangeKind.MemberHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden" },
+        { "FindingDiffAnyFixture.MemberBecomesVisible", ChangeKind.MemberHiddenChanged, ChangeClassification.NonBreaking, "hidden", "visible" },
+        { "FindingDiffAnyFixture.TypeBecomesHidden", ChangeKind.TypeHiddenChanged, ChangeClassification.NonBreaking, "visible", "hidden" },
+        { "FindingDiffAnyFixture.MemberBecomesObsolete", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]" },
+        { "FindingDiffAnyFixture.ObsoleteWarningToError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "[Obsolete(\"m\")]", "[Obsolete(\"m\", true)]" },
+        { "FindingDiffAnyFixture.TypeBecomesObsolete", ChangeKind.TypeObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\")]" },
+        { "FindingDiffAnyFixture.ObsoleteMessageChanged", ChangeKind.MemberObsoleteChanged, ChangeClassification.NonBreaking, "[Obsolete(\"before\")]", "[Obsolete(\"after\")]" },
+        { "FindingDiffAnyFixture.MemberBecomesObsoleteError", ChangeKind.MemberObsoleteChanged, ChangeClassification.Breaking, "not obsolete", "[Obsolete(\"m\", true)]" },
     };
 
     [Theory]
@@ -729,8 +729,8 @@ public sealed class FastDiffTests
 
         // The Exists contract: Changed opens a non-empty full diff.
         Assert.Equal(
-            FastDiffState.Changed,
-            Assert.Single(Compare(FixtureCatalog.MetadataFastDiffPair).Types, state => state.FullName == typeName).Api);
+            FindingDiffAnyState.Changed,
+            Assert.Single(Compare(FixtureCatalog.MetadataFindingDiffAnyPair).Types, state => state.FullName == typeName).Api);
     }
 
     [Theory]
@@ -751,7 +751,7 @@ public sealed class FastDiffTests
         string oldValue,
         string newValue)
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         ApiSurface before = Surface(pair.OldAssemblyPath(), scope);
         ApiSurface after = Surface(pair.NewAssemblyPath(), scope);
 
@@ -779,17 +779,17 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.MemberBecomesHidden", ChangeKind.MemberRemoved)]
-    [InlineData("FastDiffFixture.MemberBecomesVisible", ChangeKind.MemberAdded)]
-    [InlineData("FastDiffFixture.TypeBecomesHidden", ChangeKind.TypeRemoved)]
-    [InlineData("FastDiffFixture.TypeBecomesObsolete", ChangeKind.TypeRemoved)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesHidden", ChangeKind.MemberRemoved)]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesVisible", ChangeKind.MemberAdded)]
+    [InlineData("FindingDiffAnyFixture.TypeBecomesHidden", ChangeKind.TypeRemoved)]
+    [InlineData("FindingDiffAnyFixture.TypeBecomesObsolete", ChangeKind.TypeRemoved)]
     public void OrdinaryPresentation_ReportsAHiddenOrObsoleteTransitionAsPopulation(
         string typeName,
         ChangeKind kind)
     {
         // The Public scope suppresses hidden subjects and obsolete Types, so it keeps reporting
         // a transition across that boundary as a removal or an addition.
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         TypeDiff type = Assert.Single(
             MetadataFindings.CompareApi(
                 Surface(pair.OldAssemblyPath(), ApiSurfaceExtractionScope.Public),
@@ -801,14 +801,14 @@ public sealed class FastDiffTests
     }
 
     [Theory]
-    [InlineData("FastDiffFixture.MemberBecomesObsolete")]
-    [InlineData("FastDiffFixture.ObsoleteWarningToError")]
-    [InlineData("FastDiffFixture.ObsoleteMessageChanged")]
-    [InlineData("FastDiffFixture.MemberBecomesObsoleteError")]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesObsolete")]
+    [InlineData("FindingDiffAnyFixture.ObsoleteWarningToError")]
+    [InlineData("FindingDiffAnyFixture.ObsoleteMessageChanged")]
+    [InlineData("FindingDiffAnyFixture.MemberBecomesObsoleteError")]
     public void OrdinaryPresentation_ComparesNoMemberObsoleteStatus(string typeName)
     {
         // The Public scope admits an obsolete Member and compares no status, as before.
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         ApiDiff diff = MetadataFindings.CompareApi(
             Surface(pair.OldAssemblyPath(), ApiSurfaceExtractionScope.Public),
             Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.Public),
@@ -824,13 +824,13 @@ public sealed class FastDiffTests
     [Fact]
     public void ApiAxis_SplitsATypesHiddenAndObsoleteStatus()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
         ApiSurface after = Surface(pair.NewAssemblyPath(), ApiSurfaceExtractionScope.ApiAxis);
 
-        ApiType hidden = Assert.Single(after.Types, type => type.FullName == "FastDiffFixture.TypeBecomesHidden");
+        ApiType hidden = Assert.Single(after.Types, type => type.FullName == "FindingDiffAnyFixture.TypeBecomesHidden");
         Assert.True(hidden.IsHidden);
         Assert.False(hidden.IsObsolete);
-        ApiType obsolete = Assert.Single(after.Types, type => type.FullName == "FastDiffFixture.TypeBecomesObsolete");
+        ApiType obsolete = Assert.Single(after.Types, type => type.FullName == "FindingDiffAnyFixture.TypeBecomesObsolete");
         Assert.False(obsolete.IsHidden);
         Assert.True(obsolete.IsObsolete);
         Assert.Equal("m", obsolete.ObsoleteMessage);
@@ -840,9 +840,9 @@ public sealed class FastDiffTests
     [Fact]
     public void Steps_ResumeToTheWholeResult()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
-        FastDiffResult whole = Compare(pair);
-        var comparison = new FastDiffComparison();
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        FindingDiffAnyResult whole = Compare(pair);
+        var comparison = new FindingDiffAnyComparison();
 
         // A zero budget still advances one row or Type per step; each step
         // gets fresh readers over the same images, as a host's callbacks do.
@@ -864,8 +864,8 @@ public sealed class FastDiffTests
     [Fact]
     public void Steps_RejectADifferentImage()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
-        var comparison = new FastDiffComparison();
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        var comparison = new FindingDiffAnyComparison();
         using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
         using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
         Assert.False(comparison.Step(before, after, TimeSpan.Zero, TestContext.Current.CancellationToken));
@@ -877,26 +877,26 @@ public sealed class FastDiffTests
     [Fact]
     public void ApiAxis_LeavesBodiesUncompared()
     {
-        FixturePair pair = FixtureCatalog.MetadataFastDiffPair;
-        FastDiffResult whole = Compare(pair);
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        FindingDiffAnyResult whole = Compare(pair);
         using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
         using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
 
-        FastDiffResult api = FastDiff.Compare(
-            before, after, FastDiffAxes.Api, TestContext.Current.CancellationToken);
+        FindingDiffAnyResult api = FindingDiffAny.Compare(
+            before, after, FindingDiffAnyAxes.Api, TestContext.Current.CancellationToken);
 
-        Assert.All(api.Types, type => Assert.Equal(FastDiffState.NotCompared, type.Body));
+        Assert.All(api.Types, type => Assert.Equal(FindingDiffAnyState.NotCompared, type.Body));
         Assert.Equal(0, api.Receipt.BodiesCompared);
         Assert.Equal(
             whole.Types.Select(type => (type.Identifier, type.Api)),
             api.Types.Select(type => (type.Identifier, type.Api)));
     }
 
-    static FastDiffResult Compare(FixturePair pair)
+    static FindingDiffAnyResult Compare(FixturePair pair)
     {
         using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
         using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
-        return FastDiff.Compare(
-            before, after, FastDiffAxes.ApiAndBody, TestContext.Current.CancellationToken);
+        return FindingDiffAny.Compare(
+            before, after, FindingDiffAnyAxes.ApiAndBody, TestContext.Current.CancellationToken);
     }
 }

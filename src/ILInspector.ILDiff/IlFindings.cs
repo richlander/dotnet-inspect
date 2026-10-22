@@ -39,7 +39,7 @@ public static class IlFindings
     /// </summary>
     /// <param name="normalization">
     /// The normalization the census is taken under; a consumer's named policy,
-    /// such as Fast Diff's Body policy, or none.
+    /// such as Finding Diff Any's Body policy, or none.
     /// </param>
     public static FindingInspection<CanonicalIlOperation> Inspect(
         MethodInstructions? body,

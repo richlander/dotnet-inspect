@@ -332,9 +332,9 @@ Type and Member documents and populations:
 Library comparisons:
 
 - `CancelLibraryApiDiff`
-- `CancelLibraryFastDiff`
+- `CancelLibraryFindingDiffAny`
 - `QueryLibraryApiDiff`
-- `QueryLibraryFastDiff`
+- `QueryLibraryFindingDiffAny`
 
 This facade adapts metadata images, tables, heaps, type projections, and the
 member surface selected from graph navigation, plus exact Type and Member

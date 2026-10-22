@@ -10,12 +10,12 @@ comparison targets that [Browser Diff targets](inspect-web-diff-targets.md#diff)
 owns. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716).
 
-It consumes the single-threaded Worker contract in
-[Inspect-web worker runtime](inspect-web-worker-runtime.md#speculative-worker-local-preparation):
-the Worker gives background work no priority or preemption, so background
-work must return to the Worker event loop under a feature-owned structural
-bound. Each adopter's producer owns that bound; for Fast Diff it is
-[Fast Diff steps](fast-diff.md#steps).
+It consumes the single-threaded Worker contract in [Inspect-web worker
+runtime](inspect-web-worker-runtime.md#speculative-worker-local-preparation):
+the Worker gives background work no priority or preemption, so background work
+must return to the Worker event loop under a feature-owned structural bound.
+Each adopter's producer owns that bound; for Finding Diff Any it is [Finding
+Diff Any steps](finding-diff-any.md#steps).
 
 ## Why
 
@@ -65,7 +65,7 @@ only when its producer yields the Worker under a structural bound.
 ### Order
 
 1. **Visible subject:** cues for the Type on screen.
-2. **Library baselines:** Fast Diff against the default baselines, in the
+2. **Library baselines:** Finding Diff Any against the default baselines, in the
    order listed below.
 3. **Library rankings:** whole-Library rankings such as structural salience
    and top leverage.
@@ -137,20 +137,20 @@ reports changed with the API Member glyph. The header adds one finding from the 
 - when the row reports a declaration change and no changed Member, the change
   is in the Type's declaration;
 - when the diff has no row for the Type, the complete API diff shows no change
-  for it, which happens when Fast Diff over-reports or leaves the API axis
-  undecided; and
+  for it, which happens when Finding Diff Any over-reports or leaves the API
+  axis undecided; and
 - when the diff fails, the failure, with a retry.
 
-Implementation cues are not placed on Members until Fast Diff has per-Member
-states ([Fast Diff adoption](fast-diff.md#adoption) step 7); until then the
-Members header's Compare bodies action is their view.
+Implementation cues are not placed on Members until Finding Diff Any has
+per-Member states ([Finding Diff Any adoption](finding-diff-any.md#adoption)
+step 7); until then the Members header's Compare bodies action is their view.
 
 ## Gates
 
 - `background-analysis.test.ts`: order, foreground idleness before start,
   relevance before start and while running, and key de-duplication.
-- `library-fast-diff.test.ts`: baseline request derivation, cue mapping per
-  axis state, and failure status.
+- `library-finding-diff-any.test.ts`: baseline request derivation, cue mapping
+  per axis state, and failure status.
 - `engine-worker-ordinary.test.ts`: a background binding does not count as
   Worker activity.
 - `type-api-diff-cues.test.ts`: the one-Type API Diff request, held member
@@ -158,12 +158,12 @@ Members header's Compare bodies action is their view.
 
 ## Adoption
 
-1. **Queue and Fast Diff last-patch baseline** (#9817): the queue, the
+1. **Queue and Finding Diff Any last-patch baseline** (#9817): the queue, the
    background binding, and the navigation cues.
 2. **Member cues for the Type on screen** (#9826): the first
    visible-subject task and the Members header's Compare actions.
 3. **Library Compare lists and the API evolution default window:** with
-   [Fast Diff adoption step 5](fast-diff.md#adoption).
+   [Finding Diff Any adoption step 5](finding-diff-any.md#adoption).
 4. **Type heat and method leverage:** move their pumps onto the queue's
    visible-subject class and retire their own pumps.
 5. **Library rankings:** structural salience and top leverage, after their

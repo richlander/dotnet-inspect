@@ -26,7 +26,7 @@ public sealed record ResearchDiffOptions(
 
     /// <summary>
     /// The normalization the IL body comparison and its Finding census run
-    /// under; a consumer's named policy, such as Fast Diff's Body policy, or
+    /// under; a consumer's named policy, such as Finding Diff Any's Body policy, or
     /// none.
     /// </summary>
     public IlBodyDiffNormalization IlNormalization { get; init; } = IlBodyDiffNormalization.None;

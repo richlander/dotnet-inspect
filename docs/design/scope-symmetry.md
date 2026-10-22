@@ -32,8 +32,8 @@ Adjacent owners stay normative:
   categories, discovery budgets, and the network policy.
 - [Stateless core services](stateless-core-services.md) owns retained
   semantic state and the persistent-cache port.
-- [Diff system](diff-system.md) and [Fast Diff](fast-diff.md) own the diff
-  request, producers, and their equality.
+- [Diff system](diff-system.md) and [Finding Diff Any](finding-diff-any.md)
+  own the diff request, producers, and their equality.
 
 ## Why
 
@@ -49,8 +49,9 @@ mostly is, and so, in cost, is Member:
 - The CLI's `diff --analysis` path extracts both complete surfaces and filters
   Types and Members afterward; only the plain Library API diff passes `-t` to
   extraction as an `ApiTypeSelection`.
-- Fast Diff answers at Library scope only; its Type and Member levels are
-  planned ([Fast Diff adoption](fast-diff.md#adoption), steps 7 and 8).
+- Finding Diff Any answers at Library scope only; its Type and Member levels
+  are planned ([Finding Diff Any adoption](finding-diff-any.md#adoption), steps
+  7 and 8).
 - No diff result declares a Count or Exists terminal.
 
 The cost lands where users notice it. A user who opens one Member in a large
@@ -114,7 +115,7 @@ scope and the terminal are request terms; neither selects a different
 equality. How a terminal is planned and executed belongs to
 [QuerySpace composition](query-space-composition.md), which lowers Rows,
 Count, and Exists as distinct plans and lets a source answer a terminal
-natively. A cheaper walk that shares the equality, such as Fast Diff's
+natively. A cheaper walk that shares the equality, such as Finding Diff Any's
 per-Type Exists, conforms when it is gated exact against Rows:
 
 | Terminal | Answers | Precision |
@@ -129,14 +130,15 @@ the complete answer, and every terminal is exact:
 - **Exists** is `true` exactly when Rows at that scope is non-empty;
 - **Count** equals the number of Rows; and
 - a subject that cannot be decided carries QuerySpace's typed outcome for it,
-  never `false` or zero; Fast Diff's per-Type `Indeterminate` is one example. A Count over children some of which are undecided reports them as
+  never `false` or zero; Finding Diff Any's per-Type `Indeterminate` is one
+  example. A Count over children some of which are undecided reports them as
   undecided rather than counting them either way.
 
 A cheaper terminal differs from Rows only in cost: it stops at the first
 deciding evidence and builds no row it does not report. A low-precision answer
 is the protocol of Exists, not a license to approximate. A faster path with
 its own equality is not this pattern: its answers drift from the complete
-ones, as [Fast Diff](fast-diff.md#why) records.
+ones, as [Finding Diff Any](finding-diff-any.md#why) records.
 
 The hard requirement is **low latency with exact accuracy for Exists**. It is
 what makes the lean root below worth entering.
@@ -184,8 +186,8 @@ code.
 
 The usual way out is to reframe the question rather than speed up the nested
 query. The outer scope asks for a terminal that needs no inner Rows, Exists or
-Count per child, and inner Rows run only for the child the user opens. Fast
-Diff is this reframing at Library scope: "which Types changed?" replaces
+Count per child, and inner Rows run only for the child the user opens. Finding
+Diff Any is this reframing at Library scope: "which Types changed?" replaces
 "every change in every Type", and the complete diff of one Type or Member
 answers the question the user then asks.
 
@@ -204,10 +206,9 @@ latency over the traversals users make, and a stated memory bound. It must
 not retain data the user has not requested beyond that bound. Without that
 evidence, each traversal asks for its own scope.
 
-Background analysis that the owning design already approved, such as Fast
-Diff's default baselines in
-[Inspect-web background analysis](inspect-web-background-analysis.md), remains
-governed there.
+Background analysis that the owning design already approved, such as Finding
+Diff Any's default baselines in [Inspect-web background
+analysis](inspect-web-background-analysis.md), remains governed there.
 
 ## Adoption
 
@@ -218,7 +219,7 @@ document. The current state is from a survey of `main` at `b3e9103d4`:
 | --- | --- | --- | --- | --- |
 | [Inspect-web Library API diff](inspect-web-library-api-diff.md) | whole | whole, filtered | whole, filtered | Type and Member Compare use Type-scoped comparison ([#10201](https://github.com/richlander/dotnet-inspect/issues/10201)) |
 | [Inspect-web Member Body Diff](inspect-web-member-body-diff.md) | inventory | none | inventory first | Member diff without the Library inventory |
-| [Fast Diff](fast-diff.md) | Exists per Type | planned, step 7 | planned, step 8 | Type and Member levels on the shared equality |
+| [Finding Diff Any](finding-diff-any.md) | Exists per Type | planned, step 7 | planned, step 8 | Type and Member levels on the shared equality |
 | CLI `diff --analysis` ([Diff system](diff-system.md)) | whole | whole, filtered | whole, filtered | pass the Type selection to extraction |
 | Diff analyses' descriptors ([Analysis surfaces](analysis-surfaces-and-universes.md)) | `api`, `string-literals` | `api`, `api-attribute` | `api` and body analyses | declare all three scopes or record a non-claim |
 | Diff terminals (QuerySpace) | Rows only | Rows only | Rows only | Exists and Count over the shared producer |
@@ -227,8 +228,8 @@ Two consequences need a decision in their owners' adoptions:
 
 - **Type cues on Type and Member Compare pages.** Inspect Web marks every
   changed Type in the Library from the whole-Library comparison. Under this
-  pattern they come from an exact Exists per Type, Fast Diff's Library answer,
-  rather than from Rows nobody requested.
+  pattern they come from an exact Exists per Type, Finding Diff Any's Library
+  answer, rather than from Rows nobody requested.
 - **Member Body Diff's inventory.** The Library-wide inventory, every Type
   with its changed Members, is a rows-within-rows view. On the website it is
   reframed as single-level Rows, Types with Exists or Count, with a Type's

@@ -61,6 +61,39 @@ public sealed record PackageAssetUniverse
                 TargetFramework);
 }
 
+/// <summary>
+/// One RID-qualified runtime Library population applicable to an exact
+/// target-framework request.
+/// </summary>
+public sealed record PackageRuntimeAssetPopulation
+{
+    internal PackageRuntimeAssetPopulation(
+        PackageAssetUniverse universe)
+    {
+        ArgumentNullException.ThrowIfNull(universe);
+        RuntimeIdentifier =
+            universe.RuntimeIdentifier
+            ?? throw new ArgumentException(
+                "A runtime population requires an exact runtime identifier.",
+                nameof(universe));
+        TargetFramework = universe.TargetFramework;
+        PopulationPath =
+            universe.PopulationPath
+            ?? throw new ArgumentException(
+                "A runtime population requires at least one selected asset.",
+                nameof(universe));
+        Assets = universe.Assets;
+    }
+
+    public string RuntimeIdentifier { get; }
+
+    public string TargetFramework { get; }
+
+    public string PopulationPath { get; }
+
+    public IReadOnlyList<PackageAssetEntry> Assets { get; }
+}
+
 /// <summary>The result of selecting a package's effective asset universe.</summary>
 public abstract record PackageAssetSelection
 {
@@ -122,13 +155,19 @@ public sealed class PackageAssetSelectionReceipt
         PackageContentGenerationIdentity generation,
         string? requestedTargetFramework,
         string? requestedRuntimeIdentifier,
+        IEnumerable<PackageRuntimeAssetPopulation>
+            availableRuntimePopulations,
         PackageAssetSelection selection)
     {
         ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(availableRuntimePopulations);
         ArgumentNullException.ThrowIfNull(selection);
         Generation = generation;
         RequestedTargetFramework = requestedTargetFramework;
         RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+        AvailableRuntimePopulations =
+            new ReadOnlyCollection<PackageRuntimeAssetPopulation>(
+                [.. availableRuntimePopulations]);
         Selection = selection;
     }
 
@@ -137,6 +176,14 @@ public sealed class PackageAssetSelectionReceipt
     public string? RequestedTargetFramework { get; }
 
     public string? RequestedRuntimeIdentifier { get; }
+
+    /// <summary>
+    /// Every canonical RID population applicable to the exact runtime target
+    /// request, in ordinal RID order. Ordinary neutral-plus-overlay evaluation
+    /// does not populate this runtime-only inventory.
+    /// </summary>
+    public IReadOnlyList<PackageRuntimeAssetPopulation>
+        AvailableRuntimePopulations { get; }
 
     public PackageAssetSelection Selection { get; }
 }
@@ -314,6 +361,7 @@ public static class PackageAssetSelector
             content.GenerationIdentity,
             targetFramework,
             runtimeIdentifier,
+            [],
             SelectCore(content, targetFramework, runtimeIdentifier));
     }
 
@@ -342,17 +390,20 @@ public static class PackageAssetSelector
         string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(content);
+        SingleRuntimeEvaluation evaluation =
+            SelectSingleRuntimeCore(
+                content,
+                targetFramework,
+                runtimeIdentifier);
         return new PackageAssetSelectionReceipt(
             content.GenerationIdentity,
             targetFramework,
             runtimeIdentifier,
-            SelectSingleRuntimeCore(
-                content,
-                targetFramework,
-                runtimeIdentifier));
+            evaluation.AvailableRuntimePopulations,
+            evaluation.Selection);
     }
 
-    private static PackageAssetSelection SelectSingleRuntimeCore(
+    private static SingleRuntimeEvaluation SelectSingleRuntimeCore(
         IPackageContent content,
         string? targetFramework,
         string? runtimeIdentifier)
@@ -360,16 +411,20 @@ public static class PackageAssetSelector
         if (targetFramework is not null
             && IsBlankOrPadded(targetFramework))
         {
-            return new PackageAssetSelection.Invalid(
-                "A package asset request requires a target framework without surrounding whitespace.");
+            return new(
+                new PackageAssetSelection.Invalid(
+                    "A package asset request requires a target framework without surrounding whitespace."),
+                []);
         }
 
         if (runtimeIdentifier is not null
             && !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
                 runtimeIdentifier))
         {
-            return new PackageAssetSelection.Invalid(
-                "A package asset runtime identifier must use its canonical lowercase spelling.");
+            return new(
+                new PackageAssetSelection.Invalid(
+                    "A package asset runtime identifier must use its canonical lowercase spelling."),
+                []);
         }
 
         var candidates = new List<CandidateEntry>();
@@ -386,62 +441,93 @@ public static class PackageAssetSelector
 
             if (!IsSafeEntryPath(entry))
             {
-                return new PackageAssetSelection.Invalid(
-                    "A candidate assembly entry in the package has an unusable path.");
+                return new(
+                    new PackageAssetSelection.Invalid(
+                        "A candidate assembly entry in the package has an unusable path."),
+                    []);
             }
 
             candidates.Add(candidate);
         }
 
-        CandidateEntry[] selectedRuntime;
-        string selectedRuntimeIdentifier;
-        if (runtimeIdentifier is null)
+        string[] runtimeIdentifiers =
+        [
+            .. candidates
+                .Select(static candidate =>
+                    candidate.RuntimeIdentifier!)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static candidate =>
+                    candidate,
+                    StringComparer.Ordinal),
+        ];
+        var selections =
+            new Dictionary<string, PackageAssetSelection>(
+                StringComparer.Ordinal);
+        foreach (string candidateRuntimeIdentifier in runtimeIdentifiers)
         {
-            string[] runtimeIdentifiers =
-            [
-                .. candidates
-                    .Select(static candidate =>
-                        candidate.RuntimeIdentifier!)
-                    .Distinct(StringComparer.Ordinal)
-                    .OrderBy(static candidate =>
-                        candidate,
-                        StringComparer.Ordinal),
-            ];
-            if (runtimeIdentifiers.Length == 0)
-            {
-                return new PackageAssetSelection.NoMatch(
-                    "The package carries no runtime Library assembly folder.");
-            }
-            if (runtimeIdentifiers.Length > 1)
-            {
-                return new PackageAssetSelection.Ambiguous(
-                    "More than one runtime identifier carries Library assembly assets; an explicit runtime identifier is required.");
-            }
-
-            selectedRuntimeIdentifier = runtimeIdentifiers[0];
-            selectedRuntime =
-            [
-                .. candidates.Where(candidate =>
-                    candidate.RuntimeIdentifier!.Equals(
-                        selectedRuntimeIdentifier,
-                        StringComparison.Ordinal)),
-            ];
+            selections[candidateRuntimeIdentifier] =
+                SelectRuntimePopulation(
+                    content,
+                    candidates,
+                    targetFramework,
+                    candidateRuntimeIdentifier);
         }
-        else
+        PackageRuntimeAssetPopulation[] availableRuntimePopulations =
+        [
+            .. runtimeIdentifiers
+                .Select(candidateRuntimeIdentifier =>
+                    selections[candidateRuntimeIdentifier])
+                .OfType<PackageAssetSelection.Selected>()
+                .Select(static selected =>
+                    new PackageRuntimeAssetPopulation(
+                        selected.Universe)),
+        ];
+
+        if (runtimeIdentifier is not null)
         {
-            selectedRuntimeIdentifier = runtimeIdentifier;
-            selectedRuntime =
-            [
-                .. candidates.Where(candidate =>
-                    candidate.RuntimeIdentifier!.Equals(
-                        selectedRuntimeIdentifier,
-                        StringComparison.Ordinal)),
-            ];
-            if (selectedRuntime.Length == 0)
-            {
-                return new PackageAssetSelection.NoMatch(
-                    "The package carries no runtime Library assembly folder for the requested runtime identifier.");
-            }
+            return selections.TryGetValue(
+                    runtimeIdentifier,
+                    out PackageAssetSelection? exact)
+                ? new(exact, availableRuntimePopulations)
+                : new(
+                    new PackageAssetSelection.NoMatch(
+                        "The package carries no runtime Library assembly folder for the requested runtime identifier."),
+                    availableRuntimePopulations);
+        }
+
+        return runtimeIdentifiers.Length switch
+        {
+            0 => new(
+                new PackageAssetSelection.NoMatch(
+                    "The package carries no runtime Library assembly folder."),
+                availableRuntimePopulations),
+            1 => new(
+                selections[runtimeIdentifiers[0]],
+                availableRuntimePopulations),
+            _ => new(
+                new PackageAssetSelection.Ambiguous(
+                    "More than one runtime identifier carries Library assembly assets; an explicit runtime identifier is required."),
+                availableRuntimePopulations),
+        };
+    }
+
+    private static PackageAssetSelection SelectRuntimePopulation(
+        IPackageContent content,
+        IReadOnlyList<CandidateEntry> candidates,
+        string? targetFramework,
+        string runtimeIdentifier)
+    {
+        CandidateEntry[] selectedRuntime =
+        [
+            .. candidates.Where(candidate =>
+                candidate.RuntimeIdentifier!.Equals(
+                    runtimeIdentifier,
+                    StringComparison.Ordinal)),
+        ];
+        if (selectedRuntime.Length == 0)
+        {
+            return new PackageAssetSelection.NoMatch(
+                "The package carries no runtime Library assembly folder for the requested runtime identifier.");
         }
 
         string selectedTargetFramework =
@@ -471,7 +557,7 @@ public static class PackageAssetSelector
         return SelectCore(
             selectedContent,
             selectedTargetFramework,
-            selectedRuntimeIdentifier);
+            runtimeIdentifier);
     }
 
     private static PackageAssetSelection SelectCore(
@@ -887,6 +973,11 @@ public static class PackageAssetSelector
         string RelativePath,
         string FileName,
         string? RuntimeIdentifier);
+
+    sealed record SingleRuntimeEvaluation(
+        PackageAssetSelection Selection,
+        IReadOnlyList<PackageRuntimeAssetPopulation>
+            AvailableRuntimePopulations);
 
     sealed class RuntimeLibraryPackageContent(
         IPackageContent content,

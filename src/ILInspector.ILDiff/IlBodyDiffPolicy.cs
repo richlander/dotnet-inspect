@@ -9,10 +9,10 @@ namespace ILInspector.ILDiff;
 public static class IlBodyDiffPolicy
 {
     /// <summary>
-    /// Fast Diff's Body policy (<c>docs/design/fast-diff.md#axes</c>): every
+    /// Finding Diff Any's Body policy (<c>docs/design/finding-diff-any.md#axes</c>): every
     /// Type and member operand compares by name and signature without its
     /// defining or referenced assembly, so a dependency's version is not an
-    /// input to Body change. Fast Diff's walk decides this equality natively;
+    /// input to Body change. Finding Diff Any's walk decides this equality natively;
     /// Member Body Diff's IL view requests it here, so a Body cue and the
     /// view it opens agree.
     /// </summary>

@@ -69,6 +69,7 @@ dotnet-inspect has several introspection surfaces with different jobs:
 | --- | --- |
 | `-D` | Which structural resources are available here? |
 | `-Q` | Which query capabilities does this route expose? |
+| `explain` | Which subjects, operations, and references can I start from? |
 | `explain vocabularies` | Which stable values may I supply? |
 | `explain <search text>` | Which installed product resources might match this text? |
 | `explain <resource path>` | What exactly is this one product resource, and how is it related to other resources? |
@@ -237,15 +238,18 @@ implemented. Every owner of a resource family the CLI composes has adopted:
 - Product Vocabulary
   ([#10318](https://github.com/richlander/dotnet-inspect/issues/10318)).
 
-The CLI's root over its complete catalog now satisfies the reachability
-invariant. The CLI still does not publish it: publication is the
-[CLI host adoption](https://github.com/richlander/dotnet-inspect/issues/10139).
-Three parts arrive later:
+The CLI's root over its complete catalog satisfies the reachability
+invariant, and the CLI publishes it as bare `explain`
+([#10139](https://github.com/richlander/dotnet-inspect/issues/10139); see
+[Explain root admission](../cli-architecture.md#explain-root-admission)).
+Two parts arrive later:
 
-- collection-level member hints;
-- the HAL reading of the root;
-- the root's public address and bare entry, which come with the CLI host
-  adoption.
+- collection-level member hints; and
+- the HAL reading of the root.
+
+The shared projection places the role collections at the top-level paths
+`subject-kinds`, `operations`, and `references`, and each entry at
+`<collection>/<identity>`. A host assigns only the root's own path.
 
 The root's entries are projections of **routing declarations**. An owner issues
 one routing declaration for each subject kind, operation, or reference

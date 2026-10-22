@@ -47,6 +47,15 @@ public class LoweredFidelityGateTests
         // different branch structure like the sparse-switch over-render docket.
         "ByteRangeSearchTree",
         "GotoCommonExit",
+        // #10192 PR 2: a retry leave raised to `continue` now carries the proven
+        // LoopBodyBranch origin, so these two fixtures import at Full and are
+        // compared for the first time. Their diff is the pre-existing result-temp
+        // spill of a `return` inside the protected region (`V_0 = x; return V_0;`
+        // plus its `= default` declaration), not the continue: the leave csc
+        // emits for `continue` is the original one. RetryContinueInsideTry is the
+        // return-free proof and stays Exact.
+        "TryFinallyRetryLoop",
+        "NestedOuterRetryLoop",
         // #3514: the restored trailing default makes the reference-type switch
         // witness valid, while the lowered nested-if form recompiles through
         // direct returns instead of the original result-temp convergence.
@@ -265,7 +274,7 @@ public class LoweredFidelityGateTests
         "StaticLocalFunctionCalledTwice",
         "StaticLocalFunctionWithLocal",
         "TwoLocalFunctionQuadrants",
-        "WhileNestedContinueKeepsArmExclusive",
+        "WhileWithNestedContinue",
         // #9504: DocketRowsStayCheckedDiffs reported each of these KnownDiffs rows
         // as "now recompiles Exact in the lowered view" on main at 7f06b4ee3
         // (2026-10-16); the daily lane that runs this gate had not completed

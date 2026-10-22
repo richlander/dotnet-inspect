@@ -863,6 +863,151 @@ public class CfgSampleClass
         }
     }
 
+    // Two more back-edges to the `while (true)` head: an unconditional one
+    // inside an if-arm and a direct conditional one. The structuring pass raises
+    // both to `continue` at their own nesting depth.
+    public static int WhileTrueWithArmContinue(int[] values)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            if (i >= values.Length)
+                return total;
+            int v = values[i++];
+            if (v < 0)
+            {
+                total -= v;
+                continue;
+            }
+            if (v == 0)
+                continue;
+            total += v;
+        }
+    }
+
+    // An arm `continue` plus a trailing `break` test. csc lowers the trailing
+    // test to a conditional back-edge, so the loop has two back-edges and the
+    // last one is the bottom test. The do-while pass declines the second back
+    // edge; the structuring pass raises the bottom test to `if (c) break;` at
+    // the end of the `while (true)` body.
+    public static int WhileTrueWithArmContinueAndBottomTest(int[] values)
+    {
+        int i = 0;
+        int total = 0;
+        while (true)
+        {
+            int v = values[i++];
+            if (v < 0)
+            {
+                total -= v;
+                continue;
+            }
+            total += v;
+            if (i >= values.Length)
+                break;
+        }
+        return total;
+    }
+
+    // csc retargets the foreach's `break` leave and its normal exit leave
+    // straight onto the following rotated loop's bottom test, so that loop's
+    // head follows the try/finally with a conditional back-edge from the test.
+    // The infinite-loop shape must not claim the region: the leaves enter it
+    // past its head, and `while (true) { ...; IL_xxxx: if (...) break; }`
+    // would strand them as gotos into the loop's braces.
+    public static int FillThenPad(IEnumerable<int> values, int[] slots)
+    {
+        int count = 0;
+        int last = 0;
+        foreach (int value in values)
+        {
+            last = value;
+            slots[count++] = value;
+            if (count >= slots.Length)
+                break;
+        }
+        while (count < slots.Length)
+        {
+            slots[count++] = last;
+        }
+        return count;
+    }
+
+    // `continue` inside a try block lowers to `leave HEAD`, the same leave the
+    // original retry loop carries. The structuring pass raises it to `continue`
+    // with the proven LoopBodyBranch origin; this fixture is the compile-back
+    // proof: every exit is a `continue` or a bare `return`, so no result temp
+    // is spilled inside the protected region.
+    public static void RetryContinueInsideTry(int n)
+    {
+        int attempts = 0;
+        while (true)
+        {
+            try
+            {
+                attempts++;
+                if (attempts % 2 == 0)
+                    continue;
+                if (attempts >= n)
+                    return;
+                LastValue = attempts;
+            }
+            finally
+            {
+                Noop();
+            }
+        }
+    }
+
+    // A conditional `continue` nested inside an if-arm of a rotated `while (c)`
+    // body: csc emits a conditional branch to the loop's condition from inside
+    // the arm, below the body. The statement after the arm keeps the continue
+    // from folding into a guard over the arm's tail.
+    public static int RotatedWhileWithArmContinue(int[] values, int limit)
+    {
+        int i = 0;
+        int total = 0;
+        while (i < values.Length)
+        {
+            int v = values[i++];
+            if (v > 0)
+            {
+                total += v;
+                if (v > limit)
+                    continue;
+                total++;
+            }
+            total--;
+        }
+        return total;
+    }
+
+    // `continue` inside a try block of a rotated `while (c)` body: csc emits
+    // `leave COND`, the same leave the retry rewrite raises to `continue`. The
+    // statement after the try keeps the continue from folding into a guard.
+    public static int RotatedWhileWithTryContinue(int[] values)
+    {
+        int i = 0;
+        int total = 0;
+        while (i < values.Length)
+        {
+            try
+            {
+                int v = values[i++];
+                if (v < 0)
+                    continue;
+                total += v;
+            }
+            finally
+            {
+                LastValue = i;
+            }
+            total++;
+        }
+        return total;
+    }
+
     public static void Noop() { }
 
     public static int ParseOrZero(string s) => int.TryParse(s, out var v) ? v : 0;
@@ -1366,7 +1511,7 @@ public class CfgSampleClass
         return total + failures;
     }
 
-    public static int WhileNestedContinueKeepsArmExclusive(string text)
+    public static int WhileWithNestedContinue(string text)
     {
         int index = 0;
         int total = 0;

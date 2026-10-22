@@ -216,12 +216,17 @@ public sealed partial class ResourceExplanationCatalog
 
     /// <summary>
     /// Projects the explanation root over a host's composed catalog from the
-    /// routing declarations the host admitted, and reports every resource
-    /// the root does not reach. A duplicate identity within a role, a
-    /// destination that is not one installed resource of a destination
-    /// type, or an operation naming an undeclared subject kind is an invalid
-    /// registry.
+    /// routing declarations the host admitted. The root takes the host's
+    /// <paramref name="rootPath"/>; its role collections are the top-level
+    /// <c>subject-kinds</c>, <c>operations</c>, and <c>references</c>, and
+    /// each entry is <c>{collection}/{identity}</c>.
     /// </summary>
+    /// <remarks>
+    /// Reports every resource the root does not reach. A duplicate identity
+    /// within a role, a destination that is not one installed resource of a
+    /// destination type, or an operation naming an undeclared subject kind
+    /// is an invalid registry.
+    /// </remarks>
     public static ResourceExplanationRootComposition ComposeRoot(
         ResourceExplanationCatalog composed,
         ResourcePath rootPath,
@@ -358,7 +363,7 @@ public sealed partial class ResourceExplanationCatalog
                 .. admitted.Where(declaration => declaration.Role == role),
             ];
             snapshots.Add(Snapshot(
-                rootPath.Append(segment),
+                new ResourcePath(segment),
                 RoutingCollectionKey(rootPath, segment),
                 [
                     ResourceExplanationVocabulary.TextFact(
@@ -381,7 +386,7 @@ public sealed partial class ResourceExplanationCatalog
                      in members)
             {
                 snapshots.Add(RoutingEntrySnapshot(
-                    rootPath.Append(segment, declaration.Identity),
+                    new ResourcePath(segment).Append(declaration.Identity),
                     declaration,
                     keys,
                     admitted));

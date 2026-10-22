@@ -147,6 +147,80 @@ supplies the supporting Queries-owned adapter to existing exact-Type readers. Du
 Workspace inspection selectors retire under #10186; explicit Workspace
 inventory remains.
 
+### Explain root admission
+
+Bare `dotnet-inspect explain` reads the
+[explanation root](design/resource-explanation.md#routing-declarations). It
+does not print help and does not report a missing operand. The CLI composes
+the root over its complete catalog, from the routing declarations of every
+owner it admits:
+
+- Schema Query;
+- Inspection Capability Composition; and
+- Product Vocabulary.
+
+It publishes the root only while the reachability invariant holds. If the
+invariant fails, bare `explain` and every root path fail visibly, naming the
+first unreachable resource. Those requests do not fall through to search.
+
+The root's address is `root`. Its role collections are the top-level paths
+`subject-kinds`, `operations`, and `references`. Each routing entry is
+`<collection>/<identity>`, as in `operations/package-query`. All of these are
+registered exact paths, so the facade selects Resource Explanation for them
+rather than search.
+
+`explain` is primarily for agents, so bare `explain` defaults to the root's
+routing table as TSV. The table has one header row and one row per routing
+entry. Each row gives:
+
+- the entry's role, path, and name;
+- its purpose and representative questions;
+- for an operation, its accepted subject kinds; and
+- its destinations, or its not-yet-explainable state.
+
+`--table` and `--jsonl` select the same table, and so do the table formats on
+any root path. A collection lists its own entries, and an entry lists itself.
+Like any section selection, the table carries no document facts. The root's
+Coverage caveat, which says the collections cover registered declarations
+rather than every command, is in the Document reading. A table selection
+rejects `--depth`, `-n`, and `--envelope`.
+
+`--markdown`, `--plaintext`, and `--json` select the Document reading. Bare
+`explain` then expands to depth 2 unless `--depth` is given, so one Document
+carries the root, its collections, and every entry. The text Document presents
+the same Routing table in place of the generic expanded and related listings.
+At depth 0 or 1, as in `explain root`, the Document reaches no entry resources,
+so the generic listings remain and name the three collections. JSON carries
+the same resources, facts, and relationships. The root has no HAL reading yet,
+so `explain root .hal --json` fails visibly.
+
+Bare `explain` admits the options of the Resource Explanation operand row in
+[Explain facade dispatch](design/contextual-resource-explanation.md#explain-facade-dispatch).
+A lone `.contract`, `.data`, or `.hal` token is a projection of the root, not
+search text. The search row limit `-n` and vocabulary value selection `-Q`
+fail before any explanation runs.
+
+`explain --help` succeeds without an operand. The required-operand bootstrap
+path is retired. The root is projected from owner declarations; it is not
+rebuilt from help text or from a curated list of command names.
+
+`ResourceExplanationCommandTests` gates this admission:
+
+- `BareExplain_DefaultsToTheRoutingTableAsTsv`;
+- `RootPathTableSelection_ListsTheEntriesThePathReaches`;
+- `BareExplainTable_RejectsDocumentOptions`;
+- `BareExplainMarkdown_ReadsTheRootAsItsRoutingTable`;
+- `RootBelowItsEntries_ListsItsRoutingCollections`;
+- `BareExplainJson_EmbedsEveryRoutingEntry`;
+- `ExplainHelp_SucceedsWithoutAnOperand`;
+- `RoutingEntry_ExplainsItsHintsAndDestinations`;
+- `BareExplain_ProjectsALoneContractToken`;
+- `BareExplain_RejectsSearchAndValueOptions`; and
+- `ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`, which checks the
+  reachability invariant.
+
+Exact paths and search keep their existing neighbor tests.
+
 ### Vocabulary reading admission
 
 The CLI admits `-Q` / `--query-help` on an exact vocabulary root only with a
@@ -305,9 +379,20 @@ reusable owners produce the facts.
 
 ### Planned Workspace packet activation
 
+The first runtime adoption, [#10407](https://github.com/richlander/dotnet-inspect/issues/10407),
+admits the root entrances below for Workspace inventory landings. Saved
+inspection facets and queries are explicitly refused before acquisition.
+[#10408](https://github.com/richlander/dotnet-inspect/issues/10408) supplies the
+missing exact-subject execution/correspondence boundary: restored Navigation
+uses Package Root surface registrations, while the selected declaration context
+retains different acquisition registrations. The existing selected-context
+Type executor cannot accept the saved Navigation registration unchanged.
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) remains the
+subsequent CLI saved-inspection adoption. The full target contract follows.
+
 This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
-not an implemented route. The CLI owns command admission, the one-shot landing
-choice, terminal output, and exit behavior. It consumes
+partially implemented as described above. The CLI owns command admission,
+the one-shot landing choice, terminal output, and exit behavior. It consumes
 [Workspace Definitions](design/workspace-definitions.md)' canonical codec and
 complete-restoration contracts; inspection operations retain their existing
 selection, query, execution and result contracts. Browser activation remains
@@ -358,6 +443,18 @@ acquire. Only the selected operation's admitted result terminals are available;
 an unsupported terminal is refused before realization when knowable.
 
 #### Landing and output
+
+Activation resolves one selected subject and its lens/view. The CLI prints
+that view using the inspection's ordinary default presentation: a Hierarchy,
+Table, or Document, unless a supported output option selects another format.
+Restoring multiple contexts supplies the inspection environment; it does not
+select one output subject per context.
+
+A Workspace landing selects the Workspace subject. Its currently admitted
+default is the inventory Table: Kind, Location, and State columns containing
+Package and registration entries across those contexts. Saved Package, Type,
+and Member subjects retain their own view's default presentation when their
+execution bindings are admitted.
 
 | Selected portable intent | CLI result |
 | --- | --- |
@@ -417,7 +514,7 @@ packets through `workspace`; obtain scenario packets through the ordinary
 inspection command's admitted `--share packet` projection. The packet is the
 complete emitted value, not a shortened `ey...` sample.
 
-Target walkthrough (the two root activation commands remain proposed):
+Target walkthrough (saved Type execution remains staged under #4647):
 
 ```bash
 environment=$(dotnet-inspect workspace --register-ecosystem runtime)
@@ -445,8 +542,11 @@ Member cases with a different focused tab and all-context membership. Gate
 Workspace-only zero/one/multiple-Package inventory, row selection and Count;
 preserve non-packet routing, option-value ownership, help and local policy.
 Recognized invalid, unsupported and limit failures must not trigger fallback
-acquisition or publish partial results. Gates for these targets do not exist
-yet; these are adoption requirements, not current validation claims.
+acquisition or publish partial results. `WorkspacePacketActivationTests` gates
+the admitted inventory entrances,
+ordinary output/row parity and early refusals. Saved-inspection execution and
+its cross-host parity remain adoption requirements, not current validation
+claims.
 
 [#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
 production path: this focused CLI contract, owner-issued packet recognition,

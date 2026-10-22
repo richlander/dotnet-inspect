@@ -113,6 +113,11 @@ public sealed class PackageLibraryPopulationSelectorTests
             selected.CompileReceipt.Selection.Status);
         Assert.IsType<PackageAssetSelection.Ambiguous>(
             selected.RuntimeReceipt!.Selection);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            selected.RuntimeReceipt.AvailableRuntimePopulations
+                .Select(population =>
+                    population.RuntimeIdentifier));
     }
 
     [Fact]

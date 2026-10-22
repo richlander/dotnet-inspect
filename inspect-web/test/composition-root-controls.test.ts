@@ -240,12 +240,12 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*const fastDiffCues = libraryFastDiffCueSource\(\)[\s\S]*const identifier = item\.definitionId \?\? item\.id;\s*const diff = fastDiffCues\s*\? libraryFastDiffAchievement\(\s*fastDiffTypes\?\.get\(identifier\),\s*fastDiffCues\.baseline\.targetVersion\)\s*: diffPresence\.typeIdentifiers\.has\(identifier\)\s*\? typeApiDiffAchievement\s*: null;\s*return typeLeverageAchievements\(/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*const findingDiffAnyCues = libraryFindingDiffAnyCueSource\(\)[\s\S]*const identifier = item\.definitionId \?\? item\.id;\s*const diff = findingDiffAnyCues\s*\? libraryFindingDiffAnyAchievement\(\s*findingDiffAnyTypes\?\.get\(identifier\),\s*findingDiffAnyCues\.baseline\.targetVersion\)\s*: diffPresence\.typeIdentifiers\.has\(identifier\)\s*\? typeApiDiffAchievement\s*: null;\s*return typeLeverageAchievements\(/,
   );
-  // Outside Library Compare, Type cues come from the last-patch Fast Diff
+  // Outside Library Compare, Type cues come from the last-patch Finding Diff Any
   // baseline; inside it, from the Compare result. Both are the change glyph.
   assert.match(
-    sourceText(functionDeclaration("libraryFastDiffCueSource")),
+    sourceText(functionDeclaration("libraryFindingDiffAnyCueSource")),
     /if \(currentCompareSubject\(\) !== null\) return null;/,
   );
 

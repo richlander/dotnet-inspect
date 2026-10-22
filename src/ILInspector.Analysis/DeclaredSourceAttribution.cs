@@ -43,7 +43,12 @@ internal sealed class DeclaredSourceAttribution
             implementationMetricRecorder = null,
         MethodDefinitionGeneratedExpansionWork?
             generatedExpansionWork = null,
-        MethodAnalysisLookup? methodAnalysis = null)
+        MethodAnalysisLookup? methodAnalysis = null,
+        Action<TypeDefinitionHandle>?
+            declaredSourceTypeDefinitionRead = null,
+        Action? declaredSourceAttributeRead = null,
+        Action<TypeDefinitionHandle>?
+            declaredSourceRelationshipRead = null)
     {
         _reader = reader;
         MethodAnalysis =
@@ -69,7 +74,18 @@ internal sealed class DeclaredSourceAttribution
             new LibraryBodyGeneratedProvenanceClassifier(
                 reader,
                 PrimaryMetadataResolver.HasGeneratedCodeAttribute,
-                sourceGeneratedTypeClassified);
+                sourceGeneratedTypeClassified,
+                declaredSourceTypeDefinitionRead,
+                declaredSourceAttributeRead,
+                declaredSourceRelationshipRead);
+        Func<TypeDefinitionHandle, bool>
+            isCompilerGeneratedTypeOrEnclosing =
+                handle => PrimaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(
+                        handle,
+                        declaredSourceTypeDefinitionRead,
+                        declaredSourceAttributeRead,
+                        declaredSourceRelationshipRead);
         StateMachineSourceResolver =
             new StateMachineSourceResolver(
                 reader,
@@ -77,6 +93,7 @@ internal sealed class DeclaredSourceAttribution
                 PrimaryMetadataResolver,
                 GeneratedProvenanceClassifier
                     .IsSourceGeneratedTypeOrEnclosing,
+                isCompilerGeneratedTypeOrEnclosing,
                 TypeFromEntity,
                 // The state-machine relationship index owns the TypeDef name
                 // index that claim resolution uses.
@@ -88,6 +105,7 @@ internal sealed class DeclaredSourceAttribution
                 reader,
                 peReader,
                 PrimaryMetadataResolver,
+                isCompilerGeneratedTypeOrEnclosing,
                 MethodReferenceResolver,
                 StateMachineSourceResolver,
                 methodBodyReferenceIndexed,

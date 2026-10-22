@@ -69,7 +69,7 @@ public enum IlBodyDiffNormalization
     /// referenced assembly or its version. Subsumes
     /// <see cref="NormalizeCurrentAssemblyScope"/> and
     /// <see cref="NormalizePlatformAssemblyScope"/>. String literals are not
-    /// rewritten. The mechanic Fast Diff's Body policy composes (#10205).
+    /// rewritten. The mechanic Finding Diff Any's Body policy composes (#10205).
     /// </summary>
     NormalizeAssemblyScope = 1 << 5,
 }

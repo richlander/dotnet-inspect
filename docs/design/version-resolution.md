@@ -202,12 +202,12 @@ Browser/Wasm adoption remain separate slices.
 
 ### Version window projection
 
-A version window selects the points of a
-[Library-scope History](diff-history.md#library-scope-history-over-fast-diff)
-from one current version, A, and the complete, authoritative listing of its
-package. It reads version metadata only and acquires no package payloads. Its
-candidates are listed versions in NuGet release precedence, stable only unless
-A is a prerelease.
+A version window selects the points of a [Library-scope
+History](diff-history.md#library-scope-history-over-finding-diff-any) from one
+current version, A, and the complete, authoritative listing of its package. It
+reads version metadata only and acquires no package payloads. Its candidates are
+listed versions in NuGet release precedence, stable only unless A is a
+prerelease.
 
 Two named policies each answer one question with a depth, n, which counts
 steps back from A. It defaults to 1, and the typed request rejects any n below
@@ -233,7 +233,8 @@ The `SupplyChain` walk follows release precedence, not a major.minor line, so
 from `X.0.0` it continues into the previous major, and from `10.6.0` into
 `10.5.x`. Every `SupplyChain` point takes part in Body comparison, and no
 `ApiEvolution` point does, which are the two ends of the Body participant rule
-in [Library-scope History](diff-history.md#library-scope-history-over-fast-diff).
+in [Library-scope
+History](diff-history.md#library-scope-history-over-finding-diff-any).
 
 When fewer than n earlier points exist, the window holds those that do and
 reports the depth it reached beside the depth requested. A window with no point

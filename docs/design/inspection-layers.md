@@ -1610,8 +1610,13 @@ canaries:
 - `AssemblyContextReferencesQuery` owns session access for every participant in
   a binding-consistent group. Its participant entry point also issues detached
   `AssemblyReferenceRow` values for hosts that need reference fields but do not
-  own Metadata identity semantics, plus a typed detached rejection for hosts
-  that do not own Metadata candidate-open failures.
+  own Metadata identity semantics, exact owner-issued binding evidence with the
+  participant's completed current-context selection, plus a typed detached
+  rejection for hosts that do not own Metadata candidate-open failures.
+  Inspect Web orders and projects the detached rows; Package Queries alone
+  enters external supplier association for an owner-issued `NoNameOwner`,
+  without Web reconstructing Metadata identities, binding requests, origins,
+  scopes, or selection outcomes.
   `PackageDependencyGroupsQuery` reads one bounded root manifest through
   `IPackageContent`, validates its package ID and version, retains its groups as
   declared, and reports exact-framework absence separately from an empty
@@ -1686,11 +1691,13 @@ canaries:
   Browser rendering, attribution, navigation policy, and wire projection
   without a direct `ILInspector.CallGraph` or `ILInspector.Analysis` project or
   emitted assembly edge.
-- Platform call-graph resolution selects the implementation participant in Web,
-  then delegates exact body matching to
-  `AssemblyContextMemberSelectionQuery`. Web retains Platform acquisition,
-  type-resolution expansion, bounds, and scope lifetime without projecting an
-  API surface solely to invoke `CallGraphMemberResolver` itself.
+- Platform call-graph resolution delegates each closed-world type-resolution
+  decision and exact body match to Queries. The decision returns the exact
+  participant, a detached failure or identity conflict, or one exact assembly
+  continuation demand. Web retains Platform acquisition, authorization,
+  bounded expansion and retry, and scope lifetime without interpreting live
+  Metadata resolution outcomes or projecting an API surface solely to invoke
+  `CallGraphMemberResolver` itself.
 - Product demo plans resolve their owner-issued member anchor over
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog
