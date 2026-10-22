@@ -481,7 +481,8 @@ public static class UnsafeMemberCensusAnalysis
         ArgumentNullException.ThrowIfNull(execution);
         ProducerResult<UnsafeMemberCensus> result =
             execution.ResultOf(UnsafeMemberCensusProducer.Instance);
-        MethodDefinitionSourceReceipt source = execution.SourceReceipt;
+        MethodDefinitionSourceReceipt source =
+            execution.MethodDefinitionReceipt();
         WorkReceipt receipt = execution.WorkReceipt;
         // A bounded expansion's census keeps the retained prefix's findings;
         // its attribution-bound limitation makes it incomplete.

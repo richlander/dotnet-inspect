@@ -58,7 +58,7 @@ public static class ILOffsetSafetyAnalysis
                 AssemblyAnalysisOperation<
                     ExactMethodAnalysisProducerResult>.Create(
                         subjectName,
-                        request);
+                        request.AsAssemblyAnalysisSource());
 
         AssemblyAnalysisServiceResult<
             ExactMethodAnalysisProducerResult> serviceResult =
@@ -107,7 +107,7 @@ public static class ILOffsetSafetyAnalysis
                 .. bodies.SelectMany(
                     static body => body.Diagnostics),
             ],
-            execution.SourceReceipt,
+            execution.MethodDefinitionReceipt(),
             execution.WorkReceipt);
     }
 

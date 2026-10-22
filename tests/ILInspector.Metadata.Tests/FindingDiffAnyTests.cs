@@ -19,9 +19,9 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.AsyncOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.LocalFunctionOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.StringLiteralOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
-    // A catch Type is not an IL operation, so canonical IL comparison shows
-    // no change for it (#9942) and the Body axis compares it Unchanged.
-    [InlineData("FindingDiffAnyFixture.CatchTypeOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
+    // A catch Type is an exception clause fact canonical IL comparison
+    // presents (#9942), so the Body axis compares it.
+    [InlineData("FindingDiffAnyFixture.CatchTypeOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.AbstractToVirtual", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.IDefaultImplementationAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]
     [InlineData("FindingDiffAnyFixture.PrivateMemberAdded", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]

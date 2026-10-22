@@ -53,13 +53,17 @@ public static class IlFindings
             return new FindingInspection<CanonicalIlOperation>.Absent(
                 FindingInspectionAbsenceKind.NoApplicableInput,
                 "Method has no IL body.");
-        if (body.IsComplete && body.Instructions.Length > MaxCanonicalOperations)
+        // The census holds one atom per instruction and one per exception
+        // clause, so the bound counts both.
+        int atoms = body.IsComplete ? body.Instructions.Length + body.Blocks.Regions.Length : 0;
+        if (atoms > MaxCanonicalOperations)
         {
             return new FindingInspection<CanonicalIlOperation>.Failed(
                 new InspectionError(
                     subject,
                     InspectionDescriptor,
-                    $"IL inspection skipped: body has {body.Instructions.Length:N0} canonical operations; " +
+                    $"IL inspection skipped: body has {atoms:N0} canonical operations " +
+                    $"({body.Instructions.Length:N0} instructions and {body.Blocks.Regions.Length:N0} exception clauses); " +
                     $"limit is {MaxCanonicalOperations:N0}."));
         }
 
@@ -240,9 +244,10 @@ public static class IlFindings
         }
     }
 
-    // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
-    // so a matched branch whose target was retargeted would otherwise read as unchanged. Reuse
-    // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation),
+    // IdentityKey deliberately ignores an operation's targets (matching CanonicalEquals): a branch's
+    // target, a switch's arms, and an exception clause's extents. A matched branch whose target was
+    // retargeted, or a clause whose extent moved, would otherwise read as unchanged. Reuse
+    // IlBodyDiff's own alignment map and target decision verbatim (not a reimplementation),
     // then overlay the finding Moved mappings so a branch that targets a relocated instruction is
     // judged in the finding frame (its target moved with it) rather than being falsely retargeted.
     // On move-free inputs there are no Moved pairs, so the map is exactly IlBodyDiff's.
@@ -264,11 +269,13 @@ public static class IlFindings
         foreach (var pair in pairs)
         {
             if (pair is PairFinding<CanonicalIlOperation>.Present present
-                && !IlBodyDiff.BranchTargetsMatch(
-                    oldInstructions,
+                && !IlBodyDiff.TargetsMatch(
+                    oldOps,
                     RequiredOrdinal(present.Old),
-                    newInstructions,
+                    oldInstructions,
+                    newOps,
                     RequiredOrdinal(present.New),
+                    newInstructions,
                     alignment))
             {
                 // A moved-and-retargeted operation keeps its move Detail; append the retarget so
@@ -278,7 +285,7 @@ public static class IlFindings
                     present.Old,
                     present.New,
                     present.Difference,
-                    present.Detail is null ? "branch retargeted" : $"{present.Detail}; branch retargeted"));
+                    present.Detail is null ? MovedTargetDetail(present.Old) : $"{present.Detail}; {MovedTargetDetail(present.Old)}"));
             }
             else
             {
@@ -288,6 +295,9 @@ public static class IlFindings
 
         return builder.ToImmutable();
     }
+
+    static string MovedTargetDetail(Finding<CanonicalIlOperation> finding)
+        => finding.Payload.IsExceptionClause ? "clause extent moved" : "branch retargeted";
 
     static int RequiredOrdinal(Finding<CanonicalIlOperation> finding)
         => finding.Ordinal

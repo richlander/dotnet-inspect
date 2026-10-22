@@ -85,6 +85,97 @@ public class FindProgressiveTsvTests
     }
 
     [Fact]
+    public async Task OfflineIndexedFindingFillsWindowBeforeSourceWork()
+    {
+        var result = await Run(
+            "--offline",
+            "find", "AddRedis",
+            "--ecosystem", "aspire",
+            "-n", "1",
+            "--tsv");
+
+        string[] lines = result.Output.TrimEnd('\n').Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(
+            "Aspire.Hosting.Redis@13.6.3",
+            lines[1],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Stopped before unsearched work: ecosystem.aspire",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Bounded source",
+            result.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "cannot resolve its latest version",
+            result.Error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IndexedTypeFilterAppliesBeforeRowLimit()
+    {
+        var result = await Run(
+            "--offline",
+            "find", "*",
+            "--type", "RedisResource",
+            "--ecosystem", "aspire",
+            "-n", "1",
+            "--tsv");
+
+        string[] lines = result.Output.TrimEnd('\n').Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(
+            "Aspire.Hosting.ApplicationModel.RedisResource",
+            lines[1],
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "CSharpAppResource",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IndexedWeakTypeDoesNotSuppressExactMemberFallback()
+    {
+        var result = await Run(
+            "--offline",
+            "find", "AddAzureEnvironment",
+            "--ecosystem", "aspire",
+            "-n", "1",
+            "--tsv");
+
+        Assert.Contains(
+            "AzureEnvironmentResourceExtensions.AddAzureEnvironment",
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "\ttype\t",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task IndexedGenericMemberMatchesMetadataName()
+    {
+        var result = await Run(
+            "--offline",
+            "find", ".AddNpgsqlDbContext",
+            "--ecosystem", "aspire",
+            "-n", "1",
+            "--tsv");
+
+        string[] lines = result.Output.TrimEnd('\n').Split('\n');
+        Assert.Equal(2, lines.Length);
+        Assert.Contains(
+            ".AddNpgsqlDbContext",
+            lines[1],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ProgressiveProjectionKeepsRequestedColumns()
     {
         var result = await Run(

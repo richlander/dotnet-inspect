@@ -80,16 +80,70 @@ public enum IlBodyDiffOutcome
     Exact,
     OperandDiff,
     OpcodeDiff,
+
+    /// <summary>
+    /// Every operation matches and only exception clauses differ: a clause's
+    /// kind, its catch Type, or an extent that no longer aligns.
+    /// </summary>
+    ExceptionRegionDiff,
 }
 
 public sealed record IlOperandIdentity(IlOperandIdentityKind Kind, string Value);
 
+/// <param name="Targets">
+/// The IL offsets an operation points at: a branch's target, a switch's arms,
+/// or an exception clause's extent boundaries (try start and end, handler
+/// start and end, and for a filter its filter start and end). Targets are not
+/// part of an operation's identity; the diff validates them over its
+/// alignment, by the instruction each one starts.
+/// </param>
 public sealed record CanonicalIlOperation(
     int Offset,
     string OpcodeFamily,
-    IlOperandIdentity? Operand)
+    IlOperandIdentity? Operand,
+    ImmutableArray<int> Targets = default)
 {
-    public string Display => Operand is null ? OpcodeFamily : $"{OpcodeFamily} {Operand.Value}";
+    /// <summary>
+    /// Whether this is an exception clause atom, which canonicalization appends
+    /// after the body's instructions in declaration order.
+    /// </summary>
+    public bool IsExceptionClause => OpcodeFamily is "catch" or "filter" or "finally" or "fault";
+
+    /// <summary>Two operations are equal when every part is, targets by value.</summary>
+    public bool Equals(CanonicalIlOperation? other)
+        => other is not null
+            && Offset == other.Offset
+            && OpcodeFamily == other.OpcodeFamily
+            && Equals(Operand, other.Operand)
+            && TargetsOf(this).SequenceEqual(TargetsOf(other));
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Offset);
+        hash.Add(OpcodeFamily);
+        hash.Add(Operand);
+        foreach (int target in TargetsOf(this))
+            hash.Add(target);
+        return hash.ToHashCode();
+    }
+
+    static ImmutableArray<int> TargetsOf(CanonicalIlOperation operation)
+        => operation.Targets.IsDefault ? [] : operation.Targets;
+
+    public string Display
+    {
+        get
+        {
+            string head = Operand is null ? OpcodeFamily : $"{OpcodeFamily} {Operand.Value}";
+            if (!IsExceptionClause || Targets.IsDefaultOrEmpty)
+                return head;
+            string extents = $"try [IL_{Targets[0]:X4}, IL_{Targets[1]:X4}) handler [IL_{Targets[2]:X4}, IL_{Targets[3]:X4})";
+            if (Targets.Length >= 6)
+                extents += $" filter [IL_{Targets[4]:X4}, IL_{Targets[5]:X4})";
+            return $"{head} {extents}";
+        }
+    }
 }
 
 public sealed record IlDiffRow(
@@ -244,7 +298,7 @@ public static partial class IlBodyDiff
 
         var resolver = reader is null ? null : new MetadataOperandResolver(reader, normalization, CompilerGeneratedOrdinalCorrespondence.Empty);
         return TryBuildOperations(
-            body.Instructions,
+            body,
             resolver,
             "body",
             normalization,
@@ -282,12 +336,12 @@ public static partial class IlBodyDiff
 
         var oldInstructions = oldBody.Instructions;
         var newInstructions = newBody.Instructions;
-        if (!TryBuildOperations(oldInstructions, oldResolver, "old", normalization, out var oldOperations, out var oldFailure))
+        if (!TryBuildOperations(oldBody, oldResolver, "old", normalization, out var oldOperations, out var oldFailure))
             return IlBodyDiffResult.Failed(
                 IlDiffFailureKind.TokenResolutionFailure,
                 oldFailure ?? "old body token resolution failed",
                 side: "old");
-        if (!TryBuildOperations(newInstructions, newResolver, "new", normalization, out var newOperations, out var newFailure))
+        if (!TryBuildOperations(newBody, newResolver, "new", normalization, out var newOperations, out var newFailure))
             return IlBodyDiffResult.Failed(
                 IlDiffFailureKind.TokenResolutionFailure,
                 newFailure ?? "new body token resolution failed",
@@ -304,7 +358,7 @@ public static partial class IlBodyDiff
         foreach (var (nextOld, nextNew) in lcs)
         {
             AddUnmatched(oldOperations, oldIndex, nextOld, newOperations, newIndex, nextNew, rows, ref hunkId);
-            if (!BranchTargetsMatch(oldInstructions, nextOld, newInstructions, nextNew, oldToNew))
+            if (!TargetsMatch(oldOperations, nextOld, oldInstructions, newOperations, nextNew, newInstructions, oldToNew))
             {
                 int hunk = hunkId++;
                 rows.Add(Row(hunk, IlDiffKind.Remove, oldOperations[nextOld]));
@@ -319,21 +373,30 @@ public static partial class IlBodyDiff
         var diffRows = rows.ToImmutable();
         var outcome = diffRows.Length == 0
             ? IlBodyDiffOutcome.Exact
-            : opcodeSequenceExact
-                ? IlBodyDiffOutcome.OperandDiff
-                : IlBodyDiffOutcome.OpcodeDiff;
+            : diffRows.All(static row => row.Operation.IsExceptionClause)
+                ? IlBodyDiffOutcome.ExceptionRegionDiff
+                : opcodeSequenceExact
+                    ? IlBodyDiffOutcome.OperandDiff
+                    : IlBodyDiffOutcome.OpcodeDiff;
         return new IlBodyDiffResult(outcome, Failure: null, diffRows);
     }
 
+    /// <summary>
+    /// The canonical sequence of one body: every instruction as an operation,
+    /// then every exception clause as an atom in declaration order, so a clause
+    /// is compared as the decoder validated it and never by raw offsets.
+    /// </summary>
     static bool TryBuildOperations(
-        ImmutableArray<DecodedInstruction> instructions,
+        MethodInstructions body,
         MetadataOperandResolver? resolver,
         string side,
         IlBodyDiffNormalization normalization,
         out ImmutableArray<CanonicalIlOperation> operations,
         out string? failure)
     {
-        var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(instructions.Length);
+        var instructions = body.Instructions;
+        var clauses = body.Blocks.Regions;
+        var builder = ImmutableArray.CreateBuilder<CanonicalIlOperation>(instructions.Length + clauses.Length);
         foreach (var instruction in instructions)
         {
             if (!TryToOperation(instruction, resolver, normalization, out var operation, out var operationFailure))
@@ -345,8 +408,62 @@ public static partial class IlBodyDiff
 
             builder.Add(operation);
         }
+        foreach (var clause in clauses)
+        {
+            if (!TryToClause(clause, resolver, out var atom, out var clauseFailure))
+            {
+                operations = [];
+                failure = $"{side} body {clauseFailure}";
+                return false;
+            }
+
+            builder.Add(atom);
+        }
 
         operations = builder.MoveToImmutable();
+        failure = null;
+        return true;
+    }
+
+    /// <summary>
+    /// An exception clause as a canonical atom: its kind as the family, its
+    /// catch Type as a token operand under the same normalization as any type
+    /// operand, and its extent boundaries as targets.
+    /// </summary>
+    static bool TryToClause(
+        ExceptionRegionModel clause,
+        MetadataOperandResolver? resolver,
+        out CanonicalIlOperation atom,
+        out string? failure)
+    {
+        string family = clause.Kind switch
+        {
+            HandlerKind.Catch => "catch",
+            HandlerKind.Filter => "filter",
+            HandlerKind.Finally => "finally",
+            HandlerKind.Fault => "fault",
+            _ => throw new ArgumentOutOfRangeException(nameof(clause), clause.Kind, "Unknown exception clause kind."),
+        };
+        ImmutableArray<int> targets = clause.Kind == HandlerKind.Filter
+            ? [clause.TryStart, clause.TryEnd, clause.HandlerStart, clause.HandlerEnd, clause.FilterStart, clause.FilterEnd]
+            : [clause.TryStart, clause.TryEnd, clause.HandlerStart, clause.HandlerEnd];
+        IlOperandIdentity? operand = null;
+        if (clause.Kind == HandlerKind.Catch)
+        {
+            if (resolver is null)
+            {
+                atom = new CanonicalIlOperation(clause.TryStart, family, Operand: null, targets);
+                failure = $"catch Type of the clause at IL_{clause.TryStart:X4} requires a MetadataReader-backed comparison";
+                return false;
+            }
+            if (!resolver.TryResolveCatchType(clause.CatchTypeToken, clause.TryStart, out operand, out failure))
+            {
+                atom = new CanonicalIlOperation(clause.TryStart, family, Operand: null, targets);
+                return false;
+            }
+        }
+
+        atom = new CanonicalIlOperation(clause.TryStart, family, operand, targets);
         failure = null;
         return true;
     }
@@ -385,9 +502,11 @@ public static partial class IlBodyDiff
             IlDiffKind.Context => "Unchanged",
             _ => kind.ToString(),
         };
-        string subject = operation.Operand?.Kind is IlOperandIdentityKind.BranchTarget or IlOperandIdentityKind.SwitchTargets
-            ? "IL branch"
-            : "IL operation";
+        string subject = operation.IsExceptionClause
+            ? "IL exception clause"
+            : operation.Operand?.Kind is IlOperandIdentityKind.BranchTarget or IlOperandIdentityKind.SwitchTargets
+                ? "IL branch"
+                : "IL operation";
         return $"{action} {subject} '{operation.Display}'";
     }
 
@@ -509,7 +628,8 @@ public static partial class IlBodyDiff
         operation = new CanonicalIlOperation(
             instruction.Offset,
             OpcodeFamily(instruction, normalization),
-            operand);
+            operand,
+            instruction.BranchTargets.IsDefault ? [] : instruction.BranchTargets);
         return true;
     }
 
@@ -620,30 +740,41 @@ public static partial class IlBodyDiff
             or OperandKind.InlineType or OperandKind.InlineSig or OperandKind.InlineTok;
 
     /// <summary>
-    /// True when a matched branch/switch operation's targets still correspond under the given
-    /// alignment map (i.e. the branch was not retargeted). Exposed so the evidence adapter reuses
-    /// this decision verbatim rather than reimplementing it.
+    /// True when a matched operation's targets still correspond under the
+    /// given alignment map: a branch was not retargeted, a switch's arms still
+    /// point at aligned instructions, and an exception clause's extents start
+    /// and end at aligned instructions, where the end of the body aligns with
+    /// the end of the body. Exposed so the evidence adapter reuses this
+    /// decision verbatim rather than reimplementing it.
     /// </summary>
-    public static bool BranchTargetsMatch(
-        ImmutableArray<DecodedInstruction> oldInstructions,
+    public static bool TargetsMatch(
+        ImmutableArray<CanonicalIlOperation> oldOperations,
         int oldIndex,
-        ImmutableArray<DecodedInstruction> newInstructions,
+        ImmutableArray<DecodedInstruction> oldInstructions,
+        ImmutableArray<CanonicalIlOperation> newOperations,
         int newIndex,
+        ImmutableArray<DecodedInstruction> newInstructions,
         IReadOnlyDictionary<int, int> oldToNew)
     {
-        var oldInstruction = oldInstructions[oldIndex];
-        var newInstruction = newInstructions[newIndex];
-        if (oldInstruction.Operand is not (OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget or OperandKind.InlineSwitch))
+        ImmutableArray<int> oldTargets = oldOperations[oldIndex].Targets;
+        ImmutableArray<int> newTargets = newOperations[newIndex].Targets;
+        if (oldTargets.IsDefaultOrEmpty && newTargets.IsDefaultOrEmpty)
             return true;
-        if (oldInstruction.BranchTargets.Length != newInstruction.BranchTargets.Length)
+        if (oldTargets.IsDefaultOrEmpty || newTargets.IsDefaultOrEmpty || oldTargets.Length != newTargets.Length)
             return false;
 
-        for (int i = 0; i < oldInstruction.BranchTargets.Length; i++)
+        for (int i = 0; i < oldTargets.Length; i++)
         {
-            int oldTargetIndex = InstructionIndexAt(oldInstructions, oldInstruction.BranchTargets[i]);
-            int newTargetIndex = InstructionIndexAt(newInstructions, newInstruction.BranchTargets[i]);
+            int oldTargetIndex = InstructionIndexAt(oldInstructions, oldTargets[i]);
+            int newTargetIndex = InstructionIndexAt(newInstructions, newTargets[i]);
             if (oldTargetIndex < 0 || newTargetIndex < 0)
-                return oldInstruction.BranchTargets[i] == newInstruction.BranchTargets[i];
+                return oldTargets[i] == newTargets[i];
+            if (oldTargetIndex == oldInstructions.Length || newTargetIndex == newInstructions.Length)
+            {
+                if (oldTargetIndex != oldInstructions.Length || newTargetIndex != newInstructions.Length)
+                    return false;
+                continue;
+            }
             if (!oldToNew.TryGetValue(oldTargetIndex, out int mappedNewTarget))
                 return false;
             if (mappedNewTarget != newTargetIndex)
@@ -653,11 +784,17 @@ public static partial class IlBodyDiff
         return true;
     }
 
+    /// <summary>
+    /// The index of the instruction that starts at <paramref name="offset"/>,
+    /// the instruction count for the end of the body, or -1.
+    /// </summary>
     static int InstructionIndexAt(ImmutableArray<DecodedInstruction> instructions, int offset)
     {
         for (int i = 0; i < instructions.Length; i++)
             if (instructions[i].Offset == offset)
                 return i;
+        if (instructions.Length > 0 && instructions[^1].NextOffset == offset)
+            return instructions.Length;
         return -1;
     }
 

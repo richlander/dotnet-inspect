@@ -130,6 +130,38 @@ public sealed class FindingDiffAnyBodyTests
             [0x2B, 0x01, 0x00, 0x00, 0x24, 0x2A]);
     }
 
+    /// <summary>
+    /// Exception clauses compare as canonical comparison's clause atoms do:
+    /// by kind, by catch Type, and by extents as aligned instructions.
+    /// </summary>
+    public static TheoryData<string, bool> ClauseCases => new()
+    {
+        { "CatchTypeChanged", false },
+        { "TryBoundaryMoved", false },
+        { "ShiftedClauseOffsets", true },
+        { "NestedClausesIdentical", true },
+        { "FinallyVsCatchAll", false },
+        { "ClauseRemoved", false },
+    };
+
+    [Theory]
+    [MemberData(nameof(ClauseCases))]
+    public void ExceptionClauses_DecideAsCanonicalComparisonDoes(string name, bool equal)
+    {
+        (byte[] before, byte[] after) = ClauseImages.Value;
+        FindingDiffAnyTypeState state = Single(CompareImages(before, after), $"{Namespace}.{name}");
+
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(equal ? FindingDiffAnyState.Unchanged : FindingDiffAnyState.Changed, state.Body);
+    }
+
+    [Fact]
+    public void ExceptionClauses_AgreeWithCanonicalComparisonPerMethod()
+    {
+        (byte[] before, byte[] after) = ClauseImages.Value;
+        AssertPerMethodAgreement(before, after, decided: true);
+    }
+
     [Fact]
     public void TrailingUndefinedOpcode_IsIndeterminate()
     {
@@ -335,6 +367,155 @@ public sealed class FindingDiffAnyBodyTests
             il.OpCode(ILOpCode.Ret);
         }));
         return image.Build();
+    }
+
+    static readonly Lazy<(byte[] Before, byte[] After)> ClauseImages =
+        new(() => (ClauseImage(after: false), ClauseImage(after: true)));
+
+    /// <summary>
+    /// The exception clause pair: a Type per case, each holding one method
+    /// <c>M</c> that calls <c>Callees.Callee1</c> inside a protected region.
+    /// </summary>
+    static byte[] ClauseImage(bool after)
+    {
+        var image = new ImageBuilder(
+            "Clauses",
+            after ? "66666666-6666-6666-6666-666666666666" : "55555555-5555-5555-5555-555555555555");
+        AssemblyReferenceHandle runtime = image.Metadata.AddAssemblyReference(
+            image.Metadata.GetOrAddString("System.Runtime"), new Version(10, 0, 0, 0), default, default, default, default);
+        TypeReferenceHandle systemObject = image.Metadata.AddTypeReference(
+            runtime, image.Metadata.GetOrAddString("System"), image.Metadata.GetOrAddString("Object"));
+        TypeReferenceHandle systemException = image.Metadata.AddTypeReference(
+            runtime, image.Metadata.GetOrAddString("System"), image.Metadata.GetOrAddString("Exception"));
+        TypeReferenceHandle invalidOperation = image.Metadata.AddTypeReference(
+            runtime, image.Metadata.GetOrAddString("System"), image.Metadata.GetOrAddString("InvalidOperationException"));
+        (MethodDefinitionHandle callee, _) = image.AddCallees();
+
+        image.AddCase("CatchTypeChanged", il => Catch(il, callee, after ? systemException : invalidOperation, ILOpCode.Br_s, widerTry: false));
+        image.AddCase("TryBoundaryMoved", il => Catch(il, callee, invalidOperation, ILOpCode.Br_s, widerTry: after));
+        image.AddCase("ShiftedClauseOffsets", il => Catch(il, callee, invalidOperation, after ? ILOpCode.Br : ILOpCode.Br_s, widerTry: false));
+        image.AddCase("NestedClausesIdentical", il => NestedCatchInFinally(il, callee, invalidOperation));
+        image.AddCase("FinallyVsCatchAll", il =>
+        {
+            if (after)
+                Catch(il, callee, systemObject, ILOpCode.Br_s, widerTry: false);
+            else
+                Finally(il, callee);
+        });
+        image.AddCase("ClauseRemoved", il =>
+        {
+            if (after)
+            {
+                // The same instructions, with no clause over them.
+                LabelHandle end = il.DefineLabel();
+                il.Call(callee);
+                il.Branch(ILOpCode.Br_s, end);
+                il.OpCode(ILOpCode.Pop);
+                il.Branch(ILOpCode.Br_s, end);
+                il.MarkLabel(end);
+                il.OpCode(ILOpCode.Ret);
+            }
+            else
+            {
+                LabelHandle tryStart = il.DefineLabel();
+                LabelHandle tryEnd = il.DefineLabel();
+                LabelHandle handlerStart = il.DefineLabel();
+                LabelHandle handlerEnd = il.DefineLabel();
+                LabelHandle end = il.DefineLabel();
+                il.MarkLabel(tryStart);
+                il.Call(callee);
+                il.Branch(ILOpCode.Leave_s, end);
+                il.MarkLabel(tryEnd);
+                il.MarkLabel(handlerStart);
+                il.OpCode(ILOpCode.Pop);
+                il.Branch(ILOpCode.Leave_s, end);
+                il.MarkLabel(handlerEnd);
+                il.MarkLabel(end);
+                il.OpCode(ILOpCode.Ret);
+                il.ControlFlowBuilder!.AddCatchRegion(tryStart, tryEnd, handlerStart, handlerEnd, invalidOperation);
+            }
+        });
+        return image.Build();
+    }
+
+    /// <summary>A branch, then a call inside a catch region whose try may start at the branch.</summary>
+    static void Catch(InstructionEncoder il, MethodDefinitionHandle callee, EntityHandle catchType, ILOpCode branch, bool widerTry)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        LabelHandle next = il.DefineLabel();
+        if (widerTry)
+            il.MarkLabel(tryStart);
+        il.Branch(branch, next);
+        il.MarkLabel(next);
+        if (!widerTry)
+            il.MarkLabel(tryStart);
+        il.Call(callee);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(handlerStart);
+        il.OpCode(ILOpCode.Pop);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddCatchRegion(tryStart, tryEnd, handlerStart, handlerEnd, catchType);
+    }
+
+    static void Finally(InstructionEncoder il, MethodDefinitionHandle callee)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        LabelHandle next = il.DefineLabel();
+        il.Branch(ILOpCode.Br_s, next);
+        il.MarkLabel(next);
+        il.MarkLabel(tryStart);
+        il.Call(callee);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(handlerStart);
+        il.OpCode(ILOpCode.Nop);
+        il.OpCode(ILOpCode.Endfinally);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddFinallyRegion(tryStart, tryEnd, handlerStart, handlerEnd);
+    }
+
+    static void NestedCatchInFinally(InstructionEncoder il, MethodDefinitionHandle callee, EntityHandle catchType)
+    {
+        LabelHandle tryStart = il.DefineLabel();
+        LabelHandle tryEnd = il.DefineLabel();
+        LabelHandle handlerStart = il.DefineLabel();
+        LabelHandle handlerEnd = il.DefineLabel();
+        LabelHandle innerTryStart = il.DefineLabel();
+        LabelHandle innerTryEnd = il.DefineLabel();
+        LabelHandle innerHandlerStart = il.DefineLabel();
+        LabelHandle innerHandlerEnd = il.DefineLabel();
+        LabelHandle end = il.DefineLabel();
+        il.MarkLabel(tryStart);
+        il.MarkLabel(innerTryStart);
+        il.Call(callee);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(innerTryEnd);
+        il.MarkLabel(innerHandlerStart);
+        il.OpCode(ILOpCode.Pop);
+        il.Branch(ILOpCode.Leave_s, end);
+        il.MarkLabel(innerHandlerEnd);
+        il.MarkLabel(tryEnd);
+        il.MarkLabel(handlerStart);
+        il.OpCode(ILOpCode.Endfinally);
+        il.MarkLabel(handlerEnd);
+        il.MarkLabel(end);
+        il.OpCode(ILOpCode.Ret);
+        il.ControlFlowBuilder!.AddCatchRegion(innerTryStart, innerTryEnd, innerHandlerStart, innerHandlerEnd, catchType);
+        il.ControlFlowBuilder!.AddFinallyRegion(tryStart, tryEnd, handlerStart, handlerEnd);
     }
 
     static readonly Lazy<(byte[] Before, byte[] After)> EncodingImages =
