@@ -451,6 +451,7 @@ static List<MetricChange<int>> BaselineMetricRows(BaselineComparison comparison)
     MetricContext("Pair exact empty", comparison.Baseline.Summary.PairExactEmptyCount, comparison.Current.Summary.PairExactEmptyCount),
     MetricContext("Pair operand diffs", comparison.Baseline.Summary.PairOperandDiffCount, comparison.Current.Summary.PairOperandDiffCount),
     MetricContext("Pair opcode diffs", comparison.Baseline.Summary.PairOpcodeDiffCount, comparison.Current.Summary.PairOpcodeDiffCount),
+    MetricContext("Pair exception-region diffs", comparison.Baseline.Summary.PairExceptionRegionDiffCount, comparison.Current.Summary.PairExceptionRegionDiffCount),
     MetricContext("Pair unavailable", comparison.Baseline.Summary.PairUnavailableCount, comparison.Current.Summary.PairUnavailableCount),
     MetricContext("Changed bodies", comparison.Baseline.Summary.ChangedBodyCount, comparison.Current.Summary.ChangedBodyCount),
     MetricGoal("Failures", comparison.Baseline.Summary.FailureCount, comparison.Current.Summary.FailureCount, "max failures", Goal.Lower),
@@ -568,6 +569,7 @@ static IlDiffPairSummaryRow PairSummaryRow(IlDiffPairCard pair)
         pair.Card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairOperandDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairOpcodeDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.PairExceptionRegionDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairUnavailableCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -584,6 +586,7 @@ static IlDiffSectionPairSummaryRow SectionedPairSummaryRow(IlDiffPairCard pair)
         row.PairExactEmpty,
         row.PairOperandDiffs,
         row.PairOpcodeDiffs,
+        row.PairExceptionRegionDiffs,
         row.PairUnavailable,
         row.Changed,
         row.Failures);
@@ -730,6 +733,7 @@ sealed record IlDiffPairSummaryRow(
     [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
     [property: MarkoutPropertyName("Pair operand diffs")] string PairOperandDiffs,
     [property: MarkoutPropertyName("Pair opcode diffs")] string PairOpcodeDiffs,
+    [property: MarkoutPropertyName("Pair exception-region diffs")] string PairExceptionRegionDiffs,
     [property: MarkoutPropertyName("Pair unavailable")] string PairUnavailable,
     string Changed,
     string Failures);
@@ -744,6 +748,7 @@ sealed record IlDiffSectionPairSummaryRow(
     [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
     [property: MarkoutPropertyName("Pair operand diffs")] string PairOperandDiffs,
     [property: MarkoutPropertyName("Pair opcode diffs")] string PairOpcodeDiffs,
+    [property: MarkoutPropertyName("Pair exception-region diffs")] string PairExceptionRegionDiffs,
     [property: MarkoutPropertyName("Pair unavailable")] string PairUnavailable,
     string Changed,
     string Failures);
