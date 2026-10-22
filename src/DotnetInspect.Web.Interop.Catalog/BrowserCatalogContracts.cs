@@ -540,8 +540,9 @@ public sealed record BrowserHomeDemoRunResult(
 
 /// <summary>
 /// One product-normalized source in a canonical workspace share packet.
-/// <see cref="Kind"/> is <c>package</c> or <c>group</c>; <see cref="Source"/>
-/// is the package id or leading-colon group expression.
+/// <see cref="Kind"/> is <c>package</c>, <c>group</c>, or <c>platform</c>;
+/// <see cref="Source"/> is the package id, leading-colon group expression, or
+/// Platform family.
 /// </summary>
 public sealed record BrowserWorkspaceShareTab(
     string Id,

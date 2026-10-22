@@ -162,7 +162,7 @@ public sealed record CompleteRestorationPlan
         IReadOnlyDictionary<
             string,
             PackageNavigationSource> packageSources,
-        IReadOnlyDictionary<string, GroupNavigationSource> groupSources)
+        IReadOnlyDictionary<string, PlatformNavigationSource> platformSources)
     {
         Intent = intent ?? throw new ArgumentNullException(nameof(intent));
         Request = request ?? throw new ArgumentNullException(nameof(request));
@@ -174,8 +174,8 @@ public sealed record CompleteRestorationPlan
                 nameof(configuredPackageSources));
         PackageSources = packageSources
             ?? throw new ArgumentNullException(nameof(packageSources));
-        GroupSources = groupSources
-            ?? throw new ArgumentNullException(nameof(groupSources));
+        PlatformSources = platformSources
+            ?? throw new ArgumentNullException(nameof(platformSources));
     }
 
     public CompleteRestorationIntentIdentity Intent { get; }
@@ -194,7 +194,8 @@ public sealed record CompleteRestorationPlan
         PackageNavigationSource> PackageSources
         { get; }
 
-    internal IReadOnlyDictionary<string, GroupNavigationSource> GroupSources
+    internal IReadOnlyDictionary<string, PlatformNavigationSource>
+        PlatformSources
         { get; }
 }
 
@@ -720,7 +721,7 @@ public static class CompleteRestorationPreparation
                     request.Facet),
                 [],
                 ImmutableDictionary<string, PackageNavigationSource>.Empty,
-                ImmutableDictionary<string, GroupNavigationSource>.Empty));
+                ImmutableDictionary<string, PlatformNavigationSource>.Empty));
     }
 
     public static CompleteRestorationPreparationResult FromDefinition(
@@ -902,7 +903,7 @@ public static class CompleteRestorationPreparation
                 recipe,
                 definitions.Workspace.PackageSources,
                 packageSources,
-                InspectionDefinitionRegistry.ResolveGroupNavigationSources(
+                InspectionDefinitionRegistry.ResolvePlatformNavigationSources(
                     definitions.Workspace,
                     definitions.Navigation,
                     definitions.NavigationTargetMatchMode)));

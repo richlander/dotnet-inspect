@@ -323,6 +323,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("observeRetainedWorkspaceSettlement"),
     prepareEcosystemWorkspaceDefinition: () =>
       unexpected("prepareEcosystemWorkspaceDefinition"),
+    prepareHomeDemoWorkspaceDefinition: () =>
+      unexpected("prepareHomeDemoWorkspaceDefinition"),
     preparePackageQueryWorkspaceDefinition: () =>
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
@@ -2618,6 +2620,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "explainVocabularies",
       "observeRetainedWorkspaceSettlement",
       "prepareEcosystemWorkspaceDefinition",
+      "prepareHomeDemoWorkspaceDefinition",
       "preparePackageQueryWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
@@ -2640,7 +2643,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 133);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 134);
 
   const state = fixture();
   const groups = [

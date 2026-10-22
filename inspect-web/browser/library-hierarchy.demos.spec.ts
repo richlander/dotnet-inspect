@@ -19,6 +19,7 @@ import {
   type BrowserPackageSurface,
   type BrowserTypeSurface,
   type BrowserCallGraph,
+  type BrowserHomeDemoResolved,
   type BrowserHomeDemoRunResult,
 } from "./library-hierarchy.support.ts";
 
@@ -173,6 +174,49 @@ function homeDemoResult(
   };
 }
 
+function homeDemoResolution(
+  id: string,
+  section: "Methods" | "Call Graph",
+  focusKind: "package" | "platform",
+): BrowserHomeDemoResolved {
+  const callGraph = section === "Call Graph";
+  const members = focusKind === "platform"
+    ? [{
+      kind: "platform",
+      id: "runtime",
+      version: platformVersion,
+      framework: "net11.0",
+      assembly: platformFocusAssembly.name,
+    }]
+    : [peerSurface, surface].map(model => ({
+      kind: "package",
+      id: model.package,
+      version: model.version,
+      framework: model.activeFramework,
+      assembly: null,
+    }));
+  return {
+    id,
+    title: `${focusKind} ${section}`,
+    summary: "Typed product demo",
+    workspaceMembers: members,
+    tabs: members.map((member, index) => ({
+      id: focusKind === "platform" ? "stj" : `t${index}`,
+      member,
+    })),
+    focusTabIndex: members.length - 1,
+    view: {
+      library: focusKind === "platform" ? platformFocusAssembly.name : core.name,
+      type: focusKind === "platform"
+        ? platformFocusType.id
+        : surface.types[0]!.id,
+      memberAnchor: callGraph ? run.anchorDigest : null,
+      memberKey: callGraph ? run.stableSelector : null,
+      section,
+    },
+  };
+}
+
 async function installHomeDemo(
   page: Page,
   section: "Methods" | "Call Graph",
@@ -199,6 +243,9 @@ async function installHomeDemo(
         title: `${focusKind} ${section}`,
         summary: "Typed product demo",
       }],
+      resolutions: {
+        [id]: homeDemoResolution(id, section, focusKind),
+      },
       results: { [id]: homeDemoResult(section, focusKind) },
     },
     undefined,
@@ -217,6 +264,14 @@ async function openHomeDemo(
   const id = await installHomeDemo(page, section, focusKind);
   await page.goto("/demos");
   await page.locator(`[data-workspace-demo="${id}"]`).click();
+  if (section === "Methods") {
+    await expect(page).toHaveURL(`/demos?demo=${id}`);
+    await expect(page.locator("html"))
+      .toHaveAttribute("data-home-demo-prepare", id);
+    await expect(page.locator("html"))
+      .not.toHaveAttribute("data-home-demo-run");
+    return null;
+  }
   await expect(page.locator("html")).toHaveAttribute("data-home-demo-run", id);
   await page.waitForFunction(() =>
     new URL(location.href).searchParams.has("w"));
@@ -683,32 +738,31 @@ test("Package navigation retains the shared System.Text.Json packet and Workspac
   await expect(page.locator("[data-workspace-demo]")).toHaveCount(0);
 });
 
-test("package Methods demo retains all returned coordinates and publishes its exact type", async ({
+test("package Methods demo retains all resolved coordinates and restores its exact type", async ({
   page,
 }) => {
-  const share = await openHomeDemo(page, "Methods", "package");
+  await openHomeDemo(page, "Methods", "package");
   await expect(subjectTab(page, "type"))
     .toHaveAttribute("aria-selected", "true");
   await expect(page.locator(".inspected-target"))
     .toContainText("Example.Widget");
-  expect(share).toMatchObject({
-    tabs: [
-      { id: "t0", source: "Peer.Package" },
-      { id: "t1", source: "Example.Package" },
-    ],
-    contexts: expect.arrayContaining([{
-      id: "g2",
-      tabIds: ["t0", "t1"],
-    }]),
-    activeTabId: "t1",
-    selectedContextId: "g2",
-    view: {
-      type: surface.types[0]!.id,
-      memberAnchor: null,
-      section: null,
-      libraries: [core.id],
-    },
-  });
+  await page.goBack();
+  await expect(page).toHaveURL("/demos");
+  await page.goForward();
+  await expect(page).toHaveURL("/demos?demo=package-methods");
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await expect(page.locator("html"))
+    .not.toHaveAttribute("data-home-demo-run");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("package Methods");
+  await expect(page.getByRole("button", { name: /Inspect Peer\.Package/ }))
+    .toBeVisible();
+  await expect(page.getByRole("button", { name: /Inspect Example\.Package/ }))
+    .toBeVisible();
 });
 
 test("package Call Graph demo applies the returned member and graph", async ({
@@ -733,7 +787,7 @@ test("package Call Graph demo applies the returned member and graph", async ({
 test("Platform Methods demo retains its non-first engine surface while loading forwarders", async ({
   page,
 }) => {
-  const share = await openHomeDemo(page, "Methods", "platform");
+  await openHomeDemo(page, "Methods", "platform");
   const publishedUrl = page.url();
   await expect(page.locator("html"))
     .toHaveAttribute("data-forwarder-view", /.+/);
@@ -747,21 +801,10 @@ test("Platform Methods demo retains its non-first engine surface while loading f
   await expect(page.locator(
     `[data-type="${platformFocusType.id}"]`,
   )).toBeVisible();
-  expect(share).toMatchObject({
-    tabs: [{
-      kind: "group",
-      source: ":Platform",
-      version: platformVersion,
-      framework: "net11.0",
-    }],
-    view: {
-      type: platformFocusType.id,
-      memberAnchor: null,
-      section: null,
-      libraries: [JSON.stringify(["netcore.app", "System.Text.Json.dll"])],
-    },
-  });
-
+  expect(new URL(publishedUrl).search).toBe("?demo=platform-methods");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("platform Methods");
 });
 
 test("Platform Call Graph demo publishes the exact Library and member", async ({

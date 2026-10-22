@@ -178,6 +178,7 @@ type CatalogOperationName =
   | "explainVocabularies"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
+  | "prepareHomeDemoWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
@@ -2263,6 +2264,29 @@ export const engineWorkerOrdinaryOperations = {
         }
       },
     ),
+    prepareHomeDemoWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-home-demo-workspace-definition",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CatalogFacade["prepareHomeDemoWorkspaceDefinition"]
+        >
+      ) => facades.catalog.prepareHomeDemoWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation =
+          await facades.catalog.cancelRetainedWorkspaceActivation(
+            result.receipt,
+          );
+        if (cancellation.status === "failed") {
+          throw new Error(
+            cancellation.failure?.message
+              ?? "Rejected product home demo Workspace preparation could not be cleaned up.",
+          );
+        }
+      },
+    ),
     preparePackageQueryWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-package-query-workspace-definition",
       5,
@@ -2899,6 +2923,10 @@ export function bindEngineWorkerOrdinaryClient(
       prepareEcosystemWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .prepareEcosystemWorkspaceDefinition,
+      ),
+      prepareHomeDemoWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog
+          .prepareHomeDemoWorkspaceDefinition,
       ),
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
