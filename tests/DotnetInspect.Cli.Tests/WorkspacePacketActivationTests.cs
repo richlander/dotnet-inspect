@@ -176,17 +176,17 @@ public sealed partial class WorkspacePacketActivationTests
     }
 
     [Fact]
-    public async Task SavedTypeIsRefusedBeforeAnyAcquisition()
+    public async Task UnsupportedTypeFacetIsRefusedBeforeAnyAcquisition()
     {
         using var client = new HttpClient(new FailingHandler());
         var actual = await ConsoleCapture.RunAsync(() => WorkspacePacketActivation.ExecuteAsync(
-            new WorkspaceOptions { Packet = Encode(TypeJson), Format = OutputFormat.Json },
+            new WorkspaceOptions { Packet = Encode(TypeJson.Replace("type.api", "type.metadata", StringComparison.Ordinal)), Format = OutputFormat.Json },
             TestContext.Current.CancellationToken, LoadOptions(client, new InMemoryPackageStore())));
         Assert.Equal(1, actual.ExitCode);
         Assert.Empty(actual.Output);
-        Assert.Contains("type.api", actual.Error, StringComparison.Ordinal);
+        Assert.Contains("type.metadata", actual.Error, StringComparison.Ordinal);
         Assert.Contains("no CLI activation execution binding", actual.Error, StringComparison.Ordinal);
-        foreach (string[] entrance in new[] { new[] { "-w", Encode(TypeJson) }, new[] { Encode(TypeJson) } })
+        foreach (string[] entrance in new[] { new[] { "-w", Encode(TypeJson.Replace("type.api", "type.metadata", StringComparison.Ordinal)) }, new[] { Encode(TypeJson.Replace("type.api", "type.metadata", StringComparison.Ordinal)) } })
         {
             var routed = await RunAsync(entrance);
             Assert.Equal(actual.Error, routed.Error);
