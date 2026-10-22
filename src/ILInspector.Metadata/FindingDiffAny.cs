@@ -813,7 +813,8 @@ public static class FindingDiffAny
             or ArgumentException
             or IndexOutOfRangeException;
 
-    /// <summary>The Type units of one side, read row by row.</summary>    internal sealed class UnitTable
+    /// <summary>The Type units of one side, read row by row.</summary>
+    internal sealed class UnitTable
     {
         /// <summary>Committed units in row order, keyed by frozen Type keys.</summary>
         public List<(SymbolKey<FindingDiffAnyPart> Key, Unit Unit)> Entries { get; } = [];
