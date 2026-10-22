@@ -90,9 +90,16 @@ Each instruction becomes a `CanonicalIlOperation`:
 - `Offset`: the original IL offset, retained as evidence and display context.
 - `OpcodeFamily`: the opcode name after limited macro folding.
 - `Operand`: an optional typed operand identity.
-- `Targets`: the IL offsets the operation points at, which are not part of
-  its identity and are validated over the alignment: a branch's target, a
-  switch's arms, or an exception clause's extent boundaries.
+- `Targets`: the IL offsets the operation points at: a branch's target, a
+  switch's arms, or an exception clause's extent boundaries. Offsets are
+  evidence and display context.
+- `TargetIndexes`: the same targets as instruction indexes within the
+  operation's own body, `BodyEndTarget` for a clause boundary at the end of
+  the body, or `UndecidedTarget` for a target the cursor could not place,
+  which only a failed stream carries. Target indexes are not part of an
+  operation's matcher identity; the diff validates them over the alignment
+  through `TargetsMatch`, where the end of the body aligns only with the end
+  of the body.
 
 After the last instruction, each exception clause of the body becomes one
 more operation in declaration order, the order ECMA-335 fixes for nested
@@ -108,6 +115,53 @@ target validation for branches, switches, and clauses. Unmatched operations
 become `IlDiffRow` entries. Rows retain the original offset so display and
 diagnostics can point back to the body, but the offset is not the row's durable
 identity.
+
+## Census cursor
+
+`IlCensusCursor` is the one producer of canonical IL: the [Finding
+census](finding-census.md#the-cursor)'s cursor for the IL kind. It is created
+for one body under one named policy, from an already decoded
+`MethodInstructions`, from a method definition and its image, or from raw IL
+and its exception regions, and it yields one `CanonicalIlOperation` per
+`Advance`, each instruction and then each exception clause in declaration
+order, ending in exactly one `IlCensusTerminal`: `Complete`, `Absent` with its
+typed kind, or `Failed` with the stage and IL offset it could not read past.
+`Drain` lowers the atoms and terminal into the kind's
+`FindingInspection<CanonicalIlOperation>`, which is `IlFindings.Inspect`;
+`IlBodyDiff.TryCanonicalize` and `IlBodyDiff.Compare` drain the same cursor
+without the Finding projection.
+
+Over raw IL the cursor runs a boundary pre-scan that reads instruction lengths
+through the decoder's shallow reader and resolves nothing, then decodes one
+instruction and resolves one operand per advance, memoized per resolver by
+operand kind and token. An instruction the decoder rejects ends the pre-scan
+at its offset: the cursor yields every atom before that offset and ends
+`Failed` there, so a difference before the fault is visible in the atoms. A
+branch or switch target that starts no instruction of the body, starts one
+that follows a prefix, or lies at or past the body's end is carried as
+`UndecidedTarget`, and a stream that completes with one ends `Failed` by the
+decoder's own rule rather than `Complete`. Once every instruction is read, the
+clause stage, a second non-lazy step, builds the decoder's block graph over the
+retained instructions to validate the exception-clause table by the decoder's
+rules, so a clause-table failure reports the decode's reason and a clause atom
+never carries a boundary the alignment cannot place; a pre-scan fault reports
+the shallow reader's reason, which can differ in wording from the full
+decoder's for the same body. Over an already decoded body the pre-scan is that
+decode; an incomplete decode retains no prefix, so the cursor fails at position
+zero with the decode's reason. Failing to read a present body, one whose RVA is
+non-zero, is a `Reading` failure at position zero; only a definition row the
+image cannot read is an `Identity` failure.
+
+`IlBodyDiff.AtomsEqual` is the equality of two atoms' canonical bytes: the
+family, the operand identity under the policy, and each target as an
+instruction index. It is what a lockstep reader of two cursors decides, and
+it is the relation the canonical-encodings and dependency-versions pairs are
+gated on. The operation limit is the ordered matcher's and is applied by
+`IlFindings.Compare` after both drains: a census beyond
+`IlFindings.MaxCanonicalOperations` still drains `Complete`, and the comparison
+of such a pair is a `FindingComparison<T>.Failed` with its
+`ComparisonFailure` stated and both inspections retained, never a matcher
+exception and never an empty diff.
 
 ## Guarantees
 
