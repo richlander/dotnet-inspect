@@ -17,7 +17,7 @@ namespace ILInspector.ILDiff.Tests;
 /// </summary>
 public class IlBodyDiffExceptionRegionTests
 {
-    enum Shape
+    public enum Shape
     {
         CatchInvalidOperation,
         CatchException,
