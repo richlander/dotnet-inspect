@@ -488,6 +488,16 @@ public static class PackageCompileAssetSelector
         ];
         if (frameworks.Length == 0)
         {
+            if (runtimeIdentifier is not null
+                && SelectRuntimeOnlySurface(
+                    content,
+                    packageId,
+                    targetFramework,
+                    runtimeIdentifier)
+                    is { } runtimeOnly)
+            {
+                return runtimeOnly;
+            }
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.NoCompileAssets,
                 null,
@@ -782,6 +792,75 @@ public static class PackageCompileAssetSelector
                 selectedImplementationTargetFramework,
             UsesCompatibleImplementationSelection =
                 usesCompatibleImplementationSelection,
+        };
+    }
+
+    private static PackageCompileAssetSelection?
+        SelectRuntimeOnlySurface(
+            IPackageContent content,
+            string packageId,
+            string? targetFramework,
+            string runtimeIdentifier)
+    {
+        PackageAssetSelection selection =
+                PackageAssetSelector.EvaluateSingleRuntime(
+                content,
+                targetFramework,
+                    runtimeIdentifier).Selection;
+        if (selection is not PackageAssetSelection.Selected selected)
+            return null;
+
+        PackageCompileAsset[] assets =
+        [
+            .. selected.Universe.Assets.Select(asset =>
+                new PackageCompileAsset(
+                    AssetIdPrefix + asset.EntryPath,
+                    asset.EntryPath,
+                    asset.FileName,
+                    selected.Universe.TargetFramework,
+                    PackageCompileAssetKind.Library,
+                    asset.RuntimeIdentifier)),
+        ];
+        if (assets.Length == 0)
+            return null;
+
+        PackageLibraryIdentity[] identities =
+        [
+            .. assets.Select(
+                static asset => new PackageLibraryIdentity(
+                    asset.Path,
+                    asset.AssemblySimpleName)),
+        ];
+        var first = (FirstPackageLibrarySelection.Selected)
+            PackageLibraryOrder.SelectFirst(
+                identities,
+                [],
+                packageId);
+        PackageCompileAsset defaultAsset = assets.First(
+            asset => asset.Path.Equals(
+                    first.Library.AssetPath,
+                    StringComparison.Ordinal)
+                && asset.AssemblySimpleName.Equals(
+                    first.Library.AssemblySimpleName,
+                    StringComparison.Ordinal));
+        string framework = selected.Universe.TargetFramework;
+        return new PackageCompileAssetSelection(
+            PackageCompileAssetSelectionStatus.Selected,
+            framework,
+            [framework],
+            assets,
+            defaultAsset,
+            assets,
+            assets,
+            [],
+            [new PackageCompileAssetSlice(
+                framework,
+                assets,
+                HasExplicitEmptyReferenceGroup: false)])
+        {
+            ImplementationTargetFramework = framework,
+            UsesCompatibleImplementationSelection =
+                selection.UsesCompatibleTargetSelection,
         };
     }
 

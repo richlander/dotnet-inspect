@@ -320,6 +320,30 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void ExplicitRid_SelectsRuntimeOnlyPopulationAsSurface()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "runtimes/win-x64/lib/net11.0/Example.dll",
+                    "runtimes/linux-x64/lib/net11.0/Example.dll"),
+                "Example",
+                "net11.0",
+                "linux-x64");
+
+        PackageCompileAsset surface = Assert.Single(selection.Assets);
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net11.0/Example.dll",
+            surface.Path);
+        Assert.Equal("linux-x64", surface.RuntimeIdentifier);
+        Assert.Same(surface, selection.DefaultAsset);
+        Assert.Same(
+            surface,
+            Assert.Single(selection.ImplementationAssets));
+    }
+
+    [Fact]
     public void ReferenceSelection_UsesSharedImplementationFrameworkReduction()
     {
         IPackageContent content = InMemory(

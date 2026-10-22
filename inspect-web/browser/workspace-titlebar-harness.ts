@@ -260,6 +260,7 @@ function workspaceDetailHtml(): string {
         package: item.id,
         version: item.version,
         framework: item.activeFramework,
+        runtimeIdentifier: "",
       })),
     packages: coordinates,
       loading: false,

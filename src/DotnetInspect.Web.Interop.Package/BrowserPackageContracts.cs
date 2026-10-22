@@ -464,13 +464,15 @@ public sealed record BrowserPlatformLibrary(
 public sealed record BrowserWorkspacePackage(
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string RuntimeIdentifier);
 
 public sealed record BrowserWorkspacePackageOccurrence(
     string Action,
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string RuntimeIdentifier);
 
 public sealed record BrowserWorkspacePackageOccurrenceView(
     BrowserWorkspacePackageOccurrence[] Occurrences,

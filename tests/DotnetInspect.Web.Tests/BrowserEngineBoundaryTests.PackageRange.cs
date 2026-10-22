@@ -630,6 +630,78 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageRealization_RuntimeDefaultOpensSelectedRangedSurface()
+    {
+        string id = $"browser.runtime.range.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly),
+            ("content/padding.bin", new byte[2_000_000]));
+        var handler = new GalleryPackageHandler(id, "1.0.0", archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal("linux-x64", realization.Coordinate.RuntimeIdentifier);
+        Assert.Equal(
+            PackageRuntimePopulationChoiceSource.ProductDefault,
+            Assert.IsType<PackageRuntimePopulationChoiceResult.Selected>(
+                    realization.Coordinate.RuntimePopulationChoice)
+                .ChoiceSource);
+        RangedPackageContent ranged =
+            Assert.IsType<RangedPackageContent>(
+                realization.Coordinate.Package.Content);
+        string implementationPath = Assert.Single(
+                realization.Coordinate.Root.RealizedSurfaceAssets)
+            .Path;
+        Assert.True(
+            ranged.IsMaterialized(implementationPath),
+            $"Expected {implementationPath} to be materialized.");
+
+        await using var lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                realization,
+                TestContext.Current.CancellationToken);
+        Assert.Single(lease.Scope.SurfaceParticipants);
+
+        int rangedResponses = handler.RangedPackageResponses;
+        BrowserPackageRealization retained = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Same(
+            realization.Coordinate.Package.Content.GenerationIdentity,
+            retained.Coordinate.Package.Content.GenerationIdentity);
+        Assert.Equal(rangedResponses, handler.RangedPackageResponses);
+
+        BrowserWorkspacePackageOccurrenceView occurrences =
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [realization.Coordinate]);
+        Assert.Equal(
+            "linux-x64",
+            Assert.Single(occurrences.Occurrences).RuntimeIdentifier);
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+    }
+
+    [Fact]
     public async Task PackageRealization_RangeRetainsSelectedFoldersAndReusesGeneration()
     {
         string id = $"browser.range.{Guid.NewGuid():N}";

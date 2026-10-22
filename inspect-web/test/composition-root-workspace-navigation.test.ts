@@ -1084,6 +1084,12 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
   const ensureOccurrence =
     appSource.match(/function ensureWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
+  const occurrenceRequest =
+    appSource.match(/function workspaceOccurrenceRequest\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    occurrenceRequest,
+    /package: item\.id,\s*version: item\.version,\s*framework: item\.activeFramework,\s*runtimeIdentifier: item\.runtimeIdentifier \?\? "",/);
   assert.match(
     ensureOccurrence,
     /const request = workspaceOccurrenceRequest\(\);\s*const signature = JSON\.stringify\(request\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;[\s\S]*queryWorkspaceOccurrenceView\(request, signature\)/);

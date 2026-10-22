@@ -1304,6 +1304,7 @@ export interface BrowserWorkspacePackage {
   readonly package: string;
   readonly version: string;
   readonly framework: string;
+  readonly runtimeIdentifier: string;
 }
 
 export interface BrowserWorkspacePackageOccurrence {
@@ -1311,6 +1312,7 @@ export interface BrowserWorkspacePackageOccurrence {
   readonly package: string;
   readonly version: string;
   readonly framework: string;
+  readonly runtimeIdentifier: string;
 }
 
 export interface BrowserWorkspacePackageOccurrenceActivation {
