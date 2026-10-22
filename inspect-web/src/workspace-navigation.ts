@@ -764,7 +764,7 @@ function decodeWorkspaceShareResult(
   const tabs: WorkspaceCoordinate[] = [];
   let platformTabCount = 0;
   for (const tab of state.tabs) {
-    if (tab.runtimeIdentifier) {
+    if (tab.kind !== "package" && tab.runtimeIdentifier) {
       return {
         error: "The shared workspace uses a runtime-specific context that this browser cannot activate.",
       };
@@ -777,7 +777,7 @@ function decodeWorkspaceShareResult(
         shareId: tab.id,
         shareKind: "package",
         shareSource: tab.source,
-        runtimeIdentifier: null,
+        runtimeIdentifier: tab.runtimeIdentifier,
       });
       continue;
     }

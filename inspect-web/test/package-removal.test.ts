@@ -110,10 +110,10 @@ test("removing a runtime-specific coordinate preserves its otherwise identical p
   const h = harness([linux, windows]);
 
   assert.equal(workspacePackageRemovalKey(alpha), packageIdentityKey(alpha));
-  assert.throws(
-    () => h.removal.removeLoaded(packageIdentityKey(windows)),
-    /no longer removable/);
-  h.removal.removeLoaded(workspacePackageRemovalKey(windows));
+  assert.equal(
+    workspacePackageRemovalKey(windows),
+    packageIdentityKey(windows));
+  h.removal.removeLoaded(packageIdentityKey(windows));
 
   assert.deepEqual(h.state.packages, [linux]);
   assert.equal(h.state.package, linux);

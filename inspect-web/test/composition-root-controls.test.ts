@@ -598,7 +598,7 @@ test("data bar has no expansion state or interaction binding", () => {
   assert.doesNotMatch(dataBarSource, /addEventListener|querySelector/);
 });
 
-test("typed package controls own framework and version selection bindings", () => {
+test("typed package controls own framework, runtime, and version selection bindings", () => {
   const packageControlsCreation =
     appSource.match(/const packageControls = createPackageControls\(\{[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -622,7 +622,7 @@ test("typed package controls own framework and version selection bindings", () =
     /function packageFrameworkField|function packageCoordinateFields/);
   assert.match(
     packageControlsBinding,
-    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
+    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onRuntimeIdentifierSelect: selectRuntimeIdentifier,\s*onVersionSelect: selectVersion,\s*\}\)/);
   assert.equal(
     workspaceBinding.match(/\bpackageControls\.bind\(document\)/g)?.length,
     1);
@@ -694,7 +694,7 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
   assert.match(
     appSource,
-    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\)\)/);
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\),\s*packageModel\.runtimeIdentifier \?\? null\)/);
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
@@ -1678,6 +1678,15 @@ test("typed scope bar owns its rendered control bindings", () => {
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
+});
+
+test("package Type and Member inspection retain exact runtime identity", () => {
+  assert.match(
+    appSource,
+    /inspectTypeMemberPopulation\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
+  assert.match(
+    appSource,
+    /\(performance\s*\? inspectPerformanceTypeMemberPopulation\s*: inspectTypeOverviewDocument\)\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
 });
 
 test("typed settings panel owns its rendered control bindings", () => {

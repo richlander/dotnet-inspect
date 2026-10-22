@@ -200,6 +200,7 @@ export function renderWorkspaceView(
         id: candidate.package,
         version: candidate.version,
         activeFramework: candidate.framework,
+        runtimeIdentifier: candidate.runtimeIdentifier,
       }) === key)
       : undefined;
     const label = `${item.id} ${item.version} ${item.activeFramework}`;

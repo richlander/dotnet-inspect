@@ -1212,6 +1212,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     activated: false,
     superseded: false,
     package: null,
+    runtimeIdentifier: "",
     future: { message: "preserved" },
   };
   let cleared = 0;
@@ -1606,6 +1607,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
       },
       diagnostics: [],
     },
+    runtimePopulation: null,
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -1642,6 +1644,7 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     },
     packageInfo: null,
     packageChildren: null,
+    runtimePopulation: null,
     documents: [],
     surface: null,
     defaultLibraryId: null,
@@ -1659,11 +1662,13 @@ test("ordinary package transport preserves settled and NotSettled baselines", as
     "System.Text.Json",
     "latest",
     "net10.0",
+    "",
   );
   const notSettledResult = state.client.package.queryPackage(
     "Missing.Package",
     "latest",
     "net10.0",
+    "",
   );
   await state.environment.flushAsync();
 
