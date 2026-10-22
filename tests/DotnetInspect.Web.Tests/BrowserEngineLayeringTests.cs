@@ -84,6 +84,9 @@ public sealed class BrowserEngineLayeringTests
         Assert.Contains(
             "M:ILInspector.Metadata.AssemblyBindingSelection.NameNotOwned",
             banned);
+        Assert.Contains(
+            "M:ILInspector.Metadata.MetadataTypeDefinitionName.Create(System.String,System.Collections.Immutable.ImmutableArray{System.String})",
+            banned);
         Assert.Contains("T:System.Reflection.PortableExecutable.PEReader", banned);
         Assert.Contains("T:System.Reflection.Metadata.MetadataReader", banned);
         Assert.Contains("T:ILInspector.Decompiler.Pipeline.MetadataSource", banned);
