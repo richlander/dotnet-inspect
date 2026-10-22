@@ -101,14 +101,21 @@ public sealed class SymbolKeyPopulation<TDomain>
     /// <summary>The population's bytes in all.</summary>
     public int Length => _range.Length;
 
+    /// <summary>The generation of the builder's population this froze.</summary>
+    public int Generation => _generation;
+
     public SymbolKey<TDomain> Resolve(StagedSymbolKey<TDomain> staged)
     {
         if (staged.IsDefault)
             throw new ArgumentException("The default staged key resolves to nothing.", nameof(staged));
         if (staged.Generation != _generation)
             throw new ArgumentException("The staged key belongs to another population.", nameof(staged));
-        return new SymbolKey<TDomain>(_range.Slice(staged.Offset, staged.Length));
+        return Resolve(staged.Offset, staged.Length);
     }
+
+    /// <summary>The key staged at <paramref name="offset"/> before the freeze, for a consumer that recorded its slot.</summary>
+    public SymbolKey<TDomain> Resolve(int offset, int length)
+        => new(_range.Slice(offset, length));
 }
 
 /// <summary>
@@ -147,6 +154,9 @@ public sealed class SymbolKeyBuilder<TDomain>
 
     /// <summary>The bytes staged in the current population.</summary>
     public int Length => _length;
+
+    /// <summary>The current population's generation; a freeze or reset moves it.</summary>
+    public int Generation => _generation;
 
     /// <summary>Whether a key is open.</summary>
     public bool IsOpen => _open != NotOpen;
@@ -236,6 +246,20 @@ public sealed class SymbolKeyBuilder<TDomain>
         return this;
     }
 
+    /// <summary>Embeds a key given as its bytes, which a consumer read from a staged or frozen key it holds.</summary>
+    internal SymbolKeyBuilder<TDomain> KeyBytes(ReadOnlySpan<byte> key)
+    {
+        RequireOpen();
+        if (key.IsEmpty)
+            throw new ArgumentException("An empty key cannot be embedded.", nameof(key));
+        Ensure(1 + 10 + key.Length);
+        _scratch[_length++] = (byte)SymbolKeyTag.Key;
+        WriteVarint((uint)key.Length);
+        key.CopyTo(_scratch.AsSpan(_length));
+        _length += key.Length;
+        return this;
+    }
+
     /// <summary>Embeds a frozen key as a nested Key part.</summary>
     public SymbolKeyBuilder<TDomain> Key(SymbolKey<TDomain> key)
     {
@@ -315,7 +339,7 @@ public sealed class SymbolKeyBuilder<TDomain>
             _scratch = new byte[_initialCapacity];
     }
 
-    const int TrimThreshold = 1 << 20;
+    const int TrimThreshold = 256 * 1024;
 
     /// <summary>
     /// Transfers the staged population to one immutable backing and starts a new
@@ -385,7 +409,9 @@ public sealed class SymbolKeyBuilder<TDomain>
 /// compare the same bytes.
 /// </summary>
 public sealed class SymbolKeyComparer<TDomain>
-    : IEqualityComparer<SymbolKey<TDomain>>, IAlternateEqualityComparer<StagedSymbolKey<TDomain>, SymbolKey<TDomain>>
+    : IEqualityComparer<SymbolKey<TDomain>>,
+        IAlternateEqualityComparer<StagedSymbolKey<TDomain>, SymbolKey<TDomain>>,
+        IAlternateEqualityComparer<ReadOnlySpan<byte>, SymbolKey<TDomain>>
     where TDomain : unmanaged, Enum
 {
     public static SymbolKeyComparer<TDomain> Instance { get; } = new();
@@ -401,4 +427,17 @@ public sealed class SymbolKeyComparer<TDomain>
     /// <summary>A staged key is inserted only after its population is frozen; the alternate lookup reads.</summary>
     public SymbolKey<TDomain> Create(StagedSymbolKey<TDomain> alternate)
         => throw new NotSupportedException("A staged key is inserted after its population is frozen.");
+
+    /// <summary>A key's bytes, read by a consumer that holds a staged or frozen key, look up a frozen key.</summary>
+    public bool Equals(ReadOnlySpan<byte> alternate, SymbolKey<TDomain> other) => other.Range.SequenceEqual(alternate);
+
+    public int GetHashCode(ReadOnlySpan<byte> alternate)
+    {
+        var hash = new HashCode();
+        hash.AddBytes(alternate);
+        return hash.ToHashCode();
+    }
+
+    public SymbolKey<TDomain> Create(ReadOnlySpan<byte> alternate)
+        => throw new NotSupportedException("Bytes are looked up, not inserted.");
 }
