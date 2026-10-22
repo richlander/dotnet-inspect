@@ -1680,6 +1680,15 @@ test("typed scope bar owns its rendered control bindings", () => {
   }
 });
 
+test("package Type and Member inspection retain exact runtime identity", () => {
+  assert.match(
+    appSource,
+    /inspectTypeMemberPopulation\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
+  assert.match(
+    appSource,
+    /\(performance\s*\? inspectPerformanceTypeMemberPopulation\s*: inspectTypeOverviewDocument\)\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
+});
+
 test("typed settings panel owns its rendered control bindings", () => {
   assert.deepEqual(parsedAppSource.errors, []);
   const bindEvents = functionDeclaration("bindEvents");

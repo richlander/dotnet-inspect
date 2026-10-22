@@ -1383,7 +1383,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeMemberPopulation: valueOperation(
       "ordinary-metadata-query-type-member-population",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<
@@ -1393,7 +1393,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeOverviewDocument: valueOperation(
       "ordinary-metadata-query-type-overview-document",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryTypeOverviewDocument"]>
@@ -1401,7 +1401,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPerformanceTypeMemberPopulation: valueOperation(
       "ordinary-metadata-query-performance-type-member-population",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<

@@ -22778,7 +22778,8 @@ async function loadUnsupportedMemberDeclarations(): Promise<void> {
             type.assembly,
             type.definitionId ?? type.id,
             state.memberSpelling,
-            state.memberAccessibilityFilter));
+            state.memberAccessibilityFilter,
+            pkg.runtimeIdentifier ?? null));
       if (state.richMemberFallbackKey !== key) return;
       state.richMemberFallback = inspection;
       state.richMemberFallbackError =
@@ -22897,7 +22898,8 @@ function loadSelectedTypeMemberPopulation(
             type.assembly,
             type.definitionId ?? type.id,
             state.memberSpelling,
-            state.memberAccessibilityFilter);
+            state.memberAccessibilityFilter,
+            pkg.runtimeIdentifier ?? null);
       const inspection = await result;
       if (typeMemberPopulationLoad !== load
         || state.typeMemberPopulationKey !== key) {

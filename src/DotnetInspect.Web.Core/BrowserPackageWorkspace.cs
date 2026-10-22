@@ -2803,9 +2803,42 @@ internal static class BrowserPackageWorkspace
         string? version,
         string? targetFramework,
         CancellationToken cancellationToken = default)
-        => OpenUnboundScopeAsync(
-            new BrowserPackageRequest(packageId, version, targetFramework),
+        => OpenScopeAsync(
+            packageId,
+            version,
+            targetFramework,
+            runtimeIdentifier: null,
             cancellationToken);
+
+    internal static async Task<BrowserScopeLease<BrowserInspectionScope>>
+        OpenScopeAsync(
+            string packageId,
+            string? version,
+            string? targetFramework,
+            string? runtimeIdentifier,
+            CancellationToken cancellationToken = default)
+    {
+        if (runtimeIdentifier is null)
+        {
+            return await OpenUnboundScopeAsync(
+                    new BrowserPackageRequest(
+                        packageId,
+                        version,
+                        targetFramework),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        BrowserPackageCoordinate coordinate = await ResolveAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return await OpenScopeAsync([coordinate], cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Opens one workspace for a request that carries no acquisition-issued binding. The acquired
