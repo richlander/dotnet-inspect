@@ -54,7 +54,8 @@ public static partial class PackageExports
                         sourceLease.IssueOperationLease(
                             deadline.Token,
                             operationTimeout,
-                            operationTimeout);
+                            operationTimeout,
+                            PackageDependencyTraversalQuery.DefaultMaximumConcurrentSteps);
                     PackageDependencyTraversalOutcome traversal =
                         await PackageDependencyTraversalQuery.ExecuteAsync(
                             new PackageDependencyTraversalRequest(

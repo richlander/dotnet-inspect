@@ -4,23 +4,15 @@ using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
-using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspect.Web;
 
-internal sealed record BrowserReferencePackageSupplierCoordinate(
-    string Name,
-    string Version,
-    string? Culture,
-    string? PublicKeyToken,
-    string? PackageId,
-    string? PackageVersion);
-
 [SupportedOSPlatform("browser")]
 internal static class BrowserReferencePackageSuppliers
 {
-    internal static async Task<BrowserReferencePackageSupplierCoordinate[]>
+    internal static async Task<
+        PackageAssemblyReferenceSupplierCoordinate[]>
         ResolveAsync(
             BrowserInspectionScope scope,
             BrowserPackageCoordinate retained,
@@ -32,27 +24,31 @@ internal static class BrowserReferencePackageSuppliers
         PackageCompileAsset asset = retained.CompileAsset(assemblyId);
         BrowserWorkspaceParticipant participant =
             scope.SurfaceParticipant(retained, asset);
-        AssemblyContextEntry<ImmutableArray<AssemblyReferenceRow>> rows =
+        AssemblyContextEntry<
+            ImmutableArray<AssemblyContextReferenceBindingEvidence>>
+            references =
             scope.UseSurfaceParticipant(
                 participant,
-                AssemblyContextReferencesQuery.ExecuteParticipantRows);
-        if (rows is not AssemblyContextEntry<
-                ImmutableArray<AssemblyReferenceRow>>.Available available)
+                AssemblyContextReferencesQuery
+                    .ExecuteParticipantBindingEvidence);
+        if (references is not AssemblyContextEntry<
+                ImmutableArray<AssemblyContextReferenceBindingEvidence>>
+                    .Available available)
             return [];
 
-        AssemblyReferenceRow[] references =
+        AssemblyContextReferenceBindingEvidence[] orderedReferences =
         [
             .. available.Value
-                .OrderBy(reference => reference.Name,
+                .OrderBy(reference => reference.Reference.Name,
                     StringComparer.OrdinalIgnoreCase)
-                .ThenBy(reference => reference.Version,
+                .ThenBy(reference => reference.Reference.Version,
                     StringComparer.Ordinal)
-                .ThenBy(reference => reference.Culture,
+                .ThenBy(reference => reference.Reference.Culture,
                     StringComparer.OrdinalIgnoreCase)
-                .ThenBy(reference => reference.PublicKeyToken,
+                .ThenBy(reference => reference.Reference.PublicKeyToken,
                     StringComparer.OrdinalIgnoreCase),
         ];
-        if (references.Length == 0)
+        if (orderedReferences.Length == 0)
             return [];
 
         PackageDependencyEvidenceRoot root =
@@ -149,41 +145,13 @@ internal static class BrowserReferencePackageSuppliers
                 deadline.Token,
                 operation.RequestTimeout,
                 operation.OperationTimeout);
-        var suppliers =
-            new BrowserReferencePackageSupplierCoordinate[references.Length];
-        for (int index = 0; index < references.Length; index++)
-        {
-            deadline.Token.ThrowIfCancellationRequested();
-            AssemblyReferenceRow reference = references[index];
-            AssemblyReferenceIdentity identity = new(
-                reference.Name,
-                Version.TryParse(reference.Version, out Version? parsed)
-                    ? parsed
-                    : null,
-                reference.Culture,
-                reference.PublicKeyToken);
-            var request = new AssemblyBindingRequest(
-                AssemblyBindingTarget.Reference(identity),
-                AssemblyBindingOrigin.FromAssembly(participant.Assembly),
-                AssemblyResolutionScope.Any);
-            PackageAssemblyReferenceSupplierOutcome outcome =
-                await association.ResolveAsync(
-                    request,
-                    AssemblyBindingSelection.NameNotOwned(),
+        return
+        [
+            .. await association.ResolveAsync(
+                    orderedReferences,
                     house,
-                    supplierOperation).ConfigureAwait(false);
-            PackageSourceCoordinate? supplier = outcome
-                is PackageAssemblyReferenceSupplierOutcome.Selected selected
-                    ? selected.Selection.Evidence.Route.Candidate.Coordinate
-                    : null;
-            suppliers[index] = new(
-                reference.Name,
-                reference.Version,
-                reference.Culture,
-                reference.PublicKeyToken,
-                supplier?.PackageId,
-                supplier?.Version);
-        }
-        return suppliers;
+                    supplierOperation)
+                .ConfigureAwait(false),
+        ];
     }
 }

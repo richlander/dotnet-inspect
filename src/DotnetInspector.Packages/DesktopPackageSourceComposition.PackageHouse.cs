@@ -105,6 +105,15 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default) =>
         IssueHouseOperation(cancellationToken);
 
+    public PackageSourceOperationLease IssueSettlementOperation(
+        CancellationToken cancellationToken,
+        int maximumConcurrentSteps) =>
+        _sourceLease.IssueOperationLease(
+            cancellationToken,
+            _options.RequestTimeout,
+            _options.OperationTimeout,
+            maximumConcurrentSteps);
+
     /// <summary>
     /// Issues a source-owned operation capped by an enclosing House duration.
     /// </summary>
@@ -130,84 +139,6 @@ public sealed partial class DesktopPackageSourceComposition
             cancellationToken,
             requestTimeout,
             operationTimeout);
-    }
-
-    /// <summary>
-    /// Settles one exact coordinate through PackageHouse when the composition
-    /// owns the operation lifetime.
-    /// </summary>
-    public ValueTask<PackageAcquisitionCandidateResult>
-        ResolvePinnedCandidateAsync(
-            PackageSourceCoordinate coordinate,
-            NuGetSourceOptions? sourceOptions = null,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
-    {
-        ArgumentNullException.ThrowIfNull(coordinate);
-        return operationContext is null
-            ? new(
-                ResolvePinnedCandidateThroughHouseAsync(
-                    coordinate,
-                    sourceOptions,
-                    cancellationToken))
-            : ValueTask.FromResult(
-                ResolvePinnedCandidate(
-                    coordinate,
-                    sourceOptions,
-                    cancellationToken,
-                    operationContext));
-    }
-
-    private Task<PackageAcquisitionCandidateResult>
-        ResolvePinnedCandidateThroughHouseAsync(
-            PackageSourceCoordinate coordinate,
-            NuGetSourceOptions? sourceOptions,
-            CancellationToken cancellationToken)
-    {
-        PackageHouseRequest request = CreateHouseRequest(
-            new PackageHouseDemand.Exact(coordinate),
-            PackageHouseOperationProfile.Settle);
-        Task<PackageHouseSettlement> execution =
-            ExecuteHouseAsync(
-                request,
-                coordinate.PackageId,
-                sourceOptions,
-                payloadAcquisition: null,
-                cancellationToken,
-                requiredProducerKey: null);
-        return ProjectCandidateAsync(execution);
-    }
-
-    private static async Task<PackageAcquisitionCandidateResult>
-        ProjectCandidateAsync(
-            Task<PackageHouseSettlement> execution)
-    {
-        PackageHouseSettlement settlement =
-            await execution.ConfigureAwait(false);
-        IReadOnlyList<PackageAuthorityFailure> failures =
-            PackageHousePayloadResultAdapter.ProjectAuthorityFailures(
-                settlement.Result);
-        PackageAcquisitionCandidate? candidate =
-            settlement.Result.Decision?.Candidate;
-        return new PackageAcquisitionCandidateResult(
-            ProjectCandidateState(
-                settlement.Result,
-                candidate),
-            candidate,
-            failures);
-    }
-
-    private static PackageAcquisitionCandidateResultState
-        ProjectCandidateState(
-            PackageHouseResult result,
-            PackageAcquisitionCandidate? candidate)
-    {
-        if (candidate is not null)
-            return PackageAcquisitionCandidateResultState.Resolved;
-        return result is PackageHouseResult.Incomplete
-            || PackageHousePayloadResultAdapter.HasOperationTimeout(result)
-                ? PackageAcquisitionCandidateResultState.Incomplete
-                : PackageAcquisitionCandidateResultState.Denied;
     }
 
     private Task<ConfiguredPackagePayloadResult>

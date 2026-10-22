@@ -69,10 +69,15 @@ applies that pruning query, and returns the ordered outcomes through
 and Inspect Web package pruning both consume that operation while retaining
 their own input scope, source and inventory authorization, completion policy,
 and presentation.
-`DesktopPackageSourceComposition` still owns desktop configuration,
-credentials, transports, clients, stores, and disposal, but its
-composition-owned exact and selecting payload operations, asynchronous pinned
-candidate path, and candidate-manifest path now settle through PackageHouse.
+`DesktopPackageSourceComposition` remains a transitional native-host bundle:
+it resolves source policy, supplies installed credential-provider integration,
+creates native HTTP or local source clients, owns their settlement root and
+lifetime, and issues Package Source operations. Package stores are
+caller-supplied. Its asynchronous pinned-candidate compatibility path and
+direct dependency-version convenience are retired. Callers issue one Package
+Source operation for pinned candidate and candidate-manifest work;
+composition-owned exact and selecting payload operations continue to settle
+through PackageHouse.
 The CLI's online `package Package@latest --versions` query and `@latest`
 package opening consume the shared `PackageVersionSettlementInspection`
 envelope, also used by Inspect Web exact/latest package opening. The shared inspection
@@ -274,14 +279,12 @@ the compatibility result, including not-found and reporting authorities,
 without publishing those details as a second House receipt or retaining live
 source authority.
 
-An overload supplied with a caller-owned `NuGetOperationContext` remains an
-explicit direct compatibility branch. The composition cannot transfer a
-borrowed context into PackageHouse's consumed operation lease. The synchronous
-`ResolvePinnedCandidate` compatibility method also remains direct. Its
-asynchronous replacement uses House when no borrowed context is supplied and
-preserves the direct branch for query operations that still share one external
-context. Those branches retire with their callers rather than disguising
-borrowed operation authority as House ownership.
+Composition-owned payload overloads supplied with a caller-owned
+`NuGetOperationContext` remain explicit direct compatibility branches because
+the composition cannot transfer a borrowed context into PackageHouse's
+consumed operation lease. Candidate resolution has no corresponding branch:
+callers supply explicit authorization and an issued operation, including when
+they subsequently acquire the candidate manifest.
 
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
@@ -1518,6 +1521,46 @@ its evidence and traversal algorithms usable. PackageHouse does not introduce
 a generic Houses assembly. Exact moves from `DotnetInspector.Services` remain
 tracked by [#6335](https://github.com/richlander/dotnet-inspect/issues/6335).
 
+## Host-specific package type vocabulary
+
+`Desktop` is not a positive package responsibility and is not a replacement
+prefix. Package types name the distinction they own:
+
+- configuration provenance uses the `Machine`, `User`, `Repo`, and `Project`
+  scopes, while source policy names their resolution and authorization
+  together with explicit inputs;
+- native capability names installed credential-provider integration, native
+  HTTP or local routes, and the lifetime of their source clients;
+- filesystem capability names temporary or durable file-backed stores; and
+- CLI-local adapters name the package operation they adapt. Their enclosing
+  namespace and owner already establish the host.
+
+`Ambient` may describe implicit configuration discovery in explanatory prose;
+it is not a product type, policy, or configuration-scope name. When provenance
+matters, the product identifies the contributing `Machine`, `User`, `Repo`, or
+`Project` scope. `NuGetSourceOptions` can additionally replace or add sources,
+select an explicit config file or directory, or carry Workspace sources and
+credentials. The existing `SourcePolicyPackageSourceAuthorization` owns that
+broader accumulated and explicit policy input.
+
+The complete production `Desktop*` census and disposition is:
+
+| Current symbol | Positive responsibility | Surviving architecture or rename disposition |
+| --- | --- | --- |
+| `DesktopPackageSourceComposition` | Transitional native-host bundle for source-policy resolution, installed credential providers, native HTTP/local clients, settlement-root lifetime, and operation issuance. | Do not give the compatibility composition a durable replacement name. Move policy to `SourcePolicyPackageSourceAuthorization`, supply host-created clients to the Package Source settlement root, and remove this identity under the retirement plan below. |
+| `DesktopPlatformPackageSourceRuntime` | CLI-local coordinator for Package Source authorization and operations, temporary package stores, and the package-backed Platform adapter. | Drop the host prefix as `PackagePlatformSourceRuntime` when renamed; the composition dependency remains transitional. |
+| `DesktopPackageStoreScope` | Lazily created authority-scoped stores under one temporary filesystem root. | Name the capability `TemporaryPackageStoreScope`. |
+| `DesktopPackageDependencyMemberCallGraphContinuationSource` | CLI call-graph continuation that combines installed and package-backed Platform sources. | Drop the host prefix as `PackageDependencyMemberCallGraphContinuationSource`. |
+| `DesktopHistoryCellExecutor` | Private `diff --history` PackageHouse version-cell executor. | Drop the redundant prefix as `HistoryCellExecutor`. |
+| `DesktopWorkspacePackageDependencyManifestProvider` | Private Workspace dependency-manifest provider over PackageHouse content acquisition. | Drop the redundant prefix as `WorkspacePackageDependencyManifestProvider`. |
+| `DesktopPortablePdbPackageContentSource` | Private Portable PDB package-content adapter over PackageHouse content acquisition. | Drop the redundant prefix as `PortablePdbPackageContentSource`. |
+
+Browser and native transports may differ below the shared package-source
+contract, but neither host label becomes package identity, authority, producer
+identity, or policy. Tests may use host labels when the behavior under test is
+specifically a host transport capability; they do not establish product type
+vocabulary.
+
 ## Current implementation retirement
 
 Retirement is staged:
@@ -1548,8 +1591,17 @@ operation for every concurrent manifest acquisition under one shared
 inventory deadline; each lease still admits only one active source step.
 Dependency pruning now retains explicit authorization and transfers one
 Package Source operation through its sequential candidate-required declaration
-schedule. Candidate-free applicability remains source-free, and Workspace is
-the remaining production owner of the desktop dependency-candidate adapter.
+schedule. Candidate-free applicability remains source-free. Workspace
+dependency enrichment now retains explicit authorization and transfers one
+Package Source operation through its sequential candidate-resolution schedule
+while root Nuspec acquisition remains a PackageHouse semantic-content demand.
+Its adoption removed the final production owner of
+`DesktopPackageDependencyCandidateSource`, so that adapter is gone. The
+subsequent compatibility cleanup removed the candidate-source interface and
+authorized test adapter, direct candidate methods on the settlement root, and
+direct pinned/dependency-version conveniences on desktop composition. Tests
+now exercise the same explicit authorization and issued-operation contract as
+production callers.
 
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path

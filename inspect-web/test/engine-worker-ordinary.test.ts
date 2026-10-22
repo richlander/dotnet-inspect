@@ -151,13 +151,13 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   metadata: {
     cancelLibraryApiDiff: () =>
       unexpected("cancelLibraryApiDiff"),
-    cancelLibraryFastDiff: () =>
-      unexpected("cancelLibraryFastDiff"),
+    cancelLibraryFindingDiffAny: () =>
+      unexpected("cancelLibraryFindingDiffAny"),
     findTypes: () => unexpected("findTypes"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
-    queryLibraryFastDiff: () =>
-      unexpected("queryLibraryFastDiff"),
+    queryLibraryFindingDiffAny: () =>
+      unexpected("queryLibraryFindingDiffAny"),
     queryMemberDeclaration: () =>
       unexpected("queryMemberDeclaration"),
     queryMemberDocument: () =>
@@ -896,6 +896,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,
         libraryCount: 1,
@@ -1977,17 +1978,17 @@ test("concurrent ordinary calls use independent authority sessions", async () =>
 });
 
 test("background bindings are not Worker activity", async () => {
-  const fastDiff = deferred<void>();
+  const findingDiffAny = deferred<void>();
   const state = fixture({
     metadata: {
-      queryLibraryFastDiff: async () => {
-        await fastDiff.promise;
+      queryLibraryFindingDiffAny: async () => {
+        await findingDiffAny.promise;
         return contractViolation({ schemaVersion: 2, kind: "Canceled" });
       },
     },
   });
-  const background = state.client.metadata.queryLibraryFastDiff(
-    "fast-diff-1",
+  const background = state.client.metadata.queryLibraryFindingDiffAny(
+    "finding-diff-any-1",
     {
       schemaVersion: 2,
       packageId: "Fixture",
@@ -2005,7 +2006,7 @@ test("background bindings are not Worker activity", async () => {
   // Idle resolves even though the background operation is still active.
   await state.client.activity.whenIdle();
 
-  fastDiff.resolve();
+  findingDiffAny.resolve();
   await background;
   assert.deepEqual(state.diagnostics, []);
   state.host.dispose();
@@ -2520,10 +2521,10 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     ],
     metadata: [
       "cancelLibraryApiDiff",
-      "cancelLibraryFastDiff",
+      "cancelLibraryFindingDiffAny",
       "findTypes",
       "queryLibraryApiDiff",
-      "queryLibraryFastDiff",
+      "queryLibraryFindingDiffAny",
       "queryGraphMemberSurface",
       "queryMemberDeclaration",
       "queryMemberDocument",

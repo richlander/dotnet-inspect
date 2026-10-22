@@ -1495,7 +1495,8 @@ internal static class BrowserRetainedWorkspaceActivationService
                             package.NavigationId,
                             package.ContextIndex,
                             package.ConsumerPackageSubjectId,
-                            Summary(package.Surface))),
+                            Summary(package.Surface),
+                            DefaultLibrary(package))),
             ],
             [
                 .. posting.Platforms.Select(
@@ -1529,7 +1530,8 @@ internal static class BrowserRetainedWorkspaceActivationService
                         package.NavigationId,
                         package.ContextIndex,
                         package.ConsumerPackageSubjectId,
-                        Summary(package.Surface))),
+                        Summary(package.Surface),
+                        DefaultLibrary(package))),
             ],
             [
                 .. posting.Platforms.Select(
@@ -1599,6 +1601,12 @@ internal static class BrowserRetainedWorkspaceActivationService
             surface.TotalMembers,
             surface.Documents.Count,
             surface.InspectionErrors.Length > 0 || surface.InspectionError is not null);
+
+    static BrowserRetainedWorkspacePackageLibraryIdentity? DefaultLibrary(
+        BrowserRetainedWorkspacePackagePresentation package) =>
+        package.Inventory.Selection.DefaultAsset is { } asset
+            ? new(asset.Id, asset.Path, asset.AssemblyName)
+            : null;
 
     static string? CanonicalPacket(
         CompleteRestorationProjection projection) =>

@@ -479,7 +479,7 @@ linux-x64, cold, with fresh cache directories:
 A step whose exact-head measurement misses a goal stops for operator
 direction; it does not proceed on a promise of later tuning. If the artifact
 misses its size goal, the next lever is a compact identity encoding in the
-style of Fast Diff's `SymbolKey`
+style of Finding Diff Any's `SymbolKey`
 ([#9898](https://github.com/richlander/dotnet-inspect/pull/9898)), adopted
 through [#9907](https://github.com/richlander/dotnet-inspect/issues/9907),
 not a lossy sketch.

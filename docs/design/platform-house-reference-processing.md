@@ -678,7 +678,7 @@ collapsed into strings, optional parameters, or nullable tuples.
 | --- | --- | --- |
 | **Realize** | One library identity or complete population demand | One owning Library realization or one platform population of owning Library realizations, each with resource-free source and view correspondence |
 | **Resolve assembly reference** | One exact Metadata `AssemblyBindingRequest` and platform-route prerequisites | Metadata-owned binding decision plus the platform contribution used by the ladder |
-| **Resolve type definition** | One exact Metadata `TypeResolutionRequest`, starting candidate with its owner-issued view, and required view | One resource-free Platform projection of the exact Metadata terminal arm and forwarding evidence, plus reference/implementation correspondence when the required view differs from the starting view |
+| **Resolve type definition** | Reference starts carry one exact Metadata `TypeResolutionRequest`; implementation starts carry one exact structured Type, expected source MVID, and starting candidate with its owner-issued view; both carry the required view | One resource-free Platform projection of the exact Metadata terminal arm and forwarding evidence, plus reference/implementation correspondence when the required view differs from the starting view |
 
 `Realize` supports direct platform browsing and supplies source candidates for
 the other operations. The two reference-resolution operations are the only
@@ -695,14 +695,23 @@ required terminal view:
   Implementation or ReferenceAndImplementation request additionally requires
   explicit view correspondence and a second Metadata resolution;
 - an **Implementation** start may complete an Implementation request directly
-  from one Metadata outcome; it does not manufacture a reference outcome or
-  view correspondence; and
+  from one Metadata outcome; PlatformHouse snapshots the selected
+  implementation member, validates its expected published MVID, and constructs
+  the live Metadata request while the population is owned; it does not
+  manufacture a reference outcome or view correspondence; and
 - ReferenceAndImplementation is a terminal demand, not a candidate view.
 
 The House rejects an unsupported start/required-view pair before Metadata
 work. The completed value and receipt preserve whether the operation returned
 one reference outcome, one implementation outcome, or the existing paired
 reference-and-implementation outcomes.
+
+An implementation-start caller selects the exact owner-issued population
+member and supplies its structured Type and expected MVID. It does not borrow
+the Library image, mint a `ResolvedAssemblyReference`, create provenance or
+scope, or construct a `TypeResolutionRequest`. An MVID mismatch is a typed
+`StaleCandidate` House rejection so a host can preserve its stale-result
+experience without regaining Metadata execution authority.
 
 The live `TypeResolutionOutcome` remains inside execution while its Metadata
 catalog and copied Library images are available. Before those authorities are

@@ -122,6 +122,12 @@ public enum MethodDefinitionLayers
     /// <see cref="ModuleLookup"/>.
     /// </summary>
     MethodAnalysis = 65536,
+
+    /// <summary>
+    /// Per-method local-signature depth. It implies <see cref="Body"/> but
+    /// does not decode calls or imply <see cref="CallTargets"/>.
+    /// </summary>
+    LocalSignature = 131072,
 }
 
 /// <summary>
@@ -143,12 +149,18 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
         string? parameters = null)
         : base(identity, version, tier, dependencies, parameters)
     {
-        Layers = layers.HasFlag(MethodDefinitionLayers.Calls)
-            ? layers
-                | MethodDefinitionLayers.Declaration
-                | MethodDefinitionLayers.Body
-                | MethodDefinitionLayers.CallTargets
-            : layers | MethodDefinitionLayers.Declaration;
+        Layers =
+            layers.HasFlag(MethodDefinitionLayers.Calls)
+                ? layers
+                    | MethodDefinitionLayers.Declaration
+                    | MethodDefinitionLayers.Body
+                    | MethodDefinitionLayers.CallTargets
+                : layers.HasFlag(
+                    MethodDefinitionLayers.LocalSignature)
+                    ? layers
+                        | MethodDefinitionLayers.Declaration
+                        | MethodDefinitionLayers.Body
+                    : layers | MethodDefinitionLayers.Declaration;
     }
 
     /// <summary>The layers this producer may acquire; the declaration layer is always included.</summary>
@@ -820,10 +832,72 @@ public readonly ref struct MethodDefinitionView
     }
 
     /// <summary>
+    /// Resolves the exact physical MethodDef's authenticated declared owner
+    /// through receipted method-analysis support.
+    /// </summary>
+    internal ExactMethodDeclaredSource ResolveDeclaredSource(
+        MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMethodAnalysisLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "method-analysis support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastMethodAnalysisUnit,
+            Token,
+            ref producer.MethodAnalysisUses);
+        return _unit.ResolveDeclaredSource(method);
+    }
+
+    /// <summary>
+    /// Applies exact optimization suppression through receipted
+    /// method-analysis support.
+    /// </summary>
+    internal bool SuppressOptimizationOpportunities(
+        MethodIdentity method)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMethodAnalysisLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "method-analysis support.");
+        }
+
+        producer.CountUnit(
+            ref producer.LastMethodAnalysisUnit,
+            Token,
+            ref producer.MethodAnalysisUses);
+        return _unit.SuppressOptimizationOpportunities(method);
+    }
+
+    /// <summary>
     /// The unit's IL-ordered call sites with resolved member identity and typed
     /// target, decoded once per physical MethodDef.
     /// </summary>
     internal MethodCallSites GetCalls(MethodInstructions instructions)
+    {
+        MethodCallSites calls =
+            GetCallsRetainingPrefix(instructions);
+        if (calls.Failure is { } failure)
+        {
+            throw new BadImageFormatException(
+                failure.Message);
+        }
+        return calls;
+    }
+
+    /// <summary>
+    /// The unit's resolved call prefix and any recoverable stopping failure.
+    /// </summary>
+    internal MethodCallSites GetCallsRetainingPrefix(
+        MethodInstructions instructions)
     {
         ArgumentNullException.ThrowIfNull(instructions);
         MethodDefinitionExecution.ProducerState producer = Producer;
@@ -844,16 +918,28 @@ public readonly ref struct MethodDefinitionView
     internal MethodLocalSignature GetLocalSignature()
     {
         MethodDefinitionExecution.ProducerState producer = Producer;
-        if (!producer.HasCallsLayer)
+        if (!producer.HasLocalSignatureLayer
+            && !producer.HasCallsLayer)
         {
             throw new ProducerContractException(
-                $"Producer '{_owner}' did not declare Method call support.");
+                $"Producer '{_owner}' did not declare Method "
+                + "local-signature support.");
         }
 
-        producer.CountUnit(
-            ref producer.LastCallsUnit,
-            Token,
-            ref producer.CallsUses);
+        if (producer.HasLocalSignatureLayer)
+        {
+            producer.CountUnit(
+                ref producer.LastLocalSignatureUnit,
+                Token,
+                ref producer.LocalSignatureUses);
+        }
+        else
+        {
+            producer.CountUnit(
+                ref producer.LastCallsUnit,
+                Token,
+                ref producer.CallsUses);
+        }
         return _unit.GetLocalSignature(GetBody());
     }
 
@@ -1511,10 +1597,10 @@ internal struct MethodDefinitionUnit(
         {
             MethodCallMetadataLookup calls =
                 BeginMethodCallQuery(out MethodCallMetadataWork before);
-            ImmutableArray<MethodCallOperandSite> operands;
+            MethodCallOperandSites operandResult;
             try
             {
-                operands = calls.ReadCalls(
+                operandResult = calls.ReadCalls(
                     TypeDefinition,
                     MethodDefinition,
                     instructions);
@@ -1532,15 +1618,18 @@ internal struct MethodDefinitionUnit(
 
             var targetWork =
                 ImmutableArray.CreateBuilder<SameModuleCallTargetWork>(
-                    operands.Length);
+                    operandResult.Sites.Length);
             var sites =
                 ImmutableArray.CreateBuilder<MethodCallSite>(
-                    operands.Length);
-            if (!operands.IsEmpty)
+                    operandResult.Sites.Length);
+            MethodCallCollectionFailure? failure =
+                operandResult.Failure;
+            if (!operandResult.Sites.IsEmpty)
             {
                 SameModuleCallTargetLookup targets =
                     BeginCallTargetQuery(out _);
-                foreach (MethodCallOperandSite operand in operands)
+                foreach (MethodCallOperandSite operand
+                    in operandResult.Sites)
                 {
                     SameModuleCallTargetWork targetBefore =
                         targets.RecordedWork;
@@ -1552,6 +1641,15 @@ internal struct MethodDefinitionUnit(
                             MethodHandle,
                             operand.Kind,
                             operand.OperandToken);
+                    }
+                    catch (Exception ex)
+                        when (LibraryMethodAnalysisRunner
+                            .IsRecoverableMethodFailure(ex))
+                    {
+                        failure = new(
+                            operand.ILOffset,
+                            ex.Message);
+                        break;
                     }
                     finally
                     {
@@ -1565,6 +1663,7 @@ internal struct MethodDefinitionUnit(
                             operand.ILOffset,
                             operand.ReturnAddress,
                             operand.OperandToken,
+                            operand.DefinitionToken,
                             operand.Kind,
                             operand.Callee,
                             target));
@@ -1572,7 +1671,10 @@ internal struct MethodDefinitionUnit(
             }
 
             _callTargetWork = targetWork.MoveToImmutable();
-            _calls = new(sites.MoveToImmutable());
+            _calls = new(sites.MoveToImmutable())
+            {
+                Failure = failure,
+            };
         }
         else
         {
@@ -1828,6 +1930,65 @@ internal struct MethodDefinitionUnit(
         MethodIdentity method,
         MethodInstructions instructions)
     {
+        MethodAnalysisLookup lookup =
+            BeginMethodAnalysisSupportQuery(
+                out MethodAnalysisSupportWork before);
+        ILibraryMethodAnalysisResolver resolver =
+            lookup.CreateResolver(
+                TypeDefinition,
+                MethodDefinition,
+                method,
+                instructions);
+        return new(
+            _physicalSourceCoverage,
+            _requestSourceCoverage,
+            MethodHandle,
+            lookup,
+            before,
+            resolver);
+    }
+
+    public ExactMethodDeclaredSource ResolveDeclaredSource(
+        MethodIdentity method)
+    {
+        MethodAnalysisLookup lookup =
+            BeginMethodAnalysisSupportQuery(
+                out MethodAnalysisSupportWork before);
+        try
+        {
+            return lookup.ResolveDeclaredSource(
+                MethodHandle,
+                MethodDefinition,
+                method);
+        }
+        finally
+        {
+            EndMethodAnalysisSupportQuery(lookup, before);
+        }
+    }
+
+    public bool SuppressOptimizationOpportunities(
+        MethodIdentity method)
+    {
+        MethodAnalysisLookup lookup =
+            BeginMethodAnalysisSupportQuery(
+                out MethodAnalysisSupportWork before);
+        try
+        {
+            return lookup.SuppressOptimizationOpportunities(
+                MethodDefinition,
+                TypeHandle,
+                method);
+        }
+        finally
+        {
+            EndMethodAnalysisSupportQuery(lookup, before);
+        }
+    }
+
+    MethodAnalysisLookup BeginMethodAnalysisSupportQuery(
+        out MethodAnalysisSupportWork before)
+    {
         MethodAnalysisSupport support =
             _methodAnalysis ?? throw new InvalidOperationException(
                 "Method-analysis support was not declared by any planned "
@@ -1846,20 +2007,29 @@ internal struct MethodDefinitionUnit(
             }
         }
 
-        MethodAnalysisSupportWork before = lookup.RecordedWork;
-        ILibraryMethodAnalysisResolver resolver =
-            lookup.CreateResolver(
-                TypeDefinition,
-                MethodDefinition,
-                method,
-                instructions);
-        return new(
-            _physicalSourceCoverage,
-            _requestSourceCoverage,
-            MethodHandle,
-            lookup,
-            before,
-            resolver);
+        before = lookup.RecordedWork;
+        return lookup;
+    }
+
+    readonly void EndMethodAnalysisSupportQuery(
+        MethodAnalysisLookup lookup,
+        MethodAnalysisSupportWork before)
+    {
+        MethodAnalysisSupportWork work =
+            lookup.RecordedWork.Since(before);
+        _physicalSourceCoverage
+            .RecordMethodAnalysisQuery(
+                MethodHandle,
+                work);
+        if (!ReferenceEquals(
+                _requestSourceCoverage,
+                _physicalSourceCoverage))
+        {
+            _requestSourceCoverage
+                ?.RecordMethodAnalysisQuery(
+                    MethodHandle,
+                    work);
+        }
     }
 
     /// <summary>

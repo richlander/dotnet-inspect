@@ -35,7 +35,7 @@ public class E2EFixtureTests
             RedirectStandardOutput = true,
             RedirectStandardError = true
         });
-        
+
         Assert.NotNull(correlate);
         string output = correlate.StandardOutput.ReadToEnd();
         string error = correlate.StandardError.ReadToEnd();
@@ -3570,7 +3570,8 @@ public class E2EFixtureTests
                                 work,
                                 producer,
                                 MethodDefinitionSourceBreadth
-                                    .AllDefinitions));
+                                    .AllDefinitions)
+                            .AsAssemblyAnalysisSource());
 
         return session.SnapshotOperation(
             operation,

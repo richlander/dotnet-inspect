@@ -133,7 +133,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         var root = Assert.IsType<
             MetadataAccessorRootDeclarationEvidence.Event>(
                 posted.Evidence.Root);
-        Assert.Equal("E1", root.Name.ToString());
+        Assert.Equal("E1", root.Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.All(
             posted.Evidence.Accessors
                 .Where(accessor =>
@@ -202,7 +202,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         var propertyRoot = Assert.IsType<
             MetadataAccessorRootDeclarationEvidence.Property>(
                 propertyPosted.Evidence.Root);
-        Assert.Equal("Property", propertyRoot.Name.ToString());
+        Assert.Equal("Property", propertyRoot.Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Equal(
             reader.GetPropertyDefinition(property).Attributes,
             propertyRoot.Attributes);
@@ -215,7 +215,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         var eventRoot = Assert.IsType<
             MetadataAccessorRootDeclarationEvidence.Event>(
                 eventPosted.Evidence.Root);
-        Assert.Equal("CustomEvent", eventRoot.Name.ToString());
+        Assert.Equal("CustomEvent", eventRoot.Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Equal(
             reader.GetEventDefinition(@event).Attributes,
             eventRoot.Attributes);
@@ -252,14 +252,14 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         Assert.Equal(
             "get_Property",
             propertyAccessors[MetadataAccessorSemanticsRole.Getter]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Empty(
             propertyAccessors[MetadataAccessorSemanticsRole.Getter]
                 .Signature.ParameterTypes);
         Assert.Equal(
             "set_Property",
             propertyAccessors[MetadataAccessorSemanticsRole.Setter]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Single(
             propertyAccessors[MetadataAccessorSemanticsRole.Setter]
                 .Signature.ParameterTypes);
@@ -272,11 +272,11 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         Assert.Equal(
             "add_CustomEvent",
             eventAccessors[MetadataAccessorSemanticsRole.AddOn]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.Equal(
             "remove_CustomEvent",
             eventAccessors[MetadataAccessorSemanticsRole.RemoveOn]
-                .Name.ToString());
+                .Name.Contain(InertText.TextPolicy.Field).ToString());
         Assert.All(
             propertyAccessors.Values.Concat(eventAccessors.Values),
             accessor =>
@@ -323,7 +323,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             var root = Assert.IsType<
                 MetadataAccessorRootDeclarationEvidence.Property>(
                     posted.Evidence.Root);
-            Assert.Equal("Item", root.Name.ToString());
+            Assert.Equal("Item", root.Name.Contain(InertText.TextPolicy.Field).ToString());
             Assert.Equal(
                 "int",
                 Assert.IsType<MetadataTypeIdentity.Primitive>(
@@ -447,7 +447,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
             var root = Assert.IsType<
                 MetadataAccessorRootDeclarationEvidence.Property>(
                     posted.Evidence.Root);
-            Assert.Equal("Count", root.Name.ToString());
+            Assert.Equal("Count", root.Name.Contain(InertText.TextPolicy.Field).ToString());
             Assert.Empty(root.Signature.IndexParameterTypes);
             Assert.Equal(
                 "int",
@@ -462,7 +462,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                 posted.Evidence.Safety.Module.ModuleVersionId);
 
             assembly.Dispose();
-            Assert.Equal("Count", root.Name.ToString());
+            Assert.Equal("Count", root.Name.Contain(InertText.TextPolicy.Field).ToString());
             Assert.Equal(
                 "int",
                 Assert.IsType<MetadataTypeIdentity.Primitive>(
@@ -1306,7 +1306,7 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
                         result);
             Assert.Equal(
                 name.Length,
-                posted.Evidence.Root.Name.ToString().Length);
+                posted.Evidence.Root.Name.Contain(InertText.TextPolicy.Field).ToString().Length);
             return;
         }
 
@@ -1321,6 +1321,49 @@ public sealed class MetadataAccessorDeclarationEvidenceTests
         Assert.Equal(
             MetadataAccessorDeclarationMechanism.TextRetention,
             rejected.Failure.Mechanism);
+    }
+
+    [Theory]
+    [InlineData(MetadataAccessorDeclarationKind.Property)]
+    [InlineData(MetadataAccessorDeclarationKind.Event)]
+    public void Mdp007_IllFormedRootNameKeepsItsBytes(
+        MetadataAccessorDeclarationKind kind)
+    {
+        byte[] Image() =>
+            kind == MetadataAccessorDeclarationKind.Property
+                ? BuildPropertyRootShapeImage(
+                    RootShapeMismatch.None,
+                    rootName: "QQRoot")
+                : BuildEventRootShapeImage(rootName: "QQRoot");
+        using var control = new Fixture(Image());
+        byte[] image = Image();
+        int index = image.AsSpan().IndexOf("\0QQRoot\0"u8);
+        Assert.True(
+            index >= 0
+            && image.AsSpan(index + 1).IndexOf("\0QQRoot\0"u8) < 0);
+        image[index + 1] = 0xFF;
+        image[index + 2] = 0xFE;
+        using var illFormed = new Fixture(image);
+
+        var expected = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                Run(control, kind));
+        var posted = Assert.IsType<
+            MetadataAccessorDeclarationResult.Posted>(
+                Run(illFormed, kind));
+
+        Assert.Equal(6, posted.Evidence.Root.Name.Length);
+        Assert.NotEqual(
+            expected.Evidence.Root.Name,
+            posted.Evidence.Root.Name);
+        Assert.Equal(
+            @"\uDCFF\uDCFERoot",
+            MetadataDeclarationText.RenderDeclarationName(
+                posted.Evidence.Root));
+        // Each ill-formed byte is charged as its six-character escape.
+        Assert.Equal(
+            expected.Counters.RetainedText + 10,
+            posted.Counters.RetainedText);
     }
 
     [Fact]

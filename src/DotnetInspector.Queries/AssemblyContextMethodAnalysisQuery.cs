@@ -30,13 +30,14 @@ public sealed record AssemblyMethodAnalysis(
 /// </summary>
 public static class AssemblyContextMethodAnalysisQuery
 {
-    static readonly ExactMethodAnalysisProducer FocusedProducer =
-        ExactMethodAnalysisProducer.Instance;
+    static readonly ExactMethodAnalysisBundleProducer FocusedProducer =
+        ExactMethodAnalysisBundleProducer.Instance;
     static readonly WorkDescription FocusedWork =
-        CreateFocusedWork();
+        CreateFocusedWork(FocusedProducer);
 
     public static InspectionQuery<
-        AssemblyContextEntry<AssemblyMethodAnalysis>> Definition { get; } =
+        AssemblyContextEntry<AssemblyMethodAnalysis>> Definition
+    { get; } =
         new(
             "Assembly context method analysis",
             InspectionCost.Unbounded);
@@ -66,7 +67,6 @@ public static class AssemblyContextMethodAnalysisQuery
             participant,
             cancellationToken,
             (subject, snapshot) => Analyze(
-                group,
                 subject,
                 snapshot,
                 methodToken,
@@ -74,103 +74,74 @@ public static class AssemblyContextMethodAnalysisQuery
     }
 
     static AssemblyMethodAnalysis Analyze(
-        AssemblyContextGroup group,
         AssemblyContextSubject subject,
         AssemblyImageSnapshot snapshot,
         int methodToken,
         CancellationToken cancellationToken)
     {
-        LibraryCallGraphAnalysisResult? callGraph = null;
-        try
+        cancellationToken.ThrowIfCancellationRequested();
+        ExactMethodAnalysisBundleBody focused =
+            ExecuteFocused(
+                snapshot,
+                subject,
+                methodToken);
+        if (focused.Method.Method is not { } method)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            ExactMethodAnalysisBody focused =
-                ExecuteFocused(
-                    snapshot,
-                    subject,
-                    methodToken);
-            if (focused.Method is not { } method)
-            {
-                throw new InvalidOperationException(
-                    focused.Diagnostics.FirstOrDefault()?.Message
-                        ?? $"Method 0x{methodToken:X8} in "
-                        + $"'{subject.Identity.Name}' could not be decoded.");
-            }
-            if (!focused.HasManagedBody)
-            {
-                throw new InvalidOperationException(
-                    $"Method '{method.Name}' (0x{methodToken:X8}) in "
-                        + $"'{subject.Identity.Name}' does not have an IL body.");
-            }
-            if (focused.ExceptionRegionError is not null)
-            {
-                throw new InvalidOperationException(
-                    focused.ExceptionRegionError);
-            }
+            throw new InvalidOperationException(
+                focused.Method.Diagnostics.FirstOrDefault()?.Message
+                    ?? $"Method 0x{methodToken:X8} in "
+                    + $"'{subject.Identity.Name}' could not be decoded.");
+        }
+        if (!focused.Method.HasManagedBody)
+        {
+            throw new InvalidOperationException(
+                $"Method '{method.Name}' (0x{methodToken:X8}) in "
+                    + $"'{subject.Identity.Name}' does not have an IL body.");
+        }
+        if (focused.Method.ExceptionRegionError is not null)
+        {
+            throw new InvalidOperationException(
+                focused.Method.ExceptionRegionError);
+        }
 
-            var resolver = AssemblyContextAnalysisSource.Resolver(
-                group,
-                subject);
-            cancellationToken.ThrowIfCancellationRequested();
-            LibraryBodyAnalysisRequest request =
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .OptimizationOpportunities,
-                    new HashSet<int> { methodToken });
-            LibraryBodyAnalysisExecution execution =
-                LibraryBodyAnalysisService.ExecuteImage(
-                    AssemblyContextAnalysisSource.Name(subject),
-                    snapshot.Content,
-                    request,
-                    resolver);
-            callGraph = execution.CallGraph;
-            cancellationToken.ThrowIfCancellationRequested();
+        ImmutableArray<AllocationOccurrence> allocations =
+            focused.Optimization.Allocation.Allocations;
 
-            callGraph.MethodSignals.TryGetValue(
-                methodToken,
-                out MethodSignals? signals);
-            execution.Allocations.Occurrences.TryGetValue(
-                methodToken,
-                out ImmutableArray<AllocationOccurrence> allocations);
-            callGraph.DirectCallsByEvidenceMethod.TryGetValue(
-                methodToken,
-                out ImmutableArray<DirectCall> directCalls);
-
-            var result = new AssemblyMethodAnalysis(
-                methodToken,
+        var result = new AssemblyMethodAnalysis(
+            methodToken,
+            method,
+            focused.Signals,
+            EmptyIfDefault(allocations),
+            focused.DirectCalls,
+            focused.Method.UnsafeOccurrences,
+            focused.Method.SafetyEvidence,
+            focused.Method.ExceptionRegions,
+            LibraryOptimizationAnalysisResult.ProjectExactMethod(
                 method,
-                signals ?? MethodSignals.None,
-                EmptyIfDefault(allocations),
-                EmptyIfDefault(directCalls),
-                focused.UnsafeOccurrences,
-                focused.SafetyEvidence,
-                focused.ExceptionRegions,
-                [
-                    .. execution.Optimization.Opportunities.Where(
-                        opportunity =>
-                            (opportunity.EvidenceMethodToken
-                                ?? opportunity.Method.MetadataToken)
-                            == methodToken),
-                ],
-                [
-                    .. focused.Diagnostics
-                        .Concat(
-                            execution.Receipt.Diagnostics.Where(
-                                diagnostic =>
-                                    diagnostic.MethodToken == methodToken))
-                        .Distinct(),
-                ]);
-            resolver.ValidateForPublication();
-            cancellationToken.ThrowIfCancellationRequested();
-            return result;
-        }
-        finally
-        {
-            callGraph?.ReleaseCaches();
-        }
+                allocations,
+                focused.DirectCalls,
+                focused.Optimization.Opportunities,
+                focused.Optimization
+                    .SuppressesDerivedOpportunities,
+                focused.Optimization
+                    .RequiresDeclaredOwner,
+                focused.DeclaredOwner,
+                focused
+                    .DeclaredOwnerSuppressesOpportunities,
+                focused.Optimization.Allocation
+                    .InAssemblyTypeIsException,
+                focused.StringReceiverSources),
+            [
+                .. focused.Method.Diagnostics
+                    .Concat(
+                        focused.Optimization.Allocation.Diagnostics)
+                    .Distinct(),
+            ]);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result;
     }
 
-    static ExactMethodAnalysisBody ExecuteFocused(
+    static ExactMethodAnalysisBundleBody ExecuteFocused(
         AssemblyImageSnapshot snapshot,
         AssemblyContextSubject subject,
         int methodToken)
@@ -183,28 +154,31 @@ public static class AssemblyContextMethodAnalysisQuery
                 nameof(methodToken));
         }
 
+        MethodDefinitionSourceBreadth breadth =
+            MethodDefinitionSourceBreadth.ExactMethods(
+                (MethodDefinitionHandle)entity);
+        var limits = new MethodDefinitionTerminalWorkLimits(
+            maximumBodies: 1,
+            maximumEncodedIlBytes: int.MaxValue);
         MethodDefinitionSourceRequest<
-            ExactMethodAnalysisProducerResult> request =
+            ExactMethodAnalysisBundleProducerResult> request =
                 MethodDefinitionSourceRequest<
-                    ExactMethodAnalysisProducerResult>.Create(
+                    ExactMethodAnalysisBundleProducerResult>.Create(
                         FocusedWork,
                         FocusedProducer,
-                        MethodDefinitionSourceBreadth.ExactMethods(
-                            (MethodDefinitionHandle)entity),
-                        new(
-                            maximumBodies: 1,
-                            maximumEncodedIlBytes: int.MaxValue));
+                        breadth,
+                        limits);
         AssemblyAnalysisOperation<
-            ExactMethodAnalysisProducerResult> operation =
+            ExactMethodAnalysisBundleProducerResult> operation =
                 AssemblyAnalysisOperation<
-                    ExactMethodAnalysisProducerResult>.Create(
+                    ExactMethodAnalysisBundleProducerResult>.Create(
                         AssemblyContextAnalysisSource.Name(subject),
-                        request);
+                        request.AsAssemblyAnalysisSource());
 
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(snapshot);
         AssemblyAnalysisServiceResult<
-            ExactMethodAnalysisProducerResult> serviceResult =
+            ExactMethodAnalysisBundleProducerResult> serviceResult =
                 session.SnapshotOperation(
                     operation,
                     access =>
@@ -213,7 +187,7 @@ public static class AssemblyContextMethodAnalysisQuery
                             access));
         if (serviceResult
             is AssemblyAnalysisServiceResult<
-                ExactMethodAnalysisProducerResult>.Rejected rejected)
+                ExactMethodAnalysisBundleProducerResult>.Rejected rejected)
         {
             throw new InvalidOperationException(
                 "The exact-method Analysis operation was rejected: "
@@ -221,12 +195,14 @@ public static class AssemblyContextMethodAnalysisQuery
         }
 
         AssemblyAnalysisExecution<
-            ExactMethodAnalysisProducerResult> execution =
+            ExactMethodAnalysisBundleProducerResult> execution =
                 ((AssemblyAnalysisServiceResult<
-                    ExactMethodAnalysisProducerResult>.Completed)serviceResult)
+                    ExactMethodAnalysisBundleProducerResult>.Completed)
+                        serviceResult)
                 .Execution;
-        ProducerResult<ExactMethodAnalysisProducerResult> producerResult =
-            execution.ResultOf(FocusedProducer);
+        ProducerResult<ExactMethodAnalysisBundleProducerResult>
+            producerResult =
+                execution.ResultOf(FocusedProducer);
         if (!producerResult.HasValue)
         {
             throw new InvalidOperationException(
@@ -235,9 +211,10 @@ public static class AssemblyContextMethodAnalysisQuery
                     ?? "The exact-method Analysis producer failed.");
         }
 
-        ExactMethodAnalysisBody? body =
+        ExactMethodAnalysisBundleBody? body =
             producerResult.Value!.Bodies.FirstOrDefault(
-                candidate => candidate.MethodToken == methodToken);
+                candidate =>
+                    candidate.Method.MethodToken == methodToken);
         return body
             ?? throw new ArgumentException(
                 $"Token 0x{methodToken:X8} is not a MethodDef in "
@@ -245,11 +222,12 @@ public static class AssemblyContextMethodAnalysisQuery
                 nameof(methodToken));
     }
 
-    static WorkDescription CreateFocusedWork() =>
+    static WorkDescription CreateFocusedWork<TResult>(
+        ProducerDeclaration<TResult> producer) =>
         ProducerPlanner.Plan(
             [
                 new ProducerRequest(
-                    FocusedProducer,
+                    producer,
                     ProducerTerminal.Rows),
             ])
         is ProducerPlanResult.Accepted accepted

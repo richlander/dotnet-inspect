@@ -1353,10 +1353,11 @@ and Find does not modify the packet. General Workspace content search remains
 staged under [Find Workspace scope](design/find-workspace-scope.md#workspace-packet-admission).
 The same Ecosystem output, row limits, Count and prefix-search rules below apply.
 
-This searches Aspire's core packages first and, when they fill the window,
-does not realize ASP.NET Core or Runtime. TSV and JSONL search the named
-populations first, then progressively discover and search packages under each
-registered prefix in the same nearest-first Ecosystem order. Each settled
+TSV and JSONL search admitted Ecosystem indexes first. When indexed rows fill
+the window, they do not realize bounded platform/core sources or start live
+prefix work. After index exhaustion, they search named populations and then
+progressively discover and search packages under each registered prefix in the
+same nearest-first Ecosystem order. Each settled
 finding is written immediately. Prefix package work is bounded to ten
 candidates by default across the complete request; use `--take N` to select an
 explicit candidate bound up to 20. `-n` and `--rows` select findings and do not
@@ -1368,9 +1369,9 @@ Core packages admitted by another selected Ecosystem's demanded prefix retain
 both memberships without a second package evaluation. If a prefix source
 stops at its requested result limit before the selected candidate bound is reached,
 completion reports incomplete source coverage, not candidate-bound exhaustion.
-The host-neutral Ecosystem Find session owns the bounded-before-prefix barrier,
-shared core-package evaluation, the one-shot prefix continuation, the shared
-candidate bound, and completion.
+The host-neutral Ecosystem Find session owns the index-before-bounded-before-
+live barriers, shared core-package evaluation, the one-shot live-prefix
+continuation, the shared candidate bound, and completion.
 
 TSV and JSONL request prefix work and immediately resume that continuation;
 blocking output requests only bounded work. A finite row window stops before
@@ -1457,6 +1458,70 @@ selectors, and `--share`. Ordinary section, row and output options still apply.
 router entrance above.
 
 ### Workspace authoring and exhaustive inventory
+
+Apply a canonical packet for one invocation with either root entrance:
+
+```bash
+packet=$(dotnet-inspect workspace --register-ecosystem runtime)
+dotnet-inspect -w "$packet" --json
+dotnet-inspect "$packet" --count
+```
+
+Packet activation selects a single subject and its view. The CLI prints that
+view using its ordinary default presentation: a Hierarchy, Table, or Document.
+Supported output options can select another format.
+
+A Workspace landing defaults to an
+inventory Table with Kind, Location, and State columns, listing Packages and
+registrations across the packet's contexts. For the Runtime packet above,
+without an output option, the CLI prints:
+
+```markdown
+# Workspace
+
+| Kind | Location | State |
+| ---- | -------- | ----- |
+| Ecosystem | ecosystem.runtime | Registered |
+```
+
+This is the Workspace subject's view. A saved Package, Type, or Member view
+must print its own result when its execution binding is supported. Restoring
+the packet's contexts does not select additional subjects to print. Workspace
+inventory retains the formats, semantic row selection and Count of
+`workspace --packet "$packet" --inventory`.
+
+Activation does not persist a current Workspace for later commands. Ordinary
+`--workspace` supplies context to the new query selected by that command instead.
+
+Query-free saved Package Libraries (`package.libraries`) views also replay,
+using their ordinary hierarchy, output formats, row controls and Count:
+
+```bash
+environment=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dotnet-inspect package System.Text.Json --workspace "$environment" \
+  --share packet > package-content.txt 2> package-share.txt
+saved_package=$(tail -n 1 package-share.txt)
+dotnet-inspect "$saved_package"              # Same Package Libraries hierarchy
+dotnet-inspect -w "$saved_package" --count    # 1
+```
+
+The readable [saved packet](examples/workspace-package-replay.json) retains
+its exact version, target, source and selected facet. Replay restores once and
+uses the selected Root; it does not print the environment's inventory. Package
+row controls retain ordinary semantics: `--rows` selects children, while `-n`
+limits rendered lines and is refused for a JSON document.
+
+Other saved inspection facets and attached queries fail explicitly before
+acquisition; their individual CLI bindings remain tracked in #4647.
+Activation accepts one canonical Base64URL packet, rather than a website URL,
+file, JSON text or implicit stdin. Source replacements, new subject/query
+controls and a second target are errors. Use `-w "$packet" --help` to see its
+presentation controls without restoration. A malformed value supplied with
+`-w` is always diagnosed as packet input. Commandless input uses bounded
+codec-owned recognition; inputs that cannot be identified as packets retain
+ordinary target routing.
 
 The default result is a canonical packet containing the complete durable
 Workspace definition. Use `--share url` for an activation URL or `--json` for
@@ -2795,6 +2860,21 @@ when maintaining the embedded skill.
 ## License
 
 MIT
+
+## Explanation root
+
+Bare `explain` lists where to start, as TSV by default. It prints one row per
+subject kind, operation, and reference, with its purpose, questions, accepted
+subject kinds, and destinations. Continue with any entry's destination path.
+`--markdown` or `--json` gives the root's Document reading instead, including
+its coverage caveat.
+
+```bash
+dotnet-inspect explain
+dotnet-inspect explain operations --jsonl
+dotnet-inspect explain --markdown
+dotnet-inspect explain operations/package-query
+```
 
 ## Exact explanation JSON
 

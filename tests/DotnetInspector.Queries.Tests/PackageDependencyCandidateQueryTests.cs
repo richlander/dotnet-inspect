@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using InertText;
@@ -11,14 +10,28 @@ public sealed class PackageDependencyCandidateQueryTests
     [Fact]
     public async Task CandidateResolution_ExactDeclarationUsesPinnedAuthorization()
     {
-        var source = new StubCandidateSource();
+        var source = new PackageSource(
+            "pinned",
+            "https://pinned.example/v3/index.json");
+        var authorization = new ObservingPackageSourceAuthorization(
+            new UniformPackageSourceAuthorization([source]));
+        int clientCount = 0;
         PackageDependencyEvidenceDeclaration declaration =
             Declaration("[1.0.0]");
 
         PackageDependencyCandidateResult result =
-            await PackageDependencyCandidateQuery.ExecuteAsync(
+            await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Declared(declaration),
-                source,
+                authorization,
+                authority =>
+                {
+                    clientCount++;
+                    return CreateVersionSourceClient(
+                        authority,
+                        hasAuthoritativeListingState: true,
+                        PackageListingState.Listed,
+                        "1.0.0");
+                },
                 TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult.Resolved resolved =
@@ -28,25 +41,35 @@ public sealed class PackageDependencyCandidateQueryTests
         Assert.Equal(
             PackageAcquisitionCandidateKind.CallerPinned,
             resolved.Candidate.Kind);
-        Assert.Equal(1, source.PinnedCalls);
-        Assert.Equal(0, source.DiscoveryCalls);
+        Assert.Equal(1, authorization.Calls);
+        Assert.Equal(0, clientCount);
     }
 
     [Fact]
     public async Task CandidateResolution_BareVersionUsesCompleteDiscovery()
     {
-        var source = new StubCandidateSource(
-            discovery: Discovery(
-                PackageVersionDiscoveryState.Authoritative,
-                PackageVersionDiscoveryContract.DependencyRangeResolution,
-                "1.0.0",
-                "2.0.0"));
+        var source = new PackageSource(
+            "versions",
+            "https://versions.example/v3/index.json");
+        var authorization = new ObservingPackageSourceAuthorization(
+            new UniformPackageSourceAuthorization([source]));
+        int clientCount = 0;
 
         PackageDependencyCandidateResult result =
-            await PackageDependencyCandidateQuery.ExecuteAsync(
+            await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("1.0.0")),
-                source,
+                authorization,
+                authority =>
+                {
+                    clientCount++;
+                    return CreateVersionSourceClient(
+                        authority,
+                        hasAuthoritativeListingState: true,
+                        PackageListingState.Listed,
+                        "1.0.0",
+                        "2.0.0");
+                },
                 TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult.Resolved resolved =
@@ -55,27 +78,30 @@ public sealed class PackageDependencyCandidateQueryTests
         Assert.Equal(
             PackageAcquisitionCandidateKind.Discovered,
             resolved.Candidate.Kind);
-        Assert.Equal(0, source.PinnedCalls);
-        Assert.Equal(1, source.DiscoveryCalls);
+        Assert.Equal(1, authorization.Calls);
+        Assert.Equal(1, clientCount);
     }
 
     [Fact]
     public async Task CandidateResolution_BoundedRangeSelectsAuthorizedCandidate()
     {
-        var source = new StubCandidateSource(
-            discovery: Discovery(
-                PackageVersionDiscoveryState.Authoritative,
-                PackageVersionDiscoveryContract.DependencyRangeResolution,
-                "3.0.0",
-                "2.1.0",
-                "2.0.0",
-                "1.0.0"));
+        var source = new PackageSource(
+            "versions",
+            "https://versions.example/v3/index.json");
 
         PackageDependencyCandidateResult result =
-            await PackageDependencyCandidateQuery.ExecuteAsync(
+            await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("[2.0.0, 3.0.0)")),
-                source,
+                new UniformPackageSourceAuthorization([source]),
+                authority => CreateVersionSourceClient(
+                    authority,
+                    hasAuthoritativeListingState: true,
+                    PackageListingState.Listed,
+                    "3.0.0",
+                    "2.1.0",
+                    "2.0.0",
+                    "1.0.0"),
                 TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult.Resolved resolved =
@@ -89,23 +115,27 @@ public sealed class PackageDependencyCandidateQueryTests
             authority.Observation.Source.Association);
     }
 
-    [Theory]
-    [InlineData(PackageVersionDiscoveryState.Partial)]
-    [InlineData(PackageVersionDiscoveryState.Failed)]
-    public async Task CandidateResolution_IncompleteDiscoveryDoesNotSelect(
-        PackageVersionDiscoveryState state)
+    [Fact]
+    public async Task CandidateResolution_PartialDiscoveryDoesNotSelect()
     {
-        var source = new StubCandidateSource(
-            discovery: Discovery(
-                state,
-                PackageVersionDiscoveryContract.DependencyRangeResolution,
-                "2.0.0"));
+        PackageSource[] sources =
+        [
+            new("versions", "https://versions.example/v3/index.json"),
+            new("failed", "https://failed.example/v3/index.json"),
+        ];
 
         PackageDependencyCandidateResult result =
-            await PackageDependencyCandidateQuery.ExecuteAsync(
+            await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("[1.0.0, 3.0.0)")),
-                source,
+                new UniformPackageSourceAuthorization(sources),
+                authority => authority.Source.Name == "versions"
+                    ? CreateVersionSourceClient(
+                        authority,
+                        hasAuthoritativeListingState: true,
+                        PackageListingState.Listed,
+                        "2.0.0")
+                    : CreateFailedVersionSourceClient(authority),
                 TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult.Incomplete incomplete =
@@ -113,25 +143,53 @@ public sealed class PackageDependencyCandidateQueryTests
         var evidence = Assert.IsType<
             PackageDependencyCandidateIncomplete.VersionDiscovery>(
                 incomplete.Evidence);
-        Assert.Equal(state, evidence.State);
+        Assert.Equal(PackageVersionDiscoveryState.Partial, evidence.State);
         Assert.Equal(1, evidence.CandidateObservationCount);
+        Assert.Single(evidence.Failures);
+    }
+
+    [Fact]
+    public async Task CandidateResolution_FailedDiscoveryDoesNotSelect()
+    {
+        var source = new PackageSource(
+            "failed",
+            "https://failed.example/v3/index.json");
+
+        PackageDependencyCandidateResult result =
+            await ExecuteWithIssuedOperationAsync(
+                new PackageDependencyCandidateRequest.Declared(
+                    Declaration("[1.0.0, 3.0.0)")),
+                new UniformPackageSourceAuthorization([source]),
+                CreateFailedVersionSourceClient,
+                TestContext.Current.CancellationToken);
+
+        PackageDependencyCandidateResult.Incomplete incomplete =
+            Assert.IsType<PackageDependencyCandidateResult.Incomplete>(result);
+        var evidence = Assert.IsType<
+            PackageDependencyCandidateIncomplete.VersionDiscovery>(
+                incomplete.Evidence);
+        Assert.Equal(PackageVersionDiscoveryState.Failed, evidence.State);
+        Assert.Equal(0, evidence.CandidateObservationCount);
         Assert.Single(evidence.Failures);
     }
 
     [Fact]
     public async Task CandidateResolution_AuthoritativeNoMatchIsFailure()
     {
-        var source = new StubCandidateSource(
-            discovery: Discovery(
-                PackageVersionDiscoveryState.Authoritative,
-                PackageVersionDiscoveryContract.DependencyRangeResolution,
-                "1.0.0"));
+        var source = new PackageSource(
+            "versions",
+            "https://versions.example/v3/index.json");
 
         PackageDependencyCandidateResult result =
-            await PackageDependencyCandidateQuery.ExecuteAsync(
+            await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("[2.0.0, 3.0.0)")),
-                source,
+                new UniformPackageSourceAuthorization([source]),
+                authority => CreateVersionSourceClient(
+                    authority,
+                    hasAuthoritativeListingState: true,
+                    PackageListingState.Listed,
+                    "1.0.0"),
                 TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult.Failed failed =
@@ -143,7 +201,9 @@ public sealed class PackageDependencyCandidateQueryTests
     [Fact]
     public async Task CandidateResolution_RestoredCoordinateMustSatisfyDeclaration()
     {
-        var source = new StubCandidateSource();
+        var authorization = new ObservingPackageSourceAuthorization(
+            new UniformPackageSourceAuthorization(
+                [new("pinned", "https://pinned.example/v3/index.json")]));
         PackageDependencyEvidenceDeclaration declaration =
             Declaration("[1.0.0, 2.0.0)");
         var resolvedPackage = new RestoredProjectPackageNodeIdentity(
@@ -153,11 +213,13 @@ public sealed class PackageDependencyCandidateQueryTests
             PackageSourceCoordinate.Create(PackageId, "3.0.0"));
 
         PackageDependencyCandidateResult result =
-            await PackageDependencyCandidateQuery.ExecuteAsync(
+            await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Restored(
                     declaration,
                     resolvedPackage),
-                source,
+                authorization,
+                static _ => throw new InvalidOperationException(
+                    "A restored-coordinate mismatch must not create a source client."),
                 TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult.Failed failed =
@@ -165,31 +227,50 @@ public sealed class PackageDependencyCandidateQueryTests
         Assert.IsType<
             PackageDependencyCandidateFailure.ResolvedCoordinateMismatch>(
                 failed.Failure);
-        Assert.Equal(0, source.PinnedCalls);
-        Assert.Equal(0, source.DiscoveryCalls);
+        Assert.Equal(0, authorization.Calls);
     }
 
     [Fact]
     public async Task CandidateResolution_CandidateCorrespondenceExcludesDeclarationIdentity()
     {
-        var source = new StubCandidateSource();
+        var source = new PackageSource(
+            "pinned",
+            "https://pinned.example/v3/index.json");
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(
+                static _ => throw new InvalidOperationException(
+                    "Pinned authorization must not create a source client."));
+        var authorization =
+            new UniformPackageSourceAuthorization([source]);
         PackageDependencyEvidenceDeclaration first =
             Declaration("[1.0.0]", firstSourceOccurrence: 0);
         PackageDependencyEvidenceDeclaration second =
             Declaration("[1.0.0]", firstSourceOccurrence: 1);
 
-        var firstResult = Assert.IsType<
-            PackageDependencyCandidateResult.Resolved>(
-                await PackageDependencyCandidateQuery.ExecuteAsync(
-                    new PackageDependencyCandidateRequest.Declared(first),
-                    source,
-                    TestContext.Current.CancellationToken));
-        var secondResult = Assert.IsType<
-            PackageDependencyCandidateResult.Resolved>(
-                await PackageDependencyCandidateQuery.ExecuteAsync(
-                    new PackageDependencyCandidateRequest.Declared(second),
-                    source,
-                    TestContext.Current.CancellationToken));
+        PackageDependencyCandidateResult.Resolved firstResult;
+        using (PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken))
+        {
+            firstResult = Assert.IsType<
+                PackageDependencyCandidateResult.Resolved>(
+                    await PackageDependencyCandidateQuery.ExecuteAsync(
+                        new PackageDependencyCandidateRequest.Declared(first),
+                        authorization,
+                        operation));
+        }
+        PackageDependencyCandidateResult.Resolved secondResult;
+        using (PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken))
+        {
+            secondResult = Assert.IsType<
+                PackageDependencyCandidateResult.Resolved>(
+                    await PackageDependencyCandidateQuery.ExecuteAsync(
+                        new PackageDependencyCandidateRequest.Declared(second),
+                        authorization,
+                        operation));
+        }
 
         Assert.NotEqual(first.Identity, second.Identity);
         Assert.Equal(
@@ -204,31 +285,34 @@ public sealed class PackageDependencyCandidateQueryTests
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
         cancellation.Cancel();
-        var source = new StubCandidateSource(
-            discoveryException: new OperationCanceledException(
-                cancellation.Token));
-
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () =>
-                    await PackageDependencyCandidateQuery.ExecuteAsync(
+                    await ExecuteWithIssuedOperationAsync(
                         new PackageDependencyCandidateRequest.Declared(
                             Declaration("1.0.0")),
-                        source,
+                        new UniformPackageSourceAuthorization(
+                            [new("versions", "https://versions.example/v3/index.json")]),
+                        static authority => CreateVersionSourceClient(
+                            authority,
+                            hasAuthoritativeListingState: true,
+                            PackageListingState.Listed,
+                            "1.0.0"),
                         cancellation.Token));
 
         Assert.Equal(cancellation.Token, exception.CancellationToken);
     }
 
     [Fact]
-    public async Task CandidateResolution_ContextCancellationPrecedesRestoredMismatch()
+    public async Task CandidateResolution_OperationCancellationPrecedesRestoredMismatch()
     {
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
         cancellation.Cancel();
-        using var context = new NuGetOperationContext(cancellation.Token);
-        var source = new StubCandidateSource();
+        var authorization = new ObservingPackageSourceAuthorization(
+            new UniformPackageSourceAuthorization(
+                [new("pinned", "https://pinned.example/v3/index.json")]));
         PackageDependencyEvidenceDeclaration declaration =
             Declaration("[1.0.0, 2.0.0)");
         var resolvedPackage = new RestoredProjectPackageNodeIdentity(
@@ -240,44 +324,57 @@ public sealed class PackageDependencyCandidateQueryTests
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () =>
-#pragma warning disable xUnit1051 // The default invocation token is the contract under test.
-                    await PackageDependencyCandidateQuery.ExecuteAsync(
+                    await ExecuteWithIssuedOperationAsync(
                         new PackageDependencyCandidateRequest.Restored(
                             declaration,
                             resolvedPackage),
-                        source,
-                        operationContext: context)
-#pragma warning restore xUnit1051
+                        authorization,
+                        static _ => throw new InvalidOperationException(
+                            "A cancelled operation must not create a source client."),
+                        cancellation.Token)
                 );
 
         Assert.Equal(cancellation.Token, exception.CancellationToken);
-        Assert.Equal(0, source.PinnedCalls);
-        Assert.Equal(0, source.DiscoveryCalls);
+        Assert.Equal(0, authorization.Calls);
     }
 
     [Theory]
     [InlineData("[1.0.0]")]
     [InlineData("1.0.0")]
-    public async Task CandidateResolution_ContextCancellationReachesSourceOperation(
+    public async Task CandidateResolution_OperationCancellationReachesWork(
         string constraint)
     {
         using var cancellation =
             CancellationTokenSource.CreateLinkedTokenSource(
                 TestContext.Current.CancellationToken);
-        using var context = new NuGetOperationContext(cancellation.Token);
-        var source = new CancellationObservingCandidateSource(
-            cancellation.Token);
-#pragma warning disable xUnit1051 // The default invocation token is the contract under test.
-        Task<PackageDependencyCandidateResult> pending =
-            PackageDependencyCandidateQuery.ExecuteAsync(
+        var entered = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var source = new PackageSource(
+            "versions",
+            "https://versions.example/v3/index.json");
+        IPackageSourceAuthorization authorization =
+            constraint[0] == '['
+                ? new CancellationObservingAuthorization(
+                    cancellation.Token,
+                    entered)
+                : new UniformPackageSourceAuthorization([source]);
+        Func<ConfiguredPackageAuthority, IPackageSourceClient> createClient =
+            constraint[0] == '['
+                ? static _ => throw new InvalidOperationException(
+                    "Pinned authorization must not create a source client.")
+                : authority => CreateCancellationObservingVersionSourceClient(
+                    authority,
+                    cancellation.Token,
+                    entered);
+        Task<PackageDependencyCandidateResult> pending = Task.Run(
+            async () => await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration(constraint)),
-                source,
-                operationContext: context).AsTask();
-#pragma warning restore xUnit1051
-
-        await source.Entered.WaitAsync(
+                authorization,
+                createClient,
+                cancellation.Token),
             TestContext.Current.CancellationToken);
+        await entered.Task.WaitAsync(TestContext.Current.CancellationToken);
         cancellation.Cancel();
         OperationCanceledException exception =
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
@@ -299,21 +396,18 @@ public sealed class PackageDependencyCandidateQueryTests
             PackageSourceSettlementService.IssueLease(
                 _ => throw new InvalidOperationException(
                     "Pinned authorization must not create a source client."));
-        var source = new AuthorizedPackageDependencyCandidateSource(
-            authorization,
-            lease);
-        using var context = new NuGetOperationContext(
-            requestTimeout: TimeSpan.FromSeconds(1),
-            operationTimeout: TimeSpan.FromMilliseconds(30),
-            TestContext.Current.CancellationToken);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromMilliseconds(30));
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("[1.0.0]")),
-                source,
-                TestContext.Current.CancellationToken,
-                context);
+                authorization,
+                operation);
 
         var incomplete = Assert.IsType<
             PackageDependencyCandidateResult.Incomplete>(result);
@@ -342,22 +436,66 @@ public sealed class PackageDependencyCandidateQueryTests
                     PackageListingState.Listed,
                     "1.0.0",
                     "2.0.0"));
-        var source = new AuthorizedPackageDependencyCandidateSource(
-            new UniformPackageSourceAuthorization([configuredSource]),
-            lease);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("[1.0.0, 2.0.0]")),
-                source,
-                TestContext.Current.CancellationToken);
+                new UniformPackageSourceAuthorization([configuredSource]),
+                operation);
 
         var resolved = Assert.IsType<
             PackageDependencyCandidateResult.Resolved>(result);
         Assert.Equal("1.0.0", resolved.Candidate.Coordinate.Version);
         Assert.NotNull(
             Assert.Single(resolved.Candidate.Authorities).Observation);
+    }
+
+    [Fact]
+    public async Task CandidateResolution_SharedDependencyDiscoveryStillSelectsEachRange()
+    {
+        var authorization = new UniformPackageSourceAuthorization(
+            [new PackageSource("gallery", "https://api.nuget.org/v3/index.json")]);
+        ConfiguredPackageAuthority authority =
+            Assert.Single(authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        var observedContexts = new List<NuGetOperationContext?>();
+        using IPackageSourceClient client = CreateVersionSourceClient(
+            authority,
+            hasAuthoritativeListingState: true,
+            PackageListingState.Listed,
+            PackageDiscoveryContract.CompleteVersionEnumeration,
+            observedContexts.Add,
+            "1.0.0", "2.0.0", "3.0.0");
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(TestContext.Current.CancellationToken);
+
+        PackageDependencyCandidateResult first =
+            await PackageDependencyCandidateQuery.ExecuteAsync(
+                new PackageDependencyCandidateRequest.Declared(
+                    Declaration("[1.0.0, 2.0.0)")),
+                authorization,
+                operation);
+        PackageDependencyCandidateResult second =
+            await PackageDependencyCandidateQuery.ExecuteAsync(
+                new PackageDependencyCandidateRequest.Declared(
+                    Declaration("[2.0.0, 3.0.0)")),
+                authorization,
+                operation);
+
+        Assert.Equal(
+            "1.0.0",
+            Assert.IsType<PackageDependencyCandidateResult.Resolved>(first)
+                .Candidate.Coordinate.Version);
+        Assert.Equal(
+            "2.0.0",
+            Assert.IsType<PackageDependencyCandidateResult.Resolved>(second)
+                .Candidate.Coordinate.Version);
+        Assert.Single(observedContexts);
     }
 
     [Theory]
@@ -376,16 +514,16 @@ public sealed class PackageDependencyCandidateQueryTests
                     hasAuthoritativeListingState,
                     PackageListingState.Unknown,
                     "1.0.0"));
-        var source = new AuthorizedPackageDependencyCandidateSource(
-            new UniformPackageSourceAuthorization([configuredSource]),
-            lease);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("1.0.0")),
-                source,
-                TestContext.Current.CancellationToken);
+                new UniformPackageSourceAuthorization([configuredSource]),
+                operation);
 
         var incomplete = Assert.IsType<
             PackageDependencyCandidateResult.Incomplete>(result);
@@ -403,7 +541,7 @@ public sealed class PackageDependencyCandidateQueryTests
     }
 
     [Fact]
-    public async Task CandidateResolution_QueryOwnsOneSharedOperationContextWhenOmitted()
+    public async Task CandidateResolution_TransferredOperationSharesOneContextAcrossAuthorities()
     {
         PackageSource[] configuredSources =
         [
@@ -420,16 +558,16 @@ public sealed class PackageDependencyCandidateQueryTests
                     PackageDiscoveryContract.CompleteVersionEnumeration,
                     observedContexts.Add,
                     "1.0.0"));
-        var source = new AuthorizedPackageDependencyCandidateSource(
-            new UniformPackageSourceAuthorization(configuredSources),
-            lease);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken);
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("1.0.0")),
-                source,
-                TestContext.Current.CancellationToken);
+                new UniformPackageSourceAuthorization(configuredSources),
+                operation);
 
         Assert.IsType<PackageDependencyCandidateResult.Resolved>(result);
         Assert.Equal(2, observedContexts.Count);
@@ -459,21 +597,18 @@ public sealed class PackageDependencyCandidateQueryTests
                         : throw new InvalidOperationException(
                             "A terminal operation timeout must stop later authorities.");
                 });
-        var source = new AuthorizedPackageDependencyCandidateSource(
-            new UniformPackageSourceAuthorization(configuredSources),
-            lease);
-        using var context = new NuGetOperationContext(
-            requestTimeout: TimeSpan.FromSeconds(1),
-            operationTimeout: TimeSpan.FromMilliseconds(30),
-            TestContext.Current.CancellationToken);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken,
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromMilliseconds(30));
 
         PackageDependencyCandidateResult result =
             await PackageDependencyCandidateQuery.ExecuteAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("1.0.0")),
-                source,
-                TestContext.Current.CancellationToken,
-                context);
+                new UniformPackageSourceAuthorization(configuredSources),
+                operation);
 
         var incomplete = Assert.IsType<
             PackageDependencyCandidateResult.Incomplete>(result);
@@ -514,17 +649,17 @@ public sealed class PackageDependencyCandidateQueryTests
                     PackageDiscoveryContract.KeywordSearch,
                     null,
                     "1.0.0"));
-        var source = new AuthorizedPackageDependencyCandidateSource(
-            new UniformPackageSourceAuthorization([configuredSource]),
-            lease);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             async () =>
                 await PackageDependencyCandidateQuery.ExecuteAsync(
                     new PackageDependencyCandidateRequest.Declared(
                         Declaration("1.0.0")),
-                    source,
-                    TestContext.Current.CancellationToken));
+                    new UniformPackageSourceAuthorization([configuredSource]),
+                    operation));
     }
 
     [Fact]
@@ -535,23 +670,23 @@ public sealed class PackageDependencyCandidateQueryTests
             .. Enumerable.Range(1, 20_000)
                 .Select(index => $"1.0.{index}"),
         ];
-        var source = new StubCandidateSource(
-            discovery: Discovery(
-                PackageVersionDiscoveryState.Authoritative,
-                PackageVersionDiscoveryContract.DependencyRangeResolution,
-                versions));
-        using var context = new NuGetOperationContext(
-            requestTimeout: TimeSpan.FromSeconds(1),
-            operationTimeout: TimeSpan.FromTicks(1),
-            TestContext.Current.CancellationToken);
+        var configuredSource = new PackageSource(
+            "versions",
+            "https://versions.example/v3/index.json");
 
         PackageDependencyCandidateResult result =
-            await PackageDependencyCandidateQuery.ExecuteAsync(
+            await ExecuteWithIssuedOperationAsync(
                 new PackageDependencyCandidateRequest.Declared(
                     Declaration("[1.0.0, 2.0.0)")),
-                source,
+                new UniformPackageSourceAuthorization([configuredSource]),
+                authority => CreateVersionSourceClient(
+                    authority,
+                    hasAuthoritativeListingState: true,
+                    PackageListingState.Listed,
+                    versions),
                 TestContext.Current.CancellationToken,
-                context);
+                requestTimeout: TimeSpan.FromSeconds(1),
+                operationTimeout: TimeSpan.FromTicks(1));
 
         var incomplete = Assert.IsType<
             PackageDependencyCandidateResult.Incomplete>(result);
@@ -564,27 +699,6 @@ public sealed class PackageDependencyCandidateQueryTests
             failure =>
                 failure.Timeout?.Kind
                     == PackageSourceTimeoutKind.Operation);
-    }
-
-    [Fact]
-    public async Task CandidateResolution_RejectsInsufficientDiscoveryContract()
-    {
-        var source = new StubCandidateSource(
-            discovery: Discovery(
-                PackageVersionDiscoveryState.Authoritative,
-                PackageVersionDiscoveryContract.Create(
-                    includePrerelease: true,
-                    includeUnlisted: false,
-                    limit: 1),
-                "1.0.0"));
-
-        await Assert.ThrowsAsync<InvalidOperationException>(
-            async () =>
-                await PackageDependencyCandidateQuery.ExecuteAsync(
-                    new PackageDependencyCandidateRequest.Declared(
-                        Declaration("1.0.0")),
-                    source,
-                    TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -626,42 +740,26 @@ public sealed class PackageDependencyCandidateQueryTests
             PackageDependencyEvidenceAuthorship.LibraryDeclared);
     }
 
-    private static PackageVersionDiscoveryResult Discovery(
-        PackageVersionDiscoveryState state,
-        PackageVersionDiscoveryContract contract,
-        params string[] versions)
+    private static async ValueTask<PackageDependencyCandidateResult>
+        ExecuteWithIssuedOperationAsync(
+            PackageDependencyCandidateRequest request,
+            IPackageSourceAuthorization authorization,
+            Func<ConfiguredPackageAuthority, IPackageSourceClient> createClient,
+            CancellationToken cancellationToken,
+            TimeSpan? requestTimeout = null,
+            TimeSpan? operationTimeout = null)
     {
-        ConfiguredPackageAuthority authority = Authority("versions");
-        var candidates =
-            versions.Select(version =>
-                new ConfiguredPackageCandidateObservation(
-                    authority,
-                    Observation(authority, version)))
-                .ToArray();
-        PackageAuthorityFailure[] failures =
-            state == PackageVersionDiscoveryState.Authoritative
-                ? []
-                : [
-                    new PackageAuthorityFailure(
-                        InertString.Empty,
-                        PackageAuthorityFailureKind.Transport,
-                        "The configured authority did not answer."),
-                ];
-        return new PackageVersionDiscoveryResult(
-            PackageId,
-            state,
-            [
-                .. versions.Select(version =>
-                    new PackageVersionSourceInfo(
-                        version,
-                        "authority",
-                        Listed: true)),
-            ],
-            failures,
-            hasAnyCandidate: versions.Length > 0,
-            candidates,
-            contract,
-            new object());
+        await using PackageSourceSettlementLease lease =
+            PackageSourceSettlementService.IssueLease(createClient);
+        using PackageSourceOperationLease operation =
+            lease.IssueOperationLease(
+                cancellationToken,
+                requestTimeout,
+                operationTimeout);
+        return await PackageDependencyCandidateQuery.ExecuteAsync(
+            request,
+            authorization,
+            operation);
     }
 
     private static ConfiguredPackageAuthority Authority(string name) =>
@@ -740,97 +838,63 @@ public sealed class PackageDependencyCandidateQueryTests
                 delay,
                 versions));
 
-    private sealed class StubCandidateSource(
-        PackageVersionDiscoveryResult? discovery = null,
-        Exception? discoveryException = null) :
-        IPackageDependencyCandidateSource
+    private static IPackageSourceClient CreateFailedVersionSourceClient(
+        ConfiguredPackageAuthority authority) =>
+        PackageSourceClientFactory.CreateCustom(
+            PackageSourceDescriptor.NuGetGallery,
+            authority.Association,
+            factory => new VersionPackageSource(
+                factory,
+                hasAuthoritativeListingState: false,
+                PackageListingState.Unknown,
+                PackageDiscoveryContract.CompleteVersionEnumeration,
+                observeOperation: null,
+                versions: [],
+                failure: PackageSourceFailureKind.Transport));
+
+    private static IPackageSourceClient
+        CreateCancellationObservingVersionSourceClient(
+            ConfiguredPackageAuthority authority,
+            CancellationToken expectedToken,
+            TaskCompletionSource entered) =>
+        PackageSourceClientFactory.CreateCustom(
+            PackageSourceDescriptor.NuGetGallery,
+            authority.Association,
+            factory => new VersionPackageSource(
+                factory,
+                hasAuthoritativeListingState: false,
+                PackageListingState.Unknown,
+                PackageDiscoveryContract.CompleteVersionEnumeration,
+                observeOperation: null,
+                versions: [],
+                expectedToken: expectedToken,
+                entered: entered));
+
+    private sealed class ObservingPackageSourceAuthorization(
+        IPackageSourceAuthorization inner) : IPackageSourceAuthorization
     {
-        private readonly object _issuer = new();
-        private readonly ConfiguredPackageAuthority _authority =
-            Authority("pinned");
+        public int Calls { get; private set; }
 
-        public int PinnedCalls { get; private set; }
-        public int DiscoveryCalls { get; private set; }
-
-        public ValueTask<PackageAcquisitionCandidateResult>
-            ResolvePinnedCandidateAsync(
-                PackageSourceCoordinate coordinate,
-                CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null)
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId)
         {
-            PinnedCalls++;
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(
-                new PackageAcquisitionCandidateResult(
-                    PackageAcquisitionCandidateResultState.Resolved,
-                    PackageAcquisitionCandidate.CreatePinned(
-                        _issuer,
-                        coordinate,
-                        [_authority]),
-                    []));
-        }
-
-        public Task<PackageVersionDiscoveryResult>
-            DiscoverDependencyVersionsAsync(
-                string packageId,
-                CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null)
-        {
-            DiscoveryCalls++;
-            if (discoveryException is not null)
-                return Task.FromException<PackageVersionDiscoveryResult>(
-                    discoveryException);
-            return Task.FromResult(
-                discovery
-                ?? throw new InvalidOperationException(
-                    "No discovery result was configured."));
+            Calls++;
+            return inner.AuthorizeSourcesFor(packageId);
         }
     }
 
-    private sealed class CancellationObservingCandidateSource(
-        CancellationToken expectedToken) :
-        IPackageDependencyCandidateSource
+    private sealed class CancellationObservingAuthorization(
+        CancellationToken expectedToken,
+        TaskCompletionSource entered) : IPackageSourceAuthorization
     {
-        private readonly TaskCompletionSource _entered =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public Task Entered => _entered.Task;
-
-        public async ValueTask<PackageAcquisitionCandidateResult>
-            ResolvePinnedCandidateAsync(
-                PackageSourceCoordinate coordinate,
-                CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null)
+        public PackageSourceAuthorization AuthorizeSourcesFor(
+            string packageId)
         {
-            await WaitForCancellationAsync(cancellationToken);
+            entered.TrySetResult();
+            expectedToken.WaitHandle.WaitOne();
+            expectedToken.ThrowIfCancellationRequested();
             throw new InvalidOperationException(
-                "Cancellation did not stop pinned candidate resolution.");
-        }
-
-        public async Task<PackageVersionDiscoveryResult>
-            DiscoverDependencyVersionsAsync(
-                string packageId,
-                CancellationToken cancellationToken = default,
-                NuGetOperationContext? operationContext = null)
-        {
-            await WaitForCancellationAsync(cancellationToken);
-            throw new InvalidOperationException(
-                "Cancellation did not stop dependency version discovery.");
-        }
-
-        private async Task WaitForCancellationAsync(
-            CancellationToken cancellationToken)
-        {
-            _entered.TrySetResult();
-            if (cancellationToken != expectedToken)
-            {
-                throw new InvalidOperationException(
-                    "The source operation did not receive the context caller token.");
-            }
-
-            await Task.Delay(
-                Timeout.InfiniteTimeSpan,
-                cancellationToken);
+                "Cancellation did not stop pinned authorization.");
         }
     }
 
@@ -840,13 +904,16 @@ public sealed class PackageDependencyCandidateQueryTests
         PackageListingState listingState,
         PackageDiscoveryContract discoveryContract,
         Action<NuGetOperationContext?>? observeOperation,
-        IReadOnlyList<string> versions) : IPackageSourceClient
+        IReadOnlyList<string> versions,
+        PackageSourceFailureKind? failure = null,
+        CancellationToken? expectedToken = null,
+        TaskCompletionSource? entered = null) : IPackageSourceClient
     {
         public PackageSourceResultIdentity Source => factory.Source;
         public PackageSourceCapabilities Capabilities =>
             PackageSourceCapabilities.VersionEnumeration;
 
-        public Task<PackageSourceOperationResult<PackageVersionResult>>
+        public async Task<PackageSourceOperationResult<PackageVersionResult>>
             GetVersionsAsync(
                 string packageId,
                 CancellationToken cancellationToken = default,
@@ -854,6 +921,23 @@ public sealed class PackageDependencyCandidateQueryTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             observeOperation?.Invoke(operationContext);
+            if (expectedToken is { } expected)
+            {
+                entered!.TrySetResult();
+                if (cancellationToken != expected)
+                {
+                    throw new InvalidOperationException(
+                        "The source operation did not receive the operation token.");
+                }
+
+                await Task.Delay(
+                    Timeout.InfiniteTimeSpan,
+                    cancellationToken);
+                throw new InvalidOperationException(
+                    "Cancellation did not stop dependency version discovery.");
+            }
+            if (failure is { } sourceFailure)
+                return factory.FailedVersions(sourceFailure);
             PackageCandidateObservation[] candidates =
             [
                 .. versions.Select(version => factory.Candidate(
@@ -861,11 +945,10 @@ public sealed class PackageDependencyCandidateQueryTests
                     discoveryContract,
                     listingState)),
             ];
-            return Task.FromResult(
-                factory.SucceededVersions(
-                    factory.Versions(
-                        candidates,
-                        hasAuthoritativeListingState)));
+            return factory.SucceededVersions(
+                factory.Versions(
+                    candidates,
+                    hasAuthoritativeListingState));
         }
 
         public Task<PackageSourceOperationResult<PackageSearchResult>>

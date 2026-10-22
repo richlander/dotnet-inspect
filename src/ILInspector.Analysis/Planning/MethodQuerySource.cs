@@ -462,6 +462,9 @@ public abstract class MethodDefinitionSourceRequest
         }
     }
 
+    public static AssemblyAnalysisSourceIdentity SourceIdentity { get; } =
+        new("Method definitions");
+
     QuerySpaceRequest? StructuralRequestOrNull { get; }
 
     public QuerySpaceRequest StructuralRequest =>
@@ -574,9 +577,120 @@ public sealed class MethodDefinitionSourceRequest<TResult>
     /// <summary>The focused producer result this request publishes.</summary>
     public ProducerDeclaration<TResult> Producer { get; }
 
+    /// <summary>Creates the adapter consumed by assembly orchestration.</summary>
+    public AssemblyAnalysisSourceRequest<TResult>
+        AsAssemblyAnalysisSource() =>
+        new MethodDefinitionAssemblyAnalysisSource<TResult>(this);
+
     internal override object BoxResult(
         MethodDefinitionExecution execution) =>
         execution.ResultOf(Producer);
+}
+
+sealed class MethodDefinitionAssemblyAnalysisSource<TResult>
+    : AssemblyAnalysisSourceRequest<TResult>
+{
+    readonly MethodDefinitionSourceRequest<TResult> _request;
+
+    internal MethodDefinitionAssemblyAnalysisSource(
+        MethodDefinitionSourceRequest<TResult> request)
+        : base(MethodDefinitionSourceRequest.SourceIdentity)
+    {
+        _request = request;
+    }
+
+    internal MethodDefinitionSourceRequest<TResult> Request => _request;
+
+    internal override WorkDescription Work => _request.Work;
+
+    internal override ProducerDeclaration<TResult> Producer =>
+        _request.Producer;
+
+    internal override bool RequiresReferenceBinding =>
+        (_request.DeclaredLayers
+            & MethodDefinitionLayers.ReferenceBinding) != 0;
+
+    internal override AssemblyAnalysisSourceExecution<TResult> Execute(
+        AssemblyInspectionSubjectIdentity subject,
+        string sourceName,
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding)
+    {
+        MethodQuerySourceExecution<TResult> execution =
+            MethodQuerySource.Execute(
+                _request,
+                subject,
+                sourceName,
+                peReader,
+                referenceBinding);
+        return new(
+            execution.Receipt,
+            execution.WorkReceipt,
+            execution.Result);
+    }
+}
+
+/// <summary>Typed Method-source recovery at assembly-analysis sinks.</summary>
+public static class MethodDefinitionAssemblyAnalysisExtensions
+{
+    public static MethodDefinitionSourceRequest<TResult>
+        MethodDefinitionRequest<TResult>(
+            this AssemblyAnalysisOperation<TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (operation.Source
+            is not MethodDefinitionAssemblyAnalysisSource<TResult> source)
+        {
+            throw new ProducerContractException(
+                "The assembly analysis operation does not carry a "
+                + "Method-definition source request.");
+        }
+
+        return source.Request;
+    }
+
+    public static MethodDefinitionSourceReceipt
+        MethodDefinitionReceipt<TResult>(
+            this AssemblyAnalysisExecution<TResult> execution)
+    {
+        ArgumentNullException.ThrowIfNull(execution);
+        if (execution.Operation.Source
+                is not MethodDefinitionAssemblyAnalysisSource<TResult> source
+            || execution.SourceReceipt
+                is not MethodDefinitionSourceReceipt receipt
+            || !ReferenceEquals(
+                receipt.Source,
+                MethodDefinitionSourceRequest.SourceIdentity)
+            || !ReferenceEquals(
+                receipt.Request,
+                source.Request.Identity))
+        {
+            throw new ProducerContractException(
+                "The assembly analysis execution was not produced by the "
+                + "Method-definition source.");
+        }
+
+        return receipt;
+    }
+
+    public static MethodDefinitionSourceRequestSetExecution
+        MethodDefinitionExecution(
+            this AssemblyAnalysisSourceRequestSetExecution execution)
+    {
+        ArgumentNullException.ThrowIfNull(execution);
+        if (execution
+                is not MethodDefinitionSourceRequestSetExecution methodExecution
+            || !ReferenceEquals(
+                methodExecution.Source,
+                MethodDefinitionSourceRequest.SourceIdentity))
+        {
+            throw new ProducerContractException(
+                "The assembly analysis request-set execution was not "
+                + "produced by the Method-definition source.");
+        }
+
+        return methodExecution;
+    }
 }
 
 /// <summary>One caller association with one resolved Method-source request.</summary>
@@ -661,10 +775,12 @@ public sealed class MethodDefinitionSourceGroupPlan
 
 /// <summary>Immutable QuerySpace and source plans for one Method request set.</summary>
 public sealed class MethodDefinitionSourceRequestSetPlan
+    : AssemblyAnalysisSourceRequestSetPlan
 {
     internal MethodDefinitionSourceRequestSetPlan(
         QuerySpaceRequestSetPlan<MethodDefinitionSourceRequest> requests,
         ImmutableArray<MethodDefinitionSourceGroupPlan> groups)
+        : base(MethodDefinitionSourceRequest.SourceIdentity)
     {
         Requests = requests;
         Groups = groups;
@@ -678,12 +794,27 @@ public sealed class MethodDefinitionSourceRequestSetPlan
     /// <summary>The union of layers any planned request declares.</summary>
     public MethodDefinitionLayers DeclaredLayers { get; }
 
+    internal override bool RequiresReferenceBinding =>
+        (DeclaredLayers & MethodDefinitionLayers.ReferenceBinding) != 0;
+
     internal QuerySpaceRequestSetPlan<MethodDefinitionSourceRequest> Requests
     {
         get;
     }
 
     public ImmutableArray<MethodDefinitionSourceGroupPlan> Groups { get; }
+
+    internal override AssemblyAnalysisSourceRequestSetExecution Execute(
+        AssemblyInspectionSubjectIdentity subject,
+        string sourceName,
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding) =>
+        MethodQuerySource.Execute(
+            this,
+            subject,
+            sourceName,
+            peReader,
+            referenceBinding);
 }
 
 /// <summary>The accepted or rejected result of Method request-set planning.</summary>
@@ -1163,6 +1294,8 @@ public sealed record MethodDefinitionSourceReceipt(
     MethodDefinitionSourceFailure? SourceFailure,
     MethodDefinitionSourceCoverage Coverage,
     int ModuleLookups)
+    : AssemblyAnalysisSourceReceipt(
+        MethodDefinitionSourceRequest.SourceIdentity)
 {
     public int DefinitionsVisited => Coverage.MethodsSelected.Count;
 
@@ -1213,6 +1346,7 @@ public sealed record MethodDefinitionSourceGroupReceipt(
 
 /// <summary>Detached result set preserving request order and group work.</summary>
 public sealed class MethodDefinitionSourceRequestSetExecution
+    : AssemblyAnalysisSourceRequestSetExecution
 {
     readonly Dictionary<
         QuerySpaceRequestAssociationIdentity,
@@ -1222,6 +1356,7 @@ public sealed class MethodDefinitionSourceRequestSetExecution
         MethodDefinitionSourceRequestSetPlan plan,
         ImmutableArray<MethodDefinitionSourceRequestResult> results,
         ImmutableArray<MethodDefinitionSourceGroupReceipt> groupReceipts)
+        : base(MethodDefinitionSourceRequest.SourceIdentity)
     {
         Plan = plan;
         Results = results;

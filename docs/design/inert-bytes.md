@@ -19,9 +19,10 @@ this exact claim:
 > its producer constructs `InertUtf8String` from `TextPolicy` and the reader.
 > That containing type unconditionally invokes `Utf8VisualEncoder`; callers do
 > not choose whether containment happens. Its retained bytes are therefore
-> already visually contained. `InertString` is the fixed UTF-16 projection of
-> that contained UTF-8 for byte-originated text. Exceptional exact-byte
-> transfer is isolated as
+> already visually contained. Byte-originated text remains in that form
+> through a byte-capable sink. A UTF-16 consumer explicitly constructs
+> `InertString` from `InertUtf8String`; that fixed projection does not reapply
+> containment policy. Exceptional exact-byte transfer is isolated as
 > `InertText.Encoding.OpaqueByteRangeEncoder`, not an ordinary range operation.
 
 This owner defines:
@@ -192,7 +193,7 @@ Presentation, and output.
 
 ## Motivating evidence
 
-Fast Diff's private `SymbolKey`, introduced by
+Finding Diff Any's private `SymbolKey`, introduced by
 [#9898](https://github.com/richlander/dotnet-inspect/pull/9898), copies metadata
 names directly into a byte key and compares finished keys as bytes. That
 change fixed a collision between ill-formed names and improved NativeAOT
@@ -213,11 +214,10 @@ retained managed memory on:
 - `Microsoft.Extensions.Configuration@10.0.10`.
 
 That pilot established that compact byte ranges can beat eager UTF-16. It did
-not compare this design with Fast Diff's byte-native private Symbol Key, and
-it did not measure the cost of the `OpaqueByteRange` and `InertUtf8String`
-contracts. The Symbol Key pilot in the evidence plan must re-establish both
-time and memory findings; this design does not assume the new representation
-wins.
+not compare this design with Finding Diff Any's byte-native private Symbol Key,
+and it did not measure the cost of the `OpaqueByteRange` and `InertUtf8String`
+contracts. The Symbol Key pilot in the evidence plan must re-establish both time
+and memory findings; this design does not assume the new representation wins.
 
 ## Representation
 
@@ -383,20 +383,31 @@ strings must produce identical spelling, forms, and concerns from both
 encoders. Both encoders take escape length and form from one internal table and
 keep separate writers.
 
+`Utf8VisualEncoder.MeasureInertStringLength` returns the UTF-16 length of the
+spelling `Encode` would produce, without producing it. It shares `Encode`'s
+first pass, and the parity gate requires it to equal both the projected
+`InertString` length and the UTF-16 encoder's measure for every input. A
+producer that retains a name as bytes uses it to charge a budget counted in
+contained UTF-16 characters while leaving containment to the sink.
+
 Equality follows `InertString`: the contained bytes and truncation participate,
 while forms and concerns do not, because the encoder emits one canonical
 spelling from which both follow. No operation bounds a UTF-8 value yet, so its
 truncation flag stays false until a byte budget is introduced.
 
-`InertUtf8String` may write its already-contained bytes to a fixed UTF-8 sink
-and may produce `InertString` through fixed UTF-8-to-UTF-16 conversion. Neither
-operation re-applies policy. It exposes no general raw-byte span.
+`InertUtf8String` may write its already-contained bytes to a fixed UTF-8 sink.
+A string consumer constructs `InertString` directly from that value; the
+`ToInertString()` convenience method uses the same fixed UTF-8-to-UTF-16
+projection. Neither operation re-applies policy. `InertUtf8String` exposes no
+general raw-byte span.
 
-For byte-originated text, `InertString` derives from `InertUtf8String`, never
-directly from untreated `OpaqueByteRange`. Its physical representation need not
-retain the `InertUtf8String` value, but its spelling and evidence must be the
-same. Existing string-originated `InertString` construction continues to use
-`VisualEncoder`.
+For byte-originated text, `InertUtf8String` is the primary contained
+representation. `InertString` derives from it only when a UTF-16 consumer asks,
+never directly from untreated `OpaqueByteRange`. Its physical representation
+need not retain the `InertUtf8String` value, but its spelling and evidence must
+be the same. Existing string-originated `InertString` construction continues to
+use `VisualEncoder`. Removing `InertString` is not part of making byte-originated
+text byte-primary.
 
 ### Shapes and lifetimes
 
@@ -721,6 +732,7 @@ the repository threat model.
 | Containing type owns encoding | `new InertUtf8String(policy, reader)` always delegates to `Utf8VisualEncoder`; compiled public-surface and construction tests reject a range constructor, a policy-free reader constructor, or another field-assignment path | PR-fast |
 | Exact-byte encoder | Exact bytes reach destination-owned storage without lending the backing; domain eligibility and destination failures remain visible | PR-fast |
 | Containment parity | Printing is admitted only from constructed `InertUtf8String`; `SpellingParityTests` compares both encoders over every scalar and policy, every ill-formed byte against its surrogate escape, escape-like backslash text, and generated byte strings for identical spelling, concern, and form evidence | PR-fast |
+| UTF-16 projection | Public `InertString(InertUtf8String)` construction and `ToInertString()` produce equal spelling, form, concern, and truncation evidence without naming or reapplying a policy | PR-fast |
 | Shared backing | A generated population of names and nested domain parts retains one backing rather than one array or class per view | PR-fast |
 | Exact-Type selected identity | A fully qualified exact nested Type detaches only its matched namespace and root-to-leaf Name segments into one backing, preserves segment boundaries, keeps raw lookup identity unchanged, and carries the separately contained presentation without applying identity limits to its expanded spelling | First adoption PR |
 | Exact-Type base/head | NativeAOT exact-command time and allocation comparison preserves result semantics; retained-memory claims include the detached matched Name backing and do not count UTF-16 compatibility output as byte-native savings | First adoption PR |
@@ -728,8 +740,8 @@ the repository threat model.
 | Exact-Type direct byte output | Direct-library clean non-generic `Type Info` TSV preserves byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink; ineligible shapes reproduce the established fallback output | End-to-end Type adoption |
 | Exact-Type one-shot cost | Exact-base/head NativeAOT comparison includes command input construction, plan construction, inspection, Presentation, and output; kernel-only measurements remain separately labeled | End-to-end Type adoption |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
-| Fast Diff product path | Exact base/head NativeAOT comparison on all pinned Fast Diff pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
-| Fast Diff direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
+| Finding Diff Any product path | Exact base/head NativeAOT comparison on all pinned Finding Diff Any pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
+| Finding Diff Any direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
 
 Documentation-only design changes require Markdown validation, not product
 builds. Performance claims become implementation claims only when their named
@@ -755,19 +767,23 @@ exact-base/head gates run.
    `TypeSubject` into the first direct Presentation document and write it to a
    byte-capable CLI sink. Compare the complete one-shot command with the
    pre-adoption path.
-6. **Shared Symbol Key and Fast Diff adoption.** Move Fast Diff's private
-   Symbol Key onto the shared representation and remove the duplicate storage
-   owner only with exact base/head NativeAOT parity.
+6. **Shared Symbol Key and Finding Diff Any adoption.** Move Finding Diff
+   Any's private Symbol Key onto the shared representation and remove the
+   duplicate storage owner only with exact base/head NativeAOT parity.
 7. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).
-8. **Byte-native Fast Diff result.** Keep applicable result names as domain
-   views under Fast Diff's focused owner.
-9. **Direct Fast Diff Presentation output.** Let Presentation consume those
-   views and
-   write contained UTF-8 directly at byte-capable sinks.
+8. **Byte-native Finding Diff Any result.** Keep applicable result names as
+   domain views under Finding Diff Any's focused owner.
+9. **Direct Finding Diff Any Presentation output.** Let Presentation consume
+   those views and write contained UTF-8 directly at byte-capable sinks.
 10. **CLI and Browser/Wasm completion.** Adopt the shared identities and direct
    projections in the product paths tracked by their owning issues.
+11. **Host publication scenarios.** Track exact-build CLI byte publication in
+   [#10468](https://github.com/richlander/dotnet-inspect/issues/10468) and
+   published-runtime Browser/Wasm text publication in
+   [#10469](https://github.com/richlander/dotnet-inspect/issues/10469) before
+   broader representation migration.
 
 Each adoption is independently reviewable and keeps its domain semantics with
 its owner. This design does not authorize a multi-owner implementation PR.
@@ -778,8 +794,8 @@ its owner. This design does not authorize a multi-owner implementation PR.
 - No UTF-8 validation or visual-policy work when creating or matching an
   `OpaqueByteRange`.
 - No raw byte access for arbitrary analyzers.
-- No claim that the shared representation beats Fast Diff's private Symbol
-  Key before the revised pilot.
+- No claim that the shared representation beats Finding Diff Any's private
+  Symbol Key before the revised pilot.
 - No requirement that every existing string model migrate at once.
 - No domain identity, key grammar, diff policy, or anchor correspondence rule.
 - No stable hash, cryptographic identity, or tamper evidence.

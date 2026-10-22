@@ -30,6 +30,8 @@ internal sealed class StateMachineSourceResolver
         _primaryMetadataResolver;
     readonly Func<TypeDefinitionHandle, bool>
         _isSourceGeneratedTypeOrEnclosing;
+    readonly Func<TypeDefinitionHandle, bool>
+        _isCompilerGeneratedTypeOrEnclosing;
     readonly Func<EntityHandle, TypeRef> _typeFromEntity;
     IReadOnlyDictionary<
         int,
@@ -73,6 +75,8 @@ internal sealed class StateMachineSourceResolver
         LibraryBodyPrimaryMetadataResolver primaryMetadataResolver,
         Func<TypeDefinitionHandle, bool>
             isSourceGeneratedTypeOrEnclosing,
+        Func<TypeDefinitionHandle, bool>
+            isCompilerGeneratedTypeOrEnclosing,
         Func<EntityHandle, TypeRef> typeFromEntity,
         Action? relationshipIndexBuilt = null,
         Action? stateMachineExecutionMethodsBuilt = null,
@@ -83,6 +87,8 @@ internal sealed class StateMachineSourceResolver
         _primaryMetadataResolver = primaryMetadataResolver;
         _isSourceGeneratedTypeOrEnclosing =
             isSourceGeneratedTypeOrEnclosing;
+        _isCompilerGeneratedTypeOrEnclosing =
+            isCompilerGeneratedTypeOrEnclosing;
         _typeFromEntity = typeFromEntity;
         _relationshipIndexBuilt = relationshipIndexBuilt;
         _stateMachineExecutionMethodsBuilt =
@@ -401,9 +407,8 @@ internal sealed class StateMachineSourceResolver
             _primaryMetadataResolver
                 .HasCompilerGeneratedAttribute(
                     attributes)
-                || _primaryMetadataResolver
-                    .IsCompilerGeneratedTypeOrEnclosing(
-                        definition.GetDeclaringType()),
+                || _isCompilerGeneratedTypeOrEnclosing(
+                    definition.GetDeclaringType()),
             IsAuthenticatedTopLevelEntryPoint: false);
     }
 
@@ -444,12 +449,212 @@ internal sealed class StateMachineSourceResolver
             : AsyncSourceResolution.None;
     }
 
+    internal AsyncSourceResolution ResolveExactSourceOwnership(
+        MethodDefinitionHandle physicalHandle,
+        MethodIdentity physicalMethod,
+        MethodDefinition methodDefinition,
+        bool typeSourceGenerated,
+        MethodDefinitionGeneratedExpansionWork work,
+        out MethodIdentity? source,
+        out bool stateMachineExecutionBody,
+        out AuthenticatedSourceOwner? authenticatedSource)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        source = null;
+        stateMachineExecutionBody = false;
+        authenticatedSource = null;
+
+        MethodClassification? classification =
+            MethodClassificationScanner.ClassifyAsyncMethod(
+                _reader,
+                methodDefinition);
+        if (classification == MethodClassification.RuntimeAsync)
+        {
+            if (!HasAnalyzableIlBody(methodDefinition))
+            {
+                throw new BadImageFormatException(
+                    "The async source method does not have an analyzable "
+                        + "managed IL body.");
+            }
+            return AsyncSourceResolution.None;
+        }
+
+        StateMachineAttributeInfo sourceAttribute =
+            StateMachineExecutionAttribute(
+                methodDefinition.GetCustomAttributes(),
+                includeClaims: true);
+        if (sourceAttribute.Rejected)
+        {
+            throw new BadImageFormatException(
+                "The async state-machine attribute is malformed or "
+                    + "ambiguous.");
+        }
+        if (sourceAttribute.Present
+            && classification
+                == MethodClassification.StateMachineAsync)
+        {
+            if (!HasAnalyzableIlBody(methodDefinition))
+            {
+                throw new BadImageFormatException(
+                    "The async source method does not have an analyzable "
+                        + "managed IL body.");
+            }
+            if (typeSourceGenerated
+                || _primaryMetadataResolver.HasGeneratedCodeAttribute(
+                    methodDefinition.GetCustomAttributes())
+                || _primaryMetadataResolver
+                    .HasCompilerGeneratedAttribute(
+                        methodDefinition.GetCustomAttributes())
+                || IsBlazorRenderMethod(physicalMethod))
+            {
+                return AsyncSourceResolution.None;
+            }
+
+            if (!TryResolveTargetedStateMachineExecutionMethod(
+                    physicalHandle,
+                    methodDefinition,
+                    work,
+                    out _))
+            {
+                throw new BadImageFormatException(
+                    "The classic async source does not map to a unique "
+                        + "valid state-machine body.");
+            }
+            return AsyncSourceResolution.None;
+        }
+
+        stateMachineExecutionBody =
+            physicalMethod.DeclaringType.Resolution?.Type is not null
+            && IsAsyncStateMachineExecutionMethod(
+                physicalHandle,
+                methodDefinition,
+                work);
+        if (!stateMachineExecutionBody)
+        {
+            return AsyncSourceResolution.None;
+        }
+
+        TypeDefinitionHandle stateMachineType =
+            methodDefinition.GetDeclaringType();
+        work.RecordRelationshipNode(stateMachineType);
+        TypeDefinitionHandle sourceType =
+            _reader.GetTypeDefinition(stateMachineType)
+                .GetDeclaringType();
+        if (sourceType.IsNil)
+            return AsyncSourceResolution.Unresolved;
+
+        IReadOnlyDictionary<
+            MetadataTypeDefinitionName,
+            MethodDefinitionHandle> claims =
+                GetTargetedStateMachineClaims(
+                    sourceType,
+                    work);
+        MethodDefinitionHandle sourceHandle = default;
+        foreach ((
+            MetadataTypeDefinitionName claimedType,
+            MethodDefinitionHandle claimant) in claims)
+        {
+            if (claimant.IsNil
+                || !TryResolveTargetedStateMachineType(
+                    sourceType,
+                    claimedType,
+                    work,
+                    out TypeDefinitionHandle claimedStateMachine)
+                || claimedStateMachine != stateMachineType)
+            {
+                continue;
+            }
+            if (!sourceHandle.IsNil
+                && sourceHandle != claimant)
+            {
+                return AsyncSourceResolution.Unresolved;
+            }
+            sourceHandle = claimant;
+        }
+        if (sourceHandle.IsNil)
+            return AsyncSourceResolution.Unresolved;
+
+        MethodDefinition sourceMethod =
+            _reader.GetMethodDefinition(sourceHandle);
+        if (!TryResolveTargetedStateMachineExecutionMethod(
+                sourceHandle,
+                sourceMethod,
+                work,
+                out MethodDefinitionHandle executionMethod,
+                out TypeDefinitionHandle resolvedStateMachine)
+            || executionMethod != physicalHandle
+            || resolvedStateMachine != stateMachineType)
+        {
+            return AsyncSourceResolution.Unresolved;
+        }
+
+        StateMachineAttributeInfo resolvedAttribute =
+            StateMachineExecutionAttribute(
+                sourceMethod.GetCustomAttributes(),
+                includeClaims: true);
+        if (resolvedAttribute.Kind == StateMachineKind.Iterator)
+            return AsyncSourceResolution.None;
+
+        string sourceName =
+            _reader.GetString(sourceMethod.Name);
+        bool liftedSource =
+            CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                sourceName);
+        CustomAttributeHandleCollection attributes =
+            sourceMethod.GetCustomAttributes();
+        bool hasGeneratedCode =
+            _primaryMetadataResolver
+                .HasGeneratedCodeAttribute(attributes);
+        bool hasCompilerGenerated =
+            _primaryMetadataResolver
+                .HasCompilerGeneratedAttribute(attributes);
+        if (_isSourceGeneratedTypeOrEnclosing(sourceType)
+            || hasGeneratedCode
+            || !liftedSource && hasCompilerGenerated)
+        {
+            return AsyncSourceResolution.None;
+        }
+        bool compilerGenerated =
+            hasCompilerGenerated
+            || _isCompilerGeneratedTypeOrEnclosing(sourceType);
+
+        MethodIdentity resolvedSource =
+            _primaryMetadataResolver.CreateMethodIdentity(
+                sourceType,
+                sourceHandle,
+                sourceMethod,
+                _primaryMetadataResolver.CreateScope(
+                    _reader.GetTypeDefinition(sourceType),
+                    sourceMethod));
+        if (IsBlazorRenderMethod(resolvedSource))
+            return AsyncSourceResolution.None;
+
+        source = resolvedSource;
+        authenticatedSource =
+            new AuthenticatedSourceOwner(
+                resolvedSource,
+                hasGeneratedCode,
+                compilerGenerated,
+                IsAuthenticatedTopLevelEntryPoint: false);
+        return AsyncSourceResolution.Resolved;
+    }
+
     internal bool IsAsyncStateMachineExecutionMethod(
         MethodDefinitionHandle methodHandle,
         MethodDefinition methodDefinition) =>
+        IsAsyncStateMachineExecutionMethod(
+            methodHandle,
+            methodDefinition,
+            work: null);
+
+    bool IsAsyncStateMachineExecutionMethod(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition methodDefinition,
+        MethodDefinitionGeneratedExpansionWork? work) =>
         ImplementsAsyncStateMachine(
             _reader.GetTypeDefinition(
-                methodDefinition.GetDeclaringType()))
+                methodDefinition.GetDeclaringType()),
+            work)
         && IsMoveNextBody(methodHandle);
 
     internal bool IsAuthenticatedAsyncStateMachineExecutionMethod(

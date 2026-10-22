@@ -317,34 +317,31 @@ reused as an implementation completeness claim.
 
 ### The diff's API axis population
 
-A diff's API axis, as
-[Diff capabilities](diff-capabilities.md#axes) defines it, compares one
-widened population rather than the ordinary one: `--all` narrowed by an
-`accessibility` term to the `public` and `protected` buckets, less
+A diff's API axis, as [Diff capabilities](diff-capabilities.md#axes) defines it,
+compares one widened population rather than the ordinary one: `--all` narrowed
+by an `accessibility` term to the `public` and `protected` buckets, less
 `private protected` declarations, which no other assembly can reach. Hidden
-declarations stay admitted into their buckets. `EditorBrowsable` and
-`Obsolete` status do not decide what the diff compares; a separate
-[API status analysis](api-status-analysis.md) reports them and their
-transitions, as Diff capabilities states. A
-Type is admitted when its own row and every enclosing Type's row is in an API
-axis bucket, so neither a public nested Type of a non-public Type nor a public
-Member of an internal Type is admitted: no other assembly can reach either one.
-Each Type remains its own row; a nested Type does not inherit its enclosing
-Type's changes. Metadata issues this population as the API axis surface
-(`ApiSurfaceExtractionScope.ApiAxis`); Fast Diff's API census admits the same
-declarations. The API comparison reports an accessibility move between API
-axis buckets when both compared surfaces are API axis surfaces, as each
-surface records its extraction scope. Under `--all` (`IncludeAll`), every
-accessibility move between the two sides is a Change, including moves that
+declarations stay admitted into their buckets. `EditorBrowsable` and `Obsolete`
+status do not decide what the diff compares; a separate [API status
+analysis](api-status-analysis.md) reports them and their transitions, as Diff
+capabilities states. A Type is admitted when its own row and every enclosing
+Type's row is in an API axis bucket, so neither a public nested Type of a
+non-public Type nor a public Member of an internal Type is admitted: no other
+assembly can reach either one. Each Type remains its own row; a nested Type does
+not inherit its enclosing Type's changes. Metadata issues this population as the
+API axis surface (`ApiSurfaceExtractionScope.ApiAxis`); Finding Diff Any's API
+census admits the same declarations. The API comparison reports an accessibility
+move between API axis buckets when both compared surfaces are API axis surfaces,
+as each surface records its extraction scope. Under `--all` (`IncludeAll`),
+every accessibility move between the two sides is a Change, including moves that
 leave or enter the API axis; it is Breaking when external reach narrows,
 Additive when it widens, and NonBreaking when external reach is unchanged.
 External reach counts callers in other assemblies that are not friends, so
-`protected internal` and `protected` have the same reach: a move between them
-is NonBreaking on the API axis as well. Breaking and Additive describe the
-public contract, the API axis: under `--all`, any change wholly outside the
-API axis on both sides, judged by external reach through every enclosing
-Type, is NonBreaking. Comparisons of
-other scopes keep their existing output.
+`protected internal` and `protected` have the same reach: a move between them is
+NonBreaking on the API axis as well. Breaking and Additive describe the public
+contract, the API axis: under `--all`, any change wholly outside the API axis on
+both sides, judged by external reach through every enclosing Type, is
+NonBreaking. Comparisons of other scopes keep their existing output.
 
 The ordinary population, the `public` bucket without hidden declarations, is
 the presentation default for diff output: a host shows it unless the user
@@ -353,18 +350,17 @@ its API status findings rather than by narrowing the comparison.
 
 ## Adoption
 
-API commands retain their existing visibility behavior and should link this
-rule when they document `--all`. API Diff compares the diff's API axis
-population above and presents the ordinary population by default. The
-comparison and Fast Diff's census adopt that population first; until the CLI
-and Inspect Web Library API Diff compare the API axis surface and filter it
-for presentation
-([#10227](https://github.com/richlander/dotnet-inspect/issues/10227)), they
-compare the ordinary population directly. Library Metrics and other
-implementation analyses should state their implementation population directly
-and should not add `--all` solely to expose non-public or generated bodies.
-When an implementation report offers a follow-up API route, that route may
-apply its own visibility defaults and explain the separate `--all` gesture.
+API commands retain their existing visibility behavior and should link this rule
+when they document `--all`. API Diff compares the diff's API axis population
+above and presents the ordinary population by default. The comparison, Finding
+Diff Any's census, and the CLI and Inspect Web Library API Diff compare it, and
+those hosts filter it for presentation as [Library API diff
+presentation](library-api-diff-presentation.md#ordinary-presentation) owns. The
+other diff routes still compare the Public scope directly. Library Metrics and
+other implementation analyses should state their implementation population
+directly and should not add `--all` solely to expose non-public or generated
+bodies. When an implementation report offers a follow-up API route, that route
+may apply its own visibility defaults and explain the separate `--all` gesture.
 
 Current member-visibility inconsistencies and the transition from
 single-Library to aggregate package/API subjects are tracked separately by

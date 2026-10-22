@@ -110,11 +110,11 @@ public sealed class ProductionFacadeContextTests
         [MetadataAssembly] =
         [
             "CancelLibraryApiDiff",
-            "CancelLibraryFastDiff",
+            "CancelLibraryFindingDiffAny",
             "FindTypes",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
-            "QueryLibraryFastDiff",
+            "QueryLibraryFindingDiffAny",
             "QueryMemberDeclaration",
             "QueryMemberDocument",
             "QueryMemberGroupDocument",

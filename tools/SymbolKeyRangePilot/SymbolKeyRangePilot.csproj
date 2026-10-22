@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    NativeAOT pilot comparing Fast Diff's current per-key byte arrays with
+    NativeAOT pilot comparing Finding Diff Any's current per-key byte arrays with
     population-backed opaque ranges and STJ-style UTF-8 query matching.
   -->
 

@@ -252,6 +252,9 @@ test("retained Workspace Spotlight uses managed Type Find and opaque activation"
   const activation =
     appSource.match(/async function pickManagedSpotlightType\([\s\S]*?\n}\n\nasync function recordManagedSpotlightNavigation/)?.[0]
     ?? "";
+  const projection =
+    appSource.match(/async function projectManagedNavigationType\([\s\S]*?\n}\n\nfunction installManagedSpotlightType/)?.[0]
+    ?? "";
 
   assert.match(
     results,
@@ -271,6 +274,9 @@ test("retained Workspace Spotlight uses managed Type Find and opaque activation"
   assert.match(
     activation,
     /abandonRetainedWorkspaceNavigation/);
+  assert.match(
+    projection,
+    /createNuGetPackageModelWithDefaultLibrary\(\s*admitted\.surface,\s*inventory\.defaultLibrary\)/);
   assert.doesNotMatch(
     activation,
     /result\.(?:library|package|namespace)|split\(|includes\(/);
@@ -1140,7 +1146,7 @@ test("package Metadata retries remain explicit rather than render-driven", () =>
     ?? "";
   assert.match(
     autoLoad,
-    /packageMetadataStateKey\(state\.packageMetadata\)[\s\S]*=== packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
+    /packageInspectionRequestStateKey\(state\.packageMetadata\)[\s\S]*=== packageScopeSignature\(\)\) return;[\s\S]*observeAsync\(loadPackageMetadata\(\)/);
   assert.doesNotMatch(autoLoad, /status === "failed"/);
 });
 

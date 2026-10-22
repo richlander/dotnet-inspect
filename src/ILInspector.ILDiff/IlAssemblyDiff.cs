@@ -28,7 +28,8 @@ public sealed record IlAssemblyDiffResult(
     ImmutableArray<IlDiffBucket> TopHunkKinds,
     ImmutableArray<IlDiffBucket> TopOpcodeFamilies,
     ImmutableArray<IlAssemblyDiffExample> Examples,
-    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default);
+    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default,
+    int PairExceptionRegionDiffCount = 0);
 
 public sealed record IlIdentityResolutionFailure(
     string Side,
@@ -195,8 +196,8 @@ public static class IlAssemblyDiff
         ArgumentNullException.ThrowIfNull(oldEndpoint);
         ArgumentNullException.ThrowIfNull(newEndpoint);
 
-        var old = InspectEndpoint(oldEndpoint);
-        var @new = InspectEndpoint(newEndpoint);
+        var old = InspectEndpoint(oldEndpoint, normalization);
+        var @new = InspectEndpoint(newEndpoint, normalization);
         var findings = IlFindings.CompareInspections(
             old.Inspection,
             @new.Inspection,
@@ -238,10 +239,10 @@ public static class IlAssemblyDiff
             memberDiff);
     }
 
-    static InspectedEndpoint InspectEndpoint(IlMemberDiffEndpoint endpoint)
+    static InspectedEndpoint InspectEndpoint(IlMemberDiffEndpoint endpoint, IlBodyDiffNormalization normalization)
         => endpoint switch
         {
-            IlMemberDiffEndpoint.Present present => InspectPresentEndpoint(present),
+            IlMemberDiffEndpoint.Present present => InspectPresentEndpoint(present, normalization),
             IlMemberDiffEndpoint.SubjectAbsent absent => new(
                 absent.Subject,
                 new FindingInspection<CanonicalIlOperation>.Absent(
@@ -252,7 +253,7 @@ public static class IlAssemblyDiff
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
         };
 
-    static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint)
+    static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint, IlBodyDiffNormalization normalization)
     {
         var subject = new FindingSubject(endpoint.Subject.Identity, endpoint.Subject.Label);
         var inspection = IlFindings.InspectMethod(
@@ -261,7 +262,8 @@ public static class IlAssemblyDiff
             endpoint.Method,
             subject,
             out var body,
-            out var methodBody);
+            out var methodBody,
+            normalization);
         return new InspectedEndpoint(endpoint.Subject, inspection, body, methodBody);
     }
 
@@ -346,6 +348,7 @@ public static class IlAssemblyDiff
         int pairExact = 0;
         int pairOperandDiff = 0;
         int pairOpcodeDiff = 0;
+        int pairExceptionRegionDiff = 0;
         int pairUnavailable = 0;
         int changed = 0;
         int selfDiffExact = 0;
@@ -437,6 +440,8 @@ public static class IlAssemblyDiff
             changed++;
             if (diff.Outcome == IlBodyDiffOutcome.OperandDiff)
                 pairOperandDiff++;
+            else if (diff.Outcome == IlBodyDiffOutcome.ExceptionRegionDiff)
+                pairExceptionRegionDiff++;
             else
                 pairOpcodeDiff++;
             foreach (var row in diff.Rows)
@@ -462,7 +467,8 @@ public static class IlAssemblyDiff
             Buckets(hunkKinds),
             Buckets(opcodeFamilies),
             examples.ToImmutable(),
-            identityFailures.ToImmutable());
+            identityFailures.ToImmutable(),
+            pairExceptionRegionDiff);
     }
 
     public static IlMemberDiffResult CompareMembers(

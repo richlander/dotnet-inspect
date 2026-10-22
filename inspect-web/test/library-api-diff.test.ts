@@ -134,7 +134,7 @@ test("subject-scoped selections drive the generic Diff request", async () => {
   await Promise.resolve();
 
   assert.deepEqual(observed, {
-    schemaVersion: 3,
+    schemaVersion: 4,
     packageId: "Example.Package",
     currentVersion: "2.0.0",
     targetVersion: "1.0.0",
@@ -253,7 +253,7 @@ test("replacement Package contexts cancel old work and suppress late publication
   assert.deepEqual(cancellations, ["one"]);
   assert.deepEqual(requests, [
     {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.0.0",
@@ -267,7 +267,7 @@ test("replacement Package contexts cancel old work and suppress late publication
       predicate: null,
     },
     {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: "Example.Package",
       currentVersion: "2.0.0",
       targetVersion: "1.5.0",
@@ -661,6 +661,44 @@ test("successful empty results stay distinct from target and endpoint unavailabi
   assert.match(html, /No public API changes/);
   assert.match(html, /Comparison complete/);
   assert.doesNotMatch(html, /unavailable/i);
+  assert.match(html, /is unchanged between these versions/);
+  assert.doesNotMatch(html, /outside the ordinary population/);
+});
+
+test("an empty ordinary view with rows left out does not claim the Library is unchanged", () => {
+  const empty = succeeded("2.0.0");
+  if (empty.value === null) throw new Error("Expected success.");
+  const html = renderLibraryApiDiff({
+    status: "ready",
+    input: {
+      packageModel: {},
+      packageId: "Example.Package",
+      currentVersion: "1.0.0",
+      targetVersion: "2.0.0",
+      targetFramework: "net11.0",
+      compileAssetId: "lib/net11.0/Example.dll",
+    },
+    result: {
+      ...empty,
+      value: {
+        ...empty.value,
+        types: [],
+        aggregate: {
+          ...empty.value.aggregate,
+          changedTypeCount: 0,
+          changedMemberCount: 0,
+          breakingCount: 0,
+          additiveCount: 0,
+          outsideOrdinaryRowCount: 2,
+        },
+      },
+    },
+  }, String);
+  assert.match(html, /No changes in the ordinary API/);
+  assert.match(html, /has no ordinary API changes between these versions/);
+  assert.match(html, /2 API change rows are outside the ordinary population/);
+  assert.doesNotMatch(html, /unchanged/);
+  assert.doesNotMatch(html, /No public API changes/);
 });
 
 test("unavailable rendering discloses retained endpoint failure evidence", () => {
@@ -1091,6 +1129,7 @@ test("API status rows cross the transport boundary and render their values", asy
             kind: "TypeHiddenChanged",
             classification: "NonBreaking",
             category: "Status",
+            state: "Hidden",
             message: "Type 'Example.Widget' was hidden",
             oldValue: "visible",
             newValue: "hidden",
@@ -1099,6 +1138,7 @@ test("API status rows cross the transport boundary and render their values", asy
             kind: "TypeObsoleteChanged",
             classification: "Breaking",
             category: "Status",
+            state: "Obsoleted",
             message: "Type 'Example.Widget' was made obsolete as an error",
             oldValue: "not obsolete",
             newValue: "[Obsolete(\"m\", true)]",
@@ -1131,6 +1171,151 @@ test("API status rows cross the transport boundary and render their values", asy
   assert.match(html, /Type 'Example\.Widget' was hidden/);
   assert.match(html, /<code>visible<\/code> → <code>hidden<\/code>/);
   assert.match(html, /<code>not obsolete<\/code> → <code>\[Obsolete\("m", true\)\]<\/code>/);
+});
+
+test("rows show typed change states, obsolete markers, and the outside-ordinary note", () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget, options] = result.value.types;
+  if (widget === undefined || options === undefined)
+    throw new Error("Expected two Types.");
+  const [changed, added, removed] = widget.members;
+  if (changed === undefined || added === undefined || removed === undefined)
+    throw new Error("Expected three Members.");
+  const status = (
+    kind: "MemberHiddenChanged" | "MemberObsoleteChanged",
+    state: "Hidden" | "Unhidden" | "Obsoleted",
+  ) => ({
+    kind,
+    classification: "NonBreaking" as const,
+    category: "Status" as const,
+    state,
+    message: `Member 'Run' ${state.toLowerCase()}`,
+    oldValue: null,
+    newValue: null,
+  });
+  const html = renderLibraryApiDiff(readyState({
+    ...result,
+    value: {
+      ...result.value,
+      aggregate: { ...result.value.aggregate, outsideOrdinaryRowCount: 3 },
+      types: [
+        {
+          ...widget,
+          state: "Diff",
+          after: widget.after === null
+            ? null
+            : { ...widget.after, isObsolete: true },
+          changes: [{
+            kind: "TypeHiddenChanged",
+            classification: "NonBreaking",
+            category: "Status",
+            state: "Hidden",
+            message: "Type 'Example.Widget' was hidden",
+            oldValue: "visible",
+            newValue: "hidden",
+          }],
+          members: [
+            { ...changed, changes: [status("MemberHiddenChanged", "Unhidden")] },
+            {
+              ...added,
+              after: added.after === null
+                ? null
+                : { ...added.after, isObsolete: true },
+            },
+            { ...removed, pairKind: "Changed", after: removed.before,
+              changes: [status("MemberObsoleteChanged", "Obsoleted")] },
+          ],
+        },
+        options,
+      ],
+    },
+  }), String, {
+    subject: { kind: "library" },
+  });
+  assert.match(html, /library-api-diff-state-hidden">Hidden</);
+  assert.match(html, /library-api-diff-state-deletion">Deletion</);
+  assert.match(
+    html,
+    /<strong>Example\.Widget<\/strong><span class="library-api-diff-obsolete">\[Obsolete\]<\/span>/,
+  );
+  assert.match(html, /3 API change rows are outside the ordinary population/);
+
+  const typeHtml = renderLibraryApiDiff(readyState({
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        members: [
+          { ...changed, changes: [status("MemberHiddenChanged", "Unhidden")] },
+          {
+            ...added,
+            after: added.after === null
+              ? null
+              : { ...added.after, isObsolete: true },
+          },
+          { ...changed, documentIdentifier: "relation-hidden",
+            changes: [status("MemberHiddenChanged", "Hidden")] },
+          { ...changed, documentIdentifier: "relation-obsoleted",
+            changes: [status("MemberObsoleteChanged", "Obsoleted")] },
+          removed,
+        ],
+      }, options],
+    },
+  }), String, {
+    subject: { kind: "type", typeIdentifier: "after-widget" },
+  });
+  assert.match(typeHtml, /library-api-diff-state-unhidden">Unhidden</);
+  assert.match(typeHtml, /library-api-diff-state-hidden">Hidden</);
+  assert.match(typeHtml, /library-api-diff-state-obsoleted">Obsoleted</);
+  assert.match(typeHtml, /library-api-diff-state-added">Added</);
+  assert.match(typeHtml, /library-api-diff-state-removed">Removed</);
+  assert.match(
+    typeHtml,
+    /<strong>New\(\)<\/strong><span class="library-api-diff-obsolete">\[Obsolete\]<\/span>/,
+  );
+  // With nothing outside the ordinary population, no note is shown.
+  assert.doesNotMatch(
+    renderLibraryApiDiff(readyState(withMembers()), String),
+    /outside the ordinary population/,
+  );
+});
+
+test("unknown change states are rejected at the transport boundary", async () => {
+  const result = withMembers();
+  if (result.value === null) throw new Error("Expected success.");
+  const [widget] = result.value.types;
+  if (widget === undefined) throw new Error("Expected a Type.");
+  const malformed = {
+    ...result,
+    value: {
+      ...result.value,
+      types: [{
+        ...widget,
+        changes: [{ ...widget.changes[0], state: "Deprecated" }],
+      }],
+    },
+  };
+  const state: LibraryApiDiffStateHost = {
+    libraryApiDiff: { status: "idle" },
+  };
+  const coordinator = createLibraryApiDiffCoordinator({
+    state,
+    operationAuthority: createOperationAuthorityPage(),
+    query: () => Promise.resolve(malformed),
+    cancel: () => undefined,
+    describeError: error => error instanceof Error ? error.message : String(error),
+    reportOperationDiagnostic: () => undefined,
+    render: () => undefined,
+  });
+  coordinator.reconcile(selection({}));
+  await Promise.resolve();
+  await Promise.resolve();
+  const outcome = state.libraryApiDiff;
+  assert.equal(outcome.status, "failed");
+  if (outcome.status === "failed")
+    assert.match(outcome.error, /types\[0\]\.changes\[0\]\.state is unsupported/);
 });
 
 test("Explore destinations cannot change endpoint coordinates", async () => {
@@ -1410,6 +1595,7 @@ function withMovedMember(): BrowserLibraryApiDiffResult {
     typeFullName,
     memberName: "Transform",
     display: "Transform(int)",
+    isObsolete: false,
   });
   const relation = (role: "Before" | "After") => ({
     documentIdentifier: "relation-moved",
@@ -1435,6 +1621,7 @@ function withMovedMember(): BrowserLibraryApiDiffResult {
             namespace: "Example",
             segments: ["Options"],
             display: "Example.Options",
+            isObsolete: false,
           },
           members: [relation("Before")],
         },

@@ -36,6 +36,12 @@ public static class KnownAttributeNames
     public const string RequiredMemberAttribute = Prefix + "RequiredMemberAttribute";
     public const string SetsRequiredMembersAttribute =
         "System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute";
+    public const string RequiresAssemblyFilesAttribute =
+        "System.Diagnostics.CodeAnalysis.RequiresAssemblyFilesAttribute";
+    public const string RequiresDynamicCodeAttribute =
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCodeAttribute";
+    public const string RequiresUnreferencedCodeAttribute =
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute";
     public const string RequiresLocationAttribute = Prefix + "RequiresLocationAttribute";
 
     // RequiresUnsafeAttribute is emitted in System.Diagnostics.CodeAnalysis (the

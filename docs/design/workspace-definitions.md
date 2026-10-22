@@ -796,6 +796,15 @@ member of an existing Workspace context, not a global member outside contexts:
 7. Emit one derived definition and packet only after every selected root has a
    complete dependency result and the complete derived definition validates.
 
+One enrichment realization receives one host-issued Package Source operation
+before selected-root processing begins and reuses it sequentially for every
+dependency declaration in context, root, and declaration order. The operation
+retains one caller cancellation identity and one absolute deadline across that
+candidate-resolution schedule. Root Nuspec acquisition remains a PackageHouse
+semantic-content demand with its own House-owned source operation; its elapsed
+time still occurs within the enrichment's absolute candidate deadline because
+the candidate operation already exists.
+
 The packet carries Package coordinates and targets, not nuspec XML, graph
 nodes, edges, traversal diagnostics, acquired archives, or cached resolution.
 Dependency selection, direct-versus-transitive policy, per-root result order,
@@ -2922,6 +2931,53 @@ operations they consume. Browser-host URL selection is a separate host concern:
 production promotes the exact staging artifact rather than rebuilding it for a
 different origin.
 
+#### Recognizing packet intent
+
+`WorkspaceSharePacketCodec.Recognize` supplies bounded recognition for a host
+that has not yet admitted its input as a packet. It returns an unrecognized
+input, a validated canonical packet, or a recognized failure carrying the
+existing codec failure kind and message. This is distinct from `Decode`, whose
+caller has already declared packet intent and always receives its validation
+failure. Neither operation realizes a Workspace or authorizes acquisition.
+
+Recognition reuses the existing decoding, JSON-budget, binding and canonical
+validation path. After valid Base64URL and UTF-8 decoding, observing a
+top-level JSON property named `f` establishes packet intent, regardless of its
+value. Escaped property spelling is treated identically. A nested `f` does not
+establish intent. An unrelated encoded object with a top-level `f` deliberately
+enters packet validation: the format discriminator is the recognition boundary,
+not proof of a valid packet. A recognized malformed shape, unsupported version,
+noncanonical representation, or later JSON-budget failure retains its typed
+codec failure rather than becoming an ordinary target.
+
+Recognition does not recover a damaged envelope or raise the codec's limits.
+An empty input, an input over the global encoded limit, invalid Base64URL or
+UTF-8, or a JSON failure before the format marker is observed is unrecognized.
+The global encoded limit is checked before any decoding or marker inspection.
+A depth/value failure before the marker is likewise unrecognized; after the
+marker it is a recognized failure. Format-specific limits remain validation
+failures once the marker has been observed. Unrecognized means insufficient
+packet evidence within this bounded pass, not proof that the input was never
+intended as a packet. Explicit host admission is required to diagnose those
+inputs as packets. Cancellation propagates through either entrance.
+
+The motivating inputs are the Runtime ecosystem environment and the exact
+`System.Text.Json@10.0.0/net10.0` Package/JsonSerializer scenario emitted in the
+[CLI activation walkthrough](../cli-architecture.md#motivating-assets-and-adoption-evidence).
+Their canonical packets must be recognized without changing any identity or
+byte representation. Ordinary names such as `Newtonsoft.Json`, Base64-like
+names, unrelated encoded JSON, malformed markers and unsupported formats are
+neighboring controls. `WorkspaceSharePacketRecognitionTests` gates this
+distinction alongside the existing codec canonical/limit tests.
+
+This is step 10 of the 18-step [#10132](https://github.com/richlander/dotnet-inspect/issues/10132)
+plan, tracked in [#10369](https://github.com/richlander/dotnet-inspect/issues/10369).
+The CLI router consumes this classification in step 11 (#4647); this codec
+slice does not activate a raw target. Browser and explicit CLI packet input
+continue to use `Decode` and retain their existing failure and canonical-vector
+gates. The shared codec remains the sole parser for both hosts; no host
+receives a second packet schema or encoding heuristic.
+
 #### Packet format 1
 
 The normative v1 decoded shape is:
@@ -3727,6 +3783,139 @@ fresh-Workspace contract. Browser retention, fresh reselection, and incumbent
 preservation are modeled separately by
 [Inspect Web Retained Workspace
 Realization](models/inspect-web-retained-workspace-realization/README.md).
+
+### Saved-subject execution handoff
+
+The shared handoff is implemented under
+[#10408](https://github.com/richlander/dotnet-inspect/issues/10408).
+Set `CompleteRestorationExecutionOptions.CaptureSelectedSubject` to retain
+its live associations, then use
+`CompleteRestorationSelectedSubjectOperation.ExecuteAsync` under the paired
+Workspace or realization operation lease. Omission is explicit `NotCaptured`;
+Workspace/Ecosystem landings remain with their existing operations. The CLI
+saved-inspection bindings remain under
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+
+Complete restoration must let a consumer inspect its exact saved subject in
+the same realization. The selected declaration context describes the
+environment; the restored Navigation subject identifies what to inspect.
+They are different inputs. In particular, a Type's Navigation Library may use
+a Package Root surface participant rather than a declaration-context
+participant. Matching their Package IDs, assembly names, or Type names does
+not establish correspondence between those registrations.
+
+Definitions supplies a typed selection handoff under the host's existing
+operation borrow over the paired activation. The handoff retains the resolved
+saved subject, effective facet, and attached query intent from the committed
+selected view. It also supplies the exact ready Package association used to
+resolve that subject, preserving its Scope occurrence, Root binding, producer,
+target, and Library asset/participant associations. It derives that association
+from the same restoration's prepared evidence, not a search by display
+coordinate in the selected context. A Library, Type, or Member target retains
+its existing structured ancestry and identity; an aggregate Library remains
+an aggregate, rather than becoming its first Library.
+
+The operation receives only the target shape appropriate to that subject:
+Package operations consume its exact Root/occurrence; Library operations its
+owner-issued asset associations; Type operations its exact defining Library
+and structured metadata Type identity; Member operations additionally its
+structured Member anchor. This describes the handoff's information boundary,
+not a new inspection request schema. Existing inspection owners decide whether
+and how they consume these inputs. Definitions neither rewrites a Navigation
+registration into a declaration-context registration nor defines such an
+adapter on their behalf.
+
+Selection performs no additional acquisition, Type search, or content
+inspection. It reuses the exact association established during restoration.
+The receiving inspection retains its own capability admission, query planning,
+cost permissions, typed result, Share, diagnostics, and rendering contracts.
+Facet availability is insufficient to establish an execution binding. A host
+rejects a known missing binding before restoration; a realization-dependent
+unavailable subject or association remains a typed failure after restoration.
+Neither case substitutes an inspection or silently drops query intent.
+
+Live targets remain bounded by the existing operation borrow and realization
+lifetime. They are not portable or detached snapshot fields. Only the
+inspection owner's detached result may outlive that borrow. Closing or
+superseding an activation uses the existing host lifecycle; this handoff adds
+no controller, session registry, new lease protocol, or restoration phase.
+Consumers do not restore again, reacquire the source, reconstruct argv, or
+interpret consumer-facing Navigation IDs to recover live targets.
+
+#### Worked Package replay
+
+The first consumer is the CLI Package replay requested by the user:
+
+```bash
+environment=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dotnet-inspect package System.Text.Json \
+  --workspace "$environment" --share packet \
+  > package-content.txt 2> package-share.txt
+package_packet=$(tail -n 1 package-share.txt)
+dotnet-inspect "$package_packet"
+```
+
+The source query emits this hierarchy and a format-5 packet selecting
+`Package` with facet `package.libraries`:
+
+```text
+System.Text.Json 10.0.0 (NuGet; net10.0; lib)
+└─ System.Text.Json.dll
+```
+
+Replay must restore once, hand that exact selected Package to the admitted
+Libraries inspection, and print its ordinary default hierarchy above. It does
+not print Workspace inventory. The equivalent entrance is
+`dotnet-inspect -w "$package_packet"`. Package Libraries now binds both
+entrances to the ordinary CLI inspection.
+The recorded [format-5 packet](../examples/workspace-package-replay.json)
+replays its hierarchy and Count; other saved facets and attached queries remain
+staged under #4647. Historically, PR #10409 refused both with no stdout and the error
+`The saved Package facet 'package.libraries' has no CLI activation execution binding.`
+The source query and historical refusal were reproduced with its NativeAOT
+candidate `18c37a5a26abe016f70a03fc4cd6448fa709203e`.
+
+#### Saved-subject adoption and evidence
+
+The shared handoff and exact association gates are implemented under #10408.
+CLI bindings then adopt it individually under #4647, beginning
+with Package Libraries, followed by Type API and Member overview. Browser
+restoration remains a consumer of the same owner-issued preparation; gate
+same-packet subject, facet, query and target preservation through its
+production activation facade. There is no Browser rendering redesign or
+command-wide migration in this handoff. The complete counted sequence remains
+in [#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
+
+Required runtime evidence includes the worked Package round-trip; a saved
+JsonSerializer Type whose Navigation and declaration registrations differ;
+exact Member overloads; same-name Libraries/Types from neighboring assets;
+multiple contexts; and a source command whose selected subject differs from
+the input packet's focused tab. Compare exact occurrences and registrations,
+not only displayed names. Gate aggregate preservation, attached query intent,
+unsupported-binding refusal, ordinary output/Count parity, and use within the
+paired lifetime. Inactive views are not additional execution requests.
+
+`CompleteRestorationExecutionTests.SelectedSubject_*` gates exact Package,
+Library/aggregate, Type and Member targets; omission and unsupported landing;
+closed/foreign Workspace refusal; and two same-name Library/Type assets across
+net8.0/net9.0 contexts with repeated query definitions bound to distinct targets.
+The Type gate establishes that the Navigation defining registration differs
+from declaration-context registrations. The handoff reuses the existing exact
+Root-generation query borrow and performs no content inspection itself.
+`SelectedSubjectCapture_PreservesBrowserPackageActivation` runs the production
+Browser retained-activation owner with capture enabled and preserves the same
+Package, facet and canonical packet.
+
+CLI Package Libraries rendering, Count and save/replay parity are gated by
+`WorkspacePacketActivationTests.SavedPackageReplaysOrdinaryLibraries` and the
+recorded packet's production Browser activation test. Type, Member and attached
+query CLI bindings remain staged. Selection is a projection of one already
+prepared
+activation under its existing borrow, with no new state machine. The
+complete-restoration model above retains lifecycle ownership; the focused
+runtime tests establish the new subject association.
 
 ### Complete-restoration inventory
 

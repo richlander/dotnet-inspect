@@ -14,21 +14,21 @@ Its normative claim is:
 
 > For one row of a Type, a Member or the Type's own residual, resolved in one
 > image or in two, the declaration view holds every declaration and
-> implementation fact Fast Diff's census records for that row, on either
+> implementation fact Finding Diff Any's census records for that row, on either
 > axis, spelled at the declaration level: decoded rows, named flags, symbolic
-> signatures, typed constants, and attributes with their decoded arguments.
-> One version lists the row's facts. Two versions pair them by fact identity
-> into `Present`, `Changed`, `Added`, and `Removed` transitions, with Fast
-> Diff's census equality, so the view is empty exactly when the census's
-> facts for that row are equal on both axes, and non-empty for a row Fast
-> Diff reports `Changed` by a declaration fact. The view is a representation;
-> every host renders from it.
+> signatures, typed constants, and attributes with their decoded arguments. One
+> version lists the row's facts. Two versions pair them by fact identity into
+> `Present`, `Changed`, `Added`, and `Removed` transitions, with Finding Diff
+> Any's census equality, so the view is empty exactly when the census's facts
+> for that row are equal on both axes, and non-empty for a row Finding Diff Any
+> reports `Changed` by a declaration fact. The view is a representation; every
+> host renders from it.
 
 It consumes and does not redefine:
 
 | Owner | Contract consumed |
 | --- | --- |
-| [Fast Diff](fast-diff.md#axes) and [its Type level](fast-diff.md#type) | The census: each fact's kind, its axis, its owner under rule 1, its `SymbolKey` identity and equality, presented and uncertain kinds, and the residual |
+| [Finding Diff Any](finding-diff-any.md#axes) and [its Type level](finding-diff-any.md#type) | The census: each fact's kind, its axis, its owner under rule 1, its `SymbolKey` identity and equality, presented and uncertain kinds, and the residual |
 | [Diff capabilities](diff-capabilities.md#axes) | The two axes, the rungs, the Exists contract, and the uncertain-kind decisions that move implementation facts from API to Body |
 | [Diff observability](diff-observability.md#levels-of-difference) | The levels a view declares; this view declares the declaration level |
 | [Finding nomenclature](finding-nomenclature.md) | `Finding<T>`, `PairFinding<T>`, `FindingComparison<T>`, and `FindingMatcher` in its identity-set mode |
@@ -39,27 +39,27 @@ It consumes and does not redefine:
 
 ## Why
 
-[Fast Diff's Body axis](fast-diff.md#axes) is decided at every accessibility.
-Beside IL, it compares the declaration facts of every Member the API axis
-surface does not admit, the declaration of a Type the surface admits on
+[Finding Diff Any's Body axis](finding-diff-any.md#axes) is decided at every
+accessibility. Beside IL, it compares the declaration facts of every Member the
+API axis surface does not admit, the declaration of a Type the surface admits on
 neither side, and implementation facts such as `beforefieldinit`. A private
-field added, an attribute added to an internal method, or a static
-constructor's `MethodImpl` flags changed is Body `Changed`.
+field added, an attribute added to an internal method, or a static constructor's
+`MethodImpl` flags changed is Body `Changed`.
 
-No view shows those facts. The IL view shows instructions, so a Body cue that
-a declaration fact alone decides opens a view with no difference. Fast Diff's
-[Observability](fast-diff.md#observability) records that as a known
-divergence under rule 4 of Diff observability, and Diff capabilities records
-it as an interim exception to its Exists contract's second rule, "Changed is
+No view shows those facts. The IL view shows instructions, so a Body cue that a
+declaration fact alone decides opens a view with no difference. Finding Diff
+Any's [Observability](finding-diff-any.md#observability) records that as a known
+divergence under rule 4 of Diff observability, and Diff capabilities records it
+as an interim exception to its Exists contract's second rule, "Changed is
 observable". The [Annotated Type Map](annotated-type-map.md#the-map) lists the
 row and carries its Body transition, but not the fact that differs. This view
 closes those three gaps with one document.
 
-The same facts answer a one-version question. A user looking at one side
-cannot today see the full set of facts the diff acted on, such as a nullable
-context or an attribute blob that rule 2 of Fast Diff's Type level decides by
-the API axis surface. Listing a row's census facts per version is the converse
-of observability: every compared fact is visible on each side, so a `Changed`
+The same facts answer a one-version question. A user looking at one side cannot
+today see the full set of facts the diff acted on, such as a nullable context or
+an attribute blob that rule 2 of Finding Diff Any's Type level decides by the
+API axis surface. Listing a row's census facts per version is the converse of
+observability: every compared fact is visible on each side, so a `Changed`
 traces to the two facts that differ
 ([#10342](https://github.com/richlander/dotnet-inspect/issues/10342)).
 
@@ -90,30 +90,30 @@ targets its own level: `Changed` here means a declaration fact differs.
 
 ## Facts
 
-A **declaration fact** is one census fact of Fast Diff, projected to a typed
-value:
+A **declaration fact** is one census fact of Finding Diff Any, projected to a
+typed value:
 
 | Field | Value |
 | --- | --- |
-| Kind | One of Fast Diff's fact kinds: the Type's visibility marker, Type row, `beforefieldinit`, interface, nullable context, layout, `MethodImpl` row, field row, method row, parameter, import, property row, event row, generic parameter, constraint, attribute. A constant and a property's accessors are payload of their row fact, not facts |
+| Kind | One of Finding Diff Any's fact kinds: the Type's visibility marker, Type row, `beforefieldinit`, interface, nullable context, layout, `MethodImpl` row, field row, method row, parameter, import, property row, event row, generic parameter, constraint, attribute. A constant and a property's accessors are payload of their row fact, not facts |
 | Axis | API or Body, as the census places it on that side |
-| Owner | The row the fact describes under rule 1 of Fast Diff's Type level: the Member's key, or the Type for the residual |
+| Owner | The row the fact describes under rule 1 of Finding Diff Any's Type level: the Member's key, or the Type for the residual |
 | Key | The fact's whole census `SymbolKey`, which is its exact identity |
 | Row | For a kind with one fact per row, the row the fact describes: the method, field, property, or event row key, taken from inside the census key; the Type for the visibility marker, whose key holds no Type key, and the Type key for the Type row, `beforefieldinit`, nullable context, and layout; the owning row key and sequence number for a parameter; the owning row key and ordinal for a generic parameter; the method key for an import. An interface, constraint, `MethodImpl` row, or attribute fact has no row of its own |
 | Value | The fact's payload after its row, spelled at the declaration level |
 | Certainty | Presented or uncertain, as the census classifies the kind on that axis |
 
-The key pairs a fact across versions exactly, so two facts are `Present`
-here exactly when the census calls them equal; the view adds no equality and
-no normalization. The census is read through the declaration cursor of
-[Finding census](finding-census.md), sorted by key bytes, so the facts the
-view matches are the facts Fast Diff's Exists compared. A row's facts have
-one slot per kind: the Row field above gives a row at most one fact of each
-kind on a side, so a kind and a row together name one slot, and that name is
-the fact's soft identity. The row here is the fact's own Row value, not the
-document's row: a Member's document holds a slot for each of its parameters
-and each of its generated method rows. Pairing compares slot by slot, never
-by count, with these outcomes for a fact:
+The key pairs a fact across versions exactly, so two facts are `Present` here
+exactly when the census calls them equal; the view adds no equality and no
+normalization. The census is read through the declaration cursor of [Finding
+census](finding-census.md), sorted by key bytes, so the facts the view matches
+are the facts Finding Diff Any's Exists compared. A row's facts have one slot
+per kind: the Row field above gives a row at most one fact of each kind on a
+side, so a kind and a row together name one slot, and that name is the fact's
+soft identity. The row here is the fact's own Row value, not the document's row:
+a Member's document holds a slot for each of its parameters and each of its
+generated method rows. Pairing compares slot by slot, never by count, with these
+outcomes for a fact:
 
 - `Present` when its key is on both sides;
 - `Changed` when its key is on one side only and the other side's fact in
@@ -123,15 +123,15 @@ by count, with these outcomes for a fact:
   has no fact in that slot, or its kind has no row and so no slot; and
 - `Added` or `Removed` for every fact of a row that is on one side only.
 
-A row with a dozen differing slots is a dozen `Changed` pairs, and a row
-whose only difference is one more attribute is one `Added` fact beside
-`Present` ones, since attributes pair by exact key with no slot. A row
-whose only difference is one more parameter in its signature is not an
-`Added` parameter: the signature is in the method's key, so Fast Diff lists
-two rows, as [below](#two-versions) states. A return-value parameter row,
-sequence number zero, is outside the signature, so one appearing is one
-`Added` parameter fact on the same row. A body's instructions are not
-census facts; the IL level is their view.
+A row with a dozen differing slots is a dozen `Changed` pairs, and a row whose
+only difference is one more attribute is one `Added` fact beside `Present` ones,
+since attributes pair by exact key with no slot. A row whose only difference is
+one more parameter in its signature is not an `Added` parameter: the signature
+is in the method's key, so Finding Diff Any lists two rows, as
+[below](#two-versions) states. A return-value parameter row, sequence number
+zero, is outside the signature, so one appearing is one `Added` parameter fact
+on the same row. A body's instructions are not census facts; the IL level is
+their view.
 
 The kind is part of the soft identity so that facts of one row never pair
 across kinds: the visibility marker, the Type row, and the nullable context
@@ -173,7 +173,7 @@ no transition.
 
 The one-version document is a row's facts on one side:
 
-- the row: a Member key spelled by its anchor, as Fast Diff's Type level
+- the row: a Member key spelled by its anchor, as Finding Diff Any's Type level
   reports it, or the Type for the residual;
 - the side's endpoint coordinates;
 - the outcome: `Complete`, or the typed reason the census could not be
@@ -183,18 +183,18 @@ The one-version document is a row's facts on one side:
   and
 - the facts, each with the fields above.
 
-It is produced from Fast Diff's census for the Type on that side, partitioned
-by owner under rule 1, and projected for the requested row. The view runs no
-second walk and reads no fact the census does not record; a fact the census
-does not compare, such as a method's IL, is not a declaration fact and is not
-listed. Generated code a Member owns contributes its facts to that Member's
-row, as Fast Diff's Type level assigns the lifted owner; generated code with
-no single owner contributes to the residual.
+It is produced from Finding Diff Any's census for the Type on that side,
+partitioned by owner under rule 1, and projected for the requested row. The view
+runs no second walk and reads no fact the census does not record; a fact the
+census does not compare, such as a method's IL, is not a declaration fact and is
+not listed. Generated code a Member owns contributes its facts to that Member's
+row, as Finding Diff Any's Type level assigns the lifted owner; generated code
+with no single owner contributes to the residual.
 
 ## Two versions
 
 The two-version document holds a one-version document per side and a
-comparison. The per-side documents are the pair's census: Fast Diff
+comparison. The per-side documents are the pair's census: Finding Diff Any
 partitions a Type public on either side as public on both, as its rule 2
 states, so each side's facts are taken under that partition, and each
 document records it. They equal the standalone one-version documents except
@@ -224,16 +224,16 @@ an `Indeterminate` row never reads as unchanged. Correspondence across keys
 is not the view's: a Member whose signature changed is two rows, one `Removed`
 and one `Added`, each with its own document, as the map lists them.
 
-A row that Fast Diff reports Body `Changed` by IL alone has an empty
+A row that Finding Diff Any reports Body `Changed` by IL alone has an empty
 declaration comparison; the IL view is its view, and the document says which
 axis and level hold the difference rather than saying nothing, as rule 1 of
-Diff observability requires. A row Fast Diff reports `Changed` by a
+Diff observability requires. A row Finding Diff Any reports `Changed` by a
 declaration fact has at least one non-`Present` pair. An uncertain fact that
 differs appears as `Changed` or as `Removed` and `Added`, marked uncertain,
 which is the **Present** decision of Diff capabilities' uncertain-kind table
 for the Body axis: a raw difference the user can see, low-signal, never
 empty. On the API axis, a row whose census differs only in uncertain facts is
-one the API axis surface may decide `Unchanged`, as Fast Diff's rule 2
+one the API axis surface may decide `Unchanged`, as Finding Diff Any's rule 2
 states; the view still shows those facts, marked uncertain, since it follows
 the census rather than the surface.
 
@@ -272,10 +272,10 @@ opens.
 
 ## Gates
 
-- **Exactness:** over the Fast Diff fixture pairs, for every row of every
+- **Exactness:** over the Finding Diff Any fixture pairs, for every row of every
   Type present on both sides, the declaration comparison has a non-`Present`
-  pair exactly when Fast Diff's census differs in a fact that row owns on
-  either axis; a row Fast Diff reports Body `Changed` by IL alone has an
+  pair exactly when Finding Diff Any's census differs in a fact that row owns on
+  either axis; a row Finding Diff Any reports Body `Changed` by IL alone has an
   empty comparison and names the IL level.
 - **Expansive:** the fixtures of Diff capabilities' Expansive gate show their
   difference in this view: `PrivateFieldAdded`'s field as an `Added` field
@@ -285,12 +285,12 @@ opens.
   head.
 - **One-sided:** for an added and a removed Type, every row's facts are
   `Added` or `Removed`, including the residual's Type row; and for
-  `PublicTypeToInternal`, whose census records only the visibility marker
-  and the Body facts on the hidden side, the residual shows a `Changed`
-  visibility marker and every Type-level API fact the visible side holds,
-  its Type row and nullable context, `Removed`; every public Member's API
-  facts are `Removed`, as Fast Diff marks those Members API `Changed`, and
-  every non-public Member's Body facts are `Present`.
+  `PublicTypeToInternal`, whose census records only the visibility marker and
+  the Body facts on the hidden side, the residual shows a `Changed` visibility
+  marker and every Type-level API fact the visible side holds, its Type row and
+  nullable context, `Removed`; every public Member's API facts are `Removed`, as
+  Finding Diff Any marks those Members API `Changed`, and every non-public
+  Member's Body facts are `Present`.
 - **Residual:** a public Type gaining an explicit static constructor shows a
   `beforefieldinit` transition on the residual and, with field initializers,
   nothing else; a marker interface removed shows a `Removed` interface fact
@@ -311,12 +311,13 @@ opens.
 - **Hosts:** the CLI emits both documents as JSON and Markout from one
   producer; Inspect Web renders the same document the CLI emits for the same
   row, shown by a facade fixture.
-- **Cost:** producing one row's document costs one Fast Diff census of its
-  Type per side, measured on NativeAOT beside Fast Diff's Type-level numbers.
+- **Cost:** producing one row's document costs one Finding Diff Any census of
+  its Type per side, measured on NativeAOT beside Finding Diff Any's Type-level
+  numbers.
 
 ## Non-claims
 
-- It does not define any fact, its identity, or its equality; Fast Diff's
+- It does not define any fact, its identity, or its equality; Finding Diff Any's
   census does, and this view projects it.
 - It does not spell C#; the semantic-level declaration views do.
 - It does not show physical rows, tokens, or heap offsets; the raw
@@ -330,12 +331,12 @@ opens.
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
-| DV1 | The fact projection from Fast Diff's census, both documents, the identity-set comparison, JSON serialization, and the Exactness, One-sided, Residual, Spelling, Currency, and Undecided gates | CLI `member -S "Declaration Facts"`, `type -S "Declaration Facts"`, and `diff -S "Declaration Diff"` as JSON |
+| DV1 | The fact projection from Finding Diff Any's census, both documents, the identity-set comparison, JSON serialization, and the Exactness, One-sided, Residual, Spelling, Currency, and Undecided gates | CLI `member -S "Declaration Facts"`, `type -S "Declaration Facts"`, and `diff -S "Declaration Diff"` as JSON |
 | DV2 | Markout lowering of both documents | The same CLI sections as text and Markdown |
 | DV3 | The Browser facade export and the Member and Type page panels | Inspect Web Member and Type pages |
 | DV4 | The declaration medium in the Member reader, opened from a Type Compare Member row's Body transition, and the residual's document opened from the Type row | Inspect Web Compare |
 
-DV1 lands with the Expansive gate's fixtures. When DV4 lands, Fast Diff's
+DV1 lands with the Expansive gate's fixtures. When DV4 lands, Finding Diff Any's
 Observability bullet and Diff capabilities' interim exception retire: a Body
 `Changed` decided by a declaration fact opens this view. The uncertain-kind
 table's **Present** decisions for the Body axis are met by this view at DV1,

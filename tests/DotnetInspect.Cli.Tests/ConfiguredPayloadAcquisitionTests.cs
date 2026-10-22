@@ -608,34 +608,21 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             failure.Kind);
         Assert.Null(observation.DenialReason);
 
-        PackageAcquisitionCandidateResult compatibility =
-            composition.ResolvePinnedCandidate(
-                PackageSourceCoordinate.Create(Id, Version),
-                sourceOptions,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-        Assert.NotNull(compatibility.Candidate);
+        using var operation = composition.IssueSettlementOperation(
+            TestContext.Current.CancellationToken);
+        PackageAcquisitionCandidateResult candidate =
+            await operation.ResolvePinnedCandidateAsync(
+                composition.CreateDependencySourceAuthorization(
+                    sourceOptions),
+                PackageSourceCoordinate.Create(Id, Version));
+        Assert.NotNull(candidate.Candidate);
         Assert.Same(
             authority,
             Assert.Single(
-                compatibility.Candidate.Authorities).Authority);
+                candidate.Candidate.Authorities).Authority);
         Assert.Equal(
             failure.Message,
-            Assert.Single(compatibility.Failures).Message);
-        PackageAcquisitionCandidateResult houseCompatibility =
-            await composition.ResolvePinnedCandidateAsync(
-                PackageSourceCoordinate.Create(Id, Version),
-                sourceOptions,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-        Assert.NotNull(houseCompatibility.Candidate);
-        Assert.Same(
-            authority,
-            Assert.Single(
-                houseCompatibility.Candidate.Authorities).Authority);
-        Assert.Equal(
-            failure.Message,
-            Assert.Single(houseCompatibility.Failures).Message);
+            Assert.Single(candidate.Failures).Message);
         PackageSourceAuthorization repeated =
             composition.AuthorizeSourcesFor(Id, sourceOptions);
         Assert.Same(
@@ -676,15 +663,13 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Sources = [source],
         };
         await using var composition = LocalComposition();
-        PackageAcquisitionCandidateResult authorization =
-            await composition.ResolvePinnedCandidateAsync(
-                PackageSourceCoordinate.Create(Id, Version),
-                sourceOptions,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-
         using var operation = composition.IssueSettlementOperation(
             TestContext.Current.CancellationToken);
+        PackageAcquisitionCandidateResult authorization =
+            await operation.ResolvePinnedCandidateAsync(
+                composition.CreateDependencySourceAuthorization(
+                    sourceOptions),
+                PackageSourceCoordinate.Create(Id, Version));
         ConfiguredPackageManifestResult result =
             await operation.AcquireCandidateManifestAsync(
                 authorization.Candidate!);

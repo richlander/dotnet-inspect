@@ -106,12 +106,16 @@ public static partial class PackageExports
                                     coordinate,
                                     deadline.Token)
                                 .ConfigureAwait(false);
+                    string? defaultLibraryId =
+                        SelectFirstLibraryId(
+                            coordinate,
+                            packageChildren.Content);
                     return new BrowserPackageRootLoadResult(
                         BrowserPackageWireProjection.Project(
                             packageChildren),
                         BrowserPackageWireProjection.Project(
                             coordinate.Package.Documents()),
-                        coordinate.DefaultAsset?.Id);
+                        defaultLibraryId);
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
@@ -150,6 +154,10 @@ public static partial class PackageExports
                     realization.Coordinate,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        string? defaultLibraryId =
+            SelectFirstLibraryId(
+                realization.Coordinate,
+                packageChildren.Content);
         BrowserPackageSurface? surface = null;
         if (includeSurface)
         {
@@ -158,10 +166,15 @@ public static partial class PackageExports
                     realization,
                     CancellationToken.None);
             BrowserInspectionScope scope = scopeLease.Scope;
-            surface = BrowserPackageWireProjection.Project(
+            BrowserPackageSurfaceInfo projected =
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
-                    scope.Coordinates[0]));
+                    scope.Coordinates[0]) with
+                {
+                    DefaultAssemblyId = defaultLibraryId,
+                };
+            surface = BrowserPackageWireProjection.Project(
+                projected);
         }
 
         return new(
@@ -174,8 +187,46 @@ public static partial class PackageExports
                 realization.Coordinate.Package.Documents()),
             surface)
         {
-            DefaultLibraryId = realization.Coordinate.DefaultAsset?.Id,
+            DefaultLibraryId = defaultLibraryId,
         };
+    }
+
+    private static string? SelectFirstLibraryId(
+        BrowserPackageCoordinate coordinate,
+        PackageChildrenDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(document);
+        if (coordinate.DefaultAsset is { } compileDefault
+            && document.Libraries.Any(library =>
+                library.AssetId.ToString().Equals(
+                    compileDefault.Id,
+                    StringComparison.Ordinal)))
+        {
+            return compileDefault.Id;
+        }
+
+        (PackageLibraryChild Library, PackageLibraryIdentity Identity)[] rows =
+        [
+            .. document.Libraries.Select(
+                static library =>
+                    (
+                        library,
+                        new PackageLibraryIdentity(
+                            library.AssetPath.ToString(),
+                            library.AssemblyName.ToString()))),
+        ];
+        FirstPackageLibrarySelection selection =
+            PackageLibraryOrder.SelectFirst(
+                [.. rows.Select(static row => row.Identity)],
+                [],
+                document.Subject.PackageId.ToString());
+        if (selection is not FirstPackageLibrarySelection.Selected selected)
+            return null;
+
+        return rows.Single(
+                row => ReferenceEquals(row.Identity, selected.Library))
+            .Library.AssetId.ToString();
     }
 
     private static async ValueTask<

@@ -155,6 +155,7 @@ import {
   createAppTypeSurface,
   createPackageAcquisition,
   createNuGetPackageModel,
+  createNuGetPackageModelWithDefaultLibrary,
   createRuntimePackageModel,
   mergeRuntimePackageSurface,
   packageLibrariesForModel,
@@ -185,17 +186,12 @@ import {
 } from "./platform-forwarders.ts";
 import {
   createPackageInspectionCoordinator,
-  normalizePackageIntegrationsSnapshot,
-  normalizePackageMetadataSnapshot,
-  normalizePackageOpportunitiesSnapshot,
-  normalizePackageVulnerabilitySnapshot,
-  packageIntegrationsStateKey,
-  packageMetadataStateKey,
-  packageOpportunitiesStateKey,
-  packageVulnerabilityStateKey,
+  normalizePackageInspectionRequestSnapshot,
+  packageInspectionRequestStateKey,
   projectPackagePerformanceType,
   resolvePackagePerformanceType,
   workspaceDependencyKey,
+  type PackageDependenciesState,
   type PackagePerformance,
   type PackageResourceTriage,
   type PackageIntegrationsState,
@@ -215,7 +211,6 @@ import {
   alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
-  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "./library-subject-nav.ts";
 import {
@@ -335,14 +330,14 @@ import {
 import { createOperationAuthorityPage } from "./operation-authority.ts";
 import { createBackgroundAnalysisQueue } from "./background-analysis.ts";
 import {
-  bindLibraryFastDiffRetry,
-  createLibraryFastDiff,
-  fastDiffAxisReported,
-  libraryFastDiffAchievement,
-  libraryFastDiffKey,
-  renderLibraryFastDiffStatus,
-  type LibraryFastDiffBaseline,
-} from "./library-fast-diff.ts";
+  bindLibraryFindingDiffAnyRetry,
+  createLibraryFindingDiffAny,
+  findingDiffAnyAxisReported,
+  libraryFindingDiffAnyAchievement,
+  libraryFindingDiffAnyKey,
+  renderLibraryFindingDiffAnyStatus,
+  type LibraryFindingDiffAnyBaseline,
+} from "./library-finding-diff-any.ts";
 import {
   bindTypeChangeActions,
   createTypeApiDiffCues,
@@ -1597,10 +1592,7 @@ const initialState = {
   libraryApiErrors: new Map<string, string>(),
   libraryEnablements: new Map<string, BrowserLibraryEnablements | null>(),
   libraryEnablementLoads: new Set<string>(),
-  packageDependencies: null,
-  packageDependenciesLoading: false,
-  packageDependenciesError: "",
-  packageDependenciesKey: "",
+  packageDependencies: { status: "idle" as const },
   packageHierarchy: null,
   packageHierarchyLoading: false,
   packageHierarchyError: "",
@@ -1782,7 +1774,7 @@ interface StateOverrides {
   // Enablements per Library; null records a load that produced no facts.
   libraryEnablements: Map<string, BrowserLibraryEnablements | null>;
   libraryEnablementLoads: Set<string>;
-  packageDependencies: BrowserPackageDependencies | null;
+  packageDependencies: PackageDependenciesState;
   packageHierarchy: BrowserPackageHierarchy | null;
   packageVulnerabilities: PackageVulnerabilityState;
   dependenciesGroupIndex: number | null;
@@ -2072,7 +2064,6 @@ function normalizeWorkspaceAsyncSnapshotState(
 ): void {
   const memberAnnotatedLoading = snapshotState.memberAnnotatedLoading;
   const typeMetadataLoading = snapshotState.typeMetadataLoading;
-  const packageDependenciesLoading = snapshotState.packageDependenciesLoading;
   const packagePerformanceLoading = snapshotState.packagePerformanceLoading;
   const packageResourceTriageLoading = snapshotState.packageResourceTriageLoading;
   const memberCallGraphLoading = snapshotState.memberCallGraphLoading;
@@ -2086,18 +2077,19 @@ function normalizeWorkspaceAsyncSnapshotState(
   snapshotState.loading = false;
   snapshotState.memberAnnotatedLoading = false;
   snapshotState.typeMetadataLoading = false;
-  snapshotState.packageDependenciesLoading = false;
+  snapshotState.packageDependencies =
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageDependencies);
   snapshotState.packageVulnerabilities =
-    normalizePackageVulnerabilitySnapshot(
+    normalizePackageInspectionRequestSnapshot(
       snapshotState.packageVulnerabilities);
   snapshotState.packageIntegrations =
-    normalizePackageIntegrationsSnapshot(snapshotState.packageIntegrations);
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageIntegrations);
   snapshotState.packageOpportunities =
-    normalizePackageOpportunitiesSnapshot(snapshotState.packageOpportunities);
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageOpportunities);
   snapshotState.packagePerformanceLoading = false;
   snapshotState.packageResourceTriageLoading = false;
   snapshotState.packageMetadata =
-    normalizePackageMetadataSnapshot(snapshotState.packageMetadata);
+    normalizePackageInspectionRequestSnapshot(snapshotState.packageMetadata);
   snapshotState.memberCallGraphLoading = false;
   snapshotState.memberCallGraphExpanding = false;
   snapshotState.directUseClusterLoading = false;
@@ -2140,7 +2132,6 @@ function normalizeWorkspaceAsyncSnapshotState(
 
   if (memberAnnotatedLoading) snapshotState.memberAnnotatedKey = "";
   if (typeMetadataLoading) snapshotState.typeMetadataKey = "";
-  if (packageDependenciesLoading) snapshotState.packageDependenciesKey = "";
   if (packagePerformanceLoading) snapshotState.packagePerformanceKey = "";
   if (packageResourceTriageLoading) snapshotState.packageResourceTriageKey = "";
   if (memberCallGraphLoading || memberCallGraphExpanding) {
@@ -2784,8 +2775,10 @@ async function installRetainedWorkspacePosting(
     let packageModel: AppPackage | null = null;
     let platformModel: AppPackage | null = null;
     try {
-      packageModel = admittedPackage
-        ? createNuGetPackageModel(admittedPackage.surface)
+      packageModel = admittedPackage && packageInventory
+        ? createNuGetPackageModelWithDefaultLibrary(
+          admittedPackage.surface,
+          packageInventory.defaultLibrary)
         : null;
       platformModel = admittedPlatform
         ? createRuntimePackageModel(admittedPlatform.surface)
@@ -2910,7 +2903,9 @@ async function activateRetainedPackageAction(
   let packageModel: AppPackage;
   try {
     const admitted = await admitRetainedPackage(posting, inventory);
-    packageModel = createNuGetPackageModel(admitted.surface);
+    packageModel = createNuGetPackageModelWithDefaultLibrary(
+      admitted.surface,
+      inventory.defaultLibrary);
   } catch (error) {
     const currentPresentation = retainedWorkspacePresentation;
     const currentPosting = activeRetainedWorkspacePosting;
@@ -5219,19 +5214,19 @@ const backgroundAnalysis = createBackgroundAnalysisQueue({
     console.error("Background analysis failure.", error);
   },
 });
-const libraryFastDiff = createLibraryFastDiff({
+const libraryFindingDiffAny = createLibraryFindingDiffAny({
   queue: backgroundAnalysis,
   operationAuthority,
   query: (operationId, request) =>
-    engineClient.metadata.queryLibraryFastDiff(operationId, request),
+    engineClient.metadata.queryLibraryFindingDiffAny(operationId, request),
   cancel: (operationId, reason) => {
     observeAsync(
-      engineClient.metadata.cancelLibraryFastDiff(operationId, reason),
-      "Canceling Fast Diff");
+      engineClient.metadata.cancelLibraryFindingDiffAny(operationId, reason),
+      "Canceling Finding Diff Any");
   },
   describeError: errorMessage,
   reportOperationDiagnostic: diagnostic => {
-    console.error("Fast Diff operation authority failure.", diagnostic);
+    console.error("Finding Diff Any operation authority failure.", diagnostic);
     return undefined;
   },
   render,
@@ -7713,12 +7708,11 @@ function selectLibraryLens(lens: LibraryLens) {
   if (state.libraryLens === lens) return;
   if (libraryLensRequiresExactLibrary(lens)
     && aggregateLibrarySubjectIsActive()) {
-    const preferredLibraryId = preferredLibrarySubjectId(
-      packageLibraries(),
-      state.package?.id ?? "");
-    if (preferredLibraryId) {
+    const firstLibraryId = state.package?.assemblyId ?? "";
+    if (firstLibraryId
+      && packageLibraries().some(library => library.id === firstLibraryId)) {
       selectLibrarySubject(
-        preferredLibraryId,
+        firstLibraryId,
         { preserveLens: true });
     }
   }
@@ -8438,10 +8432,10 @@ function currentTypeHeatState(): TypeHeatState {
     : { status: "idle" };
 }
 
-// The last-patch Fast Diff baseline for the open Gallery Library, or null
+// The last-patch Finding Diff Any baseline for the open Gallery Library, or null
 // until its version inventory names one
 // (inspect-web-background-analysis.md#default-baselines).
-function currentLibraryFastDiffBaseline(): LibraryFastDiffBaseline | null {
+function currentLibraryFindingDiffAnyBaseline(): LibraryFindingDiffAnyBaseline | null {
   const pkg = state.package;
   if (pkg?.source.kind !== "nuget.org"
     || state.home
@@ -8470,19 +8464,19 @@ function currentLibraryFastDiffBaseline(): LibraryFastDiffBaseline | null {
   };
 }
 
-function libraryFastDiffBaselineIsCurrent(baseline: LibraryFastDiffBaseline) {
-  const current = currentLibraryFastDiffBaseline();
+function libraryFindingDiffAnyBaselineIsCurrent(baseline: LibraryFindingDiffAnyBaseline) {
+  const current = currentLibraryFindingDiffAnyBaseline();
   return current !== null
-    && libraryFastDiffKey(current) === libraryFastDiffKey(baseline);
+    && libraryFindingDiffAnyKey(current) === libraryFindingDiffAnyKey(baseline);
 }
 
-function scheduleLibraryFastDiff() {
+function scheduleLibraryFindingDiffAny() {
   backgroundAnalysis.reconcile();
-  const baseline = currentLibraryFastDiffBaseline();
+  const baseline = currentLibraryFindingDiffAnyBaseline();
   if (baseline) {
-    libraryFastDiff.ensure(
+    libraryFindingDiffAny.ensure(
       baseline,
-      () => libraryFastDiffBaselineIsCurrent(baseline));
+      () => libraryFindingDiffAnyBaselineIsCurrent(baseline));
   }
   const request = currentTypeApiDiffCueRequest();
   if (request) typeApiDiffCues.ensure(request, () => typeApiDiffCueIsCurrent(request));
@@ -8494,17 +8488,17 @@ function typeApiDiffCueIsCurrent(request: TypeApiDiffCueRequest) {
     && typeApiDiffCueKey(current) === typeApiDiffCueKey(request);
 }
 
-// The last-patch Fast Diff state of the Type on screen, outside Library
+// The last-patch Finding Diff Any state of the Type on screen, outside Library
 // Compare, when that Type has a change cue.
 function selectedTypeChangeCue() {
-  const source = libraryFastDiffCueSource();
+  const source = libraryFindingDiffAnyCueSource();
   const type = selectedType();
   if (source?.entry?.status !== "ready" || !type || isForwardedType(type))
     return null;
-  const fastDiff = source.entry.value.get(typeIdentifierOf(type));
-  const cue = libraryFastDiffAchievement(fastDiff, source.baseline.targetVersion);
-  return fastDiff && cue
-    ? { baseline: source.baseline, type, fastDiff, cue }
+  const findingDiffAny = source.entry.value.get(typeIdentifierOf(type));
+  const cue = libraryFindingDiffAnyAchievement(findingDiffAny, source.baseline.targetVersion);
+  return findingDiffAny && cue
+    ? { baseline: source.baseline, type, findingDiffAny, cue }
     : null;
 }
 
@@ -8512,7 +8506,7 @@ function selectedTypeChangeCue() {
 // whose API axis is reported (inspect-web-background-analysis.md#navigation-cues).
 function currentTypeApiDiffCueRequest(): TypeApiDiffCueRequest | null {
   const change = selectedTypeChangeCue();
-  if (!change || !fastDiffAxisReported(change.fastDiff.api) || !state.package) return null;
+  if (!change || !findingDiffAnyAxisReported(change.findingDiffAny.api) || !state.package) return null;
   return {
     packageModel: state.package,
     baseline: change.baseline,
@@ -8552,8 +8546,8 @@ function selectedTypeChangeStatus(type: AppTypeSurface): string {
   return renderTypeChangeStatus(
     {
       description: change.cue.description,
-      api: fastDiffAxisReported(change.fastDiff.api),
-      body: fastDiffAxisReported(change.fastDiff.body),
+      api: findingDiffAnyAxisReported(change.findingDiffAny.api),
+      body: findingDiffAnyAxisReported(change.findingDiffAny.body),
     },
     request ? typeApiDiffCues.entry(request) : null,
     escapeHtml);
@@ -8581,22 +8575,22 @@ function retryTypeApiDiffCues() {
   render();
 }
 
-function retryLibraryFastDiff() {
-  const baseline = currentLibraryFastDiffBaseline();
+function retryLibraryFindingDiffAny() {
+  const baseline = currentLibraryFindingDiffAnyBaseline();
   if (!baseline) return;
-  libraryFastDiff.retry(
+  libraryFindingDiffAny.retry(
     baseline,
-    () => libraryFastDiffBaselineIsCurrent(baseline));
+    () => libraryFindingDiffAnyBaselineIsCurrent(baseline));
   render();
 }
 
 // Outside Library Compare, Type cues come from the last-patch baseline;
 // inside it, from the Compare result for the user's target.
-function libraryFastDiffCueSource() {
+function libraryFindingDiffAnyCueSource() {
   if (currentCompareSubject() !== null) return null;
-  const baseline = currentLibraryFastDiffBaseline();
+  const baseline = currentLibraryFindingDiffAnyBaseline();
   if (!baseline) return null;
-  return { baseline, entry: libraryFastDiff.entry(baseline) };
+  return { baseline, entry: libraryFindingDiffAny.entry(baseline) };
 }
 
 function scheduleTypeHeat() {
@@ -9498,7 +9492,7 @@ function render(options: RenderOptions = {}) {
     schedulePackageDocumentTitles();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
-    scheduleLibraryFastDiff();
+    scheduleLibraryFindingDiffAny();
     memberDiffExplorer.afterRender(
       document.querySelector<HTMLElement>("#compare-title")
         ?? document.querySelector<HTMLElement>("main h1"),
@@ -10855,9 +10849,9 @@ function renderTypeNavPane(
 ) {
   const definingLibraries = aggregateTypeLibraryLabels();
   const diffPresence = libraryApiDiffPresence(state.libraryApiDiff);
-  const fastDiffCues = libraryFastDiffCueSource();
-  const fastDiffTypes = fastDiffCues?.entry?.status === "ready"
-    ? fastDiffCues.entry.value
+  const findingDiffAnyCues = libraryFindingDiffAnyCueSource();
+  const findingDiffAnyTypes = findingDiffAnyCues?.entry?.status === "ready"
+    ? findingDiffAnyCues.entry.value
     : null;
   const { definitions, forwarders } =
     accessibilityScopedTypeSelectorDefinitions();
@@ -10918,10 +10912,10 @@ function renderTypeNavPane(
       if (isForwardedType(item)) return [];
       const presentation = currentTypeLeveragePresentation(item);
       const identifier = item.definitionId ?? item.id;
-      const diff = fastDiffCues
-        ? libraryFastDiffAchievement(
-            fastDiffTypes?.get(identifier),
-            fastDiffCues.baseline.targetVersion)
+      const diff = findingDiffAnyCues
+        ? libraryFindingDiffAnyAchievement(
+            findingDiffAnyTypes?.get(identifier),
+            findingDiffAnyCues.baseline.targetVersion)
         : diffPresence.typeIdentifiers.has(identifier)
           ? typeApiDiffAchievement
           : null;
@@ -10930,10 +10924,10 @@ function renderTypeNavPane(
         diff);
     },
     statusHtml: platformForwarderInventoryStatus()
-      + (fastDiffCues
-        ? renderLibraryFastDiffStatus(
-            fastDiffCues.entry,
-            fastDiffCues.baseline.targetVersion,
+      + (findingDiffAnyCues
+        ? renderLibraryFindingDiffAnyStatus(
+            findingDiffAnyCues.entry,
+            findingDiffAnyCues.baseline.targetVersion,
             escapeHtml)
         : ""),
   });
@@ -11210,7 +11204,7 @@ function packageLensBody() {
     case "vulnerabilities": {
       const pkg = currentPackage();
       const vulnerabilityState = state.packageVulnerabilities;
-      const fresh = packageVulnerabilityStateKey(vulnerabilityState)
+      const fresh = packageInspectionRequestStateKey(vulnerabilityState)
         === packageVulnerabilitiesSignature();
       return renderPackageVulnerabilities({
         packageId: pkg.id,
@@ -11267,6 +11261,12 @@ function packageDependenciesSignature() {
   const pkg = currentPackage();
   const library = selectedLibraryShareKey();
   return `${pkg.id}@${pkg.version}/${pkg.activeFramework}#${library || pkg.assemblyId}`;
+}
+
+function packageDependenciesData(): BrowserPackageDependencies | null {
+  return state.packageDependencies.status === "ready"
+    ? state.packageDependencies.result
+    : null;
 }
 
 function renderPackageDependenciesSurface(content: string, status: string) {
@@ -11358,18 +11358,21 @@ function packageVulnerabilitiesSignature() {
 
 function renderPackageDependencies() {
   const current = packageDependenciesSignature();
-  const fresh = state.packageDependenciesKey === current;
-  if (state.packageDependenciesLoading && fresh) {
+  const dependenciesState = state.packageDependencies;
+  const fresh = packageInspectionRequestStateKey(dependenciesState) === current;
+  if (dependenciesState.status === "loading" && fresh) {
     return renderPackageDependenciesSurface(
       `<section data-dependency-graph-surface class="document-section package-dependencies-state source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest.</p></section>`,
       "reading");
   }
-  if (fresh && state.packageDependenciesError) {
+  if (dependenciesState.status === "failed" && fresh) {
     return renderPackageDependenciesSurface(
-      `<section data-dependency-graph-surface class="document-section package-dependencies-state empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`,
+      `<section data-dependency-graph-surface class="document-section package-dependencies-state empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(dependenciesState.error)}</p></section>`,
       "query failed");
   }
-  const data = fresh ? state.packageDependencies : null;
+  const data = fresh && dependenciesState.status === "ready"
+    ? dependenciesState.result
+    : null;
   if (!data) {
     return renderPackageDependenciesSurface(
       `<section data-dependency-graph-surface class="document-section package-dependencies-state empty-document"><span class="loader"></span><h2>Loading…</h2></section>`,
@@ -11507,14 +11510,17 @@ function libraryReferencePackageIcon(pkg: AppPackage | null | undefined): string
 
 function renderLibraryReferences() {
   const current = packageDependenciesSignature();
-  const fresh = state.packageDependenciesKey === current;
+  const dependenciesState = state.packageDependencies;
+  const fresh = packageInspectionRequestStateKey(dependenciesState) === current;
+  const data = fresh && dependenciesState.status === "ready"
+    ? dependenciesState.result
+    : null;
   const library = selectedLibrary();
   const pkg = currentPackage();
   const references =
-    fresh && state.packageDependencies
-      && state.packageDependencies.assemblyReferences
-      && typeof state.packageDependencies.assemblyReferences !== "string"
-      ? state.packageDependencies.assemblyReferences.references
+    data?.assemblyReferences
+      && typeof data.assemblyReferences !== "string"
+      ? data.assemblyReferences.references
       : [];
   const candidates = state.packages.flatMap(candidatePackage =>
     createWorkspaceLibraryReferenceCandidates(
@@ -11530,9 +11536,11 @@ function renderLibraryReferences() {
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
     assetPath: library?.asset ?? "",
     coordinate: `${pkg.activeFramework} · ${pkg.id}@${pkg.version}`,
-    loading: state.packageDependenciesLoading && fresh,
-    error: fresh ? state.packageDependenciesError : "",
-    data: fresh ? state.packageDependencies : null,
+    loading: dependenciesState.status === "loading" && fresh,
+    error: dependenciesState.status === "failed" && fresh
+      ? dependenciesState.error
+      : "",
+    data,
     referenceDestinations,
     referenceIcons: referenceDestinations.map(destination => {
       const candidatePackage = destination
@@ -11551,7 +11559,7 @@ const referenceSupplierRequests = new WeakMap<
 async function renderLibraryReferenceIcons() {
   const container = document.querySelector<HTMLElement>(
     ".library-references-surface .reference-list-section");
-  const data = state.packageDependencies;
+  const data = packageDependenciesData();
   const references = data?.assemblyReferences;
   if (!container || !data || !references || typeof references === "string") return;
   const candidates = state.packages.flatMap(candidatePackage =>
@@ -11567,7 +11575,7 @@ async function renderLibraryReferenceIcons() {
   const signature = packageDependenciesSignature();
   const isCurrent = () =>
     document.querySelector(".library-references-surface .reference-list-section") === container
-    && state.packageDependencies === data
+    && packageDependenciesData() === data
     && packageDependenciesSignature() === signature;
   let next = 0;
   const loadNext = async () => {
@@ -11746,7 +11754,7 @@ function dependencyListSectionHtml(
 async function renderPackageDependencyList() {
   const container = document.querySelector<HTMLElement>("#dep-list-section");
   if (!container || container.dataset.dependencyMatchState !== "pending") return;
-  const data = state.packageDependencies;
+  const data = packageDependenciesData();
   const groups = data?.dependencyGroups || [];
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
   const group = groups.find(candidate => candidate.index === selectedGroupIndex) || groups[0];
@@ -11755,7 +11763,7 @@ async function renderPackageDependencyList() {
   const coordinates = JSON.stringify(dependencyCoordinateCandidates(packages));
   const isCurrent = () =>
     document.querySelector("#dep-list-section") === container
-    && state.packageDependencies === data
+    && packageDependenciesData() === data
     && resolveDependenciesGroupIndex(groups) === selectedGroupIndex
     && JSON.stringify(dependencyCoordinateCandidates(state.packages)) === coordinates;
   container.dataset.dependencyMatchState = "loading";
@@ -11801,7 +11809,7 @@ async function renderPackageDependencyIcons(
   const signature = packageDependenciesSignature();
   const isCurrent = () =>
     document.querySelector("#dep-list-section") === container
-    && state.packageDependencies === data
+    && packageDependenciesData() === data
     && packageDependenciesSignature() === signature
     && resolveDependenciesGroupIndex(groups) === selectedGroupIndex;
   let next = 0;
@@ -11854,7 +11862,7 @@ async function renderPackageDependencyIcons(
 // toggle the active chip, swap the dependency list in place, and let renderDependencyGraph
 // swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
 function patchDependenciesGroup() {
-  const data = state.packageDependencies;
+  const data = packageDependenciesData();
   const groups = data?.dependencyGroups || [];
   const listSection = document.querySelector<HTMLElement>("#dep-list-section");
   const status =
@@ -12045,12 +12053,14 @@ function maybeAutoLoadPackageDependencies() {
     state.atLibraryRoot && state.libraryLens === "references";
   if (!packageDependencies && !libraryReferences) return;
   if (libraryReferences && aggregateLibrarySubjectIsActive()) return;
-  if (state.packageDependenciesKey === packageDependenciesSignature()) {
-    if (packageDependencies && state.packageDependencies) {
+  const dependenciesState = state.packageDependencies;
+  if (packageInspectionRequestStateKey(dependenciesState)
+    === packageDependenciesSignature()) {
+    if (packageDependencies && dependenciesState.status === "ready") {
       observeAsync(renderPackageDependencyList(), "Matching dependency packages");
       observeAsync(renderDependencyGraph(), "Rendering the dependency graph");
       observeAsync(ensureWorkspaceDependencies(), "Loading workspace dependencies");
-    } else if (libraryReferences && state.packageDependencies) {
+    } else if (libraryReferences && dependenciesState.status === "ready") {
       observeAsync(
         renderLibraryReferenceGraph(),
         "Rendering the assembly-reference graph");
@@ -12100,7 +12110,7 @@ function maybeAutoLoadPackageVulnerabilities() {
     || state.packageLens !== "vulnerabilities"
     || state.package?.source.kind !== "nuget.org") return;
   const signature = packageVulnerabilitiesSignature();
-  if (packageVulnerabilityStateKey(state.packageVulnerabilities)
+  if (packageInspectionRequestStateKey(state.packageVulnerabilities)
     === signature) return;
   observeAsync(
     packageInspection.loadVulnerabilities(
@@ -12145,7 +12155,7 @@ function renderPackageIntegrations() {
   const current = packageIntegrationsSignature();
   const integrationsState = state.packageIntegrations;
   const opportunitiesState = state.packageOpportunities;
-  const fresh = packageIntegrationsStateKey(integrationsState) === current;
+  const fresh = packageInspectionRequestStateKey(integrationsState) === current;
   return renderLibraryIntegrationsSurface({
     libraryName: library?.name ?? "",
     assemblyIdentity: library ? libraryIdentity(library) : "No library selected",
@@ -12164,7 +12174,7 @@ function renderPackageIntegrations() {
       ? integrationsState.result
       : null,
     suggestionsFresh:
-      packageOpportunitiesStateKey(opportunitiesState) === current,
+      packageInspectionRequestStateKey(opportunitiesState) === current,
     suggestionsLoading: opportunitiesState.status === "loading",
     suggestionsError: opportunitiesState.status === "failed"
       ? opportunitiesState.error
@@ -12181,8 +12191,8 @@ async function loadPackageIntegrations() {
   const scopedLib = selectedLibraryRequest() || null;
   const signature = packageIntegrationsSignature();
   if (startingPackageIntegrations
-    || (packageIntegrationsStateKey(state.packageIntegrations) === signature
-      && packageOpportunitiesStateKey(state.packageOpportunities)
+    || (packageInspectionRequestStateKey(state.packageIntegrations) === signature
+      && packageInspectionRequestStateKey(state.packageOpportunities)
         === signature)) return;
   let integrationsLoad: Promise<void>;
   let suggestionsLoad: Promise<void>;
@@ -12204,8 +12214,8 @@ function maybeAutoLoadPackageIntegrations() {
   if (state.analysisMode !== "integrations") return;
   const signature = packageIntegrationsSignature();
   if (startingPackageIntegrations) return;
-  if (packageIntegrationsStateKey(state.packageIntegrations) === signature
-    && packageOpportunitiesStateKey(state.packageOpportunities)
+  if (packageInspectionRequestStateKey(state.packageIntegrations) === signature
+    && packageInspectionRequestStateKey(state.packageOpportunities)
       === signature) return;
   observeAsync(loadPackageIntegrations(), "Loading package integrations");
 }
@@ -12432,7 +12442,7 @@ function renderPackageMetadata() {
   const isPlatform = pkg.isRuntimePack;
   const metadataState = state.packageMetadata;
   const fresh =
-    packageMetadataStateKey(metadataState) === packageScopeSignature();
+    packageInspectionRequestStateKey(metadataState) === packageScopeSignature();
   const scopedLibrary = selectedLibraryName();
   const platformMetadataSelect = isPlatform && state.rootKind !== "platform"
     ? platformLibrarySelectHtml({
@@ -12485,7 +12495,7 @@ function maybeAutoLoadPackageMetadata() {
   if (!state.atLibraryRoot || state.libraryLens !== "metadata") return;
   if (aggregateLibrarySubjectIsActive()) return;
   if (Boolean(state.package?.isRuntimePack) && !scopedPlatformLibrary()) return;
-  if (packageMetadataStateKey(state.packageMetadata)
+  if (packageInspectionRequestStateKey(state.packageMetadata)
       === packageScopeSignature()) return;
   observeAsync(loadPackageMetadata(), "Loading package metadata");
 }
@@ -15593,8 +15603,8 @@ function bindWorkspaceSubjectEvents() {
   });
 }
 
-function bindLibraryFastDiffEvents() {
-  bindLibraryFastDiffRetry(document, retryLibraryFastDiff);
+function bindLibraryFindingDiffAnyEvents() {
+  bindLibraryFindingDiffAnyRetry(document, retryLibraryFindingDiffAny);
   bindTypeChangeActions(document, {
     compare: openTypeChangeCompare,
     retry: retryTypeApiDiffCues,
@@ -15707,7 +15717,7 @@ function bindEvents() {
   });
   bindContentFrameEvents();
   bindPlatformForwarderEvents();
-  bindLibraryFastDiffEvents();
+  bindLibraryFindingDiffAnyEvents();
   observeAsync(ensurePackageVersions(state.package), "Loading package versions");
   if (state.spotlightOpen) spotlight.bind(document, "modal");
 }
@@ -17893,7 +17903,9 @@ async function projectManagedNavigationType(
   }
 
   const admitted = await admitRetainedPackage(updatedPosting, inventory);
-  const pkg = createNuGetPackageModel(admitted.surface);
+  const pkg = createNuGetPackageModelWithDefaultLibrary(
+    admitted.surface,
+    inventory.defaultLibrary);
   const matches = pkg.types.filter(type =>
     type.definitionId === selection.definitionId
     && type.assemblyName.toLowerCase()
@@ -18251,7 +18263,7 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     && state.packageLens === "dependencies"
     && state.dependenciesGroupIndex !== null) {
     const selectedDependencyGroup =
-      state.packageDependencies?.dependencyGroups.find(
+      packageDependenciesData()?.dependencyGroups.find(
         group => group.index === state.dependenciesGroupIndex);
     if (selectedDependencyGroup && !selectedDependencyGroup.isActive) {
       throw new Error(
@@ -23462,12 +23474,13 @@ async function renderDependencyGraph() {
     document.querySelector<HTMLElement>("#dependency-graph-diagram");
   if (!container) return;
   const pending = createDependencyGraphPendingState(container.dataset);
-  const groups = state.packageDependencies?.dependencyGroups || [];
+  const data = packageDependenciesData();
+  const groups = data?.dependencyGroups || [];
   const selectedGroupIndex = resolveDependenciesGroupIndex(groups);
-  const platformReferences = state.packageDependencies
+  const platformReferences = data
     ? platformReferencesForDependencyGroup(
-        state.packageDependencies.platformReferences,
-        state.packageDependencies.defaultPlatformReference,
+        data.platformReferences,
+        data.defaultPlatformReference,
         groups,
         selectedGroupIndex,
       )
@@ -23480,9 +23493,9 @@ async function renderDependencyGraph() {
   const pkg = state.package;
   if (!pkg) return;
   const packages = state.packages.map(candidate => ({ ...candidate }));
-  const packageDependencies = state.packageDependencies
+  const packageDependencies = data
     ? {
-        ...state.packageDependencies,
+        ...data,
         platformReferences,
       }
     : null;
@@ -23720,7 +23733,7 @@ async function renderLibraryReferenceGraph() {
   const container =
     document.querySelector<HTMLElement>("#library-reference-graph-diagram");
   if (!container) return;
-  const assemblyReferences = state.packageDependencies?.assemblyReferences;
+  const assemblyReferences = packageDependenciesData()?.assemblyReferences;
   if (!assemblyReferences || typeof assemblyReferences === "string") {
     libraryReferenceGraphRenderSequence.invalidate();
     return;
@@ -24418,10 +24431,9 @@ function dependencyGraphAvailable() {
     return state.packageHierarchyKey === packageHierarchySignature()
       && !state.packageHierarchyLoading && !state.packageHierarchyError
       && Boolean(state.packageHierarchy?.rows.length);
-  return state.packageDependenciesKey === packageDependenciesSignature()
-    && !state.packageDependenciesLoading
-    && !state.packageDependenciesError
-    && Boolean(state.packageDependencies?.dependencyGroups?.length);
+  return packageInspectionRequestStateKey(state.packageDependencies)
+    === packageDependenciesSignature()
+    && Boolean(packageDependenciesData()?.dependencyGroups.length);
 }
 
 function typeGraphAvailable() {

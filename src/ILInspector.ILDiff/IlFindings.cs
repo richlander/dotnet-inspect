@@ -37,10 +37,15 @@ public static class IlFindings
     /// Inspects one method body into a complete census, an absent-body state, or a canonicalization
     /// failure. A null body represents a method with no IL body, such as an abstract or extern method.
     /// </summary>
+    /// <param name="normalization">
+    /// The normalization the census is taken under; a consumer's named policy,
+    /// such as Finding Diff Any's Body policy, or none.
+    /// </param>
     public static FindingInspection<CanonicalIlOperation> Inspect(
         MethodInstructions? body,
         MetadataReader? reader,
-        FindingSubject subject)
+        FindingSubject subject,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(subject);
 
@@ -48,17 +53,21 @@ public static class IlFindings
             return new FindingInspection<CanonicalIlOperation>.Absent(
                 FindingInspectionAbsenceKind.NoApplicableInput,
                 "Method has no IL body.");
-        if (body.IsComplete && body.Instructions.Length > MaxCanonicalOperations)
+        // The census holds one atom per instruction and one per exception
+        // clause, so the bound counts both.
+        int atoms = body.IsComplete ? body.Instructions.Length + body.Blocks.Regions.Length : 0;
+        if (atoms > MaxCanonicalOperations)
         {
             return new FindingInspection<CanonicalIlOperation>.Failed(
                 new InspectionError(
                     subject,
                     InspectionDescriptor,
-                    $"IL inspection skipped: body has {body.Instructions.Length:N0} canonical operations; " +
+                    $"IL inspection skipped: body has {atoms:N0} canonical operations " +
+                    $"({body.Instructions.Length:N0} instructions and {body.Blocks.Regions.Length:N0} exception clauses); " +
                     $"limit is {MaxCanonicalOperations:N0}."));
         }
 
-        if (!IlBodyDiff.TryCanonicalize(body, reader, out var operations, out var failure))
+        if (!IlBodyDiff.TryCanonicalize(body, reader, normalization, out var operations, out var failure))
         {
             return new FindingInspection<CanonicalIlOperation>.Failed(
                 new InspectionError(
@@ -77,12 +86,13 @@ public static class IlFindings
         MethodInstructions? newBody,
         MetadataReader? newReader,
         FindingSubject subject,
-        int acceptanceThreshold = 100)
+        int acceptanceThreshold = 100,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(subject);
 
-        var oldInspection = Inspect(oldBody, oldReader, subject);
-        var newInspection = Inspect(newBody, newReader, subject);
+        var oldInspection = Inspect(oldBody, oldReader, subject, normalization);
+        var newInspection = Inspect(newBody, newReader, subject, normalization);
         return CompareInspections(
             oldInspection,
             newInspection,
@@ -98,7 +108,8 @@ public static class IlFindings
         PEReader pe,
         MetadataReader reader,
         MethodDefinitionHandle method,
-        FindingSubject subject)
+        FindingSubject subject,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(pe);
         ArgumentNullException.ThrowIfNull(reader);
@@ -106,7 +117,7 @@ public static class IlFindings
         if (method.IsNil)
             throw new ArgumentException("Method handle must not be nil.", nameof(method));
 
-        return InspectMethod(pe, reader, method, subject, out _, out _);
+        return InspectMethod(pe, reader, method, subject, out _, out _, normalization);
     }
 
     /// <summary>
@@ -136,7 +147,8 @@ public static class IlFindings
         MetadataReader newReader,
         MethodDefinitionHandle newMethod,
         FindingSubject subject,
-        int acceptanceThreshold = 100)
+        int acceptanceThreshold = 100,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         ArgumentNullException.ThrowIfNull(oldPe);
         ArgumentNullException.ThrowIfNull(oldReader);
@@ -154,14 +166,16 @@ public static class IlFindings
             oldMethod,
             subject,
             out var oldBody,
-            out _);
+            out _,
+            normalization);
         var newInspection = InspectMethod(
             newPe,
             newReader,
             newMethod,
             subject,
             out var newBody,
-            out _);
+            out _,
+            normalization);
         return CompareInspections(
             oldInspection,
             newInspection,
@@ -205,7 +219,8 @@ public static class IlFindings
         MethodDefinitionHandle methodHandle,
         FindingSubject subject,
         out MethodInstructions? body,
-        out MethodBodyBlock? methodBody)
+        out MethodBodyBlock? methodBody,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         body = null;
         methodBody = null;
@@ -213,11 +228,11 @@ public static class IlFindings
         {
             var method = reader.GetMethodDefinition(methodHandle);
             if (method.RelativeVirtualAddress == 0)
-                return Inspect(null, reader, subject);
+                return Inspect(null, reader, subject, normalization);
 
             methodBody = pe.GetMethodBody(method.RelativeVirtualAddress);
             body = MethodInstructions.Decode(methodBody);
-            return Inspect(body, reader, subject);
+            return Inspect(body, reader, subject, normalization);
         }
         catch (Exception ex) when (ex is BadImageFormatException
             or InvalidOperationException
@@ -229,9 +244,10 @@ public static class IlFindings
         }
     }
 
-    // IdentityKey deliberately ignores a branch/switch operation's targets (matching CanonicalEquals),
-    // so a matched branch whose target was retargeted would otherwise read as unchanged. Reuse
-    // IlBodyDiff's own alignment map and branch-target decision verbatim (not a reimplementation),
+    // IdentityKey deliberately ignores an operation's targets (matching CanonicalEquals): a branch's
+    // target, a switch's arms, and an exception clause's extents. A matched branch whose target was
+    // retargeted, or a clause whose extent moved, would otherwise read as unchanged. Reuse
+    // IlBodyDiff's own alignment map and target decision verbatim (not a reimplementation),
     // then overlay the finding Moved mappings so a branch that targets a relocated instruction is
     // judged in the finding frame (its target moved with it) rather than being falsely retargeted.
     // On move-free inputs there are no Moved pairs, so the map is exactly IlBodyDiff's.
@@ -253,11 +269,13 @@ public static class IlFindings
         foreach (var pair in pairs)
         {
             if (pair is PairFinding<CanonicalIlOperation>.Present present
-                && !IlBodyDiff.BranchTargetsMatch(
-                    oldInstructions,
+                && !IlBodyDiff.TargetsMatch(
+                    oldOps,
                     RequiredOrdinal(present.Old),
-                    newInstructions,
+                    oldInstructions,
+                    newOps,
                     RequiredOrdinal(present.New),
+                    newInstructions,
                     alignment))
             {
                 // A moved-and-retargeted operation keeps its move Detail; append the retarget so
@@ -267,7 +285,7 @@ public static class IlFindings
                     present.Old,
                     present.New,
                     present.Difference,
-                    present.Detail is null ? "branch retargeted" : $"{present.Detail}; branch retargeted"));
+                    present.Detail is null ? MovedTargetDetail(present.Old) : $"{present.Detail}; {MovedTargetDetail(present.Old)}"));
             }
             else
             {
@@ -277,6 +295,9 @@ public static class IlFindings
 
         return builder.ToImmutable();
     }
+
+    static string MovedTargetDetail(Finding<CanonicalIlOperation> finding)
+        => finding.Payload.IsExceptionClause ? "clause extent moved" : "branch retargeted";
 
     static int RequiredOrdinal(Finding<CanonicalIlOperation> finding)
         => finding.Ordinal

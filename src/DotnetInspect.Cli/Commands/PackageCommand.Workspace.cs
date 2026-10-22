@@ -17,6 +17,8 @@ public sealed record WorkspacePackageInspectionContent(
 
 public partial class PackageCommand
 {
+    internal static ViewFacetId SavedLibrariesFacet => ExactPackageLibrariesFacet;
+
     static readonly ViewFacetId ExactPackageLibrariesFacet =
         InspectionViewFacetCatalog.Registry
             .GetRequiredDescriptor(
@@ -37,6 +39,39 @@ public partial class PackageCommand
         IsPackageChildrenProjection(options)
             ? ExactPackageLibrariesFacet
             : ExactPackageOverviewFacet;
+
+    internal static async ValueTask<int> ExecuteSavedLibrariesAsync(
+        WorkspaceOptions presentation,
+        CompleteRestorationSelectedSubject target,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (target is not CompleteRestorationSelectedSubject.Package package
+            || package.Lens.Facet != ExactPackageLibrariesFacet
+            || package.Queries.Length != 0)
+        {
+            CommandError.Write("The saved subject has no Package Libraries execution binding.");
+            return 1;
+        }
+
+        // The label feeds ordinary presentation only; the exact Root supplies content.
+        var options = new InspectionOptions
+        {
+            PackageArgs = [package.Root.Root.PackageId],
+            Format = presentation.Format,
+            JsonOutput = presentation.Format == OutputFormat.Json,
+            Count = presentation.Count,
+            Rows = presentation.Rows,
+            NoHeader = presentation.NoHeader,
+            Verbose = presentation.Verbose,
+            CompanionOutput = CompanionOutput.None,
+        };
+        WorkspacePackageInspectionContent result = await ExecuteAdmittedPackageAsync(
+            options, new CommandContext(presentation.Verbose), package.Root,
+            contextTargetFramework: package.Root.Coordinate.Framework).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        return result.ExitCode;
+    }
 
     static async Task<int> ExecuteWorkspaceExactPackageAsync(
         InspectionOptions options,
@@ -237,7 +272,8 @@ public partial class PackageCommand
         CommandContext context,
         PackageRootBinding root,
         string? contextTargetFramework,
-        bool exactReference = false)
+        bool exactReference = false,
+        ConfiguredPackagePayloadResult? acquisition = null)
     {
         string? temporaryPath = null;
         try
@@ -254,7 +290,9 @@ public partial class PackageCommand
                 contextTargetFramework
                 ?? root.Root.RequestedTargetFramework
                 ?? root.Root.AssetSelection.TargetFramework;
-            InspectionOptions ordinaryOptions = options with
+            InspectionOptions ordinaryOptions = acquisition is not null
+                ? options
+                : options with
             {
                 WorkspacePacket = null,
                 ShareFormat = null,
@@ -279,17 +317,27 @@ public partial class PackageCommand
             int exitCode = await ExecuteCoreAsync(
                 ordinaryOptions,
                 context,
-                workspaceResolution.Resolution,
+                acquisition is null
+                    ? workspaceResolution.Resolution
+                    : PackageExtractionResult.FromAcquisition(acquisition),
                 root,
                 workspaceResolution.ManifestBytes,
                 () => PackageInfoMeasurementInspection.ProjectAdmittedRoot(
                     root,
                     workspaceResolution.ManifestBytes,
-                    ordinaryOptions.Tfm),
-                () => PackageEcosystemDependencyRecognitionInspection
-                    .ExecuteAsync(
-                        root,
-                        ordinaryOptions.Tfm),
+                    ordinaryOptions.Tfm?.Equals(
+                        "all",
+                        StringComparison.OrdinalIgnoreCase) == true
+                            ? null
+                            : ordinaryOptions.Tfm),
+                () => acquisition?.HouseSettlement
+                        is PackageHouseSettlement.Acquired settlement
+                    ? PackageEcosystemDependencyRecognitionInspection
+                        .ExecuteAsync(settlement)
+                    : PackageEcosystemDependencyRecognitionInspection
+                        .ExecuteAsync(
+                            root,
+                            ordinaryOptions.Tfm),
                 result => inspection = result,
                 workspaceLoadOptions: null).ConfigureAwait(false);
             return new(inspection, exitCode);

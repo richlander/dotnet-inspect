@@ -9,7 +9,7 @@ using QuerySpace.Vocabulary;
 
 namespace DotnetInspector.Sections;
 
-public sealed class ResourceExplanationCatalog
+public sealed partial class ResourceExplanationCatalog
 {
     private readonly ImmutableArray<ExplanationSchema> _schemas;
     private readonly ImmutableArray<CatalogResource> _catalogResources;
@@ -1060,10 +1060,7 @@ public sealed class ResourceExplanationCatalog
         }
 
         var collectionPath = new ResourcePath(AnalysesCollectionSegment);
-        ExplanationResourceKey collectionKey =
-            ResourceExplanationVocabulary.Key(
-                ResourceExplanationVocabulary.NavigationCollectionType,
-                Pack("analysis-collection"));
+        ExplanationResourceKey collectionKey = AnalysesCollectionKey;
         var analysisKeys = catalog.Analyses.ToDictionary(
             static registration => registration,
             registration => ResourceExplanationVocabulary.Key(
@@ -1205,10 +1202,7 @@ public sealed class ResourceExplanationCatalog
             .ToHashSet(StringComparer.Ordinal);
 
         var collectionPath = new ResourcePath(VocabulariesCollectionSegment);
-        ExplanationResourceKey collectionKey =
-            ResourceExplanationVocabulary.Key(
-                ResourceExplanationVocabulary.NavigationCollectionType,
-                Pack("vocabulary-collection"));
+        ExplanationResourceKey collectionKey = VocabulariesCollectionKey;
         var snapshots = new List<ExplanationResourceSnapshot>
         {
             NavigationSnapshot(

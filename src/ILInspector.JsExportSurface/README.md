@@ -316,13 +316,19 @@ publishes:
   a metadata surface cannot be composed with bodies read separately from
   different content.
 
-Two boundaries are deliberately *not* claimed. The wrapper's pointer and byref
-argument marshaling is out of scope: publication proves the chain is reachable
-and correctly named, shaped, and described, not that each `JSMarshalerArgument`
-slot is threaded correctly inside the generated stub. And the descriptor check
-compares the generated descriptor graph against the export's managed signature
-through a compatibility table; it is not a reimplementation of the runtime's
-`JSExportGenerator`. An export whose managed type that table does not recognize
+Pointer-bearing public signatures are rejected before wrapper publication,
+independently of whether C# marks their caller contract unsafe. Safe,
+pointerless contracts remain eligible when their implementations use inner
+unsafe code because that obligation does not propagate to JavaScript callers.
+
+Two lower-level boundaries are deliberately *not* claimed. Byref argument
+marshaling inside the wrapper is out of scope: publication proves the chain is
+reachable and correctly named, shaped, and described, not that each
+`JSMarshalerArgument` slot is threaded correctly inside the generated stub.
+And the descriptor check compares the generated descriptor graph against the
+export's managed signature through a compatibility table; it is not a
+reimplementation of the runtime's `JSExportGenerator`. An export whose managed
+type that table does not recognize
 — such as a custom delegate definition or an unsupported `[JSMarshalAs]`
 override — fails visibly rather than being published on weaker evidence. The
 SDK source generator itself rejects a Promise-returning
