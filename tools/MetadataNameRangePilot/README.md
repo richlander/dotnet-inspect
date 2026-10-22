@@ -156,10 +156,11 @@ Thirty rotated NativeAOT rounds on the three accepted assets found:
 All terminal match operations allocated zero bytes. The checked dense ordinal
 still pays repeated slice validation. The validated owner removes that cost
 and demonstrates the intended result: when ordinal position is implicit, one
-offset per value can retain about 39% to 46% less owned payload than an
-8-byte slot while remaining within 5% of range match latency. Five
-asset/scope cells were statistically inconclusive around parity; the complete
-CoreLib census measured a small 5% loss.
+offset per value can retain about 39% to 46% less owned payload than a
+retained range and 18% to 22% less than an 8-byte slot while remaining within
+5% of range match latency. Five asset/scope cells were statistically
+inconclusive around parity; the complete CoreLib census measured a small 5%
+loss.
 
 An explicit index changes that conclusion. One 4-byte handle per occurrence
 plus one 4-byte offset per value has essentially the same payload as one
