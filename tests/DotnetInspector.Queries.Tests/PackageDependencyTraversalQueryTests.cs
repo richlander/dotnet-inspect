@@ -340,8 +340,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
             outcome.Projections[boundary.ProjectionIndex].NodeIndex);
     }
 
-    [Fact]
-    public async Task Traversal_EquivalentCandidateAcquisitionIsSingleFlight()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Traversal_EquivalentCandidateAcquisitionIsSingleFlight(
+        int maximumConcurrentSteps)
     {
         var issuer = new PackageAcquisitionCandidateIssuer();
         PackageSourceAuthorization authorization = Authorize("authority-a");
@@ -368,7 +371,9 @@ public sealed partial class PackageDependencyTraversalQueryTests
         var acquirer = new StubManifestAcquirer();
         acquirer.SetManifest(shared, ManifestBytes("shared", "1.0.0", ""));
 
-        await ExecuteAsync([rootA, rootB], resolver, acquirer);
+        await ExecuteAsync(
+            [rootA, rootB], resolver, acquirer,
+            maximumConcurrentSteps: maximumConcurrentSteps);
 
         Assert.Equal(1, acquirer.CallCount);
     }
@@ -799,8 +804,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
         Assert.True(outcome.IsComplete);
     }
 
-    [Fact]
-    public async Task Traversal_WorkBudgetRetainsUnprocessedFrontier()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Traversal_WorkBudgetRetainsUnprocessedFrontier(
+        int maximumConcurrentSteps)
     {
         PackageDependencyTraversalRootOccurrence root = Root(
             "roota",
@@ -820,7 +828,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
             [root],
             resolver,
             acquirer,
-            maxDeclarationResolutions: 1);
+            maxDeclarationResolutions: 1,
+            maximumConcurrentSteps: maximumConcurrentSteps);
 
         Assert.Equal(1, resolver.CallCount);
         PackageDependencyTraversalWorkBudgetNode budgetNode =
@@ -850,7 +859,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
             [root],
             resolver2,
             acquirer2,
-            maxManifestProjections: 0);
+            maxManifestProjections: 0,
+            maximumConcurrentSteps: maximumConcurrentSteps);
 
         Assert.Equal(0, acquirer2.CallCount);
         PackageDependencyTraversalFailure frontierFailure = Assert.Single(
@@ -956,8 +966,11 @@ public sealed partial class PackageDependencyTraversalQueryTests
         Assert.Equal(cancellation.Token, exception.CancellationToken);
     }
 
-    [Fact]
-    public async Task Traversal_SourceCompletionOrderDoesNotAffectResult()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Traversal_SourceCompletionOrderDoesNotAffectResult(
+        int maximumConcurrentSteps)
     {
         PackageDependencyTraversalRootOccurrence root = Root(
             "roota",
@@ -980,7 +993,9 @@ public sealed partial class PackageDependencyTraversalQueryTests
             var acquirer = new StubManifestAcquirer();
             acquirer.SetManifest(first, ManifestBytes("first", "1.0.0", ""));
             acquirer.SetManifest(second, ManifestBytes("second", "1.0.0", ""));
-            return await ExecuteAsync([root], resolver, acquirer);
+            return await ExecuteAsync(
+                [root], resolver, acquirer,
+                maximumConcurrentSteps: maximumConcurrentSteps);
         }
 
         PackageDependencyTraversalOutcome firstSlow = await RunAsync(
@@ -1795,13 +1810,15 @@ public sealed partial class PackageDependencyTraversalQueryTests
         int maxManifestProjections = DefaultManifestBudget,
         int maxDeclarationResolutions = DefaultDeclarationBudget,
         TraversalTargetFrameworkPolicy? traversalTargetPolicy = null,
-        PackageSourceSettlementLease? sourceLease = null)
+        PackageSourceSettlementLease? sourceLease = null,
+        int maximumConcurrentSteps = 1)
     {
         CancellationToken token = TestContext.Current.CancellationToken;
         if (sourceLease is not null)
         {
             using PackageSourceOperationLease operation =
-                sourceLease.IssueOperationLease(token);
+                sourceLease.IssueOperationLease(
+                    token, null, null, maximumConcurrentSteps);
             return await PackageDependencyTraversalQuery.ExecuteAsync(
                 BuildRequest(
                     roots,
@@ -1819,7 +1836,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
                 _ => throw new InvalidOperationException(
                     "The traversal test did not configure package-source work."));
         using PackageSourceOperationLease ownedOperation =
-            ownedLease.IssueOperationLease(token);
+            ownedLease.IssueOperationLease(
+                token, null, null, maximumConcurrentSteps);
         return await PackageDependencyTraversalQuery.ExecuteAsync(
             BuildRequest(
                 roots,
@@ -2261,6 +2279,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
 
         public bool DelayManifestBeyondOperationDeadline { get; set; }
 
+        public Func<string, Task>? BeforeManifest { get; set; }
+
         public int VersionCalls { get; private set; }
 
         public int PackageOrSymbolCalls { get; private set; }
@@ -2306,6 +2326,8 @@ public sealed partial class PackageDependencyTraversalQueryTests
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             cancellationToken.ThrowIfCancellationRequested();
+            if (BeforeManifest is { } beforeManifest)
+                await beforeManifest(packageId).ConfigureAwait(false);
             if (DelayManifestBeyondOperationDeadline)
             {
                 await Task.Delay(

@@ -105,6 +105,15 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default) =>
         IssueHouseOperation(cancellationToken);
 
+    public PackageSourceOperationLease IssueSettlementOperation(
+        CancellationToken cancellationToken,
+        int maximumConcurrentSteps) =>
+        _sourceLease.IssueOperationLease(
+            cancellationToken,
+            _options.RequestTimeout,
+            _options.OperationTimeout,
+            maximumConcurrentSteps);
+
     /// <summary>
     /// Issues a source-owned operation capped by an enclosing House duration.
     /// </summary>
