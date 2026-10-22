@@ -720,7 +720,7 @@ test("retained selection and deletion preserve initiating navigation authority",
     /const navigationSeq = navigationSequence\.begin\(\);[\s\S]*deleteManagedRetainedWorkspace\(workspaceId, navigationSeq\)/);
   assert.match(
     deleteManaged,
-    /navigationSeq: number,[\s\S]*await currentRetainedDefinitionInitialPresentation\(\s*successor,\s*navigationSeq,[\s\S]*successorInitialPresentation === null\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*isSuccessorPresentationCurrent: posting =>\s*navigationSequence\.isCurrent\(navigationSeq\)/);
+    /navigationSeq: number,[\s\S]*await currentRetainedDefinitionInitialPresentation\(\s*successor,\s*navigationSeq,[\s\S]*successorInitialPresentation === null\) return;[\s\S]*acceptSuccessor: \(\) =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*isSuccessorPresentationCurrent: posting =>\s*navigationSequence\.isCurrent\(navigationSeq\)[\s\S]*if \(!controller\.state\.definitions\.some\([\s\S]*retainedWorkspacePostings\.delete\(retainedDefinitionId\)/);
   assert.match(
     initialPresentation,
     /try \{[\s\S]*await retainedDefinitionInitialPresentation\(definition\);[\s\S]*navigationSequence\.isCurrent\(navigationSeq\) \? initial : null;[\s\S]*catch \(error\) \{\s*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return null;\s*throw error;/);

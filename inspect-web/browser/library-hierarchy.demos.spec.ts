@@ -987,8 +987,14 @@ test("superseded retained Methods deletion cannot activate its successor", async
     .toHaveAttribute("data-home-demo-prepare", platformId);
   await openProductDestination(page, "workspace");
   await expect(page.locator("[data-workspace-delete]")).toHaveCount(2);
-  await expect(page.locator(".workspace-card.active"))
+  const preservedWorkspace = page.locator(".workspace-card.active");
+  await expect(preservedWorkspace)
     .toContainText("platform Methods");
+  await preservedWorkspace.click();
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
 });
 
 for (const staleOperation of ["selection", "deletion"] as const) {

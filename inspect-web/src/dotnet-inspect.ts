@@ -3782,7 +3782,11 @@ async function deleteManagedRetainedWorkspace(
       },
     },
   );
-  retainedWorkspacePostings.delete(retainedDefinitionId);
+  if (!controller.state.definitions.some(
+    definition => definition.id === retainedDefinitionId,
+  )) {
+    retainedWorkspacePostings.delete(retainedDefinitionId);
+  }
   render({ synchronizeUrl: false });
 }
 
