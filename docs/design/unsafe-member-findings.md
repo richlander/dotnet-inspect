@@ -398,8 +398,12 @@ The scan decides a body only when all of these hold:
 - No instruction is an occurrence opcode: `calli`, `localloc`, or an
   indirect load or store.
 - Every call, `callvirt`, `newobj`, `ldftn`, and `ldvirtftn` operand resolves
-  as the full rule resolves it, through the declared Calls and call-target
-  support, and cannot be an explicit-contract call.
+  as the full rule resolves it, and cannot be an explicit-contract call. The
+  callee resolves through the declared Calls support. The target resolves
+  through call-target support only when the operand may reach the current
+  module: its definition is a MethodDef here, or its declaring type may
+  resolve here. Any other operand's target is external or runtime-provided
+  after the same callee decode, so its resolution cannot fail differently.
 
 A call operand can be an explicit-contract call in two cases:
 
