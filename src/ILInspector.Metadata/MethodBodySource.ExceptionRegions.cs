@@ -32,12 +32,22 @@ public sealed partial class MethodBodySource
     public static MethodBodyReadResult Read(
         PEReader peReader,
         int methodToken,
-        int maxILBytes)
+        int maxILBytes) =>
+        ForCallerOwnedReader(peReader).Read(methodToken, maxILBytes);
+
+    /// <summary>
+    /// A source over a caller-owned PE reader, admitted once for every read
+    /// through it.
+    /// </summary>
+    /// <remarks>
+    /// The caller retains ownership of <paramref name="peReader"/> and must keep
+    /// it alive while it uses the source. Each read returns detached evidence,
+    /// as <see cref="Read(PEReader, int)"/> does.
+    /// </remarks>
+    public static MethodBodySource ForCallerOwnedReader(PEReader peReader)
     {
         ArgumentNullException.ThrowIfNull(peReader);
-        return new MethodBodySource(
-            peReader,
-            static () => { }).Read(methodToken, maxILBytes);
+        return new MethodBodySource(peReader, static () => { });
     }
 
     /// <summary>

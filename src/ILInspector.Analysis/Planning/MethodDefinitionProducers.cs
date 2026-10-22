@@ -1355,6 +1355,7 @@ internal struct MethodDefinitionUnit(
     MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
     MethodAnalysisSupport? _methodAnalysis;
+    MethodBodySource? _bodySource;
     MethodSemanticIdentityResult? _semanticIdentityResult;
     MethodSemanticIdentityWork _semanticIdentityWork;
     MethodDefinitionSourceCoverageBuilder? _semanticIdentityReadBy;
@@ -1854,7 +1855,8 @@ internal struct MethodDefinitionUnit(
             return _bodyData;
 
         int token = MetadataTokens.GetToken(MethodHandle);
-        _bodyData = MethodBodySource.Read(_peReader, token) switch
+        _bodySource ??= MethodBodySource.ForCallerOwnedReader(_peReader);
+        _bodyData = _bodySource.Read(token) switch
         {
             MethodBodyReadResult.Available available =>
                 available.Body,
