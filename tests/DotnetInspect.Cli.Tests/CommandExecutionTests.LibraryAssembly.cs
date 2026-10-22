@@ -4630,7 +4630,7 @@ public partial class CommandExecutionTests
             OptimizationOpportunitiesQuery.Definition,
             ResourceTriageQuery.Definition,
             TopLeverageQuery.Definition,
-            UnsafeEvidenceQuery.Definition,
+            UnsafeMemberCensusQuery.Definition,
         ];
         InspectionQueryDefinition[] liveNetworkQueries =
         [

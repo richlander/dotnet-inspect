@@ -136,7 +136,8 @@ public abstract record UnsafeEvidencePresenceResult
 }
 
 /// <summary>
-/// Stops at the first unsafe finding without materializing the complete unsafe-evidence census.
+/// Stops at the first method definition with an unsafe member census role,
+/// without materializing the census.
 /// </summary>
 public static class UnsafeEvidencePresenceQuery
 {
@@ -323,7 +324,7 @@ public static class UnsafeEvidencePresenceQuery
 
         return new UnsafeEvidencePresenceRequestResolution.Accepted(
             resolution.Plan,
-            UnsafeEvidencePresence.Description);
+            UnsafeMemberPresence.Description);
     }
 
     public static UnsafeEvidencePresenceResult Execute(
@@ -352,7 +353,7 @@ public static class UnsafeEvidencePresenceQuery
         MethodDefinitionSourceBreadth breadth) =>
         MethodDefinitionSourceRequest<int>.Create(
             OwnerPlan.Work,
-            UnsafeEvidencePresenceProducer.Instance,
+            UnsafeMemberPresenceProducer.Instance,
             breadth);
 
     static UnsafeEvidencePresenceResult Execute(
@@ -395,7 +396,7 @@ public static class UnsafeEvidencePresenceQuery
                             peReader =>
                                 UnsafeEvidencePresence.Project(
                                     completed.Execution.ResultOf(
-                                        UnsafeEvidencePresenceProducer.Instance),
+                                        UnsafeMemberPresenceProducer.Instance),
                                     completed.Execution.WorkReceipt,
                                     peReader));
                     return inspection switch

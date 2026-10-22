@@ -897,13 +897,47 @@ public readonly ref struct MethodDefinitionView
     /// <summary>Whether the unit has a managed IL body to acquire.</summary>
     internal bool HasManagedBody =>
         _unit.MethodDefinition.RelativeVirtualAddress != 0
-        && LibraryMethodAnalysisRunner.HasManagedIlBody(
+        && MethodDefinitionShapes.HasManagedIlBody(
             _unit.MethodDefinition.ImplAttributes);
 
     /// <summary>
     /// Acquires the body layer on demand. A producer that did not declare the
     /// body layer cannot obtain it.
     /// </summary>
+    /// <summary>
+    /// The unit's Metadata-issued body evidence, read once per physical
+    /// MethodDef and shared with instruction materialization.
+    /// </summary>
+    internal MethodBodyData GetBodyData()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasBodyLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not "
+                + "declare the body layer.");
+        }
+
+        return _unit.GetBodyData();
+    }
+
+    /// <summary>
+    /// The unsafe member role scan's call-operand facts for this execution,
+    /// through the declared memory-safety contract and Calls support.
+    /// </summary>
+    internal UnsafeMemberRoleScanFacts GetUnsafeMemberRoleScanFacts()
+    {
+        MethodDefinitionExecution.ProducerState producer = Producer;
+        if (!producer.HasMemorySafetyLayer || !producer.HasCallsLayer)
+        {
+            throw new ProducerContractException(
+                $"Producer '{_owner}' did not declare "
+                + "memory-safety contract and Calls support.");
+        }
+
+        return _unit.GetUnsafeMemberRoleScanFacts();
+    }
+
     internal MethodBodyBlock GetBody()
     {
         MethodDefinitionExecution.ProducerState producer = Producer;
@@ -1734,6 +1768,13 @@ internal struct MethodDefinitionUnit(
         };
         return _bodyData;
     }
+
+    /// <summary>The declared contract support's role scan facts.</summary>
+    public readonly UnsafeMemberRoleScanFacts GetUnsafeMemberRoleScanFacts() =>
+        (_memorySafety ?? throw new InvalidOperationException(
+            "Memory-safety contract support was not declared by any "
+            + "planned producer."))
+            .RoleScanFacts;
 
     /// <summary>
     /// Acquires the declared contract support, recording construction for the

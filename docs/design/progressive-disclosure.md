@@ -241,21 +241,15 @@ retains the non-adaptive package result.
 
 `Unsafe Members` is intentionally a standalone library section. It belongs to
 no category and is selected for rendering by exact name (or an explicit
-matching wildcard). Target-aware bare discovery lists it when a bounded,
-early-exit presence probe finds evidence or the metadata scan produces a
-renderable incomplete-decode diagnostic. The probe caches no-copy signature
-marker scans by blob and streams IL without copying or materializing decoded
-instruction arrays. It borrows the command-owned, non-prefetched PE reader and
-walks methods sequentially in metadata order, so an early finding does not
-materialize the complete image and concurrent suffix work cannot consume its
-budget first. It charges signature and visited-IL bytes to separate 4 MiB
-assembly-wide budgets and fails visibly when either budget is exhausted or a
-candidate declaration, local, or call signature cannot be decoded safely. A
-namespace and type-name match for `System.Runtime.CompilerServices.Unsafe` is
-only a candidate; terminal evidence requires the same trusted framework
-identity as the full census. The reader is supplied through a synchronous
-capability callback whose contract forbids retention or disposal; it does not
-materialize that census. The
+matching wildcard). Target-aware bare discovery lists it when an early-exit
+presence probe finds a method with an
+[unsafe member census](unsafe-member-findings.md) role. The probe applies the
+census's own per-body rule, including its
+[role scan](unsafe-member-findings.md#role-scan), over the command-owned
+reader in metadata order, so it settles at the first role without
+materializing the census. A probe that cannot decide fails discovery visibly.
+The [Unsafe Members section](unsafe-members-section.md#discovery) owns that
+rule and how presence can differ from rows. The
 explicit-only `Body Shapes` and `Body Shape Summary` sections are likewise
 uncategorized; their required `Kind=...` predicate supplies their scope.
 [Body Shape views](body-shape-views.md) owns the occurrence-versus-summary

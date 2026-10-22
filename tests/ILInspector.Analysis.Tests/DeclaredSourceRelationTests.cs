@@ -319,7 +319,7 @@ public sealed class DeclaredSourceRelationTests
             if (method.RelativeVirtualAddress == 0)
                 continue;
             bodies++;
-            if (!LibraryMethodAnalysisRunner.HasManagedIlBody(method.ImplAttributes))
+            if (!MethodDefinitionShapes.HasManagedIlBody(method.ImplAttributes))
                 unacquirable++;
             encodedIlBytes += pe.GetMethodBody(method.RelativeVirtualAddress)
                 .GetILReader().Length;

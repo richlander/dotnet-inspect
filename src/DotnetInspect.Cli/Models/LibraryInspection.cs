@@ -437,36 +437,46 @@ public class LibraryInspection
             ref _extensionMethods,
             ProjectExtensionMethods);
 
+    private UnsafeMemberFindingInspection? _unsafeMemberInspection;
+
     /// <summary>
-    /// Members with unsafe signature or body-level unsafe evidence.
-    /// P/Invoke-only methods are excluded and remain in P/Invoke Methods.
+    /// The unsafe member census as findings: complete, incomplete with its
+    /// limitations, or failed. See docs/design/unsafe-members-section.md.
     /// </summary>
-    private List<UnsafeMemberSummary>? _unsafeMembers;
-
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<UnsafeMemberSummary>? UnsafeMembers
-    {
-        get => UnsafeEvidenceInspection.Failure() is null ? _unsafeMembers : null;
-        set => _unsafeMembers = value;
-    }
-
-    private FindingInspection<UnsafeEvidence>? _unsafeEvidenceInspection;
-
-    /// <summary>Typed unsafe declaration and body evidence with path-scoped provenance.</summary>
     [JsonIgnore]
-    public FindingInspection<UnsafeEvidence>? UnsafeEvidenceInspection
+    public UnsafeMemberFindingInspection? UnsafeMemberInspection
     {
-        get => _unsafeEvidenceInspection;
+        get => _unsafeMemberInspection;
         set
         {
-            _unsafeEvidenceInspection = value;
+            _unsafeMemberInspection = value;
             ResetFindingProjectionCaches();
         }
     }
 
+    /// <summary>One entry per declared member with an unsafe member finding.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<UnsafeMemberFindingJson>? UnsafeMembers =>
+        UnsafeMemberProjection.Json(UnsafeMemberInspection);
+
+    /// <summary>Whether the unsafe member census is complete, when it was read.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? UnsafeMembersComplete =>
+        UnsafeMemberInspection switch
+        {
+            UnsafeMemberFindingInspection.Complete => true,
+            UnsafeMemberFindingInspection.Incomplete => false,
+            _ => null,
+        };
+
+    /// <summary>The limitations that leave the unsafe member census incomplete.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? UnsafeMemberLimitations =>
+        UnsafeMemberProjection.LimitationsJson(UnsafeMemberInspection);
+
     /// <summary>
-    /// Result of the bounded discovery probe when the complete unsafe-evidence census was not
-    /// requested.
+    /// Result of the bounded discovery probe when the unsafe member census was
+    /// not requested.
     /// </summary>
     [JsonIgnore]
     public bool? UnsafeEvidencePresent { get; set; }
@@ -475,9 +485,6 @@ public class LibraryInspection
     [JsonIgnore]
     public Exception? UnsafeEvidencePresenceError { get; set; }
 
-    /// <summary>Per-method failures that made the unsafe-evidence census incomplete.</summary>
-    [JsonIgnore]
-    public ImmutableArray<AnalysisDiagnostic> UnsafeEvidenceDiagnostics { get; set; } = [];
 
     private TopLeverageResult? _topLeverageQueryResult;
 
@@ -1190,7 +1197,13 @@ public class LibraryInspection
                         SyncCallsInAsyncQuery.Definition.Name,
                         syncCallsFailure));
                 }
-                AddFailure(failures, SectionNames.UnsafeMembers, UnsafeEvidenceInspection);
+                if (UnsafeMemberInspection is UnsafeMemberFindingInspection.Failed unsafeMemberFailure)
+                {
+                    failures.Add(new LibraryInspectionFailureJson(
+                        SectionNames.UnsafeMembers,
+                        unsafeMemberFailure.Error.Descriptor.Title,
+                        unsafeMemberFailure.Error.Reason));
+                }
                 if (TopLeverageQueryResult is TopLeverageResult.Failed leverageFailure)
                 {
                     failures.Add(new LibraryInspectionFailureJson(
@@ -1723,18 +1736,29 @@ public record class ClassifiedMethodSummary
 }
 
 /// <summary>
-/// Summary of a member with unsafe signature or body evidence.
+/// One declared member's unsafe member finding: its exposure, whether it has
+/// its own explicit contract, whether an attributed body could not be
+/// inspected, and each evidence item with its physical provenance.
 /// </summary>
-public record class UnsafeMemberSummary
+public record class UnsafeMemberFindingJson
 {
     public string Member { get; init; } = "";
-    public string Reason { get; init; } = "";
-    public string Detail { get; init; } = "";
-    public string Kind { get; init; } = "";
+    public string Exposure { get; init; } = "";
+    public bool ExplicitContract { get; init; }
+    public bool Partial { get; init; }
+    public List<UnsafeMemberEvidenceJson> Evidence { get; init; } = [];
+}
+
+/// <summary>One unsafe member evidence item and the physical body that produced it.</summary>
+public record class UnsafeMemberEvidenceJson
+{
+    public string Role { get; init; } = "";
+    public string Body { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IL { get; init; }
+    public string Detail { get; init; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? Token { get; init; }
+    public string? ContractSource { get; init; }
 }
 
 /// <summary>

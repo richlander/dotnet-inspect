@@ -2412,6 +2412,15 @@ public partial class LibraryCommand
             return 1;
         }
 
+        if (options.ExactIncludeSections?.Contains(
+                SectionNames.UnsafeMembers) == true
+            && inspections.Any(inspection =>
+                UnsafeMemberProjection.IsIncomplete(
+                    inspection.UnsafeMemberInspection)))
+        {
+            return 1;
+        }
+
         return inspections.Any(inspection =>
         {
             var empty = pipeline.GetEmptySections(

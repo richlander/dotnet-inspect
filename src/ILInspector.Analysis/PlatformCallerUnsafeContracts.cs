@@ -48,6 +48,8 @@ public sealed class PlatformCallerUnsafeContracts
 
     readonly HashSet<string> _identifiers;
 
+    internal IReadOnlySet<string> Identifiers => _identifiers;
+
     // The innermost declaring-type metadata names (for example "Span`1"), so a
     // call to an unrelated type is rejected without building its identifier.
     readonly HashSet<string>.AlternateLookup<ReadOnlySpan<char>> _declaringTypeNames;
@@ -64,19 +66,32 @@ public sealed class PlatformCallerUnsafeContracts
         Source = source;
         Digest = digest;
         _identifiers = identifiers;
-        _declaringTypeNames = identifiers
-            .Select(InnermostDeclaringTypeName)
-            .ToHashSet(StringComparer.Ordinal)
-            .GetAlternateLookup<ReadOnlySpan<char>>();
-        _memberNames = identifiers
-            .Select(MemberName)
-            .ToHashSet(StringComparer.Ordinal);
+        // Each distinct name is allocated once; the identifiers repeat most
+        // of them.
+        var declaringTypeNames = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string>.AlternateLookup<ReadOnlySpan<char>> declaringTypes =
+            declaringTypeNames.GetAlternateLookup<ReadOnlySpan<char>>();
+        _memberNames = new HashSet<string>(StringComparer.Ordinal);
+        HashSet<string>.AlternateLookup<ReadOnlySpan<char>> members =
+            _memberNames.GetAlternateLookup<ReadOnlySpan<char>>();
+        foreach (string identifier in identifiers)
+        {
+            ReadOnlySpan<char> type = InnermostDeclaringTypeName(identifier);
+            if (!declaringTypes.Contains(type))
+                declaringTypes.Add(type);
+            ReadOnlySpan<char> member = MemberName(identifier);
+            if (member.Contains('#'))
+                _memberNames.Add(member.ToString().Replace('#', '.'));
+            else if (!members.Contains(member))
+                members.Add(member);
+        }
+        _declaringTypeNames = declaringTypes;
     }
 
-    static string MemberName(string identifier)
+    static ReadOnlySpan<char> MemberName(string identifier)
     {
         ReadOnlySpan<char> signature = MemberSignature(identifier);
-        return signature[(signature.LastIndexOf('.') + 1)..].ToString().Replace('#', '.');
+        return signature[(signature.LastIndexOf('.') + 1)..];
     }
 
     // "<type>.<member>" with the parameter list, conversion return, and
@@ -91,11 +106,11 @@ public sealed class PlatformCallerUnsafeContracts
         return arity >= 0 ? signature[..arity] : signature;
     }
 
-    static string InnermostDeclaringTypeName(string identifier)
+    static ReadOnlySpan<char> InnermostDeclaringTypeName(string identifier)
     {
         ReadOnlySpan<char> signature = MemberSignature(identifier);
         ReadOnlySpan<char> type = signature[..signature.LastIndexOf('.')];
-        return type[(type.LastIndexOf('.') + 1)..].ToString();
+        return type[(type.LastIndexOf('.') + 1)..];
     }
 
     /// <summary>The embedded projection, loaded on first use.</summary>
@@ -190,8 +205,52 @@ public sealed class PlatformCallerUnsafeContracts
         using Stream stream = typeof(PlatformCallerUnsafeContracts).Assembly
             .GetManifestResourceStream(ResourceName)
             ?? throw new InvalidOperationException($"Missing embedded resource '{ResourceName}'.");
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        return Parse(reader.ReadToEnd(), verifyDigest: false);
+        byte[] bytes = new byte[checked((int)stream.Length)];
+        stream.ReadExactly(bytes);
+        return ParseEmbedded(bytes);
+    }
+
+    // The embedded load over UTF-8 lines: the identifiers are the only
+    // per-entry strings, and the digest is not recomputed.
+    static PlatformCallerUnsafeContracts ParseEmbedded(ReadOnlySpan<byte> text)
+    {
+        string? pack = null, version = null, digest = null;
+        int? count = null;
+        var identifiers = new HashSet<string>(StringComparer.Ordinal);
+        if (text.StartsWith(Encoding.UTF8.Preamble))
+            text = text[Encoding.UTF8.Preamble.Length..];
+        while (!text.IsEmpty)
+        {
+            int newline = text.IndexOf((byte)'\n');
+            ReadOnlySpan<byte> line = newline < 0 ? text : text[..newline];
+            text = newline < 0 ? [] : text[(newline + 1)..];
+            if (line.IsEmpty)
+                continue;
+            if (line[0] == (byte)'#')
+            {
+                string[] header = Encoding.UTF8.GetString(line[1..]).Trim().Split(' ', 2);
+                switch (header[0])
+                {
+                    case "pack": pack = header[1]; break;
+                    case "version": version = header[1]; break;
+                    case "count": count = int.Parse(header[1], System.Globalization.CultureInfo.InvariantCulture); break;
+                    case "digest": digest = header[1]; break;
+                }
+                continue;
+            }
+            int tab = line.IndexOf((byte)'\t');
+            if (tab <= 0 || tab == line.Length - 1)
+                throw new InvalidDataException($"Malformed projection line '{Encoding.UTF8.GetString(line)}'.");
+            string identifier = Encoding.UTF8.GetString(line[(tab + 1)..]);
+            if (!identifiers.Add(identifier))
+                throw new InvalidDataException($"Duplicate projection identifier '{identifier}'.");
+        }
+
+        if (pack is null || version is null || digest is null || count is null)
+            throw new InvalidDataException("The projection header is incomplete.");
+        if (count != identifiers.Count)
+            throw new InvalidDataException($"The projection header records {count} entries; found {identifiers.Count}.");
+        return new(new(pack, version), digest, identifiers);
     }
 }
 

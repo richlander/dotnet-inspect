@@ -181,6 +181,16 @@ changes beside the version that caused them; a gate enforces that the recorded
 pack version is the pinned SDK's reference-pack version. No inspection-time download or
 pack probe is added, and the data loads lazily only when the inventory runs.
 
+The embedded load parses the projection's UTF-8 lines directly. It builds one
+string per identifier and one per distinct member and declaring-type name,
+and it does not recompute the digest, which `ProjectionMatchesItsHeader`
+verifies for the committed file. In NativeAOT the first load costs about
+1.2 ms. That is most of the one-time discovery cost on System.Text.Json,
+where the census reaches its first finding after four bodies.
+[#10480](https://github.com/richlander/dotnet-inspect/issues/10480) tracks
+emitting the projection as preinitialized static tables, so the load
+constructs nothing.
+
 ## Lifetime
 
 Upstream has not said whether implementation assemblies will ever carry the
@@ -208,7 +218,9 @@ platform images that do not.
 
 ## Gates
 
-Focused Release gates in `ILInspector.Analysis.Tests.LibraryBodyIndexTests`:
+Focused Release gates in `ILInspector.Analysis.Tests`. The rows that read only
+the committed projection are in `PlatformCallerUnsafeContractsTests`; the
+others are in `LibraryBodyIndexTests`:
 
 | Property | Gate |
 | --- | --- |
@@ -222,6 +234,7 @@ Focused Release gates in `ILInspector.Analysis.Tests.LibraryBodyIndexTests`:
 | A projected contract adds no declaration role | `ProjectionAddsNoDeclarationRole` |
 | The constructor wrapping a recognized span `stackalloc` admits nothing | `UnsafeMemberUses_ApplyUpdatedSemanticsToUpdatedAssembly` and `UnsafeMemberUses_ApplyUpdatedSemanticsToLegacyAssembly` |
 | Constant-data spans, `u8` literals, and `<PrivateImplementationDetails>` helpers admit nothing, while an explicit source call to the constructor does | `CompilerLoweredConstantSpansAndHelpersAdmitNothing` |
+| The embedded load reads the same identifiers, source, and digest as the verified parse | `EmbeddedLoad_ReadsTheVerifiedProjection` |
 | The committed projection matches its recorded digest and count | `ProjectionMatchesItsHeader` |
 | The recorded pack version is the pinned SDK's reference-pack version | `ProjectionTracksPinnedSdk` |
 | An unreadable pack assembly fails generation | `GenerationFailsOnUnreadableAssembly` |

@@ -641,6 +641,16 @@ request receipt records construction only for the lane whose access created
 the lookup, and only that lane's queries. Construction is absent when no
 producer declares the support or no declaring producer queries it.
 
+The support also owns the
+[unsafe member role scan](unsafe-member-findings.md#role-scan)'s
+call-operand facts for the execution. They are constructed at first use by a
+producer that declares this support and `Calls`. The facts hold the scan's
+memoized per-operand verdicts and whether the image names a
+`RequiresUnsafeAttribute` type. They read contracts only through this
+support's lookup and operands only through the declared Calls and
+call-target support, so their work appears in those receipts. The type-name
+scan over the TypeDef and TypeRef tables is not separately receipted.
+
 ### Same-module call-target support
 
 `CallTargets` is declared shared lookup support for producers that need the

@@ -1635,12 +1635,12 @@ public static partial class MemberCommand
                 api,
                 apiType,
                 effectiveOptions.MemberFilter);
-            var bodyShapeCompletion = new BodyShapeCompletion();
+            var inspectionCompletion = new TypeInspectionCompletion();
             var writeExitCode = await ApiCommand.WriteTypeOutputAsync(
                 apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                 acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions,
                 memberCodeSourceAssembly: sourceAssembly,
-                bodyShapeCompletion: bodyShapeCompletion);
+                inspectionCompletion: inspectionCompletion);
             if (writeExitCode != 0)
                 return writeExitCode;
 
@@ -1657,7 +1657,7 @@ public static partial class MemberCommand
                 contextualExplanationSelector,
                 packageName,
                 packageVersion);
-            return companionExitCode == 0 && bodyShapeCompletion.Incomplete
+            return companionExitCode == 0 && inspectionCompletion.Incomplete
                 ? 1
                 : companionExitCode;
         }
