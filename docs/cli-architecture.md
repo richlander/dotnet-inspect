@@ -90,6 +90,9 @@ Files-only row and Count output does not project unrequested Package Info
 measurements. Requested Package Info and full Package JSON retain the
 House-derived measurements, including JSON with only Files selected. This
 presentation demand does not remove the realization needed for Root admission.
+Already parsed package metadata and retained compile selections can rule out
+additional tool-declaration and wrapper discovery without changing declared-tool
+measurements or legacy redirects.
 
 The motivating real survey is nuget.org `Newtonsoft.Json` 13.0.4 together with
 `Microsoft.NETCore.App.Ref` 10.0.0: `package Newtonsoft.Json@13.0.4

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Text;
 using System.Text.Json;
 
 using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
@@ -267,13 +268,41 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         }
     }
 
-    [Fact]
-    public async Task PackageCommand_OnlineSurveyFilesJsonRetainsHouseMeasurements()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("DotnetTool")]
+    [InlineData("DotnetToolRidPackage")]
+    public async Task PackageCommand_OnlineSurveyFilesJsonRetainsHouseMeasurements(
+        string? toolPackageType)
     {
         string firstId = $"Workspace.FilesJson.First.{Guid.NewGuid():N}";
         string secondId = $"Workspace.FilesJson.Second.{Guid.NewGuid():N}";
+        byte[] first = toolPackageType is null
+            ? CreatePackage(firstId, "first README", library: new byte[17])
+            : CreatePackage(
+                firstId,
+                "first README",
+                library: new byte[17],
+                libraryDirectory: "tools/net11.0/any",
+                nuspecContent: $"""
+                    <package><metadata>
+                      <id>{firstId}</id><version>{Version}</version>
+                      <authors>Payload tests</authors><description>Tool measurement fixture</description>
+                      <readme>README.md</readme>
+                      <packageTypes><packageType name="{toolPackageType}" /></packageTypes>
+                    </metadata></package>
+                    """,
+                extraEntries:
+                [
+                    ("tools/net11.0/any/DotnetToolSettings.xml",
+                        Encoding.UTF8.GetBytes("""
+                            <DotNetCliTool Version="1">
+                              <Commands><Command Name="measurement-tool" EntryPoint="Npgsql.dll" Runner="dotnet" /></Commands>
+                            </DotNetCliTool>
+                            """)),
+                ]);
         string source = WritePackageSurveyFeed(
-            (firstId, CreatePackage(firstId, "first README", library: new byte[17])),
+            (firstId, first),
             (secondId, CreatePackage(secondId, "second README", library: new byte[29])));
 
         var result = await RunCommandAsync(

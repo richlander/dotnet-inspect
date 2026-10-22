@@ -932,6 +932,7 @@ public partial class PackageCommand
             await ApplyPackageInfoMeasurementsAsync(
                 result,
                 resolution,
+                nuspec,
                 packageSize,
                 options.Tfm,
                 logger.Log);

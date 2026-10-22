@@ -110,7 +110,15 @@ public partial class PackageCommand
             return new(null, 1);
         }
 
-        if (MayRequireLegacyToolWrapperHandling(
+        bool hasSelectedLibrary =
+            settlement.Result.Evidence.Realization
+                is PackageHouseRealizationReceipt.Compile compile
+            && compile.Selection.Assets.Any(static asset =>
+                !asset.Path.EndsWith(
+                    ".resources.dll",
+                    StringComparison.OrdinalIgnoreCase));
+        if (!hasSelectedLibrary
+            && MayRequireLegacyToolWrapperHandling(
                 settlement.Payload.Content.EnumerateEntries()))
         {
             context.Logger.Log(
