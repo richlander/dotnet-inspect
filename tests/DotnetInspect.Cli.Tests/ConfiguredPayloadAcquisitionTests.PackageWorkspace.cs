@@ -242,6 +242,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
         var result = await RunCommandAsync([.. args]);
 
         Assert.True(result.Exit == 0, result.Error);
+        Assert.DoesNotContain(
+            "package-info-measurements.",
+            result.Error,
+            StringComparison.Ordinal);
         Assert.Equal(
             2,
             result.Error.Split(
@@ -260,6 +264,41 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
             Assert.Contains("README.md", result.Output, StringComparison.Ordinal);
             Assert.Single(result.Output.Split(
                 '\n', StringSplitOptions.RemoveEmptyEntries));
+        }
+    }
+
+    [Fact]
+    public async Task PackageCommand_OnlineSurveyFilesJsonRetainsHouseMeasurements()
+    {
+        string firstId = $"Workspace.FilesJson.First.{Guid.NewGuid():N}";
+        string secondId = $"Workspace.FilesJson.Second.{Guid.NewGuid():N}";
+        string source = WritePackageSurveyFeed(
+            (firstId, CreatePackage(firstId, "first README", library: new byte[17])),
+            (secondId, CreatePackage(secondId, "second README", library: new byte[29])));
+
+        var result = await RunCommandAsync(
+        [
+            "package", $"{firstId}@{Version}", $"{secondId}@{Version}",
+            "--source", source, "--path", "@readme", "--json", "--verbose",
+        ]);
+
+        Assert.True(result.Exit == 0, result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        JsonElement[] packages = [.. document.RootElement.EnumerateArray()];
+        Assert.Equal(2, packages.Length);
+        long[] librarySizes = [17, 29];
+        for (int index = 0; index < packages.Length; index++)
+        {
+            Assert.Equal(
+                "README.md",
+                Assert.Single(packages[index].GetProperty("files").EnumerateArray())
+                    .GetProperty("path").GetString());
+            JsonElement measurements =
+                packages[index].GetProperty("package_info_measurements");
+            Assert.Equal("Measured", measurements.GetProperty("status").GetString());
+            Assert.Equal(
+                librarySizes[index],
+                measurements.GetProperty("selected_library_payload_bytes").GetInt64());
         }
     }
 

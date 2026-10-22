@@ -926,12 +926,20 @@ public partial class PackageCommand
             verifyRidPackageAvailability: wantsRidPackageAvailability,
             sourceOptions: options.SourceOptions);
 
-        await ApplyPackageInfoMeasurementsAsync(
-            result,
-            resolution,
-            packageSize,
-            options.Tfm,
-            logger.Log);
+        if (options.JsonOutput
+            || RequestsPackageInfoMeasurements(producerOptions, pipeline))
+        {
+            await ApplyPackageInfoMeasurementsAsync(
+                result,
+                resolution,
+                packageSize,
+                options.Tfm,
+                logger.Log);
+        }
+        else
+        {
+            result.PackageSize = packageSize;
+        }
         if (wantsEcosystemDependencies)
         {
             await ApplyPackageEcosystemDependenciesAsync(

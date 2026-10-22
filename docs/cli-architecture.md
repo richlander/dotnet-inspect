@@ -86,13 +86,21 @@ does not let them bind to or satisfy one another. Existing specialized
 inventory/content routes and local/offline, Library, and wrapper compatibility
 paths remain separate.
 
+Files-only row and Count output does not project unrequested Package Info
+measurements. Requested Package Info and full Package JSON retain the
+House-derived measurements, including JSON with only Files selected. This
+presentation demand does not remove the realization needed for Root admission.
+
 The motivating real survey is nuget.org `Newtonsoft.Json` 13.0.4 together with
 `Microsoft.NETCore.App.Ref` 10.0.0: `package Newtonsoft.Json@13.0.4
 Microsoft.NETCore.App.Ref@10.0.0 --tfm net9.0 -S "Package Info" --json`.
 Each input must retain its own package facts and target-selection outcome.
 Deterministic configured-source evidence covers independent and repeated
 inputs, unmatched frameworks, global output selection, and terminal failure
-without partial output.
+without partial output. The same real survey's Files Count path motivates
+avoiding unused measurement projection; deterministic README-only Count/row
+controls reject unrelated measurement diagnostics, while Files JSON controls
+retain selected library payload measurements.
 
 ### Exact Package reference admission
 
