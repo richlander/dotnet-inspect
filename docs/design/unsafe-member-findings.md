@@ -217,6 +217,14 @@ Unlike the Resource Lifecycle projection, a scoped receipt or a census with no
 findings and some limitations is Incomplete rather than Failed: both carry
 sound positive information, and neither is ever presented as complete.
 
+A body's inspection covers the inputs the rule reads for it, and no others.
+The rule decodes a body, resolves every call operand, and reads the contracts
+of explicit-contract candidates. It decodes the local signature and runs the
+stack model only when the body has an occurrence opcode or an
+explicit-contract call, because only then can a role depend on them. A
+malformed local signature in a body without either is therefore not a
+limitation. The legacy unsafe-evidence probe treated it as one.
+
 An incomplete census or a partial finding is never offered to Finding
 comparison as complete. The comparison consumer decides how to present it, and
 must not report a member as added or removed, or its evidence as changed,
