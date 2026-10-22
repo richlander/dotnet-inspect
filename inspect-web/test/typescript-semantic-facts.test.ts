@@ -237,6 +237,11 @@ export function usePredicates(value: unknown): string {
 }
 
 export const withThisResult = withThis.call({ prefix: "prefix:" }, "one", "two");
+const fakeMatcher = {
+  match: (_pattern: RegExp): readonly string[] | null => null,
+};
+export const fakeMatchFallback = fakeMatcher.match(/a/) ?? [];
+export const stringMatchFallback = "a".match(/a/g) ?? [];
 
 export async function loadDynamically(name: string): Promise<unknown> {
   return import(name);
@@ -986,6 +991,43 @@ test("declaration ancestry preserves anonymous and import boundaries", () => {
       expectResolved(session.getTypesAtNodes([typeOnlyClause.handle]))[0],
       unavailableType,
     );
+  } finally {
+    session.dispose();
+  }
+});
+
+test("contains pinned checker failures before they poison scalar or batched type queries", () => {
+  const session = expectOpened(openTypeScriptSemanticFacts(fixtureTsconfig));
+  try {
+    const entry = sourceByPath(session, "entry.ts");
+    const text = sourceText(entry);
+    const nodes = nodesFor(session, entry);
+    const emptyArrayAfter = (name: string): NodeFact => {
+      const declaration = text.indexOf(name);
+      assert.notEqual(declaration, -1, `missing '${name}' fixture`);
+      const start = text.indexOf("[]", declaration);
+      assert.notEqual(start, -1, `missing empty array after '${name}'`);
+      const node = nodes.find(candidate => candidate.location.start === start);
+      assert.ok(node !== undefined, `missing empty array node after '${name}'`);
+      return node;
+    };
+    const safeFallback = emptyArrayAfter("fakeMatchFallback");
+    const toxicFallback = emptyArrayAfter("stringMatchFallback");
+    const unavailableType = {
+      kind: "Unavailable",
+      reason: "MissingApiFact",
+      detail: "TypeScript 7.0.2 cannot type an empty String.match fallback",
+    } as const;
+
+    assert.equal(session.getTypeAtNode(safeFallback.handle).kind, "Resolved");
+    assert.deepEqual(session.getTypeAtNode(toxicFallback.handle), unavailableType);
+    const batch = expectResolved(session.getTypesAtNodes([
+      safeFallback.handle,
+      toxicFallback.handle,
+    ]));
+    assert.equal(batch[0]?.kind, "Resolved");
+    assert.deepEqual(batch[1], unavailableType);
+    assert.equal(session.getSourceFiles().kind, "Resolved");
   } finally {
     session.dispose();
   }

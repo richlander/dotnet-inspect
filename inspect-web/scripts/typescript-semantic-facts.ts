@@ -32,6 +32,9 @@ import {
 } from "typescript/unstable/sync";
 import {
   SyntaxKind,
+  isArrayLiteralExpression,
+  isBinaryExpression,
+  isCallExpression,
   isCallLikeExpression,
   isElementAccessExpression,
   isEnumMember,
@@ -2589,18 +2592,40 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
     return this.#run("getType", () => resolved(this.#typeFact(this.#requireType(handle))));
   }
 
+  #missingTypeFact(rawNode: TypeScriptNode): string | undefined {
+    if (
+      isImportClause(rawNode)
+      && rawNode.phaseModifier === SyntaxKind.TypeKeyword
+    ) {
+      return "TypeScript 7.0.2 cannot type a type-only import clause";
+    }
+    if (!isArrayLiteralExpression(rawNode) || rawNode.elements.length !== 0) {
+      return undefined;
+    }
+    const parent = rawNode.parent;
+    if (!parent
+      || !isBinaryExpression(parent)
+      || parent.operatorToken.kind !== SyntaxKind.QuestionQuestionToken
+      || parent.right !== rawNode
+      || !isCallExpression(parent.left)
+      || !isPropertyAccessExpression(parent.left.expression)
+      || parent.left.expression.name.text !== "match") {
+      return undefined;
+    }
+    const receiverType =
+      this.#checker.getTypeAtLocation(parent.left.expression.expression);
+    return receiverType !== undefined
+      && (receiverType.flags & TypeFlags.StringLike) !== 0
+      ? "TypeScript 7.0.2 cannot type an empty String.match fallback"
+      : undefined;
+  }
+
   getTypeAtNode(node: SemanticHandle): QueryResult<TypeFact> {
     return this.#run("getTypeAtNode", () => {
       const rawNode = this.#requireNode(node);
-      if (
-        isImportClause(rawNode)
-        && rawNode.phaseModifier === SyntaxKind.TypeKeyword
-      ) {
-        return unavailable(
-          "MissingApiFact",
-          "TypeScript 7.0.2 cannot type a type-only import clause",
-        );
-      }
+      const missingTypeFact = this.#missingTypeFact(rawNode);
+      if (missingTypeFact !== undefined)
+        return unavailable("MissingApiFact", missingTypeFact);
       const type = this.#checker.getTypeAtLocation(rawNode);
       return type === undefined
         ? absent("TypeScript reports no type at this syntax")
@@ -2620,14 +2645,9 @@ class SemanticFactsSession implements TypeScriptSemanticFactsSession {
       for (const [index, handle] of nodes.entries()) {
         try {
           const rawNode = this.#requireNode(handle);
-          if (
-            isImportClause(rawNode)
-            && rawNode.phaseModifier === SyntaxKind.TypeKeyword
-          ) {
-            results[index] = unavailable(
-              "MissingApiFact",
-              "TypeScript 7.0.2 cannot type a type-only import clause",
-            );
+          const missingTypeFact = this.#missingTypeFact(rawNode);
+          if (missingTypeFact !== undefined) {
+            results[index] = unavailable("MissingApiFact", missingTypeFact);
           } else {
             rawNodes.push(rawNode);
             resultIndices.push(index);
