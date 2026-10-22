@@ -45,7 +45,7 @@ public sealed class ExternalCallGraphCommandTests
             PlatformSourceCapabilityIdentity.Create("package");
 
         Assert.True(
-            DesktopPackageDependencyMemberCallGraphContinuationSource
+            PackageDependencyMemberCallGraphContinuationSource
                 .TryCreateTargetPolicy(
                     "runtime",
                     "net11.0",
@@ -60,7 +60,7 @@ public sealed class ExternalCallGraphCommandTests
         Assert.IsType<PlatformTargetDiscoveryScope.ExactFramework>(
             policy.Fallback.Scope);
         Assert.False(
-            DesktopPackageDependencyMemberCallGraphContinuationSource
+            PackageDependencyMemberCallGraphContinuationSource
                 .TryCreateTargetPolicy(
                     "runtime",
                     "netstandard2.0",
@@ -98,7 +98,7 @@ public sealed class ExternalCallGraphCommandTests
             Assert.Throws<
                 AssemblyReferenceResolutionWorkExhaustedException>(
                 () =>
-                    DesktopPackageDependencyMemberCallGraphContinuationSource
+                    PackageDependencyMemberCallGraphContinuationSource
                         .AdmitPackageBackedWork(
                             source,
                             exhausted,
@@ -120,7 +120,7 @@ public sealed class ExternalCallGraphCommandTests
                 maxWorkspaceReplacements: 1,
                 deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
         PlatformHouseWorkBudget admitted =
-            DesktopPackageDependencyMemberCallGraphContinuationSource
+            PackageDependencyMemberCallGraphContinuationSource
                 .AdmitPackageBackedWork(
                     source,
                     bounded,
