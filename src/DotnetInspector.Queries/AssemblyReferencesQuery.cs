@@ -56,12 +56,18 @@ public static class AssemblyReferencesQuery
         ArgumentNullException.ThrowIfNull(session);
         return
         [
-            .. session.AssemblyReferenceIdentities().Select(static reference =>
-                new AssemblyReferenceRow(
-                    reference.Name,
-                    reference.Version?.ToString() ?? "",
-                    reference.Culture ?? "neutral",
-                    reference.PublicKeyToken)),
+            .. session.AssemblyReferenceIdentities().Select(Row),
         ];
+    }
+
+    internal static AssemblyReferenceRow Row(
+        AssemblyReferenceIdentity reference)
+    {
+        ArgumentNullException.ThrowIfNull(reference);
+        return new(
+            reference.Name,
+            reference.Version?.ToString() ?? "",
+            reference.Culture ?? "neutral",
+            reference.PublicKeyToken);
     }
 }
