@@ -134,6 +134,15 @@ public sealed record FindingComparison<T> where T : notnull
     public FindingComparison<T> Focus(FindingCorrelationKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
+        if (Value is Failed { ComparisonFailure: { } comparisonFailure })
+        {
+            // The comparison refused to run; narrowing its inspections does not
+            // make it run, and the reason stays with the focused failure.
+            return new Failed(
+                FocusInspection(OldInspection, key),
+                FocusInspection(NewInspection, key),
+                comparisonFailure);
+        }
         if (Value is Failed)
         {
             return FindingComparison.Compare(
@@ -226,39 +235,61 @@ public sealed record FindingComparison<T> where T : notnull
             && FindingEquivalence.Exact.IsEquivalent(Pairs);
     }
 
-    /// <summary>Matching never ran because at least one inspection failed.</summary>
+    /// <summary>
+    /// Matching never ran: at least one inspection failed, or the comparison
+    /// itself refused two non-failed inspections for a stated reason, such as a
+    /// census beyond the ordered matcher's bound. Both inspections are retained
+    /// either way, so a consumer can show what was read.
+    /// </summary>
     public sealed record Failed
     {
         internal Failed(
             FindingInspection<T> oldInspection,
-            FindingInspection<T> newInspection)
+            FindingInspection<T> newInspection,
+            string? comparisonFailure = null)
         {
             ArgumentNullException.ThrowIfNull(oldInspection);
             ArgumentNullException.ThrowIfNull(newInspection);
-            if (oldInspection is not FindingInspection<T>.Failed
+            if (comparisonFailure is not null && string.IsNullOrWhiteSpace(comparisonFailure))
+            {
+                throw new ArgumentException(
+                    "A comparison failure must state its reason.",
+                    nameof(comparisonFailure));
+            }
+            if (comparisonFailure is null
+                && oldInspection is not FindingInspection<T>.Failed
                 && newInspection is not FindingInspection<T>.Failed)
             {
                 throw new ArgumentException(
-                    "A failed comparison requires at least one failed inspection.",
+                    "A failed comparison requires at least one failed inspection or a comparison failure.",
                     nameof(oldInspection));
             }
 
             OldInspection = oldInspection;
             NewInspection = newInspection;
+            ComparisonFailure = comparisonFailure;
         }
 
         public FindingInspection<T> OldInspection { get; }
         public FindingInspection<T> NewInspection { get; }
 
+        /// <summary>
+        /// Why the comparison refused to run when neither inspection failed;
+        /// null when an inspection failure is the reason.
+        /// </summary>
+        public string? ComparisonFailure { get; }
+
         public string Failure
         {
             get
             {
-                var failures = new List<string>(2);
+                var failures = new List<string>(3);
                 if (OldInspection.Value is FindingInspection<T>.Failed oldFailed)
                     failures.Add($"old: {oldFailed.Error.Reason}");
                 if (NewInspection.Value is FindingInspection<T>.Failed newFailed)
                     failures.Add($"new: {newFailed.Error.Reason}");
+                if (ComparisonFailure is not null)
+                    failures.Add($"comparison: {ComparisonFailure}");
                 return string.Join("; ", failures);
             }
         }
@@ -448,6 +479,24 @@ public static class FindingComparison
             match,
             oldInspection,
             newInspection);
+    }
+
+    /// <summary>
+    /// A comparison that refused to run two non-failed inspections for a stated
+    /// reason, such as a census beyond the ordered matcher's bound. Matching
+    /// never ran, so no success-shaped result is manufactured; both inspections
+    /// are retained.
+    /// </summary>
+    public static FindingComparison<T> Failed<T>(
+        FindingInspection<T> oldInspection,
+        FindingInspection<T> newInspection,
+        string comparisonFailure)
+        where T : notnull
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
+        ArgumentException.ThrowIfNullOrWhiteSpace(comparisonFailure);
+        return new FindingComparison<T>.Failed(oldInspection, newInspection, comparisonFailure);
     }
 
     internal static ImmutableArray<Finding<T>> InspectionAtoms<T>(

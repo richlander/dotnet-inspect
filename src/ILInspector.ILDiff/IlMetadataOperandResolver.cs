@@ -10,13 +10,28 @@ namespace ILInspector.ILDiff;
 
 public static partial class IlBodyDiff
 {
-    sealed class MetadataOperandResolver(
+    /// <summary>
+    /// Resolves metadata token operands of one side to symbolic identities under
+    /// one normalization, memoized per operand kind and token: a cursor
+    /// resolves one operand per advance, and a token met again costs a lookup.
+    /// </summary>
+    internal sealed class MetadataOperandResolver(
         MetadataReader reader,
         IlBodyDiffNormalization normalization,
         CompilerGeneratedOrdinalCorrespondence correspondence)
     {
+        readonly Dictionary<(OperandKind Kind, int Token), IlOperandIdentity> _memo = [];
+
         public bool TryResolve(DecodedInstruction instruction, out IlOperandIdentity? operand, out string? failure)
         {
+            (OperandKind, int) key = (instruction.Operand, (int)instruction.OperandValue);
+            if (_memo.TryGetValue(key, out IlOperandIdentity? memoized))
+            {
+                operand = memoized;
+                failure = null;
+                return true;
+            }
+
             try
             {
                 string value = instruction.Operand switch
@@ -30,6 +45,7 @@ public static partial class IlBodyDiff
                     _ => throw new InvalidOperationException($"Operand kind {instruction.Operand} is not a metadata token."),
                 };
                 operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
+                _memo[key] = operand;
                 failure = null;
                 return true;
             }
@@ -73,9 +89,18 @@ public static partial class IlBodyDiff
         /// <summary>Resolves a catch clause's Type as a type operand is resolved.</summary>
         public bool TryResolveCatchType(int token, int tryOffset, out IlOperandIdentity? operand, out string? failure)
         {
+            (OperandKind, int) key = (OperandKind.InlineType, token);
+            if (_memo.TryGetValue(key, out IlOperandIdentity? memoized))
+            {
+                operand = memoized;
+                failure = null;
+                return true;
+            }
+
             try
             {
                 operand = new IlOperandIdentity(IlOperandIdentityKind.Token, ResolveType(token));
+                _memo[key] = operand;
                 failure = null;
                 return true;
             }

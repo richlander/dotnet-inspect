@@ -1,9 +1,14 @@
 using System.CommandLine;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.Fixtures;
 using DotnetInspect.Cli.Options;
+using ILInspector.ILDiff;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -522,6 +527,111 @@ public sealed class MatchCommandTests
             Assert.False(producer.TryGetProperty("c_sharp", out _));
             Assert.False(producer.TryGetProperty("il", out _));
         });
+    }
+
+    /// <summary>
+    /// A pair beyond the ordered matcher's bound drains to two complete
+    /// censuses and is a failed Findings comparison with its reason; the host
+    /// reports the body verdict as Unavailable rather than NotApplicable, so
+    /// the view is never success-shaped for it (finding-census.md#exhaustive).
+    /// </summary>
+    [Fact]
+    public async Task ExecuteAsync_OverLimitBodies_ReportTheBoundAsUnavailable()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"match-over-limit-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(path, OverLimitImage(IlFindings.MaxCanonicalOperations + 1));
+        try
+        {
+            var (exitCode, output, error) = await ConsoleCapture.RunAsync(
+                () => MatchCommand.ExecuteAsync(new MatchOptions
+                {
+                    LeftSelector = "N.C.M1",
+                    RightSelector = "N.C.M2",
+                    AssemblyPath = path,
+                    IncludeAll = true,
+                    IncludeBody = true,
+                    JsonOutput = true,
+                }));
+
+            // The comparison has a failure, which the command reports as its own.
+            Assert.NotEqual(0, exitCode);
+            Assert.Contains("Method body comparison did not complete successfully", error);
+            using var document = JsonDocument.Parse(output);
+            var body = document.RootElement.GetProperty("body");
+            Assert.True(body.GetProperty("has_failures").GetBoolean());
+            var il = Assert.Single(body.GetProperty("producers").EnumerateArray(),
+                producer => producer.GetProperty("outcome").GetString() == "ProducedIlBody");
+            Assert.Equal("Unavailable", il.GetProperty("native_verdict").GetString());
+            Assert.Equal("Complete", il.GetProperty("before").GetProperty("state").GetString());
+            Assert.Equal("Complete", il.GetProperty("after").GetProperty("state").GetString());
+            var findings = il.GetProperty("findings");
+            Assert.Equal("Failed", findings.GetProperty("outcome").GetString());
+            Assert.Contains("comparison: IL comparison skipped", findings.GetProperty("failure").GetString());
+            Assert.Contains("IL comparison skipped", findings.GetProperty("comparison_failure").GetString());
+            Assert.False(il.TryGetProperty("il", out _));
+
+            // The text output names the refusal as a diagnostic, not a bare Failed.
+            var (textExit, text, textError) = await ConsoleCapture.RunAsync(
+                () => MatchCommand.ExecuteAsync(new MatchOptions
+                {
+                    LeftSelector = "N.C.M1",
+                    RightSelector = "N.C.M2",
+                    AssemblyPath = path,
+                    IncludeAll = true,
+                    IncludeBody = true,
+                }));
+            Assert.NotEqual(0, textExit);
+            Assert.Contains("Method body comparison did not complete successfully", textError);
+            Assert.Contains("Unavailable", text);
+            Assert.Contains("IL comparison skipped", text);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>
+    /// An image with <c>N.C::M1()</c> and <c>N.C::M2()</c>, each a body of
+    /// <paramref name="instructions"/> instructions.
+    /// </summary>
+    static byte[] OverLimitImage(int instructions)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(0, metadata.GetOrAddString("OverLimit.dll"), metadata.GetOrAddGuid(new Guid("6b6b6b6b-0000-4000-8000-000000000001")), default, default);
+        metadata.AddAssembly(metadata.GetOrAddString("OverLimit"), new Version(1, 0, 0, 0), default, default, 0, AssemblyHashAlgorithm.Sha1);
+        AssemblyReferenceHandle runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"), new Version(10, 0, 0, 0), default, default, default, default);
+        TypeReferenceHandle systemObject = metadata.AddTypeReference(runtime, metadata.GetOrAddString("System"), metadata.GetOrAddString("Object"));
+        metadata.AddTypeDefinition(default, default, metadata.GetOrAddString("<Module>"), default, MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+
+        var voidSignature = new BlobBuilder();
+        new BlobEncoder(voidSignature).MethodSignature().Parameters(0, returnType => returnType.Void(), _ => { });
+        BlobHandle voidHandle = metadata.GetOrAddBlob(voidSignature);
+        var bodies = new BlobBuilder();
+        var stream = new MethodBodyStreamEncoder(bodies);
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed,
+            metadata.GetOrAddString("N"), metadata.GetOrAddString("C"), systemObject,
+            MetadataTokens.FieldDefinitionHandle(1), MetadataTokens.MethodDefinitionHandle(1));
+        foreach (string name in new[] { "M1", "M2" })
+        {
+            var code = new InstructionEncoder(new BlobBuilder());
+            for (int i = 1; i < instructions; i++)
+                code.OpCode(ILOpCode.Nop);
+            code.OpCode(ILOpCode.Ret);
+            metadata.AddMethodDefinition(
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, MethodImplAttributes.IL,
+                metadata.GetOrAddString(name), voidHandle, stream.AddMethodBody(code), default);
+        }
+
+        var image = new BlobBuilder();
+        new ManagedPEBuilder(
+                new PEHeaderBuilder(imageCharacteristics: Characteristics.Dll | Characteristics.ExecutableImage),
+                new MetadataRootBuilder(metadata),
+                bodies)
+            .Serialize(image);
+        return image.ToArray();
     }
 
     [Fact]

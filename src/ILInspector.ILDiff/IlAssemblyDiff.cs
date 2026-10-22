@@ -201,8 +201,6 @@ public static class IlAssemblyDiff
         var findings = IlFindings.CompareInspections(
             old.Inspection,
             @new.Inspection,
-            old.Body,
-            @new.Body,
             acceptanceThreshold: 100);
 
         IlMemberDiffResult? memberDiff = null;

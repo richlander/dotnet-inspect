@@ -13,6 +13,7 @@
     "build:generated": "npm run typecheck:authored && vite build && node scripts/verify-site-artifact.ts dist",
     "preview": "vite preview",
     "benchmark:published": "node browser/benchmark-published-runtime.ts",
+    "benchmark:text-publication": "node browser/benchmark-text-publication.ts",
     "test": "npm run typecheck && node --test",
     "test:browser": "npm run facades && npm run test:browser:generated",
     "test:browser:generated": "playwright test --project=firefox",

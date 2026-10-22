@@ -1,9 +1,15 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using DotnetInspector.Fixtures;
+
 using ILInspector.ILDiff;
+using ILInspector.Instructions;
+
+using Inspector.Findings;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -285,6 +291,107 @@ public sealed class FindingDiffAnyBodyTests
         if (!decided)
             Assert.Contains(verdicts, verdict => verdict.Body == FindingDiffAnyState.Indeterminate);
     }
+
+    /// <summary>
+    /// The census cursor's completeness gate over the fixture pair: for every
+    /// method of both images, draining the cursor over the method's raw IL
+    /// yields the atoms and terminal the decoded body's census yields, and the
+    /// atoms are canonical comparison's operations.
+    /// </summary>
+    [Fact]
+    public void Cursor_DrainsEveryFixtureMethodAsCanonicalizationDoes()
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        foreach (string path in new[] { pair.OldAssemblyPath(), pair.NewAssemblyPath() })
+        {
+            using var stream = File.OpenRead(path);
+            using var pe = new PEReader(stream);
+            MetadataReader reader = pe.GetMetadataReader();
+            int complete = 0;
+            foreach (MethodDefinitionHandle handle in reader.MethodDefinitions)
+            {
+                var subject = new FindingSubject($"0x{MetadataTokens.GetToken(handle):X8}", reader.GetString(reader.GetMethodDefinition(handle).Name));
+                FindingInspection<CanonicalIlOperation> raw = IlCensusCursor.Create(pe, reader, handle, subject, IlBodyDiffPolicy.Body).Drain();
+                int rva = reader.GetMethodDefinition(handle).RelativeVirtualAddress;
+                MethodInstructions? body = rva == 0 ? null : MethodInstructions.Decode(pe.GetMethodBody(rva));
+                FindingInspection<CanonicalIlOperation> decoded = IlFindings.Inspect(body, reader, subject, IlBodyDiffPolicy.Body);
+
+                Assert.Equal(decoded, raw);
+                if (raw.Value is FindingInspection<CanonicalIlOperation>.Complete census)
+                {
+                    Assert.True(IlBodyDiff.TryCanonicalize(body!, reader, IlBodyDiffPolicy.Body, out var operations, out _));
+                    Assert.Equal<CanonicalIlOperation>(operations, census.Findings.Select(atom => atom.Payload));
+                    complete++;
+                }
+            }
+
+            Assert.True(complete > 10, $"{complete} complete censuses in {Path.GetFileName(path)}");
+        }
+    }
+
+    /// <summary>
+    /// The canonical order gate: for each encoding case, the two cursors'
+    /// atoms are equal in canonical bytes exactly when canonical comparison
+    /// equates the bodies, so the encodings it folds yield one atom sequence.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EncodingCases))]
+    public void Cursor_YieldsEqualAtoms_ForEncodingsCanonicalComparisonEquates(string name, bool equal)
+    {
+        (byte[] before, byte[] after) = EncodingImages.Value;
+        using var beforeReader = new PEReader(new MemoryStream(before, writable: false));
+        using var afterReader = new PEReader(new MemoryStream(after, writable: false));
+
+        Assert.Equal(equal, AtomsEqual(
+            DrainCase(beforeReader, name, IlBodyDiffPolicy.Body),
+            DrainCase(afterReader, name, IlBodyDiffPolicy.Body)));
+    }
+
+    /// <summary>
+    /// A pair that differs only in a non-platform dependency's version yields
+    /// equal atoms under the Body policy for every method, and not under the
+    /// default policy, which keeps the assembly.
+    /// </summary>
+    [Fact]
+    public void Cursor_YieldsEqualAtoms_AcrossADependencyVersionBump()
+    {
+        byte[] before = DependencyImage(new Version(8, 0, 0, 0));
+        byte[] after = DependencyImage(new Version(9, 0, 0, 0));
+        using var beforeReader = new PEReader(new MemoryStream(before, writable: false));
+        using var afterReader = new PEReader(new MemoryStream(after, writable: false));
+        MetadataReader a = beforeReader.GetMetadataReader();
+        MetadataReader b = afterReader.GetMetadataReader();
+        Assert.Equal(a.MethodDefinitions.Count, b.MethodDefinitions.Count);
+
+        bool anyDifferByAssembly = false;
+        foreach ((MethodDefinitionHandle x, MethodDefinitionHandle y) in a.MethodDefinitions.Zip(b.MethodDefinitions))
+        {
+            Assert.True(AtomsEqual(
+                Atoms(IlCensusCursor.Create(beforeReader, a, x, new FindingSubject("M", "M"), IlBodyDiffPolicy.Body).Drain()),
+                Atoms(IlCensusCursor.Create(afterReader, b, y, new FindingSubject("M", "M"), IlBodyDiffPolicy.Body).Drain())));
+            anyDifferByAssembly |= !AtomsEqual(
+                Atoms(IlCensusCursor.Create(beforeReader, a, x, new FindingSubject("M", "M")).Drain()),
+                Atoms(IlCensusCursor.Create(afterReader, b, y, new FindingSubject("M", "M")).Drain()));
+        }
+
+        Assert.True(anyDifferByAssembly);
+    }
+
+    static ImmutableArray<CanonicalIlOperation> DrainCase(PEReader pe, string name, IlBodyDiffNormalization policy)
+    {
+        MetadataReader reader = pe.GetMetadataReader();
+        TypeDefinitionHandle type = reader.TypeDefinitions.Single(handle =>
+            reader.StringComparer.Equals(reader.GetTypeDefinition(handle).Namespace, Namespace)
+            && reader.StringComparer.Equals(reader.GetTypeDefinition(handle).Name, name));
+        MethodDefinitionHandle method = reader.GetTypeDefinition(type).GetMethods().Single();
+        return Atoms(IlCensusCursor.Create(pe, reader, method, new FindingSubject($"{name}::M", "M"), policy).Drain());
+    }
+
+    static ImmutableArray<CanonicalIlOperation> Atoms(FindingInspection<CanonicalIlOperation> inspection)
+        => [.. Assert.IsType<FindingInspection<CanonicalIlOperation>.Complete>(inspection.Value).Findings.Select(atom => atom.Payload)];
+
+    static bool AtomsEqual(ImmutableArray<CanonicalIlOperation> a, ImmutableArray<CanonicalIlOperation> b)
+        => a.Length == b.Length && a.Zip(b).All(pair => IlBodyDiff.AtomsEqual(pair.First, pair.Second));
 
     static IlMemberEndpointComparison CompareMemberEndpoints(
         PEReader before,
