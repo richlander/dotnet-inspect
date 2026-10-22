@@ -196,11 +196,11 @@ quality or provenance of either side. `Unavailable` is not the opposite of
 `Exact`; it means that no equality verdict could be produced. Typed failure
 rows retain the reason.
 
-Assembly comparison aggregates exact, operand-diff, opcode-diff,
-exception-region-diff, and unavailable counts. `ChangedBodyCount` is the sum
-of the three difference counts; it excludes unavailable comparisons. `FailureCount` also includes
-independent self-diff and identity-resolution failures, so it need not equal
-the unavailable count.
+Assembly comparison aggregates exact, operand-diff, opcode-diff, exception-
+region-diff, and unavailable counts. `ChangedBodyCount` is the sum of the three
+difference counts; it excludes unavailable comparisons. `FailureCount` also
+includes independent self-diff and identity-resolution failures, so it need not
+equal the unavailable count.
 
 ## Current non-guarantees
 
