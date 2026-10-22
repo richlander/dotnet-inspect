@@ -299,7 +299,9 @@ internal static class MemberSearchService
             (assembly, entry) => AddMembers(
                 results,
                 options.TypeFilter,
-                SearchAssemblySource.FromAssemblySet(assembly),
+                SearchAssemblySource.FromAssemblySet(
+                    assembly,
+                    entry.Subject.Identity),
                 entry,
                 logger,
                 markFailure,
@@ -384,13 +386,15 @@ internal static class MemberSearchService
                             results,
                             SearchAssemblySource
                                 .FromAssemblySet(
-                                    assembly),
+                                    assembly,
+                                    available.Subject.Identity),
                             value.Results,
                             options.OnMemberRow);
                         WriteInspectionFailures(
                             SearchAssemblySource
                                 .FromAssemblySet(
-                                    assembly),
+                                    assembly,
+                                    available.Subject.Identity),
                             value.InspectionFailures,
                             logger,
                             markFailure);
@@ -477,6 +481,22 @@ internal static class MemberSearchService
         List<MemberFindResult> Rows,
         int AcceptedCount);
 
+    internal static IReadOnlyList<MemberFindResult>
+        ProjectIndexedSemanticMatches(
+            IReadOnlyList<MemberFindSemanticMatch> matches,
+            Func<FindSourceIdentity, SearchAssemblySource> sourceFor)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
+        ArgumentNullException.ThrowIfNull(sourceFor);
+        List<MemberFindResult> results = [];
+        AddMembers(
+            results,
+            matches,
+            sourceFor,
+            onRow: null);
+        return results;
+    }
+
     private static void AddMembers(
         List<MemberFindResult> results,
         SearchAssemblySource assembly,
@@ -501,6 +521,8 @@ internal static class MemberSearchService
                 Library = assembly.Library,
                 Source = assembly.Source,
                 SourceVersion = assembly.SourceVersion,
+                ExactSource = assembly.ExactSource,
+                ExactMember = member.Anchor,
             };
             results.Add(row);
             onRow?.Invoke(row);
@@ -514,8 +536,18 @@ internal static class MemberSearchService
         Action<MemberFindResult>? onRow)
     {
         ArgumentNullException.ThrowIfNull(block);
+        AddMembers(results, block.Matches, sourceFor, onRow);
+    }
+
+    private static void AddMembers(
+        List<MemberFindResult> results,
+        IReadOnlyList<MemberFindSemanticMatch> matches,
+        Func<FindSourceIdentity, SearchAssemblySource> sourceFor,
+        Action<MemberFindResult>? onRow)
+    {
+        ArgumentNullException.ThrowIfNull(matches);
         ArgumentNullException.ThrowIfNull(sourceFor);
-        foreach (MemberFindSemanticMatch member in block.Matches)
+        foreach (MemberFindSemanticMatch member in matches)
         {
             SearchAssemblySource assembly =
                 sourceFor(member.Declaration.Source);
@@ -535,6 +567,8 @@ internal static class MemberSearchService
                 Library = assembly.Library,
                 Source = assembly.Source,
                 SourceVersion = assembly.SourceVersion,
+                ExactSource = member.Declaration.Source.Coordinate,
+                ExactMember = member.Declaration.Member,
             };
             results.Add(row);
             onRow?.Invoke(row);

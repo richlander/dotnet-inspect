@@ -23,7 +23,9 @@ The request-set operation now binds one immutable QuerySpace plan and publishes
 every Method request in request order, plus physical group work recorded once.
 Method Classification is its first production caller: the session-backed query
 uses request-set access while the PEReader overload remains the direct
-reference.
+reference. Direct and request-set operations now carry an owner-issued source
+adapter opaquely: the service reads no Method breadth, layer, terminal, request,
+or receipt type and contains no source-kind switch.
 Other source kinds, cancellation, residual request satisfaction, and mixed-
 hub composition remain **unverified**. The no-remainder rule and split
 exact-member prerequisites are recorded under
@@ -197,10 +199,15 @@ terminal-specialized lanes within one physical execution group. It never asks
 Producer Planning to merge distinct closings or derives one terminal result
 from another.
 
-An operation may compose Type, Member, and Method source requests. The service
-name is therefore assembly-wide rather than method-specific. Each source owner
-retains its row vocabulary, population predicates, depth, expansion,
-terminal, completion, and failure contracts.
+One direct operation carries one owner-issued source request; one request-set
+operation carries one owner-issued source plan. The source publishes an opaque
+identity, declares whether execution requires the operation access's reference
+binding, executes against admitted image access, and returns detached source
+evidence. Type, Member, and Method sources may each implement that boundary
+without adding a source enum, switch, or concrete request branch to assembly
+orchestration. Each source owner retains its row vocabulary, population
+predicates, depth, expansion, terminal, completion, failure contracts, and
+typed receipt recovery.
 
 ### `AssemblyAnalysisService`
 
@@ -217,6 +224,8 @@ The service:
   session-backed execution;
 - does not select producers, infer prerequisites, or expand compatibility
   profiles;
+- does not inspect a source's concrete request, layers, terminals, execution,
+  or receipt;
 - does not enumerate the assembly outside an owner-issued source plan;
 - does not implement an Analysis-specific request-union algorithm;
 - does not reinterpret a source or producer failure; and
@@ -238,9 +247,11 @@ semantic result. It preserves:
 - typed incompleteness and failure evidence.
 
 Consumers request a result through its producer declaration and then pass the
-focused result value to the owning query or section. The execution is not a
-runtime-type bag, string-keyed registry, compatibility profile, or substitute
-for the focused result type.
+focused result value to the owning query or section. The detached source
+receipt is carried through its base contract; a source-aware sink recovers the
+concrete receipt through that source owner's association check. The execution
+is not a runtime-type bag, string-keyed registry, compatibility profile, or
+substitute for the focused result type.
 
 The publication retains no session, access lease, borrow, PE reader, Metadata
 reader, stream, resolver, source callback, or mutable producer state.
@@ -250,6 +261,12 @@ reader, stream, resolver, source callback, or mutable producer state.
 `AssemblyAnalysisSource` names the internal composition role through which one
 exact assembly access exposes owner-issued Analysis sources. It is a source
 family, not one universal row space.
+
+Each source owns its adapter from source request or request-set plan through
+execution and typed receipt recovery. Assembly orchestration retains only the
+adapter's opaque identity, general access requirements, and detached base
+receipt. Adding another source does not add a central source-kind value or
+teach the service that source's vocabulary.
 
 For a session-backed source, Assembly Inspection has already classified the
 image and published its retained `MetadataReader` before the service receives
@@ -663,6 +680,8 @@ method-source work so one cost cannot hide the other.
 - No acquisition, binding-policy mutation, or generation replacement during
   producer execution; reference binding is consumed, never driven.
 - No universal assembly, Type, Member, or Method source vocabulary.
+- No claim that one operation composes multiple source adapters; cross-source
+  operation composition remains unverified.
 - No Analysis-owned request collapse, source optimizer, or scheduler.
 - No broad producer result, metric bundle, or type-keyed result bag.
 - No `CompleteProfileV1` producer.

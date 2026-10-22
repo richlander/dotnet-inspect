@@ -23,6 +23,25 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(packet, result.Packet);
     }
 
+    // PR-fast: use the production retained-activation owner with opt-in handoff
+    // capture; its existing Package presentation and current occurrence agree.
+    [Fact]
+    public async Task SelectedSubjectCapture_PreservesBrowserPackageActivation()
+    {
+        CompleteRestorationExecutionOptions options =
+            (await OptionsAsync()) with { CaptureSelectedSubject = true };
+        await using var owner = new BrowserRetainedWorkspaceActivationOwner(() => options);
+        string packet = Packet(["System.Text.Json"], selectedIndex: 0,
+            packageVersion: "9.0.4", framework: "net9.0",
+            packageFacet: "package.libraries");
+        BrowserRetainedWorkspacePosting posting = await ActivateAsync(owner, "saved-package", packet);
+        using WorkspaceRealizationOperationLease operation = await EnterAsync(owner, "saved-package");
+        Assert.Equal(packet, posting.CanonicalPacket);
+        Assert.Equal("System.Text.Json", Assert.Single(operation.Scope.Packages)
+            .Occurrence.Package.PackageId, ignoreCase: true);
+        Assert.Equal("package.libraries", posting.Navigation.Snapshot.LensOutcome.EffectiveLens?.Facet);
+    }
+
     // PR-fast: recorded CLI output plus the existing pinned NuGet payload.
     // workspace ecosystem add runtime; package System.Text.Json@10.0.0 --workspace PACKET --share packet
     [Fact]

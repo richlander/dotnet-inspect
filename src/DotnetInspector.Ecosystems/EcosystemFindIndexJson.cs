@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DotnetInspector.Packages;
@@ -6,7 +7,6 @@ using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
-using UntrustedDocuments;
 
 namespace DotnetInspector.Ecosystems;
 
@@ -40,14 +40,7 @@ public static class EcosystemFindIndexJson
     {
         try
         {
-            using JsonDocument parsed = HardenedJson.Parse(utf8Json);
-            EcosystemFindIndexDocument document =
-                JsonSerializer.Deserialize(
-                    parsed.RootElement,
-                    EcosystemFindIndexJsonContext.Default.EcosystemFindIndexDocument)
-                ?? throw new JsonException(
-                    "The Ecosystem Find Index document is null.");
-            EcosystemFindIndexArtifact artifact = FromDocument(document);
+            EcosystemFindIndexArtifact artifact = Deserialize(utf8Json.Span);
             EcosystemFindIndexValidation.Validate(artifact);
             return new EcosystemFindIndexLoadResult.Available(artifact);
         }
@@ -61,6 +54,19 @@ public static class EcosystemFindIndexJson
             return new EcosystemFindIndexLoadResult.Invalid(
                 new InertString(TextPolicy.Field, exception.Message));
         }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static EcosystemFindIndexArtifact Deserialize(
+        ReadOnlySpan<byte> utf8Json)
+    {
+        EcosystemFindIndexDocument document =
+            JsonSerializer.Deserialize(
+                utf8Json,
+                EcosystemFindIndexJsonContext.Default.EcosystemFindIndexDocument)
+            ?? throw new JsonException(
+                "The Ecosystem Find Index document is null.");
+        return FromDocument(document);
     }
 
     private static EcosystemFindIndexDocument ToDocument(
@@ -227,6 +233,7 @@ public static class EcosystemFindIndexJson
             },
             IsEditorBrowsableNever =
                 evidence.IsEditorBrowsableNever,
+            MetadataName = evidence.MetadataName,
         };
 
     private static EcosystemFindIndexNamedTypeDocument ToNamedType(
@@ -429,6 +436,7 @@ public static class EcosystemFindIndexJson
                 evidence.Member.Fingerprint,
                 evidence.Member.TypeFullName,
                 evidence.Member.MemberName),
+            evidence.MetadataName,
             FromType(evidence.DeclaringType),
             evidence.ReceiverType is null ? null : FromNamedType(evidence.ReceiverType),
             evidence.ReturnType is null ? null : FromNamedType(evidence.ReturnType),
@@ -582,6 +590,7 @@ internal sealed record EcosystemFindIndexEvidenceDocument
     public required EcosystemFindIndexTypeDiscoveryDocument
         DeclaringTypeDiscoveryAttributes { get; init; }
     public required bool IsEditorBrowsableNever { get; init; }
+    public required string MetadataName { get; init; }
 }
 
 internal sealed record EcosystemFindIndexNamedTypeDocument
@@ -596,6 +605,7 @@ internal sealed record EcosystemFindIndexNamedTypeDocument
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     UseStringEnumConverter = true,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    AllowDuplicateProperties = false,
     UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]
 [JsonSerializable(typeof(EcosystemFindIndexDocument))]
 internal sealed partial class EcosystemFindIndexJsonContext

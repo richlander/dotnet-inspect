@@ -1054,6 +1054,12 @@ An invariant owner-issued request may retain and reuse its complete source plan.
 A changed breadth, expansion, depth, terminal, producer parameter, or request
 set is planned anew. Plan reuse transfers no subject authority or result.
 
+The request creates a Method-owned assembly-source adapter. Assembly Analysis
+carries that adapter opaquely: Method breadth, layers, terminals, execution,
+and concrete receipts remain here. A Method-aware sink recovers the concrete
+receipt only after the operation or execution proves the Method source
+association.
+
 ## Serial reference execution
 
 The normative executor is deterministic and sequential:

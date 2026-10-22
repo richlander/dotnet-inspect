@@ -274,7 +274,7 @@ missing fixture binaries.
 | Was the intended lowering recognized without consuming a near miss? | Pass tests and substrate-atom tests; compiler-produced positive and decline fixtures. | A local shape proof is not corpus coverage. |
 | Is the output valid and at the desired C# altitude? | `ValidityCheck`, `TypeSourceCheck`, `TypeBindCheck`, `IdiomShapeScorecardTests`. | Binding and preferred syntax do not establish compile-back fidelity. |
 | Do annotations agree with IL witnesses? | `AnnotationCheck`, `AnnotationGateTests`, printed-range/document tests. | Annotation correctness is separate from correctness of the C# body. |
-| Does the rendered body compile back to the contract body? | `FidelityCheck`, ReturnToSender, `FidelityGateTests`, `LoweredFidelityGateTests`. | Uncheckable methods remain named outcomes; current comparison is EH-blind and is not semantic equivalence. |
+| Does the rendered body compile back to the contract body? | `FidelityCheck`, ReturnToSender, `FidelityGateTests`, `LoweredFidelityGateTests`. | Uncheckable methods remain named outcomes; current comparison compares exception clauses (contract v6) and is not semantic equivalence. |
 | Does output correspond to independently acquired authored source? | Source-oracle manifest, authored-source/rebuild harness modes and tests. | Source correspondence and compile-back are independent; PDB mapping is not fault-attribution authority. |
 | What moved across real inputs, especially changed methods? | Corpus sensor, render A/B, corpus delta, changed-method fidelity. | Aggregate gains cannot establish correctness of an unchecked changed method. |
 

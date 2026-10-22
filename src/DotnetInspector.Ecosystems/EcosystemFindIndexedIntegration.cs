@@ -18,7 +18,8 @@ public sealed record EcosystemFindIndexedIntegrationRequest
         IReadOnlyList<EcosystemFindIndexedIntegrationSourceIdentity>
             demandedSources,
         FindQuestion question,
-        int? maximumRows)
+        int? maximumRows,
+        string? typeFilter = null)
     {
         ArgumentNullException.ThrowIfNull(artifacts);
         ArgumentNullException.ThrowIfNull(demandedSources);
@@ -59,6 +60,7 @@ public sealed record EcosystemFindIndexedIntegrationRequest
         DemandedSources = [.. demandedSources];
         Question = question;
         MaximumRows = maximumRows;
+        TypeFilter = typeFilter;
         Validate();
     }
 
@@ -68,6 +70,7 @@ public sealed record EcosystemFindIndexedIntegrationRequest
     { get; }
     public FindQuestion Question { get; }
     public int? MaximumRows { get; }
+    public string? TypeFilter { get; }
 
     private void Validate()
     {
@@ -396,7 +399,7 @@ public static class EcosystemFindIndexedIntegration
                                 symbol.Member.Member,
                                 symbol.SymbolOrdinal,
                                 MemberOrder: 0,
-                                symbol.Member.Member.MemberName,
+                                symbol.Member.MetadataName,
                                 symbol.Member.DeclaringType
                                     .ToMetadataFullName(),
                                 string.IsNullOrEmpty(
@@ -603,7 +606,12 @@ public static class EcosystemFindIndexedIntegration
                                 symbol.SourceIndex == sourceIndex
                                 && IsRelevant(
                                     request.Question,
-                                    symbol.Kind)),
+                                    symbol.Kind)
+                                && (request.TypeFilter is null
+                                    || symbol.Type is null
+                                    || TypeMatcher.MatchesTypeFilter(
+                                        symbol.Type.ToMetadataFullName(),
+                                        request.TypeFilter))),
                         ];
                         var state = new SourceState(
                             prefix,
