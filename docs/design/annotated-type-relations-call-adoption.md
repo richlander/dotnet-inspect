@@ -159,7 +159,10 @@ metadata scan supplies their evidence.
 
 Rows creates canonical `SubjectRelationRow` values and direct subject
 annotations. Count and Exists do not create relationship Rows, occurrences, or
-annotations.
+annotations. Count tracks distinct admitted source-target identities directly
+without constructing relationship groups. Exists stops at the first known
+admitted occurrence without constructing or scanning the remaining logical
+relationship groups.
 
 Count is exact only when topology and all predicate-color families are
 complete. Otherwise its value is the known admitted relationship lower bound.

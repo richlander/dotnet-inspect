@@ -188,20 +188,9 @@ public static class AnnotatedTypeRelationsCallAdoption
         Dictionary<MethodIdentity, TypeCallCompatibilityTarget> targets =
             evidence.Targets.ToDictionary(target => target.Method);
         RelationshipGroup[] groups =
-        [
-            .. evidence.Occurrences
-                .GroupBy(occurrence => (
-                    occurrence.SourceMethod,
-                    occurrence.TargetMethod))
-                .Select(group => new RelationshipGroup(
-                    group.Key.SourceMethod,
-                    group.Key.TargetMethod,
-                    [.. group]))
-                .Where(group =>
-                    Satisfies(
-                        targets[group.Target],
-                        request.RequiredColors)),
-        ];
+            terminal == AnnotatedTypeRelationsTerminal.Rows
+                ? CreateRelationshipGroups(request, targets)
+                : [];
 
         bool predicateComplete = request.RequiredColors.IsEmpty
             || evidence.Targets.All(target =>
@@ -229,11 +218,11 @@ public static class AnnotatedTypeRelationsCallAdoption
                         CreateRows(request, groups)),
                 AnnotatedTypeRelationsTerminal.Count =>
                     new AnnotatedTypeRelationsFamilyTerminal.Count(
-                        groups.Length,
+                        CountRelationships(request, targets),
                         relationshipComplete),
                 AnnotatedTypeRelationsTerminal.Exists =>
                     new AnnotatedTypeRelationsFamilyTerminal.Exists(
-                        groups.Length != 0
+                        HasRelationship(request, targets)
                             ? AnnotatedTypeRelationsExistsValue.True
                             : relationshipComplete
                                 ? AnnotatedTypeRelationsExistsValue.False
@@ -261,6 +250,65 @@ public static class AnnotatedTypeRelationsCallAdoption
             terminal,
             [relationship],
             colors);
+    }
+
+    static RelationshipGroup[] CreateRelationshipGroups(
+        AnnotatedTypeRelationsCallRequest request,
+        IReadOnlyDictionary<MethodIdentity,
+            TypeCallCompatibilityTarget> targets) =>
+    [
+        .. request.Evidence.Occurrences
+            .GroupBy(occurrence => (
+                occurrence.SourceMethod,
+                occurrence.TargetMethod))
+            .Select(group => new RelationshipGroup(
+                group.Key.SourceMethod,
+                group.Key.TargetMethod,
+                [.. group]))
+            .Where(group =>
+                Satisfies(
+                    targets[group.Target],
+                    request.RequiredColors)),
+    ];
+
+    static int CountRelationships(
+        AnnotatedTypeRelationsCallRequest request,
+        IReadOnlyDictionary<MethodIdentity,
+            TypeCallCompatibilityTarget> targets)
+    {
+        var relationships = new HashSet<(MethodIdentity Source,
+            MethodIdentity Target)>();
+        foreach (AssemblyContextCallCensusOccurrence occurrence in
+            request.Evidence.Occurrences)
+        {
+            if (Satisfies(
+                targets[occurrence.TargetMethod],
+                request.RequiredColors))
+            {
+                relationships.Add((
+                    occurrence.SourceMethod,
+                    occurrence.TargetMethod));
+            }
+        }
+        return relationships.Count;
+    }
+
+    static bool HasRelationship(
+        AnnotatedTypeRelationsCallRequest request,
+        IReadOnlyDictionary<MethodIdentity,
+            TypeCallCompatibilityTarget> targets)
+    {
+        foreach (AssemblyContextCallCensusOccurrence occurrence in
+            request.Evidence.Occurrences)
+        {
+            if (Satisfies(
+                targets[occurrence.TargetMethod],
+                request.RequiredColors))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     static ImmutableArray<SubjectRelationRow> CreateRows(
