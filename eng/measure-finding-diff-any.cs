@@ -43,6 +43,39 @@ for (int i = 0; i < iterations; i++)
 }
 samples.Sort();
 
+// Allocation per whole comparison, and the memory a comparison retains while
+// its sides are alive (the memoized keys and unit tables), for a producer
+// change that moves key storage (docs/design/symbol-key.md#builder).
+long allocatedMedian;
+{
+    var allocations = new List<long>(iterations);
+    for (int i = 0; i < iterations; i++)
+    {
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        Run();
+        allocations.Add(GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+    allocations.Sort();
+    allocatedMedian = allocations[allocations.Count / 2];
+}
+long retainedBytes;
+{
+    using var before = new PEReader(new MemoryStream(beforeBytes, writable: false));
+    using var after = new PEReader(new MemoryStream(afterBytes, writable: false));
+    GC.Collect();
+    GC.WaitForPendingFinalizers();
+    GC.Collect();
+    long idle = GC.GetTotalMemory(forceFullCollection: true);
+    var retained = new FindingDiffAnyComparison();
+    while (!retained.Step(before, after, Timeout.InfiniteTimeSpan))
+    {
+    }
+    long held = GC.GetTotalMemory(forceFullCollection: true);
+    retainedBytes = held - idle;
+    GC.KeepAlive(retained);
+}
+Console.WriteLine($"alloc\tmedianBytes={allocatedMedian}\tretainedBytes={retainedBytes}");
+
 // The API axis alone, and the whole comparison advanced in bounded steps over
 // retained readers, as a single-threaded host runs it.
 double Median(Func<double> sample)
