@@ -727,7 +727,7 @@ async function boot(page: Page): Promise<void> {
         client.package.clearWorkspacePackageOccurrences(),
       queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
         client.package.queryPackageDependencies(
-          packageId, pkgVersion, framework, assemblyId),
+          packageId, pkgVersion, framework, assemblyId, null),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),

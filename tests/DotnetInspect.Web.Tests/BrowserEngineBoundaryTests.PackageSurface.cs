@@ -3306,6 +3306,55 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageDependencies_RetainsExactRuntimeIdentifier()
+    {
+        string packageId = $"Browser.Dependency.Runtime.{Guid.NewGuid():N}";
+        byte[] image = File.ReadAllBytes(
+            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] nupkg = PackageEntries(
+            (
+                $"runtimes/linux-x64/lib/net11.0/{packageId}.dll",
+                [0x01]),
+            (
+                $"runtimes/win-x64/lib/net11.0/{packageId}.dll",
+                image),
+            (
+                $"{packageId}.nuspec",
+                Encoding.UTF8.GetBytes(
+                    $"""
+                     <package>
+                       <metadata>
+                         <id>{packageId}</id>
+                         <version>1.0.0</version>
+                       </metadata>
+                     </package>
+                     """)));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                nupkg,
+                fromCache: false));
+
+        BrowserPackageDependencies dependencies =
+            Assert.IsType<BrowserPackageDependencies>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Package.PackageExports
+                        .QueryPackageDependencies(
+                            packageId,
+                            "1.0.0",
+                            "net11.0",
+                            $"{packageId}.dll",
+                            "win-x64"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageDependencies));
+
+        Assert.Equal($"{packageId}.dll", dependencies.Assembly);
+        Assert.IsType<BrowserAssemblyReferenceList>(
+            dependencies.AssemblyReferences.Value);
+    }
+
+    [Fact]
     public async Task PackageDependencies_EmptyModernGroupDefaultsToRuntime()
     {
         string packageId = $"Browser.Dependency.Runtime.{Guid.NewGuid():N}";

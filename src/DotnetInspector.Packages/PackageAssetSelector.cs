@@ -403,6 +403,48 @@ public static class PackageAssetSelector
             evaluation.Selection);
     }
 
+    internal static IReadOnlyList<string> GetSingleRuntimeTargetFrameworks(
+        IPackageContent content,
+        string runtimeIdentifier)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (!PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                runtimeIdentifier))
+        {
+            throw new ArgumentException(
+                "A package asset runtime identifier must use its canonical lowercase spelling.",
+                nameof(runtimeIdentifier));
+        }
+
+        return
+        [
+            .. content.EnumerateEntries()
+                .Where(static entry =>
+                    entry is not null
+                    && entry.EndsWith(
+                        AssemblyExtension,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(ClassifyRuntimeLibrary)
+                .OfType<CandidateEntry>()
+                .Where(candidate =>
+                    candidate.RuntimeIdentifier!.Equals(
+                        runtimeIdentifier,
+                        StringComparison.Ordinal))
+                .Select(static candidate =>
+                    candidate.TargetFramework)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(static framework =>
+                    TfmResolver.GetTfmPriority(
+                        framework.ToLowerInvariant()))
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.Ordinal),
+        ];
+    }
+
     private static SingleRuntimeEvaluation SelectSingleRuntimeCore(
         IPackageContent content,
         string? targetFramework,

@@ -1609,7 +1609,7 @@ type $ManagedExports = {
             readonly "QueryLibraryApi.780972425": (packageId: string, version: string, targetFramework: string, assemblyId: string, includeEnablements: boolean) => Promise<string>;
             readonly "QueryMemberDocumentation.1330709314": (packageId: string, version: string, framework: string, assemblyName: string, documentationId: string) => Promise<string>;
             readonly "QueryPackage.1579276339": (packageId: string, version: string, targetFramework: string, runtimeIdentifier: string) => Promise<string>;
-            readonly "QueryPackageDependencies.1579276339": (packageId: string, version: string, targetFramework: string, assemblyId: string) => Promise<string>;
+            readonly "QueryPackageDependencies.1330709314": (packageId: string, version: string, targetFramework: string, assemblyId: string, runtimeIdentifier: string | null) => Promise<string>;
             readonly "QueryPackageHierarchy.1001223652": (packageId: string, version: string, targetFramework: string) => Promise<string>;
             readonly "QueryPackageIcon.451505237": (packageId: string, version: string) => Promise<string>;
             readonly "QueryPackageRoot.976702342": (rootRequest: string) => Promise<string>;
@@ -1982,9 +1982,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Package");
     value = $ownDataProperty(value, "PackageExports");
-    value = $ownDataProperty(value, "QueryPackageDependencies.1579276339");
+    value = $ownDataProperty(value, "QueryPackageDependencies.1330709314");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageDependencies.1579276339\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Package.PackageExports.QueryPackageDependencies.1330709314\u0027 is not callable.");
     }
   }
   {
@@ -2372,8 +2372,8 @@ export async function queryPackage(packageId: string, version: string, targetFra
   return $parsed as BrowserPackageLoadResult;
 }
 
-export async function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string): Promise<BrowserPackageDependencies> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageDependencies.1579276339"](packageId, version, targetFramework, assemblyId);
+export async function queryPackageDependencies(packageId: string, version: string, targetFramework: string, assemblyId: string, runtimeIdentifier: string | null): Promise<BrowserPackageDependencies> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Package"]["PackageExports"]["QueryPackageDependencies.1330709314"](packageId, version, targetFramework, assemblyId, runtimeIdentifier);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserPackageDependencies;
 }

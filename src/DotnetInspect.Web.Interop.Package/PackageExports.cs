@@ -621,18 +621,32 @@ public static partial class PackageExports
     /// <see cref="PackageDependencyEvidenceQuery"/>, and the assembly-context query owns the
     /// metadata session. This method only adapts their typed results for the browser.
     /// </summary>
+    public static Task<string> QueryPackageDependencies(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId) =>
+        QueryPackageDependencies(
+            packageId,
+            version,
+            targetFramework,
+            assemblyId,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryPackageDependencies(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        string? runtimeIdentifier)
     {
         BrowserPackageDependencies dependencies = await PackageDependenciesAsync(
             packageId,
             version,
             targetFramework,
-            assemblyId);
+            assemblyId,
+            runtimeIdentifier);
         return JsonSerializer.Serialize(
             dependencies,
             BrowserPackageJsonContext.Default.BrowserPackageDependencies);
@@ -853,13 +867,15 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        string? runtimeIdentifier)
     {
         BrowserPackageCoordinate realizedCoordinate =
             await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                runtimeIdentifier);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [realizedCoordinate],

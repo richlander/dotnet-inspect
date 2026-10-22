@@ -1245,7 +1245,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackageDependencies: valueOperation(
       "ordinary-package-query-dependencies",
-      4,
+      5,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackageDependencies"]>

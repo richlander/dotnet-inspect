@@ -844,10 +844,14 @@ public static class PackageCompileAssetSelector
                     first.Library.AssemblySimpleName,
                     StringComparison.Ordinal));
         string framework = selected.Universe.TargetFramework;
+        IReadOnlyList<string> frameworks =
+            PackageAssetSelector.GetSingleRuntimeTargetFrameworks(
+                content,
+                runtimeIdentifier);
         return new PackageCompileAssetSelection(
             PackageCompileAssetSelectionStatus.Selected,
             framework,
-            [framework],
+            frameworks,
             assets,
             defaultAsset,
             assets,

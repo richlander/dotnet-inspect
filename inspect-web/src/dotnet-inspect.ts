@@ -11934,7 +11934,8 @@ const packageInspection = createPackageInspectionCoordinator({
     packageModel.id,
     packageModel.version,
     packageModel.activeFramework,
-    packageQueryAssemblyId(packageModel)),
+    packageQueryAssemblyId(packageModel),
+    packageModel.runtimeIdentifier ?? null),
   queryVulnerabilities: packageModel => inspectPackageVulnerabilities(
     packageModel.id,
     packageModel.version),
