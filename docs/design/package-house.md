@@ -71,10 +71,11 @@ their own input scope, source and inventory authorization, completion policy,
 and presentation.
 `DesktopPackageSourceComposition` remains a transitional native-host bundle:
 it resolves source policy, supplies installed credential-provider integration,
-creates native HTTP or local source clients, and owns their lifetime. Package
-stores are caller-supplied. Its asynchronous pinned-candidate compatibility
-path and direct dependency-version convenience are retired. Callers issue one
-Package Source operation for pinned candidate and candidate-manifest work;
+creates native HTTP or local source clients, owns their settlement root and
+lifetime, and issues Package Source operations. Package stores are
+caller-supplied. Its asynchronous pinned-candidate compatibility path and
+direct dependency-version convenience are retired. Callers issue one Package
+Source operation for pinned candidate and candidate-manifest work;
 composition-owned exact and selecting payload operations continue to settle
 through PackageHouse.
 The CLI's online `package Package@latest --versions` query and `@latest`
@@ -1525,25 +1526,28 @@ tracked by [#6335](https://github.com/richlander/dotnet-inspect/issues/6335).
 `Desktop` is not a positive package responsibility and is not a replacement
 prefix. Package types name the distinction they own:
 
-- source policy names configuration discovery and authorization;
+- configuration provenance uses the `Machine`, `User`, `Repo`, and `Project`
+  scopes, while source policy names their resolution and authorization
+  together with explicit inputs;
 - native capability names installed credential-provider integration, native
   HTTP or local routes, and the lifetime of their source clients;
 - filesystem capability names temporary or durable file-backed stores; and
 - CLI-local adapters name the package operation they adapt. Their enclosing
   namespace and owner already establish the host.
 
-`Ambient` is reserved for an owner whose specific input is the default
-user/repository/project NuGet configuration hierarchy. It does not name
-`DesktopPackageSourceComposition`: `NuGetSourceOptions` can replace or add
-sources, select an explicit config file or directory, or carry Workspace
-sources and credentials. The existing
-`SourcePolicyPackageSourceAuthorization` owns that broader policy input.
+`Ambient` may describe implicit configuration discovery in explanatory prose;
+it is not a product type, policy, or configuration-scope name. When provenance
+matters, the product identifies the contributing `Machine`, `User`, `Repo`, or
+`Project` scope. `NuGetSourceOptions` can additionally replace or add sources,
+select an explicit config file or directory, or carry Workspace sources and
+credentials. The existing `SourcePolicyPackageSourceAuthorization` owns that
+broader accumulated and explicit policy input.
 
 The complete production `Desktop*` census and disposition is:
 
 | Current symbol | Positive responsibility | Surviving architecture or rename disposition |
 | --- | --- | --- |
-| `DesktopPackageSourceComposition` | Transitional native-host bundle for source-policy resolution, installed credential providers, native HTTP/local clients, and client lifetime. | Do not give the compatibility composition a durable replacement name. Move policy to `SourcePolicyPackageSourceAuthorization`, supply host-created clients to Package Source operations, and remove this identity under the retirement plan below. |
+| `DesktopPackageSourceComposition` | Transitional native-host bundle for source-policy resolution, installed credential providers, native HTTP/local clients, settlement-root lifetime, and operation issuance. | Do not give the compatibility composition a durable replacement name. Move policy to `SourcePolicyPackageSourceAuthorization`, supply host-created clients to the Package Source settlement root, and remove this identity under the retirement plan below. |
 | `DesktopPlatformPackageSourceRuntime` | CLI-local coordinator for Package Source authorization and operations, temporary package stores, and the package-backed Platform adapter. | Drop the host prefix as `PackagePlatformSourceRuntime` when renamed; the composition dependency remains transitional. |
 | `DesktopPackageStoreScope` | Lazily created authority-scoped stores under one temporary filesystem root. | Name the capability `TemporaryPackageStoreScope`. |
 | `DesktopPackageDependencyMemberCallGraphContinuationSource` | CLI call-graph continuation that combines installed and package-backed Platform sources. | Drop the host prefix as `PackageDependencyMemberCallGraphContinuationSource`. |
