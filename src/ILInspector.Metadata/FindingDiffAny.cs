@@ -521,8 +521,11 @@ public static class FindingDiffAny
         /// <summary>
         /// The exception clauses of two bodies whose streams are complete and
         /// aligned. Every boundary of both tables is checked for an
-        /// instruction start first, as the decoder rejects any other, so a
-        /// malformed table is undecidable before any difference it holds.
+        /// instruction start first, so a table with such a boundary is
+        /// undecidable before any difference it holds. The decoder's further
+        /// topology rules (nesting, ordering, empty extents) are canonical
+        /// comparison's to reject; a table they reject and this walk decides
+        /// is a contained disagreement on malformed input.
         /// </summary>
         bool ClausesEqual(
             Side a,

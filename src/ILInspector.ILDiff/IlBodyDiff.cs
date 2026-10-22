@@ -109,6 +109,28 @@ public sealed record CanonicalIlOperation(
     /// </summary>
     public bool IsExceptionClause => OpcodeFamily is "catch" or "filter" or "finally" or "fault";
 
+    /// <summary>Two operations are equal when every part is, targets by value.</summary>
+    public bool Equals(CanonicalIlOperation? other)
+        => other is not null
+            && Offset == other.Offset
+            && OpcodeFamily == other.OpcodeFamily
+            && Equals(Operand, other.Operand)
+            && TargetsOf(this).SequenceEqual(TargetsOf(other));
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(Offset);
+        hash.Add(OpcodeFamily);
+        hash.Add(Operand);
+        foreach (int target in TargetsOf(this))
+            hash.Add(target);
+        return hash.ToHashCode();
+    }
+
+    static ImmutableArray<int> TargetsOf(CanonicalIlOperation operation)
+        => operation.Targets.IsDefault ? [] : operation.Targets;
+
     public string Display
     {
         get

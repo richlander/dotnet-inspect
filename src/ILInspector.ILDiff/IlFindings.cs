@@ -53,13 +53,17 @@ public static class IlFindings
             return new FindingInspection<CanonicalIlOperation>.Absent(
                 FindingInspectionAbsenceKind.NoApplicableInput,
                 "Method has no IL body.");
-        if (body.IsComplete && body.Instructions.Length > MaxCanonicalOperations)
+        // The census holds one atom per instruction and one per exception
+        // clause, so the bound counts both.
+        int atoms = body.IsComplete ? body.Instructions.Length + body.Blocks.Regions.Length : 0;
+        if (atoms > MaxCanonicalOperations)
         {
             return new FindingInspection<CanonicalIlOperation>.Failed(
                 new InspectionError(
                     subject,
                     InspectionDescriptor,
-                    $"IL inspection skipped: body has {body.Instructions.Length:N0} canonical operations; " +
+                    $"IL inspection skipped: body has {atoms:N0} canonical operations " +
+                    $"({body.Instructions.Length:N0} instructions and {body.Blocks.Regions.Length:N0} exception clauses); " +
                     $"limit is {MaxCanonicalOperations:N0}."));
         }
 
@@ -281,7 +285,7 @@ public static class IlFindings
                     present.Old,
                     present.New,
                     present.Difference,
-                    present.Detail is null ? "branch retargeted" : $"{present.Detail}; branch retargeted"));
+                    present.Detail is null ? MovedTargetDetail(present.Old) : $"{present.Detail}; {MovedTargetDetail(present.Old)}"));
             }
             else
             {
@@ -291,6 +295,9 @@ public static class IlFindings
 
         return builder.ToImmutable();
     }
+
+    static string MovedTargetDetail(Finding<CanonicalIlOperation> finding)
+        => finding.Payload.IsExceptionClause ? "clause extent moved" : "branch retargeted";
 
     static int RequiredOrdinal(Finding<CanonicalIlOperation> finding)
         => finding.Ordinal

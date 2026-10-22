@@ -3226,7 +3226,7 @@ static partial class FidelityCheck
         string Pct(int n, int d) => d == 0 ? "0" : $"{100.0 * n / d:F2}%";
         Console.WriteLine($"COMPILE-BACK over {total} rendered methods ({full} Full)");
         Console.WriteLine();
-        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact, total)}) — EH-blind");
+        Console.WriteLine($"  exact (contract v{CurrentContractVersion}): {exact} ({Pct(exact, total)})");
         Console.WriteLine($"  opcode diff (Full) : {opcodeDiff} — recompiled to a different opcode stream");
         Console.WriteLine($"  operand diff (Full): {operandDiff} — opcode names matched; operand or target differed");
         Console.WriteLine($"  fidelity unavailable: {fidelityUnavailable} — body comparison produced no verdict");
@@ -3250,7 +3250,7 @@ static partial class FidelityCheck
         {
             Console.WriteLine();
             Console.WriteLine(ExampleHeading(
-                "Operand-diff examples (Full; EH-blind)",
+                "Operand-diff examples (Full)",
                 operandDiffExamples.Count,
                 operandDiff));
             foreach (var e in operandDiffExamples)

@@ -189,7 +189,7 @@ Every body comparison produces one total outcome:
 | `Exact` | Both bodies are equal after applying the requested normalization. |
 | `OperandDiff` | Normalized opcode-family sequences match, but one or more operands differ. |
 | `OpcodeDiff` | Normalized opcode-family sequences differ; operand differences may also exist. |
-| `ExceptionRegionDiff` | Every operation matches and only exception clauses differ: a kind, a catch Type, an extent that no longer aligns, or a clause present on one side. |
+| `ExceptionRegionDiff` | Every operation matches and only exception clauses differ: a kind, a catch Type, an extent that no longer aligns, or a clause present on one side. A body whose operations and clauses both differ reads as `OperandDiff` or `OpcodeDiff`, since clause families are part of the family sequence. |
 
 `Exact` is relational: it describes equality between both bodies, not the
 quality or provenance of either side. `Unavailable` is not the opposite of

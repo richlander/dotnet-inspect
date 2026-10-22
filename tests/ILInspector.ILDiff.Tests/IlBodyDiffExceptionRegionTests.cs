@@ -109,6 +109,27 @@ public class IlBodyDiffExceptionRegionTests
         Assert.All(operations.Skip(firstClause), operation => Assert.Equal(4, operation.Targets.Length));
     }
 
+    /// <summary>
+    /// The census bound counts clause atoms: a body one instruction under the
+    /// limit with two clauses is a typed inspection failure, not an exception
+    /// from the matcher.
+    /// </summary>
+    [Fact]
+    public void NearLimitBodyWithClauses_IsATypedInspectionFailure()
+    {
+        int instructions = IlFindings.MaxCanonicalOperations - 1;
+        (byte[] image, int body) = Image(Shape.NestedCatchInFinally, paddingNops: instructions - 8);
+        using var pe = new PEReader(new MemoryStream(image));
+        MethodInstructions decoded = MethodInstructions.Decode(pe.GetMethodBody(body));
+        Assert.True(decoded.IsComplete);
+        Assert.Equal(2, decoded.Blocks.Regions.Length);
+        Assert.True(decoded.Instructions.Length + 2 > IlFindings.MaxCanonicalOperations);
+
+        var inspection = IlFindings.Inspect(decoded, pe.GetMetadataReader(), new FindingSubject("C::M", "M"));
+        var failed = Assert.IsAssignableFrom<FindingInspection<CanonicalIlOperation>.Failed>(inspection);
+        Assert.Contains("exception clauses", failed.Error.Reason);
+    }
+
     [Fact]
     public void Census_AgreesWithTheComparison()
     {
@@ -168,7 +189,7 @@ public class IlBodyDiffExceptionRegionTests
     /// One image with a public static method <c>C::M()</c> of the shape, and
     /// a callee <c>C::Work()</c> it calls. Returns the image and M's body RVA.
     /// </summary>
-    static (byte[] Image, int BodyRva) Image(Shape shape)
+    static (byte[] Image, int BodyRva) Image(Shape shape, int paddingNops = 0)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(0, metadata.GetOrAddString("Eh.dll"), metadata.GetOrAddGuid(new Guid("5a5a5a5a-0000-4000-8000-000000000001")), default, default);
@@ -198,6 +219,8 @@ public class IlBodyDiffExceptionRegionTests
             metadata.GetOrAddString("Work"), voidHandle, stream.AddMethodBody(workCode), default);
 
         var code = new InstructionEncoder(new BlobBuilder(), new ControlFlowBuilder());
+        for (int i = 0; i < paddingNops; i++)
+            code.OpCode(ILOpCode.Nop);
         Emit(code, shape, work, systemObject, systemException, invalidOperation);
         int bodyOffset = stream.AddMethodBody(code, maxStack: 2);
         metadata.AddMethodDefinition(
