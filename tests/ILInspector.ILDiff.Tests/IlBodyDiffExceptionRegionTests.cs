@@ -129,10 +129,7 @@ public class IlBodyDiffExceptionRegionTests
         Assert.Equal(2, decoded.Blocks.Regions.Length);
 
         var inspection = IlFindings.Inspect(decoded, pe.GetMetadataReader(), new FindingSubject("C::M", "M"));
-        Assert.True(
-            inspection is FindingInspection<CanonicalIlOperation>.Failed,
-            $"{inspection.GetType().Name}: {decoded.Instructions.Length} instructions, {decoded.Blocks.Regions.Length} clauses, limit {IlFindings.MaxCanonicalOperations}");
-        var failed = (FindingInspection<CanonicalIlOperation>.Failed)inspection;
+        var failed = Assert.IsType<FindingInspection<CanonicalIlOperation>.Failed>(inspection.Value);
         Assert.Contains("exception clauses", failed.Error.Reason);
     }
 
