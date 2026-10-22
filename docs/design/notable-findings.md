@@ -300,6 +300,7 @@ rest on the platform's own guidance rather than on the product's opinion.
 | `alloc.box` | Avoid the conversion to `object` or an interface; use generics or a span. | [Boxing and unboxing](https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing) |
 | `alloc.closure` | Make the lambda `static` or pass the captured state as a parameter. | [Capture of outer variables](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions#capture-of-outer-variables-and-variable-scope-in-lambda-expressions) |
 | `alloc.delegate` | Cache the delegate in a static field or use a `static` lambda. | [Lambda expressions](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions) |
+| `alloc.statemachine` | A class state machine allocates on every call; an iterator's does in every build, an async method's only in a Debug build or with a non-`Task` return. The Member's classification selects the specific advice below. | [Iterators](https://learn.microsoft.com/dotnet/csharp/fundamentals/building-software/iterators) and [Understanding the whys, whats, and whens of ValueTask](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/) |
 | `alloc.statemachine`, iterator | A `yield` method allocates on every call; return a collection or a struct enumerator when the sequence is small or hot. | [Iterators](https://learn.microsoft.com/dotnet/csharp/fundamentals/building-software/iterators) |
 | `alloc.statemachine`, async | A class state machine means a Debug build or a non-Task method; see the Library profile. | [Understanding the whys, whats, and whens of ValueTask](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/) and [PoolingAsyncValueTaskMethodBuilder](https://learn.microsoft.com/dotnet/api/system.runtime.compilerservices.poolingasyncvaluetaskmethodbuilder) |
 | `alloc.enumerator` | Enumerate the concrete type, or expose a struct enumerator. | [Avoid memory allocations and data copies](https://learn.microsoft.com/dotnet/csharp/advanced-topics/performance/) |
@@ -312,6 +313,12 @@ rest on the platform's own guidance rather than on the product's opinion.
 | Expectation, state-machine async under runtime async | Confirm the method is an async iterator, `async void`, or uses a custom builder; otherwise recompile with runtime async on. | [Runtime Async](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-11/runtime#runtime-async) and the [runtime-async specification](https://github.com/dotnet/runtime/blob/main/docs/design/specs/runtime-async.md) |
 | Library, Debug-compiled | Ship an optimized build; Debug state machines and disabled JIT optimization are not representative. | [DebuggableAttribute](https://learn.microsoft.com/dotnet/api/system.diagnostics.debuggableattribute) |
 | Throw count (column) | Prefer `Try*` patterns and throw helpers on cold paths. | [Best practices for exceptions](https://learn.microsoft.com/dotnet/standard/exceptions/best-practices-for-exceptions) |
+
+A refined row applies when its attribute is known and falls back to the
+descriptor's base row otherwise: a host that knows the Member's classification
+selects the iterator or async row, and one that does not renders the base row,
+which must be true of both. The loop refinement reads the finding's own loop
+attribute, which the allocation and unsafety producers both supply.
 
 Every link above was fetched and its title confirmed on 2026-10-21. A slow,
 network-classified test checks each catalog link resolves, under
