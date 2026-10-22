@@ -163,6 +163,40 @@ of such a pair is a `FindingComparison<T>.Failed` with its
 `ComparisonFailure` stated and both inspections retained, never a matcher
 exception and never an empty diff.
 
+### Cost of the cursor
+
+`eng/measure-il-diff-exhaustive.cs` measures the exhaustive paths over one
+image pair under the Body policy: the whole-assembly comparison
+(`IlAssemblyDiff.CompareStreams`), the census of every method of each image
+(`IlFindings.Inspect` from the image, the raw-IL cursor), the census
+comparison of every paired method (`IlFindings.Compare`), and the Member Body
+Diff endpoint path (`IlAssemblyDiff.CompareMemberEndpoints`). The cursor's
+introduction ([#10477](https://github.com/richlander/dotnet-inspect/pull/10477))
+was measured against its base on the six pairs of Finding Diff Any's gates,
+NativeAOT linux-x64 on one development server, ten iterations in each of two
+runs; wall time is the lower median of the two runs for each side, and the
+allocation is the median bytes of the whole-assembly comparison, which did
+not vary between runs. Both sides are shown as base → head.
+
+| Pair | Assembly ms | Inspect both ms | Compare ms | Endpoints ms | Assembly alloc MB |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 1,858 → 1,780 | 621 → 606 | 1,290 → 1,272 | 2,233 → 2,140 | 4,540 → 4,290 |
+| System.Text.Json 9.0.0 to 10.0.0 | 277 → 273 | 116 → 116 | 73 → 73 | 122 → 121 | 755 → 732 |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 438 → 433 | 157 → 157 | 144 → 143 | 240 → 236 | 1,156 → 1,103 |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 399 → 393 | 154 → 156 | 117 → 116 | 198 → 192 | 1,029 → 985 |
+| System.Private.Xml 10 to 11 | 1,980 → 1,903 | 698 → 686 | 527 → 518 | 877 → 859 | 4,574 → 4,345 |
+| System.Private.CoreLib 10 to 11 | 2,201 → 2,228 | 885 → 875 | 602 → 593 | 1,004 → 989 | 5,740 → 5,641 |
+
+Wall time moved within the server's run-to-run band of about ±3% on every
+path, with the larger pairs 1–5% faster on most paths, and allocation fell
+2–6% on every path and pair: the index-based target validation and the
+operand memo outweigh the pre-scan's second read of the bytes and the
+`TargetIndexes` array per branch, switch, and clause atom. The raw-IL cursor
+(`Inspect both`) reads every body twice and still matches the one-pass decode
+it replaced. Step 2's laziness, allocation, and cost gates measure lockstep
+over two cursors against Finding Diff Any's walk; this table is the exhaustive
+baseline they start from.
+
 ## Guarantees
 
 ### Opcode macro folding
