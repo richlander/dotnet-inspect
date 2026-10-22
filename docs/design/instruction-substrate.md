@@ -85,7 +85,9 @@ dependency direction and the assembly owner.
   prove the block graph complete. Structure that materialization rejects,
   including a branch target inside an instruction or after a prefix, throws as
   materialization does. The visit and `ExceptionFlowTopology` share one
-  topology validation over the admitted instruction boundaries.
+  topology validation over the admitted instruction boundaries. A struct
+  `IInstructionVisitor` overload lets a hot caller visit without a delegate
+  call per instruction.
   `InstructionSequence` is the demand-driven retained-prefix primitive.
   Independent cursors advance with `MoveNext`, and indexed access extends the
   same shared scan frontier only through the requested instruction. The

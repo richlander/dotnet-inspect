@@ -161,18 +161,45 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
             return true;
         }
 
-        // The full rule resolves the callee and its target for every call
-        // site, a loaded function included, so either failure fails it.
+        // The full rule resolves every call site's callee and target, so a
+        // failure of either fails it. An operand that cannot reach the current
+        // module resolves its target to External or RuntimeProvided after the
+        // same callee decode, so only an operand that may reach it resolves
+        // its target here.
         MemberRef callee;
-        MethodCallTarget target;
         try
         {
             callee = view.GetCallRecoveryResolver().ResolveMember(token);
-            target = view.ResolveCallTarget(KindOf(opcode), token);
         }
         catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
         {
             return true;
+        }
+
+        EntityHandle method = handle.Kind == HandleKind.MethodSpecification
+            ? reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method
+            : handle;
+        EntityHandle definition = MetadataTokens.EntityHandle(
+            MemberResolver.DefinitionToken(reader, MetadataTokens.GetToken(method)));
+        _comparer ??= new SameImageSignatureComparer(
+            reader.IsAssembly
+                ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
+                : null,
+            reader.GetString(reader.GetModuleDefinition().Name));
+        bool mayReachCurrentModule =
+            definition.Kind == HandleKind.MethodDefinition
+            || _comparer.CanResolveToCurrentModule(callee.DeclaringType);
+        MethodCallTarget? target = null;
+        if (mayReachCurrentModule)
+        {
+            try
+            {
+                target = view.ResolveCallTarget(KindOf(opcode), token);
+            }
+            catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
+            {
+                return true;
+            }
         }
 
         if (loads)
@@ -184,7 +211,7 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
         // attribute row, whose constructor names a TypeDef or TypeRef of that
         // name; an image with no such row has no explicit target.
         _namesContractAttribute ??= NamesContractAttribute(reader);
-        if (_namesContractAttribute != true)
+        if (_namesContractAttribute != true || !mayReachCurrentModule)
             return false;
 
         if (target is MethodCallTarget.CurrentModule current)
@@ -192,20 +219,8 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
 
         // A caller-scope check can leave a same-image target unresolved for
         // this caller while another caller with the same key resolves it.
-        EntityHandle method = handle.Kind == HandleKind.MethodSpecification
-            ? reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method
-            : handle;
-        EntityHandle definition = MetadataTokens.EntityHandle(
-            MemberResolver.DefinitionToken(reader, MetadataTokens.GetToken(method)));
-        if (definition.Kind == HandleKind.MethodDefinition)
-            return MayBeExplicit(view, definition);
-
-        _comparer ??= new SameImageSignatureComparer(
-            reader.IsAssembly
-                ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
-                : null,
-            reader.GetString(reader.GetModuleDefinition().Name));
-        return _comparer.CanResolveToCurrentModule(callee.DeclaringType);
+        return definition.Kind != HandleKind.MethodDefinition
+            || MayBeExplicit(view, definition);
     }
 
     static bool MayBeExplicit(
