@@ -7,6 +7,10 @@ type BenchmarkPackage = Pick<
   | "packageCacheStats" | "loadRuntimePack"
 >;
 type BenchmarkLibrary = Pick<EngineClient["library"], "inspectLibrary">;
+type BenchmarkMetadata = Pick<
+  EngineClient["metadata"],
+  "queryTypeOverviewDocument"
+>;
 type BenchmarkAnalysis = Pick<
   EngineClient["analysis"],
   "queryMemberFacts" | "queryPackagePerformance"
@@ -26,6 +30,7 @@ export interface PublishedRuntimeBenchmarkBridge {
   readonly host: BenchmarkHost;
   readonly package: BenchmarkPackage;
   readonly library: BenchmarkLibrary;
+  readonly metadata: BenchmarkMetadata;
   readonly analysis: BenchmarkAnalysis;
   readonly source: BenchmarkSource;
   readonly catalog: BenchmarkCatalog;
@@ -57,6 +62,10 @@ export function createPublishedRuntimeBenchmarkBridge(
     },
     library: {
       inspectLibrary: client.library.inspectLibrary,
+    },
+    metadata: {
+      queryTypeOverviewDocument:
+        client.metadata.queryTypeOverviewDocument,
     },
     analysis: {
       queryMemberFacts: client.analysis.queryMemberFacts,
