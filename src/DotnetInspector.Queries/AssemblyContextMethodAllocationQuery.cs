@@ -127,7 +127,7 @@ public static class AssemblyContextMethodAllocationQuery
                 AssemblyAnalysisOperation<
                     ExactMethodAllocationProducerResult>.Create(
                         AssemblyContextAnalysisSource.Name(subject),
-                        request);
+                        request.AsAssemblyAnalysisSource());
 
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(snapshot);
