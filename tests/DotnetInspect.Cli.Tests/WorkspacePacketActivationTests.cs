@@ -12,7 +12,7 @@ namespace DotnetInspect.Cli.Tests;
 
 // PR-fast: bounded routing, registration-only restoration and pinned package-store inputs.
 [Collection("Console")]
-public sealed class WorkspacePacketActivationTests
+public sealed partial class WorkspacePacketActivationTests
 {
     const string RuntimeJson = """{"f":3,"t":[],"g":[],"r":[["e","ecosystem.runtime",["System"],[],[["t","DotNetRuntime"],["p","System."]]]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
     const string TypeJson = """{"f":5,"s":[["https://api.nuget.org/v3/index.json"]],"t":[["System.Text.Json","10.0.0","net10.0",null]],"g":[[0]],"r":[],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"type","l":["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"],"y":"System.Text.Json.JsonSerializer"},"u":{"k":"type"},"f":"type.api"}]}""";
