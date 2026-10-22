@@ -276,7 +276,8 @@ public static class SyncCallsInAsyncQuery
 
         MethodDefinitionSourceRequestSetExecution completed =
             ((AssemblyAnalysisRequestSetServiceResult.Completed)serviceResult)
-                .Execution;
+                .Execution
+                .MethodDefinitionExecution();
         var answers = ImmutableArray.CreateBuilder<
             (SyncCallsInAsyncClosing, SyncCallsInAsyncAnswer)>();
         var receipts = ImmutableArray.CreateBuilder<

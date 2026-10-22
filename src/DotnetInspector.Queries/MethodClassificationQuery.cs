@@ -564,7 +564,8 @@ public static class MethodClassificationQuery
 
         MethodDefinitionSourceRequestSetExecution completed =
             ((AssemblyAnalysisRequestSetServiceResult.Completed)serviceResult)
-                .Execution;
+                .Execution
+                .MethodDefinitionExecution();
         ImmutableArray<ClassificationAssociationReceipt>
             associationReceipts =
                 AssociationReceipts(prepared, completed);
