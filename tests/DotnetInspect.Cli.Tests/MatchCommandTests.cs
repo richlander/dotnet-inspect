@@ -553,7 +553,9 @@ public sealed class MatchCommandTests
                     JsonOutput = true,
                 }));
 
-            Assert.True(error.Length == 0, $"stderr: {error}\nstdout: {output}");
+            // The comparison has a failure, which the command reports as its own.
+            Assert.NotEqual(0, exitCode);
+            Assert.Contains("Method body comparison did not complete successfully", error);
             using var document = JsonDocument.Parse(output);
             var body = document.RootElement.GetProperty("body");
             Assert.True(body.GetProperty("has_failures").GetBoolean());
