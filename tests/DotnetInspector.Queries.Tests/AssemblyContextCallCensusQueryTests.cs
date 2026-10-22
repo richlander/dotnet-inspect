@@ -491,15 +491,24 @@ public sealed class AssemblyContextCallCensusQueryTests
                 focus,
                 population,
                 result);
+            AnnotatedTypeRelationsContribution unfilteredRows =
+                AnnotatedTypeRelationsCallAdoption.Rows(unfiltered);
+            var unfilteredRowsTerminal = Assert.IsType<
+                AnnotatedTypeRelationsFamilyTerminal.Rows>(
+                    Assert.Single(unfilteredRows.Relationships).Terminal);
             SubjectRelationRow dangerousRow = Assert.Single(
-                Assert.IsType<
-                    AnnotatedTypeRelationsFamilyTerminal.Rows>(
-                        Assert.Single(
-                            AnnotatedTypeRelationsCallAdoption.Rows(
-                                unfiltered).Relationships).Terminal)
-                    .Values,
+                unfilteredRowsTerminal.Values,
                 candidate => MemberName(candidate.Target) == "Dangerous");
             Assert.Equal(2, dangerousRow.Occurrences.Length);
+            var unfilteredCount = Assert.IsType<
+                AnnotatedTypeRelationsFamilyTerminal.Count>(
+                    Assert.Single(
+                        AnnotatedTypeRelationsCallAdoption.Count(
+                            unfiltered).Relationships).Terminal);
+            Assert.True(unfilteredCount.IsExact);
+            Assert.Equal(
+                unfilteredRowsTerminal.Values.Length,
+                unfilteredCount.Value);
         }
         finally
         {
