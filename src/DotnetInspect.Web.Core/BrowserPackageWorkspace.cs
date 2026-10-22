@@ -3107,7 +3107,8 @@ internal static class BrowserPackageWorkspace
         if (requests.Count == 0)
             throw new ArgumentException("A workspace requires at least one package request.");
 
-        if (requests.Count == 1)
+        if (requests.Count == 1
+            && requests[0].RuntimeIdentifier is null)
         {
             BrowserScopeLease<BrowserInspectionScope> single =
                 await OpenUnboundScopeAsync(requests[0], cancellationToken)

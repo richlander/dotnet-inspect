@@ -488,12 +488,17 @@ public static class PackageCompileAssetSelector
         ];
         if (frameworks.Length == 0)
         {
+            IReadOnlyList<string> runtimeFrameworks =
+                PackageAssetSelector.GetSingleRuntimeTargetFrameworks(
+                    content,
+                    runtimeIdentifier);
             if (runtimeIdentifier is not null
                 && SelectRuntimeOnlySurface(
                     content,
                     packageId,
                     targetFramework,
-                    runtimeIdentifier)
+                    runtimeIdentifier,
+                    runtimeFrameworks)
                     is { } runtimeOnly)
             {
                 return runtimeOnly;
@@ -501,7 +506,7 @@ public static class PackageCompileAssetSelector
             return new PackageCompileAssetSelection(
                 PackageCompileAssetSelectionStatus.NoCompileAssets,
                 null,
-                [],
+                runtimeFrameworks,
                 [],
                 null,
                 [],
@@ -800,7 +805,8 @@ public static class PackageCompileAssetSelector
             IPackageContent content,
             string packageId,
             string? targetFramework,
-            string runtimeIdentifier)
+            string runtimeIdentifier,
+            IReadOnlyList<string> availableTargetFrameworks)
     {
         PackageAssetSelection selection =
                 PackageAssetSelector.EvaluateSingleRuntime(
@@ -844,14 +850,10 @@ public static class PackageCompileAssetSelector
                     first.Library.AssemblySimpleName,
                     StringComparison.Ordinal));
         string framework = selected.Universe.TargetFramework;
-        IReadOnlyList<string> frameworks =
-            PackageAssetSelector.GetSingleRuntimeTargetFrameworks(
-                content,
-                runtimeIdentifier);
         return new PackageCompileAssetSelection(
             PackageCompileAssetSelectionStatus.Selected,
             framework,
-            frameworks,
+            availableTargetFrameworks,
             assets,
             defaultAsset,
             assets,

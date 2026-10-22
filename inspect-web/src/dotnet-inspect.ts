@@ -3980,6 +3980,7 @@ const metadataInspection = createMetadataInspectionCoordinator({
     request.assembly,
     request.type,
     request.typeIdentity,
+    request.runtimeIdentifier,
     request.workspaceJson),
   queryPackageTable: (explorer, index, startRowId, maxRows) =>
     inspectPackageMetadataTable(
@@ -18270,6 +18271,7 @@ function typeMetadataWorkspaceIdentity(): string {
       package: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     })));
 }
 
@@ -23287,6 +23289,7 @@ async function loadSelectedTypeMetadata() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
     type: type.queryId ?? type.id,
     typeIdentity: type.definitionId ?? type.id,

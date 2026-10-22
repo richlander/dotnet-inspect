@@ -630,6 +630,45 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageSummary_RuntimeAmbiguityRetainsFrameworkInventory()
+    {
+        string id = $"Summary.Runtime.Ambiguous.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/osx-arm64/lib/net9.0/{id}.dll", assembly),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            Assert.IsType<string[]>(
+                summary.PackageInfo!.Content.AvailableTargetFrameworks));
+    }
+
+    [Fact]
     public async Task PackageRealization_RuntimeDefaultOpensSelectedRangedSurface()
     {
         string id = $"browser.runtime.range.{Guid.NewGuid():N}";

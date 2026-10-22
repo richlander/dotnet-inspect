@@ -1366,7 +1366,7 @@ type $ManagedExports = {
             readonly "QueryPlatformTypeOverviewDocument.1160082336": (targetFramework: string, platformVersion: string, assemblyName: string, pack: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
             readonly "QueryTypeMemberPopulation.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
             readonly "QueryTypeOverviewDocument.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
-            readonly "QueryTypeProjection.1160082336": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string) => Promise<string>;
+            readonly "QueryTypeProjection.335255791": (packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, runtimeIdentifier: string | null, workspaceJson: string) => Promise<string>;
             readonly "QueryUploadedLibraryMemberDocument.766012950": (declaredName: string, content: number[], typeIdentity: string, memberName: string, baselineOrdinal: number, fingerprintPrefix: string) => Promise<string>;
             readonly "QueryUploadedLibraryMemberGroupDocument.1382439150": (declaredName: string, content: number[], typeIdentity: string, memberName: string, accessibility: string, receiver: string, includeHidden: boolean) => Promise<string>;
             readonly "QueryUploadedLibraryPerformanceTypeMemberPopulation.239675273": (declaredName: string, content: number[], typeIdentity: string, spelling: string, accessibility: string) => Promise<string>;
@@ -1716,9 +1716,9 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Metadata");
     value = $ownDataProperty(value, "MetadataExports");
-    value = $ownDataProperty(value, "QueryTypeProjection.1160082336");
+    value = $ownDataProperty(value, "QueryTypeProjection.335255791");
     if (typeof value !== "function") {
-      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.1160082336\u0027 is not callable.");
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryTypeProjection.335255791\u0027 is not callable.");
     }
   }
   {
@@ -1976,8 +1976,8 @@ export async function queryTypeOverviewDocument(packageId: string, version: stri
   return $parsed as BrowserTypeOverviewInspection;
 }
 
-export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, workspaceJson: string): Promise<BrowserTypeMetadata> {
-  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.1160082336"](packageId, version, targetFramework, assemblyName, typeQueryId, typeDefinitionId, workspaceJson);
+export async function queryTypeProjection(packageId: string, version: string, targetFramework: string, assemblyName: string, typeQueryId: string, typeDefinitionId: string, runtimeIdentifier: string | null, workspaceJson: string): Promise<BrowserTypeMetadata> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Metadata"]["MetadataExports"]["QueryTypeProjection.335255791"](packageId, version, targetFramework, assemblyName, typeQueryId, typeDefinitionId, runtimeIdentifier, workspaceJson);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserTypeMetadata;
 }

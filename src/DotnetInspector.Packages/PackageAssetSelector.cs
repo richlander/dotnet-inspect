@@ -405,10 +405,11 @@ public static class PackageAssetSelector
 
     internal static IReadOnlyList<string> GetSingleRuntimeTargetFrameworks(
         IPackageContent content,
-        string runtimeIdentifier)
+        string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(content);
-        if (!PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+        if (runtimeIdentifier is not null
+            && !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
                 runtimeIdentifier))
         {
             throw new ArgumentException(
@@ -427,7 +428,8 @@ public static class PackageAssetSelector
                 .Select(ClassifyRuntimeLibrary)
                 .OfType<CandidateEntry>()
                 .Where(candidate =>
-                    candidate.RuntimeIdentifier!.Equals(
+                    runtimeIdentifier is null
+                    || candidate.RuntimeIdentifier!.Equals(
                         runtimeIdentifier,
                         StringComparison.Ordinal))
                 .Select(static candidate =>

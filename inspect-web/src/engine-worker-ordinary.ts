@@ -1633,7 +1633,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeProjection: valueOperation(
       "ordinary-metadata-query-type-projection",
-      7,
+      8,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>

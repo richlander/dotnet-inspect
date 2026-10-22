@@ -348,6 +348,25 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void AmbiguousRuntimeOnlyPopulation_RetainsCompleteFrameworkInventory()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "runtimes/osx-arm64/lib/net9.0/Example.dll",
+                    "runtimes/win-x64/lib/net11.0/Example.dll"),
+                "Example");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            selection.Status);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            selection.AvailableTargetFrameworks);
+        Assert.Empty(selection.Assets);
+    }
+
+    [Fact]
     public void ReferenceSelection_UsesSharedImplementationFrameworkReduction()
     {
         IPackageContent content = InMemory(
