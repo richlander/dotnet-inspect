@@ -189,7 +189,10 @@ and ten timed runs, so every cell pools twenty samples per side; p95 is the
 nearest-rank 95th percentile of those twenty. Verdict counts are identical on
 all three binaries for every pair. Cells read base → head; Inspect is the sum
 of the two images' statistics. The raw outputs, the ablation diff, the binary
-hashes, and the pooling script are attached to the PR that recorded this.
+hashes, and the pooling script are attached to the PR that recorded this
+([#10497](https://github.com/richlander/dotnet-inspect/pull/10497)). The
+order is fixed and not counterbalanced; per-round medians show base within
+about 1% before and after a memo-off round.
 
 Median wall time in ms, with the paired methods of the before/after images:
 
@@ -236,9 +239,13 @@ raw-IL census, which reads every body twice (the pre-scan and the per-advance
 decode). The memo then saves, as a share of base, 4.6–7.2% on Assembly,
 5.4–10.6% on Inspect, 3.9–5.6% on Compare, and 4.8–6.3% on Endpoints. The
 second read's own cost is not measured in isolation; taking Inspect's memo-off
-excess less Assembly's as its estimate gives 0.5–5.5% of the image-backed
-census, which the memo covers with 1–4% to spare on five pairs and about
-evenly on CoreLib. Whether the pre-scan should become the one decode,
+excess less Assembly's as its estimate, an upper-leaning one since Assembly's
+base includes work Inspect's does not, gives 0.5–5.5% of the image-backed
+census. Inspect's memo saving exceeds that estimate on every pair, by 0.5
+points on Newtonsoft.Json 11.0.2 to 13.0.4 and by 3–5 points on the others,
+which is why Inspect with the memo is 1.4–4.2% below base on four pairs and
+within 0.6% of it on that Newtonsoft.Json pair and on CoreLib. Whether the
+pre-scan should become the one decode,
 retaining the prefix so a body is read once, is a hypothesis this baseline
 leaves to step 2's laziness and cost gates, which measure lockstep over two
 cursors against Finding Diff Any's walk and are recorded on #10227; this
