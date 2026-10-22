@@ -1552,16 +1552,16 @@ public static class FindingDiffAny
             return Transient.End(mark);
         }
 
-        public static void Signature(SymbolKeyBuilder<FindingDiffAnyPart> keys, MethodSignature<SignatureKey> signature)
+        public void Signature(SymbolKeyBuilder<FindingDiffAnyPart> keys, MethodSignature<SignatureKey> signature)
         {
             ImmutableArray<SignatureKey> types = signature.ParameterTypes;
             for (int i = 0; i < types.Length; i++)
             {
                 if (i == signature.RequiredParameterCount)
                     keys.Mark(FindingDiffAnyPart.Vararg);
-                keys.Key(types[i]);
+                keys.Key(this, types[i]);
             }
-            keys.Mark(FindingDiffAnyPart.Return).Key(signature.ReturnType);
+            keys.Mark(FindingDiffAnyPart.Return).Key(this, signature.ReturnType);
         }
 
         /// <summary>A primitive type's key, memoized under a token no row uses.</summary>
@@ -1713,9 +1713,14 @@ public static class FindingDiffAny
         KeyRef MemoizeRef(int token, SignatureKey key)
         {
             if (key.IsScratch)
-                return Memoize(token, Retained.Copy(key.Scratch));
-            _keys[token] = key.Retained;
-            return key.Retained;
+            {
+                if (Scratch.Generation != key.Generation)
+                    throw new InvalidOperationException("The scratch signature type outlived its build.");
+                return Memoize(token, Retained.Copy(Scratch.Resolve(new SymbolKeySlot(key.Offset, key.Length))));
+            }
+            var retained = new KeyRef(this, key.Generation, key.Offset, key.Length);
+            _keys[token] = retained;
+            return retained;
         }
 
         void Guard(BlobHandle signature, SignatureBlobGuard.Kind kind)
@@ -1784,7 +1789,7 @@ public static class FindingDiffAny
         StagedSymbolKey<FindingDiffAnyPart> FieldKey(KeyRef parent, StringHandle name, SignatureKey type)
         {
             int mark = Retained.Begin();
-            return Retained.Mark(FindingDiffAnyPart.Field).Key(parent).Name(name).Key(type).End(mark);
+            return Retained.Mark(FindingDiffAnyPart.Field).Key(parent).Name(name).Key(this, type).End(mark);
         }
 
         StagedSymbolKey<FindingDiffAnyPart> MemberReferenceKey(MemberReferenceHandle handle)
@@ -1809,7 +1814,7 @@ public static class FindingDiffAny
             int mark = Retained.Begin();
             Retained.Mark(FindingDiffAnyPart.MethodSpecification).Key(method);
             foreach (SignatureKey argument in arguments)
-                Retained.Key(argument);
+                Retained.Key(this, argument);
             return Retained.End(mark);
         }
 
@@ -1824,7 +1829,7 @@ public static class FindingDiffAny
                 mark = Retained.Begin();
                 Retained.Mark(FindingDiffAnyPart.LocalSignature);
                 foreach (SignatureKey local in locals)
-                    Retained.Key(local);
+                    Retained.Key(this, local);
                 return Retained.End(mark);
             }
             Guard(signature.Signature, SignatureBlobGuard.Kind.StandaloneMethod);
@@ -1901,7 +1906,7 @@ public static class FindingDiffAny
         public SignatureKey GetArrayType(SignatureKey elementType, ArrayShape shape)
         {
             int mark = Keys.Begin();
-            Keys.Mark(FindingDiffAnyPart.Array).Key(elementType).Int(shape.Rank).Int(shape.Sizes.Length);
+            Keys.Mark(FindingDiffAnyPart.Array).Key(side, elementType).Int(shape.Rank).Int(shape.Sizes.Length);
             foreach (int size in shape.Sizes)
                 Keys.Int(size);
             Keys.Int(shape.LowerBounds.Length);
@@ -1916,16 +1921,16 @@ public static class FindingDiffAny
         {
             int mark = Keys.Begin();
             Keys.Mark(FindingDiffAnyPart.FunctionPointer).Int(signature.Header.RawValue);
-            Side.Signature(Keys, signature);
+            side.Signature(Keys, signature);
             return new SignatureKey(Keys.End(mark));
         }
 
         public SignatureKey GetGenericInstantiation(SignatureKey genericType, ImmutableArray<SignatureKey> typeArguments)
         {
             int mark = Keys.Begin();
-            Keys.Mark(FindingDiffAnyPart.GenericInstance).Key(genericType);
+            Keys.Mark(FindingDiffAnyPart.GenericInstance).Key(side, genericType);
             foreach (SignatureKey argument in typeArguments)
-                Keys.Key(argument);
+                Keys.Key(side, argument);
             return new SignatureKey(Keys.End(mark));
         }
 
@@ -1945,7 +1950,7 @@ public static class FindingDiffAny
         {
             int mark = Keys.Begin();
             return new SignatureKey(Keys.Mark(isRequired ? FindingDiffAnyPart.RequiredModifier : FindingDiffAnyPart.OptionalModifier)
-                .Key(modifier).Key(unmodifiedType).End(mark));
+                .Key(side, modifier).Key(side, unmodifiedType).End(mark));
         }
 
         public SignatureKey GetPinnedType(SignatureKey elementType) => Wrap(FindingDiffAnyPart.Pinned, elementType);
@@ -1970,7 +1975,7 @@ public static class FindingDiffAny
         SignatureKey Wrap(FindingDiffAnyPart part, SignatureKey elementType)
         {
             int mark = Keys.Begin();
-            return new SignatureKey(Keys.Mark(part).Key(elementType).End(mark));
+            return new SignatureKey(Keys.Mark(part).Key(side, elementType).End(mark));
         }
     }
 }
@@ -2056,7 +2061,21 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
         _length = staged.Length;
     }
 
+    internal KeyRef(FindingDiffAny.Side owner, int generation, int offset, int length)
+    {
+        _owner = owner;
+        _generation = generation;
+        _offset = offset;
+        _length = length;
+    }
+
     public bool IsDefault => _owner is null;
+
+    internal int Generation => _generation;
+
+    internal int Offset => _offset;
+
+    internal int Length => _length;
 
     public bool IsFrozen => _generation < _owner.Retained.Generation;
 
@@ -2109,17 +2128,41 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 /// A signature type while one key is decoded: a retained key, or a composite
 /// built in the side's scratch population and embedded by its consumer.
 /// </summary>
+/// <summary>
+/// A signature type as the provider yields it: the slot of a retained key in
+/// its side's retained population (a chunk generation at or above zero), or
+/// of a scratch key (its scratch generation, complemented, below zero). Twelve
+/// bytes, so the decoder moves it in registers; the side that built it
+/// resolves it when it is embedded or memoized.
+/// </summary>
 internal readonly struct SignatureKey
 {
-    public SignatureKey(KeyRef retained) => Retained = retained;
+    readonly int _generation;
+    readonly int _offset;
+    readonly int _length;
 
-    public SignatureKey(StagedSymbolKey<FindingDiffAnyPart> scratch) => Scratch = scratch;
+    public SignatureKey(KeyRef retained)
+    {
+        _generation = retained.Generation;
+        _offset = retained.Offset;
+        _length = retained.Length;
+    }
 
-    public KeyRef Retained { get; }
+    public SignatureKey(StagedSymbolKey<FindingDiffAnyPart> scratch)
+    {
+        _generation = ~scratch.Generation;
+        _offset = scratch.Offset;
+        _length = scratch.Length;
+    }
 
-    public StagedSymbolKey<FindingDiffAnyPart> Scratch { get; }
+    public bool IsScratch => _generation < 0;
 
-    public bool IsScratch => !Scratch.IsDefault;
+    /// <summary>The retained chunk generation, or the scratch generation when <see cref="IsScratch"/>.</summary>
+    public int Generation => _generation < 0 ? ~_generation : _generation;
+
+    public int Offset => _offset;
+
+    public int Length => _length;
 }
 
 internal static class FindingDiffAnyKeyBuilderExtensions
@@ -2128,9 +2171,15 @@ internal static class FindingDiffAnyKeyBuilderExtensions
     public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, KeyRef key)
         => key.IsFrozen ? builder.KeyRange(key.FrozenRange) : builder.KeyBytes(key.Bytes);
 
-    /// <summary>Embeds a signature type, retained or scratch, as a nested Key part.</summary>
-    public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, SignatureKey key)
-        => key.IsScratch ? builder.Key(key.Scratch) : builder.Key(key.Retained);
+    /// <summary>Embeds a signature type of <paramref name="side"/>, retained or scratch, as a nested Key part.</summary>
+    public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, FindingDiffAny.Side side, SignatureKey key)
+    {
+        if (key.IsScratch)
+            return builder.KeyBytes(side.Scratch.Staged(key.Generation, key.Offset, key.Length));
+        return key.Generation < side.Retained.Generation
+            ? builder.KeyRange(side.Chunk(key.Generation).RangeAt(key.Offset, key.Length))
+            : builder.KeyBytes(side.Retained.Staged(key.Generation, key.Offset, key.Length));
+    }
 }
 
 public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody)
