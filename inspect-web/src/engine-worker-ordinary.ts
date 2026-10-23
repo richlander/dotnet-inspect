@@ -1214,7 +1214,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberDocumentation: valueOperation(
       "ordinary-package-query-member-documentation",
-      5,
+      6,
       (
         facades,
         ...args: Parameters<PackageFacade["queryMemberDocumentation"]>
@@ -1356,7 +1356,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberDeclaration: valueOperation(
       "ordinary-metadata-query-member-declaration",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryMemberDeclaration"]>
@@ -1364,7 +1364,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberDocument: valueOperation(
       "ordinary-metadata-query-member-document",
-      8,
+      9,
       (
         facades,
         ...args: Parameters<
@@ -1692,7 +1692,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryGraphMemberSurface: valueOperation(
       "ordinary-metadata-query-graph-member-surface",
-      8,
+      9,
       (
         facades,
         ...args: Parameters<MetadataFacade["queryGraphMemberSurface"]>
@@ -1895,7 +1895,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberSource: valueOperation(
       "ordinary-source-query-member",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberSource"]>
@@ -1911,7 +1911,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeMemberSource: valueOperation(
       "ordinary-source-query-type-member",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<SourceFacade["queryTypeMemberSource"]>
@@ -1995,7 +1995,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberFindingCensus: valueOperation(
       "ordinary-source-query-member-finding-census",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberFindingCensus"]>
@@ -2013,7 +2013,7 @@ export const engineWorkerOrdinaryOperations = {
   callGraph: {
     queryMemberCallGraph: valueOperation(
       "ordinary-call-graph-query-member",
-      12,
+      13,
       (
         facades,
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>

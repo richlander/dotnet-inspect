@@ -139,7 +139,8 @@ public sealed class PackageLibraryRealizationRequest
         PackageLibraryRealizationDepth depth,
         PackageHouseOperation operation,
         PackageHouseLibraryCompanionDemand companionDemand =
-            PackageHouseLibraryCompanionDemand.None)
+            PackageHouseLibraryCompanionDemand.None,
+        string? runtimeIdentifier = null)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetFramework);
@@ -173,6 +174,7 @@ public sealed class PackageLibraryRealizationRequest
         Depth = depth;
         Operation = operation;
         CompanionDemand = companionDemand;
+        RuntimeIdentifier = runtimeIdentifier;
     }
 
     public PackageHouseDemand Package { get; }
@@ -186,6 +188,8 @@ public sealed class PackageLibraryRealizationRequest
     public PackageHouseOperation Operation { get; }
 
     public PackageHouseLibraryCompanionDemand CompanionDemand { get; }
+
+    public string? RuntimeIdentifier { get; }
 }
 
 public enum PackageLibraryRealizationStatus
@@ -289,7 +293,9 @@ public static class PackageLibraryRealization
         new(
             request.Package,
             request.Operation,
-            PackageHouseTargetContext.Exact(request.TargetFramework),
+            PackageHouseTargetContext.Exact(
+                request.TargetFramework,
+                request.RuntimeIdentifier),
             PackageHouseAssetSelectionKind.Compile,
             PackageHouseLibraryHandoffMode.SelectedLibraries,
             association: null,
