@@ -207,6 +207,22 @@ public sealed class SymbolKeyBuilder<TDomain>
         return this;
     }
 
+    /// <summary>Whether this builder's domain declares <paramref name="marker"/>.</summary>
+    internal bool Declares(byte marker) => _declared[marker];
+
+    /// <summary>
+    /// Writes a marker byte a caller has already validated against the domain
+    /// (the speller validates its whole vocabulary once at construction), so
+    /// the hot path carries no per-marker check.
+    /// </summary>
+    internal SymbolKeyBuilder<TDomain> MarkValidated(byte marker)
+    {
+        RequireOpen();
+        Ensure(1);
+        _scratch[_length++] = marker;
+        return this;
+    }
+
     public SymbolKeyBuilder<TDomain> Int(long value)
     {
         RequireOpen();

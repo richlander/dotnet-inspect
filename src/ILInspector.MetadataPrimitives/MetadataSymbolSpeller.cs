@@ -68,7 +68,18 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         _rows = rows;
         Scratch = new SymbolKeyBuilder<TDomain>(4 * 1024) { Names = names };
         _provider = new Provider(this);
+        // The domain declares every marker this speller writes under its scope,
+        // checked once here so each write is unchecked.
+        foreach (MetadataSymbolPart part in Enum.GetValues<MetadataSymbolPart>())
+        {
+            if (part == MetadataSymbolPart.Scope && scope != MetadataSymbolScope.Declared)
+                continue;
+            if (!Scratch.Declares((byte)part))
+                throw new SymbolKeyStateException($"Domain {typeof(TDomain).Name} does not declare the shared marker {part} (0x{(byte)part:X2}).");
+        }
     }
+
+    static SymbolKeyBuilder<TDomain> Mark(SymbolKeyBuilder<TDomain> into, MetadataSymbolPart part) => into.MarkValidated((byte)part);
 
     /// <summary>
     /// Signature composites built while one row is spelled; discarded when the
@@ -107,10 +118,10 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
                 throw new BadImageFormatException("The Type has an invalid declaring chain.");
             }
             int mark = into.Begin();
-            into.MarkShared(MetadataSymbolPart.Type);
+            Mark(into, MetadataSymbolPart.Type);
             TypeDefinition root = _reader.GetTypeDefinition(chain[0]);
             if (!root.Namespace.IsNil)
-                into.MarkShared(MetadataSymbolPart.Namespace).Name(root.Namespace);
+                Mark(into, MetadataSymbolPart.Namespace).Name(root.Namespace);
             for (int i = 0; i < length; i++)
                 into.Name(_reader.GetTypeDefinition(chain[i]).Name);
             if (_scope == MetadataSymbolScope.Declared)
@@ -137,10 +148,10 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
                     rejection?.Detail ?? "The Type reference has an invalid resolution-scope chain.");
             }
             int mark = into.Begin();
-            into.MarkShared(MetadataSymbolPart.Type);
+            Mark(into, MetadataSymbolPart.Type);
             TypeReference root = _reader.GetTypeReference(chain[0]);
             if (!root.Namespace.IsNil)
-                into.MarkShared(MetadataSymbolPart.Namespace).Name(root.Namespace);
+                Mark(into, MetadataSymbolPart.Namespace).Name(root.Namespace);
             for (int i = 0; i < length; i++)
                 into.Name(_reader.GetTypeReference(chain[i]).Name);
             if (_scope == MetadataSymbolScope.Declared)
@@ -168,7 +179,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             case HandleKind.AssemblyReference:
             {
                 AssemblyReference reference = _reader.GetAssemblyReference((AssemblyReferenceHandle)terminal);
-                into.MarkShared(MetadataSymbolPart.Scope).Int(AssemblyScope).Name(reference.Name)
+                Mark(into, MetadataSymbolPart.Scope).Int(AssemblyScope).Name(reference.Name)
                     .Int(reference.Version.Major).Int(reference.Version.Minor)
                     .Int(reference.Version.Build).Int(reference.Version.Revision)
                     .Int(reference.Culture.IsNil ? 0 : 1);
@@ -178,7 +189,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
                 return;
             }
             case HandleKind.ModuleReference:
-                into.MarkShared(MetadataSymbolPart.Scope).Int(ModuleScope)
+                Mark(into, MetadataSymbolPart.Scope).Int(ModuleScope)
                     .Name(_reader.GetModuleReference((ModuleReferenceHandle)terminal).Name);
                 return;
             default:
@@ -190,7 +201,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     // The current assembly's name, or the module's when the image is no assembly.
     void CurrentScope(SymbolKeyBuilder<TDomain> into)
     {
-        into.MarkShared(MetadataSymbolPart.Scope).Int(CurrentAssemblyScope);
+        Mark(into, MetadataSymbolPart.Scope).Int(CurrentAssemblyScope);
         if (_reader.IsAssembly)
             into.Name(_reader.GetAssemblyDefinition().Name);
         else
@@ -307,7 +318,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             TRow method = _rows.Resolve(specification.Method, MetadataRowRole.Referenced);
             ImmutableArray<MetadataSignatureKey> arguments = specification.DecodeSignature(_provider, null);
             int mark = into.Begin();
-            into.MarkShared(MetadataSymbolPart.MethodSpecification);
+            Mark(into, MetadataSymbolPart.MethodSpecification);
             _rows.Embed(into, method);
             foreach (MetadataSignatureKey argument in arguments)
                 Embed(into, argument);
@@ -331,7 +342,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
                 Guard(signature.Signature, SignatureBlobGuard.Kind.LocalVariables);
                 ImmutableArray<MetadataSignatureKey> locals = signature.DecodeLocalSignature(_provider, null);
                 mark = into.Begin();
-                into.MarkShared(MetadataSymbolPart.LocalSignature);
+                Mark(into, MetadataSymbolPart.LocalSignature);
                 foreach (MetadataSignatureKey local in locals)
                     Embed(into, local);
                 return into.End(mark);
@@ -339,7 +350,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             Guard(signature.Signature, SignatureBlobGuard.Kind.StandaloneMethod);
             MethodSignature<MetadataSignatureKey> method = signature.DecodeMethodSignature(_provider, null);
             mark = into.Begin();
-            into.MarkShared(MetadataSymbolPart.StandaloneSignature).Int(method.Header.RawValue);
+            Mark(into, MetadataSymbolPart.StandaloneSignature).Int(method.Header.RawValue);
             Signature(into, method);
             return into.End(mark);
         }
@@ -352,7 +363,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     public StagedSymbolKey<TDomain> Primitive(SymbolKeyBuilder<TDomain> into, PrimitiveTypeCode typeCode)
     {
         int mark = into.Begin();
-        return into.MarkShared(MetadataSymbolPart.Primitive).Int((byte)typeCode).End(mark);
+        return Mark(into, MetadataSymbolPart.Primitive).Int((byte)typeCode).End(mark);
     }
 
     /// <summary>A property's decoded signature, guarded; spelled into a consumer's key through <see cref="Signature"/>.</summary>
@@ -380,10 +391,10 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         for (int i = 0; i < types.Length; i++)
         {
             if (i == signature.RequiredParameterCount)
-                into.MarkShared(MetadataSymbolPart.Vararg);
+                Mark(into, MetadataSymbolPart.Vararg);
             Embed(into, types[i]);
         }
-        into.MarkShared(MetadataSymbolPart.Return);
+        Mark(into, MetadataSymbolPart.Return);
         Embed(into, signature.ReturnType);
     }
 
@@ -411,7 +422,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     StagedSymbolKey<TDomain> MethodKey(SymbolKeyBuilder<TDomain> into, TRow parent, StringHandle name, MethodSignature<MetadataSignatureKey> signature)
     {
         int mark = into.Begin();
-        into.MarkShared(MetadataSymbolPart.Method);
+        Mark(into, MetadataSymbolPart.Method);
         _rows.Embed(into, parent);
         into.Name(name).Int(signature.GenericParameterCount).Int(signature.Header.RawValue);
         Signature(into, signature);
@@ -421,7 +432,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     StagedSymbolKey<TDomain> FieldKey(SymbolKeyBuilder<TDomain> into, TRow parent, StringHandle name, MetadataSignatureKey type)
     {
         int mark = into.Begin();
-        into.MarkShared(MetadataSymbolPart.Field);
+        Mark(into, MetadataSymbolPart.Field);
         _rows.Embed(into, parent);
         into.Name(name);
         Embed(into, type);
@@ -464,7 +475,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         public MetadataSignatureKey GetArrayType(MetadataSignatureKey elementType, ArrayShape shape)
         {
             int mark = Keys.Begin();
-            Keys.MarkShared(MetadataSymbolPart.Array);
+            Mark(Keys, MetadataSymbolPart.Array);
             speller.Embed(Keys, elementType);
             Keys.Int(shape.Rank).Int(shape.Sizes.Length);
             foreach (int size in shape.Sizes)
@@ -480,7 +491,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         public MetadataSignatureKey GetFunctionPointerType(MethodSignature<MetadataSignatureKey> signature)
         {
             int mark = Keys.Begin();
-            Keys.MarkShared(MetadataSymbolPart.FunctionPointer).Int(signature.Header.RawValue);
+            Mark(Keys, MetadataSymbolPart.FunctionPointer).Int(signature.Header.RawValue);
             speller.Signature(Keys, signature);
             return Staged(Keys.End(mark));
         }
@@ -488,7 +499,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         public MetadataSignatureKey GetGenericInstantiation(MetadataSignatureKey genericType, ImmutableArray<MetadataSignatureKey> typeArguments)
         {
             int mark = Keys.Begin();
-            Keys.MarkShared(MetadataSymbolPart.GenericInstance);
+            Mark(Keys, MetadataSymbolPart.GenericInstance);
             speller.Embed(Keys, genericType);
             foreach (MetadataSignatureKey argument in typeArguments)
                 speller.Embed(Keys, argument);
@@ -498,19 +509,19 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         public MetadataSignatureKey GetGenericMethodParameter(object? genericContext, int index)
         {
             int mark = Keys.Begin();
-            return Staged(Keys.MarkShared(MetadataSymbolPart.MethodParameter).Int(index).End(mark));
+            return Staged(Mark(Keys, MetadataSymbolPart.MethodParameter).Int(index).End(mark));
         }
 
         public MetadataSignatureKey GetGenericTypeParameter(object? genericContext, int index)
         {
             int mark = Keys.Begin();
-            return Staged(Keys.MarkShared(MetadataSymbolPart.TypeParameter).Int(index).End(mark));
+            return Staged(Mark(Keys, MetadataSymbolPart.TypeParameter).Int(index).End(mark));
         }
 
         public MetadataSignatureKey GetModifiedType(MetadataSignatureKey modifier, MetadataSignatureKey unmodifiedType, bool isRequired)
         {
             int mark = Keys.Begin();
-            Keys.MarkShared(isRequired ? MetadataSymbolPart.RequiredModifier : MetadataSymbolPart.OptionalModifier);
+            Mark(Keys, isRequired ? MetadataSymbolPart.RequiredModifier : MetadataSymbolPart.OptionalModifier);
             speller.Embed(Keys, modifier);
             speller.Embed(Keys, unmodifiedType);
             return Staged(Keys.End(mark));
@@ -534,7 +545,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         MetadataSignatureKey Wrap(MetadataSymbolPart part, MetadataSignatureKey elementType)
         {
             int mark = Keys.Begin();
-            Keys.MarkShared(part);
+            Mark(Keys, part);
             speller.Embed(Keys, elementType);
             return Staged(Keys.End(mark));
         }
