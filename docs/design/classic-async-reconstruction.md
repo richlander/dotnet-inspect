@@ -186,7 +186,7 @@ inside the protocol try).
 | Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
 | Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
 | Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably the compiler's and provably dead: inside the completion catch or tail; a store to a compiler temporary (`<>7__wrapN`, `<>s__N`), which no source statement can name, from which no read of that field is reachable before another store to it; or the second of two adjacent clears of one field with no effect between them (the user's `x = null` at a scope end followed by Roslyn's own). A compiler-temporary store that a read can reach is state, not a clear: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried | removed |
-| Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store must make `ForeachStatementPass` keep the enumerator form; today that pass checks only the enumerator local and would raise a `foreach` whose variable is assigned (CS1656 at Full), so [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) is a stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
+| Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store must make every `foreach` raise in `ForeachStatementPass` (enumerator, pattern, array, rectangular array, and `await foreach`) keep its lowered form; today those raises check only their scaffold locals and would produce a `foreach` whose variable is assigned (CS1656 at Full), so [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) is a stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
 
 Class-constrained generic awaiters (the boxed awaiter form), `async void`,
 `ValueTask`, and custom builders are the same roles with different member
@@ -276,9 +276,10 @@ retire. Nothing in this slice adds a cross-layer reference.
    code after it, for the clears), a compiler-produced negative with a user's
    mid-block `x = null` before an await that must stay in the output, a
    compiler-produced negative with an await in a `catch` and in a `finally`
-   inside a loop whose selector resets must stay, a compiler-produced async
-   `foreach` over a reference-type iteration variable (valid only once #10577
-   lands), the smallest accepted boundary, a still-flat negative
+   inside a loop whose selector resets must stay, compiler-produced async
+   `foreach` loops over an `IEnumerable<T>` and over an array, each with a
+   reference-type iteration variable used after the await (valid only once
+   #10577 lands), the smallest accepted boundary, a still-flat negative
    per proof obligation, the five real witnesses pinned, and the four
    unraised classic async fixtures in the pinned classic corpus measured
    (`Async_AwaitInCatchAndFinally`, `Async_InstanceGeneric`,
@@ -288,17 +289,23 @@ retire. Nothing in this slice adds a cross-layer reference.
    census reports the state-machine headline on the real-world baseline and
    the classic baseline, with every regression classified. Two models land
    with the transform as design evidence under this owner's `models/`
-   directory, following [Proof methodology](../proof-methodology.md): a TLA+
-   splice model whose actions are the role table's dispatch, suspension,
-   resume, and completion, checking that running the lowered machine through
-   any schedule of suspensions yields the same user-effect sequence and
-   completion outcome as the sequential body with awaits as suspension
-   points (the fold under `-1` is its corollary), with a correspondence
-   section mapping each action to a role; and a Lean lemma that removing a
-   store from which no read of its location is reachable before another store
-   changes no observable value, the law the housekeeping-clear role rests on.
-   Both prove facts about the model; the fixture family and compile-back
-   remain the evidence that the roles are Roslyn's.
+   directory, following [Proof methodology](../proof-methodology.md). The
+   TLA+ splice model's actions are the role table's dispatch, suspension,
+   resume, completion, the finally guard, and exit through an enclosing
+   finally; it compares the lowered machine against the splice output (roles
+   removed, every state test evaluated under `-1`) and checks that both yield
+   the same user-effect sequence and completion outcome under every schedule
+   of suspensions, over a stated body grammar and bounds as small-scope
+   evidence, with a correspondence section mapping each action to a role. It
+   models the inverse, not Roslyn's rewriter. The Lean side pairs with it: a
+   simulation lemma for the splice over every body of that grammar, a lemma
+   that removing a store from which no read of its location is reachable
+   before another store changes no observable value (the compiler-temporary
+   arm of the housekeeping role), and a lemma that a second adjacent store of
+   the value a location already holds changes nothing (the adjacent-clear
+   arm); the completion-catch and tail arm rests on the completion role, not
+   on these lemmas. All prove facts about the model; the fixture family and
+   compile-back remain the evidence that the roles are Roslyn's.
 3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
    the inverse declines. Each recipe whose accepted population the inverse
    covers is deleted with its tests; the body node algebra, accountant, and
