@@ -1640,6 +1640,20 @@ dotnet-inspect workspace package update \
   --packet "$w" --version 12.1.2 --json --envelope
 ```
 
+Package component descriptors include `contract: "workspace/components/package"`
+and `schema_version: 1`, so a jq extraction retains the owner and explanation
+schema identity alongside the declared coordinate. For example:
+
+```bash
+dotnet-inspect workspace component list --packet "$w" |
+  jq '.packages[] | select(.package_id == "System.Text.Json")' > component.json
+```
+
+These describe construction intent. Paths, context membership and focus are
+scoped to the parent packet; copied text alone does not establish an occurrence.
+The Workspace owner can validate the extracted declaration independently of
+restoration. Passing this file to CLI `explain` remains staged host adoption.
+
 Use `--version`, `--tfm`, or both, and select either scalar `--share`
 output or `--json --envelope`. The envelope includes the derived Share,
 actual Scope outcome, retention/fallback decision and diagnostics. Scalar

@@ -4,7 +4,11 @@
 // Body policy: the whole-assembly canonical IL comparison, the per-method
 // census of each image through IlFindings.Inspect, the per-pair census
 // comparison through IlFindings.Compare, and the Member Body Diff endpoint
-// path through IlAssemblyDiff.CompareMemberEndpoints. Methods are paired by
+// path through IlAssemblyDiff.CompareMemberEndpoints. The census and
+// comparison paths run over one IlCensusSide per image per run, so the
+// operands every body names are spelled once per image, as the assembly
+// comparison spells them; the endpoint path creates its sides per call, as
+// the hosts do. Methods are paired by
 // their declaring Type, name, and decoded signature, so a renumbered token in
 // a signature does not unpair them. Reports the median and p95 wall time and
 // the median bytes allocated per run, and every sample so runs can be pooled,
@@ -73,9 +77,10 @@ foreach ((string side, PEReader pe, MetadataReader reader, Method[] methods) in 
         int complete = 0;
         int absent = 0;
         int failed = 0;
+        IlCensusSide census = IlCensusSide.Create(reader, IlBodyDiffPolicy.Body);
         foreach (Method method in methods)
         {
-            switch (IlFindings.Inspect(pe, reader, method.Handle, method.Subject, IlBodyDiffPolicy.Body).Value)
+            switch (IlFindings.Inspect(census, pe, method.Handle, method.Subject).Value)
             {
                 case FindingInspection<CanonicalIlOperation>.Complete:
                     complete++;
@@ -99,10 +104,12 @@ int[] compared = Measure("compare", () =>
     int exact = 0;
     int changed = 0;
     int failed = 0;
+    IlCensusSide beforeSide = IlCensusSide.Create(beforeReader, IlBodyDiffPolicy.Body);
+    IlCensusSide afterSide = IlCensusSide.Create(afterReader, IlBodyDiffPolicy.Body);
     foreach ((Method x, Method y) in pairs)
     {
         FindingComparison<CanonicalIlOperation> comparison = IlFindings.Compare(
-            before, beforeReader, x.Handle, after, afterReader, y.Handle, x.Subject, normalization: IlBodyDiffPolicy.Body);
+            beforeSide, before, x.Handle, afterSide, after, y.Handle, x.Subject);
         if (comparison is FindingComparison<CanonicalIlOperation>.Failed)
             failed++;
         else if (comparison.IsExact)

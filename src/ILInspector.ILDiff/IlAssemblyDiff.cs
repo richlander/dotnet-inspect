@@ -181,7 +181,8 @@ public static class IlAssemblyDiff
         IlMemberDiffSubject Subject,
         FindingInspection<CanonicalIlOperation> Inspection,
         MethodInstructions? Body,
-        MethodBodyBlock? MethodBody);
+        MethodBodyBlock? MethodBody,
+        IlCensusSide? Side);
 
     /// <summary>
     /// Compares two explicitly admitted endpoints without performing selector resolution or
@@ -216,17 +217,14 @@ public static class IlAssemblyDiff
                     },
                 })
         {
-            var oldPresent = (IlMemberDiffEndpoint.Present)oldEndpoint;
-            var newPresent = (IlMemberDiffEndpoint.Present)newEndpoint;
             memberDiff = new IlMemberDiffResult(
                 old.Subject,
                 @new.Subject,
                 IlBodyDiff.Compare(
-                    oldPresent.Reader,
+                    old.Side!,
                     old.MethodBody,
-                    newPresent.Reader,
-                    @new.MethodBody,
-                    normalization),
+                    @new.Side!,
+                    @new.MethodBody),
                 []);
         }
 
@@ -247,22 +245,23 @@ public static class IlAssemblyDiff
                     FindingInspectionAbsenceKind.SubjectAbsent,
                     absent.Detail),
                 Body: null,
-                MethodBody: null),
+                MethodBody: null,
+                Side: null),
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
         };
 
     static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint, IlBodyDiffNormalization normalization)
     {
         var subject = new FindingSubject(endpoint.Subject.Identity, endpoint.Subject.Label);
+        var side = IlCensusSide.Create(endpoint.Reader, normalization);
         var inspection = IlFindings.InspectMethod(
+            side,
             endpoint.Pe,
-            endpoint.Reader,
             endpoint.Method,
             subject,
             out var body,
-            out var methodBody,
-            normalization);
-        return new InspectedEndpoint(endpoint.Subject, inspection, body, methodBody);
+            out var methodBody);
+        return new InspectedEndpoint(endpoint.Subject, inspection, body, methodBody, side);
     }
 
     public static IlAssemblyDiffPairResult CompareFiles(
@@ -327,6 +326,9 @@ public static class IlAssemblyDiff
 
         var oldIndex = MethodMap(oldReader, "old");
         var newIndex = MethodMap(newReader, "new");
+        // One side per image: every body's operands are spelled into its
+        // image's memo once, not once per compared pair.
+        var (oldSide, newSide) = IlCensusSide.CreatePair(oldReader, newReader, normalization);
         var keys = oldIndex.Methods.Keys
             .Union(newIndex.Methods.Keys)
             .OrderBy(key => key.Identity, StringComparer.Ordinal)
@@ -399,12 +401,7 @@ public static class IlAssemblyDiff
                 continue;
             }
 
-            var self = IlBodyDiff.Compare(
-                oldReader,
-                oldBody,
-                oldReader,
-                oldBody,
-                normalization);
+            var self = IlBodyDiff.Compare(oldSide, oldBody, oldSide, oldBody);
             if (self.IsExact)
             {
                 selfDiffExact++;
@@ -416,12 +413,7 @@ public static class IlAssemblyDiff
                     : self);
             }
 
-            var diff = IlBodyDiff.Compare(
-                oldReader,
-                oldBody,
-                newReader,
-                newBody,
-                normalization);
+            var diff = IlBodyDiff.Compare(oldSide, oldBody, newSide, newBody);
             if (!diff.IsAvailable)
             {
                 pairUnavailable++;

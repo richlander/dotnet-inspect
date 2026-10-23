@@ -89,7 +89,13 @@ Each instruction becomes a `CanonicalIlOperation`:
 
 - `Offset`: the original IL offset, retained as evidence and display context.
 - `OpcodeFamily`: the opcode name after limited macro folding.
-- `Operand`: an optional typed operand identity.
+- `Operand`: an optional `IlOperandIdentity`. A metadata token operand is
+  its row's Symbol Key under the policy, compared as bytes; an immediate, a
+  slot, a branch or switch target, and a user string are values, compared as
+  their text. The formatted spelling a view shows (`Value`) is a projection
+  from the operand's side: formatted when a census is sealed (`Drain`,
+  `TryCanonicalize`) or a diff row is built, since those outlive the
+  comparison, and otherwise on first read while the side's reader lives.
 - `Targets`: the IL offsets the operation points at: a branch's target, a
   switch's arms, or an exception clause's extent boundaries. Offsets are
   evidence and display context.
@@ -133,9 +139,10 @@ without the Finding projection.
 
 Over raw IL the cursor runs a boundary pre-scan that reads instruction lengths
 through the decoder's shallow reader and resolves nothing, then decodes one
-instruction and resolves one operand per advance, memoized per resolver by
-operand kind and token. An instruction the decoder rejects ends the pre-scan
-at its offset: the cursor yields every atom before that offset and ends
+instruction and resolves one operand per advance through its `IlCensusSide`,
+which memoizes by operand kind and token. An instruction the decoder rejects
+ends the pre-scan at its offset: the cursor yields every atom before that
+offset and ends
 `Failed` there, so a difference before the fault is visible in the atoms. A
 branch or switch target that starts no instruction of the body, starts one
 that follows a prefix, or lies at or past the body's end is carried as
@@ -151,6 +158,16 @@ decode; an incomplete decode retains no prefix, so the cursor fails at position
 zero with the decode's reason. Failing to read a present body, one whose RVA is
 non-zero, is a `Reading` failure at position zero; only a definition row the
 image cannot read is an `Identity` failure.
+
+An `IlCensusSide` is one side of a comparison: an image's reader and the
+operand identities its cursors yield under one policy, memoized for the
+side's life, so every body of the image spells a row once. `IlAssemblyDiff`
+creates two per comparison and compares every pair through
+`IlBodyDiff.Compare(oldSide, oldBody, newSide, newBody)`; the per-method entry
+points (`IlFindings.Inspect`, `IlFindings.Compare`, `IlBodyDiff.Compare` over
+readers, `TryCanonicalize`) take a side or create one for the call, and the
+two sides of one comparison are under one policy. A side is used from one
+thread at a time.
 
 `IlBodyDiff.AtomsEqual` is the equality of two atoms' canonical bytes: the
 family, the operand identity under the policy, and each target as an
@@ -254,6 +271,70 @@ leaves to step 2's laziness and cost gates, which measure lockstep over two
 cursors against Finding Diff Any's walk and are recorded on #10227; this
 table is the baseline of the exhaustive paths those gates leave unchanged.
 
+### Cost of the operand key
+
+The operand's identity becoming its row's Symbol Key through one
+`IlCensusSide` per image ([#10547](https://github.com/richlander/dotnet-inspect/pull/10547))
+was measured with each side's own `eng/measure-il-diff-exhaustive.cs` on
+the same six pairs: base `61b3d5549` (the branch base, binary `51401353`)
+against head (binary `1e62c15f`), NativeAOT linux-x64 on the same
+development server, with every process started only when the one-minute
+load was under 1.5 and none disturbed (load after each between 0.7 and
+1.4; the Aspire.Hosting pair was rerun once, all four processes, after a
+load burst in its first head round). Two rounds per pair, ten timed runs
+each after two warmups, pooled to twenty samples; verdict counts identical
+on both binaries for every pair. At head the census and comparison paths
+run over one side per image per run, as `IlAssemblyDiff` and Research do;
+the endpoint path creates its sides per call, as the hosts do. The raw
+outputs, binary hashes, run script, and pooling script are attached to the
+PR.
+
+Median wall time in ms, base → head:
+
+| Pair | Assembly | Inspect | Compare | Endpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 1,783 → 1,557 (−12.7%) | 606 → 615 (+1.5%) | 1,241 → 1,270 (+2.3%) | 2,143 → 2,218 (+3.5%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 277 → 232 (−16.3%) | 117 → 113 (−3.0%) | 199 → 193 (−3.4%) | 326 → 319 (−2.2%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 435 → 371 (−14.7%) | 160 → 153 (−4.0%) | 316 → 299 (−5.3%) | 527 → 500 (−5.1%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 384 → 338 (−11.9%) | 154 → 148 (−3.6%) | 278 → 268 (−3.4%) | 473 → 467 (−1.2%) |
+| System.Private.Xml 10 to 11 | 1,911 → 1,680 (−12.1%) | 672 → 634 (−5.6%) | 1,411 → 1,346 (−4.6%) | 2,369 → 2,290 (−3.3%) |
+| System.Private.CoreLib 10 to 11 | 2,175 → 1,906 (−12.4%) | 895 → 861 (−3.8%) | 1,506 → 1,479 (−1.8%) | 2,498 → 2,468 (−1.2%) |
+
+Median bytes allocated per run, in MB, base → head:
+
+| Pair | Assembly | Inspect | Compare | Endpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 4,290 → 3,642 (−15.1%) | 2,101 → 1,967 (−6.4%) | 2,770 → 2,636 (−4.8%) | 4,890 → 4,837 (−1.1%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 732 → 616 (−15.8%) | 417 → 382 (−8.3%) | 479 → 448 (−6.5%) | 837 → 846 (+1.1%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 1,103 → 954 (−13.6%) | 562 → 522 (−7.1%) | 718 → 678 (−5.5%) | 1,262 → 1,265 (+0.2%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 985 → 855 (−13.2%) | 552 → 513 (−6.9%) | 642 → 608 (−5.3%) | 1,129 → 1,133 (+0.3%) |
+| System.Private.Xml 10 to 11 | 4,345 → 3,851 (−11.4%) | 2,417 → 2,239 (−7.3%) | 3,018 → 2,853 (−5.5%) | 5,192 → 5,254 (+1.2%) |
+| System.Private.CoreLib 10 to 11 | 5,641 → 4,993 (−11.5%) | 3,137 → 2,964 (−5.5%) | 3,693 → 3,526 (−4.5%) | 6,422 → 6,753 (+5.2%) |
+
+Reading. The whole-assembly comparison, where a side spells each row once
+for every body of the image, is 12–16% faster with 11–16% less allocation
+on every pair; p95 moves with the median. The sealed census paths, which
+spell a key and project its text once per distinct operand, allocate 4–8%
+less on every pair and are 2–6% faster on five of them and 1.5–2.3% slower
+on Aspire.Hosting; the likely cause, not counted by the run, is that its
+generated bodies name most rows once, so the key and the text are each
+spelled about as often as the formatted operand was. The endpoint path,
+which the hosts call one member at a time and which creates its two sides
+per call, is 1–5% faster on five pairs and 3.5% slower on Aspire.Hosting,
+reproduced in both head rounds. The other five pairs allocate 0.2–5.2% more
+on it from the per-call side setup (two builders, a speller with its
+scratch, and the memos; CoreLib +5.2%): about 10–14 KiB per call, estimated
+as the endpoint allocation change less the Compare change over the paired
+count. Aspire.Hosting allocates 1.1% less, which does not rule that setup
+out: the same estimate leaves it about 6 KiB per call, so the setup is
+likely present and outweighed by its larger key-path saving, and its
+slowdown is likely the key-plus-text work of its Compare cell plus that
+setup, not counted by the run.
+Sharing sides across a host's member requests, a smaller speller scratch
+for a one-method side, and a text projection from the key's parts are
+recorded on
+[#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
+
 ## Guarantees
 
 ### Opcode macro folding
@@ -302,16 +383,46 @@ declaration order, so a reordered table is a difference.
 ### Symbolic metadata token operands
 
 When comparison is backed by `MetadataReader`, metadata token operands are
-resolved to symbolic identities before comparison:
+resolved to symbolic identities before comparison, through the operand's
+`IlCensusSide`:
 
 - strings resolve as user-string values;
-- method, field, type, and `ldtoken` operands resolve to formatted symbolic
-  identities;
-- standalone signatures resolve to a signature-byte identity.
+- method, field, type, and `ldtoken` operands resolve to the row's Symbol
+  Key, spelled by the shared `MetadataSymbolSpeller`
+  ([Symbol Key](symbol-key.md#metadata-rows)) in the side's populations and
+  memoized by token, so under Finding Diff Any's Body policy the cursor's
+  bytes are the keys that comparison memoizes;
+- `calli` standalone signatures resolve to their signature bytes, as Finding
+  Diff Any compares them, so a renumbered token inside the blob is a
+  difference.
+
+The policy enters the spelling where the speller leaves it to its consumer:
+the scope of a Type (`NormalizeAssemblyScope` omits every scope; the default
+declares it; `NormalizeCurrentAssemblyScope` and
+`NormalizePlatformAssemblyScope` substitute `<current>` and `<platform>` by
+the one rule the generated-ordinal correspondence uses, `AssemblyScopeToken`)
+and the name of a definition (`NormalizeCompilerGeneratedOrdinals` writes the
+correspondence's ordinal-free name for a Type an operand or a declaring Type
+names and for every method or field definition; a Type a signature names
+keeps its stored name). The admitted rows are Finding Diff Any's: a kind the
+opcode takes, a member reference whose parent is a Type, a method
+specification of a definition or of such a reference, and no
+compiler-controlled (`PrivateScope`) member, which ECMA-335 lets share a name
+and signature. A row the speller rejects, whose signature exceeds the decode
+budget, whose declaring or resolution-scope chain cycles or exceeds the node
+budget, or which an opcode does not take, fails the operand, and the body is
+unavailable (`TokenResolutionFailure`); no stand-in identity is compared in
+its place. Two Type rows that spell one key are Finding Diff Any's
+`Indeterminate`, which it decides from its unit table; the cursor has no such
+table and compares them by their shared key, a question the Exists agreement
+gate of [Finding census](finding-census.md#gates) takes up.
 
 Without a metadata-backed comparison, token operands fail closed. This prevents
 raw token numbers from being treated as comparable identities across assemblies
-or builds.
+or builds. The formatted text of an operand, with the same scope and name
+mechanics, is produced by the side once per distinct operand, when a census
+is sealed or a diff row is built, or where `IlOperandIdentity.Value` is
+first read while the reader lives; nothing compares it.
 
 ### Hunk and display ownership
 
