@@ -248,6 +248,54 @@ async function openAnalysis(page: Page, location = root) {
   await selectPerformanceAnalysis(page);
 }
 
+const narrow = {
+  ...run,
+  name: "Narrow",
+  signature: "public void Narrow(int source1, int source2)",
+  parameters: [{
+    name: "source1",
+    type: "int",
+    modifier: null,
+    hasDefault: false,
+    defaultValue: null,
+    description: null,
+  }, {
+    name: "source2",
+    type: "int",
+    modifier: null,
+    hasDefault: false,
+    defaultValue: null,
+    description: null,
+  }],
+  metadataToken: 0x06000005,
+  declarationMetadataToken: 0x06000005,
+  documentationId: "M:Example.Widget.Narrow(System.Int32,System.Int32)",
+  summary: "Narrows two values.",
+  stableSelector: "Narrow",
+  anchorDigest: "widget-narrow",
+  canonicalSignature:
+    "void Example.Widget.Narrow(int source1, int source2)",
+  graphSelectorKey: "Narrow",
+  bodySelectors: [{
+    token: 0x06000005,
+    memberName: "Narrow",
+    selectorKey: "Narrow",
+  }],
+};
+
+const declarationParticipantSurface = {
+  ...surface,
+  types: surface.types.map(candidate =>
+    candidate.definitionId === "Example.Widget"
+      ? {
+          ...candidate,
+          members: candidate.members + 1,
+          api: [narrow, ...candidate.api],
+        }
+      : candidate),
+  totalMembers: surface.totalMembers + 1,
+};
+
 for (const width of [1440, 390]) {
   test(`production Analysis retains selected Library results at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
@@ -519,6 +567,90 @@ test("rejected ranked population leaves its provisional Type unpublished", async
   await expect(page.locator(".inspection-error"))
     .toContainText("The ranked Member population was rejected.");
   expect(page.url()).toBe(analysisUrl);
+});
+
+test("implementation declaration cache yields to ordinary participant", async ({
+  page,
+}) => {
+  await installFacades(page, declarationParticipantSurface);
+  await openAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await page.locator("[data-nav-member]")
+    .filter({ hasText: "Narrow" })
+    .click();
+  await expect(page.locator(".signature-code"))
+    .toContainText("Narrow(int low, int high)");
+  await page.evaluate(() => {
+    delete document.documentElement.dataset.memberDeclarationRequest;
+  });
+
+  await page.locator("#member-filter-summary").click();
+  await page.locator("[data-member-access-filter]").selectOption("public");
+  await page.locator("[data-nav-member]")
+    .filter({ hasText: "Narrow" })
+    .click();
+
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-member-declaration-request",
+      JSON.stringify([
+        "Example.Package",
+        "1.0.0",
+        "net10.0",
+        "Example.Core.dll",
+        "Example.Widget",
+        "Narrow",
+        "Narrow",
+        0x06000005,
+        false,
+      ]),
+    );
+  await expect(page.locator(".signature-code"))
+    .toContainText("Narrow(int source1, int source2)");
+});
+
+test("ordinary declaration cache yields to implementation participant", async ({
+  page,
+}) => {
+  await installFacades(page, declarationParticipantSurface);
+  await page.goto(root);
+  await selectLibrary(page, core.id);
+  await chooseSubject(page, "type", "Type");
+  await page.locator(
+    '#type-list [data-type="asset:core:Example.Widget"]',
+  ).click();
+  await chooseSubject(page, "member", "Member");
+  await expect(page.locator(".signature-code"))
+    .toContainText("Narrow(int source1, int source2)");
+  await page.evaluate(() => {
+    delete document.documentElement.dataset.memberDeclarationRequest;
+  });
+
+  await chooseSubject(page, "library", "Library");
+  await chooseInspector(page, "data-library-lens", "analysis", "Analysis");
+  await selectPerformanceAnalysis(page);
+  await page.locator(".library-analysis-surface .perf-row").first().click();
+  await page.locator("[data-nav-member]")
+    .filter({ hasText: "Narrow" })
+    .click();
+
+  await expect(page.locator("html"))
+    .toHaveAttribute(
+      "data-member-declaration-request",
+      JSON.stringify([
+        "Example.Package",
+        "1.0.0",
+        "net10.0",
+        "Example.Core.dll",
+        "Example.Widget",
+        "Narrow",
+        "Narrow",
+        0x06000005,
+        true,
+      ]),
+    );
+  await expect(page.locator(".signature-code"))
+    .toContainText("Narrow(int low, int high)");
 });
 
 test("production Analysis opens a private ranked member through all accessibility", async ({
