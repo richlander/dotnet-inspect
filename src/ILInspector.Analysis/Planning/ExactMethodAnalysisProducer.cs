@@ -585,6 +585,66 @@ internal sealed class PhysicalMethodAnalysisProducer :
         ];
     }
 
+    internal static ImmutableArray<DirectCall> ProjectResolvedCalls(
+        ExactMethodAnalysisBody method,
+        MethodAllocationFacts facts)
+    {
+        if (method.Context is not { } context
+            || method.CallSites is not { } callSites)
+        {
+            return [];
+        }
+
+        MethodIdentity caller =
+            method.DeclaredOwner
+            ?? method.Method
+            ?? context.Method;
+        var calls = ImmutableArray.CreateBuilder<DirectCall>(
+            callSites.Sites.Length);
+        foreach (MethodCallSite site in callSites.Sites)
+        {
+            calls.Add(
+                new(
+                    caller,
+                    site.Callee,
+                    site.ILOffset,
+                    site.OperandToken,
+                    site.DefinitionToken,
+                    site.Kind,
+                    context.IsInLoopRegion(site.ILOffset))
+                {
+                    EvidenceMethod = context.Method,
+                    Opcode = Opcode(site.Kind),
+                    ReturnAddress = site.ReturnAddress,
+                    Multiplicity =
+                        facts.MultiplicityAt(site.ILOffset),
+                    TargetCallerUnsafeMode =
+                        method.TargetModes.TryGetValue(
+                            site.ILOffset,
+                            out CallerUnsafeMode targetMode)
+                            ? targetMode
+                            : null,
+                });
+        }
+
+        return calls.ToImmutable();
+    }
+
+    static string Opcode(CallKind kind) =>
+        kind switch
+        {
+            CallKind.Call => "call",
+            CallKind.CallVirtual => "callvirt",
+            CallKind.NewObject => "newobj",
+            CallKind.LoadFunction => "ldftn",
+            CallKind.LoadVirtualFunction => "ldvirtftn",
+            CallKind.CallIndirect => "calli",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(kind),
+                kind,
+                "Unsupported call kind."),
+        };
+
     sealed class OwnerIssuedCallResolver(
         MethodCallSites callSites,
         bool failOnUnknown = false)

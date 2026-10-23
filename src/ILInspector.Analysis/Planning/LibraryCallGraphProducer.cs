@@ -69,10 +69,9 @@ public sealed class LibraryCallGraphProducer :
             MethodAllocationFacts facts =
                 MethodAllocationFacts.Create(context);
             directCalls =
-                ExactMethodAnalysisProducer.CollectDirectCalls(
+                PhysicalMethodAnalysisProducer.ProjectResolvedCalls(
                     method,
-                    facts,
-                    out _);
+                    facts);
             using MethodAnalysisQuery query =
                 view.BeginMethodAnalysis(
                     identity,
