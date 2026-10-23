@@ -1073,8 +1073,8 @@ and behavior.
 `DiffAnalysisOperation` produces one internal `DiffAnalysisResult`: an ordered
 list of native per-analysis outcomes in selection order. It is Diff's
 producer result, not a universal diff type. `DiffAnalysisInspection` projects
-that result into one
-`InspectionEnvelope<DiffAnalysisDocument>` for host delivery. The Document
+that result into an owner-issued representation for host delivery. Document
+demand returns `InspectionEnvelope<DiffAnalysisDocument>`. The Document
 retains the comparison context, selected analyses and views, flattened outcome
 state, typed API inspection failures independently of the selected view, the
 selected API Changes payload, selected Summary rows, and selected Transitions
@@ -1114,7 +1114,8 @@ A request without analysis-set views keeps today's Content. The default
 single-`api` Library request still delivers
 `InspectionEnvelope<LibraryApiDiffOutcome>`, so default output does not change.
 An explicit `--analysis` request, or a request selecting Summary or
-Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>`.
+Transitions, delivers `InspectionEnvelope<DiffAnalysisDocument>` for Document
+demand.
 Unprojected `--json` writes that exact Content and `--envelope` writes the same
 Content with `result_kind` `diff-analysis`, schema version `2`, Share, and
 ordered diagnostics. Type and Member targets remain semantic request inputs;
@@ -1138,6 +1139,52 @@ continues to take precedence over table, TSV, and JSONL shape selection.
 Member filtering follows the owner-issued typed Member subject rather than a
 closed list of change kinds. Explicit Changes intent follows the resolved
 section selection, including wildcard selectors.
+
+#### Summary and Transitions representations
+
+The first runtime adoption of
+[Section representations](section-shapes.md#section-representations), tracked
+by [#10542](https://github.com/richlander/dotnet-inspect/issues/10542) under
+[#10385](https://github.com/richlander/dotnet-inspect/issues/10385), offers
+Table and Document for Summary and Transitions. The motivating repository
+source is `DiffCommand.AnalysisSelection.cs` at `90112c915`: its tabular path
+serialized whole views, adding Versions and status context around the shared
+rows. The pinned `System.Text.Json@9.0.0..10.0.0` member comparison above
+remains the real-asset scenario; the compiled DiffPair fixture supplies
+deterministic command evidence.
+
+Summary Table demand returns `InspectionEnvelope<DiffAnalysisSummaryTable>`;
+Transitions Table demand returns
+`InspectionEnvelope<DiffAnalysisTransitionsTable>`. Both contain exactly the
+ordered typed rows their Document view carries, using the same projection.
+Summary rows count transitions within each selected analysis and semantic
+Type/Member scope, before a presentation row window. These counts are the
+Summary section's payload, not optional Document context. Transitions Table
+demand neither computes Summary rows nor constructs comparison context,
+flattened Document outcomes, or a Document.
+
+The CLI selects Table for a lone Summary or Transitions section by default
+and for explicit table, TSV, or JSONL. All tabular encodings contain only the
+selected rows under one schema, with no Versions or status rows. Transitions
+always declares Old Inspection and New Inspection columns, empty when absent,
+so incomplete evidence and empty results use the same schema. Headerless and
+empty JSONL streams remain valid empty populations. Failures still produce
+diagnostics and nonzero exits under the existing failure contract.
+
+Explicit Markdown, JSON, and envelope output request Document. A heterogeneous
+selection remains Document. JSON retains native counts and outcome states,
+never display strings reconstructed from a renderer. Existing unsupported
+JSON field/column/row projections fail before acquisition; they do not switch
+to display JSON. Tree demand is unsupported for these two sections and fails
+before acquisition. Browser consumers retain their current Document contract
+and may select these shared typed Table entry points independently; this slice
+does not change Browser transport or presentation preferences.
+
+`DiffCommandTests.AnalysisRepresentation_*` gates shared row/diagnostic parity,
+single-schema TSV and JSONL, typed Document JSON, empty streams, and unsupported
+tree admission. The neighboring Markdown and analysis tests retain Document
+presentation coverage. Changes and the other Diff sections have not adopted
+this representation contract yet.
 
 #### Demo and evidence
 

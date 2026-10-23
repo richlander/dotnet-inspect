@@ -2310,6 +2310,15 @@ surface `api` shows its `api.type` rows and then its `api.member` rows.
 `Changes` requires `api`. `Transitions` requires a selected analysis that
 declares it at the request surface: Type and Member analyses do so at their
 surfaces, while `string-literals` declares Library Transitions.
+
+A lone `Summary` or `Transitions` section defaults to TSV rows. Explicit
+`--table`, `--tsv`, and `--jsonl` emit only that section's rows, without
+Versions or status context; Transitions includes stable `old_inspection` and
+`new_inspection` columns, empty when absent. Use `--markdown` for the contextual
+Document. `--json` retains the structured Document and native numeric counts;
+`--envelope` additionally retains Share and diagnostics. Mixed section
+selections remain Documents. These two sections do not offer `--tree`.
+
 `--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
 only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
 entries are all reported before acquisition.
