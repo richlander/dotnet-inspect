@@ -288,17 +288,17 @@ public sealed partial class MethodDefinitionRequestSetTests
             allocation.Layers,
             layer => layer.Layer
                 == nameof(MethodDefinitionLayers.Calls));
-        ProducerParticipation methodAnalysis =
+        ProducerParticipation physicalMethodAnalysis =
             request.WorkReceipt.For(
-                ExactMethodAnalysisProducer.Instance);
+                PhysicalMethodAnalysisProducer.Instance);
         Assert.Contains(
-            methodAnalysis.Layers,
+            physicalMethodAnalysis.Layers,
             layer => layer
                 == new ProducerLayerParticipation(
                     nameof(MethodDefinitionLayers.LocalSignature),
                     1));
         Assert.Contains(
-            methodAnalysis.Layers,
+            physicalMethodAnalysis.Layers,
             layer => layer
                 == new ProducerLayerParticipation(
                     nameof(MethodDefinitionLayers.Calls),

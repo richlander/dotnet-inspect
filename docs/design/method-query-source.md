@@ -1195,6 +1195,8 @@ One detached `MethodSourceReceipt` records actual source work, not requested
 work or a cost estimate. It contains:
 
 - the exact request or execution-group association and subject identity;
+- the source module's assembly-definition identity, MVID, and module name, so
+  a detached sink need not reopen the image to recover module identity;
 - direct breadth, declared expansion, terminal, and demanded depth;
 - completion for every served request and its settlement position, when any;
 - exact MethodDef coverage for definitions examined, physical methods
@@ -1339,7 +1341,17 @@ Migration is incremental:
     and attribution IL probes; caller attribution and owner suppression consume
     that answer. Final opportunity enrichment consumes only the exact evidence,
     and the query has no `LibraryBodyAnalysisService` execution.
-13. Move remaining producers and delete each superseded legacy scan and index
+13. The all-definition Call Graph adoption splits reusable physical Method
+    evidence from exact-target attribution. `PhysicalMethodAnalysisProducer`
+    owns semantic identity, calls, local signatures, safety, and body context;
+    `ExactMethodAnalysisProducer` adds sparse declared-source attribution.
+    `LibraryCallGraphProducer` consumes the physical fact, allocation fact,
+    and the settled all-definition declared-source relation, using exact
+    attribution only for generated-body candidates whose legacy Call Graph
+    identity requires it. `AssemblyContextCallGraphAnalysis` consumes the
+    resulting focused operation and no longer executes
+    `LibraryBodyAnalysisService`.
+14. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
 Wrapping `LibraryBodyAnalysisBuilder.Build`, constructing every legacy result

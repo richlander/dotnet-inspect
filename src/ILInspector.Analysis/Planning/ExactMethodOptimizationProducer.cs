@@ -123,7 +123,7 @@ public sealed class ExactMethodAllocationProducer :
             dependencies: static () =>
             [
                 new(
-                    ExactMethodAnalysisProducer.Instance,
+                    PhysicalMethodAnalysisProducer.Instance,
                     ProducerDependencyKind.VisitNeedsVisit),
             ])
     {
@@ -141,7 +141,7 @@ public sealed class ExactMethodAllocationProducer :
         scoped MethodDefinitionView view)
     {
         ExactMethodAnalysisBody analysis =
-            view.FactOf(ExactMethodAnalysisProducer.Instance);
+            view.FactOf(PhysicalMethodAnalysisProducer.Instance);
         int token = analysis.MethodToken;
         var diagnostics =
             ImmutableArray.CreateBuilder<AnalysisDiagnostic>();
@@ -260,6 +260,9 @@ public sealed class ExactMethodOptimizationProducer :
                 new(
                     ExactMethodAllocationProducer.Instance,
                     ProducerDependencyKind.VisitNeedsVisit),
+                new(
+                    ExactMethodAnalysisProducer.Instance,
+                    ProducerDependencyKind.VisitNeedsVisit),
             ])
     {
     }
@@ -272,7 +275,9 @@ public sealed class ExactMethodOptimizationProducer :
     {
         ExactMethodAllocationBody allocation =
             view.FactOf(ExactMethodAllocationProducer.Instance);
-        if (allocation.Method is not { } method
+        ExactMethodAnalysisBody analysis =
+            view.FactOf(ExactMethodAnalysisProducer.Instance);
+        if (analysis.Method is not { } method
             || allocation.Context is not { } context
             || allocation.Facts is not { } facts
             || (!allocation.Diagnostics.IsEmpty
