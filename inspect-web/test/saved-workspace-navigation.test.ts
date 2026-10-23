@@ -99,7 +99,9 @@ const app = parseSync("dotnet-inspect.ts", appSource);
 assert.deepEqual(app.errors, []);
 
 interface CapturedWorkspaceUrlState {
+  activeTabId: string;
   subject: unknown;
+  tabs: Array<{ runtimeIdentifier: string | null }>;
   view: {
     lens: unknown;
     type: unknown;
@@ -110,11 +112,27 @@ interface CapturedWorkspaceUrlState {
   };
 }
 
+function hasRuntimeIdentifier(
+  value: unknown,
+): value is { runtimeIdentifier: string | null } {
+  if (!value || typeof value !== "object"
+    || !("runtimeIdentifier" in value)) {
+    return false;
+  }
+  const runtimeIdentifier = value.runtimeIdentifier;
+  return runtimeIdentifier === null || typeof runtimeIdentifier === "string";
+}
+
 function isCapturedWorkspaceUrlState(
   value: unknown,
 ): value is CapturedWorkspaceUrlState {
   if (!value || typeof value !== "object"
+    || !("activeTabId" in value)
+    || typeof value.activeTabId !== "string"
     || !("subject" in value)
+    || !("tabs" in value)
+    || !Array.isArray(value.tabs)
+    || !value.tabs.every(hasRuntimeIdentifier)
     || !("view" in value)
     || !value.view
     || typeof value.view !== "object") {
@@ -205,6 +223,7 @@ assert.equal(
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
+  runtimeIdentifier?: string | null;
   types: { id: string }[];
 }
 
@@ -1640,6 +1659,102 @@ test("floating packet coordinates resolve the active package for saved capture",
       ...basis,
       tabs: exact.tabs,
     });
+});
+
+test("RID-distinct package tabs retain exact active identity through capture and restore", async () => {
+  const packageId = "Runtime.Package";
+  const version = "1.0.0";
+  const framework = "net11.0";
+  const linux = {
+    ...sourcePackage,
+    id: packageId,
+    version,
+    activeFramework: framework,
+    runtimeIdentifier: "linux-x64",
+  };
+  const windows = {
+    ...linux,
+    runtimeIdentifier: "win-x64",
+  };
+
+  const capture = harness();
+  capture.state.packages = [linux, windows];
+  capture.state.package = windows;
+  const captured = capture.captureUrlState();
+  assert.equal(captured.activeTabId, "t1");
+  assert.deepEqual(
+    captured.tabs.map(tab => tab.runtimeIdentifier),
+    ["linux-x64", "win-x64"],
+  );
+
+  const restore = harness();
+  restore.controls.share = {
+    tabs: [
+      {
+        id: "windows",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "win-x64",
+      },
+      {
+        id: "linux",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "linux-x64",
+      },
+    ],
+    contexts: [{ id: "both", tabIds: ["windows", "linux"] }],
+    activeTabId: "windows",
+    selectedContextId: "both",
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+      sourceView: null,
+      comparison: null,
+    },
+  };
+  restore.controls.queryPackage = async (
+    id,
+    requestedVersion,
+    requestedFramework,
+    runtimeIdentifier,
+  ) => ({
+    ...packageLoadResult(
+      packageSurface(id, requestedVersion, requestedFramework)),
+    runtimePopulation: {
+      status: "Selected",
+      selectedRuntimeIdentifier: runtimeIdentifier,
+      availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
+    },
+  });
+
+  const loc = await parseWorkspaceLocationAsync(
+    new URL("https://inspect.test/?w=rid-packet#workspace"),
+    async () => ({
+      succeeded: true,
+      state: restore.controls.share,
+      failure: null,
+    }),
+  );
+  await restore.restoreWithProductionLoad(loc);
+
+  assert.deepEqual(
+    restore.queries.map(query => query[3]),
+    ["win-x64", "linux-x64"],
+  );
+  assert.equal(restore.state.package?.runtimeIdentifier, "win-x64");
+  assert.deepEqual(
+    [...restore.state.packages].map(pkg => pkg.runtimeIdentifier),
+    ["win-x64", "linux-x64"],
+  );
 });
 
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
