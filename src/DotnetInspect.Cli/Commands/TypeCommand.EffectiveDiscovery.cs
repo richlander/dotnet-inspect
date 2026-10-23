@@ -215,6 +215,11 @@ public static partial class TypeCommand
             return null;
         }
 
+        // The Library row presents the descriptor's normalized path, as the
+        // established renderer does, rather than the option as typed.
+        if (assembly.Path is not { } libraryPath)
+            return null;
+
         InspectionEnvelope<TypeSubjectInspectionOutcome> envelope =
             TypeSubjectInspectionOperation.Execute(
                 assembly,
@@ -246,7 +251,7 @@ public static partial class TypeCommand
                 options.IncludeAll)
             || !CanWriteDirectTypeInfo(
                 document,
-                assemblyPath,
+                libraryPath,
                 out MetadataContainedTypeDefinitionName? displayType))
         {
             return null;
@@ -277,7 +282,7 @@ public static partial class TypeCommand
             kind,
             modifiers,
             document.InterfaceCount,
-            assemblyPath,
+            libraryPath,
             SourceKind.Library)
         {
             TypeParameters = DirectTypeParameters(subject),

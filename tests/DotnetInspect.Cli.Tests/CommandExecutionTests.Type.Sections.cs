@@ -1373,6 +1373,61 @@ public partial class CommandExecutionTests
     }
 
     [Theory]
+    [InlineData(
+        "System.Text.StringBuilder",
+        "Append")]
+    [InlineData(
+        "System.Collections.Generic.List`1",
+        "Add")]
+    public async Task
+        Type_DirectLibraryExactType_RelativeLibraryPathMatchesRichFallback(
+            string typeName,
+            string memberName)
+    {
+        string fullPath =
+            typeof(System.Text.StringBuilder).Assembly.Location;
+        string assemblyPath = Path.GetRelativePath(
+            Environment.CurrentDirectory,
+            fullPath);
+        Assert.False(Path.IsPathRooted(assemblyPath));
+
+        var (directExit, directOutput, directError) =
+            await RunAppAsync(
+            [
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv",
+            ]);
+        var (fallbackExit, fallbackOutput, fallbackError) =
+            await RunAppAsync(
+            [
+                "type",
+                typeName,
+                "--library",
+                assemblyPath,
+                "-m",
+                memberName,
+                "-S",
+                SectionNames.TypeInfo,
+                "--tsv",
+            ]);
+
+        Assert.Equal(0, directExit);
+        Assert.Equal(0, fallbackExit);
+        Assert.Empty(directError);
+        Assert.Empty(fallbackError);
+        Assert.Contains(
+            $"Library\t{fullPath}",
+            directOutput,
+            StringComparison.Ordinal);
+        Assert.Equal(fallbackOutput, directOutput);
+    }
+
+    [Theory]
     [InlineData("System.Nullable`1")]
     [InlineData("System.Collections.Generic.Dictionary`2+Enumerator")]
     [InlineData("System.MulticastDelegate")]
