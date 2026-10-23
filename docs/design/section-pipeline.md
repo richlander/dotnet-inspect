@@ -178,6 +178,33 @@ rejects later section, category, cost, or pole changes;
 `CompiledSectionCatalog_FreezesBuilderAndSnapshotsEnumeration` gates that
 boundary.
 
+### Exact selection planning
+
+`PlanSelectedQueries` on the pipeline and compiled catalog accepts an exact
+section selection without a view level or fixed-overview input. The compiled
+lens exposes the same contract through `PlanSelected`, composing optional
+host demand through the existing query domain. Empty selection means no
+section demand; it never falls back to automatic selection. This differs
+intentionally from the transitional level-based API's empty-include behavior.
+
+Exact planning preserves registration-order query deduplication, every
+section-to-query attribution, and the explicit bounded/unbounded admission
+variant. It reuses cached single-section and authored-set plans; uncommon
+sets compile for the request. CLI adapters use this path for nonempty explicit
+selection. Automatic requests retain their level-based path until the atomic
+cutover tracked by [#9547](https://github.com/richlander/dotnet-inspect/issues/9547).
+
+The motivating repository construct is the Library command's exact-selection
+planning at [`7e472c2e2`, `LibraryCommand.cs`](https://github.com/richlander/dotnet-inspect/blob/7e472c2e2/src/DotnetInspect.Cli/Commands/LibraryCommand.cs#L1224):
+selected sections already determine query demand independently of the supplied
+verbosity. This preparation removes that input from explicit planning without
+changing CLI selection, capability authorization, output, or defaults.
+`ExactSelectionPreservesOrderedDemandWithoutAutomaticPeers`,
+`EmptyExactSelectionNeverFallsBackToAutomaticDemand`, and
+`ExactLensSelectionExecutesOnlySelectedQueriesAndHostDemand` gate the shared
+contract. Existing production-catalog equivalence and allocation gates retain
+the CLI boundary evidence.
+
 The library retains one process-wide compiled section catalog. It precomputes
 query-demand plans for every automatic verbosity/fixed-overview combination,
 exact single-section selection, category selection, and the base-category
