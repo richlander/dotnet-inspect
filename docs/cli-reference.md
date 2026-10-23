@@ -2663,6 +2663,25 @@ Target, or Kind field order; Traversal is a sequence order. Asset-mode
 `Dependency Hierarchy` and Package `Dependency Hierarchy` inherit the same
 `--depth` capability from the Dependency operation.
 
+Hierarchy defaults to Platform-relative nuspec traversal in both the CLI and
+Browser. Only an exact resolved dependency subsumed by matching Platform supply
+evidence is omitted, before its manifest or descendants are acquired. Explicit
+roots remain, and `Dependencies` still reports the original direct declarations.
+This is not a NuGet restore simulation.
+
+The CLI uses installed Runtime reference-pack inventories without acquiring
+missing packs. Asset-mode `depends --platform-family aspnetcore` additionally
+selects the ASP.NET Core lineage. Missing or incomparable evidence retains the
+affected package routes and is disclosed separately from traversal completion.
+The Browser uses its selected Workspace registrations, governing target, and
+matching catalog supplies; a Runtime-free Workspace does not enable pruning.
+
+Use `depends --package Microsoft.Azure.SignalR@1.33.1 --tfm net8.0
+-S "Dependency Hierarchy" --unpruned` for the raw package-authored hierarchy.
+`--unpruned` requires Hierarchy and cannot be shared because the Browser has no
+raw mode. When Hierarchy and Licenses are selected together, the license closure
+remains unpruned.
+
 For recursive package traversal, `--tfm` selects the root package dependency
 group and configures the stable traversal target. When `--tfm` is omitted, the
 root keeps its package-local selection while newly reached packages use the

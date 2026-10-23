@@ -23,7 +23,7 @@ public static partial class PackageExports
         var input = JsonSerializer.Deserialize(
             inventoryJson, BrowserPackageJsonContext.Default.BrowserEcosystemPackageInventory);
         PlatformPruneInventory[] families = PlatformSupplyInventories(input);
-        PlatformPruneInventory? inventory = input?.Supplies is not null
+        PlatformPruneInventory? inventory = families.Length > 0
             ? PlatformPruneInventory.Compose(families)
             : null;
         BrowserEcosystemPackageClassification[] results = [.. candidates.Select(candidate =>
@@ -72,6 +72,8 @@ public static partial class PackageExports
         return
         [
             .. new[] { "Microsoft.NETCore.App", "Microsoft.AspNetCore.App" }
+                .Where(family => supplies.Any(supply =>
+                    string.Equals(supply.Family, family, StringComparison.OrdinalIgnoreCase)))
                 .Select(family => PlatformPruneInventory.FromExactFamily(
                     family, input.Tfm, input.Version,
                     supplies.Where(supply =>
