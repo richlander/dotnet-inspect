@@ -75,6 +75,33 @@ public sealed class DependencyStructureSectionTests
         Assert.DoesNotContain("cycle 0", result.Output);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RowStream_CarriesOnlyEdgeRows(bool jsonl)
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName = FixturePath,
+                IncludeSections = [SectionNames.DependencyStructure],
+                Tabular = true,
+                TabularExplicitlySet = true,
+                Tsv = !jsonl,
+                Jsonl = jsonl,
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        // The cycle count and membership are Document summary; a Table
+        // row stream has one schema and no summary preamble.
+        Assert.DoesNotContain("Cycles", result.Output);
+        Assert.DoesNotContain("members", result.Output);
+        Assert.Contains("cycle 1 of 1", result.Output);
+        string first = result.Output.Split('\n')[0];
+        Assert.StartsWith(jsonl ? "{\"from\":" : "from\tto\tlabel", first);
+    }
+
     [Fact]
     public void DependencyStructure_IsExcludedFromAutomaticSelection()
     {

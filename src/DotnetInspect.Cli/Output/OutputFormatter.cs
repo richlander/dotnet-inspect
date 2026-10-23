@@ -741,7 +741,14 @@ public static class OutputFormatter
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteLibraryTabular(auditView, inspection, writerOpts, options);
+            var tableView = new LibraryInspectionView(
+                inspection,
+                topFieldsOnly,
+                input.DocumentInspection)
+            {
+                TableDemand = true,
+            };
+            WriteLibraryTabular(tableView, inspection, writerOpts, options);
         }
     }
 

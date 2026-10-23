@@ -316,6 +316,14 @@ public class LibraryInspectionView
                 markWindowedFragments: true)
             : null;
 
+    /// <summary>
+    /// Whether the view renders as a Table row stream (TSV or JSONL), which
+    /// carries rows only and no Document summary
+    /// (docs/design/section-shapes.md#consumer-selection).
+    /// </summary>
+    [MarkoutIgnore]
+    internal bool TableDemand { get; init; }
+
     [MarkoutIgnore]
     public bool HasDependencyStructure =>
         _data.DependencyStructureQueryResult
@@ -327,7 +335,7 @@ public class LibraryInspectionView
     public LibraryDependencyStructureSection? DependencyStructureSection =>
         _data.DependencyStructureQueryResult
             is LibraryDependencyStructureQueryResult.Available available
-                ? LibraryDependencyStructureSection.From(available)
+                ? LibraryDependencyStructureSection.From(available, TableDemand)
                 : null;
 
     private EcosystemDependencyRecognitionDocument? RecognitionDocument =>

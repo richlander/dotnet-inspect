@@ -6,21 +6,32 @@ using Markout;
 namespace DotnetInspect.Cli.Views;
 
 /// <summary>
-/// Document and row view of the Dependency Structure section: the complete
-/// cycle count and membership, followed by the selected namespace edges.
+/// Document view of the Dependency Structure section: the complete cycle
+/// count and membership, followed by the selected namespace edges.
 /// </summary>
 /// <remarks>
-/// The count and membership come from the complete document rather than
-/// from row selection, so a limited edge table never changes them. The
-/// format is owned by docs/design/library-dependency-structure.md.
+/// The count and membership are Document summary. They come from the
+/// complete document rather than from row selection, so a limited edge
+/// table never changes them, and Table demand omits them so that a row
+/// stream carries only edge rows. The format is owned by
+/// docs/design/library-dependency-structure.md.
 /// </remarks>
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 public sealed class LibraryDependencyStructureSection
 {
     internal static LibraryDependencyStructureSection From(
-        LibraryDependencyStructureQueryResult.Available available)
+        LibraryDependencyStructureQueryResult.Available available,
+        bool tableDemand)
     {
         ArgumentNullException.ThrowIfNull(available);
+        if (tableDemand)
+        {
+            return new LibraryDependencyStructureSection
+            {
+                Edges = LibraryDependencyStructureOutputAdapter.ToGraph(available),
+            };
+        }
+
         LibraryDependencyStructureDocument document = available.Document;
         int count = document.Cycles.Length;
         return new LibraryDependencyStructureSection
@@ -48,11 +59,11 @@ public sealed class LibraryDependencyStructureSection
     }
 
     /// <inheritdoc cref="LibraryViewText"/>
-    public string Cycles
+    public string? Cycles
     {
         get => field;
-        init => field = LibraryViewText.Contain(value);
-    } = "";
+        init => field = value is null ? null : LibraryViewText.Contain(value);
+    }
 
     [MarkoutSection(Name = "Cycle Members", Level = 3)]
     public List<LibraryDependencyCycleRow>? CycleRows { get; init; }
