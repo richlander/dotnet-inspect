@@ -1099,7 +1099,10 @@ without a Package coordinate.
 realized context. It never chooses a Package, uses the focused Navigation tab,
 or searches outside the supplied context. The Package operation and
 selected-context operation share the Metadata query; their only selection
-difference is the owner-issued participant set.
+difference is the owner-issued participant set. Each defining source retains
+the exact structured Type identity and declaration occurrence that Subject
+Relations consumes through its focus-construction API; hosts do not revalidate
+that identity as Metadata.
 
 The query projects public members for public Types and complete members for an
 exact non-public Type, prefers an exact full-name declaration over fuzzy

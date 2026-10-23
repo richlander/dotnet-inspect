@@ -99,7 +99,9 @@ const app = parseSync("dotnet-inspect.ts", appSource);
 assert.deepEqual(app.errors, []);
 
 interface CapturedWorkspaceUrlState {
+  activeTabId: string;
   subject: unknown;
+  tabs: Array<{ runtimeIdentifier: string | null }>;
   view: {
     lens: unknown;
     type: unknown;
@@ -110,11 +112,27 @@ interface CapturedWorkspaceUrlState {
   };
 }
 
+function hasRuntimeIdentifier(
+  value: unknown,
+): value is { runtimeIdentifier: string | null } {
+  if (!value || typeof value !== "object"
+    || !("runtimeIdentifier" in value)) {
+    return false;
+  }
+  const runtimeIdentifier = value.runtimeIdentifier;
+  return runtimeIdentifier === null || typeof runtimeIdentifier === "string";
+}
+
 function isCapturedWorkspaceUrlState(
   value: unknown,
 ): value is CapturedWorkspaceUrlState {
   if (!value || typeof value !== "object"
+    || !("activeTabId" in value)
+    || typeof value.activeTabId !== "string"
     || !("subject" in value)
+    || !("tabs" in value)
+    || !Array.isArray(value.tabs)
+    || !value.tabs.every(hasRuntimeIdentifier)
     || !("view" in value)
     || !value.view
     || typeof value.view !== "object") {
@@ -161,7 +179,8 @@ const hostNames = new Set([
   "focusInspectionResult", "focusLevelOneHeading",
   "applyLocationView", "canonicalViewRestorationFailure", "commitWorkspaceShareBasis",
   "errorMessage", "friendlyLoadError", "isRecord",
-  "runHomeDemo", "resolveAndRunHomeDemo", "failDemoWorkspaceOpen",
+  "runHomeDemo", "resolveAndRunHomeDemo", "runCompatibilityHomeDemo",
+  "failDemoWorkspaceOpen",
   "addWorkspacePackage", "openWorkspacePackagePicker", "beginSpotlightNavigation",
   "openPlatformSubject", "openPlatformLibrary", "platformCoordinateCapacityError",
   "canRestoreWorkbenchFocus", "isTextEntry",
@@ -205,6 +224,7 @@ assert.equal(
 
 interface Package extends ComparisonPackage {
   isRuntimePack?: boolean;
+  runtimeIdentifier?: string | null;
   types: { id: string }[];
 }
 
@@ -868,6 +888,21 @@ function harness() {
       demoRuns.push({ id, navigationSeq });
       return controls.demo();
     },
+    resolveProductHomeDemo: async (id: string) => ({
+      id,
+      title: id,
+      summary: "",
+      workspaceMembers: [],
+      tabs: [],
+      focusTabIndex: 0,
+      view: {
+        library: null,
+        type: null,
+        memberAnchor: null,
+        memberKey: null,
+        section: "Call Graph",
+      },
+    }),
     inspectEncodeWorkspaceShareState: () => controls.encodeResult,
     platformCoordinate: (tab: BrowserWorkspaceShareState["tabs"][number]) =>
       tab.kind === "group" && tab.source === ":Platform"
@@ -1642,6 +1677,102 @@ test("floating packet coordinates resolve the active package for saved capture",
     });
 });
 
+test("RID-distinct package tabs retain exact active identity through capture and restore", async () => {
+  const packageId = "Runtime.Package";
+  const version = "1.0.0";
+  const framework = "net11.0";
+  const linux = {
+    ...sourcePackage,
+    id: packageId,
+    version,
+    activeFramework: framework,
+    runtimeIdentifier: "linux-x64",
+  };
+  const windows = {
+    ...linux,
+    runtimeIdentifier: "win-x64",
+  };
+
+  const capture = harness();
+  capture.state.packages = [linux, windows];
+  capture.state.package = windows;
+  const captured = capture.captureUrlState();
+  assert.equal(captured.activeTabId, "t1");
+  assert.deepEqual(
+    captured.tabs.map(tab => tab.runtimeIdentifier),
+    ["linux-x64", "win-x64"],
+  );
+
+  const restore = harness();
+  restore.controls.share = {
+    tabs: [
+      {
+        id: "windows",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "win-x64",
+      },
+      {
+        id: "linux",
+        kind: "package",
+        source: packageId,
+        version,
+        framework,
+        runtimeIdentifier: "linux-x64",
+      },
+    ],
+    contexts: [{ id: "both", tabIds: ["windows", "linux"] }],
+    activeTabId: "windows",
+    selectedContextId: "both",
+    view: {
+      lens: null,
+      type: null,
+      memberAnchor: null,
+      memberSignature: null,
+      section: null,
+      libraries: [],
+      sourceView: null,
+      comparison: null,
+    },
+  };
+  restore.controls.queryPackage = async (
+    id,
+    requestedVersion,
+    requestedFramework,
+    runtimeIdentifier,
+  ) => ({
+    ...packageLoadResult(
+      packageSurface(id, requestedVersion, requestedFramework)),
+    runtimePopulation: {
+      status: "Selected",
+      selectedRuntimeIdentifier: runtimeIdentifier,
+      availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
+    },
+  });
+
+  const loc = await parseWorkspaceLocationAsync(
+    new URL("https://inspect.test/?w=rid-packet#workspace"),
+    async () => ({
+      succeeded: true,
+      state: restore.controls.share,
+      failure: null,
+    }),
+  );
+  await restore.restoreWithProductionLoad(loc);
+
+  assert.deepEqual(
+    restore.queries.map(query => query[3]),
+    ["win-x64", "linux-x64"],
+  );
+  assert.equal(restore.state.package?.runtimeIdentifier, "win-x64");
+  assert.deepEqual(
+    [...restore.state.packages].map(pkg => pkg.runtimeIdentifier),
+    ["win-x64", "linux-x64"],
+  );
+});
+
 test("saved Open uses only the opaque packet at the current origin and commits after view completion", async () => {
   const h = harness();
   h.location.href = "https://inspect.test/demos?keep=1#workspace";
@@ -2278,7 +2409,11 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   const declaration = app.program.body.find(node =>
     node.type === "FunctionDeclaration"
     && node.id?.name === "publishSourceBearingWorkspace");
+  const installer = app.program.body.find(node =>
+    node.type === "FunctionDeclaration"
+    && node.id?.name === "installRetainedWorkspaceModels");
   assert.ok(declaration);
+  assert.ok(installer);
   Object.assign(h.context, {
     createNavigationDescriptorPresentation: () => ({
       packages: [],
@@ -2306,7 +2441,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   });
   runInNewContext(
     stripTypeScriptTypes(
-      appSource.slice(declaration.start, declaration.end)),
+      [
+        appSource.slice(declaration.start, declaration.end),
+        appSource.slice(installer.start, installer.end),
+      ].join("\n")),
     h.context);
 
   const packageModel = structuredClone(h.state.package!);
@@ -2551,6 +2689,7 @@ test("demo execution starts under one observed navigation sequence", async () =>
   const href = h.location.href;
   const entryState = h.history.state;
   h.demo();
+  await new Promise(resolve => setImmediate(resolve));
   const sequence = h.navigationSequence.current();
   assert.equal(h.state.loading, true);
   assert.equal(h.state.package, sourcePackage);
@@ -2587,6 +2726,7 @@ for (const rejected of [false, true]) {
     const selection = deferred<void>();
     h.controls.demo = () => execution.promise;
     h.demo();
+    await new Promise(resolve => setImmediate(resolve));
     h.controls.selection = () => selection.promise;
     h.open();
     await new Promise(resolve => setImmediate(resolve));

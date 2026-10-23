@@ -525,26 +525,31 @@ public sealed class InspectionDefinitionRegistry
                         StringComparer.Ordinal));
     }
 
-    internal static IReadOnlyDictionary<string, GroupNavigationSource>
-        ResolveGroupNavigationSources(
+    internal static IReadOnlyDictionary<string, PlatformNavigationSource>
+        ResolvePlatformNavigationSources(
             WorkspaceDefinition workspace,
             InspectionDefinitionRecord? navigation,
             NavigationTargetMatchMode targetMatchMode)
     {
         if (navigation is null)
-            return new ReadOnlyDictionary<string, GroupNavigationSource>(
-                new Dictionary<string, GroupNavigationSource>());
+            return new ReadOnlyDictionary<string, PlatformNavigationSource>(
+                new Dictionary<string, PlatformNavigationSource>());
 
-        return new ReadOnlyDictionary<string, GroupNavigationSource>(
+        return new ReadOnlyDictionary<string, PlatformNavigationSource>(
             ResolveNavigationSources(workspace, navigation, targetMatchMode)
                 .Where(static pair =>
-                    pair.Value.EffectiveCoordinate is null
-                    && pair.Value.MemberIndex is null)
+                    (pair.Value.EffectiveCoordinate
+                            is DefinitionMemberCoordinate.PlatformCoordinate
+                        && pair.Value.MemberIndex is not null)
+                    || (pair.Value.EffectiveCoordinate is null
+                        && pair.Value.MemberIndex is null))
                 .ToDictionary(
                     static pair => pair.Key,
-                    pair => new GroupNavigationSource(
+                    pair => new PlatformNavigationSource(
                         pair.Value.ContextIndex,
-                        workspace.Contexts[pair.Value.ContextIndex].Members.Count,
+                        pair.Value.MemberIndex
+                            ?? workspace.Contexts[pair.Value.ContextIndex]
+                                .Members.Count,
                         pair.Value.RuntimeIdentifier),
                     StringComparer.Ordinal));
     }
@@ -1671,7 +1676,7 @@ internal sealed record PackageNavigationSource(
     int MemberIndex,
     DefinitionMemberCoordinate.PackageCoordinate EffectiveCoordinate);
 
-internal sealed record GroupNavigationSource(
+internal sealed record PlatformNavigationSource(
     int ContextIndex,
     int MemberIndex,
     string? RuntimeIdentifier);

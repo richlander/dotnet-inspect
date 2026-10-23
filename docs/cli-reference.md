@@ -1513,6 +1513,26 @@ uses the selected Root; it does not print the environment's inventory. Package
 row controls retain ordinary semantics: `--rows` selects children, while `-n`
 limits rendered lines and is refused for a JSON document.
 
+Query-free saved Type API (`type.api`) views replay through ordinary Type
+inspection, including its structured formats, row controls and Count:
+
+```bash
+dotnet-inspect type System.Text.Json.JsonSerializer --workspace "$environment" \
+  --share packet > type-content.md 2> type-share.txt
+saved_type=$(tail -n 1 type-share.txt)
+dotnet-inspect "$saved_type"                 # Ordinary Type document
+dotnet-inspect -w "$saved_type" --json        # Ordinary Type JSON
+dotnet-inspect -w "$saved_type" --count       # Member count
+```
+
+The readable [Type packet](examples/workspace-type-replay.json) selects the
+exact Library and structured Type. Replay uses that saved target after one
+restoration. Type Share currently requires format 4 or 5; the explicit source
+in this format-5 example also supports Browser activation. Row controls retain
+ordinary Type semantics, including the JSON-document refusal for rendered-line
+limits. Count is a replay presentation choice; save the unfiltered Type view
+before requesting it.
+
 Other saved inspection facets and attached queries fail explicitly before
 acquisition; their individual CLI bindings remain tracked in #4647.
 Activation accepts one canonical Base64URL packet, rather than a website URL,

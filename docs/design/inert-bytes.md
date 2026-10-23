@@ -742,7 +742,7 @@ the repository threat model.
 | Browser/Wasm text publication | `docs/workflows/perf/browser-text-publication.md` measures one pinned Type-overview population through the production Worker, managed JSON serialization, Wasm interop, generated-facade `JSON.parse`, structured clone, and retained page-owned results; exact payload census is recorded without claiming browser heap bytes | Exact-build workflow |
 | Exact-Member CLI publication | `docs/workflows/perf/cli-member-publication.md` measures one pinned exact Member through subject resolution, Metadata declaration evidence, `MemberDocument`, final documentation composition, Markdown presentation, and standard output; exact output, latency, and warmed command allocation are recorded without claiming retained memory | Exact-build workflow |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
-| Finding Diff Any product path | Exact base/head NativeAOT comparison on all pinned Finding Diff Any pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
+| Finding Diff Any product path | Base/head NativeAOT comparison on the six Finding Diff Any gate pairs with identity answers unchanged, read as the [Symbol Key gate row](symbol-key.md#evidence-and-gates) states: the aggregate diff experience weighted to the expensive common tasks, the surface pass bounded, retained memory at parity | Symbol Key implementation adoption |
 | Finding Diff Any direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
 
 Documentation-only design changes require Markdown validation, not product
@@ -771,7 +771,10 @@ exact-base/head gates run.
    pre-adoption path.
 6. **Shared Symbol Key and Finding Diff Any adoption.** Move Finding Diff
    Any's private Symbol Key onto the shared representation and remove the
-   duplicate storage owner only with exact base/head NativeAOT parity.
+   duplicate storage owner, with base/head NativeAOT read as the
+   [Symbol Key gate row](symbol-key.md#evidence-and-gates) states
+   (implemented as Symbol Key step 5,
+   [#10476](https://github.com/richlander/dotnet-inspect/issues/10476)).
 7. **API qualified anchor adoption.** Carry byte-backed names through
    declaration, signature, and resolver boundaries under
    [#9907](https://github.com/richlander/dotnet-inspect/issues/9907).

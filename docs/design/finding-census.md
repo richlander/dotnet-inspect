@@ -462,10 +462,11 @@ test class gates its cursor:
      is still the formatted identity of `IlFindings`, so the identity gate
      waits for 1b.
    - **1b** ([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)):
-     the atom's operand identity becomes the `SymbolKey` under the policy,
-     which moves `SymbolKey` and its builder below both
-     `ILInspector.Metadata` and `ILInspector.ILDiff`; gated by identity. It
-     depends on the Body policy's normalization
+     the atom's operand identity becomes the shared Symbol Key under the
+     policy ([Symbol Key](symbol-key.md) step 5 placed it in
+     `ILInspector.MetadataPrimitives`, below both `ILInspector.Metadata` and
+     `ILInspector.ILDiff`, with Finding Diff Any as its first adopter); gated
+     by identity. It depends on the Body policy's normalization
      ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`, run
    beside Finding Diff Any's walk for every method of the fixture pairs under

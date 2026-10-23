@@ -8,13 +8,16 @@ one exact Type to external Members, colored by direct trimming and NativeAOT
 compatibility attributes. The general result shape, selection planning, and
 document generation remain owned by their existing focused designs.
 
-The implementation slice is tracked by
+The initial adoption slice is tracked by
 [issue #10433](https://github.com/richlander/dotnet-inspect/issues/10433).
+Its focused-acquisition successor is tracked by
+[issue #10465](https://github.com/richlander/dotnet-inspect/issues/10465).
 
 ## Exact claim
 
 For one exact Type and one admitted binding-consistent assembly context, the
-adopter uses owner-issued call-census and metadata evidence to publish:
+adopter uses owner-issued focused Method-source, call-site, correspondence,
+and metadata evidence to publish:
 
 - canonical outgoing `call` relations from methods declared by the focused
   Type to exact methods outside that Type;
@@ -39,42 +42,56 @@ The request carries:
   `MetadataTypeDefinitionName`;
 - one `SubjectRelationPopulationAuthority`;
 - one admitted `AssemblyContextGroup`;
-- the exact `AssemblyContextCallCensusResult` for that group;
 - selected and predicate compatibility-color descriptors; and
 - one terminal: Rows, Count, or Exists.
 
 The focus Type's metadata name corresponds to Analysis `TypeRef` by exact
 namespace and the nested metadata name produced by
 `MetadataTypeDefinitionName.ToNestedMetadataName()`. The exact focus assembly
-registration must be a participant in both the population and the call census.
-Display text is not identity evidence.
+registration must be a participant in the population and assembly context.
+Display text is not identity evidence. The query resolves that name to one
+exact TypeDef in the focus image before issuing Method-source breadth.
 
 ## Outgoing call population
 
-The producer considers census occurrences whose source:
+The producer issues exact-Type breadth to Method Query Source. It decodes
+bodies only for MethodDefs declared by that exact TypeDef and considers each
+owner-issued `call`, `callvirt`, and `newobj` site whose source:
 
 - belongs to the exact focus assembly registration; and
 - has the exact focus Type as its declaring Type.
 
-A considered occurrence is excluded when its target is declared by that same
-exact Type. Every other resolved target is external to the focused Type's owned
-closure and is admitted.
+A considered occurrence is excluded when its target MethodDef is declared by
+that same exact TypeDef. Same-module targets outside the Type are selected by
+their exact MethodDef token. Other targets are resolved through the admitted
+assembly context from the decoded member reference, then selected by exact
+open-signature correspondence within the resolved declaring TypeDef. Every
+other exact target is external to the focused Type's owned closure and is
+admitted.
 
 Admitted physical occurrences are grouped by exact source and target
 `MethodIdentity`. Each group produces one canonical relationship row. Its
-physical occurrence identity is the Analysis-issued
-`CatalogCallCensusOccurrenceOrderingKey`; the key is retained, not recreated
-from display values.
+physical occurrence identity is the Analysis-issued focused call-site receipt:
+source MVID and MethodDef token plus IL offset, operand token, and call kind.
+The receipt is retained, not recreated from display values.
 
 The existing `CallGraphInspectionGraphCatalog.Call` descriptor remains the
-relationship. A census occurrence evidence type admitted by that descriptor
-retains the exact ordering key and physical call evidence. This does not open
-or repurpose the internal `CallGraphCallSiteIdentity` constructor.
+relationship. A focused occurrence evidence type admitted by that descriptor
+retains the exact call-site receipt and physical call evidence. This does not
+open, copy, or repurpose the call-graph traversal or census identity
+constructors.
 
 The source and target graph subjects use
 `GraphNodeIdentity.FromMethod(MethodIdentity)`. The source `MemberRef` is an
 exact presentation projection of the source `MethodIdentity`; the target
 retains the Analysis-issued `DirectCall.Callee`.
+
+Source completion is the exact-Type Method-source receipt. Each distinct
+external member reference is resolved once. Each distinct resolved target
+TypeDef is visited once with metadata-only Method-source breadth, and target
+method bodies are never acquired. Resolution and target-method selection
+remain qualified when acquisition, binding, type resolution, signature
+correspondence, MVID, or token evidence cannot establish one exact definition.
 
 ## Compatibility color
 
@@ -97,9 +114,11 @@ Each descriptor:
 - does not infer an attribute from a declaring Type, override, interface
   declaration, caller, or transitive call.
 
-The Queries producer opens each distinct admitted target assembly at most once
-and inspects each distinct target method definition at most once. Attribute
-type identity is read with `AttributeReader.GetAttributeTypeName`.
+The Queries producer demand-resolves each distinct external member reference
+once, then retains each selected target assembly once for target method
+identity and compatibility color. It inspects each distinct exact target
+method definition at most once for compatibility color. Attribute type
+identity is read with `AttributeReader.GetAttributeTypeName`.
 
 An unreadable target image, mismatched module, invalid method token, malformed
 metadata row, or custom attribute whose type identity cannot be established
@@ -134,15 +153,17 @@ Exists false because a missing candidate could satisfy the predicate.
 Topology completion is relative to the exact focus-Type outgoing population.
 It is complete only when:
 
-- the census has a receipt;
-- the focused participant supplied full method evidence;
-- no focused-source unresolved occurrence remains; and
-- no census diagnostic or incomplete boundary can affect the focused outgoing
-  population.
+- the exact TypeDef was established in the focus image;
+- the Method-source receipt proves complete exact-Type body traversal;
+- every considered call site either resolved to one exact target or was
+  intentionally excluded as same-Type; and
+- no acquisition, body decode, binding, type-resolution, signature-selection,
+  MVID, token, or metadata limit can affect the focused outgoing population.
 
-The initial adopter conservatively retains a group-wide census qualification
-when Analysis does not provide a narrower affected-population receipt. This is
-a visible partial outcome, not an invented complete focus result.
+An unresolved focused call remains explicit and makes topology partial. A
+failure before focused Method-source evidence is available makes topology
+unavailable. Unrelated participants and unvisited method bodies do not qualify
+the focused population.
 
 Each color family accounts for distinct admitted target methods:
 
@@ -175,11 +196,11 @@ Exists settles:
 - `Undecided` otherwise.
 
 “Immediately” is the adopter's terminal projection boundary. The current
-production prerequisite remains the generation-bound group call census; this
-slice does not claim that existing Analysis acquisition stops before producing
-that prerequisite. NativeAOT evidence measures that cost rather than hiding
-it, and any acquisition-pushdown successor must preserve the same receipts and
-completion rules.
+focused prerequisite is exact-Type Method-source execution and demand-scoped
+callee metadata resolution. It does not construct `LibraryBody*` analysis, a
+whole-assembly call graph, or a group-wide call census. NativeAOT evidence
+measures source body decoding, callee resolution, target metadata inspection,
+and terminal settlement separately.
 
 ## Follow the T
 
@@ -216,7 +237,13 @@ Focused tests prove:
 - conjunctive predicate-filtered Rows, Count, and Exists;
 - complete-empty versus incomplete-empty outcomes;
 - unresolved focused calls qualify topology absence;
+- admitted source-relative participant binding choices are preserved;
+- unrelated assembly-context participants remain unopened;
+- incomplete non-intrinsic signature dependencies qualify topology absence;
 - unavailable and malformed target metadata qualify color absence;
+- exact source receipts show only the focus Type's bodies were acquired;
+- target receipts show no target method body was acquired;
+- each distinct callee is resolved and each exact target is inspected once;
 - complete Rows cardinality equals exact Count;
 - Exists true from a witness and false only from complete evidence;
 - scalar terminals create no Rows or annotations; and
@@ -225,4 +252,5 @@ Focused tests prove:
 The production scenario runs exact builds of `System.Text.Json` 10.0.13 and
 `Newtonsoft.Json` 13.0.4. Accepted performance evidence compares exact
 base/head NativeAOT builds on one approved host for Rows, Count, Exists,
-allocations, retained memory, and shared topology/color work.
+allocations, retained memory, focused body decoding, callee resolution, target
+metadata inspection, and terminal settlement.

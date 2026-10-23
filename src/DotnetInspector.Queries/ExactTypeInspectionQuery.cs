@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 
 using DotnetInspector.Packages;
+using DotnetInspector.Queries.Definitions;
 using ILInspector.Metadata;
 using NuGet.Versioning;
 
@@ -669,6 +670,31 @@ internal static class ExactTypeInspectionQuery
                 : null);
     }
 
+    // Navigation already selected the occurrence, registration and structured
+    // Type. Only that participant is projected; declaration contexts are not searched.
+    internal static ExactTypeInspectionExecution ExecuteSelectedSubject(
+        InspectionWorkspace workspace,
+        CompleteRestorationSelectedSubject.Type selected,
+        PackageAssemblyContextRealization roles)
+    {
+        WorkspaceContextMember member = selected.DefiningLibrary.Library;
+        if (!roles.SurfaceGroup.Participants.Contains(member.Participant))
+            throw new ArgumentException("The saved Type does not belong to the borrowed Root roles.",
+                nameof(selected));
+        var loaded = new WorkspaceContextLoadOutcome.Loaded(
+            workspace.Identity, roles.SurfaceGroup, [member], [selected.Root], [],
+            selected.Root.Coordinate.Framework, selected.Root.Coordinate.RuntimeIdentifier);
+        ExactTypeInspectionTarget? target = null;
+        ExactTypeInspectionResult result = ExecuteCore(
+            workspace.Identity, new ExactTypeInspectionContext(loaded),
+            selected.Subject.Identity.Type.ToEscapedFullName(),
+            ExactTypeSelectionKind.DefinitionIdentity, [member.Participant],
+            definingSource: null, definingSources: null, value => target = value,
+            ApiSurfaceScope.PublicWithNonPublicTypes, projectionLimits: null,
+            selected.Subject.Identity.Type);
+        return new(result, [], target);
+    }
+
     static ExactTypeInspectionResult ExecuteCore(
         InspectionWorkspaceIdentity realization,
         ExactTypeInspectionContext context,
@@ -680,7 +706,8 @@ internal static class ExactTypeInspectionQuery
         ImmutableArray<ExactTypeDefiningSource>.Builder? definingSources,
         Action<ExactTypeInspectionTarget>? selectedTarget,
         ApiSurfaceScope scope,
-        ApiSurfaceProjectionLimits? projectionLimits)
+        ApiSurfaceProjectionLimits? projectionLimits,
+        MetadataTypeDefinitionName? selectedDefinition = null)
     {
         ArgumentNullException.ThrowIfNull(realization);
         ArgumentNullException.ThrowIfNull(context);
@@ -768,7 +795,13 @@ internal static class ExactTypeInspectionQuery
         ];
         ImmutableArray<Candidate> matching;
         string? matchedType;
-        if (selectionKind
+        if (selectedDefinition is not null)
+        {
+            matching = [.. declarations.Where(candidate =>
+                candidate.Definition.Equals(selectedDefinition))];
+            matchedType = matching.IsEmpty ? null : requestedType;
+        }
+        else if (selectionKind
             == ExactTypeSelectionKind.DefinitionIdentity)
         {
             matching =

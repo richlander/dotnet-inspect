@@ -3881,7 +3881,7 @@ candidate `18c37a5a26abe016f70a03fc4cd6448fa709203e`.
 
 The shared handoff and exact association gates are implemented under #10408.
 CLI bindings then adopt it individually under #4647, beginning
-with Package Libraries, followed by Type API and Member overview. Browser
+with Package Libraries and Type API; Member overview follows. Browser
 restoration remains a consumer of the same owner-issued preparation; gate
 same-packet subject, facet, query and target preservation through its
 production activation facade. There is no Browser rendering redesign or
@@ -3910,8 +3910,13 @@ Package, facet and canonical packet.
 
 CLI Package Libraries rendering, Count and save/replay parity are gated by
 `WorkspacePacketActivationTests.SavedPackageReplaysOrdinaryLibraries` and the
-recorded packet's production Browser activation test. Type, Member and attached
-query CLI bindings remain staged. Selection is a projection of one already
+recorded packet's production Browser activation test. Type API adopts the
+same handoff under #10486: its receiver consumes the borrowed Root's assembly
+roles, projects only the exact Navigation Library, and selects the structured
+Type identity. `WorkspacePacketActivationTests.SavedTypeReplaysOrdinaryApi`
+gates ordinary rendering and Count; the recorded Type packet also runs through
+the production Browser activation owner. Member and attached-query CLI bindings
+remain staged. Selection is a projection of one already
 prepared
 activation under its existing borrow, with no new state machine. The
 complete-restoration model above retains lifecycle ownership; the focused

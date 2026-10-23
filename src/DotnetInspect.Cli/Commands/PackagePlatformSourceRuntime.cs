@@ -6,17 +6,17 @@ using NuGetFetch;
 
 namespace DotnetInspect.Cli.Commands;
 
-internal sealed class DesktopPlatformPackageSourceRuntime :
+internal sealed class PackagePlatformSourceRuntime :
     IPackageSourceAuthorization,
     IAsyncDisposable
 {
     private readonly Func<DesktopPackageSourceComposition>
         _createComposition;
     private readonly NuGetSourceOptions? _sourceOptions;
-    private readonly DesktopPackageStoreScope _stores;
+    private readonly TemporaryPackageStoreScope _stores;
     private DesktopPackageSourceComposition? _composition;
 
-    internal DesktopPlatformPackageSourceRuntime(
+    internal PackagePlatformSourceRuntime(
         Func<DesktopPackageSourceComposition> createComposition,
         NuGetSourceOptions? sourceOptions,
         string temporaryDirectoryPrefix)
@@ -26,7 +26,7 @@ internal sealed class DesktopPlatformPackageSourceRuntime :
             temporaryDirectoryPrefix);
         _createComposition = createComposition;
         _sourceOptions = sourceOptions;
-        _stores = new DesktopPackageStoreScope(
+        _stores = new TemporaryPackageStoreScope(
             temporaryDirectoryPrefix);
     }
 
@@ -79,7 +79,7 @@ internal sealed class DesktopPlatformPackageSourceRuntime :
         _composition ??= _createComposition();
 }
 
-internal sealed class DesktopPackageStoreScope(
+internal sealed class TemporaryPackageStoreScope(
     string temporaryDirectoryPrefix) : IDisposable
 {
     private readonly Dictionary<ConfiguredPackageAuthority, IPackageStore>

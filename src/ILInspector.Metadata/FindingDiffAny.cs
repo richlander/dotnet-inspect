@@ -5,6 +5,11 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
+
+using InertText;
+
 namespace ILInspector.Metadata;
 
 /// <summary>Whether one axis of a Type differs between two Library images.</summary>
@@ -131,25 +136,27 @@ public static class FindingDiffAny
     {
         var a = new Side(before);
         var b = new Side(after);
-        Unit? unitA = a.Units().Values.FirstOrDefault(unit => unit.FullName == fullName);
-        Unit? unitB = b.Units().Values.FirstOrDefault(unit => unit.FullName == fullName);
+        Unit? unitA = a.Units().Entries.Select(entry => entry.Unit).FirstOrDefault(unit => unit.FullName == fullName);
+        Unit? unitB = b.Units().Entries.Select(entry => entry.Unit).FirstOrDefault(unit => unit.FullName == fullName);
         if (unitA is null || unitB is null)
             return ("one-sided", "one-sided");
 
-        string? api = FirstDifference(a.ApiCensus(unitA), b.ApiCensus(unitB));
+        string? api = FirstDifference(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB));
         bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
         string? body = FirstDifference(
+            a,
             a.BodyCensus(unitA, ownerVisible, out var methodsA),
+            b,
             b.BodyCensus(unitB, ownerVisible, out var methodsB));
         if (body is null)
         {
             var work = new Work();
-            foreach ((SymbolKey key, MethodDefinitionHandle methodA) in methodsA)
+            foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
             {
                 if (methodsB.TryGetValue(key, out MethodDefinitionHandle methodB)
                     && !BodyEqual(a, methodA, b, methodB, work))
                 {
-                    body = "IL " + key;
+                    body = "IL " + Describe(key);
                     break;
                 }
             }
@@ -157,10 +164,21 @@ public static class FindingDiffAny
         return (api, body);
     }
 
-    static string? FirstDifference(List<SymbolKey> before, List<SymbolKey> after)
+    // Each side's census is staged in its transient builder; the slots compare
+    // through those builders, as the staged keys they name would.
+    static bool CensusesEqual(Side a, List<SymbolKeySlot> censusA, Side b, List<SymbolKeySlot> censusB)
+        => a.Transient.SequenceEqual(CollectionsMarshal.AsSpan(censusA), b.Transient, CollectionsMarshal.AsSpan(censusB));
+
+    static string? FirstDifference(
+        Side a,
+        List<SymbolKeySlot> before,
+        Side b,
+        List<SymbolKeySlot> after)
     {
-        string? onlyBefore = before.Except(after).Select(fact => fact.ToString()).FirstOrDefault();
-        string? onlyAfter = after.Except(before).Select(fact => fact.ToString()).FirstOrDefault();
+        List<StagedSymbolKey<FindingDiffAnyPart>> keysBefore = before.ConvertAll(a.Transient.Resolve);
+        List<StagedSymbolKey<FindingDiffAnyPart>> keysAfter = after.ConvertAll(b.Transient.Resolve);
+        string? onlyBefore = keysBefore.Except(keysAfter).Select(SymbolKeyText.Describe).FirstOrDefault();
+        string? onlyAfter = keysAfter.Except(keysBefore).Select(SymbolKeyText.Describe).FirstOrDefault();
         return onlyBefore is null && onlyAfter is null
             ? null
             : $"- {onlyBefore}\n+ {onlyAfter}";
@@ -186,8 +204,12 @@ public static class FindingDiffAny
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
-            side.Keys.Reset();
+            side.Abandon();
             api = FindingDiffAnyState.Indeterminate;
+        }
+        finally
+        {
+            side.EndUnit();
         }
         return new FindingDiffAnyTypeState(unit.FullName, api, presence, unit.Identifier);
     }
@@ -208,7 +230,7 @@ public static class FindingDiffAny
             return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
         try
         {
-            api = a.ApiCensus(unitA).SequenceEqual(b.ApiCensus(unitB))
+            api = CensusesEqual(a, a.ApiCensus(unitA), b, b.ApiCensus(unitB))
                 ? FindingDiffAnyState.Unchanged
                 : FindingDiffAnyState.Changed;
             if (axes is FindingDiffAnyAxes.Api)
@@ -219,8 +241,13 @@ public static class FindingDiffAny
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
-            a.Keys.Reset();
-            b.Keys.Reset();
+            a.Abandon();
+            b.Abandon();
+        }
+        finally
+        {
+            a.EndUnit();
+            b.EndUnit();
         }
         return new FindingDiffAnyTypeState(unitA.FullName, api, body, unitA.Identifier);
     }
@@ -230,15 +257,14 @@ public static class FindingDiffAny
         // A Type visible on either side partitions its facts as visible on
         // both, so a visibility change is an API fact only.
         bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
-        if (!a.BodyCensus(unitA, ownerVisible, out Dictionary<SymbolKey, MethodDefinitionHandle> methodsA)
-                .SequenceEqual(b.BodyCensus(unitB, ownerVisible, out Dictionary<SymbolKey, MethodDefinitionHandle> methodsB)))
-        {
+        List<SymbolKeySlot> censusA = a.BodyCensus(unitA, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsA);
+        List<SymbolKeySlot> censusB = b.BodyCensus(unitB, ownerVisible, out Dictionary<KeyRef, MethodDefinitionHandle> methodsB);
+        if (!CensusesEqual(a, censusA, b, censusB))
             return false;
-        }
 
         // Equal censuses declare the same non-public members. A public method
         // on one side only is an API fact; its body is not compared.
-        foreach ((SymbolKey key, MethodDefinitionHandle methodA) in methodsA)
+        foreach ((KeyRef key, MethodDefinitionHandle methodA) in methodsA)
         {
             if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
                 continue;
@@ -290,13 +316,13 @@ public static class FindingDiffAny
         var b = new Side(after);
         var work = new Work();
         var verdicts = new List<BodyVerdict>();
-        OrderedDictionary<SymbolKey, Unit> unitsB = b.Units();
-        foreach ((SymbolKey key, Unit unitA) in a.Units())
+        UnitTable unitsB = b.Units();
+        foreach ((SymbolKey<FindingDiffAnyPart> key, Unit unitA) in a.Units().Entries)
         {
             if (!unitsB.TryGetValue(key, out Unit? unitB) || unitA.Malformed || unitB.Malformed)
                 continue;
-            Dictionary<SymbolKey, MethodDefinitionHandle> methodsA;
-            Dictionary<SymbolKey, MethodDefinitionHandle> methodsB;
+            Dictionary<KeyRef, MethodDefinitionHandle> methodsA;
+            Dictionary<KeyRef, MethodDefinitionHandle> methodsB;
             try
             {
                 bool ownerVisible = a.IsVisible(unitA.Owner) || b.IsVisible(unitB.Owner);
@@ -305,11 +331,13 @@ public static class FindingDiffAny
             }
             catch (Exception ex) when (IsMalformed(ex))
             {
-                a.Keys.Reset();
-                b.Keys.Reset();
+                a.Abandon();
+                b.Abandon();
+                a.EndUnit();
+                b.EndUnit();
                 continue;
             }
-            foreach ((SymbolKey method, MethodDefinitionHandle methodA) in methodsA)
+            foreach ((KeyRef method, MethodDefinitionHandle methodA) in methodsA)
             {
                 if (!methodsB.TryGetValue(method, out MethodDefinitionHandle methodB))
                     continue;
@@ -322,12 +350,14 @@ public static class FindingDiffAny
                 }
                 catch (Exception ex) when (IsMalformed(ex))
                 {
-                    a.Keys.Reset();
-                    b.Keys.Reset();
+                    a.Abandon();
+                    b.Abandon();
                     body = FindingDiffAnyState.Indeterminate;
                 }
-                verdicts.Add(new BodyVerdict(unitA.FullName, method, methodA, methodB, body));
+                verdicts.Add(new BodyVerdict(unitA.FullName, Describe(method), methodA, methodB, body));
             }
+            a.EndUnit();
+            b.EndUnit();
         }
         return verdicts;
     }
@@ -335,7 +365,7 @@ public static class FindingDiffAny
     /// <summary>One paired method's Body verdict, for the per-method gates.</summary>
     internal sealed record BodyVerdict(
         string Type,
-        SymbolKey Method,
+        string Method,
         MethodDefinitionHandle Before,
         MethodDefinitionHandle After,
         FindingDiffAnyState Body);
@@ -799,12 +829,77 @@ public static class FindingDiffAny
     /// <summary>The Type units of one side, read row by row.</summary>
     internal sealed class UnitTable
     {
-        public OrderedDictionary<SymbolKey, Unit> Units { get; } = [];
+        /// <summary>Committed units in row order, keyed by frozen Type keys.</summary>
+        public List<(SymbolKey<FindingDiffAnyPart> Key, Unit Unit)> Entries { get; } = [];
+
+        public Dictionary<SymbolKey<FindingDiffAnyPart>, int> Index { get; } =
+            new(SymbolKeyComparer<FindingDiffAnyPart>.Instance);
+
+        /// <summary>The chunk being read: its keys are staged until the chunk commits.</summary>
+        public List<(KeyRef Key, Unit Unit)> Pending { get; } = [];
+
+        public Dictionary<KeyRef, int> PendingIndex { get; } = [];
 
         public List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)> Generated { get; } = [];
 
         // Row 1 is the <Module> pseudo-Type.
         public int NextRow { get; set; } = 2;
+
+        public int Count => Entries.Count;
+
+        public bool TryGetValue(SymbolKey<FindingDiffAnyPart> key, [MaybeNullWhen(false)] out Unit unit)
+        {
+            if (Index.TryGetValue(key, out int index))
+            {
+                unit = Entries[index].Unit;
+                return true;
+            }
+            unit = null;
+            return false;
+        }
+
+        /// <summary>Finds a committed or pending unit by a retained key, frozen or staged.</summary>
+        public bool TryFind(KeyRef key, out bool pending, out int index)
+        {
+            if (PendingIndex.TryGetValue(key, out index))
+            {
+                pending = true;
+                return true;
+            }
+            pending = false;
+            return key.IsFrozen
+                ? Index.TryGetValue(key.Frozen, out index)
+                : Index.GetAlternateLookup<ReadOnlySpan<byte>>().TryGetValue(key.Bytes, out index);
+        }
+
+        public Unit UnitAt(bool pending, int index) => pending ? Pending[index].Unit : Entries[index].Unit;
+
+        public void MarkMalformed(bool pending, int index)
+        {
+            if (pending)
+                Pending[index] = (Pending[index].Key, Pending[index].Unit with { Malformed = true });
+            else
+                Entries[index] = (Entries[index].Key, Entries[index].Unit with { Malformed = true });
+        }
+
+        public void Add(KeyRef key, Unit unit)
+        {
+            PendingIndex[key] = Pending.Count;
+            Pending.Add((key, unit));
+        }
+
+        /// <summary>Commits the chunk's units once their keys' population froze.</summary>
+        public void Commit()
+        {
+            foreach ((KeyRef key, Unit unit) in Pending)
+            {
+                SymbolKey<FindingDiffAnyPart> frozen = key.Frozen;
+                Index[frozen] = Entries.Count;
+                Entries.Add((frozen, unit));
+            }
+            Pending.Clear();
+            PendingIndex.Clear();
+        }
     }
 
     internal sealed class Work
@@ -812,14 +907,9 @@ public static class FindingDiffAny
         public int Bodies;
         public long IlBytes;
 
-        /// <summary>The one walk this comparison reuses for every body.</summary>
         public BodyWalk Walk { get; } = new();
     }
 
-    /// <param name="Malformed">
-    /// The Type's declaring chain could not be read, so neither axis can be
-    /// decided.
-    /// </param>
     internal sealed record Unit(
         string FullName,
         string Identifier,
@@ -827,19 +917,30 @@ public static class FindingDiffAny
         List<TypeDefinitionHandle> Generated,
         bool Malformed = false);
 
+    /// <summary>
+    /// One side of the comparison. Its reference keys (Types, members,
+    /// signature types) are staged in <see cref="Retained"/> and frozen into
+    /// shared backings in chunks; its per-unit census facts are staged in
+    /// <see cref="Transient"/>, compared as staged keys, and discarded after the
+    /// unit, so no fact key is ever copied into storage of its own.
+    /// </summary>
     internal sealed class Side
     {
+        // The retained population freezes at unit boundaries once this many bytes are staged.
+        const int RetainedChunkBytes = 64 * 1024;
+
         readonly Guid _mvid;
-        readonly Dictionary<int, SymbolKey> _keys = [];
+        // Memoized reference keys by token, each a slot in a retained chunk: the
+        // current one, still staged, or a frozen one, resolved on demand.
+        readonly Dictionary<int, KeyRef> _keys = [];
+        readonly List<SymbolKeyPopulation<FindingDiffAnyPart>> _chunks = [];
         readonly Dictionary<int, string> _displayNames = [];
-        readonly HashSet<SymbolKey> _duplicateTypeKeys = [];
+        readonly HashSet<SymbolKey<FindingDiffAnyPart>> _duplicateTypeKeys =
+            new(SymbolKeyComparer<FindingDiffAnyPart>.Instance);
         readonly SignatureKeys _signatures;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
+        int _buildDepth;
 
-        /// <summary>
-        /// Metadata as stored, without Windows Runtime projection, so every
-        /// name is a <c>#Strings</c> heap entry.
-        /// </summary>
         const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
 
         public Side(PEReader pe)
@@ -847,22 +948,52 @@ public static class FindingDiffAny
             Pe = pe;
             Md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
-            Keys = new SymbolKey.Builder(new SymbolKey.Utf8Names(pe, Md));
+            Names = new MetadataStringHeap(Md);
+            Retained = new SymbolKeyBuilder<FindingDiffAnyPart>(RetainedChunkBytes) { Names = Names };
+            Transient = new SymbolKeyBuilder<FindingDiffAnyPart>(16 * 1024) { Names = Names };
+            Scratch = new SymbolKeyBuilder<FindingDiffAnyPart>(4 * 1024) { Names = Names };
             Strings = new UserStrings(pe, Md);
             _signatures = new SignatureKeys(this);
         }
 
-        /// <summary>The only way this side spells a compared key or fact.</summary>
-        public SymbolKey.Builder Keys { get; }
+        /// <summary>Reference and lookup keys, memoized per token and frozen in chunks.</summary>
+        public SymbolKeyBuilder<FindingDiffAnyPart> Retained { get; }
 
-        /// <summary>This side's <c>#US</c> heap, read as stored bytes.</summary>
-        public UserStrings Strings { get; private set; }
+        /// <summary>One unit's census facts and member keys, discarded after the unit.</summary>
+        public SymbolKeyBuilder<FindingDiffAnyPart> Transient { get; }
 
         /// <summary>
-        /// Rebinds this side to a reader over the same image. Every retained
-        /// fact is a handle, a key, or a string, so it stays valid for any
-        /// reader of that image.
+        /// Signature types built while one key is decoded (arrays, pointers,
+        /// generic instances, modifiers, function pointers, parameters), embedded
+        /// into that key and discarded when its outermost build completes, so a
+        /// retained chunk holds only the keys a token memoizes.
         /// </summary>
+        public SymbolKeyBuilder<FindingDiffAnyPart> Scratch { get; }
+
+        /// <summary>Enters one key build; the outermost exit discards the scratch population.</summary>
+        BuildScope EnterBuild() => new(this);
+
+        readonly struct BuildScope : IDisposable
+        {
+            readonly Side _side;
+
+            public BuildScope(Side side)
+            {
+                _side = side;
+                _side._buildDepth++;
+            }
+
+            public void Dispose()
+            {
+                if (--_side._buildDepth == 0)
+                    _side.Scratch.Reset();
+            }
+        }
+
+        public MetadataStringHeap Names { get; private set; }
+
+        public UserStrings Strings { get; private set; }
+
         public void Bind(PEReader pe)
         {
             if (ReferenceEquals(pe, Pe))
@@ -872,14 +1003,69 @@ public static class FindingDiffAny
                 throw new InvalidOperationException("A Finding Diff Any comparison continues over the same images.");
             Pe = pe;
             Md = md;
-            Keys.Names = new SymbolKey.Utf8Names(pe, md);
+            Names = new MetadataStringHeap(md);
+            Retained.Names = Names;
+            Transient.Names = Names;
+            Scratch.Names = Names;
             Strings = new UserStrings(pe, md);
         }
 
+        /// <summary>Discards any key left open by an abandoned build; staged and frozen keys stay valid.</summary>
+        public void Abandon()
+        {
+            Retained.Abandon();
+            Transient.Abandon();
+            Scratch.Reset();
+            _buildDepth = 0;
+        }
+
+        /// <summary>Ends a unit: its facts are discarded, and a large retained chunk freezes.</summary>
+        public void EndUnit()
+        {
+            Transient.Reset();
+            if (Retained.Length >= RetainedChunkBytes)
+                FreezeRetained();
+        }
+
         /// <summary>
-        /// The methods of one Type that implement an interface member
-        /// explicitly, read when a unit of that Type is compared.
+        /// Ends the comparison: the last chunk freezes and the builders release
+        /// their storage, so a completed comparison retains only its frozen
+        /// chunks, memo, and tables.
         /// </summary>
+        public void Complete()
+        {
+            FreezeRetained();
+            Retained.Release();
+            Transient.Release();
+            Scratch.Release();
+        }
+
+        /// <summary>
+        /// Freezes the staged retained keys into one shared backing, the chunk
+        /// every slot of that generation resolves through from now on.
+        /// </summary>
+        public void FreezeRetained()
+        {
+            if (Retained.Length == 0)
+                return;
+            SymbolKeyPopulation<FindingDiffAnyPart> population = Retained.Freeze();
+            if (population.Generation != _chunks.Count)
+                throw new InvalidOperationException("The retained chunks are not the builder's generations.");
+            _chunks.Add(population);
+        }
+
+        /// <summary>The frozen chunk of one generation.</summary>
+        public SymbolKeyPopulation<FindingDiffAnyPart> Chunk(int generation) => _chunks[generation];
+
+        bool TryGetKey(int token, out KeyRef key) => _keys.TryGetValue(token, out key);
+
+        KeyRef Memoize(int token, StagedSymbolKey<FindingDiffAnyPart> staged)
+        {
+            var key = new KeyRef(this, staged);
+            _keys[token] = key;
+            return key;
+        }
+
         HashSet<MethodDefinitionHandle> ExplicitImplementations(TypeDefinitionHandle type)
         {
             if (_explicitImplementations.TryGetValue(type, out var methods))
@@ -901,21 +1087,15 @@ public static class FindingDiffAny
 
         public MetadataReader Md { get; private set; }
 
-        public OrderedDictionary<SymbolKey, Unit> Units()
+        public UnitTable Units()
         {
             var table = new UnitTable();
             ReadUnits(table, static () => false);
-            return table.Units;
+            return table;
         }
 
-        /// <summary>
-        /// Reads Type rows into <paramref name="table"/> until the table is
-        /// complete or <paramref name="overBudget"/> reports true at a row
-        /// boundary. Returns true when the table is complete.
-        /// </summary>
         public bool ReadUnits(UnitTable table, Func<bool> overBudget)
         {
-            OrderedDictionary<SymbolKey, Unit> units = table.Units;
             List<(TypeDefinitionHandle Type, TypeDefinitionHandle Owner)> generated = table.Generated;
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -923,14 +1103,18 @@ public static class FindingDiffAny
             for (; table.NextRow <= rows; table.NextRow++)
             {
                 if (overBudget())
+                {
+                    FreezeRetained();
+                    table.Commit();
                     return false;
+                }
                 TypeDefinitionHandle handle = MetadataTokens.TypeDefinitionHandle(table.NextRow);
 
                 try
                 {
                     if (!TryDeclaringChain(handle, chain, out int length))
                     {
-                        AddMalformed(units, handle);
+                        AddMalformed(table, handle);
                         continue;
                     }
 
@@ -952,20 +1136,20 @@ public static class FindingDiffAny
                         // spelling to identify it by, like a malformed row.
                         if (EscapedName(handle) is not { } identifier)
                         {
-                            AddMalformed(units, handle);
+                            AddMalformed(table, handle);
                             continue;
                         }
-                        SymbolKey key = TypeKey(handle);
-                        if (units.TryGetValue(key, out Unit? existing))
+                        KeyRef key = TypeKey(handle);
+                        if (table.TryFind(key, out bool pending, out int index))
                         {
                             // Two rows that spell one name cannot be told apart, so
                             // neither is decided.
-                            units[key] = existing with { Malformed = true };
-                            _duplicateTypeKeys.Add(key);
-                            AddMalformed(units, handle);
+                            table.MarkMalformed(pending, index);
+                            _duplicateTypeKeys.Add(key.IsFrozen ? key.Frozen : key.Detach());
+                            AddMalformed(table, handle);
                             continue;
                         }
-                        units[key] = new Unit(DisplayName(handle), identifier, handle, []);
+                        table.Add(key, new Unit(DisplayName(handle), identifier, handle, []));
                         continue;
                     }
                     if (generatedAt > 0)
@@ -974,39 +1158,37 @@ public static class FindingDiffAny
                 catch (Exception ex) when (IsMalformed(ex))
                 {
                     // A name or row that cannot be read affects only its own Type.
-                    Keys.Reset();
-                    AddMalformed(units, handle);
+                    Abandon();
+                    AddMalformed(table, handle);
                 }
             }
             foreach ((TypeDefinitionHandle type, TypeDefinitionHandle owner) in generated)
             {
                 try
                 {
-                    if (units.TryGetValue(TypeKey(owner), out Unit? unit))
-                        unit.Generated.Add(type);
+                    if (table.TryFind(TypeKey(owner), out bool pending, out int index))
+                        table.UnitAt(pending, index).Generated.Add(type);
                 }
                 catch (Exception ex) when (IsMalformed(ex))
                 {
                     // The owner's own row is malformed and already reported.
-                    Keys.Reset();
+                    Abandon();
                 }
             }
             generated.Clear();
+            FreezeRetained();
+            table.Commit();
             return true;
         }
 
-        void AddMalformed(OrderedDictionary<SymbolKey, Unit> units, TypeDefinitionHandle handle)
+        void AddMalformed(UnitTable table, TypeDefinitionHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            int mark = Keys.Begin();
-            SymbolKey row = Keys.Mark(SymbolPart.Malformed).Int(token).End(mark);
-            units[row] = new Unit(SafeName(handle), $"!{token:X8}", handle, [], Malformed: true);
+            int mark = Retained.Begin();
+            StagedSymbolKey<FindingDiffAnyPart> row = Retained.Mark(FindingDiffAnyPart.Malformed).Int(token).End(mark);
+            table.Add(new KeyRef(this, row), new Unit(SafeName(handle), $"!{token:X8}", handle, [], Malformed: true));
         }
 
-        /// <summary>
-        /// Writes the declaring chain of a Type, outermost first, through the
-        /// bounded shared traversal.
-        /// </summary>
         bool TryDeclaringChain(TypeDefinitionHandle handle, Span<TypeDefinitionHandle> chain, out int length)
             => MetadataRelationshipTraversal.TryWalkTypeDefinitionDeclaringChain(
                     Md, handle, chain, out length, out _, out _)
@@ -1027,11 +1209,6 @@ public static class FindingDiffAny
         bool IsGeneratedName(TypeDefinition type)
             => Md.StringComparer.StartsWith(type.Name, "<");
 
-        /// <remarks>
-        /// Visibility is the Type's own row and its declaring chain, as the API
-        /// axis admits it: a public nested Type of a non-public Type is not
-        /// visible, since no other assembly can reach it.
-        /// </remarks>
         public bool IsVisible(TypeDefinitionHandle handle)
             => (Md.GetTypeDefinition(handle).Attributes & TypeAttributes.VisibilityMask)
                     is TypeAttributes.Public
@@ -1053,94 +1230,89 @@ public static class FindingDiffAny
                 or (int)MethodAttributes.Family
                 or (int)MethodAttributes.FamORAssem;
 
-        /// <summary>
-        /// Facts of visible Types and members that the API diff does not
-        /// present open with <see cref="SymbolPart.NonApi"/> and belong to the
-        /// Body axis. Custom attributes stay API facts: compiler-emitted ones
-        /// such as nullable annotations shape the rendered signatures the API
-        /// diff compares.
-        /// </summary>
-        static bool IsNonApi(SymbolKey fact) => fact.Kind is SymbolPart.NonApi;
+        bool IsNonApi(SymbolKeySlot fact) => Transient.Kind(fact) is FindingDiffAnyPart.NonApi;
 
-        public List<SymbolKey> ApiCensus(Unit unit)
+        public List<SymbolKeySlot> ApiCensus(Unit unit)
         {
-            var census = new List<SymbolKey>();
+            var census = new List<SymbolKeySlot>();
             bool visible = IsVisible(unit.Owner);
-            int mark = Keys.Begin();
-            census.Add(Keys.Mark(visible ? SymbolPart.Visible : SymbolPart.Hidden).End(mark));
+            int mark = Transient.Begin();
+            census.Add(Transient.Mark(visible ? FindingDiffAnyPart.Visible : FindingDiffAnyPart.Hidden).End(mark).Slot);
             if (!visible)
                 return census;
             census.AddRange(VisibleFacts(unit).Where(fact => !IsNonApi(fact)));
-            census.Sort();
+            Transient.Sort(census);
             return census;
         }
 
-        List<SymbolKey> VisibleFacts(Unit unit)
+        List<SymbolKeySlot> VisibleFacts(Unit unit)
         {
-            var facts = new List<SymbolKey>();
+            var facts = new List<SymbolKeySlot>();
             TypeFacts(facts, unit.Owner);
             MemberFacts(facts, unit.Owner, api: true, out _);
             return facts;
         }
 
-        public List<SymbolKey> BodyCensus(
+        public List<SymbolKeySlot> BodyCensus(
             Unit unit,
             bool visible,
-            out Dictionary<SymbolKey, MethodDefinitionHandle> methods)
+            out Dictionary<KeyRef, MethodDefinitionHandle> methods)
         {
-            var census = new List<SymbolKey>();
+            var census = new List<SymbolKeySlot>();
             methods = [];
             if (!visible)
                 TypeFacts(census, unit.Owner);
             else
                 census.AddRange(VisibleFacts(unit).Where(IsNonApi));
             MemberFacts(census, unit.Owner, api: !visible ? null : false, out var ownerMethods);
-            foreach ((SymbolKey key, MethodDefinitionHandle method) in ownerMethods)
+            foreach ((KeyRef key, MethodDefinitionHandle method) in ownerMethods)
                 AddMethod(methods, key, method);
             foreach (TypeDefinitionHandle generated in unit.Generated)
             {
                 TypeFacts(census, generated);
                 MemberFacts(census, generated, api: null, out var generatedMethods);
-                foreach ((SymbolKey key, MethodDefinitionHandle method) in generatedMethods)
+                foreach ((KeyRef key, MethodDefinitionHandle method) in generatedMethods)
                     AddMethod(methods, key, method);
             }
-            census.Sort();
+            Transient.Sort(census);
             return census;
         }
 
         // Two method rows that spell one key, which valid metadata does not
         // allow, cannot be told apart, so the body is not decided.
         static void AddMethod(
-            Dictionary<SymbolKey, MethodDefinitionHandle> methods,
-            SymbolKey key,
+            Dictionary<KeyRef, MethodDefinitionHandle> methods,
+            KeyRef key,
             MethodDefinitionHandle method)
         {
             if (!methods.TryAdd(key, method))
-                throw new BadImageFormatException($"Two methods share the compared key {key}.");
+                throw new BadImageFormatException($"Two methods share the compared key {Describe(key)}.");
         }
 
-        void TypeFacts(List<SymbolKey> census, TypeDefinitionHandle handle)
+        void TypeFacts(List<SymbolKeySlot> census, TypeDefinitionHandle handle)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
-            SymbolKey name = TypeKey(handle);
-            int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.TypeFact).Key(name).Int((int)(type.Attributes & ~TypeAttributes.BeforeFieldInit));
+            KeyRef name = TypeKey(handle);
+            int mark = Transient.Begin();
+            Transient.Mark(FindingDiffAnyPart.TypeFact).Key(name).Int((int)(type.Attributes & ~TypeAttributes.BeforeFieldInit));
             OptionalKey(type.BaseType);
-            census.Add(Keys.End(mark));
+            census.Add(Transient.End(mark).Slot);
             // beforefieldinit only changes when a static constructor runs.
             if ((type.Attributes & TypeAttributes.BeforeFieldInit) != 0
                 && type.GetMethods().Any(method =>
                     Md.StringComparer.Equals(Md.GetMethodDefinition(method).Name, ".cctor")))
             {
-                mark = Keys.Begin();
-                census.Add(Keys.Mark(SymbolPart.NonApi).Mark(SymbolPart.BeforeFieldInit).Key(name).End(mark));
+                mark = Transient.Begin();
+                census.Add(Transient.Mark(FindingDiffAnyPart.NonApi).Mark(FindingDiffAnyPart.BeforeFieldInit).Key(name).End(mark).Slot);
             }
             foreach (InterfaceImplementationHandle implementation in type.GetInterfaceImplementations())
             {
                 InterfaceImplementation value = Md.GetInterfaceImplementation(implementation);
-                mark = Keys.Begin();
-                SymbolKey fact = Keys.Mark(SymbolPart.InterfaceFact).Key(name).Key(Key(value.Interface)).End(mark);
-                census.Add(fact);
+                KeyRef @interface = Key(value.Interface);
+                mark = Transient.Begin();
+                StagedSymbolKey<FindingDiffAnyPart> fact =
+                    Transient.Mark(FindingDiffAnyPart.InterfaceFact).Key(name).Key(@interface).End(mark);
+                census.Add(fact.Slot);
                 Attributes(census, value.GetCustomAttributes(), fact);
             }
             GenericParameters(census, type.GetGenericParameters(), name);
@@ -1148,80 +1320,78 @@ public static class FindingDiffAny
             // A nested Type inherits its declaring Type's nullable context
             // without an attribute row of its own, and that context shapes
             // the rendered signatures of every member that does not override it.
-            mark = Keys.Begin();
-            census.Add(Keys.Mark(SymbolPart.NullableContext).Key(name)
-                .Int(NullabilityReader.GetTypeNullableContext(Md, handle)).End(mark));
+            mark = Transient.Begin();
+            census.Add(Transient.Mark(FindingDiffAnyPart.NullableContext).Key(name)
+                .Int(NullabilityReader.GetTypeNullableContext(Md, handle)).End(mark).Slot);
             TypeLayout layout = type.GetLayout();
             if (!layout.IsDefault)
             {
-                mark = Keys.Begin();
-                census.Add(Keys.Mark(SymbolPart.Layout).Key(name).Int(layout.PackingSize).Int(layout.Size).End(mark));
+                mark = Transient.Begin();
+                census.Add(Transient.Mark(FindingDiffAnyPart.Layout).Key(name).Int(layout.PackingSize).Int(layout.Size).End(mark).Slot);
             }
             foreach (MethodImplementationHandle implementation in type.GetMethodImplementations())
             {
                 MethodImplementation value = Md.GetMethodImplementation(implementation);
-                mark = Keys.Begin();
-                census.Add(Keys.Mark(SymbolPart.MethodImplementation).Key(name)
-                    .Key(Key(value.MethodBody)).Key(Key(value.MethodDeclaration)).End(mark));
+                KeyRef body = Key(value.MethodBody);
+                KeyRef declaration = Key(value.MethodDeclaration);
+                mark = Transient.Begin();
+                census.Add(Transient.Mark(FindingDiffAnyPart.MethodImplementation).Key(name)
+                    .Key(body).Key(declaration).End(mark).Slot);
             }
         }
 
-        /// <param name="api">
-        /// True for the public members only, false for the non-public members,
-        /// and null for every member.
-        /// </param>
         void MemberFacts(
-            List<SymbolKey> census,
+            List<SymbolKeySlot> census,
             TypeDefinitionHandle handle,
             bool? api,
-            out List<(SymbolKey Key, MethodDefinitionHandle Method)> methods)
+            out List<(KeyRef Key, MethodDefinitionHandle Method)> methods)
         {
             TypeDefinition type = Md.GetTypeDefinition(handle);
-            SymbolKey name = TypeKey(handle);
+            KeyRef name = TypeKey(handle);
             methods = [];
             foreach (FieldDefinitionHandle fieldHandle in type.GetFields())
             {
                 FieldDefinition field = Md.GetFieldDefinition(fieldHandle);
                 if (api is { } wanted && IsVisible(field) != wanted)
                     continue;
-                SymbolKey key = Key(fieldHandle);
-                int mark = Keys.Begin();
-                Keys.Mark(SymbolPart.FieldFact).Key(key).Int((int)field.Attributes);
+                KeyRef key = Key(fieldHandle);
+                int mark = Transient.Begin();
+                Transient.Mark(FindingDiffAnyPart.FieldFact).Key(key).Int((int)field.Attributes);
                 Constant(field.GetDefaultValue());
-                census.Add(Keys.Int(field.GetOffset()).End(mark));
+                census.Add(Transient.Int(field.GetOffset()).End(mark).Slot);
                 Attributes(census, field.GetCustomAttributes(), key);
             }
             foreach (MethodDefinitionHandle methodHandle in type.GetMethods())
             {
                 MethodDefinition method = Md.GetMethodDefinition(methodHandle);
-                SymbolKey key = Key(methodHandle);
+                KeyRef key = Key(methodHandle);
                 methods.Add((key, methodHandle));
                 if (api is { } wanted && IsVisible(methodHandle, method) != wanted)
                     continue;
-                int mark = Keys.Begin();
-                census.Add(Keys.Mark(SymbolPart.MethodFact).Key(key)
-                    .Int((int)method.Attributes).Int((int)method.ImplAttributes).End(mark));
+                int mark = Transient.Begin();
+                census.Add(Transient.Mark(FindingDiffAnyPart.MethodFact).Key(key)
+                    .Int((int)method.Attributes).Int((int)method.ImplAttributes).End(mark).Slot);
                 GenericParameters(census, method.GetGenericParameters(), key);
                 Attributes(census, method.GetCustomAttributes(), key);
                 foreach (ParameterHandle parameterHandle in method.GetParameters())
                 {
                     Parameter parameter = Md.GetParameter(parameterHandle);
-                    mark = Keys.Begin();
-                    SymbolKey parameterKey = Keys.Mark(SymbolPart.Parameter).Key(key)
+                    mark = Transient.Begin();
+                    StagedSymbolKey<FindingDiffAnyPart> parameterKey = Transient.Mark(FindingDiffAnyPart.Parameter).Key(key)
                         .Int(parameter.SequenceNumber).End(mark);
-                    mark = Keys.Begin();
-                    Keys.Mark(SymbolPart.ParameterFact).Key(parameterKey)
+                    mark = Transient.Begin();
+                    Transient.Mark(FindingDiffAnyPart.ParameterFact).Key(parameterKey)
                         .Name(parameter.Name).Int((int)parameter.Attributes);
                     Constant(parameter.GetDefaultValue());
-                    census.Add(Keys.End(mark));
+                    census.Add(Transient.End(mark).Slot);
                     Attributes(census, parameter.GetCustomAttributes(), parameterKey);
                 }
                 MethodImport import = method.GetImport();
                 if (!import.Module.IsNil)
                 {
-                    mark = Keys.Begin();
-                    census.Add(Keys.Mark(SymbolPart.Import).Key(key).Name(import.Name)
-                        .Name(Md.GetModuleReference(import.Module).Name).Int((int)import.Attributes).End(mark));
+                    mark = Transient.Begin();
+                    census.Add(Transient.Mark(FindingDiffAnyPart.Import).Key(key).Name(import.Name)
+                        .Name(Md.GetModuleReference(import.Module).Name).Int((int)import.Attributes).End(mark).Slot);
                 }
             }
             foreach (PropertyDefinitionHandle propertyHandle in type.GetProperties())
@@ -1233,13 +1403,13 @@ public static class FindingDiffAny
                 {
                     continue;
                 }
-                SymbolKey key = PropertyKey(name, property);
-                int mark = Keys.Begin();
-                Keys.Mark(SymbolPart.PropertyFact).Key(key).Int((int)property.Attributes);
+                StagedSymbolKey<FindingDiffAnyPart> key = PropertyKey(name, property);
+                int mark = Transient.Begin();
+                Transient.Mark(FindingDiffAnyPart.PropertyFact).Key(key).Int((int)property.Attributes);
                 Constant(property.GetDefaultValue());
                 Accessor(accessors.Getter);
                 Accessor(accessors.Setter);
-                census.Add(Keys.End(mark));
+                census.Add(Transient.End(mark).Slot);
                 Attributes(census, property.GetCustomAttributes(), key);
             }
             foreach (EventDefinitionHandle eventHandle in type.GetEvents())
@@ -1252,15 +1422,16 @@ public static class FindingDiffAny
                     continue;
                 }
                 // The Event marker keeps an event from spelling the key of its backing field.
-                SymbolKey eventType = Key(value.Type);
-                int mark = Keys.Begin();
-                SymbolKey key = Keys.Mark(SymbolPart.Event).Key(name).Name(value.Name).Key(eventType).End(mark);
-                mark = Keys.Begin();
-                Keys.Mark(SymbolPart.EventFact).Key(key).Int((int)value.Attributes);
+                KeyRef eventType = Key(value.Type);
+                int mark = Transient.Begin();
+                StagedSymbolKey<FindingDiffAnyPart> key =
+                    Transient.Mark(FindingDiffAnyPart.Event).Key(name).Name(value.Name).Key(eventType).End(mark);
+                mark = Transient.Begin();
+                Transient.Mark(FindingDiffAnyPart.EventFact).Key(key).Int((int)value.Attributes);
                 Accessor(accessors.Adder);
                 Accessor(accessors.Remover);
                 Accessor(accessors.Raiser);
-                census.Add(Keys.End(mark));
+                census.Add(Transient.End(mark).Slot);
                 Attributes(census, value.GetCustomAttributes(), key);
             }
         }
@@ -1280,118 +1451,145 @@ public static class FindingDiffAny
 
         void Accessor(MethodDefinitionHandle accessor) => OptionalKey(accessor);
 
-        /// <summary>Writes the key of <paramref name="handle"/>, or <see cref="SymbolPart.Absent"/>.</summary>
+        // Writes into the open Transient key; a reference key it needs is built in Retained first.
         void OptionalKey(EntityHandle handle)
         {
             if (handle.IsNil)
             {
-                Keys.Mark(SymbolPart.Absent);
+                Transient.Mark(FindingDiffAnyPart.Absent);
                 return;
             }
-            SymbolKey key = Key(handle);
-            Keys.Key(key);
+            KeyRef key = Key(handle);
+            Transient.Key(key);
         }
 
-        void GenericParameters(List<SymbolKey> census, GenericParameterHandleCollection parameters, SymbolKey owner)
+        void GenericParameters(
+            List<SymbolKeySlot> census,
+            GenericParameterHandleCollection parameters,
+            KeyRef owner)
         {
             foreach (GenericParameterHandle handle in parameters)
             {
                 GenericParameter parameter = Md.GetGenericParameter(handle);
-                int mark = Keys.Begin();
-                SymbolKey key = Keys.Mark(SymbolPart.GenericParameter).Key(owner).Int(parameter.Index).End(mark);
-                mark = Keys.Begin();
-                census.Add(Keys.Mark(SymbolPart.GenericParameterFact).Key(key)
-                    .Name(parameter.Name).Int((int)parameter.Attributes).End(mark));
+                int mark = Transient.Begin();
+                StagedSymbolKey<FindingDiffAnyPart> key =
+                    Transient.Mark(FindingDiffAnyPart.GenericParameter).Key(owner).Int(parameter.Index).End(mark);
+                mark = Transient.Begin();
+                census.Add(Transient.Mark(FindingDiffAnyPart.GenericParameterFact).Key(key)
+                    .Name(parameter.Name).Int((int)parameter.Attributes).End(mark).Slot);
                 foreach (GenericParameterConstraintHandle constraintHandle in parameter.GetConstraints())
                 {
                     GenericParameterConstraint constraint = Md.GetGenericParameterConstraint(constraintHandle);
-                    SymbolKey constraintType = Key(constraint.Type);
-                    mark = Keys.Begin();
-                    SymbolKey fact = Keys.Mark(SymbolPart.Constraint).Key(key).Key(constraintType).End(mark);
-                    census.Add(fact);
+                    KeyRef constraintType = Key(constraint.Type);
+                    mark = Transient.Begin();
+                    StagedSymbolKey<FindingDiffAnyPart> fact =
+                        Transient.Mark(FindingDiffAnyPart.Constraint).Key(key).Key(constraintType).End(mark);
+                    census.Add(fact.Slot);
                     Attributes(census, constraint.GetCustomAttributes(), fact);
                 }
                 Attributes(census, parameter.GetCustomAttributes(), key);
             }
         }
 
-        void Attributes(List<SymbolKey> census, CustomAttributeHandleCollection attributes, SymbolKey owner)
+        void Attributes(
+            List<SymbolKeySlot> census,
+            CustomAttributeHandleCollection attributes,
+            KeyRef owner)
         {
             foreach (CustomAttributeHandle handle in attributes)
             {
                 CustomAttribute attribute = Md.GetCustomAttribute(handle);
-                SymbolKey constructor = Key(attribute.Constructor);
-                int mark = Keys.Begin();
-                Keys.Mark(SymbolPart.Attribute).Key(owner).Key(constructor);
+                KeyRef constructor = Key(attribute.Constructor);
+                int mark = Transient.Begin();
+                Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(constructor);
                 Blob(attribute.Value);
-                census.Add(Keys.End(mark));
+                census.Add(Transient.End(mark).Slot);
             }
         }
 
-        /// <summary>Writes a constant's Type code and value, or <see cref="SymbolPart.Absent"/>.</summary>
+        void Attributes(
+            List<SymbolKeySlot> census,
+            CustomAttributeHandleCollection attributes,
+            StagedSymbolKey<FindingDiffAnyPart> owner)
+        {
+            foreach (CustomAttributeHandle handle in attributes)
+            {
+                CustomAttribute attribute = Md.GetCustomAttribute(handle);
+                KeyRef constructor = Key(attribute.Constructor);
+                int mark = Transient.Begin();
+                Transient.Mark(FindingDiffAnyPart.Attribute).Key(owner).Key(constructor);
+                Blob(attribute.Value);
+                census.Add(Transient.End(mark).Slot);
+            }
+        }
+
         void Constant(ConstantHandle handle)
         {
             if (handle.IsNil)
             {
-                Keys.Mark(SymbolPart.Absent);
+                Transient.Mark(FindingDiffAnyPart.Absent);
                 return;
             }
             Constant constant = Md.GetConstant(handle);
-            Keys.Mark(SymbolPart.Constant).Int((int)constant.TypeCode);
+            Transient.Mark(FindingDiffAnyPart.Constant).Int((int)constant.TypeCode);
             Blob(constant.Value);
         }
 
         void Blob(BlobHandle handle)
         {
             BlobReader reader = Md.GetBlobReader(handle);
-            Keys.Blob(reader);
+            Transient.Blob(reader);
         }
 
-        SymbolKey PropertyKey(SymbolKey type, PropertyDefinition property)
+        StagedSymbolKey<FindingDiffAnyPart> PropertyKey(KeyRef type, PropertyDefinition property)
         {
+            using BuildScope scope = EnterBuild();
             Guard(property.Signature, SignatureBlobGuard.Kind.Property);
-            MethodSignature<SymbolKey> signature = property.DecodeSignature(_signatures, null);
-            int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.Property).Key(type).Name(property.Name).Int(signature.Header.IsInstance ? 1 : 0);
-            Signature(signature);
-            return Keys.End(mark);
+            MethodSignature<SignatureKey> signature = property.DecodeSignature(_signatures, null);
+            int mark = Transient.Begin();
+            Transient.Mark(FindingDiffAnyPart.Property).Key(type).Name(property.Name).Int(signature.Header.IsInstance ? 1 : 0);
+            Signature(Transient, signature);
+            return Transient.End(mark);
         }
 
-        /// <summary>
-        /// Writes a signature's parameters and return Type, with
-        /// <see cref="SymbolPart.Vararg"/> where the required parameters end.
-        /// </summary>
-        public void Signature(MethodSignature<SymbolKey> signature)
+        public void Signature(SymbolKeyBuilder<FindingDiffAnyPart> keys, MethodSignature<SignatureKey> signature)
         {
-            ImmutableArray<SymbolKey> types = signature.ParameterTypes;
+            ImmutableArray<SignatureKey> types = signature.ParameterTypes;
             for (int i = 0; i < types.Length; i++)
             {
                 if (i == signature.RequiredParameterCount)
-                    Keys.Mark(SymbolPart.Vararg);
-                Keys.Key(types[i]);
+                    keys.Mark(FindingDiffAnyPart.Vararg);
+                keys.Key(this, types[i]);
             }
-            Keys.Mark(SymbolPart.Return).Key(signature.ReturnType);
+            keys.Mark(FindingDiffAnyPart.Return).Key(this, signature.ReturnType);
         }
 
-        /// <summary>The symbolic name of a Type: its namespace and each name of its declaring chain.</summary>
-        public SymbolKey TypeKey(TypeDefinitionHandle handle)
+        /// <summary>A primitive type's key, memoized under a token no row uses.</summary>
+        public KeyRef Primitive(int token, PrimitiveTypeCode typeCode)
+        {
+            if (TryGetKey(token, out KeyRef key))
+                return key;
+            int mark = Retained.Begin();
+            return Memoize(token, Retained.Mark(FindingDiffAnyPart.Primitive).Int((byte)typeCode).End(mark));
+        }
+
+        public KeyRef TypeKey(TypeDefinitionHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (_keys.TryGetValue(token, out SymbolKey key))
+            if (TryGetKey(token, out KeyRef key))
                 return key;
             Span<TypeDefinitionHandle> chain =
                 stackalloc TypeDefinitionHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
             if (!TryDeclaringChain(handle, chain, out int length))
                 throw new BadImageFormatException("The Type has an invalid declaring chain.");
-            int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.Type);
+            int mark = Retained.Begin();
+            Retained.Mark(FindingDiffAnyPart.Type);
             TypeDefinition root = Md.GetTypeDefinition(chain[0]);
             if (!root.Namespace.IsNil)
-                Keys.Mark(SymbolPart.Namespace).Name(root.Namespace);
+                Retained.Mark(FindingDiffAnyPart.Namespace).Name(root.Namespace);
             for (int i = 0; i < length; i++)
-                Keys.Name(Md.GetTypeDefinition(chain[i]).Name);
-            _keys[token] = key = Keys.End(mark);
-            return key;
+                Retained.Name(Md.GetTypeDefinition(chain[i]).Name);
+            return Memoize(token, Retained.End(mark));
         }
 
         string DisplayName(TypeDefinitionHandle handle)
@@ -1402,11 +1600,6 @@ public static class FindingDiffAny
             return name;
         }
 
-        /// <summary>
-        /// The injective escaped name of a Type, or null when its namespace or
-        /// a name in its declaring chain is not well-formed UTF-8, whose
-        /// decoded spelling would not be injective.
-        /// </summary>
         string? EscapedName(TypeDefinitionHandle handle)
         {
             Span<TypeDefinitionHandle> chain =
@@ -1430,17 +1623,12 @@ public static class FindingDiffAny
                 : throw new BadImageFormatException("The Type name cannot be represented.");
         }
 
-        /// <summary>
-        /// A name decoded, or null when its stored bytes are not well-formed
-        /// UTF-8. Only a decoded name holding U+FFFD needs its bytes checked.
-        /// </summary>
         string? Decoded(StringHandle handle)
         {
             string name = Md.GetString(handle);
-            return name.Contains('\uFFFD') && !Keys.Names.IsWellFormed(handle) ? null : name;
+            return name.Contains('�') && !Names.IsWellFormed(handle) ? null : name;
         }
 
-        /// <summary>The display name of a Type, with <c>.</c> between nested names.</summary>
         string DefinitionName(TypeDefinitionHandle handle)
         {
             Span<TypeDefinitionHandle> chain =
@@ -1460,14 +1648,7 @@ public static class FindingDiffAny
             return name.ToString();
         }
 
-        /// <summary>
-        /// The key of an entity a fact refers to, rather than declares. A
-        /// reference to a Type row that shares its key with another row, or to
-        /// a compiler-controlled (<c>PrivateScope</c>) method or field, which
-        /// ECMA-335 lets share a name and signature, cannot say which
-        /// declaration it names, so the referring fact is not decided.
-        /// </summary>
-        public SymbolKey ReferenceKey(EntityHandle handle)
+        public KeyRef ReferenceKey(EntityHandle handle)
         {
             switch (handle.Kind)
             {
@@ -1496,44 +1677,59 @@ public static class FindingDiffAny
 
         void RejectDuplicate(TypeDefinitionHandle handle)
         {
-            if (_duplicateTypeKeys.Count > 0 && _duplicateTypeKeys.Contains(TypeKey(handle)))
+            if (_duplicateTypeKeys.Count == 0)
+                return;
+            KeyRef key = TypeKey(handle);
+            bool duplicate = key.IsFrozen
+                ? _duplicateTypeKeys.Contains(key.Frozen)
+                : _duplicateTypeKeys.GetAlternateLookup<ReadOnlySpan<byte>>().Contains(key.Bytes);
+            if (duplicate)
                 throw new BadImageFormatException("A reference names one of two Type rows that share a key.");
         }
 
-        /// <summary>The symbolic name of a metadata entity, resolved once per side.</summary>
-        public SymbolKey Key(EntityHandle handle)
+        public KeyRef Key(EntityHandle handle)
         {
             int token = MetadataTokens.GetToken(handle);
-            if (_keys.TryGetValue(token, out SymbolKey key))
+            if (TryGetKey(token, out KeyRef key))
                 return key;
-            key = handle.Kind switch
+            using BuildScope scope = EnterBuild();
+            return handle.Kind switch
             {
                 HandleKind.TypeDefinition => TypeKey((TypeDefinitionHandle)handle),
-                HandleKind.TypeReference => TypeReferenceKey((TypeReferenceHandle)handle),
-                HandleKind.TypeSpecification => TypeSpecificationKey((TypeSpecificationHandle)handle),
-                HandleKind.MethodDefinition => MethodKey((MethodDefinitionHandle)handle),
-                HandleKind.FieldDefinition => FieldKey((FieldDefinitionHandle)handle),
-                HandleKind.MemberReference => MemberReferenceKey((MemberReferenceHandle)handle),
-                HandleKind.MethodSpecification => MethodSpecificationKey((MethodSpecificationHandle)handle),
-                HandleKind.StandaloneSignature => StandaloneKey((StandaloneSignatureHandle)handle),
+                HandleKind.TypeReference => Memoize(token, TypeReferenceKey((TypeReferenceHandle)handle)),
+                HandleKind.TypeSpecification => MemoizeRef(token, TypeSpecificationKey((TypeSpecificationHandle)handle)),
+                HandleKind.MethodDefinition => Memoize(token, MethodKey((MethodDefinitionHandle)handle)),
+                HandleKind.FieldDefinition => Memoize(token, FieldKey((FieldDefinitionHandle)handle)),
+                HandleKind.MemberReference => Memoize(token, MemberReferenceKey((MemberReferenceHandle)handle)),
+                HandleKind.MethodSpecification => Memoize(token, MethodSpecificationKey((MethodSpecificationHandle)handle)),
+                HandleKind.StandaloneSignature => Memoize(token, StandaloneKey((StandaloneSignatureHandle)handle)),
                 _ => throw new BadImageFormatException(
                     $"Unsupported metadata token 0x{token:X8} in a compared fact."),
             };
-            _keys[token] = key;
-            return key;
         }
 
-        /// <summary>
-        /// Rejects a signature blob whose shape could exhaust the stack while
-        /// decoding; the unit that needs it becomes Indeterminate.
-        /// </summary>
+        // A Type specification decodes to a signature type's key: one already memoized and
+        // retained, or one built in scratch, which is copied into the retained population.
+        KeyRef MemoizeRef(int token, SignatureKey key)
+        {
+            if (key.IsScratch)
+            {
+                if (Scratch.Generation != key.Generation)
+                    throw new InvalidOperationException("The scratch signature type outlived its build.");
+                return Memoize(token, Retained.Copy(Scratch.Resolve(new SymbolKeySlot(key.Offset, key.Length))));
+            }
+            var retained = new KeyRef(this, key.Generation, key.Offset, key.Length);
+            _keys[token] = retained;
+            return retained;
+        }
+
         void Guard(BlobHandle signature, SignatureBlobGuard.Kind kind)
         {
             if (!SignatureBlobGuard.IsSafeToDecode(Md, signature, kind))
                 throw new BadImageFormatException("The signature blob is too deep to decode.");
         }
 
-        SymbolKey TypeSpecificationKey(TypeSpecificationHandle handle)
+        SignatureKey TypeSpecificationKey(TypeSpecificationHandle handle)
         {
             if (!TypeSpecGuard.TryEnter(Md, handle, out TypeSpecGuard.Scope scope))
                 throw new BadImageFormatException("The Type specification exceeds the decode budget.");
@@ -1545,12 +1741,7 @@ public static class FindingDiffAny
             }
         }
 
-        /// <summary>
-        /// The symbolic name of a referenced Type, spelled as the key of a
-        /// definition of that name, so a reference and a definition compare
-        /// by name rather than by assembly.
-        /// </summary>
-        SymbolKey TypeReferenceKey(TypeReferenceHandle handle)
+        StagedSymbolKey<FindingDiffAnyPart> TypeReferenceKey(TypeReferenceHandle handle)
         {
             Span<TypeReferenceHandle> chain =
                 stackalloc TypeReferenceHandle[MetadataSafetyPolicy.MaxRelationshipNodes];
@@ -1561,50 +1752,50 @@ public static class FindingDiffAny
                 throw new BadImageFormatException(
                     rejection?.Detail ?? "The Type reference has an invalid resolution-scope chain.");
             }
-            int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.Type);
+            int mark = Retained.Begin();
+            Retained.Mark(FindingDiffAnyPart.Type);
             TypeReference root = Md.GetTypeReference(chain[0]);
             if (!root.Namespace.IsNil)
-                Keys.Mark(SymbolPart.Namespace).Name(root.Namespace);
+                Retained.Mark(FindingDiffAnyPart.Namespace).Name(root.Namespace);
             for (int i = 0; i < length; i++)
-                Keys.Name(Md.GetTypeReference(chain[i]).Name);
-            return Keys.End(mark);
+                Retained.Name(Md.GetTypeReference(chain[i]).Name);
+            return Retained.End(mark);
         }
 
-        SymbolKey MethodKey(MethodDefinitionHandle handle)
+        StagedSymbolKey<FindingDiffAnyPart> MethodKey(MethodDefinitionHandle handle)
         {
             MethodDefinition method = Md.GetMethodDefinition(handle);
             Guard(method.Signature, SignatureBlobGuard.Kind.Method);
-            MethodSignature<SymbolKey> signature = method.DecodeSignature(_signatures, null);
+            MethodSignature<SignatureKey> signature = method.DecodeSignature(_signatures, null);
             return MethodKey(TypeKey(method.GetDeclaringType()), method.Name, signature);
         }
 
-        SymbolKey MethodKey(SymbolKey parent, StringHandle name, MethodSignature<SymbolKey> signature)
+        StagedSymbolKey<FindingDiffAnyPart> MethodKey(KeyRef parent, StringHandle name, MethodSignature<SignatureKey> signature)
         {
-            int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.Method).Key(parent).Name(name)
+            int mark = Retained.Begin();
+            Retained.Mark(FindingDiffAnyPart.Method).Key(parent).Name(name)
                 .Int(signature.GenericParameterCount).Int(signature.Header.RawValue);
-            Signature(signature);
-            return Keys.End(mark);
+            Signature(Retained, signature);
+            return Retained.End(mark);
         }
 
-        SymbolKey FieldKey(FieldDefinitionHandle handle)
+        StagedSymbolKey<FindingDiffAnyPart> FieldKey(FieldDefinitionHandle handle)
         {
             FieldDefinition field = Md.GetFieldDefinition(handle);
             Guard(field.Signature, SignatureBlobGuard.Kind.Field);
             return FieldKey(TypeKey(field.GetDeclaringType()), field.Name, field.DecodeSignature(_signatures, null));
         }
 
-        SymbolKey FieldKey(SymbolKey parent, StringHandle name, SymbolKey type)
+        StagedSymbolKey<FindingDiffAnyPart> FieldKey(KeyRef parent, StringHandle name, SignatureKey type)
         {
-            int mark = Keys.Begin();
-            return Keys.Mark(SymbolPart.Field).Key(parent).Name(name).Key(type).End(mark);
+            int mark = Retained.Begin();
+            return Retained.Mark(FindingDiffAnyPart.Field).Key(parent).Name(name).Key(this, type).End(mark);
         }
 
-        SymbolKey MemberReferenceKey(MemberReferenceHandle handle)
+        StagedSymbolKey<FindingDiffAnyPart> MemberReferenceKey(MemberReferenceHandle handle)
         {
             MemberReference member = Md.GetMemberReference(handle);
-            SymbolKey parent = ReferenceKey(member.Parent);
+            KeyRef parent = ReferenceKey(member.Parent);
             if (member.GetKind() == MemberReferenceKind.Field)
             {
                 Guard(member.Signature, SignatureBlobGuard.Kind.Field);
@@ -1614,49 +1805,45 @@ public static class FindingDiffAny
             return MethodKey(parent, member.Name, member.DecodeMethodSignature(_signatures, null));
         }
 
-        SymbolKey MethodSpecificationKey(MethodSpecificationHandle handle)
+        StagedSymbolKey<FindingDiffAnyPart> MethodSpecificationKey(MethodSpecificationHandle handle)
         {
             MethodSpecification specification = Md.GetMethodSpecification(handle);
             Guard(specification.Signature, SignatureBlobGuard.Kind.MethodSpecification);
-            SymbolKey method = ReferenceKey(specification.Method);
-            ImmutableArray<SymbolKey> arguments = specification.DecodeSignature(_signatures, null);
-            int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.MethodSpecification).Key(method);
-            foreach (SymbolKey argument in arguments)
-                Keys.Key(argument);
-            return Keys.End(mark);
+            KeyRef method = ReferenceKey(specification.Method);
+            ImmutableArray<SignatureKey> arguments = specification.DecodeSignature(_signatures, null);
+            int mark = Retained.Begin();
+            Retained.Mark(FindingDiffAnyPart.MethodSpecification).Key(method);
+            foreach (SignatureKey argument in arguments)
+                Retained.Key(this, argument);
+            return Retained.End(mark);
         }
 
-        SymbolKey StandaloneKey(StandaloneSignatureHandle handle)
+        StagedSymbolKey<FindingDiffAnyPart> StandaloneKey(StandaloneSignatureHandle handle)
         {
             StandaloneSignature signature = Md.GetStandaloneSignature(handle);
             int mark;
             if (signature.GetKind() == StandaloneSignatureKind.LocalVariables)
             {
                 Guard(signature.Signature, SignatureBlobGuard.Kind.LocalVariables);
-                ImmutableArray<SymbolKey> locals = signature.DecodeLocalSignature(_signatures, null);
-                mark = Keys.Begin();
-                Keys.Mark(SymbolPart.LocalSignature);
-                foreach (SymbolKey local in locals)
-                    Keys.Key(local);
-                return Keys.End(mark);
+                ImmutableArray<SignatureKey> locals = signature.DecodeLocalSignature(_signatures, null);
+                mark = Retained.Begin();
+                Retained.Mark(FindingDiffAnyPart.LocalSignature);
+                foreach (SignatureKey local in locals)
+                    Retained.Key(this, local);
+                return Retained.End(mark);
             }
             Guard(signature.Signature, SignatureBlobGuard.Kind.StandaloneMethod);
-            MethodSignature<SymbolKey> method = signature.DecodeMethodSignature(_signatures, null);
-            mark = Keys.Begin();
-            Keys.Mark(SymbolPart.StandaloneSignature).Int(method.Header.RawValue);
-            Signature(method);
-            return Keys.End(mark);
+            MethodSignature<SignatureKey> method = signature.DecodeMethodSignature(_signatures, null);
+            mark = Retained.Begin();
+            Retained.Mark(FindingDiffAnyPart.StandaloneSignature).Int(method.Header.RawValue);
+            Signature(Retained, method);
+            return Retained.End(mark);
         }
     }
 
-    /// <summary>
-    /// Reads <c>#US</c> entries as their stored bytes, so two user strings
-    /// compare by their UTF-16 code units without decoding a string. An
-    /// image with no <c>#US</c> stream, such as a facade or a reference
-    /// assembly, binds an empty heap: it has no user strings, and an
-    /// <c>ldstr</c> in it is malformed.
-    /// </summary>
+    internal static string Describe(KeyRef key)
+        => SymbolKeyText.Describe(key.IsFrozen ? key.Frozen : key.Detach());
+
     internal sealed class UserStrings
     {
         readonly BlobReader _heap;
@@ -1707,109 +1894,290 @@ public static class FindingDiffAny
         }
     }
 
-    sealed class SignatureKeys(Side side) : ISignatureTypeProvider<SymbolKey, object?>
+    sealed class SignatureKeys(Side side) : ISignatureTypeProvider<SignatureKey, object?>
     {
-        readonly SymbolKey[] _primitives = new SymbolKey[256];
+        // Primitive keys are memoized under tokens no metadata row uses.
+        const int PrimitiveTokenBase = -1;
 
-        SymbolKey.Builder Keys => side.Keys;
+        // Composite signature types are built in scratch storage and embedded by their consumer;
+        // only a memoized key (a primitive, or a Type specification's result) is retained.
+        SymbolKeyBuilder<FindingDiffAnyPart> Keys => side.Scratch;
 
-        public SymbolKey GetArrayType(SymbolKey elementType, ArrayShape shape)
+        public SignatureKey GetArrayType(SignatureKey elementType, ArrayShape shape)
         {
             int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.Array).Key(elementType).Int(shape.Rank).Int(shape.Sizes.Length);
+            Keys.Mark(FindingDiffAnyPart.Array).Key(side, elementType).Int(shape.Rank).Int(shape.Sizes.Length);
             foreach (int size in shape.Sizes)
                 Keys.Int(size);
             Keys.Int(shape.LowerBounds.Length);
             foreach (int bound in shape.LowerBounds)
                 Keys.Int(bound);
-            return Keys.End(mark);
+            return new SignatureKey(Keys.End(mark));
         }
 
-        public SymbolKey GetByReferenceType(SymbolKey elementType) => Wrap(SymbolPart.ByReference, elementType);
+        public SignatureKey GetByReferenceType(SignatureKey elementType) => Wrap(FindingDiffAnyPart.ByReference, elementType);
 
-        public SymbolKey GetFunctionPointerType(MethodSignature<SymbolKey> signature)
+        public SignatureKey GetFunctionPointerType(MethodSignature<SignatureKey> signature)
         {
             int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.FunctionPointer).Int(signature.Header.RawValue);
-            side.Signature(signature);
-            return Keys.End(mark);
+            Keys.Mark(FindingDiffAnyPart.FunctionPointer).Int(signature.Header.RawValue);
+            side.Signature(Keys, signature);
+            return new SignatureKey(Keys.End(mark));
         }
 
-        public SymbolKey GetGenericInstantiation(SymbolKey genericType, ImmutableArray<SymbolKey> typeArguments)
+        public SignatureKey GetGenericInstantiation(SignatureKey genericType, ImmutableArray<SignatureKey> typeArguments)
         {
             int mark = Keys.Begin();
-            Keys.Mark(SymbolPart.GenericInstance).Key(genericType);
-            foreach (SymbolKey argument in typeArguments)
-                Keys.Key(argument);
-            return Keys.End(mark);
+            Keys.Mark(FindingDiffAnyPart.GenericInstance).Key(side, genericType);
+            foreach (SignatureKey argument in typeArguments)
+                Keys.Key(side, argument);
+            return new SignatureKey(Keys.End(mark));
         }
 
-        public SymbolKey GetGenericMethodParameter(object? genericContext, int index)
+        public SignatureKey GetGenericMethodParameter(object? genericContext, int index)
         {
             int mark = Keys.Begin();
-            return Keys.Mark(SymbolPart.MethodParameter).Int(index).End(mark);
+            return new SignatureKey(Keys.Mark(FindingDiffAnyPart.MethodParameter).Int(index).End(mark));
         }
 
-        public SymbolKey GetGenericTypeParameter(object? genericContext, int index)
+        public SignatureKey GetGenericTypeParameter(object? genericContext, int index)
         {
             int mark = Keys.Begin();
-            return Keys.Mark(SymbolPart.TypeParameter).Int(index).End(mark);
+            return new SignatureKey(Keys.Mark(FindingDiffAnyPart.TypeParameter).Int(index).End(mark));
         }
 
-        public SymbolKey GetModifiedType(SymbolKey modifier, SymbolKey unmodifiedType, bool isRequired)
+        public SignatureKey GetModifiedType(SignatureKey modifier, SignatureKey unmodifiedType, bool isRequired)
         {
             int mark = Keys.Begin();
-            return Keys.Mark(isRequired ? SymbolPart.RequiredModifier : SymbolPart.OptionalModifier)
-                .Key(modifier).Key(unmodifiedType).End(mark);
+            return new SignatureKey(Keys.Mark(isRequired ? FindingDiffAnyPart.RequiredModifier : FindingDiffAnyPart.OptionalModifier)
+                .Key(side, modifier).Key(side, unmodifiedType).End(mark));
         }
 
-        public SymbolKey GetPinnedType(SymbolKey elementType) => Wrap(SymbolPart.Pinned, elementType);
+        public SignatureKey GetPinnedType(SignatureKey elementType) => Wrap(FindingDiffAnyPart.Pinned, elementType);
 
-        public SymbolKey GetPointerType(SymbolKey elementType) => Wrap(SymbolPart.Pointer, elementType);
+        public SignatureKey GetPointerType(SignatureKey elementType) => Wrap(FindingDiffAnyPart.Pointer, elementType);
 
-        public SymbolKey GetPrimitiveType(PrimitiveTypeCode typeCode)
-        {
-            ref SymbolKey key = ref _primitives[(byte)typeCode];
-            if (key.IsDefault)
-            {
-                int mark = Keys.Begin();
-                key = Keys.Mark(SymbolPart.Primitive).Int((byte)typeCode).End(mark);
-            }
-            return key;
-        }
+        public SignatureKey GetPrimitiveType(PrimitiveTypeCode typeCode)
+            => new(side.Primitive(PrimitiveTokenBase - (byte)typeCode, typeCode));
 
-        public SymbolKey GetSZArrayType(SymbolKey elementType) => Wrap(SymbolPart.SZArray, elementType);
+        public SignatureKey GetSZArrayType(SignatureKey elementType) => Wrap(FindingDiffAnyPart.SZArray, elementType);
 
-        public SymbolKey GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
-            => side.ReferenceKey(handle);
+        public SignatureKey GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+            => new(side.ReferenceKey(handle));
 
-        public SymbolKey GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-            => side.Key(handle);
+        public SignatureKey GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+            => new(side.Key(handle));
 
-        public SymbolKey GetTypeFromSpecification(
+        public SignatureKey GetTypeFromSpecification(
             MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-            => side.Key(handle);
+            => new(side.Key(handle));
 
-        SymbolKey Wrap(SymbolPart part, SymbolKey elementType)
+        SignatureKey Wrap(FindingDiffAnyPart part, SignatureKey elementType)
         {
             int mark = Keys.Begin();
-            return Keys.Mark(part).Key(elementType).End(mark);
+            return new SignatureKey(Keys.Mark(part).Key(side, elementType).End(mark));
         }
     }
 }
 
+/// <summary>Finding Diff Any's Symbol Key domain: its markers, from the first marker tag up.</summary>
+internal enum FindingDiffAnyPart : byte
+{
+    // Shared markers.
+    Absent = SymbolKeyDomain.FirstMarker,
+    NonApi,
+    Visible,
+    Hidden,
+    Malformed,
+    Namespace,
+    Vararg,
+    Return,
+
+    // Keys.
+    Type,
+    Method,
+    Field,
+    Property,
+    Event,
+    Parameter,
+    GenericParameter,
+    MethodSpecification,
+    LocalSignature,
+    StandaloneSignature,
+
+    // Signature Types.
+    Primitive,
+    SZArray,
+    Array,
+    ByReference,
+    Pointer,
+    FunctionPointer,
+    GenericInstance,
+    TypeParameter,
+    MethodParameter,
+    RequiredModifier,
+    OptionalModifier,
+    Pinned,
+
+    // Facts.
+    TypeFact,
+    BeforeFieldInit,
+    InterfaceFact,
+    NullableContext,
+    Layout,
+    MethodImplementation,
+    FieldFact,
+    MethodFact,
+    ParameterFact,
+    Import,
+    PropertyFact,
+    EventFact,
+    GenericParameterFact,
+    Constraint,
+    Attribute,
+    Constant,
+}
+
 /// <summary>
-/// One Finding Diff Any over an image pair, advanced in bounded steps so a
-/// single-threaded host can return to its event loop between them.
+/// A retained key of one side: a slot in one chunk of the side's retained
+/// population, the current one while staged or a frozen one, resolved on
+/// demand through the side, so memoizing a key is one write and freezing a
+/// chunk touches no reference. It compares and hashes by its bytes either way.
 /// </summary>
-/// <remarks>
-/// Each step takes readers over the same two images and stops at the first
-/// Type row or compared Type after its budget elapses, having made progress
-/// on at least one. The retained state holds handles, keys, and strings, never a
-/// reader, so a host can re-enter its image callbacks for every step.
-/// Cancellation is observed at the same boundaries and leaves the comparison
-/// resumable; any other exception leaves it unusable.
-/// </remarks>
+internal readonly struct KeyRef : IEquatable<KeyRef>
+{
+    readonly FindingDiffAny.Side _owner;
+    readonly int _generation;
+    readonly int _offset;
+    readonly int _length;
+
+    public KeyRef(FindingDiffAny.Side owner, StagedSymbolKey<FindingDiffAnyPart> staged)
+    {
+        if (!staged.IsStagedIn(owner.Retained))
+            throw new ArgumentException("A retained key is staged in its side's retained population.", nameof(staged));
+        _owner = owner;
+        _generation = staged.Generation;
+        _offset = staged.Offset;
+        _length = staged.Length;
+    }
+
+    internal KeyRef(FindingDiffAny.Side owner, int generation, int offset, int length)
+    {
+        _owner = owner;
+        _generation = generation;
+        _offset = offset;
+        _length = length;
+    }
+
+    public bool IsDefault => _owner is null;
+
+    internal int Generation => _generation;
+
+    internal int Offset => _offset;
+
+    internal int Length => _length;
+
+    public bool IsFrozen => _generation < _owner.Retained.Generation;
+
+    /// <summary>The key's view, once its chunk froze.</summary>
+    public SymbolKey<FindingDiffAnyPart> Frozen => _owner.Chunk(_generation).Resolve(_offset, _length);
+
+    internal OpaqueByteRange FrozenRange => _owner.Chunk(_generation).RangeAt(_offset, _length);
+
+    /// <summary>The key's bytes while its chunk is staged.</summary>
+    public ReadOnlySpan<byte> Bytes => _owner.Retained.Staged(_generation, _offset, _length);
+
+    public FindingDiffAnyPart Kind
+        => IsFrozen ? Frozen.Kind : SymbolKeyDomain.FromMarker<FindingDiffAnyPart>(Bytes[0]);
+
+    /// <summary>Retains this key alone, in its own backing.</summary>
+    public SymbolKey<FindingDiffAnyPart> Detach()
+        => IsFrozen ? Frozen : new SymbolKey<FindingDiffAnyPart>(OpaqueByteRange.Copy(Bytes));
+
+    public bool Equals(KeyRef other)
+    {
+        bool frozen = IsFrozen;
+        bool otherFrozen = other.IsFrozen;
+        if (frozen && otherFrozen)
+            return FrozenRange.Equals(other.FrozenRange);
+        if (frozen)
+            return FrozenRange.SequenceEqual(other.Bytes);
+        if (otherFrozen)
+            return other.FrozenRange.SequenceEqual(Bytes);
+        return Bytes.SequenceEqual(other.Bytes);
+    }
+
+    public override bool Equals(object? obj) => obj is KeyRef other && Equals(other);
+
+    // Frozen and staged keys hash the same bytes the same way.
+    public override int GetHashCode()
+    {
+        if (IsFrozen)
+            return FrozenRange.GetHashCode();
+        var hash = new HashCode();
+        hash.AddBytes(Bytes);
+        return hash.ToHashCode();
+    }
+
+    public static bool operator ==(KeyRef left, KeyRef right) => left.Equals(right);
+
+    public static bool operator !=(KeyRef left, KeyRef right) => !left.Equals(right);
+}
+
+/// <summary>
+/// A signature type as the provider yields it: the slot of a retained key in
+/// its side's retained population (a chunk generation at or above zero), or
+/// of a scratch key (its scratch generation, complemented, below zero). Twelve
+/// bytes, so the decoder moves it in registers; the side that built it
+/// resolves it when it is embedded or memoized.
+/// </summary>
+internal readonly struct SignatureKey
+{
+    readonly int _generation;
+    readonly int _offset;
+    readonly int _length;
+
+    public SignatureKey(KeyRef retained)
+    {
+        _generation = retained.Generation;
+        _offset = retained.Offset;
+        _length = retained.Length;
+    }
+
+    public SignatureKey(StagedSymbolKey<FindingDiffAnyPart> scratch)
+    {
+        _generation = ~scratch.Generation;
+        _offset = scratch.Offset;
+        _length = scratch.Length;
+    }
+
+    public bool IsScratch => _generation < 0;
+
+    /// <summary>The retained chunk generation, or the scratch generation when <see cref="IsScratch"/>.</summary>
+    public int Generation => _generation < 0 ? ~_generation : _generation;
+
+    public int Offset => _offset;
+
+    public int Length => _length;
+}
+
+internal static class FindingDiffAnyKeyBuilderExtensions
+{
+    /// <summary>Embeds a retained key, frozen or staged, as a nested Key part.</summary>
+    public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, KeyRef key)
+        => key.IsFrozen ? builder.KeyRange(key.FrozenRange) : builder.KeyBytes(key.Bytes);
+
+    /// <summary>Embeds a signature type of <paramref name="side"/>, retained or scratch, as a nested Key part.</summary>
+    public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, FindingDiffAny.Side side, SignatureKey key)
+    {
+        if (key.IsScratch)
+            return builder.KeyBytes(side.Scratch.Staged(key.Generation, key.Offset, key.Length));
+        return key.Generation < side.Retained.Generation
+            ? builder.KeyRange(side.Chunk(key.Generation).RangeAt(key.Offset, key.Length))
+            : builder.KeyBytes(side.Retained.Staged(key.Generation, key.Offset, key.Length));
+    }
+}
+
 public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDiffAnyAxes.ApiAndBody)
 {
     readonly FindingDiffAny.UnitTable _unitsA = new();
@@ -1877,9 +2245,9 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
         if (!_readB && !(_readB = _b.ReadUnits(_unitsB, OverBudget)))
             return false;
 
-        OrderedDictionary<SymbolKey, FindingDiffAny.Unit> unitsA = _unitsA.Units;
-        OrderedDictionary<SymbolKey, FindingDiffAny.Unit> unitsB = _unitsB.Units;
-        _onlyB ??= [.. unitsB.Where(pair => !unitsA.ContainsKey(pair.Key)).Select(pair => pair.Value)];
+        FindingDiffAny.UnitTable unitsA = _unitsA;
+        FindingDiffAny.UnitTable unitsB = _unitsB;
+        _onlyB ??= [.. unitsB.Entries.Where(entry => !unitsA.Index.ContainsKey(entry.Key)).Select(entry => entry.Unit)];
         int total = unitsA.Count + _onlyB.Count;
         for (; _next < total; _next++)
         {
@@ -1887,7 +2255,7 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
                 return false;
             if (_next < unitsA.Count)
             {
-                (SymbolKey key, FindingDiffAny.Unit unitA) = unitsA.GetAt(_next);
+                (SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitA) = unitsA.Entries[_next];
                 _states.Add(unitsB.TryGetValue(key, out FindingDiffAny.Unit? unitB)
                     ? FindingDiffAny.CompareUnit(_a, unitA, _b, unitB, Axes, _work)
                     : FindingDiffAny.OneSided(_a, unitA, Axes));
@@ -1898,6 +2266,8 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
             }
         }
 
+        _a.Complete();
+        _b.Complete();
         _states.Sort((x, y) => string.CompareOrdinal(x.FullName, y.FullName));
         Result = new FindingDiffAnyResult(
             _states.ToImmutable(),
