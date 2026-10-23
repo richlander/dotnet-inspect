@@ -466,6 +466,25 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
     static MetadataSignatureKey Row(EntityHandle row) => new(row);
 
+    // A composite resolves the rows it embeds before its scratch key opens, so
+    // a row the consumer has yet to spell (a Type specification named inside a
+    // signature) is spelled with no scratch key open; the embed then finds it
+    // in the consumer's memo.
+    void Prepare(MetadataSignatureKey key)
+    {
+        if (key.IsRow)
+            _rows.Resolve(key.Row, MetadataRowRole.Referenced);
+        else if (key.IsPrimitive)
+            _rows.Primitive(key.PrimitiveType);
+    }
+
+    void Prepare(MethodSignature<MetadataSignatureKey> signature)
+    {
+        foreach (MetadataSignatureKey type in signature.ParameterTypes)
+            Prepare(type);
+        Prepare(signature.ReturnType);
+    }
+
     sealed class Provider(MetadataSymbolSpeller<TDomain, TRow, TRows> speller) : ISignatureTypeProvider<MetadataSignatureKey, object?>
     {
         SymbolKeyBuilder<TDomain> Keys => speller.Scratch;
@@ -474,6 +493,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
         public MetadataSignatureKey GetArrayType(MetadataSignatureKey elementType, ArrayShape shape)
         {
+            speller.Prepare(elementType);
             int mark = Keys.Begin();
             Mark(Keys, MetadataSymbolPart.Array);
             speller.Embed(Keys, elementType);
@@ -490,6 +510,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
         public MetadataSignatureKey GetFunctionPointerType(MethodSignature<MetadataSignatureKey> signature)
         {
+            speller.Prepare(signature);
             int mark = Keys.Begin();
             Mark(Keys, MetadataSymbolPart.FunctionPointer).Int(signature.Header.RawValue);
             speller.Signature(Keys, signature);
@@ -498,6 +519,9 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
         public MetadataSignatureKey GetGenericInstantiation(MetadataSignatureKey genericType, ImmutableArray<MetadataSignatureKey> typeArguments)
         {
+            speller.Prepare(genericType);
+            foreach (MetadataSignatureKey argument in typeArguments)
+                speller.Prepare(argument);
             int mark = Keys.Begin();
             Mark(Keys, MetadataSymbolPart.GenericInstance);
             speller.Embed(Keys, genericType);
@@ -520,6 +544,8 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
         public MetadataSignatureKey GetModifiedType(MetadataSignatureKey modifier, MetadataSignatureKey unmodifiedType, bool isRequired)
         {
+            speller.Prepare(modifier);
+            speller.Prepare(unmodifiedType);
             int mark = Keys.Begin();
             Mark(Keys, isRequired ? MetadataSymbolPart.RequiredModifier : MetadataSymbolPart.OptionalModifier);
             speller.Embed(Keys, modifier);
@@ -544,6 +570,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
         MetadataSignatureKey Wrap(MetadataSymbolPart part, MetadataSignatureKey elementType)
         {
+            speller.Prepare(elementType);
             int mark = Keys.Begin();
             Mark(Keys, part);
             speller.Embed(Keys, elementType);

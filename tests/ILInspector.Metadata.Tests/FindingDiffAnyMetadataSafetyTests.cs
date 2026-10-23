@@ -276,6 +276,51 @@ public sealed class FindingDiffAnyMetadataSafetyTests
         Assert.Equal(FindingDiffAnyState.Unchanged, owner.Body);
     }
 
+    // ECMA-335 II.23.2.12 lets CLASS and VALUETYPE name a TypeSpec row inside a
+    // signature, which compilers do not emit but readers accept. A composite
+    // over such a row is spelled after the row is, so one spelling never opens
+    // two scratch keys.
+    [Fact]
+    public void SignatureNamingATypeSpecificationInsideAnArray_ComparesWithoutFailing()
+    {
+        byte[] image = TypeSpecInSignatureImage();
+        FindingDiffAnyResult result = Compare(image);
+        FindingDiffAnyTypeState type = Assert.Single(result.Types, type => type.FullName == "N.Holder");
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Body);
+    }
+
+    // N.Holder declares abstract void Take(S[] p) where S is the TypeSpec row
+    // int[] : the parameter is SZARRAY CLASS <TypeSpec row 1>.
+    static byte[] TypeSpecInSignatureImage()
+    {
+        MetadataBuilder metadata = CreateMetadata();
+        var spec = metadata.AddTypeSpecification(metadata.GetOrAddBlob(new byte[] { 0x1D, 0x08 }));
+        int encoded = (MetadataTokens.GetRowNumber(spec) << 2) | 2;
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x20);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x01);
+        signature.WriteByte(0x1D);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger(encoded);
+        var method = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Take"),
+            metadata.GetOrAddBlob(signature),
+            -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Holder"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            method);
+        return Serialize(metadata);
+    }
+
     // N.Owner declares abstract int Get(); N.Holder declares property P whose
     // getter row names Owner.Get.
     static byte[] ForeignAccessorImage()
