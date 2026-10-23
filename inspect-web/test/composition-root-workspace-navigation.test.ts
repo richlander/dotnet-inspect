@@ -521,7 +521,7 @@ test("complete Workspace URLs use page-session retained activation", () => {
     /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable/);
   assert.match(
     history,
-    /if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*?return;\s*}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{/);
+    /if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*?return;\s*}\s*const routedDemo = routedHomeDemoId\(\);\s*if \(isProductHomeDemosPath\(location\.pathname\)\s*&& \(routedDemo === null \|\| !restoredActiveManagedWorkspace\)\) \{/);
   assert.match(
     history,
     /deferHistoryWorkspaceActivation =[\s\S]*searchParams\.has\("w"\)[\s\S]*tryOpenSourceBearingWorkspace\([\s\S]*return;[\s\S]*if \(!navigationSequence\.isCurrent\(navigationSeq\)\) return;[\s\S]*if \(deferHistoryWorkspaceActivation[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)[\s\S]*const loc = await parseLocation\(\)/);
@@ -618,7 +618,7 @@ test("canonical restoration is atomic and history adopts the active packet basis
     /loc\.hasWorkspaceState && !loc\.shareState[\s\S]*invalidSnapshot,\s*null\)/);
   assert.match(
     history,
-    /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\{[\s\S]*synchronizeUrl: !unavailableWorkspaceAdmissionRejected,[\s\S]*\}\);\s*return;\s*\}\s*if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*focusLevelOneHeading\(\)[\s\S]*return;\s*\}\s*if \(isProductHomeDemosPath\(location\.pathname\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
+    /if \(isCreditsPath\(location\.pathname\)\) \{[\s\S]*render\(\{[\s\S]*synchronizeUrl: !unavailableWorkspaceAdmissionRejected,[\s\S]*\}\);\s*return;\s*\}\s*if \(isProductEcosystemsPath\(location\.pathname\)\) \{[\s\S]*focusLevelOneHeading\(\)[\s\S]*return;\s*\}\s*const routedDemo = routedHomeDemoId\(\);\s*if \(isProductHomeDemosPath\(location\.pathname\)\s*&& \(routedDemo === null \|\| !restoredActiveManagedWorkspace\)\) \{[\s\S]*state\.workspaceSubjectOpen = true;[\s\S]*render\(\);[\s\S]*return;\s*\}/);
   assert.match(
     history,
     /isProductHomeDemosPath\(location\.pathname\)[\s\S]*const focusWorkspaceOnEntry =\s*!state\.packageQueryReturnFocusPending\s*&& !state\.packageActivityReturnFocusPending;[\s\S]*render\(\);\s*if \(state\.engineReady && focusWorkspaceOnEntry\)/);
@@ -1598,7 +1598,7 @@ test("browser history reuses available identities and publishes only unavailable
     /historyWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     history,
-    /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedWorkspacePosting\([\s\S]*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
+    /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*currentRetainedDefinitionInitialPresentation\([\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*retainedLocationIntents\.publish\(effect, history\)[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedDefinitionPosting\([\s\S]*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
   assert.match(
     history,
     /let restoredActiveManagedWorkspace = false;[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*restoredActiveManagedWorkspace = true;[\s\S]*if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(isPackageQueryPath\(location\.pathname\)\)[\s\S]*if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\)[\s\S]*if \(restoredActiveManagedWorkspace[\s\S]*canonicalLocation === location\.href\)[\s\S]*const loc = await parseLocation\(\)/);
