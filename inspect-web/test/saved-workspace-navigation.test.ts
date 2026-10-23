@@ -14,6 +14,7 @@ import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
   retainWorkspacePackage,
+  setTypeViewFacetCatalog,
   typeLensesFor,
 } from "../src/data.ts";
 import type {
@@ -32,6 +33,7 @@ import {
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
 } from "../src/member-filtering.ts";
+
 import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
@@ -993,6 +995,13 @@ function harness() {
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
+
+setTypeViewFacetCatalog([
+  { id: "type.api", kind: "Type", title: "API", order: 100 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
+  { id: "type.source", kind: "Type", title: "Source", order: 300 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+]);
 
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
   const h = harness();

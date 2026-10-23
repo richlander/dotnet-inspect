@@ -65,6 +65,17 @@ public sealed record BrowserApiFacetDescriptor(
     int Count,
     bool IsDefault);
 
+public sealed record BrowserViewFacetDescriptor(
+    string Id,
+    string Kind,
+    string Title,
+    string Summary,
+    int Order,
+    string? Role);
+
+public sealed record BrowserViewFacetCatalog(
+    BrowserViewFacetDescriptor[] Facets);
+
 public sealed record BrowserAssemblySurface(
     string Id,
     string Name,
@@ -1018,6 +1029,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserVocabularyExplanationResult))]
+[JsonSerializable(typeof(BrowserViewFacetCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]

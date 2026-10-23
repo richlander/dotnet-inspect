@@ -76,6 +76,9 @@ registerEngineWorkerStartupOperations(operations, {
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
   },
+  async listTypeViewFacets() {
+    return (await import("/inspect-web-catalog.js")).listTypeViewFacets();
+  },
   async listEcosystems() {
     return (await import("/inspect-web-catalog.js")).listEcosystems();
   },
