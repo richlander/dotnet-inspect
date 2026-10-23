@@ -199,6 +199,8 @@ existing Newtonsoft.Json `13.0.3` graph in `ProjectInputInspectionTests`.
 Focused `ProjectWorkspaceConstructionTests` and Project-bearing cases in
 `WorkspaceScopeTests` gate construction, outcome preservation, independent
 occurrences, Package edits and existing capacity refusal.
+`WorkspacePlanTests.ExistingThreeArgumentConstructorRemainsInvokable` gates
+retention of the existing public construction entry point.
 
 The counted delivery map is
 [#10478](https://github.com/richlander/dotnet-inspect/issues/10478): shared
@@ -213,8 +215,9 @@ Navigation consumes the Scope-issued occurrence in its separate adoption.
 This slice does not add a Project subject to the closed Navigation vocabulary,
 top-level inventory, portable Definitions, restoration, browser gestures,
 host rendering, persistence, dependency acquisition, or ranking.
-No existing production path is replaced. The construction claim is gated by the focused Release cases above; production
-host behavior remains unverified until its respective adoption lands.
+No existing production path is replaced. The construction claim is gated by
+the focused Release cases above; production host behavior remains unverified
+until its respective adoption lands.
 
 ### Navigation operation handoff implementation
 

@@ -54,8 +54,16 @@ public sealed class WorkspacePlan
     public WorkspacePlan(
         TraversalTargetFrameworkPolicy traversalTargetPolicy,
         ImmutableArray<WorkspaceRegistration> registrations,
+        IReadOnlyList<WorkspaceContextInput> contexts)
+        : this(traversalTargetPolicy, registrations, contexts, null)
+    {
+    }
+
+    public WorkspacePlan(
+        TraversalTargetFrameworkPolicy traversalTargetPolicy,
+        ImmutableArray<WorkspaceRegistration> registrations,
         IReadOnlyList<WorkspaceContextInput> contexts,
-        WorkspaceProjectInput? project = null)
+        WorkspaceProjectInput? project)
     {
         ArgumentNullException.ThrowIfNull(traversalTargetPolicy);
         if (ValidateRegistrations(registrations) is { } invalid)
