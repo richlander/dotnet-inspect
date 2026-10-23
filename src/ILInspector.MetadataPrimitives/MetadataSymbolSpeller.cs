@@ -18,7 +18,12 @@ namespace ILInspector.Metadata;
 public interface IMetadataRowKeys<TDomain, TRow>
     where TDomain : unmanaged, Enum
 {
-    /// <summary>The consumer's key for a row, spelled or found in its memo.</summary>
+    /// <summary>
+    /// The consumer's key for a row, spelled or found in its memo. A Type
+    /// specification must be memoized on its first resolution: the speller
+    /// resolves one before a composite that embeds it opens, and a second
+    /// spelling from inside that composite would open a second scratch key.
+    /// </summary>
     TRow Resolve(EntityHandle row, MetadataRowRole role);
 
     /// <summary>The consumer's key for a primitive type, which signatures name far more often than any row.</summary>
@@ -366,7 +371,12 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         return Mark(into, MetadataSymbolPart.Primitive).Int((byte)typeCode).End(mark);
     }
 
-    /// <summary>A property's decoded signature, guarded; spelled into a consumer's key through <see cref="Signature"/>.</summary>
+    /// <summary>
+    /// A property's decoded signature, guarded, for the consumer to spell into
+    /// its own key through <see cref="Signature"/>. The spelling stays open until
+    /// the consumer calls <see cref="Discard"/>, so a row resolved while the
+    /// consumer embeds cannot reset the scratch composites the signature holds.
+    /// </summary>
     public MethodSignature<MetadataSignatureKey> DecodeProperty(PropertyDefinition property)
     {
         Enter();
@@ -375,9 +385,10 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             Guard(property.Signature, SignatureBlobGuard.Kind.Property);
             return property.DecodeSignature(_provider, null);
         }
-        finally
+        catch
         {
-            ExitKeepingScratch();
+            Exit();
+            throw;
         }
     }
 
@@ -409,15 +420,8 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
             into.Key(ScratchKey(key));
     }
 
-    /// <summary>
-    /// Ends a spelling whose decoded signature the consumer embeds afterwards:
-    /// the scratch population lives until the consumer calls <see cref="Discard"/>.
-    /// </summary>
-    public void Discard()
-    {
-        if (_depth == 0)
-            Scratch.Reset();
-    }
+    /// <summary>Ends the spelling <see cref="DecodeProperty"/> opened, once the consumer has embedded its signature.</summary>
+    public void Discard() => Exit();
 
     StagedSymbolKey<TDomain> MethodKey(SymbolKeyBuilder<TDomain> into, TRow parent, StringHandle name, MethodSignature<MetadataSignatureKey> signature)
     {
@@ -459,10 +463,6 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         if (--_depth == 0)
             Scratch.Reset();
     }
-
-    // A decode whose result the consumer still embeds leaves scratch alive;
-    // the consumer discards it.
-    void ExitKeepingScratch() => _depth--;
 
     static MetadataSignatureKey Row(EntityHandle row) => new(row);
 
