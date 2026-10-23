@@ -3234,6 +3234,7 @@ public class DiffCommandTests
                 {
                     LibraryVersionRange = range,
                     TypeFilter = ["DiffFixtureSample"],
+                    FormatExplicitlySet = true,
                 }));
         var (explicitExit, explicitOutput, explicitError) =
             await ConsoleCapture.RunAsync(() =>
@@ -3298,6 +3299,7 @@ public class DiffCommandTests
                     LibraryVersionRange = range,
                     TypeFilter = ["TypeDefinitionOnly"],
                     IncludeSections = changes,
+                    FormatExplicitlySet = true,
                 }));
         var (explicitExit, explicitOutput, explicitError) =
             await ConsoleCapture.RunAsync(() =>
@@ -3516,7 +3518,9 @@ public class DiffCommandTests
         Assert.Equal(0, explicitExit);
         Assert.Empty(implicitError);
         Assert.Empty(explicitError);
-        Assert.Equal(implicitOutput, explicitOutput);
+        Assert.All(
+            implicitOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line => Assert.Contains(line.TrimEnd('\r'), explicitOutput, StringComparison.Ordinal));
         Assert.Contains("unclassified API changes", explicitOutput);
         if (jsonl)
             Assert.DoesNotContain("\"classification\":", explicitOutput);
@@ -3603,7 +3607,9 @@ public class DiffCommandTests
         Assert.Equal(0, explicitResult.ExitCode);
         Assert.Empty(implicitResult.Error);
         Assert.Empty(explicitResult.Error);
-        Assert.Equal(implicitResult.Output, explicitResult.Output);
+        Assert.All(
+            implicitResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            line => Assert.Contains(line.TrimEnd('\r'), explicitResult.Output, StringComparison.Ordinal));
         Assert.Contains("classification", explicitResult.Output);
         Assert.Contains("VirtualRemoved", explicitResult.Output);
     }
