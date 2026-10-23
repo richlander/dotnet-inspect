@@ -36,6 +36,16 @@ independent obligations:
 3. every consumed semantic node has a complete modeled path through its
    structured ancestors.
 
+A recipe plan discharges them through its three ledgers. A
+[general inverse](#general-inverse) plan discharges them differently: the
+first by its total role ledger (every node is a removed protocol role or is
+carried), the second by carrying every user node unchanged so realization is
+identity, with `await op` the one synthesized node and bound to its proven
+members, and the third by keeping every carried node inside its own exception
+regions and handing structure to the structurer, whose output is validated
+before the plan exists. The two forms of discharge are the only ones this
+owner licenses.
+
 This is a reconstruction proof, not a general control-flow proof. Container
 CFG facts may support a recipe, but they do not establish arbitrary CLR
 control-flow or exception-flow soundness.
@@ -66,9 +76,11 @@ All six efforts are unstacked and target `main`.
 ## Claim and non-claims
 
 The core claims one thing: a `Reconstruct` result is licensed only by a closed
-recipe proof over the exact request bodies. Shape resemblance, descendant
-discovery, a clean-looking output tree, or agreement between two incomplete
-control-flow models cannot license reconstruction.
+proof over the exact request bodies, either a recipe proof or the general
+inverse's total role ledger with its post-pipeline validation. Shape
+resemblance, descendant discovery, a clean-looking output tree on its own, or
+agreement between two incomplete control-flow models cannot license
+reconstruction.
 
 The core does **not** own or claim:
 
@@ -107,19 +119,36 @@ corpus (14 assemblies, 89,065 methods):
 | --- | ---: |
 | Authenticated classic kickoffs | 335 |
 | Reconstructed today (all by `classic-await-return`) | 12 |
-| Lowering-protocol proof passes, no recipe matches | 113 |
-| Lowering-protocol proof fails | 210 |
+| Lowering-protocol proof passes, no recipe matches (silent) | 100 |
+| Lowering-protocol proof passes, a recipe matches, accounting declines (visible `DEC0004`) | 13 |
+| Lowering-protocol proof fails (209 silent, 1 visible) | 210 |
 
-The 210 proof failures have five causes, none of them user-code shapes: the
-completion catch clears hoisted fields before `SetException` (89); the body
-has more than one `finally` region (58); the dispatch is a `switch` or a
-nested `num != 0` cascade the proof does not bind (49); a `finally` guard
-reads the state local (9); the user body has its own catch or filter (5).
-Every cause is a protocol form, so a general protocol recognizer covers them
-without naming the user code they surround. The 113 protocol-clean declines
-are ordinary sequential, conditional, and loop bodies with one or two awaits.
-Together they are 323 of the 335 kickoffs, and the state-machine headline on
-the real-world baseline (60 of 540 fully raised) cannot move without them.
+The 210 proof failures fall into five proof messages. Read against the
+planning view's exception regions, they are protocol forms the proof does
+not bind, standing around ordinary user code:
+
+- 89: the completion catch carries more than the state store, `SetException`,
+  and return. The witness shows hoisted-field clears there; 5 of the 89 also
+  have a user `catch`.
+- 58: more than two exception clauses. 29 have two or more `finally` regions,
+  32 have a user `catch`, and 14 have no structured region at all in the
+  planning view.
+- 49: a suspension state constant whose dispatch the proof does not bind. 34
+  dispatch through a `switch`, 15 through an `if` cascade; 5 have a user
+  `catch`.
+- 9: a read of the state local outside a proven state test. It is the
+  `V_state != 0` guard Roslyn places around user prologue before a nested
+  exception region; 8 of the 9 have a user `catch`.
+- 5: the raw import has a second catch handler (3) or a filter or fault
+  region (2).
+
+A user `catch` therefore appears in at least 55 of the 210, and a nested user
+`try` of either kind in most of the rest. The 100 protocol-clean silent
+declines are sequential, conditional, and loop bodies with one or two awaits.
+The 13 accounting declines matched a recipe whose ledgers refused them and
+are visible today. The state-machine headline on the real-world baseline (60
+of 540 fully raised) counts 334 classic kickoffs and 205 iterators, so the
+classic side cannot move far without these 323 bodies.
 
 ### Lowering shell
 
@@ -134,13 +163,14 @@ completion catch), `JsonTextWriter::DoWritePropertyNameAsync` (three awaits,
 `switch` dispatch), `Newtonsoft.Json.Linq.JRaw::CreateAsync` (two nested
 `using` regions with guarded `finally` disposal), and
 `Microsoft.CodeAnalysis.Diagnostics.CompilationWithAnalyzers::GetAnalyzerTelemetryInfoAsync`
-(user catch with a filter inside the protocol try).
+(a `V_state != 0` guard around user prologue, then a user catch with a filter
+inside the protocol try).
 
 | Role | Physical form | Disposition |
 | --- | --- | --- |
 | State load | the entry block's `V_state = this.<>1__state` | removed |
 | `this` copy | `V_this = this.<>4__this` in the entry block, or `<>4__this` reads at each use | `this` |
-| Dispatch | any branch whose condition depends only on `V_state` and constants: `brfalse`/`==`/`!=` chains, `switch (V_state)`, and the `V_state != 0` guards Roslyn emits at every exception-region entry | evaluated under `V_state = -1`; the taken edge stays, the other edges go |
+| Dispatch | any branch whose condition depends only on `V_state` and constants: `brfalse`/`==`/`!=` chains, `switch (V_state)`, the `V_state != 0` guards Roslyn places around user prologue before a nested exception region, and the re-dispatch at that region's entry | evaluated under `V_state = -1`; the taken edge stays, the other edges go |
 | Suspension site | `V_aw = GetAwaiter(op)`; `if (V_aw.IsCompleted) goto K`; then `V_state = N; this.<>1__state = N; this.<>u__k = V_aw; this.<>t__builder.Await[Unsafe]OnCompleted(ref V_aw, ref this); return` | the three blocks collapse to the edge into `K`; `GetResult(ref V_aw)` in `K` becomes `await op` |
 | Resume landing | the dispatch target for `N`: `V_aw = this.<>u__k; this.<>u__k = default; V_state = -1; this.<>1__state = -1`, falling into `K` | removed; reachable only through dispatch |
 | Completion catch | the outer `catch (Exception V_ex) { this.<>1__state = -2; clears; this.<>t__builder.SetException(V_ex); return; }` | removed |
@@ -152,12 +182,16 @@ completion catch), `JsonTextWriter::DoWritePropertyNameAsync` (three awaits,
 
 Class-constrained generic awaiters (the boxed awaiter form), `async void`,
 `ValueTask`, and custom builders are the same roles with different member
-identities. Debug lowering adds spill locals and re-reads but no role; it is
-in domain by construction and unmeasured, and no claim covers it until a
-compiler-produced Debug fixture does. An await inside a user `catch` lowers to
-a pending-exception dispatch after the try; the inverse carries that lowered
-form as ordinary user code, which is valid C# but not fully raised, and a
-later slice owns the `catch`-with-await raise.
+identities. Debug lowering adds spill locals, re-reads, and a `stateMachine`
+copy local at each suspension site; it is unmeasured, and no claim covers it
+until a compiler-produced Debug fixture does. An await inside a user `catch`
+or `finally` lowers to a pending-exception selector and a hoisted exception
+object with the handler body moved after the try and the rethrow spelled
+through `ExceptionDispatchInfo`; the inverse carries that lowered form as
+ordinary user code with the selector and object as hoisted locals. Whether
+the carried form is valid C# is judged by compile-back like every other body,
+it is not fully raised, and a later slice owns the `catch`- and
+`finally`-with-await raise.
 
 ### Proof obligations
 
@@ -167,8 +201,10 @@ later slice owns the `catch`-with-await raise.
    local has only protocol uses; `<>1__state` has only the entry load and
    protocol stores; `<>t__builder` has only the proven callbacks; after
    dispatch folding no read of `V_state` remains. A block reachable only
-   through dispatch must consist of protocol roles. Any other node that is
-   neither a role nor carried into the output is a decline.
+   through a dispatch edge that folding removes must consist of protocol
+   roles; user prologue behind a kept `V_state != 0` edge is carried. Any
+   other node that is neither a role nor carried into the output is a
+   decline.
 2. **Control flow.** Dispatch removal changes only edges whose condition is a
    state test. Each suspension site collapses to one edge. Every exception
    region other than the completion catch is preserved with its clauses,
@@ -217,9 +253,13 @@ retire. Nothing in this slice adds a cross-layer reference.
 
 1. **This design.** No product change.
 2. **General inverse behind the recipe index.** The inverse runs when the
-   recipe index declines with `NoRecipeMatched`, which today is silent; every
-   decline becomes a typed reason. A general plan carries its role ledger in
-   place of the three recipe ledgers. The fixture family lands in
+   recipe index declines with `NoRecipeMatched`, which today returns without
+   a decision; the 14 requests a recipe matched and then declined wait for
+   stage 3. A general-inverse decline is presented exactly as a recipe
+   accounting decline is today, a visible `DEC0004` with the kickoff
+   preserved, so no request leaves the inverse without a typed decision;
+   declaration disposition stays with #5293. A general plan carries its role
+   ledger in place of the three recipe ledgers. The fixture family lands in
    `ILInspector.Decompiler.Fixtures.ClassicAsync`: a compiler-produced
    positive per role, the smallest accepted boundary, a still-flat negative
    per proof obligation, the five real witnesses pinned, and the four
@@ -1390,7 +1430,10 @@ does not add a recipe family. Migrating an existing accepted recipe may reduce
 the accepted set only where the old result cannot satisfy this contract; that
 change is an honesty correction and must be measured explicitly. Adding a new
 recipe requires a separate raise contract and evidence under
-[Raise-work discipline](../decompiler-raise-discipline.md).
+[Raise-work discipline](../decompiler-raise-discipline.md). This contract
+governs the recipe path only; the [general inverse](#general-inverse) is not
+a recipe, and once its staging reaches retirement this section leaves with
+the last recipe.
 
 The floor includes useful reconstructed `Partial` bodies, not only `Full`
 counts. Replacing a user body with kickoff scaffolding can be a regression
