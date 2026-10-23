@@ -164,6 +164,7 @@ type CatalogOperations =
   | "inspectVocabulary"
   | "listEcosystems"
   | "listHomeDemos"
+  | "listTypeViewFacets"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "prepareHomeDemoWorkspaceDefinition"

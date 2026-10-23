@@ -60,6 +60,7 @@ import {
   runtimePackForFramework,
   scopedRequestState,
   searchableMemberGroups,
+  setTypeViewFacetCatalog,
   sourceReloadKind,
   spotlightCandidateKey,
   spotlightCandidateSignature,
@@ -28351,6 +28352,8 @@ async function bootstrap() {
       productHomeDemoCatalogError =
         `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
     }
+    setTypeViewFacetCatalog(
+      (await engineClient.catalog.listTypeViewFacets()).facets);
     try {
       setProductEcosystemCatalog(
         (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
