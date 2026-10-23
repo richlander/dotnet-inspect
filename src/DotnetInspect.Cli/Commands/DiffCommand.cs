@@ -208,6 +208,21 @@ public partial class DiffCommand
             }
         }
 
+        if (analysisPlan?.Views is [var adoptedView]
+            && (adoptedView == DiffSections.Summary.Name
+                || adoptedView == DiffSections.Transitions.Name))
+        {
+            if (options.Tree)
+            {
+                CommandError.Write($"{adoptedView} does not offer a Hierarchy representation.");
+                return 1;
+            }
+            if (!options.FormatExplicitlySet
+                && !options.JsonOutput && !options.EnvelopeOutput
+                && !options.Tabular && !options.Tsv && !options.Jsonl)
+                options = options with { Tabular = true, Tsv = true };
+        }
+
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
         bool analysisTransport = analysisPlan is not null
