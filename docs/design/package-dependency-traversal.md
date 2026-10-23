@@ -28,7 +28,7 @@ This owner defines:
 - traversal depth and finite work-budget behavior;
 - deterministic scheduling and result ordering;
 - ownership of one transferred Package Source operation across the complete
-  sequential traversal schedule;
+  bounded traversal schedule;
 - traversal-local failure and completion;
 - preservation of an admitted realized package context as the exact source of
   its root declarations;
@@ -731,10 +731,12 @@ the last acquired manifest enters projection and gates the final publication
 boundary.
 
 The schedule transfers one `PackageSourceOperationLease` into candidate
-resolution and manifest acquisition, awaits each step before starting the
-next, and releases the lease only after final local publication. This contract
-does not apply to package-license inventory: that owner intentionally admits
-concurrent manifest work and remains a separate operation-ownership successor.
+resolution and manifest acquisition. Every admitted job settles before the
+query returns or propagates cancellation or an unexpected failure, so the host
+can release the operation without abandoning active source work. Source owns
+the issued capacity, common context, and absolute deadline under
+[bounded concurrent steps](package-source-model.md#bounded-concurrent-steps).
+Package-license inventory remains a separate consumer and is not changed here.
 
 ## Determinism
 
@@ -745,10 +747,13 @@ The request defines a distance-major stable work schedule:
 3. manifest projection admission order within that root and distance;
 4. owner-issued selected-group declaration order.
 
-Candidate resolution and manifest acquisition execute sequentially in their
-scheduled slots. No source-completion race is reconciled after the fact, and
-completion timing must not change node, edge, failure, or reachability
-ordering.
+Candidate resolution and manifest acquisition may overlap within the issued
+Source capacity. Admission, budget selection, and graph mutation remain in
+the stable schedule rather than source-completion order. For the same settled
+owner results, completion timing must not change node, edge, failure, or
+reachability ordering. Cancellation and the absolute deadline remain live:
+unfinished local work can produce typed partial completion, never a late
+success or a restarted deadline.
 
 Result nodes use first scheduled admission, with exact target coordinate as a
 stable discriminator for candidates produced by one scheduled batch. Edges,
@@ -759,6 +764,40 @@ Source labels, descriptions, error text, and other display strings never drive
 ordering or joins.
 
 `Traversal_SourceCompletionOrderDoesNotAffectResult` is the Release gate.
+
+### Bounded acquisition overlap
+
+The motivating asset for [#10447](https://github.com/richlander/dotnet-inspect/issues/10447)
+is `Microsoft.Azure.SignalR@1.33.1` under `net8.0`: 37 canonical coordinates,
+48 declaration edges, and repeated version metadata across incoming routes.
+Operation-local observation reuse is already adopted. This slice overlaps
+remaining candidate and manifest work without pruning or changing selection.
+Live version metadata is not retained as an immutable fixture; the exact
+production commands, graph identity, and NativeAOT before/after comparison are
+recorded with the implementation evidence.
+
+The CLI Hierarchy and Browser Hierarchy opt into the same bounded policy,
+initially eight jobs, through the shared query. Capacity one remains supported.
+The cap bounds dependency jobs and Source API steps, not HTTP requests:
+the Gallery's existing registration-page acquisition has its own bounded
+fan-out. No threads, `Task.Run`, or additional Browser workers are required.
+
+Budgets are charged in stable order before external work. Equivalent candidate
+correspondence still admits only one manifest acquisition. Completion of any
+job can free capacity for the next admitted job while an earlier job remains
+pending; completed evidence is applied only in its stable graph slot. Graph
+collections and traversal memoization remain coordinator-owned, not worker
+mutation targets. Pure manifest projection may precede graph admission; the
+scheduler retains projected evidence rather than buffering the frontier's raw
+manifest bytes.
+
+The [scheduling model](models/package-dependency-traversal-concurrency/README.md)
+checks bounded admission, stable replay, refill past a pending head, and drain
+before release. It abstracts one finite acquisition phase, not version
+selection, graph identity, or Source's independently owned lifetime protocol.
+Suspended-source Release tests establish implementation correspondence;
+exact-build real-asset output equality and timing establish production adoption.
+No Browser timing improvement is implied by a NativeAOT measurement.
 
 ## Completion
 

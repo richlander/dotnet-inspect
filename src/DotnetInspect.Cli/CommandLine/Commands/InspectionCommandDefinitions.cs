@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -801,9 +802,10 @@ public static class InspectionCommandDefinitions
                     // than misclassified as a NuGet package. See #1690.
                     assemblyPath = source;
                 }
-                else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
+                else if (!source.Contains('@')
+                    && EcosystemPackCatalog.ShouldSearchPlatform(source))
                 {
-                    // Platform-preferred routing for System.*/Microsoft.* bare names
+                    // Platform-preferred routing for selected Ecosystem associations.
                     bool verbose = parseResult.GetValue(opts.Verbose);
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
                     var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(

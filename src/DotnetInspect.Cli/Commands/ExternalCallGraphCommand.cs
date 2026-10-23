@@ -138,7 +138,7 @@ public static class ExternalCallGraphCommand
                         CreateRuntimePlatformPruning(
                             traversalTargetPolicy,
                             workspacePlan,
-                            DesktopPackageDependencyMemberCallGraphContinuationSource
+                            PackageDependencyMemberCallGraphContinuationSource
                                 .FindActiveDotnetRoot(),
                             InstalledPlatformPruneSource.Read));
             InspectionEnvelope<
@@ -332,7 +332,7 @@ public static class ExternalCallGraphCommand
                 options.SourceOptions,
                 log));
         await using var continuationSource =
-            new DesktopPackageDependencyMemberCallGraphContinuationSource(
+            new PackageDependencyMemberCallGraphContinuationSource(
                 source,
                 request.RealizationOperation,
                 () => new DesktopPackageSourceComposition(

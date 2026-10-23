@@ -47,7 +47,8 @@ internal sealed class WorkspacePacketRestoration
         string input,
         WorkspaceContextLoadOptions loadOptions,
         CancellationToken cancellationToken,
-        string optionName = "--workspace")
+        string optionName = "--workspace",
+        bool captureSelectedSubject = false)
     {
         ArgumentNullException.ThrowIfNull(loadOptions);
 
@@ -81,6 +82,7 @@ internal sealed class WorkspacePacketRestoration
                 new CompleteRestorationExecutionOptions
                 {
                     ContextLoad = loadOptions,
+                    CaptureSelectedSubject = captureSelectedSubject,
                     ScopeDeadline = DateTimeOffset.UtcNow.AddMinutes(5),
                     Facets = registry,
                     FacetAvailability = (_, _) => executableEntries,

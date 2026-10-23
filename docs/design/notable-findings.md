@@ -300,6 +300,7 @@ rest on the platform's own guidance rather than on the product's opinion.
 | `alloc.box` | Avoid the conversion to `object` or an interface; use generics or a span. | [Boxing and unboxing](https://learn.microsoft.com/dotnet/csharp/programming-guide/types/boxing-and-unboxing) |
 | `alloc.closure` | Make the lambda `static` or pass the captured state as a parameter. | [Capture of outer variables](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions#capture-of-outer-variables-and-variable-scope-in-lambda-expressions) |
 | `alloc.delegate` | Cache the delegate in a static field or use a `static` lambda. | [Lambda expressions](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/lambda-expressions) |
+| `alloc.statemachine` | A class state machine allocates on every call; an iterator's does in every build, an async method's only in a Debug build or with a non-`Task` return. The Member's classification selects the specific advice below. | [Iterators](https://learn.microsoft.com/dotnet/csharp/fundamentals/building-software/iterators) and [Understanding the whys, whats, and whens of ValueTask](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/) |
 | `alloc.statemachine`, iterator | A `yield` method allocates on every call; return a collection or a struct enumerator when the sequence is small or hot. | [Iterators](https://learn.microsoft.com/dotnet/csharp/fundamentals/building-software/iterators) |
 | `alloc.statemachine`, async | A class state machine means a Debug build or a non-Task method; see the Library profile. | [Understanding the whys, whats, and whens of ValueTask](https://devblogs.microsoft.com/dotnet/understanding-the-whys-whats-and-whens-of-valuetask/) and [PoolingAsyncValueTaskMethodBuilder](https://learn.microsoft.com/dotnet/api/system.runtime.compilerservices.poolingasyncvaluetaskmethodbuilder) |
 | `alloc.enumerator` | Enumerate the concrete type, or expose a struct enumerator. | [Avoid memory allocations and data copies](https://learn.microsoft.com/dotnet/csharp/advanced-topics/performance/) |
@@ -312,6 +313,19 @@ rest on the platform's own guidance rather than on the product's opinion.
 | Expectation, state-machine async under runtime async | Confirm the method is an async iterator, `async void`, or uses a custom builder; otherwise recompile with runtime async on. | [Runtime Async](https://learn.microsoft.com/dotnet/core/whats-new/dotnet-11/runtime#runtime-async) and the [runtime-async specification](https://github.com/dotnet/runtime/blob/main/docs/design/specs/runtime-async.md) |
 | Library, Debug-compiled | Ship an optimized build; Debug state machines and disabled JIT optimization are not representative. | [DebuggableAttribute](https://learn.microsoft.com/dotnet/api/system.diagnostics.debuggableattribute) |
 | Throw count (column) | Prefer `Try*` patterns and throw helpers on cold paths. | [Best practices for exceptions](https://learn.microsoft.com/dotnet/standard/exceptions/best-practices-for-exceptions) |
+
+A refined row applies when its attribute is known. Otherwise the descriptor's
+base row applies, and a descriptor with no matching refined row and no base row
+renders no guidance and no placeholder: a straight-line `alloc.new` or
+`alloc.array` has rows only in a loop and is demoted above, so its row in the
+Findings view carries no advice. A host that knows the Member's classification
+selects the iterator or async row, and one that does not renders the base row,
+which must be true of both. The loop refinement reads a producer-issued loop
+attribute on the finding, never a derivation by a host. The allocation producer
+issues that attribute today. A producer that does not, such as the unsafety
+producer at the time of writing, leaves the loop row unreachable for its
+descriptors, and the adopter that promises loop-refined guidance for them
+supplies the attribute as a precondition of its adoption.
 
 Every link above was fetched and its title confirmed on 2026-10-21. A slow,
 network-classified test checks each catalog link resolves, under
@@ -636,21 +650,30 @@ chips, and the profile line, each as a separately staged slice below.
   aligned and opposing poles issues one structure glyph per Type; a hub
   whose Member the map does not list still carries its structure mark, has
   no Findings row, and activating the mark navigates nowhere.
-- **Catalog:** every descriptor the preset admits has a catalog entry; the
-  slow link test resolves every entry; the ordinary gates do not touch the
-  network.
+- **Catalog:** every descriptor the preset admits has a catalog entry; a
+  finding with no matching refined row and no base row, such as a
+  straight-line `alloc.new`, renders no guidance and no placeholder; an
+  `alloc.statemachine` finding whose classification is unknown renders the
+  base row and a known classification renders its refined row; a loop row is
+  reached only through a producer-issued loop attribute; the slow link test
+  resolves every entry; the ordinary gates do not touch the network.
 - **Hosts:** CLI Facts with `--focus` and no argument equals the Browser's
-  notable set for the same Member, and `-v:d` prints each admitted finding's
-  guidance line and link.
+  notable set for the same Member, and `-v:d` prints the guidance line and
+  link of each admitted finding that has a matching catalog row and nothing
+  for one that does not.
 - **Guidance delivery:** for a fixture Member with one admitted body
-  finding, the Findings row, the Annotated Source finding inspector, and
+  finding that has a matching catalog row, the Findings row, the Annotated Source finding inspector, and
   the mark's tooltip each render that finding's catalog line and link, and
   the Markout JSON and TSV lowerings of CLI Facts at `-v:d` carry the same
   URL as a field; for a fixture Member whose only finding is a Member-header
   finding, the Findings row and tooltip render the catalog line and link,
   the row offers no Annotated Source action and says so, and the Current
-  mark is still present; a descriptor without an entry renders no guidance
-  and no placeholder at each of those boundaries.
+  mark is still present; a finding without a matching catalog row, whether
+  its descriptor has no entry or only rows for an attribute the finding
+  lacks, such as a straight-line `alloc.new` admitted to the map, renders no
+  guidance and no placeholder at each of those boundaries, in the Findings
+  row, the inspector, the tooltip, and the `-v:d` line and its Markout
+  field.
 - **Profile:** Library Overview for a Debug, a runtime-async, and an unsafe
   fixture states each profile fact on one line.
 

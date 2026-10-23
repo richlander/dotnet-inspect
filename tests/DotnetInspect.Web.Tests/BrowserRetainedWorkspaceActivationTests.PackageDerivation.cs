@@ -44,11 +44,13 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
 
     // PR-fast: recorded CLI output plus the existing pinned NuGet payload.
     // workspace ecosystem add runtime; package System.Text.Json@10.0.0 --workspace PACKET --share packet
-    [Fact]
-    public async Task PackageAddAndActivate_ReopensRecordedCliPacket()
+    [Theory]
+    [InlineData("workspace-package-derived.json")]
+    [InlineData("workspace-package-replay.json")]
+    public async Task PackageAddAndActivate_ReopensRecordedCliPacket(string exampleFile)
     {
         string json = await File.ReadAllTextAsync(Path.Combine(
-            FindRepositoryRoot(), "docs", "examples", "workspace-package-derived.json"),
+            FindRepositoryRoot(), "docs", "examples", exampleFile),
             TestContext.Current.CancellationToken);
         string packet = WorkspaceSharePacketCodec.Encode(
             WorkspaceSharePacketCodec.ParseJson(json, TestContext.Current.CancellationToken));
@@ -70,8 +72,16 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             ignoreCase: true);
         Assert.Equal("10.0.0", Assert.Single(operation.Scope.Packages)
             .Occurrence.Package.Coordinate.Version);
-        Assert.Equal("ecosystem.runtime", Assert.IsType<WorkspaceRegistration.Ecosystem>(
-            Assert.Single(WorkspaceSharePacketCodec.Decode(posting.CanonicalPacket!, TestContext.Current.CancellationToken).Registrations))
-            .Declaration.Id.Value);
+        WorkspaceSharePacket restored = WorkspaceSharePacketCodec.Decode(
+            posting.CanonicalPacket!, TestContext.Current.CancellationToken);
+        Assert.Equal("package.libraries", posting.Navigation.Snapshot.LensOutcome.EffectiveLens?.Facet);
+        Assert.Equal(Assert.Single(restored.Tabs).Framework,
+            Assert.Single(operation.Scope.Packages).Occurrence.Package.Coordinate.Framework);
+        if (exampleFile == "workspace-package-derived.json")
+            Assert.Equal("ecosystem.runtime", Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                Assert.Single(restored.Registrations)).Declaration.Id.Value);
+        else
+            Assert.Equal("https://api.nuget.org/v3/index.json",
+                Assert.Single(restored.PackageSources).Endpoint);
     }
 }

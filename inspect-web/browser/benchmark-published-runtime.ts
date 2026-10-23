@@ -440,6 +440,7 @@ async function measurePackage(page: Page): Promise<{
         coordinate.packageId,
         coordinate.version,
         coordinate.targetFramework,
+        "",
       );
       const surface = loadResult.surface;
       if (surface === null) {
@@ -543,6 +544,7 @@ async function measureMemberThroughput(
       input.coordinate.packageId,
       input.coordinate.version,
       input.coordinate.targetFramework,
+      "",
     );
     const surface = loadResult.surface;
     if (surface === null) {
@@ -657,6 +659,7 @@ async function measureMethodComparison(
       coordinate.packageId,
       coordinate.version,
       coordinate.targetFramework,
+      "",
     );
     const surface = loadResult.surface;
     if (surface === null) {

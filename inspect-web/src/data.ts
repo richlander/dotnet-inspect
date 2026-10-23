@@ -128,11 +128,17 @@ export interface PackageIdentity {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
 }
 
 export function packageIdentityKey(pkg: PackageIdentity | null | undefined): string {
   if (!pkg) return "";
-  return [pkg.id, pkg.version, pkg.activeFramework]
+  return [
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    pkg.runtimeIdentifier ?? "",
+  ]
     .map(value => encodeURIComponent(value.toLowerCase()))
     .join("|");
 }
@@ -539,9 +545,7 @@ export interface RemoveWorkspacePackageInput extends PackageIdentity {
 export function workspacePackageRemovalKey(
   pkg: RemoveWorkspacePackageInput | null | undefined,
 ): string {
-  const packageKey = packageIdentityKey(pkg);
-  if (!packageKey || !pkg?.runtimeIdentifier) return packageKey;
-  return `${packageKey}|${encodeURIComponent(pkg.runtimeIdentifier.toLowerCase())}`;
+  return packageIdentityKey(pkg);
 }
 
 export interface RemoveWorkspacePackageResult<T> {
@@ -683,7 +687,10 @@ export function workspaceCoordinatesMatch(
     packageIdentityKey(packages[index]) === packageIdentityKey({
       id: tab.id,
       version: tab.version,
-      activeFramework: tab.framework
+      activeFramework: tab.framework,
+      ...(tab.runtimeIdentifier === undefined
+        ? {}
+        : { runtimeIdentifier: tab.runtimeIdentifier }),
     }));
 }
 

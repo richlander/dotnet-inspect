@@ -278,7 +278,7 @@ public static class AnnotatedTypeRelationsCallAdoption
     {
         var relationships = new HashSet<(MethodIdentity Source,
             MethodIdentity Target)>();
-        foreach (AssemblyContextCallCensusOccurrence occurrence in
+        foreach (TypeCallCompatibilityOccurrence occurrence in
             request.Evidence.Occurrences)
         {
             if (Satisfies(
@@ -298,7 +298,7 @@ public static class AnnotatedTypeRelationsCallAdoption
         IReadOnlyDictionary<MethodIdentity,
             TypeCallCompatibilityTarget> targets)
     {
-        foreach (AssemblyContextCallCensusOccurrence occurrence in
+        foreach (TypeCallCompatibilityOccurrence occurrence in
             request.Evidence.Occurrences)
         {
             if (Satisfies(
@@ -343,10 +343,9 @@ public static class AnnotatedTypeRelationsCallAdoption
                             CallGraphInspectionGraphCatalog.Call,
                             source,
                             target,
-                            new CallGraphCensusCallSiteEvidence(
-                                occurrence.OrderingKey,
-                                occurrence.Call,
-                                occurrence.CallSiteEvidence),
+                            new CallGraphFocusedCallSiteEvidence(
+                                occurrence.CallSite.Identity,
+                                occurrence.CallSite.Call),
                             []))));
         }
         return rows.MoveToImmutable();
@@ -384,7 +383,7 @@ public static class AnnotatedTypeRelationsCallAdoption
                                 attributeName));
                     if (attribute is null)
                         continue;
-                    AssemblyContextCallCensusOccurrence occurrence =
+                    TypeCallCompatibilityOccurrence occurrence =
                         groups.First(group => group.Target == method)
                             .Occurrences[0];
                     annotations.Add(
@@ -403,10 +402,14 @@ public static class AnnotatedTypeRelationsCallAdoption
                     == TypeCallCompatibilityTargetDisposition.Available);
             int unavailable = request.Evidence.Targets.Count(target =>
                 target.Disposition
-                    == TypeCallCompatibilityTargetDisposition.Unavailable);
+                    == TypeCallCompatibilityTargetDisposition.Unavailable)
+                + request.Evidence.UnavailableTargetMetadata;
             int limited = request.Evidence.Targets.Length
                 - available
-                - unavailable;
+                - request.Evidence.Targets.Count(target =>
+                    target.Disposition
+                        == TypeCallCompatibilityTargetDisposition.Unavailable)
+                + request.Evidence.LimitedTargetMetadata;
             bool complete = unavailable == 0 && limited == 0;
             colors.Add(
                 new(
@@ -416,7 +419,9 @@ public static class AnnotatedTypeRelationsCallAdoption
                         ? SubjectRelationProducerDisposition.Complete
                         : SubjectRelationProducerDisposition.Partial,
                     new(
-                        request.Evidence.Targets.Length,
+                        request.Evidence.Targets.Length
+                            + request.Evidence.UnavailableTargetMetadata
+                            + request.Evidence.LimitedTargetMetadata,
                         available,
                         excluded: 0,
                         unavailable,
@@ -500,13 +505,13 @@ public static class AnnotatedTypeRelationsCallAdoption
                     : MemberKind.Method));
 
     static InspectionGraphSubject TargetSubject(
-        AssemblyContextCallCensusOccurrence occurrence) =>
+        TypeCallCompatibilityOccurrence occurrence) =>
         InspectionGraphSubject.ForMember(
             GraphNodeIdentity.FromMethod(occurrence.TargetMethod),
-            occurrence.Call.Callee);
+            occurrence.CallSite.Call.Callee);
 
     sealed record RelationshipGroup(
         MethodIdentity Source,
         MethodIdentity Target,
-        ImmutableArray<AssemblyContextCallCensusOccurrence> Occurrences);
+        ImmutableArray<TypeCallCompatibilityOccurrence> Occurrences);
 }

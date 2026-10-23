@@ -79,7 +79,7 @@ async function queryPackage(page: Page, unit: Unit): Promise<CallResult> {
     const started = performance.now();
     try {
       const result = await window.__inspectWebRuntimeBenchmark!.package
-        .queryPackage(packageId, version, "");
+        .queryPackage(packageId, version, "", "");
       const surface = result.surface;
       if (surface === null) {
         return {
