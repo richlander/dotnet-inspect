@@ -70,6 +70,22 @@ public abstract class PackageHouseContentTerminal
     }
 
     /// <summary>
+    /// Every compile Library in one exact target and the declared assembly
+    /// roles needed from each one.
+    /// </summary>
+    public sealed class CompileLibraries : PackageHouseContentTerminal
+    {
+        public CompileLibraries(PackageAssetDemand assetDemand)
+        {
+            if (!Enum.IsDefined(assetDemand))
+                throw new ArgumentOutOfRangeException(nameof(assetDemand));
+            AssetDemand = assetDemand;
+        }
+
+        public PackageAssetDemand AssetDemand { get; }
+    }
+
+    /// <summary>
     /// The complete validated content of one or more exact package entries.
     /// </summary>
     public sealed class Files : PackageHouseContentTerminal
@@ -318,6 +334,9 @@ public sealed class PackageHouseContentQuery
         RetainedFileList = retainedFileList;
         RetainedLibraryInventory = retainedLibraryInventory;
         CompileLibraryTerminal = values.OfType<PackageHouseContentTerminal.CompileLibrary>().SingleOrDefault();
+        CompileLibrariesTerminal = values
+            .OfType<PackageHouseContentTerminal.CompileLibraries>()
+            .SingleOrDefault();
         FilesTerminal = values
             .OfType<PackageHouseContentTerminal.Files>()
             .SingleOrDefault();
@@ -370,6 +389,13 @@ public sealed class PackageHouseContentQuery
                 "A content query cannot request both Library inventory terminals.",
                 nameof(terminals));
         }
+        if (CompileLibrariesTerminal is not null
+            && narrowing is not PackageHouseContentNarrowing.TfmWide)
+        {
+            throw new ArgumentException(
+                "Compile Libraries require TFM-wide narrowing.",
+                nameof(narrowing));
+        }
     }
 
     /// <summary>The package-entry space shared by every terminal.</summary>
@@ -387,6 +413,9 @@ public sealed class PackageHouseContentQuery
     internal PackageHouseFileList? RetainedFileList { get; }
 
     internal PackageHouseContentTerminal.CompileLibrary? CompileLibraryTerminal { get; }
+
+    internal PackageHouseContentTerminal.CompileLibraries?
+        CompileLibrariesTerminal { get; }
 
     internal PackageHouseContentTerminal.LibraryAndInventoryForTarget?
         LibraryAndInventoryTerminal { get; }
@@ -482,5 +511,19 @@ public sealed class PackageHouseContentQuery
             [
                 new PackageHouseContentTerminal
                     .LibraryInventoryForTarget(),
+            ]);
+
+    /// <summary>
+    /// Creates one TFM-wide query for every compatible compile Library and
+    /// the declared assembly roles needed from each one.
+    /// </summary>
+    public static PackageHouseContentQuery GetLibrariesForTarget(
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal
+                    .CompileLibraries(assetDemand),
             ]);
 }

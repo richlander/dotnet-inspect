@@ -570,6 +570,40 @@ dotnet-inspect library System.Text.Json -S "Performance: Sync Calls in Async"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
+### Annotated Type Relations
+
+Use `type --relations` to request a machine-readable, Type-focused inventory
+of logical relations, physical occurrences, selected annotations, and
+producer completion. The request is explicit: an ordinary `type` command does
+not acquire relation evidence.
+
+```bash
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.13 \
+  --relations all \
+  --relation-color member.requires-unreferenced-code \
+  --relation-color member.requires-dynamic-code \
+  --relation-color member.requires-assembly-files \
+  --json
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.13 \
+  --relations call --count --json
+```
+
+`--relations` accepts `all` or one or more canonical family ids. Values may be
+repeated or comma-separated; `all` cannot be combined with explicit ids. The
+current relationship family id is `call`. `--relation-color` selects an
+annotation family, while `--require-relation-color` also filters relations to
+targets carrying that selected color.
+
+The initial host gesture supports outgoing relations and `--json` or
+`--envelope`. `--count` selects the Count terminal; otherwise the request
+selects Rows. Share, section/discovery gestures, Tree, Mermaid, and implicit
+host defaults are not part of this route. Semantic-row and rendered-line
+selection gestures are also rejected rather than silently applied after the
+canonical document is generated.
+
 ### Decompiler
 
 Use `member -S @Source` for the authored-first source view, forced PDB and
@@ -2326,6 +2360,15 @@ surface `api` shows its `api.type` rows and then its `api.member` rows.
 `Changes` requires `api`. `Transitions` requires a selected analysis that
 declares it at the request surface: Type and Member analyses do so at their
 surfaces, while `string-literals` declares Library Transitions.
+
+A lone `Summary` or `Transitions` section defaults to TSV rows. Explicit
+`--table`, `--tsv`, and `--jsonl` emit only that section's rows, without
+Versions or status context; Transitions includes stable `old_inspection` and
+`new_inspection` columns, empty when absent. Use `--markdown` for the contextual
+Document. `--json` retains the structured Document and native numeric counts;
+`--envelope` additionally retains Share and diagnostics. Mixed section
+selections remain Documents. These two sections do not offer `--tree`.
+
 `--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
 only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
 entries are all reported before acquisition.

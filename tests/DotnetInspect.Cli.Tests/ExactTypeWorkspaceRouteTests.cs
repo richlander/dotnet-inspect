@@ -49,7 +49,8 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackageSourceSettlementService.IssueLease(_ => client);
         var house = new PackageHouse(
             authorization,
-            new PackagePayloadAcquisitionPlan((_, _) => store));
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
         var options = new TypeOptions
         {
             PackagePath = $"{PackageId}@{Version}",
@@ -981,6 +982,14 @@ public sealed class ExactTypeWorkspaceRouteTests
                 options with
                 {
                     JsonOutput = true,
+                    AnnotatedRelationIds = ["all"],
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
                     RequestAllTaste = true,
                 },
                 out _));
@@ -1570,6 +1579,38 @@ public sealed class ExactTypeWorkspaceRouteTests
         Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task EligibleRouteFindsTypeInNonNamesakeLibrary()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        var options = new TypeOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = typeof(ApiType).FullName,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleRouteAsync(
+                    options,
+                    store));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            typeof(ApiType).FullName!,
+            output,
+            StringComparison.Ordinal);
+    }
+
     static async Task<IPackageStore> CachedStoreAsync(
         params (string EntryPath, byte[] Content)[] entries)
     {
@@ -1628,7 +1669,8 @@ public sealed class ExactTypeWorkspaceRouteTests
             PackageSourceSettlementService.IssueLease(_ => client);
         var house = new PackageHouse(
             authorization,
-            new PackagePayloadAcquisitionPlan((_, _) => store));
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
         return await TypeCommand.ExecuteAsync(
             options,
             ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),

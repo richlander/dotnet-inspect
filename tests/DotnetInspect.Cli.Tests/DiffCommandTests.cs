@@ -2960,7 +2960,8 @@ public class DiffCommandTests
                 LibraryVersionRange = $"{v1}..{v2}",
                 Select = ["Transitions"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
-                MemberFilter = ["ConstantValue"]
+                MemberFilter = ["ConstantValue"],
+                FormatExplicitlySet = true,
             }));
 
         Assert.Equal(0, exitCode);
@@ -2994,12 +2995,151 @@ public class DiffCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.Contains("# Transitions:", output, StringComparison.Ordinal);
+        Assert.StartsWith("transition\tfinding\ttarget\t", output);
         Assert.Contains(
             output.Split('\n'),
-            line => line.StartsWith("| PairFinding.Added | " + finding + " |", StringComparison.Ordinal)
+            line => line.StartsWith("PairFinding.Added\t" + finding + "\t", StringComparison.Ordinal)
                 && line.Contains(target, StringComparison.Ordinal));
-        Assert.DoesNotContain("## Changes", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("Versions", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("selected Finding", output, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Summary", "summary", 7)]
+    [InlineData("Transitions", "transitions", 10)]
+    public async Task AnalysisRepresentation_TableEncodingsContainOnlyDocumentRows(
+        string section,
+        string property,
+        int columnCount)
+    {
+        var request = new DiffOptions
+        {
+            LibraryVersionRange =
+                $"{FixtureCatalog.DiffPair.OldAssemblyPath()}..{FixtureCatalog.DiffPair.NewAssemblyPath()}",
+            Analysis = ["api"],
+            IncludeSections = [section],
+            TypeFilter = ["DiffFixtureSample.DiffSample"],
+            MemberFilter = ["ConstantValue"],
+        };
+        var (defaultExit, defaultOutput, defaultError) =
+            await ConsoleCapture.RunAsync(async () =>
+                await CommandLineBuilder.CreateRootCommand().Parse(
+                    CommandLineBuilder.PreprocessArgs(
+                    [
+                        "diff", "--library", request.LibraryVersionRange!,
+                        "--analysis", "api", "-S", section,
+                        "--type", "DiffFixtureSample.DiffSample",
+                        "--member", "ConstantValue",
+                    ])).InvokeAsync());
+        var (tsvExit, tsvOutput, tsvError) =
+            await ConsoleCapture.RunAsync(() => DiffCommand.ExecuteAsync(
+                request with { Tabular = true, Tsv = true, FormatExplicitlySet = true }));
+        var (jsonlExit, jsonlOutput, jsonlError) =
+            await ConsoleCapture.RunAsync(() => DiffCommand.ExecuteAsync(
+                request with { Tabular = true, Jsonl = true, FormatExplicitlySet = true }));
+        var (jsonExit, jsonOutput, jsonError) =
+            await ConsoleCapture.RunAsync(() => DiffCommand.ExecuteAsync(
+                request with { JsonOutput = true }));
+
+        Assert.All(new[] { defaultExit, tsvExit, jsonlExit, jsonExit },
+            exit => Assert.Equal(0, exit));
+        Assert.All(new[] { defaultError, tsvError, jsonlError, jsonError }, Assert.Empty);
+        Assert.Equal(tsvOutput, defaultOutput);
+        using var document = JsonDocument.Parse(jsonOutput);
+        JsonElement rows = document.RootElement.GetProperty(property);
+        string[] lines = tsvOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(rows.GetArrayLength() + 1, lines.Length);
+        Assert.All(lines, line => Assert.Equal(columnCount, line.TrimEnd('\r').Split('\t').Length));
+        Assert.DoesNotContain("Versions", tsvOutput, StringComparison.Ordinal);
+        string[] jsonLines = jsonlOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(rows.GetArrayLength(), jsonLines.Length);
+        for (int i = 0; i < jsonLines.Length; i++)
+        {
+            using var row = JsonDocument.Parse(jsonLines[i]);
+            Assert.Equal(columnCount, row.RootElement.EnumerateObject().Count());
+            string identity = section == "Summary" ? "analysis" : "target";
+            Assert.Equal(rows[i].GetProperty(identity).GetString(),
+                row.RootElement.GetProperty(identity).GetString());
+        }
+        Assert.True(document.RootElement.TryGetProperty("comparison", out _));
+        Assert.True(document.RootElement.TryGetProperty("outcomes", out _));
+        if (section == "Summary")
+            Assert.Equal(JsonValueKind.Number, rows[0].GetProperty("present").ValueKind);
+    }
+
+    [Fact]
+    public void AnalysisRepresentation_SharedTablesMatchDocumentsAndKeepFailureEvidence()
+    {
+        var before = new ApiSurface();
+        before.InspectionFailures.Add(new ApiSurfaceInspectionFailure(
+            "type row", 0x02000001, MetadataTypeNameFailureMechanism.Metadata,
+            "MalformedMetadata", "The type row could not be decoded."));
+        var after = DiffSurface(DiffType("Sample", "Widget"));
+        var selection = Assert.IsType<AnalysisSetValidationResult.Accepted>(
+            DiffAnalysisCommandCapability.Catalog.AnalysisCapabilities.ValidateSet(
+                DiffAnalysisCatalog.Operation, AnalysisReportSurfaceKind.Type, 1, ["api"]));
+        var request = new DiffAnalysisInspectionRequest(
+            "Sample", "1.0.0", "2.0.0",
+            DiffAnalysisCommandCapability.Catalog,
+            selection,
+            new DiffAnalysisInput(
+                before, after, [], [], new HashSet<string>(["Sample.Widget"]),
+                ["Sample.Widget"], null, null),
+            DiffAnalysisDocumentViews.Summary);
+        var summary = DiffAnalysisInspection.ExecuteSummaryTable(request);
+        var summaryDocument = DiffAnalysisInspection.Execute(request);
+        Assert.Equal(summaryDocument.Content.Summary!.Value.ToArray(), summary.Content.Rows.ToArray());
+        Assert.Equal(summaryDocument.Diagnostics.ToArray(), summary.Diagnostics.ToArray());
+        Assert.Contains(summary.Diagnostics, diagnostic =>
+            diagnostic.Severity == InspectionDiagnosticSeverity.Error);
+
+        request = request with { Views = DiffAnalysisDocumentViews.Transitions };
+        var transitions = DiffAnalysisInspection.ExecuteTransitionsTable(request);
+        var transitionsDocument = DiffAnalysisInspection.Execute(request);
+        Assert.Equal(transitionsDocument.Content.Transitions!.Value.ToArray(), transitions.Content.Rows.ToArray());
+        Assert.Equal(transitionsDocument.Diagnostics.ToArray(), transitions.Diagnostics.ToArray());
+        Assert.Throws<ArgumentException>(() =>
+            DiffAnalysisInspection.ExecuteSummaryTable(request));
+    }
+
+    [Fact]
+    public async Task AnalysisRepresentation_EmptyTransitionsKeepSchemaWithoutDocumentStatus()
+    {
+        var request = new DiffOptions
+        {
+            LibraryVersionRange =
+                $"{FixtureCatalog.DiffPair.OldAssemblyPath()}..{FixtureCatalog.DiffPair.NewAssemblyPath()}",
+            Analysis = ["allocation"],
+            TypeFilter = ["DiffFixtureSample.DiffSample"],
+            MemberFilter = ["Stable"],
+        };
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(() => DiffCommand.ExecuteAsync(request));
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal("transition\tfinding\ttarget\tfrom\tto\told\tnew\tdetail\told_inspection\tnew_inspection",
+            output.TrimEnd('\r', '\n'));
+        var (jsonlExit, jsonl, jsonlError) =
+            await ConsoleCapture.RunAsync(() => DiffCommand.ExecuteAsync(
+                request with { Tabular = true, Jsonl = true }));
+        Assert.Equal(0, jsonlExit);
+        Assert.Empty(jsonl);
+        Assert.Empty(jsonlError);
+    }
+
+    [Fact]
+    public async Task AnalysisRepresentation_TreeFailsBeforeAcquisition()
+    {
+        var (exit, output, error) =
+            await ConsoleCapture.RunAsync(() => DiffCommand.ExecuteAsync(new DiffOptions
+            {
+                LibraryVersionRange = "missing-before.dll..missing-after.dll",
+                IncludeSections = ["Summary"],
+                Tree = true,
+            }));
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("Summary does not offer a Hierarchy representation.", error);
     }
 
     [Fact]
