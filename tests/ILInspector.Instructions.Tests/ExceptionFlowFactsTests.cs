@@ -9,7 +9,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Instructions.Tests;
 
-public partial class ExceptionFlowFactsTests
+public class ExceptionFlowFactsTests
 {
     static string SelfPath => typeof(ExceptionFlowFactsTests).Assembly.Location;
 

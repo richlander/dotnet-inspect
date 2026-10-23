@@ -11,13 +11,13 @@ namespace ILInspector.Analysis.Planning;
 /// The unsafe member census rule's role scan
 /// (<c>docs/design/unsafe-member-findings.md#role-scan</c>). It decides,
 /// without materializing a body, that the full rule finds no instruction role
-/// in it and cannot fail it; every other body takes the full rule.
+/// in it; every other body takes the full rule.
 /// </summary>
 internal static class UnsafeMemberRoleScan
 {
     /// <summary>
-    /// Whether the body decodes completely, has no occurrence opcode, and makes
-    /// no call the full rule could resolve differently or find explicit.
+    /// Whether the body decodes, has no occurrence opcode, and makes no call
+    /// that can be an explicit-contract call.
     /// </summary>
     internal static bool ProvablyRoleFree(scoped MethodDefinitionView view)
     {
@@ -25,17 +25,12 @@ internal static class UnsafeMemberRoleScan
         var scan = new BodyScan();
         try
         {
-            if (InstructionDecoder.VisitBody(body, ref scan)
-                != MethodBodyVisitOutcome.Complete)
-            {
+            if (!InstructionDecoder.Visit(body.IL.AsSpan(), ref scan))
                 return false;
-            }
             if (scan.Count == 0)
                 return true;
 
             UnsafeMemberRoleScanFacts facts = view.GetUnsafeMemberRoleScanFacts();
-            if (!facts.CallerScopeReads(view.MethodDefinition))
-                return false;
             var scope = new CallerArity(
                 view.TypeDefinition.GetGenericParameters().Count,
                 view.MethodDefinition.GetGenericParameters().Count);
@@ -119,20 +114,18 @@ internal readonly record struct CallerArity(int TypeArity, int MethodArity);
 /// <summary>
 /// The role scan's call-operand facts for one execution, owned by its
 /// memory-safety contract support. A call operand's fact depends only on the
-/// operand, the caller's generic arities, and whether the operand is called
-/// or loaded, so one fact serves every caller with that key.
+/// operand and the caller's generic arities, so one fact serves every caller
+/// with that key.
 /// </summary>
 internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
 {
-    readonly Dictionary<(int Token, CallerArity Scope, bool Loads), bool> _defers = [];
-    readonly Dictionary<TypeDefinitionHandle, bool> _callerTypes = [];
+    readonly Dictionary<(int Token, CallerArity Scope), bool> _defers = [];
     bool? _namesContractAttribute;
     SameImageSignatureComparer? _comparer;
 
     /// <summary>
-    /// Whether a body with this call operand must take the full rule: the
-    /// full rule's resolution of it can fail, or it can be an explicit-contract
-    /// call.
+    /// Whether a body with this call operand must take the full rule: it can
+    /// be an explicit-contract call, or the scan cannot read it.
     /// </summary>
     public bool Defers(
         scoped MethodDefinitionView view,
@@ -140,11 +133,13 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
         ILOpCode opcode,
         int token)
     {
-        bool loads = opcode is ILOpCode.Ldftn or ILOpCode.Ldvirtftn;
-        if (!_defers.TryGetValue((token, scope, loads), out bool defers))
+        // A loaded function pointer is never an explicit-contract call.
+        if (opcode is ILOpCode.Ldftn or ILOpCode.Ldvirtftn)
+            return false;
+        if (!_defers.TryGetValue((token, scope), out bool defers))
         {
-            defers = Classify(view, opcode, token, loads);
-            _defers[(token, scope, loads)] = defers;
+            defers = Classify(view, opcode, token);
+            _defers[(token, scope)] = defers;
         }
         return defers;
     }
@@ -152,8 +147,7 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
     bool Classify(
         scoped MethodDefinitionView view,
         ILOpCode opcode,
-        int token,
-        bool loads)
+        int token)
     {
         EntityHandle handle = MetadataTokens.EntityHandle(token);
         if (handle.Kind is not (
@@ -164,11 +158,6 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
             return true;
         }
 
-        // The full rule resolves every call site's callee and target, so a
-        // failure of either fails it. An operand that cannot reach the current
-        // module resolves its target to External or RuntimeProvided after the
-        // same callee decode, so only an operand that may reach it resolves
-        // its target here.
         MemberRef callee;
         try
         {
@@ -178,16 +167,23 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
         {
             return true;
         }
+        if (PlatformCallerUnsafeContracts.Embedded.Contains(callee))
+            return true;
 
+        // A same-image target is explicit only through a RequiresUnsafe
+        // attribute row, whose constructor names a TypeDef or TypeRef of that
+        // name; an image with no such row has no explicit target.
+        _namesContractAttribute ??= NamesContractAttribute(reader);
+        if (_namesContractAttribute != true)
+            return false;
+
+        // A MethodDef operand binds by token: its target is that MethodDef,
+        // or unresolved when a call-site check fails.
         EntityHandle method = handle.Kind == HandleKind.MethodSpecification
             ? reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method
             : handle;
-        if (method.Kind == HandleKind.MethodDefinition
-            && MetadataTokens.GetRowNumber(method) is > 0 and int row
-            && row <= reader.MethodDefinitions.Count)
-        {
-            return DefinitionDefers(view, (MethodDefinitionHandle)method, callee, loads);
-        }
+        if (method.Kind == HandleKind.MethodDefinition)
+            return MayBeExplicit(view, method);
 
         EntityHandle definition = MetadataTokens.EntityHandle(
             MemberResolver.DefinitionToken(reader, MetadataTokens.GetToken(method)));
@@ -196,34 +192,21 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
                 ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
                 : null,
             reader.GetString(reader.GetModuleDefinition().Name));
-        bool mayReachCurrentModule =
-            definition.Kind == HandleKind.MethodDefinition
-            || _comparer.CanResolveToCurrentModule(callee.DeclaringType);
-        MethodCallTarget? target = null;
-        if (mayReachCurrentModule)
+        if (definition.Kind != HandleKind.MethodDefinition
+            && !_comparer.CanResolveToCurrentModule(callee.DeclaringType))
         {
-            try
-            {
-                target = view.ResolveCallTarget(KindOf(opcode), token);
-            }
-            catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
-            {
-                return true;
-            }
+            return false;
         }
 
-        if (loads)
-            return false;
-        if (PlatformCallerUnsafeContracts.Embedded.Contains(callee))
+        MethodCallTarget target;
+        try
+        {
+            target = view.ResolveCallTarget(KindOf(opcode), token);
+        }
+        catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
+        {
             return true;
-
-        // A same-image target is explicit only through a RequiresUnsafe
-        // attribute row, whose constructor names a TypeDef or TypeRef of that
-        // name; an image with no such row has no explicit target.
-        _namesContractAttribute ??= NamesContractAttribute(reader);
-        if (_namesContractAttribute != true || !mayReachCurrentModule)
-            return false;
-
+        }
         if (target is MethodCallTarget.CurrentModule current)
             return MayBeExplicit(view, current.Method);
 
@@ -231,75 +214,6 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
         // this caller while another caller with the same key resolves it.
         return definition.Kind != HandleKind.MethodDefinition
             || MayBeExplicit(view, definition);
-    }
-
-    // A call whose method is a MethodDef of this module binds by token. Its
-    // target resolution reads the callee's declaring type, generic parameters,
-    // and signature header, which the callee decode already read, plus the
-    // signature blob and the caller's scope, which CallerScopeReads checks per
-    // body. Its target is that MethodDef, or unresolved when a call-site check
-    // fails, so the fact needs no target resolution.
-    bool DefinitionDefers(
-        scoped MethodDefinitionView view,
-        MethodDefinitionHandle method,
-        MemberRef callee,
-        bool loads)
-    {
-        try
-        {
-            reader.GetBlobReader(reader.GetMethodDefinition(method).Signature);
-        }
-        catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
-        {
-            return true;
-        }
-
-        if (loads)
-            return false;
-        if (PlatformCallerUnsafeContracts.Embedded.Contains(callee))
-            return true;
-        _namesContractAttribute ??= NamesContractAttribute(reader);
-        return _namesContractAttribute == true && MayBeExplicit(view, method);
-    }
-
-    /// <summary>
-    /// Whether the caller-scope reads that target resolution performs for any
-    /// call in <paramref name="caller"/>'s body succeed: its declaring type's
-    /// decoded definition and generic parameter names, and its own generic
-    /// parameter names.
-    /// </summary>
-    public bool CallerScopeReads(MethodDefinition caller)
-    {
-        try
-        {
-            TypeDefinitionHandle type = caller.GetDeclaringType();
-            if (!_callerTypes.TryGetValue(type, out bool reads))
-            {
-                try
-                {
-                    MemberResolver.GenericParameterNames(
-                        reader,
-                        reader.GetTypeDefinition(type).GetGenericParameters());
-                    TypeRefDecoder.Instance.GetTypeFromDefinition(reader, type, 0);
-                    reads = true;
-                }
-                catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
-                {
-                    reads = false;
-                }
-                _callerTypes[type] = reads;
-            }
-            if (!reads)
-                return false;
-            GenericParameterHandleCollection parameters = caller.GetGenericParameters();
-            if (parameters.Count != 0)
-                MemberResolver.GenericParameterNames(reader, parameters);
-            return true;
-        }
-        catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
-        {
-            return false;
-        }
     }
 
     static bool MayBeExplicit(
@@ -313,9 +227,7 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
     {
         ILOpCode.Call => CallKind.Call,
         ILOpCode.Callvirt => CallKind.CallVirtual,
-        ILOpCode.Newobj => CallKind.NewObject,
-        ILOpCode.Ldftn => CallKind.LoadFunction,
-        _ => CallKind.LoadVirtualFunction,
+        _ => CallKind.NewObject,
     };
 
     static bool NamesContractAttribute(MetadataReader reader)
