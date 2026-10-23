@@ -70,7 +70,8 @@ public sealed class IlCensusSide
             reader,
             names,
             (policy & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0 ? MetadataSymbolScope.Omitted : MetadataSymbolScope.Declared,
-            new Rows(this));
+            new Rows(this),
+            scratchCapacity: 1024);
         _referenced = ReferenceEquals(correspondence, CompilerGeneratedOrdinalCorrespondence.Empty) ? _rows : [];
     }
 
