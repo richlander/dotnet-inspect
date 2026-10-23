@@ -113,6 +113,35 @@ public static partial class ExactTypeInspectionOperation
             cancellationToken);
     }
 
+    /// <summary>
+    /// Executes ordered exact package Type candidates under one admitted
+    /// package scope, stopping at the first outcome other than not found, and
+    /// lends any live defining target to one asynchronous consumer.
+    /// </summary>
+    public static Task<TResult> ExecuteFirstAvailableWithLiveTargetAsync<TResult>(
+        IReadOnlyList<ExactTypeInspectionRequest> requests,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        ApiSurfaceScope scope,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        ArgumentNullException.ThrowIfNull(use);
+        return ExecuteWithLiveTargetAsyncCore(
+            requests,
+            house,
+            sourceOperation,
+            projectionLimits: null,
+            scope,
+            use,
+            cancellationToken);
+    }
+
     static async Task<TResult> ExecuteWithLiveTargetAsyncCore<TResult>(
             ExactTypeInspectionRequest request,
             PackageHouse house,
@@ -125,15 +154,39 @@ public static partial class ExactTypeInspectionOperation
                 CancellationToken,
                 ValueTask<TResult>> use,
             CancellationToken cancellationToken)
+        => await ExecuteWithLiveTargetAsyncCore(
+                [request],
+                house,
+                sourceOperation,
+                projectionLimits,
+                surfaceScope,
+                use,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    static async Task<TResult> ExecuteWithLiveTargetAsyncCore<TResult>(
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
+            ApiSurfaceProjectionLimits? projectionLimits,
+            ApiSurfaceScope surfaceScope,
+            Func<
+                InspectionEnvelope<ExactTypeInspectionResult>,
+                SelectedContextExactTypeLiveTarget?,
+                CancellationToken,
+                ValueTask<TResult>> use,
+            CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(requests);
         ArgumentNullException.ThrowIfNull(house);
         ArgumentNullException.ThrowIfNull(sourceOperation);
         ArgumentNullException.ThrowIfNull(use);
 
+        ExactTypeInspectionRequest request;
         PackageEndpointScopeRequest endpointRequest;
         try
         {
+            request = ValidateCandidateRequests(requests);
             endpointRequest = PackageEndpointScopeRequest
                 .ForCompileLibraries(
                 PackageSourceCoordinate.Create(
@@ -183,8 +236,41 @@ public static partial class ExactTypeInspectionOperation
                                 surfaceScope,
                                 token)
                             .ConfigureAwait(false);
+                        ExactTypeInspectionRequest selectedRequest = request;
+                        if (retained.Result.Outcome
+                            == ExactTypeInspectionOutcome.NotFound)
+                        {
+                            for (int index = 1;
+                                index < requests.Count;
+                                index++)
+                            {
+                                ExactTypeInspectionRequest candidate =
+                                    requests[index];
+                                ExactTypeInspectionExecution candidateResult =
+                                    await ExecuteRetainedExecutionCoreAsync(
+                                        workspace,
+                                        package,
+                                        realization,
+                                        candidate,
+                                        projectionLimits,
+                                        surfaceScope,
+                                        token)
+                                    .ConfigureAwait(false);
+                                if (candidateResult.Result.Outcome
+                                    == ExactTypeInspectionOutcome.NotFound)
+                                {
+                                    continue;
+                                }
+
+                                retained = candidateResult;
+                                selectedRequest = candidate;
+                                break;
+                            }
+                        }
                         return await use(
-                                Envelope(retained.Result, request),
+                                Envelope(
+                                    retained.Result,
+                                    selectedRequest),
                                 LiveTarget(retained.Target),
                                 token)
                             .ConfigureAwait(false);
@@ -209,6 +295,49 @@ public static partial class ExactTypeInspectionOperation
             _ => throw new InvalidOperationException(
                 "Package endpoint execution returned an unknown result."),
         };
+    }
+
+    static ExactTypeInspectionRequest ValidateCandidateRequests(
+        IReadOnlyList<ExactTypeInspectionRequest> requests)
+    {
+        if (requests.Count == 0)
+        {
+            throw new ArgumentException(
+                "At least one exact Type request is required.",
+                nameof(requests));
+        }
+
+        ExactTypeInspectionRequest first =
+            requests[0]
+            ?? throw new ArgumentException(
+                "Exact Type requests cannot contain null.",
+                nameof(requests));
+        foreach (ExactTypeInspectionRequest? candidate in requests)
+        {
+            if (candidate is null)
+            {
+                throw new ArgumentException(
+                    "Exact Type requests cannot contain null.",
+                    nameof(requests));
+            }
+            if (!candidate.PackageId.Equals(
+                    first.PackageId,
+                    StringComparison.OrdinalIgnoreCase)
+                || !candidate.Version.Equals(
+                    first.Version,
+                    StringComparison.OrdinalIgnoreCase)
+                || !candidate.TargetFramework.Equals(
+                    first.TargetFramework,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException(
+                    "Exact Type candidates must share one package coordinate "
+                        + "and target framework.",
+                    nameof(requests));
+            }
+        }
+
+        return first;
     }
 
     /// <summary>

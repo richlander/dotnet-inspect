@@ -1665,6 +1665,71 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task DefaultMemberPositionalSelectorStaysOnPackageHouseRoute()
+    {
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/ILInspector.Metadata.dll",
+                await File.ReadAllBytesAsync(
+                    typeof(ApiType).Assembly.Location,
+                    TestContext.Current.CancellationToken)));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                $"{typeof(ApiType).FullName}.{nameof(ApiType.Accessibility)}",
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(error);
+        Assert.Contains(
+            nameof(ApiType.Accessibility),
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(ApiType.DefinitionName),
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"Library: lib/{Framework}/ILInspector.Metadata.dll",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "selected.dll",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DefaultMemberRoutePreservesPublicTypeBoundary()
     {
         const string typeNamespace = "Hidden";

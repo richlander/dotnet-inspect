@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Services;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 using static DotnetInspect.Cli.Commands.WorkspaceTypeInspectionTarget;
 
 namespace DotnetInspect.Cli.Commands;
@@ -134,9 +135,30 @@ public static partial class MemberCommand
     {
         try
         {
+            var requests =
+                new List<ExactTypeInspectionRequest> { request };
+            var impliedMembers =
+                new Dictionary<string, string>(StringComparer.Ordinal);
+            if (options.MemberFilter.Count == 0)
+            {
+                foreach (ImpliedMemberTypeCandidate candidate
+                    in ApiTypeLookupService.GetImpliedMemberTypeCandidates(
+                        options.TypeName!))
+                {
+                    var candidateRequest = new ExactTypeInspectionRequest(
+                        request.PackageId,
+                        request.Version,
+                        request.TargetFramework,
+                        candidate.TypeName);
+                    requests.Add(candidateRequest);
+                    impliedMembers[candidateRequest.Type] =
+                        candidate.MemberSelector;
+                }
+            }
+
             return await ExactTypeInspectionOperation
-                .ExecuteWithLiveTargetAsync<int?>(
-                    request,
+                .ExecuteFirstAvailableWithLiveTargetAsync<int?>(
+                    requests,
                     house,
                     sourceOperation,
                     ApiSurfaceScope.Public,
@@ -145,27 +167,62 @@ public static partial class MemberCommand
                         if (!envelope.Content.IsAvailable
                             || target is null)
                         {
-                            if (envelope.Content.Outcome
-                                    == ExactTypeInspectionOutcome.NotFound
-                                && options.MemberFilter.Count == 0
-                                && HasPotentialImpliedMember(
-                                    options.TypeName!))
-                            {
-                                return null;
-                            }
-
                             TypeCommand.WriteExactTypeNonSuccess(
                                 envelope.Content,
                                 envelope.Diagnostics);
                             return 1;
                         }
 
+                        MemberOptions effectiveOptions = options;
+                        ResolvedMemberInspectionPlan effectivePlan = plan;
+                        if (impliedMembers.TryGetValue(
+                                envelope.Content.RequestedType,
+                                out string? impliedMember))
+                        {
+                            MemberTargetSelector selector =
+                                MemberTargetSelector.Parse(impliedMember);
+                            effectiveOptions = options with
+                            {
+                                MemberFilter =
+                                    new HashSet<string>(
+                                        StringComparer.OrdinalIgnoreCase)
+                                    {
+                                        selector.Name,
+                                    },
+                                MemberGenericArity = selector.GenericArity,
+                                OverloadIndex =
+                                    options.OverloadIndex
+                                    ?? selector.OverloadIndex,
+                                MemberDigest = MergeDigestPrefixes(
+                                    options.MemberDigest,
+                                    selector.DigestPrefix),
+                            };
+                            effectivePlan =
+                                ResolvedMemberInspectionPlan
+                                    .FromCompatibilityOptions(
+                                        effectiveOptions);
+                            var (preamble, error) =
+                                ApiCommand.RunPreamble(
+                                    effectiveOptions,
+                                    effectivePlan);
+                            if (error.HasValue)
+                                return error.Value;
+                            effectiveOptions =
+                                (MemberOptions)preamble.Options;
+                        }
+
+                        ExactTypeInspectionRequest selectedRequest =
+                            requests.First(candidate =>
+                                candidate.Type.Equals(
+                                    envelope.Content.RequestedType,
+                                    StringComparison.Ordinal));
                         TypeCommand.WriteInspectionDiagnostics(
                             envelope.Diagnostics);
                         int exitCode =
                             await WorkspaceTypeInspectionTarget.ExecuteAsync(
-                                    options,
-                                    ExactTypeRenderSource.From(request) with
+                                    effectiveOptions,
+                                    ExactTypeRenderSource.From(
+                                        selectedRequest) with
                                     {
                                         SelectedLibraryPath =
                                             target.PackageAssetPath,
@@ -173,8 +230,8 @@ public static partial class MemberCommand
                                     target,
                                     (source, loaded) =>
                                         ExecuteWithShareAsync(
-                                            options,
-                                            plan,
+                                            effectiveOptions,
+                                            effectivePlan,
                                             source,
                                             loaded))
                                 .ConfigureAwait(false);
