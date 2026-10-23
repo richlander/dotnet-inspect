@@ -1790,14 +1790,16 @@ public sealed partial class MethodDefinitionRequestSetTests
                 ProducerTerminal terminal,
                 int? rowLimit,
                 ImmutableArray<int> dependencies,
-                UnitFactRetention retention) =>
+                UnitFactRetention retention,
+                bool retainResult) =>
             new FusedState(
                 this,
                 execution,
                 terminal,
                 rowLimit,
                 dependencies,
-                retention);
+                retention,
+                retainResult);
 
         internal override int Visit(
             scoped MethodDefinitionView view)
@@ -1847,14 +1849,16 @@ public sealed partial class MethodDefinitionRequestSetTests
                 ProducerTerminal terminal,
                 int? rowLimit,
                 ImmutableArray<int> dependencies,
-                UnitFactRetention retention)
+                UnitFactRetention retention,
+                bool retainResult)
                 : base(
                     producer,
                     execution,
                     terminal,
                     rowLimit,
                     dependencies,
-                    retention)
+                    retention,
+                    retainResult)
             {
             }
 

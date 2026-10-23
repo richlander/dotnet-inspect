@@ -26,6 +26,12 @@ uses request-set access while the PEReader overload remains the direct
 reference. Direct and request-set operations now carry an owner-issued source
 adapter opaquely: the service reads no Method breadth, layer, terminal, request,
 or receipt type and contains no source-kind switch.
+`AssemblyContextCallGraphAnalysis` now adopts the same boundary for one
+all-definition `LibraryCallGraphProducer` request. The producer composes
+physical Method, allocation, and declared-source evidence, and the sink
+publishes `LibraryCallGraphAnalysisResult` with exact Method-source and
+Producer Planning receipts. This production path no longer invokes
+`LibraryBodyAnalysisService`.
 Other source kinds, cancellation, residual request satisfaction, and mixed-
 hub composition remain **unverified**. The no-remainder rule and split
 exact-member prerequisites are recorded under
@@ -508,6 +514,18 @@ absent declarations, and other target shapes retain the established
 body-signal fallback. The unsafe member census
 adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
+
+`LibraryCallGraphProducer` is the first all-definition production adoption.
+It requests all MethodDefs plus the generated execution-body relation, visits
+physical Method and allocation facts once, and publishes detached declared
+methods, managed methods, direct calls, safety evidence, body signals,
+exception classification, declared-owner mappings, and diagnostics.
+`AssemblyContextCallGraphAnalysis` binds that Rows terminal through
+`AssemblyAnalysisOperation` and consumes only the focused result. Its
+`LibraryCallGraphAnalysisResult` compatibility receipt remains transitional;
+the exact Method-source receipt and Producer Planning work receipt are the
+authoritative execution evidence. Type Method Leverage and other consumers of
+the legacy whole-library Call Graph remain separate drain slices.
 
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 same exact producer for safety-only IL-coordinate preparation. Direct CLI and
