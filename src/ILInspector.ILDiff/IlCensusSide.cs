@@ -15,8 +15,9 @@ namespace ILInspector.ILDiff;
 /// <see cref="MetadataSymbolSpeller{TDomain,TRow,TRows}"/> into this side's
 /// population and memoized by token for the side's life, so a token met again
 /// costs a lookup and every cursor over the image spells a row once. Under
-/// Finding Diff Any's Body policy the bytes are the keys that comparison
-/// memoizes. The text a view shows is a projection
+/// Finding Diff Any's Body policy the bytes are the expansions of the keys
+/// that comparison memoizes, which embed named Types as Ref parts of its
+/// table. The text a view shows is a projection
 /// (<see cref="IlOperandIdentity.Value"/>), formatted from the side only where
 /// it is read and never compared.
 /// </summary>
