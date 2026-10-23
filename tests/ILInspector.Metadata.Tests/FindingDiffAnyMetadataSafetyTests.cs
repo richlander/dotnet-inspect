@@ -276,12 +276,12 @@ public sealed class FindingDiffAnyMetadataSafetyTests
         Assert.Equal(FindingDiffAnyState.Unchanged, owner.Body);
     }
 
-    // ECMA-335 II.23.2.12 lets CLASS and VALUETYPE name a TypeSpec row inside a
-    // signature, which compilers do not emit but readers accept. A composite
-    // over such a row is spelled after the row is, so one spelling never opens
-    // two scratch keys.
+    // ECMA-335 II.23.2.7 lets a custom modifier name a TypeSpec row, the one
+    // place the reader admits one inside a signature. A composite over such a
+    // row resolves it before the composite's scratch key opens, so one spelling
+    // never opens two scratch keys.
     [Fact]
-    public void SignatureNamingATypeSpecificationInsideAnArray_ComparesWithoutFailing()
+    public void ModifierOverAGenericInstanceTypeSpecification_ComparesWithoutFailing()
     {
         byte[] image = TypeSpecInSignatureImage();
         FindingDiffAnyResult result = Compare(image);
@@ -290,20 +290,31 @@ public sealed class FindingDiffAnyMetadataSafetyTests
         Assert.Equal(FindingDiffAnyState.Unchanged, type.Body);
     }
 
-    // N.Holder declares abstract void Take(S[] p) where S is the TypeSpec row
-    // int[] : the parameter is SZARRAY CLASS <TypeSpec row 1>.
+    // N.Holder declares abstract void Take(int32 modreq(List`1<int32>) p):
+    // the parameter is CMOD_REQD <TypeSpec row> I4, where the TypeSpec row is
+    // GENERICINST CLASS <TypeRef List`1> 1 I4.
     static byte[] TypeSpecInSignatureImage()
     {
         MetadataBuilder metadata = CreateMetadata();
-        var spec = metadata.AddTypeSpecification(metadata.GetOrAddBlob(new byte[] { 0x1D, 0x08 }));
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("System.Runtime"), new Version(11, 0), default, default, default, default);
+        var list = metadata.AddTypeReference(
+            runtime, metadata.GetOrAddString("System.Collections.Generic"), metadata.GetOrAddString("List`1"));
+        var specBlob = new BlobBuilder();
+        specBlob.WriteByte(0x15);
+        specBlob.WriteByte(0x12);
+        specBlob.WriteCompressedInteger((MetadataTokens.GetRowNumber(list) << 2) | 1);
+        specBlob.WriteCompressedInteger(1);
+        specBlob.WriteByte(0x08);
+        var spec = metadata.AddTypeSpecification(metadata.GetOrAddBlob(specBlob));
         int encoded = (MetadataTokens.GetRowNumber(spec) << 2) | 2;
         var signature = new BlobBuilder();
         signature.WriteByte(0x20);
         signature.WriteCompressedInteger(1);
         signature.WriteByte(0x01);
-        signature.WriteByte(0x1D);
-        signature.WriteByte(0x12);
+        signature.WriteByte(0x1F);
         signature.WriteCompressedInteger(encoded);
+        signature.WriteByte(0x08);
         var method = metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig,
             MethodImplAttributes.IL,

@@ -241,7 +241,11 @@ its member keys are written in, as Finding Diff Any's retained and transient
 populations are, so a Type resolved while a member key is open never finds
 that builder open. The consumer does not open a key in the builder the
 speller is writing while a spelling runs; the speller writes only into that
-builder and its own scratch.
+builder and its own scratch. The speller's own re-entry is the other hazard:
+a Type specification named inside a signature (a custom modifier may name
+one) is itself spelled through the consumer, in the speller's scratch, so a
+composite resolves every row it embeds before its scratch key opens, and the
+embed then finds the row in the consumer's memo.
 
 Guards bound every decode (`SignatureBlobGuard`, `TypeSpecGuard`); a rejected
 shape is a `BadImageFormatException`, which a consumer classifies as malformed

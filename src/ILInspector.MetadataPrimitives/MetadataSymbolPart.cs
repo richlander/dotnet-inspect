@@ -6,7 +6,7 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// The shared marker vocabulary for metadata rows
 /// (<c>docs/design/symbol-key.md#metadata-rows</c>): the parts the
-/// <see cref="MetadataSymbolSpeller{TDomain,TRow}"/> writes for a Type definition,
+/// <see cref="MetadataSymbolSpeller{TDomain,TRow,TRows}"/> writes for a Type definition,
 /// reference, or specification, a method, field, member reference, method
 /// specification, standalone signature, primitive, or signature composite. A
 /// consumer's domain declares these values under its own names, so two
