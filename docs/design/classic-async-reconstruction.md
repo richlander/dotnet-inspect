@@ -185,7 +185,7 @@ inside the protocol try).
 | Finally guard | `if (V_state < 0 [&& x])` around a `finally` body | folds to `[if (x)]` under `V_state = -1` |
 | Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
 | Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
-| Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably the compiler's and provably dead: inside the completion catch or tail; a store to a compiler temporary (`<>7__wrapN`, `<>s__N`), which no source statement can name, from which no read of that field is reachable before another store to it; or the second of two clears of one field that are adjacent statements of the same basic block (the user's `x = null` at a scope end followed by Roslyn's own); a clear that is a branch target is a join, not adjacent, because the field need not hold the value on every path into it. A compiler-temporary store that a read can reach is state, not a clear: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried | removed |
+| Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably the compiler's and provably dead: inside the completion catch or tail; a store to a compiler temporary (`<>7__wrapN`, `<>s__N`), which no source statement can name, from which no read of that field is reachable before another store to it; or the second of two clears of one field that are adjacent statements of the same basic block (the user's `x = null` at a scope end followed by Roslyn's own); a clear that is a branch target is a join, not adjacent, because the field need not hold the value on every path into it. A compiler-temporary store that a read can reach is state, not a clear, whichever arm would otherwise match it: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried. Removals are decided one at a time against the already-reduced body, each arm's premise re-checked after every removal, so two clears that each justify the other's removal (a construct's final clear of a reused temporary followed by the next construct's reset of it) lose exactly one | removed |
 | Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store must make every `foreach` raise in `ForeachStatementPass` whose iteration variable can hold a managed type (enumerator, pattern, array, rectangular array, and `await foreach`; the string raise's `char` variable has no clear) keep its lowered form; today those raises check only their scaffold locals and would produce a `foreach` whose variable is assigned (CS1656 at Full), so [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) is a stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
 
 Class-constrained generic awaiters (the boxed awaiter form), `async void`,
@@ -278,7 +278,10 @@ retire. Nothing in this slice adds a cross-layer reference.
    compiler-produced negative with an await in a `catch` and in a `finally`
    inside a loop whose selector resets must stay, a compiler-produced
    negative where a user's `x = null` is a branch target immediately after a
-   conditional clear of the same variable and must stay, compiler-produced
+   conditional clear of the same variable and must stay, a compiler-produced
+   negative with an await in a `catch` that may rethrow followed by a
+   `try`/`finally` with an await, whose reused pending-exception temporary
+   is cleared twice in one block and must keep one clear, compiler-produced
    async
    `foreach` loops over an `IEnumerable<T>` and over an array, each with a
    reference-type iteration variable used after the await (valid only once
@@ -303,7 +306,9 @@ retire. Nothing in this slice adds a cross-layer reference.
    another store changes no observable value (the compiler-temporary arm of
    the housekeeping role) and the lemma that a second store of the value a
    location already holds changes nothing (the adjacent-clear arm, whose
-   same-block adjacency is what establishes the premise). TLA+ owns the
+   same-block adjacency is what establishes the premise), and a composition
+   statement that a sequence of removals is sound when each is justified in
+   the body with the earlier removals applied. TLA+ owns the
    `MoveNext` re-entry lifecycle, a behavior over time: the state moves
    `-1 → N → -1` per suspension and ends at `-2`; a resume enters only
    through dispatch on a stored state whose awaiter field is set; the builder
