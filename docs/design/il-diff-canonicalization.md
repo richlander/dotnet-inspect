@@ -47,8 +47,9 @@ for all of them (the Research producer session holds one side per staged
 input and policy); an endpoint without a side gets one for the call, and a
 side under another policy than the comparison's is refused. A retained
 result keeps its side alive through its atoms, so a result over a held side
-keeps the rows every member of the session named, bounded by the image. Its caller
-supplies an `IlMemberDiffEndpoint.Present` with an exact method definition or an
+keeps the rows every member of the session named, bounded by the image. Its
+caller supplies an `IlMemberDiffEndpoint.Present` with an exact method
+definition or an
 explicit `IlMemberDiffEndpoint.SubjectAbsent`; the adapter performs no selector
 resolution or cross-version correspondence. Each present endpoint becomes a
 `Complete`, `NoApplicableInput`, or `Failed` Finding inspection. The resulting
@@ -419,7 +420,7 @@ round-to-run band). Through a held pair the path is 4.4–7.2% faster with
 7.5–9.9% less allocation on every pair: the side setup is paid once, and
 every row a member names is spelled once for all the members of the run.
 The whole-assembly, census, and comparison paths, which the change does
-not touch, moved by −1.1% to +1.1%.
+not touch, moved by −2.2% to +1.3%.
 
 ## Guarantees
 
