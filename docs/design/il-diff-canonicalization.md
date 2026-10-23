@@ -40,7 +40,12 @@ resolved exact `MethodDefinitionHandle` values. It returns old/new
 so RTS, Research, and diagnostics can attach IL diff evidence to their own
 member identity without running an assembly-wide card.
 
-`CompareMemberEndpoints` is the total endpoint-topology entry point. Its caller
+`CompareMemberEndpoints` is the total endpoint-topology entry point. A host
+that compares many members of one image pair gives each `Present` endpoint
+its image's `IlCensusSide`, so the rows those bodies name are spelled once
+for all of them (the Research producer session holds one side per staged
+input and policy); an endpoint without a side gets one for the call, and a
+side under another policy than the comparison's is refused. Its caller
 supplies an `IlMemberDiffEndpoint.Present` with an exact method definition or an
 explicit `IlMemberDiffEndpoint.SubjectAbsent`; the adapter performs no selector
 resolution or cross-version correspondence. Each present endpoint becomes a

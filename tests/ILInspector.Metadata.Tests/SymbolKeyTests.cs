@@ -477,4 +477,34 @@ public sealed class SymbolKeyTests
         Assert.Throws<SymbolKeyStateException>(() => staged.Kind);
         Assert.Equal(detached, Build(keys, k => k.Name("alone"u8)).Detach());
     }
+
+    enum ConcurrentlyValidatedPart : byte
+    {
+        A = SymbolKeyDomain.FirstMarker,
+        B,
+    }
+
+    /// <summary>
+    /// A domain validated by many threads at once is validated once: each
+    /// thread builds the table privately, so none reads another's writes as
+    /// a value declared twice.
+    /// </summary>
+    [Fact]
+    public void Validate_IsSafeUnderConcurrentFirstUse()
+    {
+        using var start = new ManualResetEventSlim(false);
+        var threads = Enumerable.Range(0, 16).Select(_ => new Thread(() =>
+        {
+            start.Wait();
+            SymbolKeyDomain.Validate<ConcurrentlyValidatedPart>();
+        })).ToArray();
+        foreach (Thread thread in threads)
+            thread.Start();
+        start.Set();
+        foreach (Thread thread in threads)
+            thread.Join();
+
+        Assert.True(SymbolKeyDomain.Declares<ConcurrentlyValidatedPart>((byte)ConcurrentlyValidatedPart.B));
+        Assert.False(SymbolKeyDomain.Declares<ConcurrentlyValidatedPart>(0x12));
+    }
 }

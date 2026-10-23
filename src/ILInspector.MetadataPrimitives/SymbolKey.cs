@@ -38,27 +38,13 @@ public static class SymbolKeyDomain
     /// <summary>
     /// Validates <typeparamref name="TDomain"/> once, at its first use: it must be
     /// byte-backed, and every declared value must be at or above
-    /// <see cref="FirstMarker"/>.
+    /// <see cref="FirstMarker"/>. Two threads validating a domain at once each
+    /// build the table privately and publish one; neither sees the other's
+    /// writes.
     /// </summary>
     public static void Validate<TDomain>()
         where TDomain : unmanaged, Enum
-    {
-        if (Validated<TDomain>.Done)
-            return;
-        if (Unsafe.SizeOf<TDomain>() != 1)
-            throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} must be a byte-backed enum.");
-        foreach (TDomain value in Enum.GetValues<TDomain>())
-        {
-            if (Marker(value) < FirstMarker)
-                throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares {value} below the marker range.");
-            // One value, one name: a shared vocabulary's value landing on a
-            // domain's own marker would read back as that marker.
-            if (Validated<TDomain>.Declared[Marker(value)])
-                throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares the value 0x{Marker(value):X2} twice.");
-            Validated<TDomain>.Declared[Marker(value)] = true;
-        }
-        Validated<TDomain>.Done = true;
-    }
+        => _ = DeclaredMarkers<TDomain>();
 
     /// <summary>
     /// Whether <typeparamref name="TDomain"/> declares <paramref name="marker"/>:
@@ -67,10 +53,7 @@ public static class SymbolKeyDomain
     /// </summary>
     public static bool Declares<TDomain>(byte marker)
         where TDomain : unmanaged, Enum
-    {
-        Validate<TDomain>();
-        return Validated<TDomain>.Declared[marker];
-    }
+        => DeclaredMarkers<TDomain>()[marker];
 
     /// <summary>
     /// The domain's declared markers as a 256-entry table, for a builder to
@@ -80,16 +63,35 @@ public static class SymbolKeyDomain
     internal static bool[] DeclaredMarkers<TDomain>()
         where TDomain : unmanaged, Enum
     {
-        Validate<TDomain>();
-        return Validated<TDomain>.Declared;
+        if (Validated<TDomain>.Declared is { } declared)
+            return declared;
+        bool[] built = Build<TDomain>();
+        return Interlocked.CompareExchange(ref Validated<TDomain>.Declared, built, null) ?? built;
+    }
+
+    static bool[] Build<TDomain>()
+        where TDomain : unmanaged, Enum
+    {
+        if (Unsafe.SizeOf<TDomain>() != 1)
+            throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} must be a byte-backed enum.");
+        var declared = new bool[256];
+        foreach (TDomain value in Enum.GetValues<TDomain>())
+        {
+            if (Marker(value) < FirstMarker)
+                throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares {value} below the marker range.");
+            // One value, one name: a shared vocabulary's value landing on a
+            // domain's own marker would read back as that marker.
+            if (declared[Marker(value)])
+                throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares the value 0x{Marker(value):X2} twice.");
+            declared[Marker(value)] = true;
+        }
+        return declared;
     }
 
     static class Validated<TDomain>
         where TDomain : unmanaged, Enum
     {
-        public static bool Done;
-
-        public static readonly bool[] Declared = new bool[256];
+        public static bool[]? Declared;
     }
 }
 
