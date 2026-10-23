@@ -147,7 +147,8 @@ public static class WorkspaceSharePacketTransposer
         var workspace = new WorkspaceDefinition(
             InspectionDefinitionSchema.Version1,
             WorkspaceId,
-            contexts);
+            contexts,
+            traversalTargetPolicy: canonical.TraversalTargetPolicy);
 
         var navigationTabs = new NavigationTabDefinition[canonical.Tabs.Count];
         for (int tabIndex = 0; tabIndex < canonical.Tabs.Count; tabIndex++)
@@ -254,7 +255,8 @@ public static class WorkspaceSharePacketTransposer
             packageSources:
                 schemaVersion == InspectionDefinitionSchema.Version5
                     ? canonical.PackageSources
-                    : null);
+                    : null,
+            traversalTargetPolicy: canonical.TraversalTargetPolicy);
         var navigation = new CommittedNavigationDefinition(
             schemaVersion,
             NavigationId,
@@ -444,7 +446,8 @@ public static class WorkspaceSharePacketTransposer
             InspectionDefinitionSchema.Version3,
             WorkspaceId,
             legacyWorkspace.Contexts,
-            registrations: []);
+            registrations: [],
+            traversalTargetPolicy: legacyWorkspace.TraversalTargetPolicy);
         var navigation = new CommittedNavigationDefinition(
             InspectionDefinitionSchema.Version3,
             NavigationId,
@@ -990,7 +993,8 @@ public static class WorkspaceSharePacketTransposer
             view.MemberSignature,
             view.Section,
             libraries,
-            view.SourceView);
+            view.SourceView,
+            workspace.TraversalTargetPolicy);
 
         if (!canonicalizeFormat1)
             return WorkspaceSharePacketProjectionResult.Success(packet);
@@ -1160,7 +1164,8 @@ public static class WorkspaceSharePacketTransposer
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
             InspectionDefinitionSchema.Version4 =>
                 WorkspaceSharePacket.CreateV4(
                     basis is null ? [] : [.. basis.Tabs],
@@ -1169,7 +1174,8 @@ public static class WorkspaceSharePacketTransposer
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
             InspectionDefinitionSchema.Version3 =>
                 new WorkspaceSharePacket(
                     basis is null ? [] : [.. basis.Tabs],
@@ -1178,7 +1184,8 @@ public static class WorkspaceSharePacketTransposer
                     focusedTabIndex,
                     basis?.SelectedContextIndex,
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
             _ =>
                 new WorkspaceSharePacket(
                     [.. basis!.Tabs],
@@ -1187,7 +1194,8 @@ public static class WorkspaceSharePacketTransposer
                     basis.SelectedContextIndex
                         ?? throw new UnreachableException(),
                     packetStates,
-                    packetQueries),
+                    packetQueries,
+                    workspace.TraversalTargetPolicy),
         };
         try
         {
@@ -1399,7 +1407,8 @@ public static class WorkspaceSharePacketTransposer
         var legacyWorkspace = new WorkspaceDefinition(
             InspectionDefinitionSchema.Version1,
             workspace.Id,
-            workspace.Contexts);
+            workspace.Contexts,
+            traversalTargetPolicy: workspace.TraversalTargetPolicy);
         var legacyNavigation = new NavigationDefinition(
             InspectionDefinitionSchema.Version1,
             navigation.Id,

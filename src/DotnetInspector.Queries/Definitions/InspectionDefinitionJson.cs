@@ -626,15 +626,15 @@ public static class InspectionDefinitionJson
                 or InspectionDefinitionSchema.Version4, "workspace") =>
             [
                 "schemaVersion", "kind", "id", "title", "description",
-                "contexts", "registrations", "groups",
+                "contexts", "registrations", "groups", "traversalTargetFramework",
             ],
             (InspectionDefinitionSchema.Version5, "workspace") =>
             [
                 "schemaVersion", "kind", "id", "title", "description",
-                "contexts", "registrations", "packageSources", "groups",
+                "contexts", "registrations", "packageSources", "groups", "traversalTargetFramework",
             ],
             (_, "workspace") =>
-                ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups"],
+                ["schemaVersion", "kind", "id", "title", "description", "contexts", "groups", "traversalTargetFramework"],
             (InspectionDefinitionSchema.Version1, "query") =>
                 ["schemaVersion", "kind", "id", "queryId"],
             (InspectionDefinitionSchema.Version2
@@ -673,6 +673,13 @@ public static class InspectionDefinitionJson
             ValidateGroups(groups, "groups");
         if (kind == "workspace")
         {
+            if (root.TryGetProperty("traversalTargetFramework", out _)
+                && (!TryGetExactString(root, "traversalTargetFramework", out string target)
+                    || string.IsNullOrWhiteSpace(target)))
+            {
+                throw new InspectionDefinitionException(
+                    "Workspace traversalTargetFramework requires a nonblank target framework.");
+            }
             if (!root.TryGetProperty(
                     "contexts",
                     out JsonElement contexts)
@@ -1421,6 +1428,7 @@ public static class InspectionDefinitionJson
             "workspace",
             registrations: false,
             packageSources: false,
+            traversalTargetFramework: false,
             queryId: true,
             lens: true,
             type: true,
@@ -1454,7 +1462,10 @@ public static class InspectionDefinitionJson
                 dto.SchemaVersion),
             MapPackageSources(
                 dto.PackageSources,
-                dto.SchemaVersion));
+                dto.SchemaVersion),
+            dto.TraversalTargetFramework is { } traversalTargetFramework
+                ? new TraversalTargetFrameworkPolicy(traversalTargetFramework)
+                : null);
     }
 
     private static QueryDefinition CreateQuery(InspectionDefinitionDto dto)
@@ -1746,7 +1757,8 @@ public static class InspectionDefinitionJson
         bool navigation = false,
         bool states = false,
         bool registrations = true,
-        bool packageSources = true)
+        bool packageSources = true,
+        bool traversalTargetFramework = true)
     {
         void Check(bool reject, string name, object? value)
         {
@@ -1783,6 +1795,7 @@ public static class InspectionDefinitionJson
         Check(states, "states", dto.States);
         Check(registrations, "registrations", dto.Registrations);
         Check(packageSources, "packageSources", dto.PackageSources);
+        Check(traversalTargetFramework, "traversalTargetFramework", dto.TraversalTargetFramework);
     }
 
     internal static InspectionDefinitionDto ToDto(InspectionDefinitionRecord record) =>
@@ -1802,6 +1815,11 @@ public static class InspectionDefinitionJson
                 Id = workspace.Id,
                 Title = workspace.Title,
                 Description = workspace.Description,
+                TraversalTargetFramework =
+                    workspace.TraversalTargetPolicy.Source
+                        == TraversalTargetFrameworkPolicySource.Configured
+                        ? workspace.TraversalTargetPolicy.TargetFramework
+                        : null,
                 Contexts = workspace.Contexts.Select(ToContextDto).ToList(),
                 Registrations =
                     workspace.SchemaVersion is InspectionDefinitionSchema.Version3
@@ -2920,6 +2938,8 @@ internal sealed class InspectionDefinitionDto
     public List<WorkspaceRegistrationDto>? Registrations { get; set; }
 
     public List<WorkspacePackageSourceDto>? PackageSources { get; set; }
+
+    public string? TraversalTargetFramework { get; set; }
 
     public string? QueryId { get; set; }
 

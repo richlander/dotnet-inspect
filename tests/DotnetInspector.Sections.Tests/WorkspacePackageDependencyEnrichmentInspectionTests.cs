@@ -60,7 +60,7 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     await WorkspacePackageDependencyEnrichmentInspection
                         .ExecuteAsync(
                             new WorkspacePackageDependencyEnrichmentRequest(
-                                Definitions(),
+                                Definitions(new TraversalTargetFrameworkPolicy("net10.0")),
                                 manifestProvider),
                             authorization,
                             operation);
@@ -95,6 +95,9 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                     record.SchemaVersion));
 
             WorkspaceDefinition workspace = success.Definitions.Workspace!;
+            Assert.Equal(
+                new TraversalTargetFrameworkPolicy("net10.0"),
+                workspace.TraversalTargetPolicy);
             Assert.Equal(
                 [
                     $"{RootPackageId}@{RootVersion}",
@@ -489,7 +492,8 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         }
     }
 
-    private static CommittedScenarioDefinitionSet Definitions()
+    private static CommittedScenarioDefinitionSet Definitions(
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         var root8 = new DefinitionMemberCoordinate.PackageCoordinate(
             RootPackageId,
@@ -523,7 +527,8 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
                 new NavigationTabDefinition("t2", coordinate: root9),
             ],
             focus: "t0",
-            schemaVersion: InspectionDefinitionSchema.Version4);
+            schemaVersion: InspectionDefinitionSchema.Version4,
+            traversalTargetPolicy: traversalTargetPolicy);
     }
 
     private static CommittedScenarioDefinitionSet SingleContextDefinitions(
@@ -548,12 +553,14 @@ public sealed class WorkspacePackageDependencyEnrichmentInspectionTests
         IReadOnlyList<WorkspaceContextDefinition> contexts,
         IReadOnlyList<NavigationTabDefinition> tabs,
         string? focus,
-        int schemaVersion = InspectionDefinitionSchema.Version3)
+        int schemaVersion = InspectionDefinitionSchema.Version3,
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy = null)
     {
         var workspace = new WorkspaceDefinition(
             schemaVersion,
             WorkspaceSharePacketTransposer.WorkspaceId,
-            contexts);
+            contexts,
+            traversalTargetPolicy: traversalTargetPolicy);
         var navigation = new CommittedNavigationDefinition(
             schemaVersion,
             WorkspaceSharePacketTransposer.NavigationId,

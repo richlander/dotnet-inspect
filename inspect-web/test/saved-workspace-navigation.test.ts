@@ -153,6 +153,7 @@ const hostNames = new Set([
   "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
+  "workspaceTraversalTargetFramework",
   "selectedLibraryShareKey", "packageDependenciesData",
   "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
@@ -404,6 +405,7 @@ function sharedState(): BrowserWorkspaceShareState {
     contexts: [{ id: "both", tabIds: ["first", "second"] }],
     activeTabId: "second",
     selectedContextId: "both",
+    traversalTargetFramework: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -1726,6 +1728,7 @@ test("RID-distinct package tabs retain exact active identity through capture and
     contexts: [{ id: "both", tabIds: ["windows", "linux"] }],
     activeTabId: "windows",
     selectedContextId: "both",
+    traversalTargetFramework: null,
     view: {
       lens: null,
       type: null,
@@ -1860,6 +1863,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     contexts: [{ id: "platform-context", tabIds: ["platform"] }],
     activeTabId: "platform",
     selectedContextId: "platform-context",
+    traversalTargetFramework: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -2931,6 +2935,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
       { id: "g0", tabIds: ["t0"] }, { id: "g1", tabIds: ["t1"] }, { id: "g2", tabIds: ["t2"] },
     ],
     activeTabId: "t1", selectedContextId: "g1",
+    traversalTargetFramework: null,
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null },
   });

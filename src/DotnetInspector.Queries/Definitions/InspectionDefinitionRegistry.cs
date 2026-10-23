@@ -1530,6 +1530,7 @@ public sealed class InspectionDefinitionRegistry
     internal static WorkspacePlan CreateWorkspacePlan(
         WorkspaceDefinition workspace) =>
         new(
+            workspace.TraversalTargetPolicy,
             [.. workspace.Registrations],
             workspace.Contexts
                 .Select(context => ResolveContextInput(workspace, context))
@@ -1538,6 +1539,7 @@ public sealed class InspectionDefinitionRegistry
     internal static WorkspacePlan CreateCompleteRestorationWorkspacePlan(
         WorkspaceDefinition workspace) =>
         new(
+            workspace.TraversalTargetPolicy,
             [.. workspace.Registrations],
             workspace.Contexts
                 .Select(context =>

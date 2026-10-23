@@ -816,6 +816,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     }],
     activeTabId: null,
     selectedContextId: null,
+    traversalTargetFramework: "net11.0",
   } satisfies BrowserRetainedWorkspaceDefinitionState;
   const posting = {
     retainedDefinitionId: "definition-exact",
