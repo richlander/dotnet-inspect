@@ -27,6 +27,154 @@ namespace DotnetInspect.Cli.Tests;
 
 public partial class DependsAssetCommandTests
 {
+    [Theory]
+    [InlineData("default", 1, "Available")]
+    [InlineData("raw", 3, "Raw")]
+    [InlineData("unavailable", 3, "Unavailable")]
+    [InlineData("licenses", 1, "Available")]
+    public async Task HierarchyPruningPreservesRawEvidenceAndLicenseClosure(
+        string mode, int expectedNodes, string availability)
+    {
+        string source = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(
+            source, "Contoso.Application", "1.0.0",
+            Dependency("System.Text.Json", "[9.0.0]"));
+        WriteLocalSourcePackage(
+            source, "System.Text.Json", "9.0.0",
+            Dependency("Contoso.Compatibility", "[1.0.0]"),
+            """<license type="expression">MIT</license>""");
+        WriteLocalSourcePackage(
+            source, "Contoso.Compatibility", "1.0.0", "",
+            """<license type="expression">Apache-2.0</license>""");
+        int inventoryReads = 0;
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1, DependencyInspectionRootKind.Package,
+                    "Contoso.Application@1.0.0"),
+            ],
+            Select = mode == "licenses"
+                ? [DependsAssetSections.DependencyHierarchy, DependsAssetSections.Licenses]
+                : [DependsAssetSections.DependencyHierarchy],
+            UnprunedHierarchy = mode == "raw",
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+            SourceOptions = new NuGetSourceOptions { Sources = [source] },
+        };
+
+        (int exitCode, string output, string error) = await ConsoleCapture.RunAsync(
+            () => DependsCommand.ExecuteAssetDependsAsync(
+                options,
+                selector =>
+                {
+                    inventoryReads++;
+                    Assert.Equal("runtime@11.0", selector);
+                    return mode == "unavailable"
+                        ? new InstalledPlatformPruneSource.Result(
+                            null, "Exact reference pack unavailable.")
+                        : PruneInventory("System.Text.Json|11.0.0");
+                },
+                TestContext.Current.CancellationToken));
+
+        Assert.True(exitCode == 0, error);
+        Assert.Equal(mode == "raw" ? 0 : 1, inventoryReads);
+        if (mode == "unavailable")
+            Assert.Contains("unevaluated package routes were retained", error);
+        else
+            Assert.Empty(error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement summary = document.RootElement.GetProperty("summary");
+        Assert.Equal(expectedNodes, summary.GetProperty("canonical_nodes").GetInt32());
+        JsonElement pruning = summary.GetProperty("hierarchy_pruning");
+        Assert.Equal(availability, pruning.GetProperty("availability").GetString());
+        Assert.Equal(
+            expectedNodes == 1 ? 1 : 0,
+            pruning.GetProperty("omitted_routes").GetInt32());
+        if (expectedNodes == 1)
+        {
+            JsonElement comparison = Assert.Single(
+                pruning.GetProperty("comparisons").EnumerateArray());
+            Assert.Equal(
+                "9.0.0", comparison.GetProperty("candidate_version").GetString());
+        }
+        if (mode == "licenses")
+        {
+            JsonElement[] licenses =
+                [.. document.RootElement.GetProperty("licenses").EnumerateArray()];
+            Assert.Contains(licenses, row =>
+                row.GetProperty("package").GetString() == "system.text.json"
+                && row.GetProperty("license").GetString() == "MIT");
+            Assert.Contains(licenses, row =>
+                row.GetProperty("package").GetString() == "contoso.compatibility"
+                && row.GetProperty("license").GetString() == "Apache-2.0");
+        }
+    }
+
+    [Theory]
+    [InlineData("runtime", 2)]
+    [InlineData("aspnetcore", 1)]
+    public async Task HierarchyPruningUsesOnlySelectedFrameworkFamilies(
+        string family, int expectedNodes)
+    {
+        string source = CreateTemporaryDirectory();
+        WriteLocalSourcePackage(
+            source, "Contoso.WebApplication", "1.0.0",
+            Dependency("Microsoft.Extensions.Caching.Memory", "[10.0.0]"));
+        WriteLocalSourcePackage(
+            source, "Microsoft.Extensions.Caching.Memory", "10.0.0", "");
+        var options = new DependsOptions
+        {
+            AssetRoots =
+            [
+                new DependsAssetRoot(
+                    1, DependencyInspectionRootKind.Package,
+                    "Contoso.WebApplication@1.0.0"),
+            ],
+            Select = [DependsAssetSections.DependencyHierarchy],
+            PruningPlatformFamily = family,
+            Format = OutputFormat.Json,
+            JsonOutput = true,
+            CompactJson = true,
+            SourceOptions = new NuGetSourceOptions { Sources = [source] },
+        };
+        (int exitCode, string output, string error) = await ConsoleCapture.RunAsync(
+            () => DependsCommand.ExecuteAssetDependsAsync(
+                options,
+                selector => selector == "runtime@11.0"
+                    ? PruneInventory()
+                    : PruneInventoryForFamily(
+                        "Microsoft.AspNetCore.App", "net11.0",
+                        "Microsoft.Extensions.Caching.Memory|11.0.0"),
+                TestContext.Current.CancellationToken));
+
+        Assert.True(exitCode == 0, error);
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.Equal(expectedNodes, document.RootElement.GetProperty("summary")
+            .GetProperty("canonical_nodes").GetInt32());
+    }
+
+    [Fact]
+    public async Task HierarchyRejectsInvalidFamilyAndUnscopedRawGesture()
+    {
+        (int familyExit, _, string familyError) = await RunCapturedAsync(
+        [
+            "depends", "--nuspec", NuspecFixture,
+            "-S", "Dependency Hierarchy", "--platform-family", "garbage",
+        ]);
+        (int rawExit, _, string rawError) = await RunCapturedAsync(
+        [
+            "depends", "--nuspec", NuspecFixture,
+            "-S", "Dependencies", "--unpruned",
+        ]);
+        Assert.Equal(1, familyExit);
+        Assert.Contains("must be 'runtime' or 'aspnetcore'", familyError);
+        Assert.Equal(1, rawExit);
+        Assert.Contains("--unpruned requires the Hierarchy section", rawError);
+    }
+
     [Fact]
     public async Task Pruning_ProjectsDelegationAndPackageRetentionWithoutTraversal()
     {
@@ -1583,7 +1731,7 @@ public partial class DependsAssetCommandTests
         Assert.Equal(1, missingTfmExit);
         Assert.Contains("requires --tfm", missingTfmError);
         Assert.Equal(1, unusedFamilyExit);
-        Assert.Contains("requires the Pruning section", unusedFamilyError);
+        Assert.Contains("requires the Hierarchy or Pruning section", unusedFamilyError);
         Assert.Equal(1, typeExit);
         Assert.Contains("only by asset-mode depends", typeError);
     }

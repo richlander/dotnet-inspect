@@ -289,9 +289,9 @@ realization under the Workspace target remains Issue #6424's contract.
 The implementation already passes the `WorkspacePlan` product-default or
 configured value directly, which preserves the required pre-realization
 authority. The product default is `net11.0`, and the generated Browser Platform
-catalog projects the same product-owned release line. Realization-time matching
-of Platform evidence to the Workspace target remains unimplemented; this
-section does not claim that later composition behavior.
+catalog projects the same product-owned release line. Platform-pruned
+composition additionally requires matching target and family inventories, as
+specified below; a target policy alone is not supply evidence.
 
 ### Declaration evidence and Platform-pruned composition
 
