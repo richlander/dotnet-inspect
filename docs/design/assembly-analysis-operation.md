@@ -510,13 +510,14 @@ adopts after #8700, #9830, #9831, #9864, #9865, and #9868, as
 [Unsafe member findings](unsafe-member-findings.md#execution) states.
 
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
-same exact producer for safety-only IL-coordinate preparation. Direct CLI and
-host-neutral Library Address execution borrow the already-open prefetched image
-and issue one exact MethodDef request for the deduplicated coordinate methods.
-The resulting source receipt records exact breadth, bounded body acquisition,
-and no module lookup. Allocation, cost, and combined coordinate requests remain
-on `LibraryBodyAnalysisService` because their complete result ownership has
-not moved.
+exact method-analysis producer for safety-only IL-coordinate preparation.
+Direct CLI and host-neutral Library Address execution borrow the already-open
+prefetched image and issue one exact MethodDef request for the deduplicated
+coordinate methods. Allocation-only coordinate preparation independently
+plans `ExactMethodAllocationProducer` over that same bounded population. The
+two focused inputs retain exact source and work receipts; neither path opens
+`LibraryBodyAnalysisService`. Cost-only and combined semantic coordinate
+requests remain on the service until their complete result ownership moves.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first
