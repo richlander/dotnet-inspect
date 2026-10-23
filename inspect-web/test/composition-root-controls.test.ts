@@ -26,6 +26,7 @@ import {
   onlySyntaxNode,
   type DeclaredFunction,
   functionDeclaration,
+  functionSource,
   onlyCallExpressionNamed,
   objectArgument,
   statementAt,
@@ -849,8 +850,8 @@ test("typed package view owns package navigation bindings", () => {
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId, target\.resourceMethodToken\)/);
   assert.match(
-    appSource,
-    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent, resourceMethodToken\)/);
+    functionSource("drillToPerfMember"),
+    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*resourceMethodToken\)/);
   assert.match(
     appSource,
     /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
@@ -1044,10 +1045,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     appSource,
     /const workspaceDrillInIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && state\.package !== null/);
   const renderWorkspaceFocus =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?\n}\n\nfunction renderWorkspaceCatalogView/,
-    )?.[0]
-    ?? "";
+    functionSource("renderCore");
   assert.equal(
     renderWorkspaceFocus.match(
       /restoreWorkspaceFocus\(document, workspaceFocus\)/g,
@@ -1147,23 +1145,19 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const typeGraph =
-    appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToTypeByName)/)?.[0]
-    ?? "";
+    functionSource("renderTypeGraph");
   const annotatedRelationshipGraph =
-    appSource.match(/async function renderAnnotatedRelationshipDiagram\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Projects the neutral type-relationship)/)?.[0]
-    ?? "";
+    functionSource("renderAnnotatedRelationshipDiagram");
   const dependencyGraph =
-    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nasync function renderLibraryReferenceGraph)/)?.[0]
-    ?? "";
+    functionSource("renderDependencyGraph");
   const libraryReferenceGraph =
-    appSource.match(/async function renderLibraryReferenceGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
-    ?? "";
+    functionSource("renderLibraryReferenceGraph");
   const callGraph =
-    appSource.match(/function renderMermaidCallGraph\(\): Promise<CallGraphRenderResult> \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
-    ?? "";
+    functionSource("renderMermaidCallGraph");
+  const callGraphNodeBinding =
+    functionSource("callGraphNodeBinding");
   const callGraphBinding =
-    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
-    ?? "";
+    functionSource("callGraphTargetBinding");
   assert.match(
     graphInteractionsSource,
     /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
@@ -1228,8 +1222,11 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     callGraph,
     /catch \(error\) \{[\s\S]*const message = errorMessage\(error\);[\s\S]*graph-render-error[\s\S]*return \{ status: "failed", message \}/);
   assert.match(
+    callGraphNodeBinding,
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*return callGraphTargetBinding\(target\)/);
+  assert.match(
     callGraphBinding,
-    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
+    /const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
     /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
@@ -1268,7 +1265,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 9);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 10);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -2118,8 +2115,8 @@ test("annotated source Escape and history ownership track the mounted surface", 
     popstate,
     /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isDiagnosticsPath/);
   assert.match(
-    appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
+    functionSource("renderCore"),
+    /if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
 });
 
 test("package search state owner settles pending work and projects visible cache", () => {
