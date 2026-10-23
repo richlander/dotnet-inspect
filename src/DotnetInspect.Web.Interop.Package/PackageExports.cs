@@ -897,7 +897,7 @@ public static partial class PackageExports
 
         string? assembly = null;
         BrowserAssemblyReferenceResult assemblyReferences;
-        if (coordinate.Selection.IsSelected)
+        if (coordinate.Selection.IsSelected && assemblyId.Length != 0)
         {
             PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
             assembly = asset.AssemblyName;
@@ -950,6 +950,11 @@ public static partial class PackageExports
                     throw new InvalidOperationException(
                         "Unknown assembly-context reference query result.");
             }
+        }
+        else if (coordinate.Selection.IsSelected)
+        {
+            assemblyReferences =
+                new("Assembly reference inspection was not requested.");
         }
         else
         {
