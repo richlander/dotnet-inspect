@@ -1337,7 +1337,11 @@ public sealed record BrowserPackageHierarchy(
     bool IsComplete,
     string Completion,
     BrowserPackageHierarchyRow[] Rows,
-    string[] Failures);
+    string[] Failures)
+{
+    public DotnetInspector.Sections.DependencyHierarchyPruning? Pruning
+    { get; init; }
+}
 
 public sealed record BrowserPackagePlatformReference(
     string Family,
