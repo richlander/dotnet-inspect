@@ -3006,8 +3006,25 @@ traversal outcomes, and these links omit projection parameters.
 For these readings, `_embedded.data` contains native resource data and
 `_embedded.resources` contains already expanded resources. A detached component
 explanation has no instance `self`; its `describedby` relation identifies this
-installed kind contract. The shared operation consumes owner-validated
-component inputs; CLI admission of a component file is a later facade slice.
+installed kind contract. Explicit `--component FILE` selects owner-validated
+component input; `--component -` reads redirected UTF-8 stdin:
+
+```bash
+dotnet-inspect explain --component component.json .hal --json > declaration.json
+jq '._embedded.data | {declared: .facts, unavailable: .fact_states}' declaration.json
+
+# Supply the actual encoded parent only when the question needs parent facts.
+dotnet-inspect explain --component component.json --parent-packet "$w" .hal --json
+```
+
+A filename or JSON value in the ordinary positional operand does not select
+this mode. Component input cannot accompany a resource/search operand. Unknown
+contract/version or invalid declarations fail without searching. Without a
+parent packet, copied path/context/focus claims remain unavailable. With one,
+Workspace validates correspondence without restoration or acquisition.
+`.data --json` and ordinary JSON expose direct facts; `.contract --json`
+exposes the typed Document. Markdown/plain text use the existing presentation.
+`-n`, `-Q`, `--envelope` and table/row formats do not apply to components.
 The [worked reading](../tools/ExplainReadingScenarios/continuous-components/README.md)
 includes captured JSON files and standalone versus parent-qualified examples.
 
