@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -186,6 +187,38 @@ public sealed class FindingDiffAnyBodyTests
         AssertRawBodiesMatch(runtime);
     }
 
+    [Fact]
+    public void MalformedExceptionSectionBeforeAnIlDifference_IsIndeterminate()
+    {
+        byte[] before = ClauseImage(after: false);
+        byte[] after = (byte[])before.Clone();
+        using (var pe = new PEReader(new MemoryStream(after, writable: false)))
+        {
+            MetadataReader metadata = pe.GetMetadataReader();
+            TypeDefinitionHandle type = metadata.TypeDefinitions.Single(handle =>
+                metadata.StringComparer.Equals(
+                    metadata.GetTypeDefinition(handle).Name,
+                    "FilterIdentical"));
+            int rva = metadata.GetMethodDefinition(
+                metadata.GetTypeDefinition(type).GetMethods().Single())
+                .RelativeVirtualAddress;
+            int bodyOffset = RvaToFileOffset(pe.PEHeaders, rva);
+            ushort flagsAndSize = BinaryPrimitives.ReadUInt16LittleEndian(
+                after.AsSpan(bodyOffset, 2));
+            int headerSize = (flagsAndSize >> 12) * 4;
+            int codeSize = BinaryPrimitives.ReadInt32LittleEndian(
+                after.AsSpan(bodyOffset + 4, 4));
+            after[bodyOffset + headerSize] = (byte)ILOpCode.Nop;
+            after[bodyOffset + Align4(headerSize + codeSize)] = 0;
+        }
+
+        FindingDiffAnyTypeState state = Single(
+            CompareImages(before, after),
+            $"{Namespace}.FilterIdentical");
+        Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
+    }
+
     static void AssertRawBodiesMatch(PEReader pe)
     {
         MetadataReader metadata = pe.GetMetadataReader();
@@ -223,6 +256,16 @@ public sealed class FindingDiffAnyBodyTests
             }
         }
     }
+
+    static int RvaToFileOffset(PEHeaders headers, int rva)
+    {
+        int sectionIndex = headers.GetContainingSectionIndex(rva);
+        Assert.True(sectionIndex >= 0);
+        SectionHeader section = headers.SectionHeaders[sectionIndex];
+        return checked(rva - section.VirtualAddress + section.PointerToRawData);
+    }
+
+    static int Align4(int value) => checked((value + 3) & ~3);
 
     [Fact]
     public void TrailingUndefinedOpcode_IsIndeterminate()
