@@ -130,6 +130,92 @@ The historical-state gate retains both a Preparing snapshot and a committed
 result, awaits actual product retirement settlement, and then checks collection
 of package bindings, content, sessions, and realization resources.
 
+### Project input construction profile
+
+Issue [#10513](https://github.com/richlander/dotnet-inspect/issues/10513)
+adds one optional, already-inspected Project input to the reusable
+`WorkspacePlan`. The focused claim is:
+
+> A Project-bearing plan retains one admitted authored or restored input.
+> Each independently constructed Workspace issues its own Project occurrence,
+> and every Scope snapshot preserves that occurrence and its evidence beside
+> explicit Package membership.
+
+A Project is an input basis, not a Package, acquired Artifact Root, or
+registered discovery population. Its facts remain owned by the
+[authored provider](authored-project-dependency-facts.md) or
+[restored traversal provider](restored-project-dependency-traversal.md).
+Scope retains the exact supplied outcome, including authored limitations,
+versionless declarations, target selection, pruning observations, topology,
+and unavailable, partial or failed graph evidence. It does not parse,
+normalize, resolve, or traverse those facts again.
+
+The shared input producer is
+[Project input inspection](project-input-inspection.md). The Scope-owned
+`ProjectWorkspaceConstruction.CreatePlan` adapter consumes its detached
+document and an explicit existing traversal target-framework policy. An
+admitted document produces an inert plan. A whole-document provider failure
+instead produces `Rejected` retaining the original document and its failure
+evidence; it never creates a successful empty Project. Incomplete authored
+facts and independently failed restored graph phases remain admissible.
+Argument errors remain argument errors, not artifact-failure outcomes.
+
+The caller supplies traversal policy explicitly. That policy governs future
+Workspace traversal; it neither evaluates an authored target nor changes the
+restored provider's exact selected framework/RID. The constructor does not
+guess a framework from a filename, repair an opaque target, or resolve an
+authored property.
+
+Construction creates no Package membership or assembly context and grants no
+source authority. Restored exact Package coordinates remain graph evidence;
+authored constraints remain declarations. Both require an explicit later
+acquisition and ordinary Package admission. The existing 64-Package limit
+still counts only committed Packages, not the Project or the size of its
+retained dependency graph. A large admitted graph is not silently reduced to
+a membership-sized successful prefix.
+
+`WorkspaceProjectOccurrenceIdentity` is issued only by the Workspace and binds
+its exact process-local identity. Reusing one plan issues distinct occurrences
+in independent Workspaces, even for the same input object, content, and
+display name. Neither the display name nor a provider digest is live occurrence
+authority. Provider identities and content provenance remain unchanged.
+
+This initial profile fixes the Project basis at Workspace construction.
+Package Add, Remove, Replace and Clear preserve it; Clear still empties
+Package membership and closes expansion, not the retained input basis.
+Registration replacement likewise preserves the plan's Project input.
+Changing the Project basis requires a fresh Workspace. Historical snapshots
+retain detached evidence after close; an unavailable Scope read does not
+present them as current. This adds no Project mutation protocol or acquired
+resource lifetime.
+
+The real motivating asset remains
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at
+`bebfab236a6a3061bc74c53d22067acb86050afc`, with property-based target
+selection and centrally versioned Package references. A Project-bearing
+Workspace must retain that input's incomplete declarations rather than
+inventing resolved membership. The restored neighboring control is the
+existing Newtonsoft.Json `13.0.3` graph in `ProjectInputInspectionTests`.
+Focused `ProjectWorkspaceConstructionTests` and Project-bearing cases in
+`WorkspaceScopeTests` gate construction, outcome preservation, independent
+occurrences, Package edits and existing capacity refusal.
+
+The counted delivery map is
+[#10478](https://github.com/richlander/dotnet-inspect/issues/10478): shared
+input #10514, this Scope construction slice #10513, Navigation #10516,
+production Inspect Web #10517, and explicit CLI input adoption #10515.
+The website requires the first four slices; CLI Project Workspace adoption
+consumes this boundary when it constructs a Workspace. Both hosts retain
+their original inspection envelope, including nonprojectable local Share
+and diagnostics. This plan constructor is not another inspection producer.
+
+Navigation consumes the Scope-issued occurrence in its separate adoption.
+This slice does not add a Project subject to the closed Navigation vocabulary,
+top-level inventory, portable Definitions, restoration, browser gestures,
+host rendering, persistence, dependency acquisition, or ranking.
+No existing production path is replaced. The construction claim is gated by the focused Release cases above; production
+host behavior remains unverified until its respective adoption lands.
+
 ### Navigation operation handoff implementation
 
 Issue [#7256](https://github.com/richlander/dotnet-inspect/issues/7256) implements
@@ -635,6 +721,8 @@ It owns:
 - one independent immutable current `WorkspaceRegistrationRevision`;
 - ordered committed Package occurrences, typed Package descriptors, and their
   Workspace-bound identities;
+- one optional construction-bound Project input and its Workspace-issued
+  occurrence, independent of realized Package membership;
 - ordered exact Ecosystem registration occurrences and Workspace-to-Ecosystem
   contribution relations;
 - explicit Package addition, replacement, removal, and Clear operations;
@@ -663,8 +751,9 @@ It does not own:
 
 The owner answers:
 
-> Which exact Packages are committed, which inert populations are registered,
-> and what complete owner-issued revision resulted from this operation?
+> Which Project input defines this Workspace, which exact Packages are
+> committed, which inert populations are registered, and what complete
+> owner-issued revision resulted from this operation?
 
 ## Consumers and proportionality
 
