@@ -599,6 +599,10 @@ cache.
      `library <package>@<version>` route keeps its Document default, as
      every other section does there (#9511). Its `--tsv` and `--jsonl`
      prefix each row with its Package, Version, Library, and TFM.
+   - **Package-wide scope.** Each library is its own QuerySpace request.
+     Row selection applies within each library, and cycle numbers restart
+     in each library. A qualified warning names its library, and
+     `--count` sums the libraries' Table rows.
    - **Document.** `--markdown` and `--plaintext` render the Document. A
      `Cycles` field gives the complete count, suffixed `among admitted call
      evidence` when the document is qualified. A `Cycle Members` table,

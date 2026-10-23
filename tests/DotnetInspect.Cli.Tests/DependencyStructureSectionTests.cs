@@ -134,13 +134,21 @@ public sealed class DependencyStructureSectionTests
             .GetProperty("namespaces")
             .EnumerateArray()
             .ToDictionary(
-                node => node.GetProperty("namespace").GetString()!,
+                node => node.GetProperty("namespace").GetString()
+                    is { Length: > 0 } name
+                        ? name
+                        : "<global namespace>",
                 node => node.GetProperty("cycleIndex") is
                     { ValueKind: JsonValueKind.Number } index
                         ? (index.GetInt32() + 1).ToString(
                             CultureInfo.InvariantCulture)
                         : "");
         Assert.Contains(cycles.Values, static cycle => cycle == "1");
+        Assert.Contains(
+            lines.Skip(1),
+            static line => line.Contains(
+                "<global namespace>",
+                StringComparison.Ordinal));
         foreach (string line in lines.Skip(1))
         {
             string[] cells = line.Split('\t');

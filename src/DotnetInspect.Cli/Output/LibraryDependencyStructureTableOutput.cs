@@ -86,12 +86,19 @@ internal static class LibraryDependencyStructureTableOutput
             row.ToCycle is { } toCycle ? Number(toCycle) : "",
         });
 
+    /// <summary>
+    /// Writes the Table's diagnostics to stderr. The package-wide route names
+    /// the library, because each library's Table numbers its own cycles.
+    /// </summary>
     internal static void WriteDiagnostics(
-        IReadOnlyList<InspectionDiagnostic> diagnostics)
+        IReadOnlyList<InspectionDiagnostic> diagnostics,
+        string? library = null)
     {
         foreach (InspectionDiagnostic diagnostic in diagnostics)
         {
-            string summary = diagnostic.Summary.ToString();
+            string summary = library is null
+                ? diagnostic.Summary.ToString()
+                : $"{LibraryViewText.Contain(library)}: {diagnostic.Summary}";
             switch (diagnostic.Severity)
             {
                 case InspectionDiagnosticSeverity.Information:

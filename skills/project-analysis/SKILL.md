@@ -224,9 +224,10 @@ maintainability score.
 
 `library <package>@<version> -S "Dependency Structure" --tsv` streams one row
 per namespace edge. Each row gives both endpoints' `level` and 1-based
-`cycle`, which is empty outside any cycle. Rows sharing a cycle number form
-one cycle, and the distinct cycle numbers count the cycles. A stderr warning
-marks a qualified result.
+`cycle`, which is empty outside any cycle. Cycles are numbered per library, so
+group rows by `library` and `tfm` first. Within one library, rows sharing a
+cycle number form one cycle, and the distinct numbers count the cycles. A
+stderr warning names any library whose result is qualified.
 
 For type-level detail, read the JSON document. It needs one exact library
 (`--namesake-library` or a dll path). `cycles` lists each namespace cycle, and

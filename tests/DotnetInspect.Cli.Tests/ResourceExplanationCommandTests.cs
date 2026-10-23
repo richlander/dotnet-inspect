@@ -468,10 +468,10 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Explain_LibraryDependencyStructure_IsAGraphWithoutShape()
+    public async Task Explain_LibraryDependencyStructure_IsANamespaceEdgeTable()
     {
-        // Dependency Structure is a Graph of namespace nodes and edges, not
-        // one of the three shapes, so it keeps its diagram formats.
+        // Dependency Structure offers a Table of namespace edges and a
+        // Document; its Mermaid diagram stays an explicit lowering.
         var result = await RunAsync(
             "explain",
             "library/sections/dependency-structure",
@@ -480,9 +480,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(0, result.ExitCode);
         using JsonDocument document = JsonDocument.Parse(result.Output);
         JsonElement root = document.RootElement.GetProperty("resources")[0];
-        Assert.Equal(
-            "Absent",
-            Fact(root, "shape").GetProperty("state").GetString());
+        Assert.Equal("table", TextFact(root, "shape"));
         Assert.Equal("inventory", TextFact(root, "cardinality"));
     }
 
@@ -1984,7 +1982,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     [Fact]
     public async Task CompactData_DistinguishesAbsentFactFromAvailableEmptyValues()
     {
-        var result = await RunAsync("explain", "library/sections/dependency-structure", "--json");
+        var result = await RunAsync("explain", "member-detail/sections/call-graph", "--json");
         Assert.Equal(0, result.ExitCode);
         using JsonDocument data = JsonDocument.Parse(result.Output);
         Assert.False(data.RootElement.GetProperty("facts").TryGetProperty("shape", out _));

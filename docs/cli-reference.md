@@ -2045,7 +2045,10 @@ Rows sharing a cycle number belong to one cycle. A qualified document, one
 with unresolved calls or incomplete bodies, adds a warning on stderr.
 `library <package>@<version> -S "Dependency Structure"` renders the Document
 by default, like every section on that route. With `--tsv` or `--jsonl`, it
-prefixes each row with `package`, `version`, `library`, and `tfm`.
+prefixes each row with `package`, `version`, `library`, and `tfm`. Each
+library numbers its own cycles and applies row selection on its own. Group by
+`library` and `tfm` before counting cycles. Qualified warnings name their
+library, and `--count` sums the Table rows across libraries.
 
 `--markdown` and `--plaintext` render the Document. It states the cycle count
 (`Cycles`) and, under `Cycle Members`, each cycle's namespaces; edge selection

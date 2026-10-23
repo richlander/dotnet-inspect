@@ -2068,7 +2068,8 @@ public partial class PackageCommand
                     LibraryDependencyStructureInspection.TableEnvelope(
                         available);
                 LibraryDependencyStructureTableOutput.WriteDiagnostics(
-                    table.Diagnostics);
+                    table.Diagnostics,
+                    inspection.FileName);
                 dependencyRows.AddRange(
                     LibraryDependencyStructureTableOutput
                         .Values(table.Content)
@@ -2461,6 +2462,25 @@ public partial class PackageCommand
                         inspection,
                         [section],
                         options.Rows));
+                    continue;
+                }
+
+                // Dependency Structure counts its Table rows, the selected
+                // namespace edges, never its Document summary lines.
+                if (section.Equals(
+                        SectionNames.DependencyStructure,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    if (inspection.DependencyStructureQueryResult
+                        is LibraryDependencyStructureQueryResult.Available
+                            dependencyStructure)
+                    {
+                        projection.RecordRows(
+                            SectionNames.DependencyStructure,
+                            dependencyStructure.Count
+                                ?? dependencyStructure.Rows
+                                    .NamespaceEdges.Length);
+                    }
                     continue;
                 }
 
