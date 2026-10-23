@@ -170,7 +170,7 @@ internal static class DiffHistoryCommand
                 return 1;
             }
 
-            using var executor = new DesktopHistoryCellExecutor(
+            using var executor = new HistoryCellExecutor(
                 composition,
                 options.SourceOptions,
                 context.Logger.Log);
@@ -929,7 +929,7 @@ internal static class DiffHistoryCommand
             CommandError.WriteNote(diagnostic.Summary.ToString());
     }
 
-    sealed class DesktopHistoryCellExecutor :
+    sealed class HistoryCellExecutor :
         IPackageHouseVersionPopulationCellExecutor,
         IDisposable
     {
@@ -942,7 +942,7 @@ internal static class DiffHistoryCommand
                 new(ReferenceEqualityComparer.Instance);
         string? _temporaryRoot;
 
-        internal DesktopHistoryCellExecutor(
+        internal HistoryCellExecutor(
             DesktopPackageSourceComposition composition,
             NuGetSourceOptions? sourceOptions,
             Action<string>? log)

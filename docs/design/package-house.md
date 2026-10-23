@@ -1543,17 +1543,21 @@ select an explicit config file or directory, or carry Workspace sources and
 credentials. The existing `SourcePolicyPackageSourceAuthorization` owns that
 broader accumulated and explicit policy input.
 
-The complete production `Desktop*` census and disposition is:
+The classified production symbols and applied dispositions are:
 
-| Current symbol | Positive responsibility | Surviving architecture or rename disposition |
+| Classified symbol | Current symbol or disposition | Positive responsibility |
 | --- | --- | --- |
-| `DesktopPackageSourceComposition` | Transitional native-host bundle for source-policy resolution, installed credential providers, native HTTP/local clients, settlement-root lifetime, and operation issuance. | Do not give the compatibility composition a durable replacement name. Move policy to `SourcePolicyPackageSourceAuthorization`, supply host-created clients to the Package Source settlement root, and remove this identity under the retirement plan below. |
-| `DesktopPlatformPackageSourceRuntime` | CLI-local coordinator for Package Source authorization and operations, temporary package stores, and the package-backed Platform adapter. | Drop the host prefix as `PackagePlatformSourceRuntime` when renamed; the composition dependency remains transitional. |
-| `DesktopPackageStoreScope` | Lazily created authority-scoped stores under one temporary filesystem root. | Name the capability `TemporaryPackageStoreScope`. |
-| `DesktopPackageDependencyMemberCallGraphContinuationSource` | CLI call-graph continuation that combines installed and package-backed Platform sources. | Drop the host prefix as `PackageDependencyMemberCallGraphContinuationSource`. |
-| `DesktopHistoryCellExecutor` | Private `diff --history` PackageHouse version-cell executor. | Drop the redundant prefix as `HistoryCellExecutor`. |
-| `DesktopWorkspacePackageDependencyManifestProvider` | Private Workspace dependency-manifest provider over PackageHouse content acquisition. | Drop the redundant prefix as `WorkspacePackageDependencyManifestProvider`. |
-| `DesktopPortablePdbPackageContentSource` | Private Portable PDB package-content adapter over PackageHouse content acquisition. | Drop the redundant prefix as `PortablePdbPackageContentSource`. |
+| `DesktopPackageSourceComposition` | Unchanged; remove the compatibility identity under the retirement plan below rather than granting it a durable replacement name. | Transitional native-host bundle for source-policy resolution, installed credential providers, native HTTP/local clients, settlement-root lifetime, and operation issuance. |
+| `DesktopPlatformPackageSourceRuntime` | `PackagePlatformSourceRuntime` | CLI-local coordinator for Package Source authorization and operations, temporary package stores, and the package-backed Platform adapter. |
+| `DesktopPackageStoreScope` | `TemporaryPackageStoreScope` | Lazily created authority-scoped stores under one temporary filesystem root. |
+| `DesktopPackageDependencyMemberCallGraphContinuationSource` | `PackageDependencyMemberCallGraphContinuationSource` | CLI call-graph continuation that combines installed and package-backed Platform sources. |
+| `DesktopHistoryCellExecutor` | `HistoryCellExecutor` | Private `diff --history` PackageHouse version-cell executor. |
+| `DesktopWorkspacePackageDependencyManifestProvider` | `WorkspacePackageDependencyManifestProvider` | Private Workspace dependency-manifest provider over PackageHouse content acquisition. |
+| `DesktopPortablePdbPackageContentSource` | `PortablePdbPackageContentSource` | Private Portable PDB package-content adapter over PackageHouse content acquisition. |
+
+`DesktopPackageSourceComposition` is now the only remaining production
+`Desktop*` package type. Its name remains a visible compatibility residual,
+not an endorsed host-specific vocabulary.
 
 Browser and native transports may differ below the shared package-source
 contract, but neither host label becomes package identity, authority, producer

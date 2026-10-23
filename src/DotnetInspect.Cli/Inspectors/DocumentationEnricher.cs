@@ -321,7 +321,7 @@ internal static class DocumentationEnricher
             CancellationToken cancellationToken)
     {
         await using var packageRuntime =
-            new DesktopPlatformPackageSourceRuntime(
+            new PackagePlatformSourceRuntime(
                 source.Context.CreatePackageSourceComposition,
                 options.SourceOptions,
                 "inspect-cli-docs");
@@ -639,7 +639,7 @@ internal static class DocumentationEnricher
             HttpClient httpClient,
             CancellationToken cancellationToken)
     {
-        using var stores = new DesktopPackageStoreScope(
+        using var stores = new TemporaryPackageStoreScope(
             "inspect-cli-docs");
         await using DesktopPackageSourceComposition composition =
             source.Context.CreatePackageSourceComposition();

@@ -681,12 +681,15 @@ public class ArgumentSinkTestimonyTests
     [Theory]
     [InlineData("Microsoft.CodeAnalysis.CodeGen.SynthesizedStaticField", "ToString", "object S_1 = ((object)S_256) ?? _type;")]
     [InlineData("Microsoft.CodeAnalysis.CodeGen.DataSectionStringType.DataSectionStringField", "ToString", "object S_1 = ((object)S_256) ?? base.ContainingTypeDefinition;")]
-    [InlineData("Microsoft.CodeAnalysis.MarshalAsAttributeDecoder`4", "DecodeMarshalAsCustom", "SetMarshalAsCustom(S_1, ")]
     public void RealObjectCarriersMaterializeInsteadOfFailing(string typeName, string methodName, string expected)
     {
-        // Microsoft.CodeAnalysis 5.0.0: three of the #9248 witnesses, each a
+        // Microsoft.CodeAnalysis 5.0.0: two of the #9248 witnesses, each a
         // reference join spilled to a slot that only an `object` argument
         // reads. Before this slice they failed visibly at residual binding.
+        // The third, MarshalAsAttributeDecoder`4::DecodeMarshalAsCustom, is
+        // pinned below: its container structures since the dispatch-arm
+        // slice (#10192 PR 3), so the slot diamond folds and no carrier is
+        // needed.
         string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "PrimitiveJoin", "Microsoft.CodeAnalysis.dll");
         using var source = MetadataSource.Open(path);
         var function = IrImporter.Import(source, typeName, methodName);
@@ -698,6 +701,27 @@ public class ArgumentSinkTestimonyTests
         Assert.Contains("object S_1", result.Output);
         Assert.DoesNotContain("var S_1", result.Output);
         Assert.DoesNotContain(function.ResidualSlotBindings.Values, static binding => binding.Slot == 1);
+    }
+
+    [Fact]
+    public void DecodeMarshalAsCustom_FoldsTheObjectCarrierOnceStructured()
+    {
+        // The third #9248 witness: the `object` argument's reference join is
+        // a slot diamond at the end of a container the dispatch-arm slice now
+        // structures (a three-way string dispatch inside the named-argument
+        // loop), so the join folds to a target-typed conditional argument and
+        // no carrier or residual slot binding remains.
+        string path = Path.Combine(AppContext.BaseDirectory, "RealAssets", "PrimitiveJoin", "Microsoft.CodeAnalysis.dll");
+        using var source = MetadataSource.Open(path);
+        var function = IrImporter.Import(source, "Microsoft.CodeAnalysis.MarshalAsAttributeDecoder`4", "DecodeMarshalAsCustom");
+        Assert.NotNull(function);
+        IrPasses.Run(function, IrPasses.Default, PassContext.ForImport(reference => IrImporter.Import(source, reference), source.AreProvablyDisjoint));
+        var result = DecidedPrint.Print(function);
+
+        Assert.Contains("SetMarshalAsCustom(!V_3 ? V_0 : V_1, V_2);", result.Output);
+        Assert.DoesNotContain("S_1", result.Output);
+        Assert.DoesNotContain("goto", result.Output);
+        Assert.Empty(function.ResidualSlotBindings);
     }
 
     [Fact]
