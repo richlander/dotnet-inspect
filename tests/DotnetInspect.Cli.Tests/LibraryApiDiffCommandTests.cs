@@ -14,10 +14,56 @@ public sealed class LibraryApiDiffCommandTests
 {
     public LibraryApiDiffCommandTests() => NuGetCache.Initialize("dotnet-inspect");
 
-    [Fact]
-    public async Task Default_RetainsUnclassifiedTypeChangesAlongsideCompatibility()
+    [Theory]
+    [InlineData(false, "--tsv", 3)]
+    [InlineData(true, "--tsv", 8)]
+    [InlineData(false, "--jsonl", 3)]
+    [InlineData(true, "--jsonl", 8)]
+    public async Task TableRepresentation_IsOneRowPopulationWithoutDocumentContext(
+        bool detailed, string format, int columns)
     {
-        var (exitCode, output, error) = await Run();
+        string[] selection = detailed ? ["-S", "Changes"] : [];
+        var (exit, output, error) = await Run(
+            [.. selection, "--type", "MethodConstraintChange", format, "--rows", "1"]);
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Versions", output);
+        Assert.DoesNotContain("Summary", output);
+        string[] lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (format == "--tsv")
+        {
+            Assert.Equal(2, lines.Length);
+            Assert.All(lines, line => Assert.Equal(columns, line.Split('\t').Length));
+        }
+        else
+        {
+            using JsonDocument json = JsonDocument.Parse(Assert.Single(lines));
+            Assert.Equal(columns, json.RootElement.EnumerateObject().Count());
+            Assert.False(json.RootElement.TryGetProperty("field", out _));
+        }
+    }
+
+    [Theory]
+    [InlineData("--tree", null)]
+    [InlineData("--json", "--columns")]
+    [InlineData("--json", "--fields")]
+    public async Task UnsupportedRepresentations_FailBeforeLocalAcquisition(string format, string? projection)
+    {
+        string[] extra = projection is null ? [] : [projection, "Type"];
+        string[] args = CommandLineBuilder.PreprocessArgs(
+            ["diff", "--library", "missing-old.dll..missing-new.dll", format, .. extra]);
+        var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
+            await CommandLineBuilder.CreateRootCommand().Parse(args).InvokeAsync());
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.DoesNotContain("File not found", error);
+        Assert.Contains(projection is null ? "Hierarchy" : "projections", error);
+    }
+
+    [Fact]
+    public async Task Markdown_RetainsUnclassifiedTypeChangesAlongsideCompatibility()
+    {
+        var (exitCode, output, error) = await Run("--markdown");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -39,16 +85,20 @@ public sealed class LibraryApiDiffCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.Contains("TypeDefinitionChanged", output);
-        Assert.Contains("unclassified", output);
         if (format == "--json")
         {
             using JsonDocument document = JsonDocument.Parse(output);
             JsonElement row = Assert.Single(
-                document.RootElement.GetProperty("changes").EnumerateArray());
-            Assert.Equal(
-                "TypeDefinitionChanged", row.GetProperty("kind").GetString());
-            Assert.Equal("unclassified", row.GetProperty("classification").GetString());
+                document.RootElement.GetProperty("document").GetProperty("rows").EnumerateArray());
+            Assert.Equal("unclassified", row.GetProperty("rowKind").GetString());
+            Assert.Null(row.GetProperty("evidence").GetProperty("relation").GetString());
+            Assert.Equal("LibraryApiDiffFixture.TypeDefinitionOnly",
+                row.GetProperty("type").GetProperty("identifier").GetString());
+        }
+        else
+        {
+            Assert.Contains("TypeDefinitionChanged", output);
+            Assert.Contains("unclassified", output);
         }
     }
 
@@ -60,7 +110,10 @@ public sealed class LibraryApiDiffCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains("classification filter removed all changes", error);
-        Assert.DoesNotContain("TypeDefinitionChanged", output);
+        using JsonDocument document = JsonDocument.Parse(output);
+        JsonElement content = document.RootElement.GetProperty("document");
+        Assert.Empty(content.GetProperty("rows").EnumerateArray());
+        Assert.Equal(0, content.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
     }
 
     [Fact]
@@ -75,7 +128,7 @@ public sealed class LibraryApiDiffCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.Contains("No API changes detected.", output);
+        Assert.Equal("change\ttype\tdetail", output.Trim());
         Assert.DoesNotContain("not compared", output);
     }
 
@@ -117,9 +170,13 @@ public sealed class LibraryApiDiffCommandTests
         Assert.True(exitCode == 0, $"{error}\n{output}");
         Assert.Empty(error);
         Assert.Contains("AllowDuplicateProperties", output);
-        Assert.Contains("MemberAdded", output);
         using JsonDocument document = JsonDocument.Parse(output);
-        Assert.Equal(JsonValueKind.Array, document.RootElement.GetProperty("changes").ValueKind);
+        JsonElement type = Assert.Single(
+            document.RootElement.GetProperty("document").GetProperty("rows").EnumerateArray());
+        Assert.Contains(type.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("kind").GetInt32() == (int)ChangeKind.MemberAdded
+                && change.GetProperty("subject").GetProperty("afterMember")
+                    .GetProperty("display").GetString() == "AllowDuplicateProperties");
     }
 
     [Theory]
@@ -265,9 +322,9 @@ public sealed class LibraryApiDiffCommandTests
     [InlineData(
         "ObsoleteMemberChanged",
         "- [Obsolete] Member 'Value' signature changed from 'int Value(int before)' to 'int Value(int after)': `int Value(int before)` -> `int Value(int after)`")]
-    public async Task Default_PresentsOrdinaryRowsWithTheirStates(string heading, string row)
+    public async Task Markdown_PresentsOrdinaryRowsWithTheirStates(string heading, string row)
     {
-        var (exitCode, output, error) = await RunFindingDiffAny();
+        var (exitCode, output, error) = await RunFindingDiffAny("--markdown");
 
         Assert.Equal(0, exitCode);
         Assert.Contains($"### {heading}\n\n{row}\n", output.ReplaceLineEndings("\n"));
@@ -304,7 +361,7 @@ public sealed class LibraryApiDiffCommandTests
         string type)
     {
         string name = type["FindingDiffAnyFixture.".Length..].Split('+')[0];
-        var (exitCode, output, error) = await RunFindingDiffAny();
+        var (exitCode, output, error) = await RunFindingDiffAny("--markdown");
         var (namesExit, names, namesError) = await RunFindingDiffAny("--name-only");
         var (tableExit, table, tableError) = await RunFindingDiffAny("--table");
 
@@ -349,9 +406,10 @@ public sealed class LibraryApiDiffCommandTests
         Assert.Equal(
             (int)DotnetInspector.Queries.ApiSurfaceScope.ApiAxis,
             root.GetProperty("after").GetProperty("scope").GetInt32());
-        // 35 displayed Types plus the eight whose one row is outside the ordinary
-        // population; the CLI JSON spells a nested Type with '+'.
-        Assert.Equal(43, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        // Selected-row summary and complete supporting evidence have explicit scopes.
+        Assert.Equal(35, root.GetProperty("summary").GetProperty("changedTypeCount").GetInt32());
+        Assert.Equal(35, root.GetProperty("rows").GetArrayLength());
+        Assert.Equal(43, root.GetProperty("comparison").GetProperty("subjects").GetArrayLength());
         JsonElement nested = Subject(document, "FindingDiffAnyFixture.NestedPublicToProtected+Nested");
         JsonElement after = nested.GetProperty("comparison").GetProperty("after");
         Assert.False(after.GetProperty("status").GetProperty("isOrdinary").GetBoolean());
@@ -371,7 +429,7 @@ public sealed class LibraryApiDiffCommandTests
     [InlineData("NestedPublicToProtected+Nested")]
     public async Task TypeFilter_NestedType_ShowsItsOrdinaryRows(string filter)
     {
-        var (exitCode, output, error) = await RunFindingDiffAny("-t", filter);
+        var (exitCode, output, error) = await RunFindingDiffAny("-t", filter, "--markdown");
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
@@ -412,7 +470,7 @@ public sealed class LibraryApiDiffCommandTests
         var (exitCode, output, error) = await RunFindingDiffAny("--json");
 
         Assert.Equal(0, exitCode);
-        Assert.Empty(error);
+        Assert.Equal(OutsideNote, error.Trim());
         return JsonDocument.Parse(output);
     }
 

@@ -23,6 +23,8 @@ public sealed class ApiTypeSelection
     readonly Func<string, bool> _matchesFullName;
     readonly IReadOnlySet<string> _extensionTypes;
 
+    public bool MatchesFullName(string fullName) => _matchesFullName(fullName);
+
     public ApiTypeSelection(Func<string, bool> matchesFullName)
         : this(matchesFullName, new HashSet<string>(StringComparer.Ordinal))
     {

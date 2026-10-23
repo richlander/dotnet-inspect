@@ -2263,11 +2263,19 @@ libraries, and local DLL pairs. `--type` narrows the complete comparison;
 `--all` widens its API scope. The endpoints must be versions of the same
 logical Library (assembly name, culture, and public-key token).
 
-On this route, unprojected `--json` serializes the complete
-`LibraryApiDiffOutcome`, replacing the former `{changes: ...}` presentation
-view. Use `--envelope` for that same Content plus Share and diagnostics;
-`--compact` controls whitespace for either complete JSON boundary, not projected
-or other Diff operations. For example:
+On this route the default is row-only TSV with one row per changed Type.
+Explicit `-S Changes` selects detailed change rows instead. TSV, table, JSONL,
+and name-only output demand typed Table content without Document summaries or
+context rows. Explicit Markdown retains the contextual Document.
+
+Every `--json` request now serializes a typed Document outcome, including
+filtered requests and `-S Changes --json`; the old display-oriented
+`{changes: ...}` projection is retired on this route. `document.rows` contains
+the selected ordered rows, `document.summary` contains native numeric counts
+for the selected population before `--rows`, and `document.comparison` retains
+the complete supporting evidence. Use `--envelope` for that same Content plus
+Share and diagnostics (CLI envelope schema 2). `--compact` controls JSON
+whitespace. For example:
 
 ```bash
 dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --envelope --compact
@@ -2275,8 +2283,8 @@ dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 --tfm net8.0 --enve
 
 Envelope output accepts `--all`, but rejects Type/classification filters,
 section selection, explicit verbosity, row/line windows, and non-API modes.
-Explicitly projected JSON, such as `-S Changes --json`, retains its existing
-presentation schema. Share is explicitly non-projectable for comparison
+Tree is unsupported; structured JSON rejects column/field projections and
+rendered-line clipping. Share is explicitly non-projectable for comparison
 endpoints; it is not a replay URL.
 
 The exact local-Library Implementation Diff route also exposes complete typed
