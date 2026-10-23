@@ -403,6 +403,7 @@ import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
 import {
   createWorkspaceLibraryReferenceCandidates,
+  isBrowserAssemblyReferenceAvailable,
   renderLibraryReferencesSurface,
   resolveLibraryReferenceDestinations,
 } from "./library-references.ts";
@@ -11725,7 +11726,7 @@ function renderLibraryReferences() {
   const pkg = currentPackage();
   const references =
     data?.assemblyReferences
-      && typeof data.assemblyReferences !== "string"
+      && isBrowserAssemblyReferenceAvailable(data.assemblyReferences)
       ? data.assemblyReferences.references
       : [];
   const candidates = state.packages.flatMap(candidatePackage =>
@@ -11767,7 +11768,8 @@ async function renderLibraryReferenceIcons() {
     ".library-references-surface .reference-list-section");
   const data = packageDependenciesData();
   const references = data?.assemblyReferences;
-  if (!container || !data || !references || typeof references === "string") return;
+  if (!container || !data || !references
+    || !isBrowserAssemblyReferenceAvailable(references)) return;
   const candidates = state.packages.flatMap(candidatePackage =>
     createWorkspaceLibraryReferenceCandidates(
       packageIdentityKey(candidatePackage),
@@ -24149,7 +24151,7 @@ async function renderLibraryReferenceGraph() {
     document.querySelector<HTMLElement>("#library-reference-graph-diagram");
   if (!container) return;
   const assemblyReferences = packageDependenciesData()?.assemblyReferences;
-  if (!assemblyReferences || typeof assemblyReferences === "string") {
+  if (!assemblyReferences || !isBrowserAssemblyReferenceAvailable(assemblyReferences)) {
     libraryReferenceGraphRenderSequence.invalidate();
     return;
   }

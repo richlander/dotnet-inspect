@@ -897,7 +897,7 @@ public static partial class PackageExports
 
         string? assembly = null;
         BrowserAssemblyReferenceResult assemblyReferences;
-        if (coordinate.Selection.IsSelected)
+        if (coordinate.Selection.IsSelected && assemblyId.Length != 0)
         {
             PackageCompileAsset asset = coordinate.CompileAsset(assemblyId);
             assembly = asset.AssemblyName;
@@ -933,7 +933,11 @@ public static partial class PackageExports
                                 reference.Culture,
                                 reference.PublicKeyToken)),
                     ];
-                    assemblyReferences = new(new BrowserAssemblyReferenceList(references));
+                    assemblyReferences = new(
+                        new BrowserAssemblyReferenceOutcome(
+                            WasRequested: true,
+                            references,
+                            Message: null));
                     break;
                 case AssemblyContextEntry<
                     ImmutableArray<AssemblyReferenceRow>>.Rejected rejected:
@@ -951,10 +955,19 @@ public static partial class PackageExports
                         "Unknown assembly-context reference query result.");
             }
         }
+        else if (coordinate.Selection.IsSelected)
+        {
+            assemblyReferences = new(
+                new BrowserAssemblyReferenceOutcome(
+                    WasRequested: false,
+                    [],
+                    "Assembly reference inspection was not requested."));
+        }
         else
         {
             assemblyReferences = new(
-                compileLibrary.Message ?? "No compile library is available for this package.");
+                compileLibrary.Message
+                    ?? "No compile library is available for this package.");
         }
 
         string? dependencyGroupError =

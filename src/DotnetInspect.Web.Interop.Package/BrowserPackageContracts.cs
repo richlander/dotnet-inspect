@@ -1380,10 +1380,14 @@ public sealed record BrowserLibraryQuerySummary(
     string IncompleteReasons,
     bool IsComplete);
 
-public union BrowserAssemblyReferenceResult(BrowserAssemblyReferenceList, string);
+public union BrowserAssemblyReferenceResult(
+    BrowserAssemblyReferenceOutcome,
+    string);
 
-public sealed record BrowserAssemblyReferenceList(
-    BrowserAssemblyReference[] References);
+public sealed record BrowserAssemblyReferenceOutcome(
+    bool WasRequested,
+    BrowserAssemblyReference[] References,
+    string? Message);
 
 public sealed record BrowserPackageDependencyGroup(
     int Index,

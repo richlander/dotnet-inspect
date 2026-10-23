@@ -9,10 +9,13 @@ public sealed class BrowserAssemblyReferenceResultTests
     public void AvailableReferencesSerializeAsAnInlineListCase()
     {
         BrowserAssemblyReferenceResult result = new(
-            new BrowserAssemblyReferenceList(
-                [new("Example.Dependency", "1.2.3.4", null, "abcdef")]));
+            new BrowserAssemblyReferenceOutcome(
+                WasRequested: true,
+                [new("Example.Dependency", "1.2.3.4", null, "abcdef")],
+                Message: null));
 
         using JsonDocument document = JsonDocument.Parse(Serialize(result));
+        Assert.True(document.RootElement.GetProperty("wasRequested").GetBoolean());
         JsonElement reference = Assert.Single(
             document.RootElement.GetProperty("references").EnumerateArray());
         Assert.Equal("Example.Dependency", reference.GetProperty("name").GetString());
@@ -24,9 +27,29 @@ public sealed class BrowserAssemblyReferenceResultTests
     [Fact]
     public void AvailableEmptyReferencesAreNotAMissingResult()
     {
-        BrowserAssemblyReferenceResult result = new(new BrowserAssemblyReferenceList([]));
+        BrowserAssemblyReferenceResult result = new(
+            new BrowserAssemblyReferenceOutcome(
+                WasRequested: true,
+                [],
+                Message: null));
 
-        Assert.Equal("{\"references\":[]}", Serialize(result));
+        Assert.Equal(
+            "{\"wasRequested\":true,\"references\":[],\"message\":null}",
+            Serialize(result));
+    }
+
+    [Fact]
+    public void NotRequestedRemainsDistinctFromFailure()
+    {
+        BrowserAssemblyReferenceResult result = new(
+            new BrowserAssemblyReferenceOutcome(
+                WasRequested: false,
+                [],
+                "Assembly reference inspection was not requested."));
+
+        Assert.Equal(
+            "{\"wasRequested\":false,\"references\":[],\"message\":\"Assembly reference inspection was not requested.\"}",
+            Serialize(result));
     }
 
     [Theory]

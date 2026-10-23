@@ -10,7 +10,7 @@ import {
   type Worker,
 } from "@playwright/test";
 import type {
-  BrowserAssemblyReferenceList as AssemblyReferenceList,
+  BrowserAssemblyReferenceOutcome as AssemblyReferenceList,
   BrowserAssemblyReferenceResult as AssemblyReferenceResult,
   BrowserPackageCacheStats as CacheStats,
   BrowserPackageDependencies as PackageDependencies,
@@ -993,14 +993,15 @@ function firstOccurrence(view: OccurrenceView): OccurrenceRow {
 }
 
 // The published facade hands back one completed assembly-reference outcome: an
-// available list (the object case), a failure message (the string case), or the
+// available list, an explicit not-requested object, a failure message, or the
 // generated union's default null. These narrow that result at the consumer,
 // exactly as the production renderer must, so a test that expects one case can
-// never silently read the other.
+// never silently read another.
 function availableReferences(
   result: AssemblyReferenceResult,
 ): AssemblyReferenceList {
-  if (result === null || typeof result === "string") {
+  if (result === null || typeof result === "string"
+    || !result.wasRequested) {
     throw new Error(
       "Expected an available assembly-reference list; the facade returned "
         + `${JSON.stringify(result)}.`);

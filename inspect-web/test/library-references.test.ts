@@ -8,15 +8,17 @@ import {
   type WorkspaceLibraryReferenceCandidate,
 } from "../src/library-references.ts";
 import type {
-  BrowserAssemblyReferenceList,
+  BrowserAssemblyReferenceOutcome,
   BrowserPackageDependencies,
 } from "../src/facades/inspect-web-package.d.ts";
 
-const referenceList: BrowserAssemblyReferenceList = {
+const referenceList: BrowserAssemblyReferenceOutcome = {
+  wasRequested: true,
   references: [
     { name: "System.Runtime", version: "10.0.0.0", culture: null, publicKeyToken: "b03f5f7f11d50a3a" },
     { name: "Example.Other", version: "1.2.3.4", culture: "fr", publicKeyToken: null },
   ],
+  message: null,
 };
 
 const data: BrowserPackageDependencies = {
@@ -179,13 +181,19 @@ test("only a uniquely attributed reference displays its package icon", () => {
 
 test("a single direct reference uses a singular count", () => {
   assert.match(render({ data: { ...data, assemblyReferences: {
+    wasRequested: true,
     references: referenceList.references.slice(0, 1),
+    message: null,
   } } }),
     /1 direct reference<\/p>/);
 });
 
 test("successful zero references retain the frame and explicit empty result", () => {
-  const html = render({ data: { ...data, assemblyReferences: { references: [] } } });
+  const html = render({ data: { ...data, assemblyReferences: {
+    wasRequested: true,
+    references: [],
+    message: null,
+  } } });
   assert.match(html, /0 direct references/);
   assert.match(html, /No direct references/);
   assert.match(html, /This assembly declares no direct AssemblyRef rows/);
@@ -223,6 +231,18 @@ test("inspection failure is not a zero-reference result", () => {
   assert.doesNotMatch(html, /<ul|0 direct references|2 direct references/);
 });
 
+test("unrequested inspection is distinct from failure or zero references", () => {
+  const html = render({ data: { ...data, assemblyReferences: {
+    wasRequested: false,
+    references: [],
+    message: "Assembly reference inspection was not requested.",
+  } } });
+  assert.match(html, /Not requested/);
+  assert.match(html, /Reference inspection not requested/);
+  assert.match(html, /Assembly reference inspection was not requested/);
+  assert.doesNotMatch(html, /failed|declares no direct|<ul/);
+});
+
 for (const [result, message] of [
   ["", "No failure details were provided."],
   [null, "The engine returned no assembly-reference result."],
@@ -244,7 +264,7 @@ test("identity, reference fields, and diagnostics use the existing escape bounda
     coordinate: "net10.0 / Example<Package>@1",
     data: { ...data, assemblyReferences: { references: [
       { name: "Example<Other>", version: "1&2", culture: "a&b", publicKeyToken: "c&d" },
-    ] } },
+    ], wasRequested: true, message: null } },
   });
   assert.match(html, /Example&lt;Other&gt;/);
   assert.match(html, /1&amp;2.*a&amp;b.*c&amp;d/);

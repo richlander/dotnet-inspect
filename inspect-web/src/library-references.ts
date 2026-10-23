@@ -1,4 +1,8 @@
-import type { BrowserPackageDependencies } from "./facades/inspect-web-package.d.ts";
+import type {
+  BrowserAssemblyReferenceOutcome,
+  BrowserAssemblyReferenceResult,
+  BrowserPackageDependencies,
+} from "./facades/inspect-web-package.d.ts";
 import { assemblyReferenceGraphLegendHtml } from "./graph-legends.ts";
 
 export interface AssemblyReferenceIdentity {
@@ -103,6 +107,14 @@ export function resolveLibraryReferenceDestinations(
     destinations.get(assemblyReferenceIdentityKey(reference)) ?? null);
 }
 
+export function isBrowserAssemblyReferenceAvailable(
+  result: BrowserAssemblyReferenceResult,
+): result is BrowserAssemblyReferenceOutcome {
+  return result !== null
+    && typeof result !== "string"
+    && result.wasRequested;
+}
+
 export function renderLibraryReferencesSurface(options: LibraryReferencesOptions): string {
   const {
     loading,
@@ -128,6 +140,9 @@ export function renderLibraryReferencesSurface(options: LibraryReferencesOptions
       : data.assemblyReferences || "No failure details were provided.";
     status = "Inspection failed";
     content = `<section class="document-section empty-document"><h2>Reference inspection failed</h2><p>${escapeHtml(message)}</p></section>`;
+  } else if (!data.assemblyReferences.wasRequested) {
+    status = "Not requested";
+    content = `<section class="document-section empty-document"><h2>Reference inspection not requested</h2><p>${escapeHtml(data.assemblyReferences.message ?? "No details were provided.")}</p></section>`;
   } else {
     const references = data.assemblyReferences.references;
     status = `${references.length.toLocaleString()} direct reference${references.length === 1 ? "" : "s"}`;
