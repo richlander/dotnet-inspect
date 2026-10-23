@@ -168,8 +168,10 @@ self-delimiting, never a decoded and formatted name, so two names whose bytes
 differ but decode alike stay distinct, as Finding Diff Any's
 [Identity](finding-diff-any.md#identity) requires. The cursor yields the bytes,
 lockstep compares the bytes, and only sealing for Exhaustive builds the key
-string. A cursor that yields a record with display text would pay for every
-operation what a view pays only for the operations it shows, which the
+string and projects the operand's text, since a sealed census is retained and
+may be shown after its side's reader is gone, and a side formats each distinct
+operand once. A cursor that yields a record with display text would pay for
+every operation what a view pays only for the operations it shows, which the
 measurement gate below catches.
 
 **Terminals** are the inspection outcomes of Finding nomenclature, reached in

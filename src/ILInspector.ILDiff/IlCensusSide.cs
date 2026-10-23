@@ -62,8 +62,10 @@ public sealed class IlCensusSide
         _policy = policy;
         _correspondence = correspondence;
         var names = new MetadataStringHeap(reader);
-        _types = new SymbolKeyBuilder<IlOperandPart>(16 * 1024) { Names = names };
-        _members = new SymbolKeyBuilder<IlOperandPart>(16 * 1024) { Names = names };
+        // Small to start: a side created for one method stays small, and an
+        // assembly-wide side grows as its memo does.
+        _types = new SymbolKeyBuilder<IlOperandPart>(1024) { Names = names };
+        _members = new SymbolKeyBuilder<IlOperandPart>(1024) { Names = names };
         _speller = new MetadataSymbolSpeller<IlOperandPart, StagedSymbolKey<IlOperandPart>, Rows>(
             reader,
             names,
@@ -85,12 +87,20 @@ public sealed class IlCensusSide
         return new IlCensusSide(reader, policy, CompilerGeneratedOrdinalCorrespondence.Empty);
     }
 
-    /// <summary>The two sides of one comparison under one policy, with the generated-ordinal correspondence when the policy composes it.</summary>
-    internal static (IlCensusSide Old, IlCensusSide New) CreatePair(
+    /// <summary>
+    /// The two sides of one comparison under one policy, with the
+    /// generated-ordinal correspondence when the policy composes
+    /// <see cref="IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals"/>;
+    /// a consumer comparing many bodies of one image pair creates its sides
+    /// here once.
+    /// </summary>
+    public static (IlCensusSide Old, IlCensusSide New) CreatePair(
         MetadataReader oldReader,
         MetadataReader newReader,
         IlBodyDiffNormalization policy)
     {
+        ArgumentNullException.ThrowIfNull(oldReader);
+        ArgumentNullException.ThrowIfNull(newReader);
         if ((policy & ~IlBodyDiff.SupportedNormalizations) != 0)
         {
             throw new ArgumentOutOfRangeException(
@@ -164,12 +174,14 @@ public sealed class IlCensusSide
         }
     }
 
+    IlBodyDiff.OperandText Text => _text ??= new IlBodyDiff.OperandText(_reader, _policy, _correspondence);
+
     /// <summary>The formatted spelling of a token operand, for the view that shows it.</summary>
     internal string Format(OperandKind kind, int token)
     {
         try
         {
-            return (_text ??= new IlBodyDiff.OperandText(_reader, _policy, _correspondence)).Format(kind, token);
+            return Text.Format(kind, token);
         }
         catch (Exception ex) when (IsMalformed(ex))
         {
@@ -180,8 +192,9 @@ public sealed class IlCensusSide
 
     IlOperandIdentity Identity(OperandKind kind, int token)
     {
+        // A user string is a value: its text is its identity, with no fallback.
         if (kind == OperandKind.InlineString)
-            return new IlOperandIdentity(IlOperandIdentityKind.Token, Format(kind, token));
+            return new IlOperandIdentity(IlOperandIdentityKind.Token, Text.Format(kind, token));
         EntityHandle row = MetadataTokens.EntityHandle(token);
         Expect(kind, row);
         StagedSymbolKey<IlOperandPart> key = kind == OperandKind.InlineSig
@@ -193,7 +206,10 @@ public sealed class IlCensusSide
     // The operand kinds admit the rows Finding Diff Any's walk admits
     // (RequireOperandKind): a kind the opcode takes, a member reference whose
     // parent is a Type (Roslyn's vararg call site has a method parent), and a
-    // method specification of a definition or of such a reference.
+    // method specification of a definition or of such a reference. A
+    // compiler-controlled (PrivateScope) member, which ECMA-335 lets share a
+    // name and signature, is refused where it is spelled (Row), as Finding
+    // Diff Any's ReferenceKey refuses it.
     void Expect(OperandKind kind, EntityHandle row)
     {
         bool admitted = kind switch
@@ -266,8 +282,12 @@ public sealed class IlCensusSide
                 memo[token] = alias;
                 return alias;
             case HandleKind.MethodDefinition:
+                if ((_reader.GetMethodDefinition((MethodDefinitionHandle)row).Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope)
+                    throw new BadImageFormatException("A reference names a compiler-controlled method.");
                 return Memoize(memo, token, _speller.Method(_members, (MethodDefinitionHandle)row));
             case HandleKind.FieldDefinition:
+                if ((_reader.GetFieldDefinition((FieldDefinitionHandle)row).Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.PrivateScope)
+                    throw new BadImageFormatException("A reference names a compiler-controlled field.");
                 return Memoize(memo, token, _speller.Field(_members, (FieldDefinitionHandle)row));
             case HandleKind.MemberReference:
                 return Memoize(memo, token, _speller.MemberReference(_members, (MemberReferenceHandle)row));

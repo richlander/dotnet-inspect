@@ -386,6 +386,9 @@ public sealed class IlCensusCursor
     /// <see cref="Finding{T}"/> with their matcher projection and ordinal, then
     /// the terminal lowered to <see cref="FindingInspection{T}"/>. This is
     /// <see cref="IlFindings.Inspect(MethodInstructions?, MetadataReader?, FindingSubject, IlBodyDiffNormalization)"/>.
+    /// Sealing projects each operand's text as well as its key string: a
+    /// sealed census is retained and may be shown after its side's reader is
+    /// disposed, and a side formats each distinct operand once.
     /// </summary>
     public FindingInspection<CanonicalIlOperation> Drain()
     {
@@ -398,6 +401,7 @@ public sealed class IlCensusCursor
         while (Advance())
         {
             CanonicalIlOperation operation = _current!;
+            operation.Operand?.Seal();
             atoms.Add(new Finding<CanonicalIlOperation>(
                 _subject,
                 IlFindings.OperationDescriptor,

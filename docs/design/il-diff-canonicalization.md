@@ -93,7 +93,9 @@ Each instruction becomes a `CanonicalIlOperation`:
   its row's Symbol Key under the policy, compared as bytes; an immediate, a
   slot, a branch or switch target, and a user string are values, compared as
   their text. The formatted spelling a view shows (`Value`) is a projection
-  from the operand's side, read only where a view shows the operation.
+  from the operand's side: formatted when a census is sealed (`Drain`,
+  `TryCanonicalize`) or a diff row is built, since those outlive the
+  comparison, and otherwise on first read while the side's reader lives.
 - `Targets`: the IL offsets the operation points at: a branch's target, a
   switch's arms, or an exception clause's extent boundaries. Offsets are
   evidence and display context.
@@ -339,18 +341,24 @@ and the name of a definition (`NormalizeCompilerGeneratedOrdinals` writes the
 correspondence's ordinal-free name for a Type an operand or a declaring Type
 names and for every method or field definition; a Type a signature names
 keeps its stored name). The admitted rows are Finding Diff Any's: a kind the
-opcode takes, a member reference whose parent is a Type, and a method
-specification of a definition or of such a reference. A row the speller
-rejects, whose signature exceeds the decode budget, whose declaring or
-resolution-scope chain cycles or exceeds the node budget, or which an opcode
-does not take, fails the operand, and the body is unavailable
-(`TokenResolutionFailure`); no stand-in identity is compared in its place.
+opcode takes, a member reference whose parent is a Type, a method
+specification of a definition or of such a reference, and no
+compiler-controlled (`PrivateScope`) member, which ECMA-335 lets share a name
+and signature. A row the speller rejects, whose signature exceeds the decode
+budget, whose declaring or resolution-scope chain cycles or exceeds the node
+budget, or which an opcode does not take, fails the operand, and the body is
+unavailable (`TokenResolutionFailure`); no stand-in identity is compared in
+its place. Two Type rows that spell one key are Finding Diff Any's
+`Indeterminate`, which it decides from its unit table; the cursor has no such
+table and compares them by their shared key, a question the Exists agreement
+gate of [Finding census](finding-census.md#gates) takes up.
 
 Without a metadata-backed comparison, token operands fail closed. This prevents
 raw token numbers from being treated as comparable identities across assemblies
 or builds. The formatted text of an operand, with the same scope and name
-mechanics, is produced by the side only where `IlOperandIdentity.Value` is
-read, for the rows a view shows; nothing compares it.
+mechanics, is produced by the side once per distinct operand, when a census
+is sealed or a diff row is built, or where `IlOperandIdentity.Value` is
+first read while the reader lives; nothing compares it.
 
 ### Hunk and display ownership
 

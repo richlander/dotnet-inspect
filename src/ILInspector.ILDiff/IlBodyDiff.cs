@@ -127,8 +127,16 @@ public sealed class IlOperandIdentity : IEquatable<IlOperandIdentity>
 
     public IlOperandIdentityKind Kind { get; }
 
-    /// <summary>The text a view shows; a token's is formatted from its side when first read.</summary>
+    /// <summary>
+    /// The text a view shows; a token's is formatted from its side when first
+    /// read, or when its census is sealed (<see cref="IlCensusCursor.Drain"/>),
+    /// since a sealed census may outlive its side's reader. Before sealing,
+    /// the text is available while the reader lives.
+    /// </summary>
     public string Value => _value ??= _side!.Format(_operandKind, _token);
+
+    /// <summary>Formats the text now, so the identity no longer needs its side's reader.</summary>
+    internal void Seal() => _ = Value;
 
     /// <summary>
     /// The row's key in its side's population, when this identity is a row's
@@ -413,7 +421,7 @@ public static partial class IlBodyDiff
         ArgumentNullException.ThrowIfNull(body);
         RequireSingleSidePolicy(normalization);
         IlCensusSide? side = reader is null ? null : IlCensusSide.Create(reader, normalization);
-        return TryBuildOperations(body, side, label: "", normalization, out operations, out failure);
+        return TryBuildOperations(body, side, label: "", normalization, out operations, out failure) && Seal(operations);
     }
 
     /// <summary>Canonicalizes one body through its side, under the side's policy.</summary>
@@ -425,7 +433,16 @@ public static partial class IlBodyDiff
     {
         ArgumentNullException.ThrowIfNull(side);
         ArgumentNullException.ThrowIfNull(body);
-        return TryBuildOperations(body, side, label: "", side.Policy, out operations, out failure);
+        return TryBuildOperations(body, side, label: "", side.Policy, out operations, out failure) && Seal(operations);
+    }
+
+    // Operations handed out of the comparison may outlive their side's reader,
+    // so their text is projected before they leave.
+    static bool Seal(ImmutableArray<CanonicalIlOperation> operations)
+    {
+        foreach (CanonicalIlOperation operation in operations)
+            operation.Operand?.Seal();
+        return true;
     }
 
     static IlBodyDiffResult Compare(
