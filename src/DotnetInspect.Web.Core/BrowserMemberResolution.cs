@@ -115,12 +115,36 @@ internal static class BrowserMemberResolution
         string selectorKey,
         int metadataToken,
         CancellationToken cancellationToken = default)
+        => await ImplementationMemberAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeId,
+            memberName,
+            selectorKey,
+            metadataToken,
+            runtimeIdentifier: null,
+            cancellationToken);
+
+    internal static async Task<ScopedResolution> ImplementationMemberAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        string? runtimeIdentifier,
+        CancellationToken cancellationToken = default)
     {
         BrowserScopeLease<BrowserInspectionScope> lease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
                 targetFramework,
+                runtimeIdentifier,
                 cancellationToken);
         try
         {

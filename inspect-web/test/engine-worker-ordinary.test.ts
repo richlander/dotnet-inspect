@@ -1783,6 +1783,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     0x06000001,
     0,
     "[]",
+    null,
     "source",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
@@ -1795,6 +1796,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "selector",
     0x06000001,
     "[]",
+    null,
   );
   const platformMemberResult = state.client.source.queryPlatformMemberSource(
     "net11.0",

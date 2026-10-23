@@ -1895,7 +1895,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryMemberSource: valueOperation(
       "ordinary-source-query-member",
-      11,
+      12,
       (
         facades,
         ...args: Parameters<SourceFacade["queryMemberSource"]>
@@ -1911,7 +1911,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryTypeMemberSource: valueOperation(
       "ordinary-source-query-type-member",
-      9,
+      10,
       (
         facades,
         ...args: Parameters<SourceFacade["queryTypeMemberSource"]>

@@ -3905,6 +3905,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.metadataToken,
         request.documentBaselineOrdinal,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view)
     : inspectPlatformMemberSource(
         request.framework,
@@ -3938,6 +3939,7 @@ const sourceInspection = createSourceInspectionCoordinator({
         request.assembly,
         request.type,
         request.taste,
+        request.runtimeIdentifier ?? null,
         request.view),
   queryGraphSource: (request, taste) => inspectTypeMemberSource(
     request.packageId,
@@ -3948,7 +3950,8 @@ const sourceInspection = createSourceInspectionCoordinator({
     request.member,
     request.selectorKey,
     request.metadataToken,
-    taste),
+    taste,
+    request.runtimeIdentifier ?? null),
   memberSourceHasConcreteOverload,
   cancelEngineSourceRequest: () => {
     if (cancelSourceInspection) {
@@ -23422,6 +23425,7 @@ async function loadSelectedMemberSource() {
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
     });
   }
@@ -23510,6 +23514,7 @@ function memberRequestSignature(
     pkg?.id,
     pkg?.version,
     pkg?.activeFramework,
+    pkg?.runtimeIdentifier,
     platformDemoContextIdFor(pkg ?? null),
     type?.assembly,
     type?.queryId ?? type?.id,
@@ -23577,6 +23582,7 @@ async function loadSelectedTypeSource() {
     packageId: pkg.id,
     version: pkg.version,
     framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     assembly: type.assembly,
   });
 }
@@ -24989,6 +24995,7 @@ function resolveLoadedGraphTarget(
       packageId: pkg.id,
       version: pkg.version,
       framework: pkg.activeFramework,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
       assembly: type.assembly,
       type: callGraphTargetTypeId(target),
       member: target.memberName,

@@ -860,6 +860,24 @@ test("source requests carry exact type and member identities", () => {
     memberLoader,
     /documentBaselineOrdinal:[\s\S]*memberBaselineOrdinal\(type, member, overload\)/);
   assert.match(
+    memberLoader,
+    /runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    appSource,
+    /async function loadSelectedTypeSource\(\)[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    appSource,
+    /function resolveLoadedGraphTarget\([\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    appSource,
+    /inspectMemberSource\([\s\S]*request\.runtimeIdentifier \?\? null,\s*request\.view\)/);
+  assert.match(
+    appSource,
+    /inspectTypeSource\([\s\S]*request\.runtimeIdentifier \?\? null,\s*request\.view\)/);
+  assert.match(
+    appSource,
+    /inspectTypeMemberSource\([\s\S]*request\.runtimeIdentifier \?\? null\)/);
+  assert.match(
     appSource,
     /function memberBaselineOrdinal\([\s\S]*overload\.baselineOrdinal[\s\S]*row => row\.metadataToken === metadataToken\)\?\.baselineOrdinal/);
   assert.doesNotMatch(memberLoader, /overload\.anchorDigest/);

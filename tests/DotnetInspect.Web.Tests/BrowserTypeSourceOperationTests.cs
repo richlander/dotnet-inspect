@@ -249,6 +249,58 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         await AssertReleased(id, packageId);
     }
 
+    [Fact]
+    public async Task DecompilerSource_UsesRetainedRuntimeIdentifier()
+    {
+        const string packageId = "Type.Source.Bridge.Runtime";
+        const string runtimeIdentifier = "win-x64";
+        using var bytes = new MemoryStream();
+        using (var archive =
+            new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (Stream rejected = archive.CreateEntry(
+                       "runtimes/linux-x64/lib/net11.0/TsJsExport.Contracts.dll")
+                   .Open())
+            {
+                rejected.Write([0x01]);
+            }
+            using (Stream selected = archive.CreateEntry(
+                       $"runtimes/{runtimeIdentifier}/lib/net11.0/TsJsExport.Contracts.dll")
+                   .Open())
+            {
+                selected.Write(
+                    File.ReadAllBytes(
+                        typeof(JsExportRootAttribute).Assembly.Location));
+            }
+        }
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                bytes.ToArray(),
+                fromCache: false));
+
+        string id = Guid.NewGuid().ToString();
+        BrowserTypeSourceResult result = Read(
+            await SourceExports.QueryTypeSource(
+                id,
+                packageId,
+                "1.0.0",
+                "net11.0",
+                "TsJsExport.Contracts.dll",
+                "TsJsExport.JsExportRootAttribute",
+                "[]",
+                runtimeIdentifier,
+                "decompiler-source"));
+
+        Assert.Equal(BrowserTypeSourceResultKind.Succeeded, result.Kind);
+        var sourceView =
+            Assert.IsType<BrowserTypeCodeView.Source>(result.Value);
+        Assert.Equal("decompiled", sourceView.Value.Provider);
+        Assert.Contains("JsExportRootAttribute", sourceView.Value.Text);
+        await AssertReleased(id, packageId);
+    }
+
 #if DEBUG
     [Fact]
     public async Task
