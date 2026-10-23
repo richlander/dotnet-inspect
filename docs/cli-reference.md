@@ -570,6 +570,40 @@ dotnet-inspect library System.Text.Json -S "Performance: Sync Calls in Async"
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S "Call Graph"
 ```
 
+### Annotated Type Relations
+
+Use `type --relations` to request a machine-readable, Type-focused inventory
+of logical relations, physical occurrences, selected annotations, and
+producer completion. The request is explicit: an ordinary `type` command does
+not acquire relation evidence.
+
+```bash
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.13 \
+  --relations all \
+  --relation-color member.requires-unreferenced-code \
+  --relation-color member.requires-dynamic-code \
+  --relation-color member.requires-assembly-files \
+  --json
+
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --package System.Text.Json@10.0.13 \
+  --relations call --count --json
+```
+
+`--relations` accepts `all` or one or more canonical family ids. Values may be
+repeated or comma-separated; `all` cannot be combined with explicit ids. The
+current relationship family id is `call`. `--relation-color` selects an
+annotation family, while `--require-relation-color` also filters relations to
+targets carrying that selected color.
+
+The initial host gesture supports outgoing relations and `--json` or
+`--envelope`. `--count` selects the Count terminal; otherwise the request
+selects Rows. Share, section/discovery gestures, Tree, Mermaid, and implicit
+host defaults are not part of this route. Semantic-row and rendered-line
+selection gestures are also rejected rather than silently applied after the
+canonical document is generated.
+
 ### Decompiler
 
 Use `member -S @Source` for the authored-first source view, forced PDB and
@@ -1640,6 +1674,20 @@ dotnet-inspect workspace package update \
   --packet "$w" --version 12.1.2 --json --envelope
 ```
 
+Package component descriptors include `contract: "workspace/components/package"`
+and `schema_version: 1`, so a jq extraction retains the owner and explanation
+schema identity alongside the declared coordinate. For example:
+
+```bash
+dotnet-inspect workspace component list --packet "$w" |
+  jq '.packages[] | select(.package_id == "System.Text.Json")' > component.json
+```
+
+These describe construction intent. Paths, context membership and focus are
+scoped to the parent packet; copied text alone does not establish an occurrence.
+The Workspace owner can validate the extracted declaration independently of
+restoration. Passing this file to CLI `explain` remains staged host adoption.
+
 Use `--version`, `--tfm`, or both, and select either scalar `--share`
 output or `--json --envelope`. The envelope includes the derived Share,
 actual Scope outcome, retention/fallback decision and diagnostics. Scalar
@@ -2310,6 +2358,15 @@ surface `api` shows its `api.type` rows and then its `api.member` rows.
 `Changes` requires `api`. `Transitions` requires a selected analysis that
 declares it at the request surface: Type and Member analyses do so at their
 surfaces, while `string-literals` declares Library Transitions.
+
+A lone `Summary` or `Transitions` section defaults to TSV rows. Explicit
+`--table`, `--tsv`, and `--jsonl` emit only that section's rows, without
+Versions or status context; Transitions includes stable `old_inspection` and
+`new_inspection` columns, empty when absent. Use `--markdown` for the contextual
+Document. `--json` retains the structured Document and native numeric counts;
+`--envelope` additionally retains Share and diagnostics. Mixed section
+selections remain Documents. These two sections do not offer `--tree`.
+
 `--breaking`, `--additive`, `--changed`, and `--name-only` refine `Changes`
 only. Unknown, duplicate, empty, surface-unsupported, and wrong-cardinality
 entries are all reported before acquisition.
@@ -2900,6 +2957,33 @@ dotnet-inspect explain operations --jsonl
 dotnet-inspect explain --markdown
 dotnet-inspect explain operations/package-query
 ```
+
+Use `.hal --json` for the root's HAL reading. It embeds routing entries while
+linking their destination definitions. The reference collection
+`component-contracts` currently describes the Workspace Package contribution:
+
+```bash
+dotnet-inspect explain .hal --json > explain-root.json
+dotnet-inspect explain component-contracts .hal --json > contracts.json
+contract=$(jq -r '._links["collection-component-contract"][0].href' contracts.json)
+dotnet-inspect explain "$contract" .hal --json > package-contract.json
+jq '._embedded.data.facts.fields[] | select(.id == "framework") |
+  {name, meaning, shape, cardinality}' package-contract.json
+```
+
+The contract leaf projects Workspace-owned field meanings and limits. Root
+reading includes only routing summaries. A reader that knows the leaf may
+request `workspace/components/package` directly. `.data --json` exposes the
+same facts in the direct representation. Both preserve observation and
+traversal outcomes, and these links omit projection parameters.
+
+For these readings, `_embedded.data` contains native resource data and
+`_embedded.resources` contains already expanded resources. A detached component
+explanation has no instance `self`; its `describedby` relation identifies this
+installed kind contract. The shared operation consumes owner-validated
+component inputs; CLI admission of a component file is a later facade slice.
+The [worked reading](../tools/ExplainReadingScenarios/continuous-components/README.md)
+includes captured JSON files and standalone versus parent-qualified examples.
 
 ## Exact explanation JSON
 

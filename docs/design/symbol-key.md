@@ -231,8 +231,19 @@ completes.
 
 Rows a spelling refers to are the consumer's: `IMetadataRowKeys<TDomain, TRow>`
 resolves a row to the consumer's key, spelling it into the consumer's own
-builders and memo, and embeds a resolved key into an open one. The declaring
-Type, a member reference's parent, and a method specification's method are
+builders and memo, and embeds a resolved key into an open one. So are a
+definition's name part and, under `Declared`, a substituted scope name: the
+speller asks the consumer to write the name of a Type in a declaring chain, a
+method, or a field definition (Finding Diff Any writes the `#Strings` name as
+stored; the IL census cursor writes the compiler-generated ordinal
+correspondence's name where its policy folds one), and asks it for a name to
+spell in place of a resolution scope (the cursor's current and platform
+mechanics name `<current>` and `<platform>`; empty declares the scope as it
+is, under its own scope kind). A reference's names are never rewritten. The
+grammar stays one; a policy that rewrites names or scopes is the consumer's,
+and two consumers under one policy spell one row with the same bytes. The
+declaring Type, a member reference's parent, and a method specification's
+method are
 resolved before the referring key opens; a Type a signature names is resolved
 when it is embedded, while that key is open. The role names why: the declaring
 Type of a definition, or a Type or member a signature, specification, or member

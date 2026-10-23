@@ -1262,7 +1262,7 @@ export const engineWorkerOrdinaryOperations = {
     ),
     queryPackageHierarchy: valueOperation(
       "ordinary-package-query-hierarchy",
-      3,
+      4,
       (
         facades,
         ...args: Parameters<PackageFacade["queryPackageHierarchy"]>

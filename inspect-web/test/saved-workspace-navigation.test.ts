@@ -14,6 +14,7 @@ import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
   retainWorkspacePackage,
+  setTypeViewFacetCatalog,
   typeLensesFor,
 } from "../src/data.ts";
 import type {
@@ -32,6 +33,7 @@ import {
   invalidateMemberCallGraphWork,
   memberScopeIsActive,
 } from "../src/member-filtering.ts";
+
 import {
   createPackageAcquisition,
   type PackageAcquisitionDependencies,
@@ -153,6 +155,7 @@ const hostNames = new Set([
   "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
+  "workspaceTraversalTargetFramework",
   "selectedLibraryShareKey", "packageDependenciesData",
   "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
@@ -404,6 +407,7 @@ function sharedState(): BrowserWorkspaceShareState {
     contexts: [{ id: "both", tabIds: ["first", "second"] }],
     activeTabId: "second",
     selectedContextId: "both",
+    traversalTargetFramework: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -985,6 +989,13 @@ function harness() {
     flushFocus: () => { for (const frame of frames.splice(0)) frame(); },
   };
 }
+
+setTypeViewFacetCatalog([
+  { id: "type.api", kind: "Type", title: "API", order: 100 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
+  { id: "type.source", kind: "Type", title: "Source", order: 300 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+]);
 
 test("failed workspace restore retains the background Wasm stack through its foreground retry", async () => {
   const h = harness();
@@ -1726,6 +1737,7 @@ test("RID-distinct package tabs retain exact active identity through capture and
     contexts: [{ id: "both", tabIds: ["windows", "linux"] }],
     activeTabId: "windows",
     selectedContextId: "both",
+    traversalTargetFramework: null,
     view: {
       lens: null,
       type: null,
@@ -1860,6 +1872,7 @@ test("saved Platform Open commits its staged URL after Platform selection comple
     contexts: [{ id: "platform-context", tabIds: ["platform"] }],
     activeTabId: "platform",
     selectedContextId: "platform-context",
+    traversalTargetFramework: null,
     view: {
       lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null,
@@ -2931,6 +2944,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
       { id: "g0", tabIds: ["t0"] }, { id: "g1", tabIds: ["t1"] }, { id: "g2", tabIds: ["t2"] },
     ],
     activeTabId: "t1", selectedContextId: "g1",
+    traversalTargetFramework: null,
     view: { lens: null, type: null, memberAnchor: null, memberSignature: null,
       section: null, libraries: [], sourceView: null, comparison: null },
   });

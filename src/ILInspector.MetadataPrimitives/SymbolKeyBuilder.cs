@@ -60,6 +60,9 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
 
     public bool Equals(StagedSymbolKey<TDomain> other) => Bytes.SequenceEqual(other.Bytes);
 
+    /// <summary>Copies the key's bytes, <see cref="Length"/> of them, into <paramref name="destination"/>.</summary>
+    public void CopyTo(Span<byte> destination) => Bytes.CopyTo(destination);
+
     /// <summary>Whether a frozen key holds the same parts as this key.</summary>
     public bool Equals(SymbolKey<TDomain> other) => other.Equals(this);
 

@@ -459,11 +459,13 @@ This cutover intentionally does **not** unify the three metadata-token-to-string
 traversals that sit downstream of the shared decode: `ILTokenResolver` (human
 display strings for the CLI/PdbContext), `CanonicalIL` (canonical ilasm-assembler
 syntax, quoting/`class`/`valuetype` prefixes, used by the ILRoundtrip corpus),
-and `IlBodyDiff`'s private `MetadataOperandResolver` (stable cross-version
-identity strings — `` `N `` generic arity, calling-convention prefixes, no
-quoting). These have genuinely different output policies (display vs.
-assembler-grammar vs. stable-identity), each with its own test/fixture coverage,
-and `MetadataOperandResolver` has no external callers to migrate. Consolidating
+and `IlBodyDiff`'s `OperandText` (the text projection of an IL operand —
+`` `N `` generic arity, calling-convention prefixes, no quoting; the
+comparison itself uses the Symbol Key, see [IL diff
+canonicalization](il-diff-canonicalization.md#symbolic-metadata-token-operands)).
+These have genuinely different output policies (display vs.
+assembler-grammar vs. diff projection), each with its own test/fixture coverage,
+and `OperandText` has no external callers to migrate. Consolidating
 them into one flag-heavy renderer would trade a well-understood, low-risk
 duplication for a higher-risk shared implementation whose three policies would
 have to be threaded through every future change. They remain separate,
@@ -490,6 +492,6 @@ not attempted in that PR.
   to `MethodAllocationFacts`. Remaining: the
   decompiler importer (with the minimal-CFG refactor), and consolidating the
   three metadata-token-to-string traversals
-  (`ILTokenResolver`/`CanonicalIL`/`IlBodyDiff.MetadataOperandResolver`) if their
+  (`ILTokenResolver`/`CanonicalIL`/`IlBodyDiff.OperandText`) if their
   output policies are ever found to overlap enough to share code safely.
 - Typed stack: gated; no measured trigger; re-probe under memory-safety lifetime.

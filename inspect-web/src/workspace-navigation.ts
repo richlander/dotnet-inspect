@@ -330,6 +330,7 @@ export interface WorkspaceUrlState {
   activeTabId: string;
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
+  traversalTargetFramework: string | null;
   analysisMode?: AnalysisMode | null;
 }
 
@@ -602,6 +603,8 @@ export function hierarchyShareTargetFramework(
   pkg: { id: string; version: string },
   packageLens: string | null,
 ): string | null {
+  if (packageLens === "hierarchy" && basis?.traversalTargetFramework)
+    return basis.traversalTargetFramework;
   const target = basis?.tabs.length === 1 ? basis.tabs[0] : null;
   return basis?.view.lens === "hierarchy"
     && packageLens === "hierarchy"
@@ -703,6 +706,7 @@ function workspaceShareState(
     activeTabId: state.activeTabId,
     selectedContextId: state.selectedContextId,
     view: state.view,
+    traversalTargetFramework: state.traversalTargetFramework ?? null,
   };
 }
 

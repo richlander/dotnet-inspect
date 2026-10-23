@@ -4051,6 +4051,7 @@ test.describe("bounded network-backed Worker smoke", () => {
       }],
       contexts: [{ id: "g", tabIds: ["p"] }],
       activeTabId: "p", selectedContextId: "g",
+      traversalTargetFramework: null,
       view: {
         lens: "library:overview", type: null,
         memberAnchor: null, memberSignature: null, section: null,

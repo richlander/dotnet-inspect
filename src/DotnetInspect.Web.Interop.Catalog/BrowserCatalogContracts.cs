@@ -65,6 +65,17 @@ public sealed record BrowserApiFacetDescriptor(
     int Count,
     bool IsDefault);
 
+public sealed record BrowserViewFacetDescriptor(
+    string Id,
+    string Kind,
+    string Title,
+    string Summary,
+    int Order,
+    string? Role);
+
+public sealed record BrowserViewFacetCatalog(
+    BrowserViewFacetDescriptor[] Facets);
+
 public sealed record BrowserAssemblySurface(
     string Id,
     string Name,
@@ -586,7 +597,8 @@ public sealed record BrowserWorkspaceShareState(
     BrowserWorkspaceShareContext[] Contexts,
     string ActiveTabId,
     string SelectedContextId,
-    BrowserWorkspaceShareView View);
+    BrowserWorkspaceShareView View,
+    string? TraversalTargetFramework = null);
 
 /// <summary>Typed codec, transposition, or Browser-transport failure.</summary>
 public sealed record BrowserWorkspaceShareFailure(
@@ -892,7 +904,8 @@ public sealed record BrowserRetainedWorkspaceDefinitionState(
     BrowserWorkspaceShareContext[] Contexts,
     BrowserRetainedWorkspaceRegistration[] Registrations,
     string? ActiveTabId,
-    string? SelectedContextId);
+    string? SelectedContextId,
+    string TraversalTargetFramework);
 
 public sealed record BrowserRetainedWorkspacePackageAdmissionResult(
     string Status,
@@ -1015,6 +1028,7 @@ public sealed record BrowserRetainedWorkspacePackageSourceCredential(
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserVocabularyInspection))]
 [JsonSerializable(typeof(BrowserVocabularyExplanationResult))]
+[JsonSerializable(typeof(BrowserViewFacetCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoCatalog))]
 [JsonSerializable(typeof(BrowserEcosystemCatalog))]
 [JsonSerializable(typeof(BrowserHomeDemoResolveResult))]

@@ -36,6 +36,25 @@ public static partial class CatalogExports
             VocabularyInspection.Value,
             BrowserCatalogJsonContext.Default.BrowserVocabularyInspection);
 
+    [JSExport]
+    public static string ListTypeViewFacets() =>
+        JsonSerializer.Serialize(
+            new BrowserViewFacetCatalog(
+                [
+                    .. InspectionViewFacetCatalog.Registry
+                        .Discover(StructuralSubjectKind.Type)
+                        .Select(static descriptor =>
+                            new BrowserViewFacetDescriptor(
+                                descriptor.Id.Value,
+                                descriptor.Kind.ToString(),
+                                descriptor.Title,
+                                descriptor.Summary,
+                                descriptor.Order,
+                                descriptor.Role?.ToString())),
+                ]),
+            BrowserCatalogJsonContext.Default
+                .BrowserViewFacetCatalog);
+
     private static readonly Lazy<VocabularyExplanation> VocabularyExplainer =
         new(() => new VocabularyExplanation(
             BrowserVocabularyComposition.Snapshot));
