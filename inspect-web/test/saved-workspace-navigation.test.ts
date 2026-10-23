@@ -154,6 +154,7 @@ function isCapturedWorkspaceUrlState(
 
 const hostNames = new Set([
   "captureSavedWorkspacePacket", "captureWorkspaceUrlState",
+  "retainedPackageRootLens",
   "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
@@ -2527,7 +2528,7 @@ test("mixed source publication keeps its inactive Platform visible", () => {
       ],
     },
     navigation: {
-      snapshot: { activePackage: "package-subject" },
+      snapshot: { activePackage: "package-subject", lenses: [] },
     },
   };
   const models = {

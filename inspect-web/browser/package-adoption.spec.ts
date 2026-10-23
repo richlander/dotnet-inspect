@@ -1290,7 +1290,7 @@ test.describe("Package Query website over real Wasm", () => {
     expect(sharedPacket).toMatchObject({
       f: 3,
       t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
-        fixtureFramework, null]],
+        "net10.0", null]],
       b: fixtureFramework,
     });
     const reopened = await context.newPage();

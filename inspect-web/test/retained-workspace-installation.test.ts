@@ -263,6 +263,7 @@ function retainedWorkspaceInstallationHarness(options: {
     "postRetainedWorkspace",
     "retainedLocationPresentationCurrent",
     "supersedeRetainedLocationIntentForRoutedNavigation",
+    "retainedPackageRootLens",
     "installRetainedWorkspacePosting",
     "publishRetainedLocationAssociation",
     "completeRetainedActivationPresentation",

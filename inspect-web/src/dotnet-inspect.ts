@@ -2730,6 +2730,16 @@ function supersedeRetainedLocationIntentForRoutedNavigation(): void {
   }
 }
 
+function retainedPackageRootLens(
+  posting: BrowserRetainedWorkspacePosting,
+  fallback: PackageLens = "overview",
+): PackageLens {
+  return posting.navigation.snapshot.lenses.some(
+    lens => lens.isCurrent && lens.facet.id === "package.dependency-hierarchy")
+    ? "hierarchy"
+    : fallback;
+}
+
 async function installRetainedWorkspacePosting(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
@@ -2813,11 +2823,7 @@ async function installRetainedWorkspacePosting(
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
     if (state.rootKind === "package") {
-      const committedHierarchy = posting.navigation.snapshot.lenses.some(
-        lens => lens.isCurrent && lens.facet.id === "package.dependency-hierarchy");
-      state.packageLens = committedHierarchy
-        ? "hierarchy"
-        : initialPackageLens ?? "overview";
+      state.packageLens = retainedPackageRootLens(posting, initialPackageLens);
     }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
@@ -28208,7 +28214,7 @@ function installRetainedWorkspaceModels(
   state.workspaceSubjectOpen = activeTab === null;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
-  state.packageLens = "overview";
+  state.packageLens = retainedPackageRootLens(posting);
   state.libraryLens = "overview";
   state.selectedTypeId = defaultVisibleTypeId(selected);
   state.selectedMemberKey = "";
