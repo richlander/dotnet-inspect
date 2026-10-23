@@ -1586,6 +1586,41 @@ internal static class BrowserPackageWorkspace
             PackageDependencyMemberCallGraphPlatformPruning?
                 platformPruning = null,
             CancellationToken cancellationToken = default) =>
+        QueryDependencyMemberCallGraphAsync(
+            packageId,
+            version,
+            rootTargetFramework,
+            traversalTargetFramework,
+            assemblyName,
+            typeIdentity,
+            memberName,
+            selectorKey,
+            metadataToken,
+            runtimeIdentifier: null,
+            workspacePlan,
+            supplyChainBaseline,
+            platformPruning,
+            cancellationToken);
+
+    internal static Task<
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome>>
+        QueryDependencyMemberCallGraphAsync(
+            string packageId,
+            string version,
+            string rootTargetFramework,
+            string? traversalTargetFramework,
+            string assemblyName,
+            string typeIdentity,
+            string memberName,
+            string selectorKey,
+            int metadataToken,
+            string? runtimeIdentifier,
+            WorkspacePlan workspacePlan,
+            PackageSupplyChainBaseline supplyChainBaseline,
+            PackageDependencyMemberCallGraphPlatformPruning?
+                platformPruning = null,
+            CancellationToken cancellationToken = default) =>
         RunPackageOperationAsync(
             async deadline =>
             {
@@ -1595,7 +1630,7 @@ internal static class BrowserPackageWorkspace
                                 packageId,
                                 version,
                                 rootTargetFramework,
-                                runtimeIdentifier: null,
+                                runtimeIdentifier,
                                 Gallery,
                                 deadline)
                             .ConfigureAwait(false),
@@ -1783,6 +1818,25 @@ internal static class BrowserPackageWorkspace
             targetFramework,
             assemblyIdOrName,
             documentationId,
+            runtimeIdentifier: null,
+            cancellationToken);
+
+    internal static Task<DocumentationQueryOutcome>
+        QueryMemberDocumentationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            string documentationId,
+            string? runtimeIdentifier,
+            CancellationToken cancellationToken = default) =>
+        QueryMemberDocumentationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationId,
+            runtimeIdentifier,
             Gallery,
             PackageOperationTimeout,
             cancellationToken);
@@ -1794,6 +1848,30 @@ internal static class BrowserPackageWorkspace
             string targetFramework,
             string assemblyIdOrName,
             string documentationId,
+            IPackageSourceClient source,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken,
+            BrowserSessionPackageStore? packageStore = null) =>
+        QueryMemberDocumentationAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyIdOrName,
+            documentationId,
+            runtimeIdentifier: null,
+            source,
+            operationTimeout,
+            cancellationToken,
+            packageStore);
+
+    internal static Task<DocumentationQueryOutcome>
+        QueryMemberDocumentationAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string assemblyIdOrName,
+            string documentationId,
+            string? runtimeIdentifier,
             IPackageSourceClient source,
             TimeSpan operationTimeout,
             CancellationToken cancellationToken,
@@ -1822,7 +1900,8 @@ internal static class BrowserPackageWorkspace
                     PackageLibraryRealizationDepth.Implementation,
                     operation,
                     PackageHouseLibraryCompanionDemand
-                        .ImplementationPortablePdb);
+                        .ImplementationPortablePdb,
+                    runtimeIdentifier);
                 await using PackageSourceSettlementLease sourceLease =
                     PackageSourceSettlementService.IssueLease(
                         authority =>

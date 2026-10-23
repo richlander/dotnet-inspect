@@ -1332,6 +1332,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "net10.0",
     "Example.dll",
     "M:Example.Api.Run",
+    null,
   );
   const libraryQuery = state.client.package.queryLibraries(
     "Example",
@@ -1784,6 +1785,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     0x06000001,
     0,
     "[]",
+    null,
     "source",
   );
   const graphResult = state.client.source.queryTypeMemberSource(
@@ -1796,6 +1798,7 @@ test("ordinary source transport preserves member parts and flat graph source", a
     "selector",
     0x06000001,
     "[]",
+    null,
   );
   const platformMemberResult = state.client.source.queryPlatformMemberSource(
     "net11.0",
