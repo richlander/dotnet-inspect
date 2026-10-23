@@ -428,14 +428,17 @@ Bare CLI `library L`, `--tree`, and `-v:m` render the Library owner's default
 leaf hierarchy. `--mermaid` lowers the same nodes. Admission is limited to
 Library source options, so every other option keeps the sectioned view.
 `-S "Library Info"` is the opt-in facts section. A package source that yields
-several Libraries keeps its multi-Library view until exact subject resolution
-lands, and explicit hierarchy gestures there fail. Collapse, namespace input,
+several Libraries renders the Tree for the Library that `--first-library`
+selects (#10580), using the same host-neutral selection; an exact Library or
+`--namesake-library` still narrows it, and sectioned views keep the
+multi-Library aggregate. Collapse, namespace input,
 exhaustive `-v:n`/`-v:d` Trees, and Inspect Web adoption remain open.
 An empty public population renders as such (obligation 5).
 `CommandExecutionTests.LibraryTypeHierarchy` gates:
 - the admitted gestures;
 - the competing-demand boundary, including a `DOTNET_INSPECT_FORMAT` default;
-- the multi-Library rejection;
+- the multi-Library default, which matches `--first-library`, and the
+  aggregate kept by explicit sections;
 - the empty population and the visible Rows failures;
 - the work bound: the default plan requests no Member Count, and no returned
   row carries one.

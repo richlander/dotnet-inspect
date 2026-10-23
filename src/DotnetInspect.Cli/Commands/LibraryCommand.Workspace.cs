@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.Planning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
@@ -52,10 +53,14 @@ public partial class LibraryCommand
                 ? new PackageLibraryTarget.Namesake()
                 : options.FirstLibrary
                     ? new PackageLibraryTarget.First()
-                : string.IsNullOrWhiteSpace(options.AssemblyName)
-                    ? new PackageLibraryTarget.Aggregate()
-                    : new PackageLibraryTarget.Exact(
-                        options.AssemblyName);
+                : !string.IsNullOrWhiteSpace(options.AssemblyName)
+                    ? new PackageLibraryTarget.Exact(
+                        options.AssemblyName)
+                // The Type hierarchy describes one Library, so an unnarrowed
+                // Package selects the same Library as --first-library.
+                : options.CommandPlan is LibraryCommandPlan.TypeHierarchy
+                    ? new PackageLibraryTarget.First()
+                    : new PackageLibraryTarget.Aggregate();
         if (options.TypeNamespace is not null
             && selection is PackageLibraryTarget.Aggregate)
         {
