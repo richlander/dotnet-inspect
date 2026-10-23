@@ -369,6 +369,10 @@ ASP.NET lineage with a root framework distinct from the governing target.
 The real-Wasm package-adoption scenarios reopen a legacy compatible-asset
 Hierarchy as a committed share and round-trip an explicitly Runtime-free
 Hierarchy without introducing product registrations.
+Gallery-only retained packets use the existing typed package-source description
+to retain their NuGet.org provenance. A packet declaring a custom source, or
+without an admitted source description, does not become eligible for the
+Gallery-only Hierarchy loader.
 
 ### The `workspace` command
 

@@ -80,9 +80,10 @@ function retainedWorkspaceInstallationHarness(options: {
     navigation: {
       synchronization: "Current",
       snapshot: {
-        lenses: options.packageFacet
-          ? [{ isCurrent: true, facet: { id: options.packageFacet } }]
-          : [],
+        lensOutcome: {
+          request: options.packageFacet ? { facet: options.packageFacet } : null,
+          effectiveLens: null,
+        },
       },
     },
   };

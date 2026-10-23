@@ -706,6 +706,35 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(packet, posting.CanonicalPacket);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HierarchyPacket_RestoresTheRequestedInspector(
+        bool includePackageRootBindings)
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        options = options with
+        {
+            ContextLoad = options.ContextLoad with
+            {
+                IncludePackageRootBindings = includePackageRootBindings,
+            },
+        };
+        string packet = Packet(
+            ["System.Text.Json"], 0, "9.0.4", "net9.0",
+            packageFacet: "package.dependency-hierarchy");
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "hierarchy", packet);
+
+        Assert.Equal(packet, posting.CanonicalPacket);
+        Assert.Equal(
+            "package.dependency-hierarchy",
+            posting.Navigation.Snapshot.LensOutcome.Request?.Facet);
+    }
+
     [Fact]
     public async Task NewSelection_SupersedesBlockedPreparation()
     {

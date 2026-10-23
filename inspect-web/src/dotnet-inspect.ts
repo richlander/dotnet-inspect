@@ -2734,8 +2734,9 @@ function retainedPackageRootLens(
   posting: BrowserRetainedWorkspacePosting,
   fallback: PackageLens = "overview",
 ): PackageLens {
-  return posting.navigation.snapshot.lenses.some(
-    lens => lens.isCurrent && lens.facet.id === "package.dependency-hierarchy")
+  const outcome = posting.navigation.snapshot.lensOutcome;
+  return (outcome.request ?? outcome.effectiveLens)?.facet
+    === "package.dependency-hierarchy"
     ? "hierarchy"
     : fallback;
 }

@@ -2528,7 +2528,10 @@ test("mixed source publication keeps its inactive Platform visible", () => {
       ],
     },
     navigation: {
-      snapshot: { activePackage: "package-subject", lenses: [] },
+      snapshot: {
+        activePackage: "package-subject",
+        lensOutcome: { request: null, effectiveLens: null },
+      },
     },
   };
   const models = {
