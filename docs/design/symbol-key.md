@@ -525,11 +525,12 @@ gate pairs, each process run on a quiet host (1-minute load under 1.5 before,
 under 2.5 after) in two rounds; raw outputs in the
 [gist](https://gist.github.com/richlander/a4aca8877418ed275c0265f4084fb023).
 Verdicts are identical on every pair, and p95 is not wider on any. Every
-pair is faster on both axes and allocates and retains less:
+pair is faster on the whole comparison and on the API axis alone, and
+allocates and retains less:
 member spellings and facts name their Types by two- or three-byte `Ref`s
 instead of embedded copies, and composites nest `Ref`s in turn.
 
-| Pair | Whole comparison ms, round 1 / round 2 | API axis alone ms | Allocated MB | Retained MB |
+| Pair | Whole comparison ms, round 1 / round 2 | API axis alone ms, round 1 / round 2 | Allocated MB | Retained MB |
 | --- | --- | --- | --- | --- |
 | Aspire.Hosting 13.6.0 to 13.6.1 | 82.0 → 73.9 (-9.9%) / 83.2 → 73.7 (-11.4%) | 10.6 → 9.4 (-11.2%) / 11.0 → 9.5 (-13.6%) | 56.4 → 50.5 (-10.6%) | 3.35 → 2.82 (-15.9%) |
 | System.Text.Json 9.0.0 to 10.0.0 | 13.6 → 12.0 (-11.3%) / 13.3 → 12.1 (-9.3%) | 3.8 → 3.5 (-8.2%) / 4.0 → 3.5 (-12.9%) | 13.7 → 10.7 (-21.9%) | 0.69 → 0.64 (-6.6%) |
@@ -623,7 +624,7 @@ Eight steps, tracked by
    half is done: member rows are spelled per unit and discarded, and the
    body comparison keeps the pairing of operand rows proven equal, rather
    than their spellings, while it runs and releases it when it completes, so
-   a completed comparison retains the Type-level keys and the tables. The
+   a completed comparison retains the Type-level keys and the unit tables. The
    second half is done too: `SymbolKeyInterner<TDomain>`, the `Ref` part,
    and Finding Diff Any embedding every Type-level key as the `Ref` of the
    id its comparison-wide table gave it
