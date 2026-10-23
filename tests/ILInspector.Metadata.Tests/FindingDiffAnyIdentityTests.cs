@@ -253,7 +253,7 @@ public sealed class FindingDiffAnyIdentityTests
     {
         using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
         MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
-        var names = new SymbolKey.Utf8Names(pe, md);
+        var names = new MetadataStringHeap(md);
         IEnumerable<StringHandle> handles = md.TypeDefinitions
             .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])
             .Concat(md.MethodDefinitions.Select(method => md.GetMethodDefinition(method).Name))
@@ -261,10 +261,9 @@ public sealed class FindingDiffAnyIdentityTests
         int compared = 0;
         foreach (StringHandle handle in handles)
         {
-            int length = names.Length(handle);
-            byte[] stored = new byte[length];
-            names.Copy(handle, stored, 0, length);
-            Assert.Equal(System.Text.Encoding.UTF8.GetBytes(md.GetString(handle)), stored);
+            byte[] decoded = System.Text.Encoding.UTF8.GetBytes(md.GetString(handle));
+            Assert.Equal(decoded.Length, names.Length(handle));
+            Assert.True(names.ValueTextEquals(handle, decoded));
             compared++;
         }
         Assert.True(compared > 10_000);

@@ -14,13 +14,27 @@
         "CSharpText",
         "Inspector.Resources",
         "Inspector.Findings",
-        "ILInspector.MetadataPrimitives",
         "InertText",
         "QuerySpace.Primitives",
         "TsJsExport.Contracts"
       ],
       "allowOnly": [
         "$platform"
+      ]
+    },
+    {
+      "id": "metadata-primitives-floor",
+      "source": "docs/metadata-primitives.md#current-boundary and docs/design/symbol-key.md#adoption-sequence",
+      "graphs": [
+        "project",
+        "assembly"
+      ],
+      "targets": [
+        "ILInspector.MetadataPrimitives"
+      ],
+      "allowOnly": [
+        "$platform",
+        "InertText"
       ]
     },
     {

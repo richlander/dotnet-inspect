@@ -286,8 +286,9 @@ producers that will extend that space.
   extraction and matching, canonical document paths, URL decoration,
   provenance grammar, high-level type/member/IL-offset resolution,
   source-document/member-source Findings, and SourceLink-aware debug audits.
-- `src/ILInspector.MetadataPrimitives/` is the dependency-free leaf for shared
-  SRM mechanics and neutral name matching. `StringDistance` lives there so
+- `src/ILInspector.MetadataPrimitives/` is the floor for shared SRM
+  mechanics, neutral name matching, and the Symbol Key; its one repository
+  edge is `InertText`. `StringDistance` lives there so
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
   `MetadataNameMatching_DoesNotDependOnFindingBackedText` gates that boundary.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.

@@ -2,14 +2,19 @@
 
 ## Status and owner
 
-Proposed focused design for
+Focused design for
 [#9918](https://github.com/richlander/dotnet-inspect/issues/9918). Its
-representation pilot is complete, while the shared Symbol Key described here
-remains unimplemented beyond the Finding Diff Any-private `SymbolKey` that
-[#9898](https://github.com/richlander/dotnet-inspect/pull/9898) introduced.
-The parent byte primitives first adopt a bounded exact-Type result path; the
-adoption sequence below is the counted path from that baseline to shared Symbol
-Key use in the CLI and Browser/Wasm hosts.
+representation pilot is complete, and adoption step 5 is implemented: the
+shared in-process `SymbolKey<TDomain>`, its builder, the `#Strings` name
+source, and the typed Name view live in `ILInspector.MetadataPrimitives`, and
+Finding Diff Any's private key that
+[#9898](https://github.com/richlander/dotnet-inspect/pull/9898) introduced is
+retired onto them
+([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)). The
+persisted profile, its text form, interning, and Browser exchange (steps 6–8)
+remain unimplemented. The parent byte primitives first adopted a bounded
+exact-Type result path; the adoption sequence below is the counted path from
+that baseline to shared Symbol Key use in the CLI and Browser/Wasm hosts.
 
 This is slice 2 of a two-PR design stack. Parent
 [#9993](https://github.com/richlander/dotnet-inspect/pull/9993) establishes
@@ -127,13 +132,21 @@ without changing its kind.
 
 ## Builder
 
-The builder stages one consumer-chosen population through the shared
-ref-struct range builder. Completing a staged key records its offset and
-length as a builder-local slot; it does not issue a `SymbolKey<TDomain>` over
-mutable storage. Freezing the population transfers the finished storage to
-one immutable backing and resolves its slots into readonly
-`OpaqueByteRange`-backed key views. A consumer that needs smaller independent
-lifetimes chooses smaller population boundaries.
+The builder, `SymbolKeyBuilder<TDomain>`, stages one consumer-chosen
+population in storage it owns. Completing a staged key records its offset and
+length as a `StagedSymbolKey<TDomain>`, a builder-local slot that compares,
+hashes, and orders by its bytes, including against staged keys of other
+builders and against frozen keys, so a consumer matches while staging; it does
+not issue a `SymbolKey<TDomain>` over mutable storage. Freezing the population
+transfers the finished bytes through the shared range builder to one immutable
+backing in one copy, and the returned `SymbolKeyPopulation<TDomain>` resolves
+its staged keys into readonly `OpaqueByteRange`-backed key views; resetting
+the population discards them instead, which is how a consumer compares
+transient keys without ever freezing them. One key is open at a time: a key
+embedded in another is completed first. A consumer that needs smaller
+independent lifetimes chooses smaller population boundaries, and
+`StagedSymbolKey<TDomain>.Detach` retains one key alone when a single key
+must outlive an unfrozen population.
 
 Nested construction has two explicit forms:
 
@@ -142,15 +155,25 @@ Nested construction has two explicit forms:
 - embedding an independently completed slot writes that key's bytes into the
   enclosing `Key` payload.
 
+The implementation provides the second form; the first is reserved for a
+domain that measures the duplicate bytes as a cost worth its length patching.
 The second form is a semantic copy required by the self-contained grammar:
 both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A later domain may replace repeated
 embedded keys with `Ref` parts when it adopts interning.
 
-Finding Diff Any adoption stages its census and lookup keys, freezes their
-population, and only then exposes the final dictionaries and sequences. One-off
-nested keys use inline construction. Reused independent keys use slots while
-staging and resolve to views after the same freeze.
+Finding Diff Any keeps three builders per side. Its reference keys, Types,
+members, and signature types, memoized per token, are staged in a retained
+builder and frozen into shared backings in chunks at unit boundaries; the
+unit table's lookup keys are resolved to views at each chunk's freeze, and a
+dictionary keyed by frozen keys answers staged lookups through the alternate
+lookup of `SymbolKeyComparer<TDomain>`. Signature-type composites built while
+one key decodes are staged in a scratch builder and discarded when that build
+completes. Its per-unit census facts and member keys are staged in a
+transient builder and held as eight-byte slots, which that builder sorts and
+compares against the other side's with its storage resolved once rather than
+once per comparison, and discarded after the unit, so no fact key is copied
+into storage of its own.
 
 Names enter through three sources:
 
@@ -411,7 +434,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
 | Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Representation pilot | SPC comparison of current private Symbol Key and the proposed range-backed representation measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; identity answers agree | Pilot before implementation |
-| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
+| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time and allocation do not regress on any pair, retained memory stays within 5% of base (parity; the reduction belongs to step 7), and p95 does not widen; the API axis alone, the surface pass a host runs asynchronously, does not regress on the large pairs and stays within 0.5 ms of base on the small ones; CoreLib's surface pass stays under 100 ms. After time, memory is the priority | Adoption PR |
 
 ## Adoption sequence
 
@@ -426,19 +449,24 @@ Eight steps, tracked by
 3. **Symbol Key representation pilot.** Compare current private Symbol Key
    with an `OpaqueByteRange`/`ValueTextEquals` prototype using time and memory
    SPC. A neutral or negative result changes the implementation plan rather
-   than being hidden.
+   than being hidden. The pilot tool retired with step 5, which deleted its
+   baseline; its evidence stays recorded on
+   [#10035](https://github.com/richlander/dotnet-inspect/pull/10035).
 4. **Exact-Type baseline and host-input comparison.** The parent design first
    lands the shared primitives with one uniquely matched Type identity, then
    measures the separately reviewable host-input exact-match optimization
    against that merged baseline.
-5. **Shared implementation, Finding Diff Any adopts.** Move the key, builder,
-   and `#Strings` reader into `ILInspector.MetadataPrimitives` with the domain
-   split and the UTF-8 and UTF-16 name sources. Finding Diff Any's `SymbolPart`
-   becomes its domain. Stage each consumer-chosen population, freeze before
-   exposing its final dictionaries and sequences, and build one-off nested keys
-   inline. Add the opaque-range dependency; Finding Diff Any's private storage
-   and key copy are deleted in the same step only when the pilot supports that
-   adoption, with NativeAOT parity measured.
+5. **Shared implementation, Finding Diff Any adopts** (implemented,
+   [#10476](https://github.com/richlander/dotnet-inspect/issues/10476)). The
+   key, builder, and `#Strings` reader live in
+   `ILInspector.MetadataPrimitives` with the domain split and the UTF-8 and
+   UTF-16 name sources. Finding Diff Any's `SymbolPart` became its domain,
+   `FindingDiffAnyPart`. Each consumer-chosen population is staged and frozen
+   before its final dictionaries and sequences are exposed, with transient
+   populations compared staged and discarded; one-off nested keys are
+   embedded as completed slots. The opaque-range dependency was added, and
+   Finding Diff Any's private storage and key copy were deleted in the same
+   step, with NativeAOT parity measured on the gate pairs.
 6. **Persisted profile and text form.** Header, registry, validation,
    `PersistedSymbolKeyEncoder`, and base64url. The first adopter is whichever
    of the encoded API qualified anchor
@@ -447,7 +475,11 @@ Eight steps, tracked by
    ([#9889](https://github.com/richlander/dotnet-inspect/issues/9889) step 3)
    lands first; that adoption PR registers its domain.
 7. **Interning.** The range-keyed table and `Ref` part, adopted by Finding
-   Diff Any step 5.
+   Diff Any step 5. The memo is the pairing: once both sides have spelled a
+   Type-level row and compared, the diff needs the shared id, not the
+   spelling, so this step turns the per-side memo into the pairing table and
+   spells member keys per unit over `Ref` parts; retained state becomes the
+   table. Its design lands in its own candidate after step 5 merges.
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
 
