@@ -6,7 +6,7 @@ namespace ILInspector.Metadata;
 /// <summary>
 /// The shared marker vocabulary for metadata rows
 /// (<c>docs/design/symbol-key.md#metadata-rows</c>): the parts the
-/// <see cref="MetadataSymbolSpeller{TDomain}"/> writes for a Type definition,
+/// <see cref="MetadataSymbolSpeller{TDomain,TRow}"/> writes for a Type definition,
 /// reference, or specification, a method, field, member reference, method
 /// specification, standalone signature, primitive, or signature composite. A
 /// consumer's domain declares these values under its own names, so two
@@ -51,9 +51,11 @@ public enum MetadataSymbolScope
     Omitted,
 
     /// <summary>
-    /// The declared scope: a Type reference spells its assembly reference's
-    /// name, version, culture, and public key token after its names, and a
-    /// Type definition spells its own assembly's name.
+    /// The declared scope, after the names: a Type reference spells the kind
+    /// of its scope and then its assembly reference's name, version, culture,
+    /// and public key or token, or its module reference's name, or the
+    /// current assembly's name; a Type definition spells the current
+    /// assembly's name.
     /// </summary>
     Declared,
 }
@@ -67,14 +69,6 @@ public enum MetadataRowRole
     /// <summary>A Type or member a signature, specification, or member reference names.</summary>
     Referenced,
 }
-
-/// <summary>
-/// Writes <paramref name="row"/>'s key as a nested Key part of the key open
-/// in <paramref name="into"/>. The consumer owns where rows are spelled and
-/// memoized; it must not open a key in <paramref name="into"/> itself.
-/// </summary>
-public delegate void MetadataRowEmbedder<TDomain>(SymbolKeyBuilder<TDomain> into, EntityHandle row, MetadataRowRole role)
-    where TDomain : unmanaged, Enum;
 
 /// <summary>
 /// A signature type as the speller's provider yields it: a composite staged in

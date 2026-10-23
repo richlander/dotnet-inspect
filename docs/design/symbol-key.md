@@ -216,9 +216,10 @@ Two domains that declare the vocabulary spell one row with the same bytes.
 
 `MetadataSymbolSpeller<TDomain, TRow>` spells one row into a builder the
 consumer names: a Type definition as its namespace, declaring chain, and
-names; a Type reference as its chain and, under `MetadataSymbolScope.Declared`,
-its resolution scope (the assembly reference's name, version, culture, and
-public key or token, or the module reference's name); a Type specification as
+names, and under `MetadataSymbolScope.Declared` the current assembly's name;
+a Type reference as its chain and, under `Declared`, its resolution scope (the
+scope's kind, then the assembly reference's name, version, culture, and public
+key or token, or the module reference's name); a Type specification as
 its decoded composite, or as the plain row it merely names, which the speller
 returns for the consumer to memoize as that row; a method, field, member
 reference, method specification, or standalone signature with its guarded,
@@ -233,11 +234,11 @@ TRow>` resolves a row to the consumer's key, spelling it into the consumer's
 own builders and memo before the referring key opens, and embeds a resolved
 key into an open one. The role names why: the declaring Type of a definition,
 or a Type or member a signature, specification, or member reference names.
-The consumer never opens a key in the builder the speller is writing, and the
-speller never writes into the consumer's builders except through the
-consumer's embed. Finding Diff Any resolves Type-level rows into its retained
-population and member rows into its transient one, which is why one spelling
-never opens two keys in one builder.
+Every row a spelling refers to is resolved before the spelling opens its key,
+so a consumer that spells a resolved row into the same builder never finds a
+key open there. The consumer does not open a key in the builder the speller is
+writing while a spelling runs; the speller writes only into that builder and
+its own scratch.
 
 Guards bound every decode (`SignatureBlobGuard`, `TypeSpecGuard`); a rejected
 shape is a `BadImageFormatException`, which a consumer classifies as malformed

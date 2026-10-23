@@ -111,8 +111,8 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow>
                 into.MarkShared(MetadataSymbolPart.Namespace).Name(root.Namespace);
             for (int i = 0; i < length; i++)
                 into.Name(_reader.GetTypeDefinition(chain[i]).Name);
-            if (_scope == MetadataSymbolScope.Declared && _reader.IsAssembly)
-                into.MarkShared(MetadataSymbolPart.Scope).Name(_reader.GetAssemblyDefinition().Name);
+            if (_scope == MetadataSymbolScope.Declared)
+                CurrentScope(into);
             return into.End(mark);
         }
         finally
@@ -151,32 +151,48 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow>
         }
     }
 
+    // The scope kinds, as the first part after the Scope marker, so a module and
+    // an assembly of one name spell differently.
+    const int AssemblyScope = 0;
+    const int ModuleScope = 1;
+    const int CurrentAssemblyScope = 2;
+
     // The declared scope of a Type reference: its assembly reference's identity
     // as parts, its module reference's name, or the current assembly's name.
     void ResolutionScope(SymbolKeyBuilder<TDomain> into, EntityHandle terminal)
     {
-        into.MarkShared(MetadataSymbolPart.Scope);
         switch (terminal.Kind)
         {
             case HandleKind.AssemblyReference:
             {
                 AssemblyReference reference = _reader.GetAssemblyReference((AssemblyReferenceHandle)terminal);
-                into.Name(reference.Name)
+                into.MarkShared(MetadataSymbolPart.Scope).Int(AssemblyScope).Name(reference.Name)
                     .Int(reference.Version.Major).Int(reference.Version.Minor)
-                    .Int(reference.Version.Build).Int(reference.Version.Revision);
+                    .Int(reference.Version.Build).Int(reference.Version.Revision)
+                    .Int(reference.Culture.IsNil ? 0 : 1);
                 if (!reference.Culture.IsNil)
                     into.Name(reference.Culture);
                 into.Blob(_reader.GetBlobReader(reference.PublicKeyOrToken));
                 return;
             }
             case HandleKind.ModuleReference:
-                into.Name(_reader.GetModuleReference((ModuleReferenceHandle)terminal).Name);
+                into.MarkShared(MetadataSymbolPart.Scope).Int(ModuleScope)
+                    .Name(_reader.GetModuleReference((ModuleReferenceHandle)terminal).Name);
                 return;
             default:
-                if (_reader.IsAssembly)
-                    into.Name(_reader.GetAssemblyDefinition().Name);
+                CurrentScope(into);
                 return;
         }
+    }
+
+    // The current assembly's name, or the module's when the image is no assembly.
+    void CurrentScope(SymbolKeyBuilder<TDomain> into)
+    {
+        into.MarkShared(MetadataSymbolPart.Scope).Int(CurrentAssemblyScope);
+        if (_reader.IsAssembly)
+            into.Name(_reader.GetAssemblyDefinition().Name);
+        else
+            into.Name(_reader.GetModuleDefinition().Name);
     }
 
     /// <summary>

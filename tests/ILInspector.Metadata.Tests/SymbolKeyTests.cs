@@ -41,6 +41,12 @@ public sealed class SymbolKeyTests
         Type = 0x10,
     }
 
+    enum TwicePart : byte
+    {
+        Type = 0x10,
+        Again = 0x10,
+    }
+
     static StagedSymbolKey<TestPart> Build(SymbolKeyBuilder<TestPart> keys, Action<SymbolKeyBuilder<TestPart>> parts)
     {
         int mark = keys.Begin();
@@ -145,6 +151,7 @@ public sealed class SymbolKeyTests
 
         Assert.Throws<InvalidOperationException>(() => new SymbolKeyBuilder<LowPart>());
         Assert.Throws<InvalidOperationException>(() => new SymbolKeyBuilder<WidePart>());
+        Assert.Throws<InvalidOperationException>(() => new SymbolKeyBuilder<TwicePart>());
     }
 
     [Fact]

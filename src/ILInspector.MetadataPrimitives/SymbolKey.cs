@@ -51,6 +51,10 @@ public static class SymbolKeyDomain
         {
             if (Marker(value) < FirstMarker)
                 throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares {value} below the marker range.");
+            // One value, one name: a shared vocabulary's value landing on a
+            // domain's own marker would read back as that marker.
+            if (Validated<TDomain>.Declared[Marker(value)])
+                throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares the value 0x{Marker(value):X2} twice.");
             Validated<TDomain>.Declared[Marker(value)] = true;
         }
         Validated<TDomain>.Done = true;
