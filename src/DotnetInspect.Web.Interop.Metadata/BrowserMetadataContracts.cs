@@ -97,6 +97,21 @@ public sealed record BrowserTypeMetadata(
     InspectionEnvelope<TypeDependencySectionResult> TypeDependencyInspection,
     string[] InspectionFailures);
 
+[JsonConverter(
+    typeof(JsonStringEnumConverter<BrowserAnnotatedTypeRelationsOutcome>))]
+public enum BrowserAnnotatedTypeRelationsOutcome
+{
+    Available,
+    Rejected,
+    Unavailable,
+    Failed,
+}
+
+public sealed record BrowserAnnotatedTypeRelationsInspection(
+    BrowserAnnotatedTypeRelationsOutcome Outcome,
+    InspectionEnvelope<JsonElement>? Inspection,
+    string? Reason);
+
 public sealed record BrowserTypeHierarchyMetadata(
     string Form,
     string Status,
@@ -543,6 +558,7 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserHeapListing))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserAnnotatedTypeRelationsInspection))]
 [JsonSerializable(typeof(BrowserTypeHierarchyMetadata))]
 [JsonSerializable(typeof(BrowserTypeHierarchyShare))]
 [JsonSerializable(typeof(BrowserTypeHierarchyDiagnostic[]))]

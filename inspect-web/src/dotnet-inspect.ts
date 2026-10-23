@@ -354,6 +354,11 @@ import {
   type AppExplorerState,
 } from "./metadata-inspection.ts";
 import {
+  bindTypeRelations,
+  createTypeRelationsCoordinator,
+  renderTypeRelations,
+} from "./type-relations.ts";
+import {
   cancelFindingCensusRequest,
   createMemberDetailInspectionCoordinator,
   type MemberFacts,
@@ -1026,6 +1031,8 @@ let inspectPlatformMetadata:
 let inspectPlatformMetadataTable:
   EngineClient["metadata"]["queryPlatformMetadataTable"];
 let inspectTypeProjection: EngineClient["metadata"]["queryTypeProjection"];
+let inspectAnnotatedTypeRelations:
+  EngineClient["metadata"]["queryAnnotatedTypeRelations"];
 let cancelLibraryApiDiff:
   EngineClient["metadata"]["cancelLibraryApiDiff"];
 let inspectLibraryApiDiff:
@@ -1256,6 +1263,7 @@ async function loadEngineModule() {
       queryPlatformMetadata: inspectPlatformMetadata,
       queryPlatformMetadataTable: inspectPlatformMetadataTable,
       queryTypeProjection: inspectTypeProjection,
+      queryAnnotatedTypeRelations: inspectAnnotatedTypeRelations,
     } = engineClient.metadata);
     ({
       queryCloneCandidates: inspectCloneCandidates,
@@ -1594,6 +1602,13 @@ const initialState = {
   typeMetadataError: "",
   typeMetadataKey: "",
   typeMetadataGeneration: 0,
+  typeRelations: {
+    signature: "",
+    loading: false,
+    result: null,
+    error: "",
+    generation: 0,
+  },
   libraryApiInspections:
     new Map<string, BrowserExactLibraryApiInspection>(),
   libraryApiLoads: new Set<string>(),
@@ -4190,6 +4205,20 @@ const metadataInspection = createMetadataInspectionCoordinator({
   render,
   renderPreservingMemberFocus,
   scrollExplorerToFocus: explorerScrollToFocus,
+});
+
+const typeRelationsInspection = createTypeRelationsCoordinator({
+  state: state.typeRelations,
+  query: request => inspectAnnotatedTypeRelations(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.typeDefinitionId,
+    request.runtimeIdentifier,
+    request.workspaceJson),
+  describeError: errorMessage,
+  render,
 });
 const memberDetailInspection = createMemberDetailInspectionCoordinator({
   state,
@@ -13826,13 +13855,25 @@ function renderGraphMemberPendingHtml(
 }
 
 function renderTypeMetadataHtml(item: AppTypeSurface) {
+  const pkg = currentPackage();
+  const signature = currentTypeMetadataSignature(
+    item,
+    pkg,
+    selectedTypeMetadataLibraryIdentity());
   return renderTypeMetadata({
     item,
-    packageContext: currentPackage(),
+    packageContext: pkg,
     libraryIdentity: selectedTypeMetadataLibraryIdentity(),
     workspaceIdentity: typeMetadataWorkspaceIdentity(),
     metadataState: state,
     memberCompositionHtml: renderMemberComposition(item),
+    relationsHtml: !pkg.isRuntimePack && state.rootKind !== "library"
+      ? renderTypeRelations({
+          signature,
+          state: state.typeRelations,
+          escapeHtml,
+        })
+      : "",
     escapeHtml,
     relatedTypeChip,
     factRows,
@@ -14796,6 +14837,11 @@ function bindLibraryControlsEvents() {
 }
 
 function bindTypePanelEvents() {
+  bindTypeRelations(document, () => {
+    observeAsync(
+      inspectSelectedTypeRelations(),
+      "Inspecting outgoing Type calls");
+  });
   const renderMemberFilterAndRestoreFocus = (selector = "") => {
     const preserved = captureMemberFocus(document);
     if (selector) {
@@ -23655,6 +23701,37 @@ async function loadSelectedTypeMetadata() {
         currentType,
         pkg,
         selectedTypeMetadataLibraryIdentity()) === signature;
+    },
+  });
+}
+
+async function inspectSelectedTypeRelations() {
+  const type = selectedType();
+  if (!type) return;
+  const pkg = currentPackage();
+  if (pkg.isRuntimePack || state.rootKind === "library") return;
+  const workspaceJson = typeMetadataWorkspaceIdentity();
+  const signature = currentTypeMetadataSignature(
+    type,
+    pkg,
+    selectedTypeMetadataLibraryIdentity());
+  return typeRelationsInspection.inspect({
+    signature,
+    packageId: pkg.id,
+    version: pkg.version,
+    framework: pkg.activeFramework,
+    runtimeIdentifier: pkg.runtimeIdentifier ?? null,
+    assembly: type.assembly,
+    typeDefinitionId: type.definitionId ?? type.id,
+    workspaceJson,
+    isVisible: () => {
+      const currentType = selectedType();
+      return state.lens === "metadata"
+        && currentType != null
+        && currentTypeMetadataSignature(
+          currentType,
+          currentPackage(),
+          selectedTypeMetadataLibraryIdentity()) === signature;
     },
   });
 }
