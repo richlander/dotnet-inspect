@@ -203,6 +203,84 @@ public sealed class MetadataUtf8TypeDefinitionNameTests
             .GetValue(range)!;
     }
 
+    [Theory]
+    [InlineData("List`1", 1)]
+    [InlineData("List`1", 2)]
+    [InlineData("List`1", 0)]
+    [InlineData("List", 0)]
+    [InlineData("List", 1)]
+    [InlineData("A`1`2", 2)]
+    [InlineData("A``2", 2)]
+    [InlineData("A`12", 12)]
+    [InlineData("A`12", 2)]
+    [InlineData("A`01", 1)]
+    [InlineData("A`0", 0)]
+    [InlineData("`1", 1)]
+    [InlineData("A`1Extra", 1)]
+    [InlineData("Widget`Literal", 1)]
+    [InlineData("A`65536", 65536)]
+    [InlineData("A`65537", 65537)]
+    public void RemoveAritySuffix_MatchesTheDisplayNameRule(
+        string segment,
+        int introduced)
+    {
+        string expected =
+            MetadataNameArity.OfSegment(segment) == introduced
+                ? MetadataNameArity.StripFromSegment(segment)
+                : segment;
+        var name = new MetadataUtf8Name(
+            OpaqueByteRange.Copy(Encoding.UTF8.GetBytes(segment)));
+
+        string actual = name.TryRemoveAritySuffix(
+            introduced,
+            out MetadataUtf8Name withoutArity)
+            ? withoutArity.Contain(TextPolicy.Field).ToString()
+            : name.Contain(TextPolicy.Field).ToString();
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void ContainDisplay_RemovesEachSegmentsIntroducedArity()
+    {
+        MetadataUtf8TypeDefinitionName name =
+            new MetadataExactTypeInput(
+                ValidName("Samples", "Outer`1", "Middle", "Inner`2"))
+                .Utf8;
+
+        MetadataContainedTypeDefinitionName display =
+            Assert.IsType<MetadataContainedTypeDefinitionName>(
+                name.ContainDisplay(
+                    TextPolicy.Field,
+                    Signature(0, 2, 2)));
+
+        Assert.Equal("Samples", display.Namespace.ToString());
+        Assert.Equal(
+            ["Outer", "Middle", "Inner"],
+            display.Segments.Select(segment => segment.ToString()));
+        Assert.Equal(
+            ["Outer`1", "Middle", "Inner`2"],
+            name.ContainDisplay(TextPolicy.Field, Signature(0, 0, 2))!
+                .Segments.Select(segment => segment.ToString()));
+        Assert.Null(
+            name.ContainDisplay(TextPolicy.Field, Signature(3)));
+
+        static MetadataTypeDeclarationSignature Signature(
+            params int[] segments) =>
+            new(
+                [
+                    .. segments.Select(
+                        (segment, index) =>
+                            new MetadataTypeGenericParameterDeclarationEvidence(
+                                segment,
+                                index,
+                                default,
+                                GenericParameterAttributes.None,
+                                new(true, 0, false),
+                                0)),
+                ]);
+    }
+
     private static MetadataTypeDefinitionName ValidName(
         string @namespace,
         params string[] segments) =>

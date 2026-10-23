@@ -4,7 +4,12 @@
 // Body policy: the whole-assembly canonical IL comparison, the per-method
 // census of each image through IlFindings.Inspect, the per-pair census
 // comparison through IlFindings.Compare, and the Member Body Diff endpoint
-// path through IlAssemblyDiff.CompareMemberEndpoints. Methods are paired by
+// path through IlAssemblyDiff.CompareMemberEndpoints. The census and
+// comparison paths run over one IlCensusSide per image per run, so the
+// operands every body names are spelled once per image, as the assembly
+// comparison spells them; the endpoint path runs twice, creating its sides
+// per call and then through one side per image held for the run, the two
+// ways a host calls it. Methods are paired by
 // their declaring Type, name, and decoded signature, so a renumbered token in
 // a signature does not unpair them. Reports the median and p95 wall time and
 // the median bytes allocated per run, and every sample so runs can be pooled,
@@ -73,9 +78,10 @@ foreach ((string side, PEReader pe, MetadataReader reader, Method[] methods) in 
         int complete = 0;
         int absent = 0;
         int failed = 0;
+        IlCensusSide census = IlCensusSide.Create(reader, IlBodyDiffPolicy.Body);
         foreach (Method method in methods)
         {
-            switch (IlFindings.Inspect(pe, reader, method.Handle, method.Subject, IlBodyDiffPolicy.Body).Value)
+            switch (IlFindings.Inspect(census, pe, method.Handle, method.Subject).Value)
             {
                 case FindingInspection<CanonicalIlOperation>.Complete:
                     complete++;
@@ -99,10 +105,12 @@ int[] compared = Measure("compare", () =>
     int exact = 0;
     int changed = 0;
     int failed = 0;
+    IlCensusSide beforeSide = IlCensusSide.Create(beforeReader, IlBodyDiffPolicy.Body);
+    IlCensusSide afterSide = IlCensusSide.Create(afterReader, IlBodyDiffPolicy.Body);
     foreach ((Method x, Method y) in pairs)
     {
         FindingComparison<CanonicalIlOperation> comparison = IlFindings.Compare(
-            before, beforeReader, x.Handle, after, afterReader, y.Handle, x.Subject, normalization: IlBodyDiffPolicy.Body);
+            beforeSide, before, x.Handle, afterSide, after, y.Handle, x.Subject);
         if (comparison is FindingComparison<CanonicalIlOperation>.Failed)
             failed++;
         else if (comparison.IsExact)
@@ -136,6 +144,32 @@ int[] endpoints = Measure("endpoints", () =>
     return new[] { exact, changed, withoutDiff };
 });
 Console.WriteLine($"  exact={endpoints[0]}\tchanged={endpoints[1]}\twithoutDiff={endpoints[2]}");
+
+// 5. The same endpoint path through one side per image held for the run, as a
+// host holding a side pair across its member requests calls it.
+int[] shared = Measure("endpoints-shared", () =>
+{
+    int exact = 0;
+    int changed = 0;
+    int withoutDiff = 0;
+    IlCensusSide beforeSide = IlCensusSide.Create(beforeReader, IlBodyDiffPolicy.Body);
+    IlCensusSide afterSide = IlCensusSide.Create(afterReader, IlBodyDiffPolicy.Body);
+    foreach ((Method x, Method y) in pairs)
+    {
+        IlMemberEndpointComparison view = IlAssemblyDiff.CompareMemberEndpoints(
+            new IlMemberDiffEndpoint.Present(x.MemberSubject, beforeSide, before, x.Handle),
+            new IlMemberDiffEndpoint.Present(y.MemberSubject, afterSide, after, y.Handle),
+            IlBodyDiffPolicy.Body);
+        if (view.MemberDiff is null)
+            withoutDiff++;
+        else if (view.MemberDiff.Diff.IsExact)
+            exact++;
+        else
+            changed++;
+    }
+    return new[] { exact, changed, withoutDiff };
+});
+Console.WriteLine($"  exact={shared[0]}\tchanged={shared[1]}\twithoutDiff={shared[2]}");
 return 0;
 
 T Measure<T>(string name, Func<T> run)

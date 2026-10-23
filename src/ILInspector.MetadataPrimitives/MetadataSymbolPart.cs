@@ -55,7 +55,9 @@ public enum MetadataSymbolScope
     /// of its scope and then its assembly reference's name, version, culture,
     /// and public key or token, or its module reference's name, or the
     /// current assembly's name; a Type definition spells the current
-    /// assembly's name.
+    /// assembly's name. For any of these the consumer may substitute a name
+    /// of its policy's (<c>IMetadataRowKeys.ScopeName</c>), spelled under its
+    /// own scope kind.
     /// </summary>
     Declared,
 }

@@ -104,7 +104,9 @@ Render A/B and corpus evidence remain population checks. Report stable
 changed-method loss/gain identities and classify every changed method; aggregate
 improvements cannot offset one newly invalid or behavior-changing method. The
 PR template at [templates/decompiler-pr.md](templates/decompiler-pr.md) is the
-required change-description shape; append
+required change-description shape, with its optional lenses in
+[templates/decompiler-pr-reference.md](templates/decompiler-pr-reference.md);
+append
 [the decompiler adversarial-review
 appendix](templates/decompiler-adversarial-review-appendix.md) to the canonical
 review prompt so evidence construction receives its own ownership audit.

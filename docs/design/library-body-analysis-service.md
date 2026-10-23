@@ -109,15 +109,20 @@ the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
 
-The next drain slice moves safety-only IL-coordinate preparation to
+The safety-only drain slice moves IL-coordinate preparation to
 `ExactMethodAnalysisProducer`. CLI and Library Address borrow their existing
 prefetched metadata context, deduplicate the requested MethodDef tokens, and
 execute one owner-issued exact request. `ILOffsetSafetyAnalysisInput` carries
 the safety evidence, unsafe occurrences, diagnostics, source receipt, and work
-receipt independently of the legacy three-result input. Allocation, cost, and
-combined coordinate requests still use this service: allocation requires
-`LibraryAllocationAnalysisResult`, while cost requires the donor-owned public
-direct-call rows.
+receipt independently of the legacy three-result input.
+
+The allocation-only follow-up plans `ExactMethodAllocationProducer` over the
+same deduplicated MethodDef population. `ILOffsetAllocationAnalysisInput`
+carries detached allocation occurrences, diagnostics, source receipt, and work
+receipt. Direct CLI and Library Address reuse one focused input across every
+coordinate row and do not execute this service. Cost-only and combined
+semantic coordinate requests still use this service because cost requires the
+donor-owned public direct-call rows.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by

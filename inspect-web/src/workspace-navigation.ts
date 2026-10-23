@@ -331,6 +331,7 @@ export interface WorkspaceUrlState {
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
   traversalTargetFramework: string | null;
+  hierarchyWorkspacePacket?: string | null;
   analysisMode?: AnalysisMode | null;
 }
 
@@ -707,6 +708,7 @@ function workspaceShareState(
     selectedContextId: state.selectedContextId,
     view: state.view,
     traversalTargetFramework: state.traversalTargetFramework ?? null,
+    hierarchyWorkspacePacket: state.hierarchyWorkspacePacket ?? null,
   };
 }
 

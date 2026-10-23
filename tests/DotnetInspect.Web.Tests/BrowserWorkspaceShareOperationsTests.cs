@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Ecosystems;
 
 using DotnetInspect.Web.Interop.Catalog;
 
@@ -9,6 +10,50 @@ namespace DotnetInspect.Web.Tests;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserWorkspaceShareOperationsTests
 {
+    [Theory]
+    [InlineData("none")]
+    [InlineData("runtime")]
+    [InlineData("aspnetcore")]
+    public void HierarchyRecapturePreservesExplicitWorkspaceContext(string selection)
+    {
+        var coordinate = new DefinitionMemberCoordinate.PackageCoordinate(
+            "Microsoft.Azure.SignalR", "1.33.1", "net8.0");
+        WorkspaceRegistration[] registrations = selection == "none"
+            ? []
+            : [.. EcosystemPackCatalog.CreateWorkspacePlan(
+                [selection == "runtime" ? EcosystemPackIds.Runtime : EcosystemPackIds.AspNetCore])
+                .Registrations];
+        var workspace = new WorkspaceDefinition(
+            3, WorkspaceSharePacketTransposer.WorkspaceId,
+            [new("g0", "net8.0", members: [coordinate])],
+            registrations: registrations,
+            traversalTargetPolicy: new("net10.0"));
+        var navigation = new CommittedNavigationDefinition(
+            3, WorkspaceSharePacketTransposer.NavigationId,
+            [new("t0", coordinate: coordinate)], "t0");
+        string basis = WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketTransposer.ToPackageHierarchyPacket(
+                workspace, navigation, "g0",
+                TestContext.Current.CancellationToken).Packet!);
+        var state = new BrowserWorkspaceShareState(
+            [new("t0", "package", "Microsoft.Azure.SignalR", "1.33.1", "net8.0", null)],
+            [new("g0", ["t0"])], "t0", "g0",
+            new("hierarchy", null, null, null, null, [], null),
+            HierarchyWorkspacePacket: basis);
+
+        BrowserWorkspaceShareEncodeResult encoded =
+            BrowserWorkspaceShareOperations.Encode(state);
+
+        Assert.True(encoded.Succeeded, encoded.Failure?.Message);
+        Assert.Equal(basis, encoded.Packet);
+        BrowserWorkspaceShareDecodeResult decoded =
+            BrowserWorkspaceShareOperations.Decode(encoded.Packet!);
+        Assert.True(decoded.Succeeded, decoded.Failure?.Message);
+        Assert.Equal(basis, decoded.State!.HierarchyWorkspacePacket);
+        Assert.Equal(
+            basis, BrowserWorkspaceShareOperations.Encode(decoded.State).Packet);
+    }
+
     [Theory]
     [InlineData(null, TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework)]
     [InlineData("net10.0", "net10.0")]
@@ -35,14 +80,14 @@ public sealed class BrowserWorkspaceShareOperationsTests
         BrowserWorkspaceShareState decoded =
             Assert.IsType<BrowserWorkspaceShareState>(
                 BrowserWorkspaceShareOperations.Decode(encoded.Packet!).State);
-        Assert.Equal(expectedTarget, decoded.TraversalTargetFramework);
+        Assert.Equal(configuredTarget, decoded.TraversalTargetFramework);
         Assert.Equal(
             encoded.Packet,
             BrowserWorkspaceShareOperations.Encode(decoded).Packet);
     }
 
     [Fact]
-    public void LegacyHierarchyDecode_MakesItsTargetPortableWithoutChangingPacket()
+    public void LegacyHierarchyDecode_RecapturePreservesTargetWithExplicitContext()
     {
         string legacy = WorkspaceSharePacketCodec.Encode(
             WorkspaceSharePacketCodec.ParseJson(
@@ -55,7 +100,19 @@ public sealed class BrowserWorkspaceShareOperationsTests
         BrowserWorkspaceShareState state =
             Assert.IsType<BrowserWorkspaceShareState>(decoded.State);
         Assert.Equal("net8.0", state.TraversalTargetFramework);
-        Assert.Equal(legacy, BrowserWorkspaceShareOperations.Encode(state).Packet);
+        Assert.Equal(
+            legacy,
+            WorkspaceSharePacketCodec.Encode(WorkspaceSharePacketCodec.Decode(
+                legacy, TestContext.Current.CancellationToken)));
+        WorkspaceSharePacket recaptured = WorkspaceSharePacketCodec.Decode(
+            BrowserWorkspaceShareOperations.Encode(state).Packet!,
+            TestContext.Current.CancellationToken);
+        Assert.Equal("net8.0", recaptured.TraversalTargetPolicy.TargetFramework);
+        Assert.Contains(recaptured.Registrations, registration =>
+            registration is WorkspaceRegistration.Ecosystem
+            {
+                Declaration.Id.Value: "ecosystem.runtime",
+            });
     }
 
     private const string CanonicalVector =

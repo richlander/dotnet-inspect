@@ -212,6 +212,8 @@ public sealed partial class ResourceExplanationCatalog
                 "routing-destination-document",
             [ResourceExplanationVocabulary.NavigationCollectionType] =
                 "routing-destination-collection",
+            [ResourceExplanationVocabulary.ComponentContractsType] =
+                "routing-destination-component-contracts",
         };
 
     /// <summary>
