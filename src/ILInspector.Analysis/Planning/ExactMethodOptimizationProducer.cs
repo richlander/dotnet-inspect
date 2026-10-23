@@ -311,9 +311,6 @@ public sealed class ExactMethodOptimizationProducer :
                 new(
                     ExactMethodAllocationProducer.Instance,
                     ProducerDependencyKind.VisitNeedsVisit),
-                new(
-                    ExactMethodAnalysisProducer.Instance,
-                    ProducerDependencyKind.VisitNeedsVisit),
             ])
     {
     }
@@ -326,9 +323,7 @@ public sealed class ExactMethodOptimizationProducer :
     {
         ExactMethodAllocationBody allocation =
             view.FactOf(ExactMethodAllocationProducer.Instance);
-        ExactMethodAnalysisBody analysis =
-            view.FactOf(ExactMethodAnalysisProducer.Instance);
-        if (analysis.Method is not { } method
+        if (allocation.Method is not { } method
             || allocation.Context is not { } context
             || allocation.Facts is not { } facts
             || (!allocation.Diagnostics.IsEmpty
