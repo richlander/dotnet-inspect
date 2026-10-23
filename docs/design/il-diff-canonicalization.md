@@ -376,8 +376,12 @@ allocation; p95 moves with the median. The saving is the text identity no
 longer built for every method, less the key spelled in its place, which
 under the Body policy the comparison reuses for every call operand naming
 that method. The other three paths moved by −0.9% to +2.1% with allocation
-identical to the byte, which is the run-to-run band; the map is not on
-them.
+unchanged to the MB; the map is not on them, and the one cost the change
+adds there, the compiler-controlled check now before the memo lookup on
+every method or field reference (an attribute-row read, no allocation),
+fits Inspect's +0.9–1.3% on five pairs and is the price of spelling a
+compiler-controlled definition for pairing while still refusing a
+reference to it.
 
 ## Guarantees
 
