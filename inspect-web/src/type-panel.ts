@@ -1010,6 +1010,7 @@ export interface RenderTypeMetadataOptions {
   workspaceIdentity?: string;
   metadataState: TypeMetadataStateSlice;
   memberCompositionHtml: string;
+  relationsHtml?: string;
   escapeHtml: EscapeHtml;
   relatedTypeChip: (
     name: string,
@@ -1022,6 +1023,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const {
     item, packageContext, libraryIdentity, workspaceIdentity, metadataState,
     memberCompositionHtml,
+    relationsHtml = "",
     escapeHtml, relatedTypeChip, factRows,
   } = options;
   const current = typeMetadataSignature(
@@ -1212,6 +1214,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
       ${factRows(shape)}
     </section>
     ${exactDiagnostics}
+    ${relationsHtml}
     ${composition}
     ${interfaces}
     ${hierarchySection}

@@ -80,6 +80,7 @@ type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
   | "findTypes"
+  | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryTypeProjection"
@@ -1640,6 +1641,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
       ) => facades.metadata.queryTypeProjection(...args),
     ),
+    queryAnnotatedTypeRelations: valueOperation(
+      "ordinary-metadata-query-annotated-type-relations",
+      7,
+      (
+        facades,
+        ...args: Parameters<
+          MetadataFacade["queryAnnotatedTypeRelations"]
+        >
+      ) => facades.metadata.queryAnnotatedTypeRelations(...args),
+    ),
     queryPackageMetadataTable: valueOperation(
       "ordinary-metadata-query-package-table",
       8,
@@ -2668,6 +2679,10 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
+      ),
+      queryAnnotatedTypeRelations: bind(
+        engineWorkerOrdinaryOperations.metadata
+          .queryAnnotatedTypeRelations,
       ),
       queryPackageMetadataTable: bind(
         engineWorkerOrdinaryOperations.metadata
