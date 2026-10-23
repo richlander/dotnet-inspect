@@ -1598,13 +1598,16 @@ test("browser history reuses available identities and publishes only unavailable
     /historyWorkspaceAvailable = historyWorkspaceId !== null[\s\S]*activateRetainedWorkspaceProjection\(historyWorkspaceId, false\)/);
   assert.match(
     history,
-    /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*currentRetainedDefinitionInitialPresentation\([\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*retainedLocationIntents\.publish\(effect, history\)[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedDefinitionPosting\([\s\S]*posting\.canonicalLocation === location\.href \? "exact" : "changed"/);
+    /managedHistoryWorkspaceAvailable[\s\S]*selectBrowserEntry\(\{[\s\S]*retainedDefinitionId: historyWorkspaceId[\s\S]*currentRetainedDefinitionInitialPresentation\([\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*const demosWorkspaceDestination =\s*retainedWorkspaceDemosDestinationOpen\(\);[\s\S]*demosWorkspaceDestination\s*\|\| posting\.canonicalLocation === location\.href\s*\? "exact"\s*: "changed"[\s\S]*retainedLocationIntents\.publish\(effect, history\)[\s\S]*activate\(\s*historyWorkspaceId,[\s\S]*installRetainedDefinitionPosting\(/);
   assert.match(
     history,
     /let restoredActiveManagedWorkspace = false;[\s\S]*activeDefinitionId\s*=== historyWorkspaceId[\s\S]*restoredActiveManagedWorkspace = true;[\s\S]*if \(!restoredActiveManagedWorkspace\) return;[\s\S]*if \(isPackageQueryPath\(location\.pathname\)\)[\s\S]*if \(state\.packageQueryOpen \|\| leftPackageQueryHandoff\)[\s\S]*if \(restoredActiveManagedWorkspace[\s\S]*canonicalLocation === location\.href\)[\s\S]*const loc = await parseLocation\(\)/);
   assert.match(
     history,
     /restoredActiveManagedWorkspace\s*&& activeRetainedWorkspacePosting\?\.canonicalLocation === location\.href/);
+  assert.match(
+    history,
+    /if \(restoredActiveManagedWorkspace\s*&& retainedWorkspaceDemosDestinationOpen\(\)\) \{\s*state\.credits = false;\s*state\.home = false;\s*state\.loading = false;\s*state\.workspaceSubjectOpen = true;\s*state\.atPackageRoot = true;\s*state\.atLibraryRoot = false;\s*render\(\{ synchronizeUrl: false \}\);\s*return;\s*\}/);
   assert.match(
     history,
     /const unavailableGlobalWorkspace =\s*historyWorkspaceReferenced\s*&& !sourceHistoryWorkspaceAvailable\s*&& !managedHistoryWorkspaceAvailable\s*&& !historyWorkspaceAvailable/);

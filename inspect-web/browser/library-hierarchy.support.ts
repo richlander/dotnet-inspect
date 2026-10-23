@@ -3933,6 +3933,44 @@ async function installFacades(
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
       }
+      export function listTypeViewFacets() {
+        return {
+          facets: [
+            {
+              id: "type.api",
+              kind: "Type",
+              title: "Public API",
+              summary: "",
+              order: 100,
+              role: null,
+            },
+            {
+              id: "type.metadata",
+              kind: "Type",
+              title: "Metadata",
+              summary: "",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "type.source",
+              kind: "Type",
+              title: "Source",
+              summary: "",
+              order: 300,
+              role: null,
+            },
+            {
+              id: "type.compare",
+              kind: "Type",
+              title: "Compare",
+              summary: "",
+              order: 400,
+              role: null,
+            },
+          ],
+        };
+      }
       export async function runHomeDemo(id) {
         document.documentElement.dataset.homeDemoRun = id;
         return homeDemoResults[id] ?? {

@@ -29390,6 +29390,8 @@ window.addEventListener("popstate", () => {
       if (retainedWorkspaceActivation?.state.activeDefinitionId
           === historyWorkspaceId) {
         const posting = retainedWorkspacePostings.get(historyWorkspaceId);
+        const demosWorkspaceDestination =
+          retainedWorkspaceDemosDestinationOpen();
         if (initial.homeDemo !== undefined && posting === undefined) {
           throw new Error(
             "The active retained product demo omitted its posting.");
@@ -29402,7 +29404,10 @@ window.addEventListener("popstate", () => {
             initial.homeDemo,
             locationIntent,
             navigationSeq,
-            posting.canonicalLocation === location.href ? "exact" : "changed",
+            demosWorkspaceDestination
+              || posting.canonicalLocation === location.href
+              ? "exact"
+              : "changed",
           );
           if (!installed) return;
         } else {
@@ -29658,6 +29663,17 @@ window.addEventListener("popstate", () => {
       afterCurrentNavigationFrame(() =>
         focusWorkspaceOrHeading());
     }
+    return;
+  }
+  if (restoredActiveManagedWorkspace
+    && retainedWorkspaceDemosDestinationOpen()) {
+    state.credits = false;
+    state.home = false;
+    state.loading = false;
+    state.workspaceSubjectOpen = true;
+    state.atPackageRoot = true;
+    state.atLibraryRoot = false;
+    render({ synchronizeUrl: false });
     return;
   }
   if (restoredActiveManagedWorkspace

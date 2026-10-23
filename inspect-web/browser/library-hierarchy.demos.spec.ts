@@ -860,6 +860,29 @@ test("Methods demo Forward reactivates an inactive retained definition", async (
     .toContainText("Example.Widget");
 });
 
+test("Methods demo Workspace Forward restores its active retained destination", async ({
+  page,
+}) => {
+  await openHomeDemo(page, "Methods", "package");
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("package Methods");
+  const workspaceUrl = page.url();
+  await expect(page).toHaveURL(
+    "/demos?demo=package-methods#workspace",
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL("/demos?demo=package-methods");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
+  await page.goForward();
+
+  await expect(page).toHaveURL(workspaceUrl);
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("package Methods");
+});
+
 test("superseded Methods demo resolution cannot replace Back navigation", async ({
   page,
 }) => {
