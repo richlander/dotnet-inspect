@@ -139,6 +139,7 @@ public static partial class MemberCommand
                     request,
                     house,
                     sourceOperation,
+                    ApiSurfaceScope.Public,
                     async (envelope, target, _) =>
                     {
                         if (!envelope.Content.IsAvailable

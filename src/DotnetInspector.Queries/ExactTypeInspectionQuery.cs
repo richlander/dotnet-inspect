@@ -486,6 +486,19 @@ internal static class ExactTypeInspectionQuery
         ExactTypeInspectionContext context,
         ExactTypeInspectionRequest request,
         ApiSurfaceProjectionLimits? projectionLimits)
+        => ExecutePackageContext(
+            realization,
+            context,
+            request,
+            ApiSurfaceScope.PublicWithNonPublicTypes,
+            projectionLimits);
+
+    internal static ExactTypeInspectionExecution ExecutePackageContext(
+        InspectionWorkspaceIdentity realization,
+        ExactTypeInspectionContext context,
+        ExactTypeInspectionRequest request,
+        ApiSurfaceScope scope,
+        ApiSurfaceProjectionLimits? projectionLimits)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(request);
@@ -512,7 +525,7 @@ internal static class ExactTypeInspectionQuery
             definingSource: null,
             definingSources: null,
             selected => target = selected,
-            ApiSurfaceScope.PublicWithNonPublicTypes,
+            scope,
             projectionLimits);
         return new(
             result,

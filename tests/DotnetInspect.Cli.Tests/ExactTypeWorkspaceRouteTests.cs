@@ -1665,6 +1665,61 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task DefaultMemberRoutePreservesPublicTypeBoundary()
+    {
+        const string typeNamespace = "Hidden";
+        const string typeName = "InternalType";
+        var store = await CachedStoreAsync(
+            ($"lib/{Framework}/Hidden.dll",
+                BuildSimpleTypeAssembly(
+                    "Hidden",
+                    typeNamespace,
+                    typeName,
+                    TypeAttributes.NotPublic)));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new FailingHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = $"{typeNamespace}.{typeName}",
+            MemberFilter = ["Anything"],
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken)));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            $"Type '{typeNamespace}.{typeName}' was not found",
+            error,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void DefaultMemberRicherViewsRemainOnCompatibilityPath()
     {
         var options = new MemberOptions
@@ -1929,7 +1984,8 @@ public sealed class ExactTypeWorkspaceRouteTests
     static byte[] BuildSimpleTypeAssembly(
         string assemblyName,
         string typeNamespace,
-        string typeName)
+        string typeName,
+        TypeAttributes visibility = TypeAttributes.Public)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1953,7 +2009,7 @@ public sealed class ExactTypeWorkspaceRouteTests
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
         metadata.AddTypeDefinition(
-            TypeAttributes.Public,
+            visibility,
             metadata.GetOrAddString(typeNamespace),
             metadata.GetOrAddString(typeName),
             baseType: default,

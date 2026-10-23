@@ -27,6 +27,7 @@ public static partial class ExactTypeInspectionOperation
                 house,
                 sourceOperation,
                 projectionLimits: null,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
                 static (inspection, _, _) =>
                     ValueTask.FromResult(inspection),
                 cancellationToken)
@@ -50,6 +51,7 @@ public static partial class ExactTypeInspectionOperation
                 house,
                 sourceOperation,
                 projectionLimits,
+                ApiSurfaceScope.PublicWithNonPublicTypes,
                 static (inspection, _, _) =>
                     ValueTask.FromResult(inspection),
                 cancellationToken)
@@ -78,6 +80,35 @@ public static partial class ExactTypeInspectionOperation
             house,
             sourceOperation,
             projectionLimits: null,
+            ApiSurfaceScope.PublicWithNonPublicTypes,
+            use,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes one exact package Type inspection under the requested API
+    /// surface scope and lends its live defining target to one asynchronous
+    /// consumer while the admitted package scope is still alive.
+    /// </summary>
+    public static Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
+        ExactTypeInspectionRequest request,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation,
+        ApiSurfaceScope scope,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(use);
+        return ExecuteWithLiveTargetAsyncCore(
+            request,
+            house,
+            sourceOperation,
+            projectionLimits: null,
+            scope,
             use,
             cancellationToken);
     }
@@ -87,6 +118,7 @@ public static partial class ExactTypeInspectionOperation
             PackageHouse house,
             PackageSourceOperationLease sourceOperation,
             ApiSurfaceProjectionLimits? projectionLimits,
+            ApiSurfaceScope surfaceScope,
             Func<
                 InspectionEnvelope<ExactTypeInspectionResult>,
                 SelectedContextExactTypeLiveTarget?,
@@ -148,6 +180,7 @@ public static partial class ExactTypeInspectionOperation
                                 realization,
                                 request,
                                 projectionLimits,
+                                surfaceScope,
                                 token)
                             .ConfigureAwait(false);
                         return await use(
@@ -290,6 +323,7 @@ public static partial class ExactTypeInspectionOperation
                     realization,
                     request,
                     projectionLimits,
+                    ApiSurfaceScope.PublicWithNonPublicTypes,
                     cancellationToken)
                 .ConfigureAwait(false);
         return Envelope(execution.Result, request);
@@ -302,6 +336,7 @@ public static partial class ExactTypeInspectionOperation
         PackageAssemblyContextRealization realization,
         ExactTypeInspectionRequest request,
         ApiSurfaceProjectionLimits? projectionLimits,
+        ApiSurfaceScope scope,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(workspace);
@@ -343,6 +378,7 @@ public static partial class ExactTypeInspectionOperation
                     package,
                     request),
                 request,
+                scope,
                 projectionLimits);
         }
 
@@ -401,6 +437,7 @@ public static partial class ExactTypeInspectionOperation
                 package,
                 request),
             request,
+            scope,
             projectionLimits);
     }
 
@@ -408,11 +445,13 @@ public static partial class ExactTypeInspectionOperation
         InspectionWorkspace workspace,
         WorkspaceContextLoadOutcome.Loaded loaded,
         ExactTypeInspectionRequest request,
+        ApiSurfaceScope scope,
         ApiSurfaceProjectionLimits? projectionLimits) =>
         ExactTypeInspectionQuery.ExecutePackageContext(
             workspace.Identity,
             new ExactTypeInspectionContext(loaded),
             request,
+            scope,
             projectionLimits);
 
     static SelectedContextExactTypeLiveTarget? LiveTarget(
