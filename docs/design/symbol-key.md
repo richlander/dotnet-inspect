@@ -514,6 +514,30 @@ comparison's table when
 [Finding Census](finding-census.md#adoption-sequence) step 2 gives it Finding
 Diff Any's side.
 
+### Cost of the Ref parts
+
+Measured on the NativeAOT linux-x64 build of `eng/measure-finding-diff-any.cs`
+(20 iterations per process, medians; the retained figure is a completed
+stepped comparison's heap, which no longer holds the table), base 8f2ae52c9
+against head 86fa029b2 of
+[#10590](https://github.com/richlander/dotnet-inspect/pull/10590), on the six
+gate pairs, each process run on a quiet host (1-minute load under 1.5 before,
+under 2.5 after) in two rounds; raw outputs in the
+[gist](https://gist.github.com/richlander/a4aca8877418ed275c0265f4084fb023).
+Verdicts are identical on every pair, and p95 is not wider on any. Every
+pair is faster on both axes and allocates and retains less:
+member spellings and facts name their Types by two- or three-byte `Ref`s
+instead of embedded copies, and composites nest `Ref`s in turn.
+
+| Pair | Whole comparison ms, round 1 / round 2 | API axis alone ms | Allocated MB | Retained MB |
+| --- | --- | --- | --- | --- |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 82.0 → 73.9 (-9.9%) / 83.2 → 73.7 (-11.4%) | 10.6 → 9.4 (-11.2%) / 11.0 → 9.5 (-13.6%) | 56.4 → 50.5 (-10.6%) | 3.35 → 2.82 (-15.9%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 13.6 → 12.0 (-11.3%) / 13.3 → 12.1 (-9.3%) | 3.8 → 3.5 (-8.2%) / 4.0 → 3.5 (-12.9%) | 13.7 → 10.7 (-21.9%) | 0.69 → 0.64 (-6.6%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 16.1 → 14.9 (-7.3%) / 16.0 → 14.8 (-7.9%) | 4.3 → 4.2 (-3.3%) / 4.2 → 4.1 (-4.0%) | 13.6 → 12.2 (-10.4%) | 0.68 → 0.65 (-4.8%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 12.7 → 11.5 (-9.4%) / 12.8 → 11.6 (-9.5%) | 4.1 → 3.8 (-7.0%) / 4.1 → 3.8 (-8.0%) | 11.9 → 10.4 (-12.1%) | 0.56 → 0.54 (-2.0%) |
+| System.Private.Xml 10 to 11 | 59.4 → 55.8 (-6.0%) / 57.5 → 55.2 (-4.0%) | 9.3 → 8.8 (-5.3%) / 9.3 → 8.8 (-6.1%) | 38.8 → 36.9 (-4.8%) | 2.10 → 2.05 (-2.4%) |
+| System.Private.CoreLib 10 to 11 | 174.8 → 164.1 (-6.1%) / 175.5 → 167.4 (-4.6%) | 83.0 → 76.8 (-7.5%) / 83.0 → 77.1 (-7.1%) | 139.8 → 115.3 (-17.5%) | 4.61 → 4.42 (-4.1%) |
+
 ## Diagnostics
 
 Test failures and logs need a structural spelling of a key's parts. Symbol Key
