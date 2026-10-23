@@ -286,7 +286,19 @@ retire. Nothing in this slice adds a cross-layer reference.
    coverage counts three because the sensor classifies by the `Async_`
    prefix). The
    census reports the state-machine headline on the real-world baseline and
-   the classic baseline, with every regression classified.
+   the classic baseline, with every regression classified. Two models land
+   with the transform as design evidence under this owner's `models/`
+   directory, following [Proof methodology](../proof-methodology.md): a TLA+
+   splice model whose actions are the role table's dispatch, suspension,
+   resume, and completion, checking that running the lowered machine through
+   any schedule of suspensions yields the same user-effect sequence and
+   completion outcome as the sequential body with awaits as suspension
+   points (the fold under `-1` is its corollary), with a correspondence
+   section mapping each action to a role; and a Lean lemma that removing a
+   store from which no read of its location is reachable before another store
+   changes no observable value, the law the housekeeping-clear role rests on.
+   Both prove facts about the model; the fixture family and compile-back
+   remain the evidence that the roles are Roslyn's.
 3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
    the inverse declines. Each recipe whose accepted population the inverse
    covers is deleted with its tests; the body node algebra, accountant, and
