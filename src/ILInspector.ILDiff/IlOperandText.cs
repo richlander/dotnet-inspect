@@ -11,51 +11,28 @@ namespace ILInspector.ILDiff;
 public static partial class IlBodyDiff
 {
     /// <summary>
-    /// Resolves metadata token operands of one side to symbolic identities under
-    /// one normalization, memoized per operand kind and token: a cursor
-    /// resolves one operand per advance, and a token met again costs a lookup.
+    /// The text projection of one side's metadata token operands under its
+    /// policy: the formatted identity the comparison compared before the
+    /// operand became its row's Symbol Key (<see cref="IlCensusSide"/>), now
+    /// produced only where a view reads <see cref="IlOperandIdentity.Value"/>.
+    /// Nothing compares this text.
     /// </summary>
-    internal sealed class MetadataOperandResolver(
+    internal sealed class OperandText(
         MetadataReader reader,
         IlBodyDiffNormalization normalization,
         CompilerGeneratedOrdinalCorrespondence correspondence)
     {
-        readonly Dictionary<(OperandKind Kind, int Token), IlOperandIdentity> _memo = [];
-
-        public bool TryResolve(DecodedInstruction instruction, out IlOperandIdentity? operand, out string? failure)
-        {
-            (OperandKind, int) key = (instruction.Operand, (int)instruction.OperandValue);
-            if (_memo.TryGetValue(key, out IlOperandIdentity? memoized))
+        public string Format(OperandKind kind, int token)
+            => kind switch
             {
-                operand = memoized;
-                failure = null;
-                return true;
-            }
-
-            try
-            {
-                string value = instruction.Operand switch
-                {
-                    OperandKind.InlineString => ResolveString((int)instruction.OperandValue),
-                    OperandKind.InlineMethod => ResolveMethod((int)instruction.OperandValue),
-                    OperandKind.InlineField => ResolveField((int)instruction.OperandValue),
-                    OperandKind.InlineType => ResolveType((int)instruction.OperandValue),
-                    OperandKind.InlineTok => ResolveToken((int)instruction.OperandValue),
-                    OperandKind.InlineSig => ResolveSignature((int)instruction.OperandValue),
-                    _ => throw new InvalidOperationException($"Operand kind {instruction.Operand} is not a metadata token."),
-                };
-                operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
-                _memo[key] = operand;
-                failure = null;
-                return true;
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
-            {
-                operand = null;
-                failure = $"metadata token operand at IL_{instruction.Offset:X4} could not be resolved: {ex.Message}";
-                return false;
-            }
-        }
+                OperandKind.InlineString => ResolveString(token),
+                OperandKind.InlineMethod => ResolveMethod(token),
+                OperandKind.InlineField => ResolveField(token),
+                OperandKind.InlineType => ResolveType(token),
+                OperandKind.InlineTok => ResolveToken(token),
+                OperandKind.InlineSig => ResolveSignature(token),
+                _ => throw new InvalidOperationException($"Operand kind {kind} is not a metadata token."),
+            };
 
         string ResolveString(int token)
         {
@@ -84,32 +61,6 @@ public static partial class IlBodyDiff
                 HandleKind.MemberReference => FormatFieldMemberReference((MemberReferenceHandle)handle),
                 _ => throw new BadImageFormatException($"Expected field token, got {handle.Kind}."),
             };
-        }
-
-        /// <summary>Resolves a catch clause's Type as a type operand is resolved.</summary>
-        public bool TryResolveCatchType(int token, int tryOffset, out IlOperandIdentity? operand, out string? failure)
-        {
-            (OperandKind, int) key = (OperandKind.InlineType, token);
-            if (_memo.TryGetValue(key, out IlOperandIdentity? memoized))
-            {
-                operand = memoized;
-                failure = null;
-                return true;
-            }
-
-            try
-            {
-                operand = new IlOperandIdentity(IlOperandIdentityKind.Token, ResolveType(token));
-                _memo[key] = operand;
-                failure = null;
-                return true;
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
-            {
-                operand = null;
-                failure = $"catch Type of the clause at IL_{tryOffset:X4} could not be resolved: {ex.Message}";
-                return false;
-            }
         }
 
         string ResolveType(int token)
@@ -476,7 +427,7 @@ public static partial class IlBodyDiff
         return null;
     }
 
-    static bool IsPlatformAssembly(ReadOnlySpan<char> name)
+    internal static bool IsPlatformAssembly(ReadOnlySpan<char> name)
         => name.Equals("mscorlib", StringComparison.Ordinal)
             || name.Equals("netstandard", StringComparison.Ordinal)
             || name.Equals("System", StringComparison.Ordinal)
@@ -486,9 +437,9 @@ public static partial class IlBodyDiff
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
     {
-        readonly MetadataOperandResolver _resolver;
+        readonly OperandText _resolver;
 
-        public SignatureIdentityProvider(MetadataOperandResolver resolver)
+        public SignatureIdentityProvider(OperandText resolver)
         {
             ArgumentNullException.ThrowIfNull(resolver);
             _resolver = resolver;

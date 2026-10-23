@@ -98,7 +98,7 @@ public sealed record IlCensusTerminal
 /// <remarks>
 /// Over raw IL the cursor runs a boundary pre-scan that reads instruction
 /// lengths and resolves nothing, then decodes one instruction and resolves
-/// one operand per advance, memoized per resolver. An instruction the decoder
+/// one operand per advance, memoized by its <see cref="IlCensusSide"/>. An instruction the decoder
 /// rejects ends the pre-scan at its offset: the cursor yields every atom
 /// before that offset and ends <see cref="IlCensusTerminalKind.Failed"/> there,
 /// and a branch or switch target at or past that offset is carried as
@@ -115,7 +115,7 @@ public sealed record IlCensusTerminal
 public sealed class IlCensusCursor
 {
     readonly FindingSubject? _subject;
-    readonly IlBodyDiff.MetadataOperandResolver? _resolver;
+    readonly IlCensusSide? _side;
     readonly IlBodyDiffNormalization _policy;
     readonly IlBodyDiff.InstructionMap _map;
 
@@ -149,12 +149,12 @@ public sealed class IlCensusCursor
 
     IlCensusCursor(
         FindingSubject? subject,
-        IlBodyDiff.MetadataOperandResolver? resolver,
+        IlCensusSide? side,
         IlBodyDiffNormalization policy,
         MethodInstructions body)
     {
         _subject = subject;
-        _resolver = resolver;
+        _side = side;
         _policy = policy;
         _decoded = body.Instructions;
         _map = IlBodyDiff.InstructionMap.FromInstructions(body.Instructions);
@@ -165,13 +165,13 @@ public sealed class IlCensusCursor
 
     IlCensusCursor(
         FindingSubject? subject,
-        IlBodyDiff.MetadataOperandResolver? resolver,
+        IlCensusSide? side,
         IlBodyDiffNormalization policy,
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions)
     {
         _subject = subject;
-        _resolver = resolver;
+        _side = side;
         _policy = policy;
         _il = il;
         _rawRegions = exceptionRegions;
@@ -192,8 +192,9 @@ public sealed class IlCensusCursor
     public IlCensusTerminal? Terminal => _terminal;
 
     /// <summary>
-    /// A cursor over an already decoded body under <paramref name="policy"/>. A
-    /// null body is a method with no IL body, <see cref="FindingInspectionAbsenceKind.NoApplicableInput"/>.
+    /// A cursor over an already decoded body under <paramref name="policy"/>,
+    /// with a side of its own for the operands it resolves. A null body is a
+    /// method with no IL body, <see cref="FindingInspectionAbsenceKind.NoApplicableInput"/>.
     /// </summary>
     public static IlCensusCursor Create(
         MethodInstructions? body,
@@ -205,10 +206,23 @@ public sealed class IlCensusCursor
         IlBodyDiff.RequireSingleSidePolicy(policy);
         if (body is null)
             return new IlCensusCursor(subject, IlCensusTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
-        return Create(body, Resolver(reader, policy), policy, subject);
+        return Create(body, Side(reader, policy), policy, subject);
     }
 
-    /// <summary>A cursor over a method definition read from its image.</summary>
+    /// <summary>
+    /// A cursor over an already decoded body through its side, under the
+    /// side's policy: the operands it resolves are the side's memoized keys.
+    /// </summary>
+    public static IlCensusCursor Create(IlCensusSide side, MethodInstructions? body, FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(side);
+        ArgumentNullException.ThrowIfNull(subject);
+        if (body is null)
+            return new IlCensusCursor(subject, IlCensusTerminal.Absent(FindingInspectionAbsenceKind.NoApplicableInput, "Method has no IL body."));
+        return Create(body, side, side.Policy, subject);
+    }
+
+    /// <summary>A cursor over a method definition read from its image, with a side of its own.</summary>
     public static IlCensusCursor Create(
         PEReader pe,
         MetadataReader reader,
@@ -216,12 +230,23 @@ public sealed class IlCensusCursor
         FindingSubject subject,
         IlBodyDiffNormalization policy = IlBodyDiffNormalization.None)
     {
-        ArgumentNullException.ThrowIfNull(pe);
         ArgumentNullException.ThrowIfNull(reader);
+        return Create(IlCensusSide.Create(reader, policy), pe, method, subject);
+    }
+
+    /// <summary>A cursor over a method definition read from its image, through the image's side.</summary>
+    public static IlCensusCursor Create(
+        IlCensusSide side,
+        PEReader pe,
+        MethodDefinitionHandle method,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(pe);
+        ArgumentNullException.ThrowIfNull(side);
         ArgumentNullException.ThrowIfNull(subject);
-        IlBodyDiff.RequireSingleSidePolicy(policy);
         if (method.IsNil)
             throw new ArgumentException("Method handle must not be nil.", nameof(method));
+        MetadataReader reader = side.Reader;
 
         // The row's identity is its definition row; its presence is the RVA,
         // read before the body. A body the image cannot read after a non-zero
@@ -248,10 +273,10 @@ public sealed class IlCensusCursor
             return new IlCensusCursor(subject, IlCensusTerminal.Failed(IlCensusFailureStage.Reading, position: 0, ex.Message));
         }
 
-        return Create(methodBody.GetILBytes() ?? [], methodBody.ExceptionRegions, reader, subject, policy);
+        return Create(side, methodBody.GetILBytes() ?? [], methodBody.ExceptionRegions, subject);
     }
 
-    /// <summary>A cursor over raw IL and its exception regions.</summary>
+    /// <summary>A cursor over raw IL and its exception regions, with a side of its own.</summary>
     public static IlCensusCursor Create(
         byte[] il,
         IReadOnlyCollection<ExceptionRegion> exceptionRegions,
@@ -263,16 +288,30 @@ public sealed class IlCensusCursor
         ArgumentNullException.ThrowIfNull(exceptionRegions);
         ArgumentNullException.ThrowIfNull(subject);
         IlBodyDiff.RequireSingleSidePolicy(policy);
-        return new IlCensusCursor(subject, Resolver(reader, policy), policy, il, exceptionRegions);
+        return new IlCensusCursor(subject, Side(reader, policy), policy, il, exceptionRegions);
+    }
+
+    /// <summary>A cursor over raw IL and its exception regions, through the image's side.</summary>
+    public static IlCensusCursor Create(
+        IlCensusSide side,
+        byte[] il,
+        IReadOnlyCollection<ExceptionRegion> exceptionRegions,
+        FindingSubject subject)
+    {
+        ArgumentNullException.ThrowIfNull(il);
+        ArgumentNullException.ThrowIfNull(exceptionRegions);
+        ArgumentNullException.ThrowIfNull(side);
+        ArgumentNullException.ThrowIfNull(subject);
+        return new IlCensusCursor(subject, side, side.Policy, il, exceptionRegions);
     }
 
     /// <summary>
     /// The producer <see cref="IlBodyDiff"/> canonicalizes through, with a
-    /// resolver that may carry both sides' generated-ordinal correspondence.
+    /// side that may carry both sides' generated-ordinal correspondence.
     /// </summary>
     internal static IlCensusCursor Create(
         MethodInstructions body,
-        IlBodyDiff.MetadataOperandResolver? resolver,
+        IlCensusSide? side,
         IlBodyDiffNormalization policy,
         FindingSubject? subject = null)
     {
@@ -284,11 +323,11 @@ public sealed class IlCensusCursor
                 IlCensusTerminal.Failed(IlCensusFailureStage.Reading, position: 0, body.Blocks.IncompleteReason ?? "body decode failed"));
         }
 
-        return new IlCensusCursor(subject, resolver, policy, body);
+        return new IlCensusCursor(subject, side, policy, body);
     }
 
-    static IlBodyDiff.MetadataOperandResolver? Resolver(MetadataReader? reader, IlBodyDiffNormalization policy)
-        => reader is null ? null : new IlBodyDiff.MetadataOperandResolver(reader, policy, CompilerGeneratedOrdinalCorrespondence.Empty);
+    static IlCensusSide? Side(MetadataReader? reader, IlBodyDiffNormalization policy)
+        => reader is null ? null : IlCensusSide.Create(reader, policy);
 
     /// <summary>
     /// Yields the next atom into <see cref="Current"/>, or ends the cursor and
@@ -304,7 +343,7 @@ public sealed class IlCensusCursor
         {
             if (!TryNextInstruction(out DecodedInstruction? instruction, out string? decodeFailure, out int decodeOffset))
                 return Fail(decodeOffset, decodeFailure);
-            if (!IlBodyDiff.TryToOperation(instruction, _resolver, _policy, _map, out CanonicalIlOperation operation, out string? failure))
+            if (!IlBodyDiff.TryToOperation(instruction, _side, _policy, _map, out CanonicalIlOperation operation, out string? failure))
                 return Fail(instruction.Offset, failure ?? "operand resolution failed");
             if (_firstUndecidedOffset < 0 && operation.TargetIndexes.Contains(CanonicalIlOperation.UndecidedTarget))
                 _firstUndecidedOffset = operation.Offset;
@@ -331,7 +370,7 @@ public sealed class IlCensusCursor
         if (_clauseIndex < _clauses.Length)
         {
             ExceptionRegionModel clause = _clauses[_clauseIndex];
-            if (!IlBodyDiff.TryToClause(clause, _resolver, _map, out CanonicalIlOperation atom, out string? failure))
+            if (!IlBodyDiff.TryToClause(clause, _side, _map, out CanonicalIlOperation atom, out string? failure))
                 return Fail(clause.TryStart, failure ?? "catch Type resolution failed");
             _clauseIndex++;
             return Yield(atom);
@@ -347,6 +386,9 @@ public sealed class IlCensusCursor
     /// <see cref="Finding{T}"/> with their matcher projection and ordinal, then
     /// the terminal lowered to <see cref="FindingInspection{T}"/>. This is
     /// <see cref="IlFindings.Inspect(MethodInstructions?, MetadataReader?, FindingSubject, IlBodyDiffNormalization)"/>.
+    /// Sealing projects each operand's text as well as its key string: a
+    /// sealed census is retained and may be shown after its side's reader is
+    /// disposed, and a side formats each distinct operand once.
     /// </summary>
     public FindingInspection<CanonicalIlOperation> Drain()
     {
@@ -359,6 +401,7 @@ public sealed class IlCensusCursor
         while (Advance())
         {
             CanonicalIlOperation operation = _current!;
+            operation.Operand?.Seal();
             atoms.Add(new Finding<CanonicalIlOperation>(
                 _subject,
                 IlFindings.OperationDescriptor,
