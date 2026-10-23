@@ -244,8 +244,11 @@ builder the speller is writing while a spelling runs; the speller writes only
 into that builder and its own scratch. The speller's own re-entry is the other
 hazard: a Type specification named inside a signature (a custom modifier may
 name one) is itself spelled through the consumer, in the speller's scratch, so
-a composite resolves every row it embeds before its scratch key opens, and the
-embed then finds the row in the consumer's memo.
+a composite resolves every Type specification it embeds before its scratch key
+opens, and the embed then finds it in the consumer's memo; a consumer memoizes
+a specification on its first resolution. A spelling the consumer embeds itself,
+a property's signature, stays open until the consumer discards it, so a row
+resolved during the embed cannot reset the composites the signature holds.
 
 Guards bound every decode (`SignatureBlobGuard`, `TypeSpecGuard`); a rejected
 shape is a `BadImageFormatException`, which a consumer classifies as malformed

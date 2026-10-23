@@ -332,6 +332,47 @@ public sealed class FindingDiffAnyMetadataSafetyTests
         return Serialize(metadata);
     }
 
+    // A property's signature is decoded by the speller and embedded by Finding
+    // Diff Any; a Type the signature names and nothing else has named is spelled
+    // during that embed, and a composite later in the signature must survive it.
+    [Fact]
+    public void PropertyNamingAnUnseenTypeBeforeAComposite_ComparesWithoutFailing()
+    {
+        byte[] image = UnseenTypeThenCompositePropertyImage();
+        FindingDiffAnyResult result = Compare(image);
+        FindingDiffAnyTypeState type = Assert.Single(result.Types, type => type.FullName == "N.Holder");
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, type.Body);
+    }
+
+    // N.Holder declares an accessor-less property int32[] P(O.Foo), where O.Foo
+    // is a Type reference no other row names: PROPERTY|HASTHIS, 1, SZARRAY I4,
+    // CLASS <TypeRef Foo>.
+    static byte[] UnseenTypeThenCompositePropertyImage()
+    {
+        MetadataBuilder metadata = CreateMetadata();
+        var runtime = metadata.AddAssemblyReference(
+            metadata.GetOrAddString("Other"), new Version(1, 0), default, default, default, default);
+        var foo = metadata.AddTypeReference(runtime, metadata.GetOrAddString("O"), metadata.GetOrAddString("Foo"));
+        var holder = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Holder"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(1));
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x28);
+        signature.WriteCompressedInteger(1);
+        signature.WriteByte(0x1D);
+        signature.WriteByte(0x08);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger((MetadataTokens.GetRowNumber(foo) << 2) | 1);
+        var property = metadata.AddProperty(PropertyAttributes.None, metadata.GetOrAddString("P"), metadata.GetOrAddBlob(signature));
+        metadata.AddPropertyMap(holder, property);
+        return Serialize(metadata);
+    }
+
     // N.Owner declares abstract int Get(); N.Holder declares property P whose
     // getter row names Owner.Get.
     static byte[] ForeignAccessorImage()
