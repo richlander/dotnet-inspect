@@ -27,9 +27,6 @@ public sealed record LibraryCallGraphBodyEvidence(
     IReadOnlyDictionary<(string Namespace, string Name), bool>
         InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
-    MethodIdentity? TargetedDeclaredOwner,
-    bool TargetedDeclaredOwnerSuppressesOpportunities,
-    bool KeepPhysicalIdentity,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
 public sealed class LibraryCallGraphProducer :
@@ -43,7 +40,7 @@ public sealed class LibraryCallGraphProducer :
             "Library Call Graph",
             version: 1,
             tier: 0,
-            MethodDefinitionLayers.MethodAnalysis,
+            layers: 0,
             dependencies: static () =>
             [
                 new(
@@ -71,9 +68,6 @@ public sealed class LibraryCallGraphProducer :
                 allocation.Facts,
                 out _);
         BodySignals? bodySignals = null;
-        MethodIdentity? targetedDeclaredOwner = null;
-        bool targetedDeclaredOwnerSuppressesOpportunities = false;
-        bool keepPhysicalIdentity = false;
 
         if (method.Method is { } identity
             && method.Context is { } context)
@@ -88,31 +82,6 @@ public sealed class LibraryCallGraphProducer :
                                 == operandToken
                             && occurrence.CountsAsHeapAllocation));
         }
-        if (method.Method is { } candidate
-            && (CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                    candidate.Name)
-                || candidate.Name == "MoveNext"))
-        {
-            ExactMethodDeclaredSource declaredSource =
-                view.ResolveDeclaredSource(candidate);
-            if (declaredSource.IsAuthenticated
-                && declaredSource.Owner is { } owner
-                && (CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                        candidate.Name)
-                    || LibraryBodyAsyncSiblingSignatureMatcher
-                        .IsAsyncReturnType(owner.ReturnType)
-                    || owner.ReturnType.Equals(
-                        TypeRef.CoreLib("System", "Void"))))
-            {
-                targetedDeclaredOwner = declaredSource.Owner;
-                targetedDeclaredOwnerSuppressesOpportunities =
-                    declaredSource.SuppressesOpportunities;
-            }
-            else if (candidate.Name == "MoveNext")
-            {
-                keepPhysicalIdentity = true;
-            }
-        }
 
         return new(
             method.Method,
@@ -126,9 +95,6 @@ public sealed class LibraryCallGraphProducer :
             allocation.InAssemblyTypeIsException,
             allocation.Facts?.NonHeapNewObjectOperandTokens
                 ?? new HashSet<int>(),
-            targetedDeclaredOwner,
-            targetedDeclaredOwnerSuppressesOpportunities,
-            keepPhysicalIdentity,
             method.Diagnostics);
     }
 
@@ -183,19 +149,29 @@ public sealed class LibraryCallGraphProducer :
             }
             nonHeapNewObjectTokens.UnionWith(
                 body.NonHeapNewObjOperandTokens);
-            MethodIdentity? owner =
-                body.TargetedDeclaredOwner
-                ?? (!body.KeepPhysicalIdentity
-                    && completion.DeclaredSourceOf(
-                        MetadataTokens.MethodDefinitionHandle(
-                            method.MetadataToken))
-                        is MethodDefinitionDeclaredSource.Generated generated
-                    && methodsByToken.TryGetValue(
-                        MetadataTokens.GetToken(
-                            generated.Origin.DeclaredOwner),
-                        out MethodIdentity? declaredOwner)
-                        ? declaredOwner
-                        : null);
+            MethodIdentity? owner = null;
+            bool ownerSuppressesOpportunities = false;
+            if (completion.DeclaredSourceOf(
+                    MetadataTokens.MethodDefinitionHandle(
+                        method.MetadataToken))
+                    is MethodDefinitionDeclaredSource.Generated generated
+                && methodsByToken.TryGetValue(
+                    MetadataTokens.GetToken(
+                        generated.Origin.DeclaredOwner),
+                    out MethodIdentity? declaredOwner)
+                && (generated.Origin.Kind
+                        == MethodDefinitionGeneratedExpansionOriginKind
+                            .LiftedExecutionBody
+                    || LibraryBodyAsyncSiblingSignatureMatcher
+                        .IsAsyncReturnType(declaredOwner.ReturnType)
+                    || declaredOwner.ReturnType.Equals(
+                        TypeRef.CoreLib("System", "Void"))))
+            {
+                owner = declaredOwner;
+                ownerSuppressesOpportunities =
+                    generated.Origin
+                        .DeclaredOwnerSuppressesOpportunities;
+            }
             ImmutableArray<DirectCall> normalizedCalls =
             [
                 .. body.DirectCalls.Select(call =>
@@ -216,7 +192,7 @@ public sealed class LibraryCallGraphProducer :
                 declaredSources.Add(
                     method.MetadataToken,
                     owner);
-                if (body.TargetedDeclaredOwnerSuppressesOpportunities)
+                if (ownerSuppressesOpportunities)
                 {
                     declaredSourceSuppressedMethodTokens.Add(
                         method.MetadataToken);

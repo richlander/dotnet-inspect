@@ -96,11 +96,12 @@ public sealed partial class MethodDefinitionRequestSetTests
                 Assert.Equal(
                     expected.ResolveDeclaredMethod(method),
                     actual.ResolveDeclaredMethod(method));
-                Assert.Equal(
+                Assert.True(
                     expected.DeclaredSourceSuppressesOpportunities(
-                        method.MetadataToken),
-                    actual.DeclaredSourceSuppressesOpportunities(
-                        method.MetadataToken));
+                        method.MetadataToken)
+                        == actual.DeclaredSourceSuppressesOpportunities(
+                            method.MetadataToken),
+                    method.ToString());
             }
         }
         finally
@@ -126,6 +127,15 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(
             receipt.BodiesAcquired,
             actual.Methods.Length);
+        Assert.Equal(
+            0,
+            receipt.Coverage.MethodAnalysis.DeclaredSource.Queries);
+        Assert.DoesNotContain(
+            sourceResult.WorkReceipt
+                .For(LibraryCallGraphProducer.Instance)
+                .Layers,
+            layer => layer.Layer
+                == nameof(MethodDefinitionLayers.MethodAnalysis));
         Assert.True(actual.HasFullMethodEvidenceScope);
 
         static string DescribeSignals(

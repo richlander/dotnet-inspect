@@ -1493,14 +1493,15 @@ public sealed class MethodDefinitionExecution
                 ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
             foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
             {
+                TypeDefinition type = reader.GetTypeDefinition(typeHandle);
                 if (attribution.PrimaryMetadataResolver
-                    .IsCompilerGeneratedTypeOrEnclosing(typeHandle))
+                        .IsCompilerGeneratedTypeOrEnclosing(typeHandle)
+                    && !type.GetDeclaringType().IsNil)
                 {
                     continue;
                 }
                 userTypes.Add(typeHandle);
-                userMethods.AddRange(
-                    reader.GetTypeDefinition(typeHandle).GetMethods());
+                userMethods.AddRange(type.GetMethods());
             }
 
             MethodDefinitionGeneratedExpansionResult relation =

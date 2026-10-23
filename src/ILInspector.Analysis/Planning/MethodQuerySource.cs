@@ -1183,7 +1183,8 @@ public sealed record MethodDefinitionGeneratedExpansionOrigin(
     MethodDefinitionHandle DeclaredOwner,
     MethodDefinitionGeneratedExpansionOriginKind Kind,
     MethodDefinitionGeneratedBodyRoles Role =
-        MethodDefinitionGeneratedBodyRoles.Execution);
+        MethodDefinitionGeneratedBodyRoles.Execution,
+    bool DeclaredOwnerSuppressesOpportunities = false);
 
 /// <summary>
 /// Exact generated breadth-discovery work and the declared-source outcome of

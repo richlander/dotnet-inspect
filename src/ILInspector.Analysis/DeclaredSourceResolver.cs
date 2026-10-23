@@ -314,6 +314,7 @@ internal sealed class DeclaredSourceResolver(
             directMethods.ToDictionary(
                 static handle => MetadataTokens.GetToken(handle),
                 static handle => handle);
+        var suppressionByToken = new Dictionary<int, bool>();
         var pending = new Queue<MethodDefinitionHandle>(directMethods);
         var expanded =
             ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
@@ -342,11 +343,23 @@ internal sealed class DeclaredSourceResolver(
                     MethodDefinitionHandle stateMachineOwner =
                         declaredOwnerByToken[
                             MetadataTokens.GetToken(sourceHandle)];
+                    bool suppressesOpportunities =
+                        suppressionByToken.TryGetValue(
+                            MetadataTokens.GetToken(sourceHandle),
+                            out bool inheritedSuppression)
+                            ? inheritedSuppression
+                            : CreateAuthenticatedSourceOwner(
+                                CreateIdentity(
+                                    sourceHandle,
+                                    sourceMethod))
+                                .SuppressesOpportunities;
                     AddGenerated(
                         executionMethod,
                         stateMachineOwner,
                         MethodDefinitionGeneratedExpansionOriginKind
-                            .StateMachineExecutionBody);
+                            .StateMachineExecutionBody,
+                        suppressesOpportunities:
+                            suppressesOpportunities);
                     if (helperRoles != MethodDefinitionGeneratedBodyRoles.None
                         || reachesNestedTypes)
                     {
@@ -366,7 +379,8 @@ internal sealed class DeclaredSourceResolver(
                                         stateMachineOwner,
                                         MethodDefinitionGeneratedExpansionOriginKind
                                             .StateMachineExecutionBody,
-                                        role));
+                                        role,
+                                        suppressesOpportunities));
                                 continue;
                             }
                             AddGenerated(
@@ -374,7 +388,8 @@ internal sealed class DeclaredSourceResolver(
                                 stateMachineOwner,
                                 MethodDefinitionGeneratedExpansionOriginKind
                                     .StateMachineExecutionBody,
-                                role);
+                                role,
+                                suppressesOpportunities);
                         }
                     }
                 }
@@ -431,7 +446,9 @@ internal sealed class DeclaredSourceResolver(
                         liftedHandle,
                         ownerHandle,
                         MethodDefinitionGeneratedExpansionOriginKind
-                            .LiftedExecutionBody);
+                            .LiftedExecutionBody,
+                        suppressesOpportunities:
+                            owner.SuppressesOpportunities);
                 }
             }
 
@@ -485,22 +502,38 @@ internal sealed class DeclaredSourceResolver(
             MethodDefinitionHandle owner,
             MethodDefinitionGeneratedExpansionOriginKind kind,
             MethodDefinitionGeneratedBodyRoles role =
-                MethodDefinitionGeneratedBodyRoles.Execution)
+                MethodDefinitionGeneratedBodyRoles.Execution,
+            bool suppressesOpportunities = false)
         {
             var origin =
                 new MethodDefinitionGeneratedExpansionOrigin(
                     method,
                     owner,
                     kind,
-                    role);
+                    role,
+                    suppressesOpportunities);
             work.RecordGeneratedMethod(origin);
             int token = MetadataTokens.GetToken(method);
             attributed.Add(token);
+            suppressionByToken[token] = suppressesOpportunities;
             if (!selected.Add(token))
                 return;
             declaredOwnerByToken.Add(token, owner);
             expanded.Add(method);
             pending.Enqueue(method);
+        }
+
+        MethodIdentity CreateIdentity(
+            MethodDefinitionHandle methodHandle,
+            MethodDefinition method)
+        {
+            TypeDefinitionHandle typeHandle = method.GetDeclaringType();
+            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
+            return _primaryMetadataResolver.CreateMethodIdentity(
+                typeHandle,
+                methodHandle,
+                method,
+                _primaryMetadataResolver.CreateScope(type, method));
         }
 
         // Every method of a compiler-generated type reached from a selected

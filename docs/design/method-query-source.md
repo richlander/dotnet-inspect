@@ -1346,11 +1346,12 @@ Migration is incremental:
     owns semantic identity, calls, local signatures, safety, and body context;
     `ExactMethodAnalysisProducer` adds sparse declared-source attribution.
     `LibraryCallGraphProducer` consumes the physical fact, allocation fact,
-    and the settled all-definition declared-source relation, using exact
-    attribution only for generated-body candidates whose legacy Call Graph
-    identity requires it. `AssemblyContextCallGraphAnalysis` consumes the
-    resulting focused operation and no longer executes
-    `LibraryBodyAnalysisService`.
+    and the settled all-definition declared-source relation. That relation
+    admits top-level compiler-generated owner types while excluding nested
+    generated implementation types; the Call Graph sink maps lifted and async
+    execution bodies while retaining sync iterator identity.
+    `AssemblyContextCallGraphAnalysis` consumes the resulting focused
+    operation and no longer executes `LibraryBodyAnalysisService`.
 14. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 
