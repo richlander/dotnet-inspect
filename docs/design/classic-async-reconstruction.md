@@ -146,10 +146,12 @@ not bind, standing around ordinary user code:
   region (2).
 
 A user `catch` appears in 55 of the 210. Of the remaining 155, 41 have a user
-`finally` and 114 have no user exception region at all: one- or two-await
-bodies blocked only by the completion-catch clears or the dispatch form, the
-general inverse's easiest population. The 100 protocol-clean silent
-declines are sequential, conditional, and loop bodies with one or two awaits.
+`finally`, 100 have no user exception region in the planning view (57 fail on
+the completion-catch body, 43 on the dispatch form), and 14 carry raw
+exception clauses the planning view does not structure. Of those 114, 60 have
+one or two awaits and 54 have three to sixteen. The 100 protocol-clean silent
+declines are sequential, conditional, and loop bodies with one or two awaits,
+four of them with a user `finally`.
 The 13 accounting declines matched a recipe whose ledgers refused them and
 are visible today. The state-machine headline on the real-world baseline (60
 of 540 fully raised) counts 334 classic kickoffs and 205 iterators, so the
@@ -183,7 +185,7 @@ inside the protocol try).
 | Finally guard | `if (V_state < 0 [&& x])` around a `finally` body | folds to `[if (x)]` under `V_state = -1` |
 | Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
 | Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
-| Housekeeping clear | `field = null` or `default` for a hoisted field inside the completion catch or tail | removed |
+| Housekeeping clear | `field = null` or `default` for a hoisted managed-type field, inside the completion catch or tail, or at the exit of the local's declaring block (Roslyn also clears `<>7__wrapN` after a `using` or `foreach`); the role holds only when no read of the field is reachable from the clear before another store to it | removed |
 
 Class-constrained generic awaiters (the boxed awaiter form), `async void`,
 `ValueTask`, and custom builders are the same roles with different member
@@ -266,7 +268,9 @@ retire. Nothing in this slice adds a cross-layer reference.
    declaration disposition stays with #5293. A general plan carries its role
    ledger in place of the three recipe ledgers. The fixture family lands in
    `ILInspector.Decompiler.Fixtures.ClassicAsync`: a compiler-produced
-   positive per role, the smallest accepted boundary, a still-flat negative
+   positive per role (including a scoped hoisted local and a `using` with
+   code after it, for the scope-end clear), the smallest accepted boundary,
+   a still-flat negative
    per proof obligation, the five real witnesses pinned, and the four
    unraised classic async fixtures in the pinned classic corpus measured
    (`Async_AwaitInCatchAndFinally`, `Async_InstanceGeneric`,
