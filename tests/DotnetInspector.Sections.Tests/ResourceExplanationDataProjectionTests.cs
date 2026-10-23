@@ -98,5 +98,11 @@ public sealed class ResourceExplanationDataProjectionTests
             .GetProperty("state").GetString());
         Assert.Equal("failed visibly", data.GetProperty("fact_states").GetProperty("failed")
             .GetProperty("outcome").GetString());
+        JsonElement hal = ResourceExplanationDataProjection.CreateHal(document, _ =>
+            throw new InvalidOperationException("No address is available."));
+        JsonElement native = hal.GetProperty("_embedded").GetProperty("data");
+        Assert.True(JsonElement.DeepEquals(facts, native.GetProperty("facts")));
+        Assert.True(JsonElement.DeepEquals(data.GetProperty("fact_states"), native.GetProperty("fact_states")));
+        Assert.Empty(hal.GetProperty("_links").EnumerateObject());
     }
 }
