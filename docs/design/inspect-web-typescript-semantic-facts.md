@@ -299,12 +299,15 @@ fact returns `Unavailable(MissingApiFact)`.
 | Constant value | Enum member, property access, or element access | `Absent` |
 
 The pinned TypeScript 7.0.2 checker panics when asked for the type of a
-type-only import-clause node. That node remains a valid syntax subject, but the
-adapter recognizes it before invoking the checker and returns
-`Unavailable(MissingApiFact)`. The implementation gate covers that clause
-through scalar and batched queries, and separately sweeps every project-root
-node through batched symbol and type queries so this upstream failure cannot
-poison the session.
+type-only import-clause node. Its protocol encoder also panics while serializing
+the empty array in a string `.match(...) ?? []` fallback, including a
+nullish string receiver reached through optional chaining: the returned
+`TypeReference` is incorrectly handled as a tuple. Those nodes remain valid
+syntax subjects, but the adapter recognizes them before the toxic checker call
+and returns `Unavailable(MissingApiFact)`. The implementation gate covers both
+shapes through scalar and batched queries, includes a non-string `.match`
+control, and separately sweeps every project-root node through batched symbol
+and type queries so these upstream failures cannot poison the session.
 
 The batch symbol-at-node and type-at-node operations return one outer
 `QueryResult` containing an ordered inner result for every input. Wrong-kind
