@@ -61,7 +61,7 @@ function locationSnapshot(value: string | URL): WorkspaceLocationSnapshot {
 
 function workspaceState(
   overrides: Partial<WorkspaceUrlState> = {},
-): WorkspaceUrlState {
+): WorkspaceUrlState & BrowserWorkspaceShareState {
   return {
     package: "Example.Second",
     subject: null,
@@ -90,6 +90,7 @@ function workspaceState(
     activeTabId: "t1",
     selectedContextId: "g0",
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: "Example.Widget",
@@ -686,6 +687,7 @@ test("canonical context capture does not broaden a selected subset for Call Grap
     activeTabId: "t0",
     selectedContextId: "g0",
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: null,

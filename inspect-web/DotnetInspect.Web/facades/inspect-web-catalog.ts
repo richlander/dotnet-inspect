@@ -889,6 +889,7 @@ export interface BrowserWorkspaceShareState {
   readonly selectedContextId: string;
   readonly view: BrowserWorkspaceShareView;
   readonly traversalTargetFramework: string | null;
+  readonly hierarchyWorkspacePacket: string | null;
 }
 
 export interface BrowserWorkspaceShareTab {
