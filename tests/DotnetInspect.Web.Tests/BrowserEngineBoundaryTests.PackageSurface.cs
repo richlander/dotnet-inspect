@@ -26,6 +26,7 @@ using ILInspector.Decompiler;
 using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
+using InspectWeb.MethodBodyFixtures;
 using NuGetFetch;
 
 using BrowserMemberDocument =
@@ -2915,14 +2916,14 @@ public sealed partial class BrowserEngineBoundaryTests
         const string packageId = "Browser.Library.Correspondence";
         const string fileName = "Renamed.Library.dll";
         byte[] implementation = File.ReadAllBytes(
-            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+            FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
         int implementationTypeCount;
         using (var reader = new PEReader(new MemoryStream(implementation, writable: false)))
         {
             implementationTypeCount = reader.GetMetadataReader().TypeDefinitions.Count;
         }
         byte[] reference = BuildEmptySurfaceImage(
-            typeof(BrowserEngineBoundaryTests).Assembly.GetName());
+            typeof(PerformanceProbes).Assembly.GetName());
         int referenceTypeCount;
         using (var reader = new PEReader(new MemoryStream(reference, writable: false)))
         {
@@ -2948,7 +2949,7 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Same(selected, scope.LibraryParticipant(coordinate, "renamed.library"));
         Assert.Same(selected, scope.LibraryParticipant(
             coordinate,
-            typeof(BrowserEngineBoundaryTests).Assembly.GetName().Name!));
+            typeof(PerformanceProbes).Assembly.GetName().Name!));
 
         using JsonDocument metadata = JsonDocument.Parse(
             await DotnetInspect.Web.Interop.Metadata.MetadataExports.QueryPackageMetadata(
@@ -2984,7 +2985,9 @@ public sealed partial class BrowserEngineBoundaryTests
                     packageId, "1.0.0", "net11.0", surface.Asset.Id),
                 BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
         Assert.True(performance.TotalOpportunities > 0);
-        Assert.Empty(performance.Members);
+        Assert.Contains(performance.Members, member =>
+            member.MemberName
+                == nameof(PerformanceProbes.PerformanceBoxingProbe));
         Assert.Null(performance.InspectionError);
     }
 
@@ -3928,15 +3931,17 @@ public sealed partial class BrowserEngineBoundaryTests
     public async Task PackagePerformance_UsesProductRankedWorkspaceAnalysis()
     {
         const string PackageId = "Browser.Performance.Root";
-        byte[] image = File.ReadAllBytes(
-            typeof(BrowserEngineBoundaryTests).Assembly.Location);
+        byte[] surface = File.ReadAllBytes(
+            FixtureCatalog.InspectWebMethodBodies.AssetPath("reference"));
+        byte[] implementation = File.ReadAllBytes(
+            FixtureCatalog.InspectWebMethodBodies.AssemblyPath());
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(
                 PackageId,
                 "1.0.0",
                 PackagePair(
-                    image,
-                    image,
+                    surface,
+                    implementation,
                     $"{PackageId}.DLL",
                     $"{PackageId}.dll"),
                 fromCache: false));
@@ -3961,32 +3966,33 @@ public sealed partial class BrowserEngineBoundaryTests
             root.GetProperty("members").EnumerateArray(),
             candidate =>
                 candidate.GetProperty("memberName").GetString()
-                == nameof(PerformanceBoxingProbe));
+                == nameof(PerformanceProbes.PerformanceBoxingProbe));
         Assert.Equal(
-            typeof(BrowserEngineBoundaryTests).FullName,
+            typeof(PerformanceProbes).FullName,
             member.GetProperty("typeId").GetString());
         Assert.Equal(
             [
-                typeof(BrowserEngineBoundaryTests)
-                    .GetMethod(nameof(PerformanceBoxingProbe))!
+                typeof(PerformanceProbes)
+                    .GetMethod(
+                        nameof(PerformanceProbes.PerformanceBoxingProbe))!
                     .MetadataToken,
             ],
             member.GetProperty("bodyTokens")
                 .EnumerateArray()
                 .Select(token => token.GetInt32()));
         Assert.StartsWith(
-            $"{nameof(PerformanceBoxingProbe)}~",
+            $"{nameof(PerformanceProbes.PerformanceBoxingProbe)}~",
             member.GetProperty("stableSelector").GetString());
         JsonElement privateMember = Assert.Single(
             root.GetProperty("members").EnumerateArray(),
             candidate =>
                 candidate.GetProperty("memberName").GetString()
-                == nameof(PerformancePrivateBoxingProbe));
+                == "PerformancePrivateBoxingProbe");
         Assert.Equal(
             [
-                typeof(BrowserEngineBoundaryTests)
+                typeof(PerformanceProbes)
                     .GetMethod(
-                        nameof(PerformancePrivateBoxingProbe),
+                        "PerformancePrivateBoxingProbe",
                         BindingFlags.Static | BindingFlags.NonPublic)!
                     .MetadataToken,
             ],
@@ -3994,12 +4000,12 @@ public sealed partial class BrowserEngineBoundaryTests
                 .EnumerateArray()
                 .Select(token => token.GetInt32()));
         Assert.StartsWith(
-            $"{nameof(PerformancePrivateBoxingProbe)}~",
+            "PerformancePrivateBoxingProbe~",
             privateMember.GetProperty("stableSelector").GetString());
         JsonElement privateBody = Assert.Single(
             privateMember.GetProperty("bodyTargets").EnumerateArray());
         Assert.Equal(
-            nameof(PerformancePrivateBoxingProbe),
+            "PerformancePrivateBoxingProbe",
             privateBody.GetProperty("memberName").GetString());
         Assert.True(
             root.GetProperty("nonPublicOpportunities").GetInt32() > 0);
@@ -4038,14 +4044,15 @@ public sealed partial class BrowserEngineBoundaryTests
             root.GetProperty("members").EnumerateArray(),
             candidate =>
                 candidate.GetProperty("memberName").GetString()
-                == nameof(PerformanceBoxingProperty));
+                == nameof(PerformanceProbes.PerformanceBoxingProperty));
         Assert.StartsWith(
-            $"{nameof(PerformanceBoxingProperty)}~",
+            $"{nameof(PerformanceProbes.PerformanceBoxingProperty)}~",
             property.GetProperty("stableSelector").GetString());
         Assert.Equal(
             [
-                typeof(BrowserEngineBoundaryTests)
-                    .GetProperty(nameof(PerformanceBoxingProperty))!
+                typeof(PerformanceProbes)
+                    .GetProperty(
+                        nameof(PerformanceProbes.PerformanceBoxingProperty))!
                     .GetMethod!
                     .MetadataToken,
             ],
@@ -4057,10 +4064,9 @@ public sealed partial class BrowserEngineBoundaryTests
             root.GetProperty("members").EnumerateArray(),
             candidate =>
                 candidate.GetProperty("memberName").GetString()
-                == nameof(PerformanceNestedProbe.Box));
+                == nameof(PerformanceProbes.PerformanceNestedProbe.Box));
         Assert.Equal(
-            $"{typeof(BrowserEngineBoundaryTests).FullName}+"
-                + nameof(PerformanceNestedProbe),
+            typeof(PerformanceProbes.PerformanceNestedProbe).FullName,
             nested.GetProperty("typeId").GetString());
     }
 
