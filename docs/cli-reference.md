@@ -1533,6 +1533,25 @@ ordinary Type semantics, including the JSON-document refusal for rendered-line
 limits. Count is a replay presentation choice; save the unfiltered Type view
 before requesting it.
 
+Query-free saved Member Overview (`member.overview`) views also replay:
+
+```bash
+dotnet-inspect member System.Text.Json.JsonSerializer -m Serialize:1 \
+  --workspace "$environment" --share packet \
+  > member-content.md 2> member-share.txt
+saved_member=$(tail -n 1 member-share.txt)
+dotnet-inspect "$saved_member"               # Ordinary exact Member document
+dotnet-inspect -w "$saved_member" --json      # Ordinary Member JSON
+```
+
+The readable [Member packet](examples/workspace-member-replay.json) retains the
+exact Library, declaring Type and overload digest. Its default and explicit
+formats reuse ordinary Member output, including local XML documentation. Row
+and header controls retain ordinary Member semantics. `--count` requires a
+section selection on an ordinary Member command; saved Member overview
+activation reports the same diagnostic before restoration. Additional section
+selection cannot be supplied to root activation.
+
 Other saved inspection facets and attached queries fail explicitly before
 acquisition; their individual CLI bindings remain tracked in #4647.
 Activation accepts one canonical Base64URL packet, rather than a website URL,
