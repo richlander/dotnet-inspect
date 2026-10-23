@@ -78,6 +78,33 @@ Deterministic configured-source tests gate admitted inspection with unusable
 DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
 offline, and Library tests remain neighboring controls.
 
+Ordinary online multi-Package full inspection uses the same admission protocol,
+with one independent one-Root Workspace per input, including repeated inputs.
+The CLI retains those Workspaces through global row selection and rendering,
+then closes them before releasing the source stores. Naming packages together
+does not let them bind to or satisfy one another. Existing specialized
+inventory/content routes and local/offline, Library, and wrapper compatibility
+paths remain separate.
+
+Files-only row and Count output does not project unrequested Package Info
+measurements. Requested Package Info and full Package JSON retain the
+House-derived measurements, including JSON with only Files selected. This
+presentation demand does not remove the realization needed for Root admission.
+Already parsed package metadata and retained compile selections can rule out
+additional tool-declaration and wrapper discovery without changing declared-tool
+measurements or legacy redirects.
+
+The motivating real survey is nuget.org `Newtonsoft.Json` 13.0.4 together with
+`Microsoft.NETCore.App.Ref` 10.0.0: `package Newtonsoft.Json@13.0.4
+Microsoft.NETCore.App.Ref@10.0.0 --tfm net9.0 -S "Package Info" --json`.
+Each input must retain its own package facts and target-selection outcome.
+Deterministic configured-source evidence covers independent and repeated
+inputs, unmatched frameworks, global output selection, and terminal failure
+without partial output. The same real survey's Files Count path motivates
+avoiding unused measurement projection; deterministic README-only Count/row
+controls reject unrelated measurement diagnostics, while Files JSON controls
+retain selected library payload measurements.
+
 ### Exact Package reference admission
 
 An owner-issued exact Package reference is accepted as positional `package`

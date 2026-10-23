@@ -214,12 +214,14 @@ public partial class PackageCommand
     private static async Task ApplyPackageInfoMeasurementsAsync(
         InspectionResult result,
         PackageExtractionResult resolution,
+        NuspecData? nuspec,
         long? fallbackPackageSize,
         string? requestedTargetFramework,
         Action<string>? log)
     {
         InspectionEnvelope<PackageInfoMeasurements>? inspection = null;
-        if (resolution.HouseSettlement
+        if (nuspec?.IsToolPackage is not false
+            && resolution.HouseSettlement
                 is PackageHouseSettlement.Acquired toolSettlement
             && await PackageToolDeclarationEvidence.TryCreateAsync(
                 toolSettlement.Payload) is { } declaration)
