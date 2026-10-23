@@ -116,7 +116,7 @@ image, on token numbers, or on row order is not canonical, as Finding Diff Any's
 
 **Laziness** is per kind and stated, not assumed. An IL cursor decodes one
 instruction per advance and resolves one operand per advance, memoized per
-side. It needs one lookahead: a branch or switch target is an instruction
+side for Type-level rows and per unit for member rows. It needs one lookahead: a branch or switch target is an instruction
 index, and a forward target's index is unknown until the decoder reaches it, so
 the cursor runs a boundary pre-scan over the body, which decodes lengths and
 resolves nothing, before it yields its first atom. That is the one non-lazy

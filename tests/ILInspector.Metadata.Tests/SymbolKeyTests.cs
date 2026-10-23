@@ -152,9 +152,9 @@ public sealed class SymbolKeyTests
     {
         var keys = new SymbolKeyBuilder<TestPart>();
         int mark = keys.Begin();
-        Assert.Throws<InvalidOperationException>(() => keys.End(mark));
+        Assert.Throws<SymbolKeyStateException>(() => keys.End(mark));
         keys.Int(1);
-        Assert.Throws<InvalidOperationException>(() => keys.End(mark));
+        Assert.Throws<SymbolKeyStateException>(() => keys.End(mark));
         keys.Abandon();
 
         StagedSymbolKey<TestPart> method = Build(keys, k => k.Mark(TestPart.Method).Int(2));
@@ -167,12 +167,12 @@ public sealed class SymbolKeyTests
     {
         var keys = new SymbolKeyBuilder<TestPart>();
         keys.Begin();
-        Assert.Throws<InvalidOperationException>(() => keys.Begin());
-        Assert.Throws<InvalidOperationException>(() => keys.End(1));
-        Assert.Throws<InvalidOperationException>(keys.Freeze);
+        Assert.Throws<SymbolKeyStateException>(() => keys.Begin());
+        Assert.Throws<SymbolKeyStateException>(() => keys.End(1));
+        Assert.Throws<SymbolKeyStateException>(keys.Freeze);
         keys.Abandon();
         Assert.False(keys.IsOpen);
-        Assert.Throws<InvalidOperationException>(() => keys.Int(1));
+        Assert.Throws<SymbolKeyStateException>(() => keys.Int(1));
     }
 
     [Fact]
@@ -207,8 +207,8 @@ public sealed class SymbolKeyTests
         Assert.False(parts.Read());
 
         // A staged key of a frozen population no longer reads; it resolves.
-        Assert.Throws<InvalidOperationException>(() => staged[0].Kind);
-        Assert.Throws<ArgumentException>(() => keys.Freeze().Resolve(staged[0]));
+        Assert.Throws<SymbolKeyStateException>(() => staged[0].Kind);
+        Assert.Throws<SymbolKeyStateException>(() => keys.Freeze().Resolve(staged[0]));
     }
 
     [Fact]
@@ -264,9 +264,9 @@ public sealed class SymbolKeyTests
 
         SymbolKeySlot last = slotsA[^1];
         a.Reset();
-        Assert.Throws<ArgumentException>(() => a.Resolve(last));
-        Assert.Throws<ArgumentException>(() => a.Kind(last));
-        Assert.Throws<ArgumentException>(() => a.Sort([last]));
+        Assert.Throws<SymbolKeyStateException>(() => a.Resolve(last));
+        Assert.Throws<SymbolKeyStateException>(() => a.Kind(last));
+        Assert.Throws<SymbolKeyStateException>(() => a.Sort([last]));
     }
 
     [Fact]
@@ -446,7 +446,7 @@ public sealed class SymbolKeyTests
         SymbolKey<TestPart> detached = staged.Detach();
         keys.Reset();
         Assert.Equal(TestPart.Type, detached.Kind);
-        Assert.Throws<InvalidOperationException>(() => staged.Kind);
+        Assert.Throws<SymbolKeyStateException>(() => staged.Kind);
         Assert.Equal(detached, Build(keys, k => k.Name("alone"u8)).Detach());
     }
 }

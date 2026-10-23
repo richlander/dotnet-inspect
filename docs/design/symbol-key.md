@@ -162,18 +162,25 @@ both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A later domain may replace repeated
 embedded keys with `Ref` parts when it adopts interning.
 
-Finding Diff Any keeps three builders per side. Its reference keys, Types,
-members, and signature types, memoized per token, are staged in a retained
-builder and frozen into shared backings in chunks at unit boundaries; the
-unit table's lookup keys are resolved to views at each chunk's freeze, and a
-dictionary keyed by frozen keys answers staged lookups through the alternate
-lookup of `SymbolKeyComparer<TDomain>`. Signature-type composites built while
-one key decodes are staged in a scratch builder and discarded when that build
-completes. Its per-unit census facts and member keys are staged in a
-transient builder and held as eight-byte slots, which that builder sorts and
-compares against the other side's with its storage resolved once rather than
-once per comparison, and discarded after the unit, so no fact key is copied
-into storage of its own.
+Finding Diff Any keeps three builders per side. Its Type-level keys, Type
+definitions, references, specifications, and primitives, memoized per token
+for the comparison, are staged in a retained builder and frozen into shared
+backings in chunks at unit boundaries; the unit table's lookup keys are
+resolved to views at each chunk's freeze, and a dictionary keyed by frozen
+keys answers staged lookups through the alternate lookup of
+`SymbolKeyComparer<TDomain>`. Signature-type composites built while one key
+decodes are staged in a scratch builder and discarded when that build
+completes. Its member keys (methods, fields, member references, method
+specifications, standalone signatures) and its census facts are staged in a
+transient builder: a unit spells the members it declares and the members its
+bodies refer to, memoized for that unit alone, holds its facts as eight-byte
+slots that the builder sorts and compares against the other side's with its
+storage resolved once, and discards all of it when the unit ends, so no
+member spelling and no fact key is retained. The body comparison remembers
+each pair of operand rows, one of each side, already proven to spell the same
+key, so a member referred to from many Types is spelled once per comparison,
+not once per referencing unit; what the comparison retains across units is
+that pairing and the Type-level keys, not the member spellings.
 
 Names enter through three sources:
 
@@ -434,7 +441,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
 | Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Representation pilot | SPC comparison of current private Symbol Key and the proposed range-backed representation measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; identity answers agree | Pilot before implementation |
-| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time and allocation do not regress on any pair, retained memory stays within 5% of base (parity; the reduction belongs to step 7), and p95 does not widen; the API axis alone, the asynchronous surface pass, stays cheap enough to run that way: it does not regress on the large pairs (aspire, xml, CoreLib), the small pairs (stj, nj11, nj13) stay within a millisecond of base and under 5 ms, and CoreLib's stays under 100 ms. After time, memory is the priority | Adoption PR |
+| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time and allocation do not regress on any pair, retained memory does not exceed base on any pair, and p95 does not widen; the API axis alone, the asynchronous surface pass, stays cheap enough to run that way: it does not regress on the large pairs (aspire, xml, CoreLib), the small pairs (stj, nj11, nj13) stay within a millisecond of base and under 5 ms, and CoreLib's stays under 100 ms. After time, memory is the priority | Adoption PR |
 
 ## Adoption sequence
 
@@ -476,10 +483,14 @@ Eight steps, tracked by
    lands first; that adoption PR registers its domain.
 7. **Interning.** The range-keyed table and `Ref` part, adopted by Finding
    Diff Any step 5. The memo is the pairing: once both sides have spelled a
-   Type-level row and compared, the diff needs the shared id, not the
-   spelling, so this step turns the per-side memo into the pairing table and
-   spells member keys per unit over `Ref` parts; retained state becomes the
-   table. Its design lands in its own candidate after step 5 merges.
+   row and compared, the diff needs the verdict, not the spelling. The first
+   half is done: member rows are spelled per unit and discarded, and the
+   body comparison keeps the pairing of operand rows proven equal, rather
+   than their spellings, while it runs and releases it when it completes, so
+   a completed comparison retains the Type-level keys and the tables. The
+   second half, shared ids as `Ref`
+   parts for the Type-level keys embedded in member spellings, shrinks the
+   spellings themselves and lands in its own candidate.
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
 
