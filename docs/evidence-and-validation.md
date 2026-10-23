@@ -136,6 +136,27 @@ supported terminal, verified result cardinality, reported median and p95, and
 explained a bounded terminal tradeoff alongside substantial end-to-end
 improvements.
 
+### Input provenance budget
+
+The product's primary input is assemblies the .NET SDK produces: compiler
+output from Roslyn (C#, Visual Basic, source generators, Razor) and F#,
+rewritten by ILLink or crossgen2, plus SDK reference assemblies and the shared
+frameworks built with the same tools. That population sets the performance
+bar, so the pinned real assets come from it.
+
+| Input | Correctness | Performance |
+| --- | --- | --- |
+| Produced by the .NET SDK | Exact | Match or beat the base |
+| Valid, from another producer | Exact | May take a slower path |
+| Malformed | Never a false negative; may fail visibly | May take a slower path |
+
+Work that SDK-produced input pays only to keep the last two rows correct, such
+as validation a fast path needs before it may decide, may cost at most 5% of
+the base's time on any measured terminal. Attribute that share by measuring
+the candidate against a variant without the guard; the remainder still meets
+the first row. A fast path may assume SDK-shaped input only when a violated
+assumption sends the input to the exact path or fails visibly.
+
 ## Performance oracles for QuerySpace enablement
 
 The end-to-end comparison above proves what a user sees. It does not show
