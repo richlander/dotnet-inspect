@@ -2494,6 +2494,18 @@ syntax through query help; #9962 preserves that binding-registration gap.
 These observations establish usable adoption, not format superiority or a
 causal efficiency improvement.
 
+The [prefix preparation trials](../../tools/ExplainReadingScenarios/usability/package-query-focused/README.md)
+exercise the landed comparison spelling: one of four fresh readers uses HAL
+without query-help recovery; three choose `-Q`. The HAL reader still prints
+all facets and bindings. Neither recipient of a task-neutral field-selection
+hint chooses HAL, so its reading benefit remains untested. One reader repeats
+an evidenced package scope before adding another match; retained traces expose
+that additional work and an ambiguous cumulative candidate budget. Supported
+answers and one usable HAL path do not establish reliable adoption, causal
+improvement or a guide-efficiency ranking.
+The same trace motivates #9973's separate CLI help/admission consistency work;
+it does not establish why the reader supplied an explicit value to the flag.
+
 The [landed narrowing trials](../../tools/ExplainReadingScenarios/usability/narrowed/README.md)
 use six fresh participants with a version-current experimental skill prototype,
 including guide bytes in content accounting. Package readers execute bounded
