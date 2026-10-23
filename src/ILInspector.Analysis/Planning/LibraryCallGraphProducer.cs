@@ -29,6 +29,62 @@ public sealed record LibraryCallGraphBodyEvidence(
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
     ImmutableArray<AnalysisDiagnostic> Diagnostics);
 
+internal sealed class LibraryCallGraphAllocationProducer :
+    MethodDefinitionProducer<
+        ExactMethodAllocationBody,
+        ImmutableArray<ExactMethodAllocationBody>.Builder,
+        ImmutableArray<ExactMethodAllocationBody>>
+{
+    LibraryCallGraphAllocationProducer()
+        : base(
+            "Library Call Graph Allocation",
+            version: 1,
+            tier: 0,
+            MethodDefinitionLayers.MethodAnalysis,
+            dependencies: static () =>
+            [
+                new(
+                    PhysicalMethodAnalysisProducer.Instance,
+                    ProducerDependencyKind.VisitNeedsVisit),
+            ])
+    {
+    }
+
+    internal static LibraryCallGraphAllocationProducer Instance { get; } =
+        new();
+
+    internal override ImmutableArray<MethodBodyAnalyzerDeclaration>
+        InstructionAnalyzers =>
+        [
+            MethodBodyAnalyzerDeclarations.BoundedFlow,
+        ];
+
+    internal override ExactMethodAllocationBody Visit(
+        scoped MethodDefinitionView view) =>
+        ExactMethodAllocationProducer.Collect(
+            view,
+            view.FactOf(PhysicalMethodAnalysisProducer.Instance),
+            classifyEscapes: false);
+
+    internal override ImmutableArray<ExactMethodAllocationBody>.Builder
+        Seed() =>
+        ImmutableArray.CreateBuilder<ExactMethodAllocationBody>();
+
+    internal override ImmutableArray<ExactMethodAllocationBody>.Builder
+        Accumulate(
+            ImmutableArray<ExactMethodAllocationBody>.Builder accumulator,
+            ExactMethodAllocationBody fact)
+    {
+        accumulator.Add(fact);
+        return accumulator;
+    }
+
+    internal override ImmutableArray<ExactMethodAllocationBody> Complete(
+        ImmutableArray<ExactMethodAllocationBody>.Builder accumulator,
+        MethodDefinitionCompletionView completion) =>
+        accumulator.ToImmutable();
+}
+
 public sealed class LibraryCallGraphProducer :
     MethodDefinitionProducer<
         LibraryCallGraphBodyEvidence,
@@ -47,7 +103,7 @@ public sealed class LibraryCallGraphProducer :
                     PhysicalMethodAnalysisProducer.Instance,
                     ProducerDependencyKind.VisitNeedsVisit),
                 new(
-                    ExactMethodAllocationProducer.Instance,
+                    LibraryCallGraphAllocationProducer.Instance,
                     ProducerDependencyKind.VisitNeedsVisit),
             ])
     {
@@ -61,7 +117,7 @@ public sealed class LibraryCallGraphProducer :
         ExactMethodAnalysisBody method =
             view.FactOf(PhysicalMethodAnalysisProducer.Instance);
         ExactMethodAllocationBody allocation =
-            view.FactOf(ExactMethodAllocationProducer.Instance);
+            view.FactOf(LibraryCallGraphAllocationProducer.Instance);
         ImmutableArray<DirectCall> directCalls =
             ExactMethodAnalysisProducer.CollectDirectCalls(
                 method,

@@ -1345,8 +1345,9 @@ Migration is incremental:
     evidence from exact-target attribution. `PhysicalMethodAnalysisProducer`
     owns semantic identity, calls, local signatures, safety, and body context;
     `ExactMethodAnalysisProducer` adds sparse declared-source attribution.
-    `LibraryCallGraphProducer` consumes the physical fact, allocation fact,
-    and the settled all-definition declared-source relation. That relation
+    `LibraryCallGraphProducer` consumes the physical fact, a Call-Graph-local
+    allocation fact that omits unrelated escape classification, and the
+    settled all-definition declared-source relation. That relation
     admits only the inferred lifted-owner methods of a top-level
     compiler-generated type while excluding its unrelated methods and nested
     generated implementation types; the Call Graph sink maps lifted and async

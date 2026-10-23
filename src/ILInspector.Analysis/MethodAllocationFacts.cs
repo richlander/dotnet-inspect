@@ -182,12 +182,23 @@ internal sealed class MethodAllocationFacts
     /// </summary>
     internal void Collect(
         IMethodAllocationResolver resolver)
+        => Collect(resolver, classifyEscapes: true);
+
+    internal void CollectForCallGraph(
+        IMethodAllocationResolver resolver)
+        => Collect(resolver, classifyEscapes: false);
+
+    void Collect(
+        IMethodAllocationResolver resolver,
+        bool classifyEscapes)
     {
         CollectionFailure = null;
         _nonHeapNewObjectOperandTokens.Clear();
         var raw = CollectOccurrences(resolver);
         var classified =
-            raw.IsDefaultOrEmpty ? raw : ClassifyEscapes(raw, resolver);
+            raw.IsDefaultOrEmpty || !classifyEscapes
+                ? raw
+                : ClassifyEscapes(raw, resolver);
         DiscoveredOccurrences = raw;
         ClassifiedOccurrences = classified;
         InAssemblyTypeIsException =
