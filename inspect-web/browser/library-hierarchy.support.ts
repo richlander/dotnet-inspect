@@ -352,6 +352,8 @@ interface HomeDemoFixture {
   catalogPending?: boolean;
   resolutionPendingOrdinal?: number;
   resolutionFailureOrdinal?: number;
+  preparationPendingOrdinal?: number;
+  preparationFailureOrdinal?: number;
   surfaceAdmissionPendingOrdinal?: number;
 }
 
@@ -3332,9 +3334,14 @@ async function installFacades(
         ${homeDemos?.resolutionPendingOrdinal ?? 0};
       const homeDemoResolutionFailureOrdinal =
         ${homeDemos?.resolutionFailureOrdinal ?? 0};
+      const homeDemoPreparationPendingOrdinal =
+        ${homeDemos?.preparationPendingOrdinal ?? 0};
+      const homeDemoPreparationFailureOrdinal =
+        ${homeDemos?.preparationFailureOrdinal ?? 0};
       const homeDemoSurfaceAdmissionPendingOrdinal =
         ${homeDemos?.surfaceAdmissionPendingOrdinal ?? 0};
       let homeDemoResolutionOrdinal = 0;
+      let homeDemoPreparationOrdinal = 0;
       let homeDemoSurfaceAdmissionOrdinal = 0;
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
@@ -4116,6 +4123,18 @@ async function installFacades(
         scenarioId,
       ) {
         document.documentElement.dataset.homeDemoPrepare = scenarioId;
+        homeDemoPreparationOrdinal++;
+        if (homeDemoPreparationOrdinal
+            === homeDemoPreparationPendingOrdinal) {
+          document.documentElement.dataset.homeDemoPreparationPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-preparation", resolve, { once: true }));
+          document.documentElement.dataset.homeDemoPreparationPending = "false";
+        }
+        if (homeDemoPreparationOrdinal
+            === homeDemoPreparationFailureOrdinal) {
+          throw new Error("Fixture product demo preparation failed.");
+        }
         preparedRetainedWorkspace = homeDemoWorkspacePosting(
           retainedDefinitionId,
           label,

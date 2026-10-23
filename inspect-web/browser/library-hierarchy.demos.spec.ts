@@ -273,8 +273,12 @@ async function installHomeDemo(
 
 async function installMethodsHomeDemos(
   page: Page,
-  resolutionPendingOrdinal: number,
-  resolutionFailureOrdinal?: number,
+  options: {
+    resolutionPendingOrdinal?: number;
+    resolutionFailureOrdinal?: number;
+    preparationPendingOrdinal?: number;
+    preparationFailureOrdinal?: number;
+  },
 ): Promise<{ packageId: string; platformId: string }> {
   const packageId = "package-methods";
   const platformId = "platform-methods";
@@ -308,10 +312,18 @@ async function installMethodsHomeDemos(
         [packageId]: homeDemoResult("Methods", "package"),
         [platformId]: homeDemoResult("Methods", "platform"),
       },
-      resolutionPendingOrdinal,
-      ...(resolutionFailureOrdinal === undefined
+      ...(options.resolutionPendingOrdinal === undefined
         ? {}
-        : { resolutionFailureOrdinal }),
+        : { resolutionPendingOrdinal: options.resolutionPendingOrdinal }),
+      ...(options.resolutionFailureOrdinal === undefined
+        ? {}
+        : { resolutionFailureOrdinal: options.resolutionFailureOrdinal }),
+      ...(options.preparationPendingOrdinal === undefined
+        ? {}
+        : { preparationPendingOrdinal: options.preparationPendingOrdinal }),
+      ...(options.preparationFailureOrdinal === undefined
+        ? {}
+        : { preparationFailureOrdinal: options.preparationFailureOrdinal }),
     });
   return { packageId, platformId };
 }
@@ -917,7 +929,7 @@ test("superseded retained Methods selection cannot replace Back navigation", asy
   page,
 }) => {
   const { packageId, platformId } =
-    await installMethodsHomeDemos(page, 3);
+    await installMethodsHomeDemos(page, { resolutionPendingOrdinal: 3 });
   await page.goto("/demos");
   await page.locator(`[data-workspace-demo="${packageId}"]`).click();
   await page.getByRole("link", { name: "Demos", exact: true }).click();
@@ -955,7 +967,7 @@ test("superseded retained Methods deletion cannot activate its successor", async
   page,
 }) => {
   const { packageId, platformId } =
-    await installMethodsHomeDemos(page, 3);
+    await installMethodsHomeDemos(page, { resolutionPendingOrdinal: 3 });
   await page.goto("/demos");
   await page.locator(`[data-workspace-demo="${packageId}"]`).click();
   await page.getByRole("link", { name: "Demos", exact: true }).click();
@@ -1002,7 +1014,10 @@ for (const staleOperation of ["selection", "deletion"] as const) {
     page,
   }) => {
     const { packageId, platformId } =
-      await installMethodsHomeDemos(page, 3, 3);
+      await installMethodsHomeDemos(page, {
+        resolutionPendingOrdinal: 3,
+        resolutionFailureOrdinal: 3,
+      });
     await page.goto("/demos");
     await page.locator(`[data-workspace-demo="${packageId}"]`).click();
     await page.getByRole("link", { name: "Demos", exact: true }).click();
@@ -1045,6 +1060,47 @@ for (const staleOperation of ["selection", "deletion"] as const) {
       .toContainText("platform Methods");
   });
 }
+
+test("superseded retained Methods deletion suppresses preparation failure", async ({
+  page,
+}) => {
+  const { packageId, platformId } = await installMethodsHomeDemos(page, {
+    preparationPendingOrdinal: 3,
+    preparationFailureOrdinal: 3,
+  });
+  await page.goto("/demos");
+  await page.locator(`[data-workspace-demo="${packageId}"]`).click();
+  await page.getByRole("link", { name: "Demos", exact: true }).click();
+  await page.locator(`[data-workspace-demo="${platformId}"]`).click();
+  await expect(page).toHaveURL(
+    new RegExp(`/demos\\?demo=${platformId}$`),
+  );
+  const platformUrl = page.url();
+  await openProductDestination(page, "workspace");
+  const activeRow = page.locator(".workspace-row").filter({
+    has: page.locator(".workspace-card.active"),
+  });
+  await activeRow.locator("[data-workspace-delete]").click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "true",
+  );
+
+  await page.goBack();
+  await expect(page).toHaveURL(platformUrl);
+  await releaseFacade(page, "finish-home-demo-preparation");
+
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-home-demo-preparation-pending",
+    "false",
+  );
+  await expect(page.getByText("Fixture product demo preparation failed."))
+    .toHaveCount(0);
+  await expect(page).toHaveURL(platformUrl);
+  await openProductDestination(page, "workspace");
+  await expect(page.locator(".workspace-card.active"))
+    .toContainText("platform Methods");
+});
 
 test("Methods demo definition capacity failure restores the catalog", async ({
   page,
@@ -1196,6 +1252,17 @@ test("home demo history failure restores the catalog without publication", async
   await expect(page.locator(`[data-workspace-demo="${id}"]`)).toBeFocused();
   await expect(page.locator("[data-workspace-switch]"))
     .toHaveCount(retainedBefore);
+  await page.evaluate(() => {
+    Reflect.deleteProperty(history, "pushState");
+  });
+  await openProductDestination(page, "workspace");
+  const activeWorkspace = page.locator(".workspace-card.active");
+  await expect(activeWorkspace).toContainText("package Methods");
+  await activeWorkspace.click();
+  await expect(subjectTab(page, "type"))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(".inspected-target"))
+    .toContainText("Example.Widget");
 });
 
 test("Activity Back restores focus on the Demos route", async ({ page }) => {
