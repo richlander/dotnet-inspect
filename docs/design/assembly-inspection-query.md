@@ -1104,6 +1104,11 @@ the exact structured Type identity and declaration occurrence that Subject
 Relations consumes through its focus-construction API; hosts do not revalidate
 that identity as Metadata.
 
+The unbounded query first reads detached declaration inventories across a
+multi-participant context, then richly projects only participants carrying a
+potentially matching root and any terminal suppliers Metadata resolves from
+those roots. If a declaration inventory is rejected or incomplete, execution
+falls back to full participant projection rather than weakening the answer.
 The query projects public members for public Types and complete members for an
 exact non-public Type, prefers an exact full-name declaration over fuzzy
 generic-name matching, and retains every declaration matched by a non-full-name
@@ -1116,17 +1121,22 @@ unavailable because it could terminate at a different definition.
 Type-ambiguous because several plausible assemblies do not prove several
 terminal Type definitions. Only competing declarations or distinct resolved
 terminals produce `Ambiguous`.
-Any failed participant, unscoped non-constraint extraction failure, or
-non-constraint failure scoped to the effective exact or fuzzy match makes
-selection unavailable even when another healthy declaration matched. Both
-bounded and unbounded extraction retain rejected structured forwarder names as
-inspection failures; neither mode may turn malformed forwarding evidence into
-conclusive absence.
+Any failed richly projected participant, unscoped non-constraint extraction
+failure in a projected candidate or supplier, or non-constraint failure scoped
+to the effective exact or fuzzy match makes selection unavailable even when
+another healthy declaration matched. A declaration-inventory failure abandons
+narrowing and preserves the established full-projection behavior. A participant
+excluded by conclusive declaration inventory does not run rich extraction, so
+unrelated signature, member, or constraint work from that participant cannot
+affect the exact-Type result. Both bounded and unbounded execution retain
+rejected structured forwarder names as inspection failures; neither mode may
+turn malformed forwarding evidence into conclusive absence.
 Execution bounds are caller-owned: desktop callers may select the explicit unbounded
 overload, while Browser/Wasm must supply
 `BrowserApiSurfacePolicy.Limits`. Bounded execution uses the resolution-aware
 `AssemblyContextApiSurfaceQuery.ExecuteBoundedResolved` path over the requested
-package participants. Both modes use resolution-aware extraction so retained
+package participants; declaration-first narrowing does not bypass or reinterpret
+those shared bounds. Both modes use resolution-aware extraction so retained
 generic-constraint failures have the same typed meaning. Any bounded projection
 stop makes terminal selection `Unavailable` with typed
 `ProjectionTruncated` evidence: an omitted participant may contain another
@@ -1205,7 +1215,8 @@ The Release gates are:
   rejection, bounded truncation, nonfatal constraint diagnostics, stable
   diagnostics, predecessor/successor realization association, non-first Package
   resolution across one selected context, retained defining-Library ambiguity,
-  and a detached selected-context envelope;
+  declaration-first exclusion of unrelated rich projection failures, and a detached
+  selected-context envelope;
 - `ExactTypeWorkspaceRouteTests` for non-vacuous CLI retirement and default
   member-signature rendering without the eligible legacy source resolver,
   escaped definition-identity preservation, and nonfatal constraint-warning
