@@ -17,11 +17,11 @@
     <PackageVersion Include="NuGet.Packaging" Version="7.9.0" />
     <PackageVersion Include="NuGet.Versioning" Version="7.9.0" />
     <PackageVersion Include="ShellComplete" Version="0.1.0" />
-    <PackageVersion Include="System.CommandLine" Version="3.0.0-rc.1.26425.128" />
-    <PackageVersion Include="System.IO.Hashing" Version="10.0.12" />
-    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
-    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+    <PackageVersion Include="System.CommandLine" Version="3.0.0-rc.2.26504.105" />
+    <PackageVersion Include="System.IO.Hashing" Version="10.0.13" />
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
     <PackageVersion Include="YamlDotNet" Version="18.1.0" />
-    <PackageVersion Include="xunit.v3" Version="4.0.1" />
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
   </ItemGroup>
 </Project>
