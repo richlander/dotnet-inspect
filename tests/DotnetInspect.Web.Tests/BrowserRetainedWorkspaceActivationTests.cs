@@ -62,7 +62,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal("UnsupportedDefinition", deepView.Failure?.Kind);
         Assert.Equal("packet.view.active", deepView.Failure?.Path);
         Assert.Contains(
-            "Workspace or default Package",
+            "Workspace, default Package, or Package Hierarchy",
             deepView.Failure?.Message,
             StringComparison.Ordinal);
     }
@@ -70,7 +70,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     [Theory]
     [InlineData("package.libraries")]
     [InlineData("package.overview")]
-    public void PackageSourceDescription_AdmitsDefaultAndLegacyPackageFacets(
+    [InlineData("package.dependency-hierarchy")]
+    public void PackageSourceDescription_AdmitsSupportedPackageRootFacets(
         string facet)
     {
         BrowserWorkspacePackageSourceRequirementsResult result =

@@ -2812,8 +2812,12 @@ async function installRetainedWorkspacePosting(
     state.workspaceSubjectOpen = state.package === null;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
-    if (initialPackageLens !== undefined && state.rootKind === "package") {
-      state.packageLens = initialPackageLens;
+    if (state.rootKind === "package") {
+      const committedHierarchy = posting.navigation.snapshot.lenses.some(
+        lens => lens.isCurrent && lens.facet.id === "package.dependency-hierarchy");
+      state.packageLens = committedHierarchy
+        ? "hierarchy"
+        : initialPackageLens ?? "overview";
     }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
@@ -18570,6 +18574,13 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
       ? []
       : [library];
+  if (packageSubjectOpen
+    && state.packageLens === "hierarchy"
+    && activeRetainedWorkspacePosting !== null
+    && activeRetainedWorkspacePosting.canonicalPacket === null) {
+    throw new Error(
+      "This Hierarchy's Workspace context cannot be projected into a share packet.");
+  }
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
@@ -18578,6 +18589,11 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     activeTabId: activeTab.id,
     selectedContextId,
     traversalTargetFramework: workspaceTraversalTargetFramework(),
+    hierarchyWorkspacePacket: packageSubjectOpen && state.packageLens === "hierarchy"
+      ? activeRetainedWorkspacePosting?.canonicalPacket
+        ?? basis?.hierarchyWorkspacePacket
+        ?? null
+      : null,
     analysisMode: librarySubjectOpen && state.libraryLens === "analysis"
       ? state.analysisMode
       : null,
@@ -18664,6 +18680,7 @@ async function captureSavedWorkspacePacket(): Promise<string> {
     selectedContextId: snapshot.selectedContextId,
     view: snapshot.view,
     traversalTargetFramework: snapshot.traversalTargetFramework ?? null,
+    hierarchyWorkspacePacket: snapshot.hierarchyWorkspacePacket ?? null,
   });
   if (!captured.succeeded || !captured.packet) {
     throw new Error(
@@ -27307,6 +27324,7 @@ function retainPackageHomeDemoShareBasis(
     activeTabId: activeTab.id,
     selectedContextId: topology.selectedContextId,
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: selection.type.id,

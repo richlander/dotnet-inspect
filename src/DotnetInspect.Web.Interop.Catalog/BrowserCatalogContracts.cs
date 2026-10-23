@@ -587,7 +587,8 @@ public sealed record BrowserWorkspaceShareState(
     string ActiveTabId,
     string SelectedContextId,
     BrowserWorkspaceShareView View,
-    string? TraversalTargetFramework = null);
+    string? TraversalTargetFramework = null,
+    string? HierarchyWorkspacePacket = null);
 
 /// <summary>Typed codec, transposition, or Browser-transport failure.</summary>
 public sealed record BrowserWorkspaceShareFailure(

@@ -332,10 +332,43 @@ Focused evidence is owned by
 `CompleteRestorationPreparationTests.ConfiguredTraversalTarget_SurvivesPortableRestorationWithoutChangingRoot`,
 `LegacyHierarchy_CompleteCapturePreservesTargetSeparatelyFromRoot`,
 `BrowserWorkspaceShareOperationsTests.HierarchyCapture_PreservesGoverningTargetWithoutChangingRoot`,
-and `LegacyHierarchyDecode_MakesItsTargetPortableWithoutChangingPacket`.
+and `LegacyHierarchyDecode_RecapturePreservesTargetWithExplicitContext`.
 The existing coordinate-replacement framework-change and dependency-enrichment
 scenarios also verify that editing membership retains the governing target;
 the Browser URL-capture scenario verifies the separate transport field.
+
+#### Hierarchy sharing context
+
+Issue #10555 preserves the Workspace context of the exact
+`Microsoft.Azure.SignalR@1.33.1` Hierarchy used by #10404. A newly authored
+Hierarchy share carries its root acquisition coordinate, governing traversal
+target, and ordered ecosystem registrations in an existing registration-bearing
+committed packet. Its requested inspector is the existing
+`package.dependency-hierarchy` facet. No new packet version or Browser-only
+view identity is needed.
+
+The CLI authors the Runtime lineage selected by its direct Hierarchy command.
+The Browser captures the current portable Workspace's registrations; a fresh
+ordinary Browser view uses its product-curated plan. A retained Workspace with
+no Runtime registration remains Runtime-free after sharing and reopening.
+Unprojectable retained context is refused visibly rather than replaced by
+product defaults. Target and family intent do not assert that matching supply
+inventory has been acquired.
+
+Legacy format-1 links retain their existing interpretation. Their lack of
+registrations is not evidence of an explicitly empty modern Workspace, and
+they are not rewritten into a different historical source contract. This
+does not prevent re-sharing a legacy Hierarchy as a newly authored committed
+packet with the Browser's ordinary context made explicit. The prerequisite
+does not enable pruning, acquire Platform packs, change supply
+comparison, or claim a performance improvement. Traversal adoption remains
+owned by [package dependency traversal](package-dependency-traversal.md).
+
+Focused shared and Browser codec scenarios cover no Runtime, Runtime, and
+ASP.NET lineage with a root framework distinct from the governing target.
+The real-Wasm package-adoption scenarios reopen a legacy compatible-asset
+Hierarchy as a committed share and round-trip an explicitly Runtime-free
+Hierarchy without introducing product registrations.
 
 ### The `workspace` command
 

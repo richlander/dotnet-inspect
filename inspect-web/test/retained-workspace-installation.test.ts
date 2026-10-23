@@ -49,6 +49,7 @@ function deferred<T>(): Deferred<T> {
 
 function retainedWorkspaceInstallationHarness(options: {
   activeKind: "package" | "platform";
+  packageFacet?: string;
   initial: Deferred<{ surface: TestPackage }>;
   newer: () => Promise<{ surface: TestPackage }>;
 }) {
@@ -76,7 +77,14 @@ function retainedWorkspaceInstallationHarness(options: {
     realizationId: "realization",
     retainedDefinitionId: "definition",
     canonicalLocation: "/workspace",
-    navigation: { synchronization: "Current" },
+    navigation: {
+      synchronization: "Current",
+      snapshot: {
+        lenses: options.packageFacet
+          ? [{ isCurrent: true, facet: { id: options.packageFacet } }]
+          : [],
+      },
+    },
   };
   const state = {
     packages: [] as TestPackage[],
@@ -91,6 +99,7 @@ function retainedWorkspaceInstallationHarness(options: {
     workspaceSubjectOpen: true,
     atPackageRoot: true,
     atLibraryRoot: false,
+    packageLens: "overview",
     loading: true,
     home: false,
     credits: false,
@@ -333,6 +342,33 @@ function retainedWorkspaceInstallationHarness(options: {
       runInNewContext("openCredits()", context);
     },
   };
+}
+
+for (const [facet, expected] of [
+  ["package.dependency-hierarchy", "hierarchy"],
+  ["package.libraries", "overview"],
+] as const) {
+  test(`retained ${facet} publication replaces the previous Package inspector`, async () => {
+    const initial = deferred<{ surface: TestPackage }>();
+    const harness = retainedWorkspaceInstallationHarness({
+      activeKind: "package",
+      packageFacet: facet,
+      initial,
+      newer: () => Promise.reject(new Error("unused")),
+    });
+    harness.state.packageLens = facet === "package.libraries"
+      ? "hierarchy" : "dependencies";
+    harness.post();
+    const installation = harness.install();
+    initial.resolve({
+      surface: {
+        id: "initial-package", isRuntimePack: false,
+        source: { kind: "package" },
+      },
+    });
+    await installation;
+    assert.equal(harness.state.packageLens, expected);
+  });
 }
 
 test("exact canonical completion renders and focuses once", async () => {

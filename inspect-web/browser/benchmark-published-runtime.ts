@@ -695,6 +695,7 @@ async function measureMethodComparison(
         activeTabId: "t0",
         selectedContextId: "g0",
         traversalTargetFramework: null,
+        hierarchyWorkspacePacket: null,
         view: {
           lens: null,
           type: null,
