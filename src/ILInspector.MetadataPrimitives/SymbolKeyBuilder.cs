@@ -52,7 +52,7 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get => _builder is null
-            ? throw new InvalidOperationException("The default staged key has no bytes.")
+            ? throw new SymbolKeyStateException("The default staged key has no bytes.")
             : _builder.Staged(_generation, _offset, _length);
     }
 
@@ -113,7 +113,7 @@ public sealed class SymbolKeyPopulation<TDomain>
         if (staged.IsDefault)
             throw new ArgumentException("The default staged key resolves to nothing.", nameof(staged));
         if (staged.Generation != _generation)
-            throw new ArgumentException("The staged key belongs to another population.", nameof(staged));
+            throw new SymbolKeyStateException("The staged key belongs to another population.");
         return Resolve(staged.Offset, staged.Length);
     }
 
@@ -172,7 +172,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public int Begin()
     {
         if (_open != NotOpen)
-            throw new InvalidOperationException("A Symbol Key is already open; complete it before opening another.");
+            throw new SymbolKeyStateException("A Symbol Key is already open; complete it before opening another.");
         _open = _length;
         return _length;
     }
@@ -307,11 +307,11 @@ public sealed class SymbolKeyBuilder<TDomain>
     public StagedSymbolKey<TDomain> End(int mark)
     {
         if (_open != mark)
-            throw new InvalidOperationException("The mark does not name the open key.");
+            throw new SymbolKeyStateException("The mark does not name the open key.");
         if (_length == mark)
-            throw new InvalidOperationException("A Symbol Key holds at least its domain marker.");
+            throw new SymbolKeyStateException("A Symbol Key holds at least its domain marker.");
         if (_scratch[mark] < SymbolKeyDomain.FirstMarker)
-            throw new InvalidOperationException("A Symbol Key begins with a domain marker.");
+            throw new SymbolKeyStateException("A Symbol Key begins with a domain marker.");
         _open = NotOpen;
         return new StagedSymbolKey<TDomain>(this, _generation, mark, _length - mark);
     }
@@ -324,7 +324,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public StagedSymbolKey<TDomain> Copy(StagedSymbolKey<TDomain> key)
     {
         if (_open != NotOpen)
-            throw new InvalidOperationException("A Symbol Key is open; complete it before copying another.");
+            throw new SymbolKeyStateException("A Symbol Key is open; complete it before copying another.");
         if (key.IsDefault)
             throw new ArgumentException("The default staged key cannot be copied.", nameof(key));
         int length = key.Length;
@@ -371,7 +371,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public SymbolKeyPopulation<TDomain> Freeze()
     {
         if (_open != NotOpen)
-            throw new InvalidOperationException("A Symbol Key is open; complete or abandon it before freezing.");
+            throw new SymbolKeyStateException("A Symbol Key is open; complete or abandon it before freezing.");
         var backing = new OpaqueByteRangeBuilder(_length);
         backing.Append(_scratch.AsSpan(0, _length));
         var population = new SymbolKeyPopulation<TDomain>(backing.Freeze(), _generation);
@@ -438,7 +438,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     void Require(SymbolKeySlot slot)
     {
         if (slot.Length <= 0 || (uint)slot.Offset > (uint)_length || (uint)slot.Length > (uint)(_length - slot.Offset))
-            throw new ArgumentException("The slot lies outside this population's staged keys.", nameof(slot));
+            throw new SymbolKeyStateException("The slot lies outside this population's staged keys.");
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -450,7 +450,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     }
 
     static void ThrowStale()
-        => throw new InvalidOperationException("The staged key's population was frozen or reset.");
+        => throw new SymbolKeyStateException("The staged key's population was frozen or reset.");
 
     SymbolKeyBuilder<TDomain> Framed(SymbolKeyTag tag, ReadOnlySpan<byte> payload)
     {
@@ -476,7 +476,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     void RequireOpen()
     {
         if (_open == NotOpen)
-            throw new InvalidOperationException("No Symbol Key is open.");
+            throw new SymbolKeyStateException("No Symbol Key is open.");
     }
 
     void Ensure(int count)
