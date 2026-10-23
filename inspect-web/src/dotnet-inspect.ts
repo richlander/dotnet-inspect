@@ -18453,7 +18453,9 @@ function activeShareTabIndex(
     ? tabs.findIndex(tab => tab.kind === "group" && tab.source === ":Platform")
     : resolvedTabs.findIndex(tab => tab.kind === "package" && tab.source === state.package?.id
       && tab.version === state.package?.version
-      && tab.framework === (packageFramework ?? state.package?.activeFramework));
+      && tab.framework === (packageFramework ?? state.package?.activeFramework)
+      && (tab.runtimeIdentifier ?? null)
+        === (state.package?.runtimeIdentifier ?? null));
 }
 
 function captureWorkspaceUrlState(): WorkspaceUrlState | null {
@@ -27529,6 +27531,7 @@ async function restoreWorkspaceFromLocation(
     id: loc.package,
     version: loc.version || "latest",
     framework: loc.framework || "",
+    runtimeIdentifier: loc.tabs[loc.active]?.runtimeIdentifier ?? null,
     ...(loc.shareState ? {
       shareKind: loc.rootKind === "platform" ? "group" as const : "package" as const,
       shareSource: loc.rootKind === "platform" ? ":Platform" : "nuget.org",
@@ -27544,6 +27547,7 @@ async function restoreWorkspaceFromLocation(
     activeFramework?: string;
     shareKind?: "package" | "group";
     shareSource?: string;
+    runtimeIdentifier?: string | null;
     source?: AppPackage["source"];
   };
   const platformCoordinate = (coordinate: RestorableCoordinate) =>
@@ -27562,7 +27566,9 @@ async function restoreWorkspaceFromLocation(
         && matchesFramework(tab)
       : (!platformCoordinate(target) && tab.id.toLowerCase() === target.id.toLowerCase()
         && tab.version.toLowerCase() === target.version.toLowerCase()
-        && matchesFramework(tab));
+        && matchesFramework(tab)
+        && (tab.runtimeIdentifier ?? null)
+          === (target.runtimeIdentifier ?? null));
   if (!tabs.some(matchesTarget)) {
     if (tabs.length === MAX_WORKSPACE_PACKAGES) {
       tabs.pop();
