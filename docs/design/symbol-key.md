@@ -626,8 +626,9 @@ Eight steps, tracked by
    than their spellings, while it runs and releases it when it completes, so
    a completed comparison retains the Type-level keys and the unit tables. The
    second half is done too: `SymbolKeyInterner<TDomain>`, the `Ref` part,
-   and Finding Diff Any embedding every Type-level key as the `Ref` of the
-   id its comparison-wide table gave it
+   and Finding Diff Any embedding every named Type as the `Ref` of the id
+   its comparison-wide table gave it, composites as `Key` parts of those
+   `Ref`s
    ([#10533](https://github.com/richlander/dotnet-inspect/issues/10533)).
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
