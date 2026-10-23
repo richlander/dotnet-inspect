@@ -84,7 +84,7 @@ public sealed partial class WorkspaceContextLoaderTests
         Assert.Equal(Version, packageRoot.Root.PackageVersion);
         Assert.Equal(
             Framework,
-            packageRoot.Root.AssetSelection.TargetFramework);
+            Assert.IsType<PackageCompileAssetSelection>(packageRoot.Root.AssetSelection).TargetFramework);
         Assert.Equal(
             Assert.IsType<RealizedMemberCoordinate.Package>(
                 loaded.Members[0].Realized),
