@@ -1333,6 +1333,7 @@ public sealed record BrowserPackageHierarchy(
     string Package,
     string Version,
     string Framework,
+    string TraversalFramework,
     bool IsComplete,
     string Completion,
     BrowserPackageHierarchyRow[] Rows,

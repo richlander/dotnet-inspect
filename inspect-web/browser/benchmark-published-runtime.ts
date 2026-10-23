@@ -694,6 +694,7 @@ async function measureMethodComparison(
         contexts: [{ id: "g0", tabIds: ["t0"] }],
         activeTabId: "t0",
         selectedContextId: "g0",
+        traversalTargetFramework: null,
         view: {
           lens: null,
           type: null,

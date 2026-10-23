@@ -69,7 +69,8 @@ public partial class PackageCommand
             || !DependsShareProjection.TryNormalizeFramework(
                 options.Tfm
                     ?? TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
-                out string? framework))
+                out string? framework)
+            || framework is null)
         {
             return Refuse(
                 "The resolved Package has no exact portable package, "
@@ -96,7 +97,8 @@ public partial class PackageCommand
             schema,
             WorkspaceSharePacketTransposer.WorkspaceId,
             [new WorkspaceContextDefinition(
-                "g0", framework, members: [coordinate])]);
+                "g0", framework, members: [coordinate])],
+            traversalTargetPolicy: new TraversalTargetFrameworkPolicy(framework));
         var navigation = new NavigationDefinition(
             schema,
             WorkspaceSharePacketTransposer.NavigationId,
