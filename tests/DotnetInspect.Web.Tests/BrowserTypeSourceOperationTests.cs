@@ -422,6 +422,44 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task MemberDocument_UsesRetainedRuntimeIdentifier()
+    {
+        const string packageId = "Member.Document.Runtime";
+        const string runtimeIdentifier = "win-x64";
+        await RegisterRuntimePackageAsync(
+            packageId,
+            "System.Text.Json.dll",
+            typeof(JsonNamingPolicy).Assembly.Location,
+            runtimeIdentifier);
+        BrowserTypeExplorerProjection projection =
+            await RuntimeProjection(
+                packageId,
+                runtimeIdentifier,
+                "System.Text.Json.JsonNamingPolicy");
+        BrowserTypeExplorerDeclaration selected =
+            projection.Declarations.First(static declaration =>
+                declaration.Identity.MemberName == "ConvertName");
+
+        string json =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .QueryMemberDocument(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "System.Text.Json.dll",
+                    "System.Text.Json.JsonNamingPolicy",
+                    "ConvertName",
+                    baselineOrdinal: 0,
+                    fingerprintPrefix: selected.Identity.Fingerprint,
+                    runtimeIdentifier: runtimeIdentifier);
+
+        using JsonDocument inspection = JsonDocument.Parse(json);
+        Assert.Equal(
+            JsonValueKind.Object,
+            inspection.RootElement.GetProperty("document").ValueKind);
+    }
+
+    [Fact]
     public async Task GraphOperations_UseRetainedRuntimeIdentifier()
     {
         const string packageId = "Member.Graph.Runtime";
