@@ -135,7 +135,8 @@ const hostNames = new Set([
   "currentCompareSubject",
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
-  "selectedLibraryShareKey", "scope", "syncUrl", "buildStateUrl",
+  "selectedLibraryShareKey", "packageDependenciesData",
+  "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
   "clearWorkspaceFeedIdentity", "failCanonicalWorkspaceRestore",
@@ -365,6 +366,7 @@ function packageLoadResult(
       },
       diagnostics: [],
     },
+    runtimePopulation: null,
     documents: surface.documents,
     surface,
     defaultLibraryId: surface.defaultAssemblyId,
@@ -553,7 +555,12 @@ function harness() {
       | ((state: WorkspaceUrlState, base?: string) => Promise<URL>)
       | null,
     acquisition: async (_id: string): Promise<boolean> => true,
-    queryPackage: async (_id: string, _version: string, _framework: string) =>
+    queryPackage: async (
+      _id: string,
+      _version: string,
+      _framework: string,
+      _runtimeIdentifier: string,
+    ) =>
       packageLoadResult(),
     selection: async (): Promise<void> => {},
     demo: async (): Promise<void> => {},
@@ -2735,7 +2742,7 @@ test("Add appends the resolved coordinate, preserves inspection, invalidates mem
   query.resolve(packageLoadResult());
   await operation;
 
-  assert.deepEqual(h.queries, [["Added.Package", "latest", ""]]);
+  assert.deepEqual(h.queries, [["Added.Package", "latest", "", ""]]);
   assert.deepEqual(h.state.packages.slice(0, 2), previous);
   previous.forEach((pkg, index) => assert.equal(h.state.packages[index], pkg));
   assert.equal(h.state.package, sourcePackage);
@@ -3026,7 +3033,8 @@ test("Add whose last slot fills during query refuses before retention and preser
   query.resolve(packageLoadResult());
   await operation;
   assert.deepEqual(h.queries, [
-    ["Added.Package", "latest", ""], ["Arrived", "8.9.0", "net9.0"],
+    ["Added.Package", "latest", "", ""],
+    ["Arrived", "8.9.0", "net9.0", ""],
   ]);
   assert.equal(h.retained.length, 1);
   assert.equal(h.retained[0]!.packageModel, arrived);
@@ -3079,7 +3087,8 @@ for (const source of ["/?package=Source&w=source-packet#workspace", "/demos?keep
     await h.settle();
     assert.ok(h.navigationSequence.current() > failedSequence);
     assert.deepEqual(h.queries, [
-      ["Added.Package", "latest", ""], ["Added.Package", "latest", ""],
+      ["Added.Package", "latest", "", ""],
+      ["Added.Package", "latest", "", ""],
     ]);
     assert.equal(h.state.packages.length, 2);
     assert.deepEqual(inspectionSelection(h), selection);
@@ -3238,10 +3247,10 @@ test("deferred Add failure focus is discarded when navigation changes before the
 
 for (const [result, expected] of [
   [{ kind: "pkg-recent", entry: { id: "Recent", version: "3.2.1", framework: "net9.0" },
-    ranges: [] }, ["Recent", "3.2.1", "net9.0"]],
-  [{ kind: "pkg-recent", entry: { id: "Recent" }, ranges: [] }, ["Recent", "latest", ""]],
+    ranges: [] }, ["Recent", "3.2.1", "net9.0", ""]],
+  [{ kind: "pkg-recent", entry: { id: "Recent" }, ranges: [] }, ["Recent", "latest", "", ""]],
   [{ kind: "pkg-nuget", hit: { id: "Found", version: "6.7.8" }, ranges: [] },
-    ["Found", "6.7.8", ""]],
+    ["Found", "6.7.8", "", ""]],
 ] satisfies [SpotlightPackageResult, string[]][]) {
   test(`Workspace picker routes ${result.kind} ${expected.join("/")} through Add acquisition`, async () => {
     const h = harness();

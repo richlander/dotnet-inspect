@@ -34,7 +34,8 @@ public enum BrowserCompileLibraryStatus
 public sealed record BrowserWorkspacePackage(
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string? RuntimeIdentifier = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeFindResultStatus>))]
 public enum BrowserTypeFindResultStatus

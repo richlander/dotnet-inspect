@@ -47,13 +47,15 @@ public static partial class PackageExports
     public static async Task<string> QueryPackage(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string runtimeIdentifier = "")
     {
         BrowserPackageLoadResult result =
             await PackageLoadAsync(
                 packageId,
                 version,
                 targetFramework,
+                runtimeIdentifier,
                 includeSurface: true);
         return JsonSerializer.Serialize(
             result,
@@ -67,13 +69,15 @@ public static partial class PackageExports
     public static async Task<string> QueryPackageSummary(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string runtimeIdentifier = "")
     {
         BrowserPackageLoadResult result =
             await PackageLoadAsync(
                 packageId,
                 version,
                 targetFramework,
+                runtimeIdentifier,
                 includeSurface: false);
         return JsonSerializer.Serialize(
             result,
@@ -115,7 +119,12 @@ public static partial class PackageExports
                             packageChildren),
                         BrowserPackageWireProjection.Project(
                             coordinate.Package.Documents()),
-                        defaultLibraryId);
+                        defaultLibraryId)
+                    {
+                        RuntimePopulation =
+                            BrowserPackageWireProjection.Project(
+                                coordinate.RuntimePopulationChoice),
+                    };
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
@@ -128,14 +137,21 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
+        string runtimeIdentifier,
         bool includeSurface)
     {
         BrowserPackageRealizationResult result =
             includeSurface
                 ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
-                    packageId, version, targetFramework)
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier)
                 : await BrowserPackageWorkspace.InventoryWithSettlementAsync(
-                    packageId, version, targetFramework);
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(
@@ -144,7 +160,8 @@ public static partial class PackageExports
                 PackageInfo: null,
                 PackageChildren: null,
                 Documents: [],
-                Surface: null);
+                Surface: null,
+                RuntimePopulation: null);
         }
 
         BrowserPackageRealization realization =
@@ -188,6 +205,9 @@ public static partial class PackageExports
             surface)
         {
             DefaultLibraryId = defaultLibraryId,
+            RuntimePopulation =
+                BrowserPackageWireProjection.Project(
+                    realization.Coordinate.RuntimePopulationChoice),
         };
     }
 
@@ -601,18 +621,32 @@ public static partial class PackageExports
     /// <see cref="PackageDependencyEvidenceQuery"/>, and the assembly-context query owns the
     /// metadata session. This method only adapts their typed results for the browser.
     /// </summary>
+    public static Task<string> QueryPackageDependencies(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId) =>
+        QueryPackageDependencies(
+            packageId,
+            version,
+            targetFramework,
+            assemblyId,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryPackageDependencies(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        string? runtimeIdentifier)
     {
         BrowserPackageDependencies dependencies = await PackageDependenciesAsync(
             packageId,
             version,
             targetFramework,
-            assemblyId);
+            assemblyId,
+            runtimeIdentifier);
         return JsonSerializer.Serialize(
             dependencies,
             BrowserPackageJsonContext.Default.BrowserPackageDependencies);
@@ -833,13 +867,15 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        string? runtimeIdentifier)
     {
         BrowserPackageCoordinate realizedCoordinate =
             await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                runtimeIdentifier);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [realizedCoordinate],

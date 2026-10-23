@@ -478,19 +478,20 @@ selected physical body differs from its declared member, receipted exact
 method-analysis support authenticates the ultimate declared owner without
 expanding terminal breadth or building a module-wide lifted-method census. Its
 finite owner-type candidates, closure relationships, and attribution IL probes
-are reported separately in the support receipt. Declared-owner identity reuses
-the execution's receipted memory-safety contract index. Local allocation
-exception classification follows only the operand's definition and bounded
-base chain, with those rows and any TypeSpec bytes reported in the same support
-receipt. Exact optimization suppression also uses that support; method and
+are reported in the declared-source capability receipt. Declared-owner
+identity reuses the execution's receipted memory-safety contract index. Local
+allocation exception classification follows only the operand's definition and
+bounded base chain, with those rows and any TypeSpec bytes reported in the same
+support receipt. Exact optimization reads scoped generated-code facts from
+that support; the producer owns suppression policy, while method and
 enclosing-type attribute rows, enclosing TypeDef rows, and bounded
-declaring-type relationships remain visible when suppression returns before
-intrinsic opportunity collection. Exact declared-source attribution resolves
-state-machine ownership from the selected execution type and targeted source
-candidates rather than building the whole-module certificate; generated-type
-provenance reports its TypeDef, attribute, and enclosing-relationship reads
-in the same support receipt. Caller attribution and generated-owner
-suppression consume the authenticated owner result.
+declaring-type relationships remain visible in their capability receipt.
+Exact declared-source attribution resolves state-machine ownership from the
+selected execution type and targeted source candidates rather than building
+the whole-module certificate; generated-type provenance reports its TypeDef,
+attribute, and enclosing-relationship reads in the declared-source capability
+receipt. Caller attribution and generated-owner suppression consume the
+authenticated owner result.
 `AssemblyContextMethodAnalysisQuery` no longer invokes
 `LibraryBodyAnalysisService`. The allocation-only matched-member route instead
 plans

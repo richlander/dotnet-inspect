@@ -77,9 +77,27 @@ public sealed class InertUtf8StringTests
         Assert.Equal(
             System.Text.Encoding.UTF8.GetBytes(expected),
             destination.WrittenSpan.ToArray());
-        Assert.Equal(utf16.ToString(), utf8.ToInertString().ToString());
+        Assert.Equal(utf16.ToString(), new InertString(utf8).ToString());
+        Assert.Equal(new InertString(utf8), utf8.ToInertString());
         Assert.Equal(utf16.Forms, utf8.Forms);
         Assert.Equal(utf16.Concerns, utf8.Concerns);
+    }
+
+    [Fact]
+    public void InertStringConstruction_PreservesContainedUtf8Evidence()
+    {
+        InertUtf8String utf8 = CreateContained(
+            "bounded"u8,
+            VisualForm.BmpHex,
+            TextConcern.Surrogate,
+            truncated: true);
+
+        var utf16 = new InertString(utf8);
+
+        Assert.Equal("bounded", utf16.ToString());
+        Assert.Equal(utf8.Forms, utf16.Forms);
+        Assert.Equal(utf8.Concerns, utf16.Concerns);
+        Assert.Equal(utf8.IsTruncated, utf16.IsTruncated);
     }
 
     [Fact]
@@ -286,4 +304,27 @@ public sealed class InertUtf8StringTests
         new(
             TextPolicy.Field,
             Utf8RangeClassification.Read(OpaqueByteRange.Copy(bytes)));
+
+    private static InertUtf8String CreateContained(
+        ReadOnlySpan<byte> bytes,
+        VisualForm forms,
+        TextConcern concerns,
+        bool truncated)
+    {
+        ConstructorInfo constructor = typeof(InertUtf8String)
+            .GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                [
+                    typeof(OpaqueByteRange),
+                    typeof(VisualForm),
+                    typeof(TextConcern),
+                    typeof(bool),
+                ],
+                modifiers: null)
+            ?? throw new InvalidOperationException(
+                "The contained UTF-8 constructor was not found.");
+        return (InertUtf8String)constructor.Invoke(
+            [OpaqueByteRange.Copy(bytes), forms, concerns, truncated]);
+    }
 }

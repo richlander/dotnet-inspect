@@ -75,12 +75,29 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageChildrenInspection? PackageChildren,
     BrowserPackageDocument[] Documents,
     BrowserPackageSurface? Surface,
-    string? DefaultLibraryId = null);
+    string? DefaultLibraryId = null,
+    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
 
 public sealed record BrowserPackageRootLoadResult(
     BrowserPackageChildrenInspection PackageChildren,
     BrowserPackageDocument[] Documents,
-    string? DefaultLibraryId = null);
+    string? DefaultLibraryId = null,
+    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageRuntimePopulationChoiceStatus>))]
+public enum BrowserPackageRuntimePopulationChoiceStatus
+{
+    Selected,
+    NoMatch,
+    Ambiguous,
+    Refused,
+    Failed,
+}
+
+public sealed record BrowserPackageRuntimePopulationChoice(
+    BrowserPackageRuntimePopulationChoiceStatus Status,
+    string? SelectedRuntimeIdentifier,
+    string[] AvailableRuntimeIdentifiers);
 
 public sealed record BrowserPackageChildrenInspection(
     BrowserPackageChildren Content,
@@ -447,13 +464,15 @@ public sealed record BrowserPlatformLibrary(
 public sealed record BrowserWorkspacePackage(
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string RuntimeIdentifier);
 
 public sealed record BrowserWorkspacePackageOccurrence(
     string Action,
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string RuntimeIdentifier);
 
 public sealed record BrowserWorkspacePackageOccurrenceView(
     BrowserWorkspacePackageOccurrence[] Occurrences,
@@ -462,7 +481,8 @@ public sealed record BrowserWorkspacePackageOccurrenceView(
 public sealed record BrowserWorkspacePackageOccurrenceActivation(
     bool Activated,
     bool Superseded,
-    BrowserPackageSurface? Package);
+    BrowserPackageSurface? Package,
+    string RuntimeIdentifier);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageQueryAcquisitionTier>))]
 public enum BrowserPackageQueryAcquisitionTier

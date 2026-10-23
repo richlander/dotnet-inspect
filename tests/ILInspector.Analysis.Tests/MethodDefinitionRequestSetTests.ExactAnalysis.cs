@@ -169,7 +169,11 @@ public sealed partial class MethodDefinitionRequestSetTests
         Assert.Equal(1, coverage.Calls.LocalSignatureReads);
         Assert.Equal(0, coverage.CallTargets.Queries);
         Assert.True(coverage.MethodAnalysis.Constructed);
-        Assert.Equal(1, coverage.MethodAnalysis.Queries);
+        Assert.Equal(1, coverage.MethodAnalysis.Resolver.Queries);
+        Assert.Equal(0, coverage.MethodAnalysis.DeclaredSource.Queries);
+        Assert.Equal(
+            0,
+            coverage.MethodAnalysis.GeneratedCodeEvidence.Queries);
     }
 
     static ImmutableArray<T> EmptyIfDefault<T>(

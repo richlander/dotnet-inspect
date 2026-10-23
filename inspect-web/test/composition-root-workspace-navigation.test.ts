@@ -12,6 +12,7 @@ import {
   packageAt,
   appSource,
   functionDeclaration,
+  functionSource,
   sourceText,
   workspaceNavigationSource,
   workspaceFeedActivationSource,
@@ -172,9 +173,7 @@ test("bootstrap reconciles persisted style choices with the product catalog", ()
 
 test("bare home paints before wasm engine download", () => {
   const renderDispatch =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
-    )?.[0] ?? "";
+    functionSource("renderCore");
   const bootstrap =
     appSource.match(/async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/)?.[0] ?? "";
   const homePaintWait =
@@ -1020,7 +1019,7 @@ test("Spotlight package opening retains the active Workspace and publishes a fre
 
   assert.match(
     appSource,
-    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*if \(packageContentLoadingSequence !== null\s*&& innerNavigationSequence\.isCurrent\(packageContentLoadingSequence\)\) \{\s*state\.loading = false;\s*\}\s*packageContentLoadingSequence = null;\s*packageContentLoadingFocusControl = null;\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);/);
+    /const innerNavigationSequence = createNavigationSequence\(\);[\s\S]*begin\(\): number \{\s*if \(packageContentLoadingSequence !== null\s*&& innerNavigationSequence\.isCurrent\(packageContentLoadingSequence\)\) \{\s*state\.loading = false;\s*\}\s*packageContentLoadingSequence = null;\s*packageContentLoadingFocusControl = null;\s*packageContentLoadingRuntimeIdentifier = null;\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);\s*return innerNavigationSequence\.begin\(\);[\s\S]*invalidate\(\): void \{\s*cancelPendingWorkspaceConstruction\(\);\s*settleInterruptedPlatformStatus\(state\);/);
   assert.match(
     appSource,
     /function cancelPendingWorkspaceConstruction\(\): void \{[\s\S]*pendingWorkspaceConstruction = null;\s*memberDetailInspection\.invalidate\(\);[\s\S]*releaseRetainedWorkspaceSnapshot\(pending\.retainedSnapshot\);[\s\S]*restoreCanonicalWorkspaceRestoreSnapshot\(pending\.supersessionSnapshot\);/);
@@ -1084,6 +1083,12 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
   const ensureOccurrence =
     appSource.match(/function ensureWorkspaceOccurrenceView\(\)[\s\S]*?\n}/)?.[0]
     ?? "";
+  const occurrenceRequest =
+    appSource.match(/function workspaceOccurrenceRequest\(\)[\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    occurrenceRequest,
+    /package: item\.id,\s*version: item\.version,\s*framework: item\.activeFramework,\s*runtimeIdentifier: item\.runtimeIdentifier \?\? "",/);
   assert.match(
     ensureOccurrence,
     /const request = workspaceOccurrenceRequest\(\);\s*const signature = JSON\.stringify\(request\);\s*if \(state\.workspaceOccurrenceLoading\) return;\s*if \(signature === state\.workspaceOccurrenceSignature\) return;[\s\S]*queryWorkspaceOccurrenceView\(request, signature\)/);
@@ -1105,11 +1110,7 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
 });
 
 test("Workspace occurrence rerenders preserve catalog failure focus", () => {
-  const render =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?\n}\n\nfunction renderWorkspaceCatalogView/,
-    )?.[0]
-    ?? "";
+  const render = functionSource("renderCore");
   assert.match(
     render,
     /const workbenchSearchHadFocus = focusedElement\?\.id === "open-search";\s*const levelOneHeadingHadFocus =\s*focusedElement\?\.matches\("main h1"\) === true;/);
@@ -1269,8 +1270,11 @@ test("Package query and Activity are routed Spotlight actions", () => {
     appSource,
     /createPackageChangesController\([\s\S]*if \(!state\.packageActivityOpen\) return;\s*schedulePackageActivityStreamRender\(\)/);
   assert.match(
-    appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*const navigationScroll = captureContentNavigationScroll\(document\);\s*dataBarFeedback\.synchronize\(dataBarViewKey\(\)\);\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    functionSource("render"),
+    /function render\(options: RenderOptions = \{\}\) \{[\s\S]*const navigationScroll = captureContentNavigationScroll\(document\);\s*dataBarFeedback\.synchronize\(dataBarViewKey\(\)\);\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(effectiveOptions\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}/);
+  assert.match(
+    functionSource("renderCore"),
+    /function renderCore\(options: RenderOptions\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
   assert.doesNotMatch(appSource, /\bapp\.innerHTML\s*=/);
   assert.match(
     stylesSource,
@@ -1642,9 +1646,7 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
   const capture = appSource.match(
     /async function captureSavedWorkspacePacket\(\)[\s\S]*?\n}\n\nasync function buildStateUrl/,
   )?.[0] ?? "";
-  const renderDispatch = appSource.match(
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
-  )?.[0] ?? "";
+  const renderDispatch = functionSource("renderCore");
   const workspaceView = appSource.match(
     /function renderWorkspaceView\(\)[\s\S]*?\n}\n\nfunction packageLensBody/,
   )?.[0] ?? "";
@@ -1802,7 +1804,10 @@ test("type projection completions render only while current and preserve navigat
     ?? "";
   assert.match(
     typeMetadata,
-    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
+    /return metadataInspection\.loadTypeMetadata\(\{[\s\S]*packageId: pkg\.id,[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*assembly: type\.assembly,[\s\S]*type: type\.queryId \?\? type\.id,[\s\S]*typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*isVisible: \(\) => \{[\s\S]*!state\.home[\s\S]*!state\.settings[\s\S]*!state\.explorer\?\.open[\s\S]*!state\.loading[\s\S]*!state\.error[\s\S]*!workbenchOverlayOwnsFocus\(\)[\s\S]*selectedTypeMetadataLibraryIdentity\(\)\) === signature/);
+  assert.match(
+    appSource,
+    /selectedTypeMetadataWorkspacePackages\(\)\.map\(pkg => \(\{[\s\S]*framework: pkg\.activeFramework,[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,/);
   assert.doesNotMatch(typeMetadata, /typeMetadataGeneration|inspectTypeProjection/);
   const typeMetadataCoordinator =
     metadataInspectionSource.match(/async loadTypeMetadata\(request\)[\s\S]*?\n    },/)?.[0]

@@ -597,6 +597,7 @@ declare global {
           package: string;
           version: string;
           framework: string;
+          runtimeIdentifier: string;
         }[],
       ): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
@@ -714,7 +715,7 @@ async function boot(page: Page): Promise<void> {
     window.__adoption = {
       encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
       queryPackage: (packageId, pkgVersion, framework) =>
-        client.package.queryPackage(packageId, pkgVersion, framework),
+        client.package.queryPackage(packageId, pkgVersion, framework, ""),
       queryVersions: (packageId, currentVersion) =>
         client.package.queryPackageVersions(packageId, currentVersion),
       cacheStats: () => client.package.packageCacheStats(),
@@ -726,7 +727,7 @@ async function boot(page: Page): Promise<void> {
         client.package.clearWorkspacePackageOccurrences(),
       queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
         client.package.queryPackageDependencies(
-          packageId, pkgVersion, framework, assemblyId),
+          packageId, pkgVersion, framework, assemblyId, null),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),
@@ -806,7 +807,12 @@ function driver(page: Page): {
   queryCoordinate(packageId: string, version: string, framework: string): Promise<PackageSurface>;
   queryVersions(packageId: string, currentVersion: string): Promise<PackageVersions>;
   cacheStats(): Promise<CacheStats>;
-  queryOccurrences(workspace: readonly { package: string; version: string; framework: string }[]): Promise<OccurrenceView>;
+  queryOccurrences(workspace: readonly {
+    package: string;
+    version: string;
+    framework: string;
+    runtimeIdentifier: string;
+  }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
@@ -2925,7 +2931,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // Awaitable occurrence activation following queryWorkspacePackageOccurrences.
     const view = await engine.queryOccurrences([
-      { package: healthy.packageId, version, framework: fixtureFramework },
+      {
+        package: healthy.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     expect(view.superseded).toBe(false);
     expect(view.occurrences.length).toBe(1);
@@ -2937,7 +2948,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // A stale occurrence action after clear reports a superseded rejection.
     const staleView = await engine.queryOccurrences([
-      { package: healthy.packageId, version, framework: fixtureFramework },
+      {
+        package: healthy.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const staleAction = firstOccurrence(staleView).action;
     await engine.clearOccurrences();
@@ -2949,11 +2965,21 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // A stale occurrence action after replacement is superseded, while the
     // replacement occurrence activates successfully.
     const firstView = await engine.queryOccurrences([
-      { package: occurrenceOne.packageId, version, framework: fixtureFramework },
+      {
+        package: occurrenceOne.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const firstAction = firstOccurrence(firstView).action;
     const secondView = await engine.queryOccurrences([
-      { package: occurrenceTwo.packageId, version, framework: fixtureFramework },
+      {
+        package: occurrenceTwo.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const secondAction = firstOccurrence(secondView).action;
     const supersededActivation = await engine.activate(firstAction);
@@ -4271,7 +4297,12 @@ test.describe("bounded network-backed Worker smoke", () => {
     // The awaitable Workspace occurrence for the same real coordinate activates
     // and yields the same package surface.
     const view = await engine.queryOccurrences([
-      { package: "Microsoft.Extensions.Http", version: "10.0.0", framework: "net10.0" },
+      {
+        package: "Microsoft.Extensions.Http",
+        version: "10.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: "",
+      },
     ]);
     expect(view.superseded).toBe(false);
     expect(view.occurrences.length).toBe(1);

@@ -331,7 +331,9 @@ public sealed class ExactMethodOptimizationProducer :
         {
             return new(allocation, []);
         }
-        if (view.SuppressOptimizationOpportunities(method))
+        using MethodGeneratedCodeEvidenceQuery generatedCode =
+            view.BeginGeneratedCodeEvidence();
+        if (SuppressesOpportunities(method, generatedCode))
         {
             return new(allocation, [])
             {
@@ -358,6 +360,25 @@ public sealed class ExactMethodOptimizationProducer :
             SuppressesDerivedOpportunities =
                 requiresDeclaredOwner,
         };
+    }
+
+    static bool SuppressesOpportunities(
+        MethodIdentity method,
+        MethodGeneratedCodeEvidenceQuery generatedCode)
+    {
+        if (generatedCode.MethodHasGeneratedCodeAttribute()
+            || !CompilerGeneratedNames.IsLocalFunctionOrLambda(
+                method.Name)
+                && generatedCode.MethodHasCompilerGeneratedAttribute()
+            || LibraryMethodAnalysisRunner.IsBlazorRenderMethod(method))
+        {
+            return true;
+        }
+
+        DeclaringTypeGeneratedCodeEvidence declaringType =
+            generatedCode.ReadDeclaringTypeEvidence();
+        return declaringType.HasGeneratedCodeAttribute
+            || !declaringType.DeclaringTypeChainComplete;
     }
 
     internal override ImmutableArray<ExactMethodOptimizationBody>.Builder

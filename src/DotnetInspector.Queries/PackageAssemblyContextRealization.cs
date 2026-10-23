@@ -148,7 +148,9 @@ public sealed class PackageRootBinding
             Root.Content, Root.PackageId, Root.PackageVersion,
             Root.RequestedTargetFramework, Root.RequestedRuntimeIdentifier,
             Root.AssetSelection, Root.AssetDemand, Root.ImplementationNames,
-            Root.LibrarySelector, contentOnly: true);
+            Root.LibrarySelector, contentOnly: true,
+            hasUnselectedTargetFrameworkAssemblyCandidates:
+                Root.HasUnselectedTargetFrameworkAssemblyCandidates);
         return new PackageRootBinding(
             root, Coordinate, SourceProducer, ContentGenerationIdentity,
             SelectionIdentity, CompileTargetFramework,
@@ -1265,7 +1267,8 @@ public sealed class PackageRootRealization
             PackageAssetDemand.SurfaceAndImplementation,
         PackageImplementationNames? implementationNames = null,
         PackageLibrarySelector? librarySelector = null,
-        bool contentOnly = false)
+        bool contentOnly = false,
+        bool? hasUnselectedTargetFrameworkAssemblyCandidates = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
@@ -1300,7 +1303,8 @@ public sealed class PackageRootRealization
                 targetFramework,
                 runtimeIdentifier));
         HasUnselectedTargetFrameworkAssemblyCandidates =
-            HasUnselectedTargetFrameworkAssemblyCandidatesCore(
+            hasUnselectedTargetFrameworkAssemblyCandidates
+            ?? HasUnselectedTargetFrameworkAssemblyCandidatesCore(
                 content,
                 AssetSelection);
         if (implementationNames is not null)

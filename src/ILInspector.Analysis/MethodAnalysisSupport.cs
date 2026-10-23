@@ -7,10 +7,8 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Analysis;
 
-/// <summary>
-/// Reader-owned work performed by method-analysis support.
-/// </summary>
-public sealed record MethodAnalysisSupportWork(
+/// <summary>Reader-owned work performed by scoped method analysis.</summary>
+public sealed record MethodAnalysisResolverWork(
     int MethodReferencesResolved,
     long MethodReferenceSignatureWork,
     int GenericConstraintQueries,
@@ -19,30 +17,6 @@ public sealed record MethodAnalysisSupportWork(
     long StableGetterEncodedIlBytes,
     int AsyncStateMachineTypeRows)
 {
-    public int DeclaredSourceQueries { get; init; }
-
-    public int DeclaredSourceCandidateDefinitions { get; init; }
-
-    public int DeclaredSourceProbeBodies { get; init; }
-
-    public long DeclaredSourceProbeEncodedIlBytes { get; init; }
-
-    public int DeclaredSourceTypeDefinitionRows { get; init; }
-
-    public int DeclaredSourceTypeAttributeRows { get; init; }
-
-    public int DeclaredSourceRelationshipNodes { get; init; }
-
-    public int DeclaredSourceContractQueries { get; init; }
-
-    public MemorySafetyMetadataWork
-        DeclaredSourceContractConstructionWork { get; init; } =
-            MemorySafetyMetadataWork.Empty;
-
-    public MemorySafetyMetadataWork
-        DeclaredSourceContractQueryWork { get; init; } =
-            MemorySafetyMetadataWork.Empty;
-
     public int LocalExceptionTypeQueries { get; init; }
 
     public int LocalExceptionTypeDefinitionRows { get; init; }
@@ -51,20 +25,11 @@ public sealed record MethodAnalysisSupportWork(
 
     public long LocalExceptionTypeSignatureBytes { get; init; }
 
-    public int OptimizationSuppressionQueries { get; init; }
-
-    public int OptimizationSuppressionMethodAttributeRows { get; init; }
-
-    public int OptimizationSuppressionTypeDefinitionRows { get; init; }
-
-    public int OptimizationSuppressionTypeAttributeRows { get; init; }
-
-    public int OptimizationSuppressionRelationshipNodes { get; init; }
-
-    public static MethodAnalysisSupportWork Empty { get; } =
+    public static MethodAnalysisResolverWork Empty { get; } =
         new(0, 0, 0, 0, 0, 0, 0);
 
-    public MethodAnalysisSupportWork Since(MethodAnalysisSupportWork before) =>
+    public MethodAnalysisResolverWork Since(
+        MethodAnalysisResolverWork before) =>
         new(
             MethodReferencesResolved - before.MethodReferencesResolved,
             MethodReferenceSignatureWork
@@ -77,36 +42,6 @@ public sealed record MethodAnalysisSupportWork(
             AsyncStateMachineTypeRows
                 - before.AsyncStateMachineTypeRows)
         {
-            DeclaredSourceQueries =
-                DeclaredSourceQueries
-                - before.DeclaredSourceQueries,
-            DeclaredSourceCandidateDefinitions =
-                DeclaredSourceCandidateDefinitions
-                - before.DeclaredSourceCandidateDefinitions,
-            DeclaredSourceProbeBodies =
-                DeclaredSourceProbeBodies
-                - before.DeclaredSourceProbeBodies,
-            DeclaredSourceProbeEncodedIlBytes =
-                DeclaredSourceProbeEncodedIlBytes
-                - before.DeclaredSourceProbeEncodedIlBytes,
-            DeclaredSourceTypeDefinitionRows =
-                DeclaredSourceTypeDefinitionRows
-                - before.DeclaredSourceTypeDefinitionRows,
-            DeclaredSourceTypeAttributeRows =
-                DeclaredSourceTypeAttributeRows
-                - before.DeclaredSourceTypeAttributeRows,
-            DeclaredSourceRelationshipNodes =
-                DeclaredSourceRelationshipNodes
-                - before.DeclaredSourceRelationshipNodes,
-            DeclaredSourceContractQueries =
-                DeclaredSourceContractQueries
-                - before.DeclaredSourceContractQueries,
-            DeclaredSourceContractConstructionWork =
-                DeclaredSourceContractConstructionWork.Since(
-                    before.DeclaredSourceContractConstructionWork),
-            DeclaredSourceContractQueryWork =
-                DeclaredSourceContractQueryWork.Since(
-                    before.DeclaredSourceContractQueryWork),
             LocalExceptionTypeQueries =
                 LocalExceptionTypeQueries
                 - before.LocalExceptionTypeQueries,
@@ -119,24 +54,10 @@ public sealed record MethodAnalysisSupportWork(
             LocalExceptionTypeSignatureBytes =
                 LocalExceptionTypeSignatureBytes
                 - before.LocalExceptionTypeSignatureBytes,
-            OptimizationSuppressionQueries =
-                OptimizationSuppressionQueries
-                - before.OptimizationSuppressionQueries,
-            OptimizationSuppressionMethodAttributeRows =
-                OptimizationSuppressionMethodAttributeRows
-                - before.OptimizationSuppressionMethodAttributeRows,
-            OptimizationSuppressionTypeDefinitionRows =
-                OptimizationSuppressionTypeDefinitionRows
-                - before.OptimizationSuppressionTypeDefinitionRows,
-            OptimizationSuppressionTypeAttributeRows =
-                OptimizationSuppressionTypeAttributeRows
-                - before.OptimizationSuppressionTypeAttributeRows,
-            OptimizationSuppressionRelationshipNodes =
-                OptimizationSuppressionRelationshipNodes
-                - before.OptimizationSuppressionRelationshipNodes,
         };
 
-    public MethodAnalysisSupportWork Plus(MethodAnalysisSupportWork other) =>
+    public MethodAnalysisResolverWork Plus(
+        MethodAnalysisResolverWork other) =>
         new(
             checked(MethodReferencesResolved
                 + other.MethodReferencesResolved),
@@ -153,36 +74,6 @@ public sealed record MethodAnalysisSupportWork(
             checked(AsyncStateMachineTypeRows
                 + other.AsyncStateMachineTypeRows))
         {
-            DeclaredSourceQueries =
-                checked(DeclaredSourceQueries
-                    + other.DeclaredSourceQueries),
-            DeclaredSourceCandidateDefinitions =
-                checked(DeclaredSourceCandidateDefinitions
-                    + other.DeclaredSourceCandidateDefinitions),
-            DeclaredSourceProbeBodies =
-                checked(DeclaredSourceProbeBodies
-                    + other.DeclaredSourceProbeBodies),
-            DeclaredSourceProbeEncodedIlBytes =
-                checked(DeclaredSourceProbeEncodedIlBytes
-                    + other.DeclaredSourceProbeEncodedIlBytes),
-            DeclaredSourceTypeDefinitionRows =
-                checked(DeclaredSourceTypeDefinitionRows
-                    + other.DeclaredSourceTypeDefinitionRows),
-            DeclaredSourceTypeAttributeRows =
-                checked(DeclaredSourceTypeAttributeRows
-                    + other.DeclaredSourceTypeAttributeRows),
-            DeclaredSourceRelationshipNodes =
-                checked(DeclaredSourceRelationshipNodes
-                    + other.DeclaredSourceRelationshipNodes),
-            DeclaredSourceContractQueries =
-                checked(DeclaredSourceContractQueries
-                    + other.DeclaredSourceContractQueries),
-            DeclaredSourceContractConstructionWork =
-                DeclaredSourceContractConstructionWork.Plus(
-                    other.DeclaredSourceContractConstructionWork),
-            DeclaredSourceContractQueryWork =
-                DeclaredSourceContractQueryWork.Plus(
-                    other.DeclaredSourceContractQueryWork),
             LocalExceptionTypeQueries =
                 checked(LocalExceptionTypeQueries
                     + other.LocalExceptionTypeQueries),
@@ -195,22 +86,58 @@ public sealed record MethodAnalysisSupportWork(
             LocalExceptionTypeSignatureBytes =
                 checked(LocalExceptionTypeSignatureBytes
                     + other.LocalExceptionTypeSignatureBytes),
-            OptimizationSuppressionQueries =
-                checked(OptimizationSuppressionQueries
-                    + other.OptimizationSuppressionQueries),
-            OptimizationSuppressionMethodAttributeRows =
-                checked(OptimizationSuppressionMethodAttributeRows
-                    + other.OptimizationSuppressionMethodAttributeRows),
-            OptimizationSuppressionTypeDefinitionRows =
-                checked(OptimizationSuppressionTypeDefinitionRows
-                    + other.OptimizationSuppressionTypeDefinitionRows),
-            OptimizationSuppressionTypeAttributeRows =
-                checked(OptimizationSuppressionTypeAttributeRows
-                    + other.OptimizationSuppressionTypeAttributeRows),
-            OptimizationSuppressionRelationshipNodes =
-                checked(OptimizationSuppressionRelationshipNodes
-                    + other.OptimizationSuppressionRelationshipNodes),
         };
+}
+
+/// <summary>Reader-owned work performed by exact declared-source support.</summary>
+public sealed record ExactDeclaredSourceWork(
+    int CandidateDefinitions,
+    int ProbeBodies,
+    long ProbeEncodedIlBytes,
+    int TypeDefinitionRows,
+    int TypeAttributeRows,
+    int RelationshipNodes,
+    int ContractQueries,
+    MemorySafetyMetadataWork ContractConstructionWork,
+    MemorySafetyMetadataWork ContractQueryWork)
+{
+    public static ExactDeclaredSourceWork Empty { get; } =
+        new(
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            MemorySafetyMetadataWork.Empty,
+            MemorySafetyMetadataWork.Empty);
+
+    public ExactDeclaredSourceWork Since(ExactDeclaredSourceWork before) =>
+        new(
+            CandidateDefinitions - before.CandidateDefinitions,
+            ProbeBodies - before.ProbeBodies,
+            ProbeEncodedIlBytes - before.ProbeEncodedIlBytes,
+            TypeDefinitionRows - before.TypeDefinitionRows,
+            TypeAttributeRows - before.TypeAttributeRows,
+            RelationshipNodes - before.RelationshipNodes,
+            ContractQueries - before.ContractQueries,
+            ContractConstructionWork.Since(
+                before.ContractConstructionWork),
+            ContractQueryWork.Since(before.ContractQueryWork));
+
+    public ExactDeclaredSourceWork Plus(ExactDeclaredSourceWork other) =>
+        new(
+            checked(CandidateDefinitions + other.CandidateDefinitions),
+            checked(ProbeBodies + other.ProbeBodies),
+            checked(ProbeEncodedIlBytes + other.ProbeEncodedIlBytes),
+            checked(TypeDefinitionRows + other.TypeDefinitionRows),
+            checked(TypeAttributeRows + other.TypeAttributeRows),
+            checked(RelationshipNodes + other.RelationshipNodes),
+            checked(ContractQueries + other.ContractQueries),
+            ContractConstructionWork.Plus(
+                other.ContractConstructionWork),
+            ContractQueryWork.Plus(other.ContractQueryWork));
 }
 
 /// <summary>
@@ -225,18 +152,57 @@ public sealed record ExactMethodDeclaredSource(
 /// <summary>
 /// Exact method-analysis support work in one Method source receipt.
 /// </summary>
-public sealed record MethodAnalysisSupportCoverage(
-    bool Constructed,
-    MethodAnalysisSupportWork QueryWork,
+public sealed record MethodAnalysisResolverCoverage(
+    MethodAnalysisResolverWork QueryWork,
     int Queries,
     MethodDefinitionHandleCoverage QueryingMethods)
+{
+    public static MethodAnalysisResolverCoverage Empty { get; } =
+        new(
+            MethodAnalysisResolverWork.Empty,
+            Queries: 0,
+            MethodDefinitionHandleCoverage.Empty);
+}
+
+public sealed record ExactDeclaredSourceCoverage(
+    ExactDeclaredSourceWork QueryWork,
+    int Queries,
+    MethodDefinitionHandleCoverage QueryingMethods)
+{
+    public static ExactDeclaredSourceCoverage Empty { get; } =
+        new(
+            ExactDeclaredSourceWork.Empty,
+            Queries: 0,
+            MethodDefinitionHandleCoverage.Empty);
+}
+
+public sealed record MethodGeneratedCodeEvidenceCoverage(
+    MethodGeneratedCodeEvidenceWork QueryWork,
+    int Queries,
+    MethodDefinitionHandleCoverage QueryingMethods)
+{
+    public static MethodGeneratedCodeEvidenceCoverage Empty { get; } =
+        new(
+            MethodGeneratedCodeEvidenceWork.Empty,
+            Queries: 0,
+            MethodDefinitionHandleCoverage.Empty);
+}
+
+/// <summary>
+/// Concern-specific method-analysis support work in one Method source receipt.
+/// </summary>
+public sealed record MethodAnalysisSupportCoverage(
+    bool Constructed,
+    MethodAnalysisResolverCoverage Resolver,
+    ExactDeclaredSourceCoverage DeclaredSource,
+    MethodGeneratedCodeEvidenceCoverage GeneratedCodeEvidence)
 {
     public static MethodAnalysisSupportCoverage Empty { get; } =
         new(
             Constructed: false,
-            MethodAnalysisSupportWork.Empty,
-            Queries: 0,
-            MethodDefinitionHandleCoverage.Empty);
+            MethodAnalysisResolverCoverage.Empty,
+            ExactDeclaredSourceCoverage.Empty,
+            MethodGeneratedCodeEvidenceCoverage.Empty);
 }
 
 /// <summary>
@@ -253,7 +219,6 @@ internal sealed class MethodAnalysisLookup
     int _stableGetterBodiesRead;
     long _stableGetterEncodedIlBytes;
     int _asyncStateMachineTypeRows;
-    int _declaredSourceQueries;
     int _declaredSourceTypeDefinitionRows;
     int _declaredSourceTypeAttributeRows;
     int _declaredSourceContractQueries;
@@ -267,13 +232,9 @@ internal sealed class MethodAnalysisLookup
     int _localExceptionTypeDefinitionRows;
     int _localExceptionTypeRelationshipNodes;
     long _localExceptionTypeSignatureBytes;
-    int _optimizationSuppressionQueries;
-    int _optimizationSuppressionMethodAttributeRows;
-    int _optimizationSuppressionTypeDefinitionRows;
-    int _optimizationSuppressionTypeAttributeRows;
-    int _optimizationSuppressionRelationshipNodes;
     readonly object _supportWorkGate = new();
     readonly MemorySafetyContractSupport? _memorySafety;
+    readonly MethodGeneratedCodeEvidenceLookup _generatedCodeEvidence;
     readonly string _path;
     readonly PEReader _peReader;
     readonly MethodDefinitionGeneratedExpansionWork
@@ -299,6 +260,7 @@ internal sealed class MethodAnalysisLookup
         _peReader = peReader;
         _reader = reader;
         _memorySafety = memorySafety;
+        _generatedCodeEvidence = new(reader);
         AssemblyName = reader.IsAssembly
             ? reader.GetString(reader.GetAssemblyDefinition().Name)
             : Path.GetFileNameWithoutExtension(path);
@@ -386,7 +348,30 @@ internal sealed class MethodAnalysisLookup
     internal LibraryBodyPrimaryMetadataResolver PrimaryMetadataResolver
     { get; }
 
-    internal MethodAnalysisSupportWork RecordedWork
+    internal MethodAnalysisResolverWork ResolverWork =>
+        new(
+            Volatile.Read(ref _methodReferencesResolved),
+            Interlocked.Read(ref _methodReferenceSignatureWork),
+            Volatile.Read(ref _genericConstraintQueries),
+            Volatile.Read(ref _stableReceiverQueries),
+            Volatile.Read(ref _stableGetterBodiesRead),
+            Interlocked.Read(ref _stableGetterEncodedIlBytes),
+            Volatile.Read(ref _asyncStateMachineTypeRows))
+        {
+            LocalExceptionTypeQueries =
+                Volatile.Read(ref _localExceptionTypeQueries),
+            LocalExceptionTypeDefinitionRows =
+                Volatile.Read(
+                    ref _localExceptionTypeDefinitionRows),
+            LocalExceptionTypeRelationshipNodes =
+                Volatile.Read(
+                    ref _localExceptionTypeRelationshipNodes),
+            LocalExceptionTypeSignatureBytes =
+                Interlocked.Read(
+                    ref _localExceptionTypeSignatureBytes),
+        };
+
+    internal ExactDeclaredSourceWork DeclaredSourceWork
     {
         get
         {
@@ -402,67 +387,22 @@ internal sealed class MethodAnalysisLookup
                     _declaredSourceContractQueryWork;
             }
             return new(
-                Volatile.Read(ref _methodReferencesResolved),
-                Interlocked.Read(ref _methodReferenceSignatureWork),
-                Volatile.Read(ref _genericConstraintQueries),
-                Volatile.Read(ref _stableReceiverQueries),
-                Volatile.Read(ref _stableGetterBodiesRead),
-                Interlocked.Read(ref _stableGetterEncodedIlBytes),
-                Volatile.Read(ref _asyncStateMachineTypeRows))
-            {
-                DeclaredSourceQueries =
-                    Volatile.Read(ref _declaredSourceQueries),
-                DeclaredSourceCandidateDefinitions =
-                    declaredSource.CandidateDefinitionsExamined.Count,
-                DeclaredSourceProbeBodies =
-                    declaredSource.ProbeBodiesAttempted.Count,
-                DeclaredSourceProbeEncodedIlBytes =
-                    declaredSource.ProbeEncodedIlBytes,
-                DeclaredSourceTypeDefinitionRows =
-                    Volatile.Read(
-                        ref _declaredSourceTypeDefinitionRows),
-                DeclaredSourceTypeAttributeRows =
-                    Volatile.Read(
-                        ref _declaredSourceTypeAttributeRows),
-                DeclaredSourceRelationshipNodes =
-                    declaredSource.RelationshipNodes,
-                DeclaredSourceContractQueries =
-                    Volatile.Read(
-                        ref _declaredSourceContractQueries),
-                DeclaredSourceContractConstructionWork =
-                    contractConstruction,
-                DeclaredSourceContractQueryWork =
-                    contractQueries,
-                LocalExceptionTypeQueries =
-                    Volatile.Read(
-                        ref _localExceptionTypeQueries),
-                LocalExceptionTypeDefinitionRows =
-                    Volatile.Read(
-                        ref _localExceptionTypeDefinitionRows),
-                LocalExceptionTypeRelationshipNodes =
-                    Volatile.Read(
-                        ref _localExceptionTypeRelationshipNodes),
-                LocalExceptionTypeSignatureBytes =
-                    Interlocked.Read(
-                        ref _localExceptionTypeSignatureBytes),
-                OptimizationSuppressionQueries =
-                    Volatile.Read(
-                        ref _optimizationSuppressionQueries),
-                OptimizationSuppressionMethodAttributeRows =
-                    Volatile.Read(
-                        ref _optimizationSuppressionMethodAttributeRows),
-                OptimizationSuppressionTypeDefinitionRows =
-                    Volatile.Read(
-                        ref _optimizationSuppressionTypeDefinitionRows),
-                OptimizationSuppressionTypeAttributeRows =
-                    Volatile.Read(
-                        ref _optimizationSuppressionTypeAttributeRows),
-                OptimizationSuppressionRelationshipNodes =
-                    Volatile.Read(
-                        ref _optimizationSuppressionRelationshipNodes),
-            };
+                declaredSource.CandidateDefinitionsExamined.Count,
+                declaredSource.ProbeBodiesAttempted.Count,
+                declaredSource.ProbeEncodedIlBytes,
+                Volatile.Read(
+                    ref _declaredSourceTypeDefinitionRows),
+                Volatile.Read(
+                    ref _declaredSourceTypeAttributeRows),
+                declaredSource.RelationshipNodes,
+                Volatile.Read(ref _declaredSourceContractQueries),
+                contractConstruction,
+                contractQueries);
         }
     }
+
+    internal MethodGeneratedCodeEvidenceWork GeneratedCodeEvidenceWork =>
+        _generatedCodeEvidence.RecordedWork;
 
     CallerUnsafeMode ResolveMethodIdentityUnsafeMode(
         MethodDefinitionHandle method)
@@ -518,8 +458,6 @@ internal sealed class MethodAnalysisLookup
         MethodDefinition methodDefinition,
         MethodIdentity method)
     {
-        Interlocked.Increment(
-            ref _declaredSourceQueries);
         DeclaredSourceAttribution attribution =
             _declaredSourceAttribution
             ??= new(
@@ -588,58 +526,20 @@ internal sealed class MethodAnalysisLookup
         };
     }
 
-    internal bool SuppressOptimizationOpportunities(
-        MethodDefinition methodDefinition,
-        TypeDefinitionHandle typeHandle,
-        MethodIdentity method)
-    {
-        Interlocked.Increment(
-            ref _optimizationSuppressionQueries);
-        CustomAttributeHandleCollection attributes =
-            methodDefinition.GetCustomAttributes();
-        if (LibraryBodyPrimaryMetadataResolver
-                .HasGeneratedCodeAttribute(
-                    _reader,
-                    attributes,
-                    RecordMethodSuppressionAttribute)
-            || !CompilerGeneratedNames.IsLocalFunctionOrLambda(
-                    method.Name)
-                && LibraryBodyPrimaryMetadataResolver
-                    .HasCompilerGeneratedAttribute(
-                        _reader,
-                        attributes,
-                        RecordMethodSuppressionAttribute)
-            || LibraryMethodAnalysisRunner.IsBlazorRenderMethod(
-                method))
-        {
-            return true;
-        }
+    internal bool MethodHasGeneratedCodeAttribute(
+        MethodDefinition methodDefinition) =>
+        _generatedCodeEvidence.MethodHasGeneratedCodeAttribute(
+            methodDefinition);
 
-        TypeDefinitionHandle current = typeHandle;
-        int remaining =
-            MetadataSafetyPolicy.MaxRelationshipNodes;
-        while (!current.IsNil && remaining-- > 0)
-        {
-            Interlocked.Increment(
-                ref _optimizationSuppressionTypeDefinitionRows);
-            TypeDefinition type =
-                _reader.GetTypeDefinition(current);
-            if (LibraryBodyPrimaryMetadataResolver
-                .HasGeneratedCodeAttribute(
-                    _reader,
-                    type.GetCustomAttributes(),
-                    RecordTypeSuppressionAttribute))
-            {
-                return true;
-            }
+    internal bool MethodHasCompilerGeneratedAttribute(
+        MethodDefinition methodDefinition) =>
+        _generatedCodeEvidence.MethodHasCompilerGeneratedAttribute(
+            methodDefinition);
 
-            Interlocked.Increment(
-                ref _optimizationSuppressionRelationshipNodes);
-            current = type.GetDeclaringType();
-        }
-
-        return !current.IsNil;
-    }
+    internal DeclaringTypeGeneratedCodeEvidence
+        ReadDeclaringTypeGeneratedCodeEvidence(
+            TypeDefinitionHandle typeHandle) =>
+        _generatedCodeEvidence.ReadDeclaringTypeEvidence(typeHandle);
 
     bool GenericParameterCanBeValueType(
         TypeRef genericParameter,
@@ -658,13 +558,6 @@ internal sealed class MethodAnalysisLookup
             instruction);
     }
 
-    void RecordMethodSuppressionAttribute() =>
-        Interlocked.Increment(
-            ref _optimizationSuppressionMethodAttributeRows);
-
-    void RecordTypeSuppressionAttribute() =>
-        Interlocked.Increment(
-            ref _optimizationSuppressionTypeAttributeRows);
 }
 
 /// <summary>
