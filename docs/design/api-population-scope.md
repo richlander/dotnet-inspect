@@ -98,6 +98,13 @@ a separate axis: they are admitted and marked, as the default already does.
 - The default population is the `public` bucket without hidden declarations:
   the ordinary public-facing API. The Metadata owner's admission decides its
   exact members, and the spelling below decides how records form them.
+- A Type is in the `public` bucket only when it and every enclosing Type is
+  public or nested public, the reach the
+  [ordinary presentation](library-api-diff-presentation.md#per-side-facts)
+  requires. A public nested Type of a protected Type is reachable only by
+  derivation, so it is not in the `public` bucket, and no other assembly can
+  reach one of an internal or private Type. Its Members are outside the
+  `public` bucket with it.
 - An `accessibility` term selects one or more buckets. By itself it does not
   admit hidden declarations.
 - `--all` selects every bucket and admits hidden declarations into their
