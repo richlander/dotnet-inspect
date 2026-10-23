@@ -466,16 +466,14 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
     static MetadataSignatureKey Row(EntityHandle row) => new(row);
 
-    // A composite resolves the rows it embeds before its scratch key opens, so
-    // a row the consumer has yet to spell (a Type specification named inside a
-    // signature) is spelled with no scratch key open; the embed then finds it
-    // in the consumer's memo.
+    // A composite resolves a Type specification it embeds before its scratch key
+    // opens: that row is spelled through this speller's scratch, and resolving
+    // it from inside an open composite would open a second scratch key. Other
+    // rows and primitives never touch scratch and stay lazy.
     void Prepare(MetadataSignatureKey key)
     {
-        if (key.IsRow)
+        if (key.IsRow && key.Row.Kind == HandleKind.TypeSpecification)
             _rows.Resolve(key.Row, MetadataRowRole.Referenced);
-        else if (key.IsPrimitive)
-            _rows.Primitive(key.PrimitiveType);
     }
 
     void Prepare(MethodSignature<MetadataSignatureKey> signature)
