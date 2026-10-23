@@ -95,22 +95,6 @@ internal static class BrowserTypeHierarchyInspectionOperation
         if (form is null)
             return new(exact, Form: null, Hierarchy: null);
 
-        MetadataTypeDefinitionName focus =
-            MetadataTypeDefinitionName.Create(
-                source.Type.Namespace,
-                source.Type.Segments)
-            switch
-            {
-                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
-                MetadataTypeDefinitionNameResult.Rejected rejected =>
-                    throw new InvalidOperationException(
-                        "The exact Type source has an invalid metadata name: "
-                            + rejected.Rejection.Kind),
-                _ => throw new InvalidOperationException(
-                    "The exact Type source returned an unknown metadata-name "
-                        + "validation result."),
-            };
-
         WorkspaceDeclarationPopulationCapture capture =
             workspace.CaptureDeclarationPopulation([context]);
         WorkspaceDeclarationPopulation population = capture switch
@@ -130,9 +114,10 @@ internal static class BrowserTypeHierarchyInspectionOperation
             WorkspaceTypeHierarchySubjectRelationsOperation.Execute(
                 population,
                 new WorkspaceTypeHierarchySubjectRelationsRequest(
-                    new WorkspaceTypeHierarchySubjectRelationsFocus(
-                        source.Occurrence,
-                        focus),
+                    WorkspaceTypeHierarchySubjectRelationsFocus
+                        .FromExactTypeDefinition(
+                            source.Occurrence,
+                            source.Type),
                     new SubjectRelationPopulationRequest(
                         new SubjectRelationPopulationSelection(
                             form,

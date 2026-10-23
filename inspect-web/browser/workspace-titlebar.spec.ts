@@ -551,7 +551,7 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator(".detail-pane"))
     .toHaveClass(/content-navigation-integrated/);
   await expect(page.locator(".package-dependencies-surface-head h1"))
-    .toHaveText("Dependencies");
+    .toHaveText("References");
   await expect(page.locator(
     ".package-dependencies-controls #package-version")).toHaveCount(0);
   await expect(page.locator(
@@ -590,7 +590,7 @@ test("the narrow return control integrates with Metadata and Source frames", asy
   await expect(page.locator("#inspector-panel > h1")).toHaveCount(0);
 });
 
-test("Package Dependencies reveals a direct dependency row at ordinary desktop height", async ({
+test("Package References reveals a direct dependency row at ordinary desktop height", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 768 });
@@ -1741,6 +1741,7 @@ test("the Application menu owns global actions and modal focus return", async ({
   await expect(items).toHaveText([
     "Share",
     "Settings",
+    "Legend",
     "Keyboard help",
   ]);
   await expect(items.first()).toBeFocused();
@@ -1802,6 +1803,16 @@ test("the Application menu owns global actions and modal focus return", async ({
     "data-drill-in",
     "true");
   await page.locator("#keyboard-help-close").click();
+  await expect(button).toBeFocused();
+
+  await button.click();
+  await page.getByRole("menuitem", { name: "Legend" }).click();
+  await expect(page.getByRole("dialog", { name: "Legend" })).toBeVisible();
+  await expect(page.locator("#legend-title")).toBeFocused();
+  await expect(page.getByText("Changed Type", { exact: true })).toBeVisible();
+  await expect(page.getByText("Implementation Hub", { exact: true }))
+    .toBeVisible();
+  await page.locator("#legend-close").click();
   await expect(button).toBeFocused();
   await page.locator("#inspector-panel").evaluate(element =>
     element.setAttribute("tabindex", "-1"));

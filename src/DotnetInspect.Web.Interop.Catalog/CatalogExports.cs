@@ -36,6 +36,25 @@ public static partial class CatalogExports
             VocabularyInspection.Value,
             BrowserCatalogJsonContext.Default.BrowserVocabularyInspection);
 
+    [JSExport]
+    public static string ListTypeViewFacets() =>
+        JsonSerializer.Serialize(
+            new BrowserViewFacetCatalog(
+                [
+                    .. InspectionViewFacetCatalog.Registry
+                        .Discover(StructuralSubjectKind.Type)
+                        .Select(static descriptor =>
+                            new BrowserViewFacetDescriptor(
+                                descriptor.Id.Value,
+                                descriptor.Kind.ToString(),
+                                descriptor.Title,
+                                descriptor.Summary,
+                                descriptor.Order,
+                                descriptor.Role?.ToString())),
+                ]),
+            BrowserCatalogJsonContext.Default
+                .BrowserViewFacetCatalog);
+
     private static readonly Lazy<VocabularyExplanation> VocabularyExplainer =
         new(() => new VocabularyExplanation(
             BrowserVocabularyComposition.Snapshot));
@@ -45,18 +64,21 @@ public static partial class CatalogExports
     /// with the same compact Content the CLI's <c>explain --json</c> produces.
     /// Accepts <c>inspect-resource:/</c> addresses unchanged, including explicit
     /// <c>?projection=data</c>, <c>hal</c>, or <c>contract</c>. Data selections require depth zero.
-    /// Addresses are catalog operands, not HTTP endpoints.
+    /// Null value IDs read the full population; an explicit array narrows native identities
+    /// on a vocabulary root with a data/hal address. Addresses are catalog operands, not HTTP endpoints.
     /// </summary>
     [JSExport]
-    public static string ExplainVocabularies(string path, int depth) =>
+    public static string ExplainVocabularies(string path, int depth,
+        [JSMarshalAs<JSType.Array<JSType.String>>] string[]? valueIds) =>
         JsonSerializer.Serialize(
-            ExplainVocabulariesCore(path, depth),
+            ExplainVocabulariesCore(path, depth, valueIds),
             BrowserCatalogJsonContext.Default
                 .BrowserVocabularyExplanationResult);
 
     internal static BrowserVocabularyExplanationResult ExplainVocabulariesCore(
         string path,
-        int depth)
+        int depth,
+        string[]? valueIds = null)
     {
         string requestedPath = path ?? "";
         string resourcePath = requestedPath;
@@ -79,6 +101,10 @@ public static partial class CatalogExports
             }
         }
 
+        if (valueIds is not null && (projection is not ("data" or "hal") || depth != 0))
+            return RejectSelection(requestedPath,
+                "Value selection requires a vocabulary data or hal address at depth zero.");
+
         VocabularyExplanation explainer = VocabularyExplainer.Value;
         VocabularyExplanationResult result = explainer.Explain(resourcePath, depth);
         if (result is not VocabularyExplanationResult.Explained explained)
@@ -97,11 +123,10 @@ public static partial class CatalogExports
         {
             try
             {
-                content = explainer.SelectData(new ResourcePath(resourcePath)).ToJson(
+                content = explainer.SelectData(new ResourcePath(resourcePath), valueIds).ToJson(
                     static path => "inspect-resource:/" + path.Value,
                     hal: projection == "hal",
-                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
-                    bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract");
+                    bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal");
             }
             catch (InvalidOperationException exception)
             {

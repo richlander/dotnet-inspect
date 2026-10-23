@@ -1,7 +1,4 @@
 import type {
-  BrowserPackageQueryCatalog,
-  BrowserPackageQueryPresetDescriptor,
-  BrowserPackageQueryTermDescriptor,
   BrowserPackageAssemblyAssessment,
   BrowserPackageAssemblySemanticCandidateOutcome,
   BrowserPackageAssemblySemanticLibraryAssessment,
@@ -15,7 +12,6 @@ import type {
   BrowserPackageQueryMatchCreditResponse,
   BrowserPackageQueryResult,
   BrowserPackageQueryTerm,
-  BrowserPackageQueryWorkspaceLens,
 } from "./facades/inspect-web-package.d.ts";
 import type {
   PackageQueryDataSource,
@@ -30,6 +26,56 @@ import { isLibraryLiteralQuery, PACKAGE_QUERY_INITIAL_MATCH_CREDIT }
   from "./package-query.ts";
 
 export type { BrowserPackageQueryInspection } from "./facades/inspect-web-package.d.ts";
+
+export interface PackageQueryFacetOption {
+  readonly value: string;
+  readonly label: string;
+  readonly summary: string;
+}
+
+export interface PackageQueryFacetDescriptor {
+  readonly key: string;
+  readonly name: string;
+  readonly summary: string;
+  readonly operators: readonly string[];
+  readonly valueKind: string;
+  readonly examples: readonly string[];
+  readonly effects: readonly string[];
+  readonly inputRules: readonly string[];
+  readonly presentationOrder: number;
+  readonly controlKind: string;
+  readonly presentationKind: string;
+  readonly executionClass: string;
+  readonly selectionGroup: string | null;
+  readonly combinesWithinSelectionGroup: boolean;
+  readonly replacementGroup: string | null;
+  readonly optionSource: string | null;
+  readonly options: readonly PackageQueryFacetOption[];
+  readonly relatedOperations: readonly string[];
+}
+
+export interface PackageQueryFacetBinding {
+  readonly consumerKind: string;
+  readonly exposedFacets: readonly string[];
+}
+
+export interface PackageQueryFacetData {
+  readonly facets: Readonly<Record<string, PackageQueryFacetDescriptor>>;
+  readonly facetOrder: readonly string[];
+  readonly bindings: Readonly<Record<string, PackageQueryFacetBinding>>;
+}
+
+interface PackageQueryEcosystemOption {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+}
+
+export interface PackageQueryExternalCatalogs {
+  readonly productEcosystems:
+    | readonly PackageQueryEcosystemOption[]
+    | null;
+}
 
 type PackageQueryManifestFailureReason = Extract<
   BrowserPackageQueryFailurePayload["manifestFailureReason"],
@@ -85,84 +131,149 @@ export interface BrowserPackageQueryDataSourceOptions {
   ) => void;
 }
 
-export function packageQueryCatalog(
-  catalog: BrowserPackageQueryCatalog,
+export function packageQueryFacets(
+  data: PackageQueryFacetData,
+  externalCatalogs: PackageQueryExternalCatalogs,
 ): {
   readonly presets: QueryPreset[];
   readonly terms: QueryTermDescriptor[];
 } {
-  return {
-    presets: catalog.presets.map(toQueryPreset),
-    terms: catalog.terms.map(toQueryTermDescriptor),
-  };
+  const browserBindings = Object.values(data.bindings)
+    .filter(binding => binding.consumerKind === "Browser");
+  if (browserBindings.length !== 1) {
+    throw new TypeError(
+      `Package Query requires exactly one Browser binding; found ${browserBindings.length}.`);
+  }
+  const exposed = new Set(browserBindings[0]!.exposedFacets);
+  const facets = data.facetOrder
+    .map(key => data.facets[key])
+    .filter((facet): facet is PackageQueryFacetDescriptor =>
+      facet !== undefined && exposed.has(facet.key));
+  const presets: QueryPreset[] = [];
+  const terms: QueryTermDescriptor[] = [];
+  for (const facet of facets) {
+    switch (facet.presentationKind) {
+      case "fact":
+        presets.push(...toQueryPresets(facet, externalCatalogs));
+        break;
+      case "value-query":
+        terms.push(toQueryTermDescriptor(facet, externalCatalogs));
+        break;
+      default:
+        throw new TypeError(
+          `Unsupported package-query presentation kind '${facet.presentationKind}'.`);
+    }
+  }
+  return { presets, terms };
 }
 
-function toQueryPreset(
-  descriptor: BrowserPackageQueryPresetDescriptor,
-): QueryPreset {
-  return {
-    id: `${descriptor.key}:${descriptor.operator}:${descriptor.value}`,
+function toQueryPresets(
+  descriptor: PackageQueryFacetDescriptor,
+  externalCatalogs: PackageQueryExternalCatalogs,
+): QueryPreset[] {
+  if (descriptor.controlKind !== "toggle"
+    && descriptor.controlKind !== "choice") {
+    throw new TypeError(
+      `Package-query fact '${descriptor.key}' has control kind '${descriptor.controlKind}'.`);
+  }
+  if (descriptor.operators.length !== 1) {
+    throw new TypeError(
+      `Package-query fact '${descriptor.key}' requires exactly one operator.`);
+  }
+  const tier = toFacetTier(descriptor.effects);
+  const category = factCategory(tier, descriptor.relatedOperations);
+  return facetOptions(descriptor, externalCatalogs).map(option => ({
+    id: `${descriptor.key}:${descriptor.operators[0]}:${option.value}`,
     key: descriptor.key,
-    operator: descriptor.operator,
-    value: descriptor.value,
-    label: descriptor.label,
-    summary: descriptor.summary,
-    weight: descriptor.weight,
-    tier: toInspectionTier(descriptor.tier),
+    operator: descriptor.operators[0]!,
+    value: option.value,
+    label: option.label,
+    summary: option.summary,
+    weight: descriptor.presentationOrder,
+    tier,
     executionClass: toExecutionClass(descriptor.executionClass),
-    selectionGroupId: descriptor.selectionGroupId,
+    selectionGroupId: descriptor.selectionGroup,
     combinesWithinSelectionGroup: descriptor.combinesWithinSelectionGroup,
-    replacementGroupId: descriptor.replacementGroupId,
-    displayGroupId: descriptor.displayGroupId,
-    displayGroupLabel: descriptor.displayGroupLabel,
-    categoryId: descriptor.categoryId,
-    categoryLabel: descriptor.categoryLabel,
-    categoryOrder: descriptor.categoryOrder,
-    workspaceLens: packageWorkspaceLens(descriptor),
-  };
+    replacementGroupId: descriptor.replacementGroup,
+    displayGroupId: null,
+    displayGroupLabel: null,
+    categoryId: category.id,
+    categoryLabel: category.label,
+    categoryOrder: category.order,
+    relatedOperations: [...descriptor.relatedOperations],
+  }));
 }
 
 function toQueryTermDescriptor(
-  descriptor: BrowserPackageQueryTermDescriptor,
+  descriptor: PackageQueryFacetDescriptor,
+  externalCatalogs: PackageQueryExternalCatalogs,
 ): QueryTermDescriptor {
+  if (descriptor.controlKind !== "input"
+    && descriptor.controlKind !== "multiline-input"
+    && descriptor.controlKind !== "choice") {
+    throw new TypeError(
+      `Package-query value term '${descriptor.key}' has control kind '${descriptor.controlKind}'.`);
+  }
   return {
     key: descriptor.key,
-    label: descriptor.label,
+    label: descriptor.name,
     summary: descriptor.summary,
-    weight: descriptor.weight,
-    tier: toInspectionTier(descriptor.tier),
+    weight: descriptor.presentationOrder,
+    tier: toFacetTier(descriptor.effects),
     executionClass: toExecutionClass(descriptor.executionClass),
     operators: [...descriptor.operators],
     valueKind: descriptor.valueKind,
-    example: descriptor.example,
-    multiline: descriptor.multiline,
-    allowsCustomValue: descriptor.allowsCustomValue,
-    replacementGroupId: descriptor.replacementGroupId,
-    options: descriptor.options.map(option => ({
-      value: option.value,
-      label: option.label,
-      summary: option.summary,
-    })),
-    workspaceLens: packageWorkspaceLens(descriptor),
+    example: descriptor.examples[0] ?? "",
+    multiline: descriptor.controlKind === "multiline-input",
+    allowsCustomValue: descriptor.controlKind === "input"
+      || descriptor.controlKind === "multiline-input"
+        ? descriptor.optionSource === null
+        : false,
+    replacementGroupId: descriptor.replacementGroup,
+    options: facetOptions(descriptor, externalCatalogs),
+    relatedOperations: [...descriptor.relatedOperations],
   };
 }
 
-function packageWorkspaceLens(
-  descriptor: {
-    readonly key: string;
-    readonly workspaceLens?: BrowserPackageQueryWorkspaceLens | null;
-  },
-): "dependencies" | null {
-  switch (descriptor.workspaceLens) {
-    case "Dependencies":
-      return "dependencies";
-    case null:
-    case undefined:
-      return null;
-    default:
+function facetOptions(
+  descriptor: PackageQueryFacetDescriptor,
+  externalCatalogs: PackageQueryExternalCatalogs,
+): PackageQueryFacetOption[] {
+  if (descriptor.optionSource === null) return [...descriptor.options];
+  if (descriptor.optionSource === "product-ecosystems") {
+    if (externalCatalogs.productEcosystems === null) {
       throw new TypeError(
-        `Unknown Package Query Workspace lens for '${descriptor.key}'.`);
+        `Package-query facet '${descriptor.key}' requires unavailable option source 'product-ecosystems'.`);
+    }
+    return externalCatalogs.productEcosystems.map(ecosystem => ({
+      value: ecosystem.id,
+      label: ecosystem.title,
+      summary: ecosystem.summary,
+    }));
   }
+  throw new TypeError(
+    `Unsupported package-query option source '${descriptor.optionSource}'.`);
+}
+
+function factCategory(
+  tier: QueryPreset["tier"],
+  relatedOperations: readonly string[],
+): { readonly id: string; readonly label: string; readonly order: number } {
+  if (relatedOperations.includes("package.dependencies.inspect")) {
+    return { id: "dependencies", label: "Dependencies", order: 200 };
+  }
+  if (tier === "package-content") {
+    return {
+      id: "package-contents",
+      label: "Package contents",
+      order: 300,
+    };
+  }
+  return {
+    id: "package-metadata",
+    label: "Package metadata",
+    order: 100,
+  };
 }
 
 export function createBrowserPackageQueryDataSource(
@@ -1213,41 +1324,66 @@ function toQueryTier(
 }
 
 function toInspectionTier(
-  tier: BrowserPackageQueryPresetDescriptor["tier"],
+  tier: Exclude<BrowserPackageQueryRowPayload["tier"], "SearchMetadata" | "Assembly">,
+): QueryResultRow["tier"] {
+  if (tier === "Nuspec") return "nuspec";
+  if (tier === "PackageContent") return "package-content";
+  throw new TypeError(
+    `Unsupported package-query tier '${tier}'.`);
+}
+
+function toFacetTier(
+  effects: readonly string[],
 ): QueryPreset["tier"] {
+  const tier = effectIdentity(effects, "AcquisitionTier");
   switch (tier) {
-    case "SearchMetadata":
+    case "search-metadata":
       return "search-metadata";
-    case "Nuspec":
+    case "nuspec":
       return "nuspec";
-    case "PackageContent":
+    case "package-content":
       return "package-content";
     default:
       throw new TypeError(
-        `Unsupported package-query tier '${String(tier)}'.`);
+        `Unsupported package-query tier '${tier}'.`);
   }
 }
 
 function toExecutionClass(
-  executionClass: BrowserPackageQueryPresetDescriptor["executionClass"],
+  executionClass: string,
 ): QueryPreset["executionClass"] {
   switch (executionClass) {
-    case "SearchMetadata":
+    case "search-metadata":
       return "search-metadata";
-    case "Nuspec":
+    case "nuspec":
       return "nuspec";
-    case "NuspecExpensive":
+    case "nuspec-expensive":
       return "nuspec-expensive";
-    case "PackageContent":
+    case "package-content":
       return "package-content";
-    case "Metadata":
+    case "metadata":
       return "metadata";
-    case "MetadataExpensive":
+    case "metadata-expensive":
       return "metadata-expensive";
     default:
       throw new TypeError(
-        `Unsupported package-query execution class '${String(executionClass)}'.`);
+        `Unsupported package-query execution class '${executionClass}'.`);
   }
+}
+
+function effectIdentity(
+  effects: readonly string[],
+  kind: string,
+): string {
+  const prefix = `${kind}: `;
+  const values = effects
+    .filter(effect => effect.startsWith(prefix))
+    .map(effect => effect.slice(prefix.length));
+  if (values.length !== 1) {
+    throw new TypeError(
+      `Package-query facet requires exactly one ${kind} effect.`);
+  }
+  return values[0]!;
 }
 
 function assessmentDispositionValue(

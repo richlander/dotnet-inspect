@@ -33,6 +33,10 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
         MetadataReader,
         CurrentAssemblyInfo> s_currentAssemblies = new();
     readonly Action<int>? _reserveStructuralWork;
+    // An observing decoder counts the same work a budgeted one reserves but
+    // keeps the unbudgeted decoder's results, so counting never changes an
+    // identity.
+    readonly bool _observeOnly;
     bool _currentAssemblyWorkReserved;
 
     sealed record CurrentAssemblyInfo(
@@ -72,12 +76,32 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
     internal TypeRefDecoder(
         Action<int> reserveStructuralWork)
+        : this(reserveStructuralWork, observeOnly: false)
+    {
+    }
+
+    TypeRefDecoder(
+        Action<int> reserveStructuralWork,
+        bool observeOnly)
     {
         ArgumentNullException.ThrowIfNull(
             reserveStructuralWork);
         _reserveStructuralWork =
             reserveStructuralWork;
+        _observeOnly = observeOnly;
     }
+
+    /// <summary>
+    /// A decoder that reports its structural work to
+    /// <paramref name="observeStructuralWork"/> and otherwise decodes exactly
+    /// as <see cref="Instance"/> does.
+    /// </summary>
+    internal static TypeRefDecoder Observing(
+        Action<int> observeStructuralWork) =>
+        new(observeStructuralWork, observeOnly: true);
+
+    bool ProjectsFailures =>
+        _reserveStructuralWork is null || _observeOnly;
 
     public TypeRef GetPrimitiveType(PrimitiveTypeCode typeCode)
     {
@@ -150,7 +174,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 currentAssembly.AuthenticProtobuf,
                 rawTypeKind);
         }
-        catch (Exception ex) when (_reserveStructuralWork is null
+        catch (Exception ex) when (ProjectsFailures
             && ex is (
                 BadImageFormatException
                     or ArgumentOutOfRangeException))
@@ -242,7 +266,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
                 rawTypeKind);
         }
 
-        catch (Exception ex) when (_reserveStructuralWork is null
+        catch (Exception ex) when (ProjectsFailures
             && ex is (
                 BadImageFormatException
                     or ArgumentOutOfRangeException))
@@ -459,6 +483,8 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
 
         ReserveStructuralWork(
             reader.GetBlobReader(handle).Length);
+        if (_observeOnly)
+            return reader.GetString(handle);
         return MetadataSafetyPolicy.ReadStructuralString(
             reader,
             handle);

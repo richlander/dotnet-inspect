@@ -256,6 +256,39 @@ internal sealed class BrowserInspectionScope : IAsyncDisposable
 
     public ImmutableArray<BrowserPackageCoordinate> Coordinates { get; }
 
+    internal async ValueTask<(
+        AssemblyReferenceResolutionGenerationReceipt Generation,
+        MemberCallGraphFocalScopeReceipt FocalScope)>
+        CaptureAssemblyReferenceSupplierScopeAsync()
+    {
+        WorkspaceRegistrationReadResult registrationRead =
+            _workspace.GetRegistrationSnapshot();
+        if (registrationRead is not WorkspaceRegistrationReadResult.Available
+            registration)
+        {
+            throw new InvalidOperationException(
+                "The Browser Workspace registrations are unavailable.");
+        }
+
+        WorkspaceScopeReadResult scopeRead =
+            await _workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
+        if (scopeRead is not WorkspaceScopeReadResult.Available scope)
+        {
+            throw new InvalidOperationException(
+                "The Browser Workspace scope is unavailable.");
+        }
+
+        MemberCallGraphFocalScopeReceipt focalScope =
+            MemberCallGraphFocalScopeReceipt.CaptureEverything(
+                scope.Snapshot,
+                registration.Revision);
+        return (
+            AssemblyReferenceResolutionGenerationReceipt.Capture(
+                scope.Snapshot,
+                focalScope),
+            focalScope);
+    }
+
     public ImmutableArray<BrowserWorkspaceParticipant> SurfaceParticipants =>
         _surface?.Participants ?? [];
 

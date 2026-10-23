@@ -19,6 +19,8 @@ public sealed class LibraryCallGraphAnalysisResult
         bool> _inAssemblyTypeIsException;
     private readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
     private readonly IReadOnlyDictionary<int, MethodIdentity> _declaredSources;
+    private readonly IReadOnlySet<int>
+        _declaredSourceSuppressedMethodTokens;
     private ImmutableArray<DirectCall> _physicalDirectCalls;
     private Dictionary<int, MethodSignals>? _signals;
     private IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
@@ -51,6 +53,9 @@ public sealed class LibraryCallGraphAnalysisResult
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         _declaredSources = analysis.Methods.DeclaredSources;
+        _declaredSourceSuppressedMethodTokens =
+            analysis.Methods
+                .DeclaredSourceSuppressedMethodTokens;
         ResourceOwnershipSummaries =
             analysis.ResourceOwnership?.Methods ?? [];
         ResourceOwnershipPublicationComplete =
@@ -93,6 +98,9 @@ public sealed class LibraryCallGraphAnalysisResult
 
     internal bool HasProjectedPhysicalDirectCalls =>
         !_physicalDirectCalls.IsDefault;
+
+    internal bool HasProjectedDeclaredMethodMap =>
+        _declaredMethodMap is not null;
 
     internal bool HasProjectedMethodSignals =>
         _signals is not null;
@@ -163,37 +171,22 @@ public sealed class LibraryCallGraphAnalysisResult
     public DirectCallTarget ResolveTarget(DirectCall call)
     {
         ArgumentNullException.ThrowIfNull(call);
-        if (call.Kind == CallKind.CallIndirect)
-            return new DirectCallTarget.Unresolved(
-                DirectCallTargetUnresolvedReason.Indirect);
-
-        MethodDefinitionMap map = DeclaredMethodMap;
-        TypeRef declaring = call.Callee.DeclaringType;
-        if (!map.ContainsToken(call.CalleeDefinitionToken)
-            && call.Callee.Kind != MemberKind.Unsupported)
+        SameModuleCallTarget target = DeclaredMethodMap.ResolveTarget(call);
+        return target.Kind switch
         {
-            if (declaring.Kind is TypeRefKind.Array or TypeRefKind.SzArray)
-                return new DirectCallTarget.RuntimeProvided();
-            TypeRef definition =
-                declaring.Kind == TypeRefKind.GenericInstance
-                    ? declaring.ElementType ?? declaring
-                    : declaring;
-            if (!map.CanResolveToCurrentModule(declaring)
-                && definition.Resolution?.Origin is { } origin)
-            {
-                return new DirectCallTarget.External(origin);
-            }
-        }
-
-        MethodResolution resolution = map.ResolveTyped(call);
-        return resolution.Token != 0
-            && DeclaredMethodsByToken.TryGetValue(
-                resolution.Token,
-                out MethodIdentity? method)
-                ? new DirectCallTarget.CurrentModule(method)
-                : new DirectCallTarget.Unresolved(resolution.Token != 0
-                    ? DirectCallTargetUnresolvedReason.Unmatched
-                    : resolution.Reason);
+            SameModuleCallTargetKind.CurrentModule =>
+                DeclaredMethodsByToken.TryGetValue(
+                    target.Token,
+                    out MethodIdentity? method)
+                    ? new DirectCallTarget.CurrentModule(method)
+                    : new DirectCallTarget.Unresolved(
+                        DirectCallTargetUnresolvedReason.Unmatched),
+            SameModuleCallTargetKind.External =>
+                new DirectCallTarget.External(target.Origin!),
+            SameModuleCallTargetKind.RuntimeProvided =>
+                new DirectCallTarget.RuntimeProvided(),
+            _ => new DirectCallTarget.Unresolved(target.Reason),
+        };
     }
 
     IReadOnlyDictionary<int, MethodIdentity> DeclaredMethodsByToken =>
@@ -245,6 +238,29 @@ public sealed class LibraryCallGraphAnalysisResult
 
         return null;
     }
+
+    internal bool IsExceptionType(TypeRef type)
+    {
+        TypeRef definition =
+            type.Kind == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+        if (_inAssemblyTypeIsException.TryGetValue(
+                (definition.Namespace, definition.Name),
+                out bool derivesFromException))
+        {
+            return derivesFromException;
+        }
+
+        return definition.Name.EndsWith(
+            "Exception",
+            StringComparison.Ordinal);
+    }
+
+    internal bool DeclaredSourceSuppressesOpportunities(
+        int physicalMethodToken) =>
+        _declaredSourceSuppressedMethodTokens.Contains(
+            physicalMethodToken);
 
     /// <summary>
     /// Releases lazy single-module graph maps while retaining projected

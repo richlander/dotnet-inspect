@@ -33,6 +33,7 @@ import {
   packageAt,
   appSource,
   parsedAppSource,
+  functionSource,
   packageAcquisitionSource,
   sourceInspectionSource,
   memberDetailInspectionSource,
@@ -477,8 +478,8 @@ test("source operations cancel when superseded or hidden", () => {
     /const operationAuthority = createOperationAuthorityPage\(\);[\s\S]*createSourceInspectionCoordinator\(\{[\s\S]*operationAuthority,/);
 
   assert.match(
-    appSource,
-    /function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\)/);
+    functionSource("renderCore"),
+    /function renderCore\(options: RenderOptions\) \{\s*sourceInspection\.cancelHiddenRequest\(\)/);
   assert.match(
     appSource,
     /createSourceInspectionCoordinator\(\{[\s\S]*memberSourceHasConcreteOverload,[\s\S]*cancelEngineSourceRequest: \(\) => \{[\s\S]*observeAsync\(\s*cancelSourceInspection\(\),\s*"Cancelling the Source request"\)/);

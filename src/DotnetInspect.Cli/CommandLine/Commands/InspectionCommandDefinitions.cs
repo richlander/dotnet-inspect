@@ -3,6 +3,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -129,7 +130,7 @@ public static class InspectionCommandDefinitions
             new Option<string?>("--evidence-envelope")
             {
                 Description =
-                    "Write the complete enriched Diff History envelope to a JSON sidecar",
+                    "Write the complete enriched Diff History, Library API Diff, or analysis-set envelope with its package acquisitions to a JSON sidecar",
                 Arity = ArgumentArity.ExactlyOne,
             };
 #endif
@@ -177,16 +178,17 @@ public static class InspectionCommandDefinitions
             {
                 return;
             }
-            if (!result.GetValue(historyOption))
+            if (!result.GetValue(historyOption)
+                && result.GetResult(packageOption) is not { Implicit: false })
             {
                 result.AddError(
-                    "--evidence-envelope is supported only by diff --history.");
+                    "--evidence-envelope is supported only by diff --history and pairwise diff --package.");
             }
             if (result.GetResult(opts.Discover) is { Implicit: false }
                 || result.GetValue(opts.Schema))
             {
                 result.AddError(
-                    "--evidence-envelope requires a Diff History inspection, not discovery or schema output.");
+                    "--evidence-envelope requires an inspection, not discovery or schema output.");
             }
         });
 #endif
@@ -450,11 +452,16 @@ public static class InspectionCommandDefinitions
             Description =
                 "Narrow package inspection to its uniquely named Library",
         };
+        var firstLibraryOption = new Option<bool>("--first-library")
+        {
+            Description =
+                "Narrow package inspection to the first namesake in Library order, otherwise the first Library",
+        };
         var asmPrereleaseOption = new Option<bool>("--preview") { Description = "When resolving an unversioned package, include prerelease versions" };
         asmPrereleaseOption.Aliases.Add("--prerelease");
         var asmFrameworkOption = new Option<string?>("--framework") { Description = "Optional platform framework family (runtime, aspnetcore)" };
         var asmVersionOption = new Option<string?>("--version") { Description = "Platform runtime version (searches framework families in priority order)" };
-        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0; 'all' supports Markdown, JSON, and aggregate --count)" };
+        var asmTfmOption = new Option<string?>("--tfm") { Description = "Select a package library by TFM (e.g., net8.0)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Filter Source Files rows by type glob/name (e.g., *Json*)" };
         typeFilterOption.Aliases.Add("--type");
         var namespaceOption = new Option<string?>("--namespace")
@@ -504,6 +511,7 @@ public static class InspectionCommandDefinitions
         assemblyCommand.Options.Add(asmPackageOption);
         assemblyCommand.Options.Add(workspaceOption);
         assemblyCommand.Options.Add(namesakeLibraryOption);
+        assemblyCommand.Options.Add(firstLibraryOption);
         assemblyCommand.Options.Add(asmPrereleaseOption);
         assemblyCommand.Options.Add(asmFrameworkOption);
         assemblyCommand.Options.Add(asmVersionOption);
@@ -621,6 +629,7 @@ public static class InspectionCommandDefinitions
                 asmPlatformOption,
                 asmPackageOption,
                 namesakeLibraryOption,
+                firstLibraryOption,
                 asmPrereleaseOption,
                 asmFrameworkOption,
                 asmVersionOption,
@@ -700,6 +709,8 @@ public static class InspectionCommandDefinitions
                 parseResult.GetValue(workspaceOption);
             bool namesakeLibrary =
                 parseResult.GetValue(namesakeLibraryOption);
+            bool firstLibrary =
+                parseResult.GetValue(firstLibraryOption);
 
             // Disambiguate positional arg: local file vs package name
             string? assemblyPath = null;
@@ -713,13 +724,21 @@ public static class InspectionCommandDefinitions
                 && (opts.ParseSchema(parseResult)
                     || discoverDetails);
 
-            if (namesakeLibrary
+            if ((namesakeLibrary || firstLibrary)
                 && (string.IsNullOrWhiteSpace(explicitPackage)
                     || !string.IsNullOrWhiteSpace(source)))
             {
                 CommandError.Write(
-                    "--namesake-library requires --package and cannot be "
-                        + "combined with an exact Library source.");
+                    $"{(namesakeLibrary ? "--namesake-library" : "--first-library")} "
+                        + "requires --package and cannot be combined with an "
+                        + "exact Library source.");
+                return 1;
+            }
+            if (namesakeLibrary && firstLibrary)
+            {
+                CommandError.Write(
+                    "--namesake-library cannot be combined with "
+                        + "--first-library.");
                 return 1;
             }
             bool completeLibraryEnvelope =
@@ -783,9 +802,10 @@ public static class InspectionCommandDefinitions
                     // than misclassified as a NuGet package. See #1690.
                     assemblyPath = source;
                 }
-                else if (!source.Contains('@') && PlatformResolver.IsPlatformCandidate(source))
+                else if (!source.Contains('@')
+                    && EcosystemPackCatalog.ShouldSearchPlatform(source))
                 {
-                    // Platform-preferred routing for System.*/Microsoft.* bare names
+                    // Platform-preferred routing for selected Ecosystem associations.
                     bool verbose = parseResult.GetValue(opts.Verbose);
                     Action<string>? log = CommandLineHelpers.CreateVerboseLogger(verbose);
                     var (asmPath, _, _, error) = await PlatformResolver.ResolveAssemblyAsync(
@@ -903,11 +923,21 @@ public static class InspectionCommandDefinitions
                 if (performanceTriage.Shapes is { Length: > 0 })
                 {
                     var kinds = performanceTriage.Shapes
-                        .Select(PerformanceKinds.SectionForShape)
+                        .Select(
+                            PerformanceKinds.SectionForRequestedShape)
                         .Distinct(StringComparer.Ordinal)
                         .ToArray();
                     if (kinds.Length == 1)
                         targets = kinds;
+                    else if (kinds.Contains(
+                        SectionNames.PerformanceSyncCallsInAsync,
+                        StringComparer.Ordinal))
+                    {
+                        targets =
+                        [
+                            .. PerformanceKinds.TabularSections,
+                        ];
+                    }
                 }
                 select = [.. select ?? [], .. targets];
             }
@@ -1062,9 +1092,12 @@ public static class InspectionCommandDefinitions
             var options = new LibraryOptions
             {
                 SourceIntent = sourceIntent,
+                PackagePath = PackageReferenceAdmission.IsCandidate(packagePath) ? packagePath : null,
+                PlatformAssembly = PackageReferenceAdmission.IsCandidate(packagePath) ? platformAssembly : null,
                 AssemblyName = assemblyPath,
                 WorkspacePacket = workspacePacket,
                 NamesakeLibrary = namesakeLibrary,
+                FirstLibrary = firstLibrary,
                 IncludeMetadata = true,
                 IncludeReferences = showReferences,
                 IncludeDependencies = showDependencies,
@@ -1157,6 +1190,7 @@ public static class InspectionCommandDefinitions
                 asmPlatformOption,
                 asmPackageOption,
                 namesakeLibraryOption,
+                firstLibraryOption,
                 asmPrereleaseOption,
                 asmFrameworkOption,
                 asmVersionOption,

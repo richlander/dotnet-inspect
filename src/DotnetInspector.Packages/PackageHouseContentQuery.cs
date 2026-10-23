@@ -29,7 +29,8 @@ public abstract class PackageHouseContentNarrowing
             ArgumentNullException.ThrowIfNull(target);
             if (target is not
                 {
-                    Mode: PackageHouseTargetSelectionMode.Exact,
+                    Mode:
+                        PackageHouseTargetSelectionMode.Exact,
                     RequestedFramework: not null,
                 })
             {
@@ -50,6 +51,38 @@ public abstract class PackageHouseContentTerminal
 {
     private PackageHouseContentTerminal()
     {
+    }
+
+    /// <summary>One exact compile Library and the declared assembly roles it needs.</summary>
+    public sealed class CompileLibrary : PackageHouseContentTerminal
+    {
+        public CompileLibrary(PackageLibrarySelector selector, PackageAssetDemand assetDemand)
+        {
+            ArgumentNullException.ThrowIfNull(selector);
+            if (!Enum.IsDefined(assetDemand))
+                throw new ArgumentOutOfRangeException(nameof(assetDemand));
+            Selector = selector;
+            AssetDemand = assetDemand;
+        }
+
+        public PackageLibrarySelector Selector { get; }
+        public PackageAssetDemand AssetDemand { get; }
+    }
+
+    /// <summary>
+    /// Every compile Library in one exact target and the declared assembly
+    /// roles needed from each one.
+    /// </summary>
+    public sealed class CompileLibraries : PackageHouseContentTerminal
+    {
+        public CompileLibraries(PackageAssetDemand assetDemand)
+        {
+            if (!Enum.IsDefined(assetDemand))
+                throw new ArgumentOutOfRangeException(nameof(assetDemand));
+            AssetDemand = assetDemand;
+        }
+
+        public PackageAssetDemand AssetDemand { get; }
     }
 
     /// <summary>
@@ -142,6 +175,13 @@ public abstract class PackageHouseContentTerminal
     }
 
     /// <summary>
+    /// The one bounded root nuspec for the exact retained package coordinate.
+    /// </summary>
+    public sealed class Nuspec : PackageHouseContentTerminal
+    {
+    }
+
+    /// <summary>
     /// One selected compile Library plus the complete logical Library
     /// inventory for one exact target.
     /// </summary>
@@ -174,8 +214,10 @@ public sealed class PackageHouseFileList
     internal PackageHouseFileList(
         PackageHouseContentNarrowingReceipt narrowing,
         IReadOnlyList<PackageContentEntry> entries,
-        IReadOnlyList<string>? directories = null)
+        IReadOnlyList<string>? directories = null,
+        IReadOnlyList<PackageContentEntry>? directoryEntries = null)
     {
+        DirectoryEntries = directoryEntries;
         Directories = directories;
         Narrowing = narrowing
             ?? throw new ArgumentNullException(nameof(narrowing));
@@ -193,6 +235,12 @@ public sealed class PackageHouseFileList
 
     /// <summary>Optional complete package-wide directory facts from the same admitted generation.</summary>
     public IReadOnlyList<string>? Directories { get; }
+
+    /// <summary>
+    /// Optional explicit archive directory entries, including their timestamps,
+    /// from the same admitted generation.
+    /// </summary>
+    public IReadOnlyList<PackageContentEntry>? DirectoryEntries { get; }
 
     /// <summary>
     /// Creates a later exact Files query from entries issued by this exact
@@ -285,15 +333,29 @@ public sealed class PackageHouseContentQuery
         Terminals = Array.AsReadOnly(values);
         RetainedFileList = retainedFileList;
         RetainedLibraryInventory = retainedLibraryInventory;
+        CompileLibraryTerminal = values.OfType<PackageHouseContentTerminal.CompileLibrary>().SingleOrDefault();
+        CompileLibrariesTerminal = values
+            .OfType<PackageHouseContentTerminal.CompileLibraries>()
+            .SingleOrDefault();
         FilesTerminal = values
             .OfType<PackageHouseContentTerminal.Files>()
             .SingleOrDefault();
         FileListTerminal = values
             .OfType<PackageHouseContentTerminal.FileList>()
             .SingleOrDefault();
+        NuspecTerminal = values
+            .OfType<PackageHouseContentTerminal.Nuspec>()
+            .SingleOrDefault();
         if (FileListTerminal?.IncludeDirectories == true
             && narrowing is not PackageHouseContentNarrowing.PackageWide)
             throw new ArgumentException("Directory evidence requires package-wide narrowing.", nameof(narrowing));
+        if (NuspecTerminal is not null
+            && narrowing is not PackageHouseContentNarrowing.PackageWide)
+        {
+            throw new ArgumentException(
+                "Nuspec content requires package-wide narrowing.",
+                nameof(narrowing));
+        }
         LibraryAndInventoryTerminal = values
             .OfType<
                 PackageHouseContentTerminal
@@ -327,6 +389,13 @@ public sealed class PackageHouseContentQuery
                 "A content query cannot request both Library inventory terminals.",
                 nameof(terminals));
         }
+        if (CompileLibrariesTerminal is not null
+            && narrowing is not PackageHouseContentNarrowing.TfmWide)
+        {
+            throw new ArgumentException(
+                "Compile Libraries require TFM-wide narrowing.",
+                nameof(narrowing));
+        }
     }
 
     /// <summary>The package-entry space shared by every terminal.</summary>
@@ -339,7 +408,14 @@ public sealed class PackageHouseContentQuery
 
     internal PackageHouseContentTerminal.FileList? FileListTerminal { get; }
 
+    internal PackageHouseContentTerminal.Nuspec? NuspecTerminal { get; }
+
     internal PackageHouseFileList? RetainedFileList { get; }
+
+    internal PackageHouseContentTerminal.CompileLibrary? CompileLibraryTerminal { get; }
+
+    internal PackageHouseContentTerminal.CompileLibraries?
+        CompileLibrariesTerminal { get; }
 
     internal PackageHouseContentTerminal.LibraryAndInventoryForTarget?
         LibraryAndInventoryTerminal { get; }
@@ -361,6 +437,12 @@ public sealed class PackageHouseContentQuery
         new(
             new PackageHouseContentNarrowing.PackageWide(),
             [new PackageHouseContentTerminal.FileList(includeDirectories)]);
+
+    /// <summary>Creates a package-wide bounded root-nuspec query.</summary>
+    public static PackageHouseContentQuery PackageNuspec() =>
+        new(
+            new PackageHouseContentNarrowing.PackageWide(),
+            [new PackageHouseContentTerminal.Nuspec()]);
 
     /// <summary>
     /// Creates one package-wide query for exact Files content and the complete
@@ -429,5 +511,19 @@ public sealed class PackageHouseContentQuery
             [
                 new PackageHouseContentTerminal
                     .LibraryInventoryForTarget(),
+            ]);
+
+    /// <summary>
+    /// Creates one TFM-wide query for every compatible compile Library and
+    /// the declared assembly roles needed from each one.
+    /// </summary>
+    public static PackageHouseContentQuery GetLibrariesForTarget(
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand) =>
+        new(
+            new PackageHouseContentNarrowing.TfmWide(target),
+            [
+                new PackageHouseContentTerminal
+                    .CompileLibraries(assetDemand),
             ]);
 }

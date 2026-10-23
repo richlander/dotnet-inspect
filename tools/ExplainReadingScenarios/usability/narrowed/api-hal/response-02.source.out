@@ -1,0 +1,48 @@
+Description:
+Search API type or member symbols across packages and libraries
+
+Usage:
+dotnet-inspect find [<pattern>] [options]
+
+Arguments:
+<pattern>  API type or member name/glob. Does not search package IDs. Comma-separated for multiple.
+
+Options:
+--package <package>                Search in package(s) (name or name@version). Can repeat.
+--library <library>                Search in library file(s). Can repeat.
+--platform                         Search all platform frameworks (runtime, aspnetcore, netstandard), or one platform library when followed by a value
+--ecosystem <ecosystem>            Register exactly the named canonical ecosystem(s) in caller order. Can repeat.
+--extensions                       Search current Microsoft.Extensions.* packages outside the shared frameworks
+--aspnetcore                       Search current Microsoft.AspNetCore.* packages outside the shared frameworks
+--project <project>                Search project dependencies via project.assets.json. Can repeat.
+--bin <bin>                        Search all DLLs in output directory(s). Can repeat.
+--tfm <tfm>                        Select library or target framework by TFM (e.g., net8.0)
+--all                              Include non-public, hidden, and obsolete types
+--members                          Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)
+--type <type>                      Filter API types by glob (for example --type *Json*)
+--json                             Output as JSON
+--markdown                         Output as markdown
+--compact                          Minified JSON (use with --json)
+--table                            Output as a pretty table (space-padded columns)
+--tsv                              Output as normalized tab-separated values
+--jsonl                            Output as JSON Lines (one object per row)
+--nh, --no-header, --no-headers    Suppress table/TSV column headers
+--package-prefix <package-prefix>  With a type or member pattern, search up to 500 matching package IDs
+-D, --discover <D>                 Discover schema: sections, or items within a section
+--tree                             Show hierarchical output when supported
+--columns <columns>                Filter columns by name (comma/semicolon-separated)
+--fields <fields>                  Filter fields by name (comma/semicolon-separated)
+--count                            Reduce the effective table/vector population to a row count
+--verbose                          Show progress messages on stderr
+-v <v>                             Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)
+-E <E>                             Write companion output to stderr (.tips is available; bare explanation and .references are reserved)
+--rows <rows>                      Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); adopted semantic-row surfaces accept only range forms and use -n for counts
+-n <n>                             Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end
+--head                             Take the count from the start (the default direction)
+--tail                             Take the count from the end instead of the start
+--lines                            Apply -n to rendered lines instead of semantic rows
+--tail-lines                       Apply -n to rendered lines from the end
+--source <source>                  NuGet source URL (replaces defaults, can repeat)
+--add-source <add-source>          NuGet source URL to add (can repeat)
+--nugetconfig <nugetconfig>        Path to nuget.config file
+-Q, --query-help <Q>               Discover query-capable sections, or the facets and operators of a section/category (no inspection)

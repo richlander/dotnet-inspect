@@ -1,8 +1,8 @@
 # Product Vocabulary
 
 Product vocabularies are the stable values that product-owned queries accept:
-API accessibility facets, C# style tiers and choices, and C# body kinds. Both
-hosts present them through
+API accessibility facets, C# style tiers and choices, C# body kinds, and the
+Package Query durable-row field contract. Both hosts present them through
 [Resource Explanation](resource-explanation.md#value-vocabulary-resources).
 There is no separate vocabulary command, document, or wire format.
 
@@ -138,6 +138,10 @@ The term owners, and therefore the declaring owners, are:
 - `BodyShapeSearch.SupportedKinds` in `ILInspector.Decompiler` owns searchable
   body-kind identity and order; `AnnotatedSourceNodeKinds` owns their display
   labels.
+- `PackageQueryDurableRowContract` in
+  `DotnetInspector.InspectionContracts` owns the durable-row contract and field
+  identities; `PackageQueryDurableRowVocabulary` in
+  `DotnetInspector.Queries` owns their labels and summaries.
 
 The declaration type lives in the `QuerySpace.Primitives` floor under the
 [QuerySpace library boundary](query-space-library.md#two-assemblies-and-two-participation-tiers),
@@ -213,6 +217,22 @@ discoverable; it does not infer which product feature should use them.
 Implementation and host migration remain tracked by
 [#8593](https://github.com/richlander/dotnet-inspect/issues/8593).
 
+## Routing declaration
+
+Product Vocabulary issues one reference declaration for the explanation root
+under the
+[Resource Explanation routing contract](resource-explanation.md#routing-declarations).
+Its identity is `vocabularies`, and its destination is the `vocabularies`
+collection. A vocabulary is neither something inspected nor work performed, so
+it is a reference entry rather than a subject kind or operation.
+
+The declaration carries an owner-written purpose and representative questions,
+such as "Which values may I pass to this option?", in
+`VocabularyRoutingDeclarations`. It routes to the collection, not to each
+vocabulary. The collection's ordered membership already reaches every composed
+vocabulary and value, so a vocabulary added to the composition needs no new
+declaration.
+
 ## Current vocabularies
 
 | Vocabulary | Stable ID | Values |
@@ -221,6 +241,7 @@ Implementation and host migration remain tracked by
 | C# Style Tiers | `csharp.style-tiers` | Style fidelity/presentation tiers |
 | C# Style Choices | `csharp.style-choices` | Selectable rendering choice IDs |
 | C# Body Kinds | `csharp.body-kinds` | Exact rendered body-syntax kinds |
+| Package Query Durable Row | `package-query.durable-row` | Authenticated serialized field identities |
 
 Each is explainable at `vocabularies/<stable-id>`. The composition's own
 `vocabulary.sections` index lists them and their accepting inputs; it is the

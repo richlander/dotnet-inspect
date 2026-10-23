@@ -123,8 +123,8 @@ internal static class CompleteRestorationInventories
 
         var platforms =
             ImmutableArray.CreateBuilder<CompleteRestorationPlatformInventory>();
-        foreach ((string navigationId, GroupNavigationSource source)
-            in plan.GroupSources)
+        foreach ((string navigationId, PlatformNavigationSource source)
+            in plan.PlatformSources)
         {
             cancellationToken.ThrowIfCancellationRequested();
             WorkspaceContextLoadOutcome.Loaded context =

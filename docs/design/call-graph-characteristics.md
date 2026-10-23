@@ -114,19 +114,19 @@ mode; #6980 owns envelope and transport adoption.
 ## Async-sibling relationship plane
 
 `CallGraphAsyncSiblingDocumentAdapter` composes an already-produced
-`CallGraphProjection` and `LibraryOptimizationAnalysisResult`. The ordinary
-sync call remains a `call` edge and physical call occurrence. A successfully
-joined `sync-call-in-async` opportunity adds a separate
+`CallGraphProjection` and the Rows answer from `SyncCallsInAsyncQuery`. The
+ordinary sync call remains a `call` edge and physical call occurrence. A
+successfully joined `AsyncSiblingRow` adds a separate
 `analysis.async-sibling-opportunity` edge from the authenticated async source
 to the callable candidate, with one derived occurrence citing that exact call
 occurrence.
 
-The document retains every raw optimization opportunity, the Analysis receipt,
-method-evidence coverage and diagnostics, plus explicit joins for source,
-candidate, observed call, and emitted relationship. Missing candidate nodes or
-physical call receipts do not admit new nodes or fabricate occurrences. The
-relationship adapter consumes typed `AsyncSiblingOpportunityEvidence`; it does
-not parse evidence or fix text and does not run sibling selection.
+The document retains every raw producer row, the typed query result, Rows work
+receipt and diagnostics, plus explicit joins for source, candidate, observed
+call, and emitted relationship. Missing candidate nodes or physical call
+receipts do not admit new nodes or fabricate occurrences. The relationship
+adapter consumes the row's exact `DirectCall`; it does not parse evidence or
+fix text and does not run sibling selection.
 
 The contract and named gates live under
 [Async-sibling opportunity composition](inspection-graph-document.md#async-sibling-opportunity-composition).

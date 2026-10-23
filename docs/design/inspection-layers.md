@@ -204,6 +204,11 @@ but cannot derive and probe an ambient sidecar path; this is gated by
 The query's in-memory host path and typed failure behavior are gated by
 `AssemblyContextSourceQueryTests`.
 
+Subject Relations now constructs a process-local hierarchy focus from the
+selected-context exact-Type operation's owner-issued structured identity and
+declaration occurrence. Inspect Web selects hierarchy form, captured
+population, bounds, and presentation without rebuilding the Metadata name.
+
 Library section production no longer has a string-keyed scanner axis. Body
 Shapes binds `BodyShapesQuery`, retains the typed `BodyShapeSearchResult`, and
 uses an optional typed dependency when Performance predicates narrow its
@@ -1610,8 +1615,13 @@ canaries:
 - `AssemblyContextReferencesQuery` owns session access for every participant in
   a binding-consistent group. Its participant entry point also issues detached
   `AssemblyReferenceRow` values for hosts that need reference fields but do not
-  own Metadata identity semantics, plus a typed detached rejection for hosts
-  that do not own Metadata candidate-open failures.
+  own Metadata identity semantics, exact owner-issued binding evidence with the
+  participant's completed current-context selection, plus a typed detached
+  rejection for hosts that do not own Metadata candidate-open failures.
+  Inspect Web orders and projects the detached rows; Package Queries alone
+  enters external supplier association for an owner-issued `NoNameOwner`,
+  without Web reconstructing Metadata identities, binding requests, origins,
+  scopes, or selection outcomes.
   `PackageDependencyGroupsQuery` reads one bounded root manifest through
   `IPackageContent`, validates its package ID and version, retains its groups as
   declared, and reports exact-framework absence separately from an empty
@@ -1639,27 +1649,82 @@ canaries:
   immediately into `DotnetInspector.LibraryMetadata` values while
   `ILInspector.Metadata` remains the semantic vocabulary owner. The Browser
   Library facade therefore lowers exact-Library documents without a project or
-  compiled reference to either Metadata assembly.
+  compiled reference to either Metadata assembly. Its typed operation and
+  positive dependency ceilings own product semantics, so its compiler ban
+  input retains only runtime platform hazards.
 - Web Core's Platform-forwarder navigation projects forwarder display fields
   and ordered resolution routes into caller-shaped Browser values. The Package
   facade preserves the generated wire contract without referencing Metadata
-  identities or structured Type names.
+  identities or structured Type names. Web Core selects the exact
+  implementation population member and passes its structured Type and expected
+  MVID to PlatformHouse; PlatformHouse borrows the Library image, constructs
+  the live Metadata request, and reports a typed stale-candidate rejection.
+- Web Core owns package and Platform scope realization and operation lifetime.
+  Package Queries, Queries, Sections, Services, Ecosystems, Packages, and
+  Presentation own the acquisition, query, activity, vulnerability,
+  documentation, capability, ranking, and result semantics that the Package
+  facade adapts. Its typed paths and positive dependency ceilings therefore
+  own product semantics, and its compiler ban input retains only runtime
+  platform hazards.
+- Web Core owns package, Platform, retained-workspace, and uploaded-Library
+  scope and member-resolution lifetime. Queries owns metadata roots, tables,
+  heaps, exact selection, and graph-member projection; Sections and
+  LibraryMetadata own bounded Type and Member documents and populations;
+  CSharp owns declaration rendering; Research queries and sections own Library
+  comparison semantics. The Metadata facade adapts those owner-issued values,
+  and its typed paths plus positive dependency ceilings own product semantics,
+  so its compiler ban input retains only runtime platform hazards.
+- Web Core owns package and Platform scope realization, exact Member
+  resolution, Clone Workspace acquisition, cancellation coordination, and
+  operation lifetime. Queries, Sections, Research, Analysis, Presentation, and
+  Decompiler Annotations own the typed method facts, Clone candidates,
+  integrations, opportunities, structural metrics, implementation profiles,
+  performance results, resource triage, and caret geometry that the Analysis
+  facade adapts. Its typed paths plus positive dependency ceilings own product
+  semantics, so its compiler ban input retains only runtime platform hazards.
 - Web Core's direct project and emitted assembly dependencies are separate
   positive ceilings. They admit the owner-issued package, Platform, workspace,
-  query, presentation, call-graph, Metadata identity, and source-acquisition
-  APIs required by Browser composition, while rejecting every unlisted edge.
+  query, presentation, Metadata identity, and source-acquisition APIs required
+  by Browser composition, while rejecting every unlisted edge.
   The semantic Browser banned-symbol gate remains necessary inside that ceiling:
   an admitted owner assembly does not authorize Core to open raw images, invoke
   product producers, or reconstruct identity and correspondence semantics.
+- Queries owns Web Core's assembly-context `MemberCallGraphSession` and
+  `CallGraphProjection` execution and returns one
+  `AssemblyContextMemberCallGraphDocument` with detached member-navigation,
+  tree, and diagnostic facts. Web retains package and Platform scope expansion,
+  Browser rendering, attribution, navigation policy, and wire projection
+  without a direct `ILInspector.CallGraph` or `ILInspector.Analysis` project or
+  emitted assembly edge.
+- Platform call-graph resolution delegates each closed-world type-resolution
+  decision and exact body match to Queries. The decision returns the exact
+  participant, a detached failure or identity conflict, or one exact assembly
+  continuation demand. Web retains Platform acquisition, authorization,
+  bounded expansion and retry, and scope lifetime without interpreting live
+  Metadata resolution outcomes or projecting an API surface solely to invoke
+  `CallGraphMemberResolver` itself.
 - Product demo plans resolve their owner-issued member anchor over
   caller-shaped candidates in Queries. Web Core carries only the projected
   Browser surface and a portable exact Library identity to Catalog; Catalog
   does not independently invoke Metadata member resolution or unwrap Metadata
-  assembly identities.
-- PDB source inspections project resolved and attributable browse URLs as
-  detached Services-owned values. The Browser Source facade preserves those
-  values without interpreting SourceLink documents, and its positive project
-  and compiled-assembly ratchets exclude `ILInspector.SourceLink`.
+  assembly identities. Catalog composes immutable product vocabulary
+  declarations from their owners, including Decompiler declaration factories,
+  without executing Decompiler producers. Its typed paths and positive
+  dependency ceilings therefore own product semantics, and its compiler ban
+  input retains only runtime platform hazards.
+- Web Core owns package, Platform, retained-workspace, exact Member and Type
+  resolution, cancellation coordination, and operation lifetime. Queries,
+  Sections, Services, SourceHouse, CSharp, Decompiler, Research, Presentation,
+  and Markout own the member and Type Source, Type Explorer document, source
+  and method-body comparison, Finding census, and Member Body Diff results that
+  the Browser Source facade adapts. PDB source inspections project resolved and
+  attributable browse URLs as detached Services-owned values, so the facade
+  does not interpret SourceLink documents and its positive project and
+  compiled-assembly ratchets exclude `ILInspector.SourceLink`. Metadata and
+  Queries project logical-member and physical-MethodDef identity before the
+  boundary. The facade's typed paths plus positive dependency ceilings own
+  product semantics, so its compiler inputs retain only three focused
+  projected-identity and failure-value bans plus runtime platform hazards.
 - `AssemblyContextTypeDependencyQuery` retains the admitted descriptors for one
   binding-consistent group and invokes the Metadata-owned population scan once.
   Ordinary population lookup scans the committed participant order. Its

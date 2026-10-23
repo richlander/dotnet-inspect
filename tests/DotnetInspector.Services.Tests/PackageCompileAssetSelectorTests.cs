@@ -23,6 +23,35 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Equal("net10.0", counterpart.TargetFramework);
     }
 
+    [Theory]
+    [InlineData("lib/Example.dll", "lib/net11.0/Example.dll", "any")]
+    [InlineData("lib/net10.0/Example.dll", "lib/Example.dll", "net10.0")]
+    public void FindComparisonAsset_PairsRootAndFrameworkSlices(
+        string beforePath,
+        string afterPath,
+        string expectedBeforeFramework)
+    {
+        var before = PackageCompileAssetSelector.Evaluate(
+            InMemory(beforePath),
+            "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            "net11.0").Selection;
+        var after = PackageCompileAssetSelector.Evaluate(
+            InMemory(afterPath),
+            "Example",
+            PackageCompileAssetSelectionPolicy.ExplicitTarget,
+            "net11.0").Selection;
+
+        PackageCompileAsset? counterpart =
+            before.FindComparisonAsset(Assert.Single(after.Assets));
+
+        Assert.Same(Assert.Single(before.Assets), counterpart);
+        Assert.Equal(beforePath, counterpart!.Path);
+        Assert.Equal(
+            expectedBeforeFramework,
+            counterpart.TargetFramework);
+    }
+
     [Fact]
     public void FindComparisonAsset_DoesNotMatchOnlyTheFileName()
     {
@@ -166,6 +195,85 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void RootLibraryAssets_FormFrameworkAgnosticCompileSlice()
+    {
+        IPackageContent content = InMemory(
+            "lib/Example.dll",
+            "lib/Example.Companion.dll",
+            "lib/nested/Ignored.dll");
+
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                content,
+                "Example",
+                "net10.0");
+
+        Assert.True(selection.IsSelected);
+        Assert.Equal("any", selection.TargetFramework);
+        Assert.Equal(["any"], selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["lib/Example.Companion.dll", "lib/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+        Assert.Equal(
+            selection.Assets,
+            selection.ImplementationAssets);
+        Assert.Equal("any", selection.ImplementationTargetFramework);
+        Assert.True(selection.UsesCompatibleImplementationSelection);
+        Assert.Equal("lib/Example.dll", selection.DefaultAsset!.Path);
+        Assert.Same(
+            selection.DefaultAsset,
+            selection.FindImplementationAsset(selection.DefaultAsset));
+        PackageCompileAssetSlice slice =
+            Assert.Single(selection.AvailableSlices);
+        Assert.Equal("any", slice.TargetFramework);
+        Assert.Equal(selection.Assets, slice.CandidateAssets);
+    }
+
+    [Fact]
+    public void FrameworkSpecificCompileSliceOutranksRootLibrary()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "lib/Root.dll",
+                    "lib/net8.0/Example.dll"),
+                "Example");
+
+        Assert.Equal("net8.0", selection.TargetFramework);
+        Assert.Equal(
+            ["net8.0", "any"],
+            selection.AvailableTargetFrameworks);
+        Assert.Equal(
+            ["lib/net8.0/Example.dll"],
+            selection.Assets.Select(asset => asset.Path));
+    }
+
+    [Fact]
+    public void
+        ExactTargetRootFallbackPreservesRootImplementationCounterpart()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Evaluate(
+                InMemory(
+                    "lib/Example.dll",
+                    "lib/net8.0/Example.dll"),
+                "Example",
+                PackageCompileAssetSelectionPolicy.ExactTarget,
+                "net10.0").Selection;
+
+        PackageCompileAsset compile = Assert.Single(selection.Assets);
+        PackageCompileAsset implementation =
+            Assert.Single(selection.ImplementationAssets);
+        Assert.Equal("any", selection.TargetFramework);
+        Assert.Equal("lib/Example.dll", compile.Path);
+        Assert.Equal("any", selection.ImplementationTargetFramework);
+        Assert.Equal("lib/Example.dll", implementation.Path);
+        Assert.Same(
+            implementation,
+            selection.FindImplementationAsset(compile));
+    }
+
+    [Fact]
     public void RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback()
     {
         IPackageContent content = InMemory(
@@ -209,6 +317,53 @@ public class PackageCompileAssetSelectorTests : IDisposable
         Assert.Same(
             companion,
             selection.FindImplementationAsset(companion));
+    }
+
+    [Fact]
+    public void ExplicitRid_SelectsRuntimeOnlyPopulationAsSurface()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "runtimes/linux-x64/lib/net9.0/Example.dll",
+                    "runtimes/win-x64/lib/net11.0/Example.dll",
+                    "runtimes/linux-x64/lib/net11.0/Example.dll"),
+                "Example",
+                "net9.0",
+                "linux-x64");
+
+        PackageCompileAsset surface = Assert.Single(selection.Assets);
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net9.0/Example.dll",
+            surface.Path);
+        Assert.Equal("linux-x64", surface.RuntimeIdentifier);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            selection.AvailableTargetFrameworks);
+        Assert.Same(surface, selection.DefaultAsset);
+        Assert.Same(
+            surface,
+            Assert.Single(selection.ImplementationAssets));
+    }
+
+    [Fact]
+    public void AmbiguousRuntimeOnlyPopulation_RetainsCompleteFrameworkInventory()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "runtimes/osx-arm64/lib/net9.0/Example.dll",
+                    "runtimes/win-x64/lib/net11.0/Example.dll"),
+                "Example");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            selection.Status);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            selection.AvailableTargetFrameworks);
+        Assert.Empty(selection.Assets);
     }
 
     [Fact]

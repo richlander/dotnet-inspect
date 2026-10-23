@@ -1,0 +1,27 @@
+# Analysis Diff: System.Text.Json
+
+| Field | Value |
+| ----- | ----- |
+| Versions | 9.0.0 -&gt; 10.0.0 |
+| Summary | 3 improvements, 9 added/removed (13 signals) |
+
+> [!NOTE]
+> Analysis signal changes are body-level evidence, not public API compatibility changes.
+
+## Analysis Diff
+
+| Member | Signal | Old | New | Delta | Shape | Evidence |
+| ------ | ------ | --- | --- | ----- | ----- | -------- |
+| `System.Text.Json.Utf8JsonWriter.#ctor(System.IO.Stream, System.Text.Json.JsonWriterOptions)` | allocations | 2 | 2 | changed |  | old IL_0020,IL_0025,IL_0035; new IL_001E,IL_0023,IL_0033 |
+| `System.Text.Json.Utf8JsonWriter.WriteRawValue(string, bool)` | allocations | 1 | 0 | -1 |  | old IL_001B,IL_0020; new - |
+| `System.Text.Json.Utf8JsonWriter.WriteRawValue(string, bool)` | constructed-exceptions | ArgumentNullException | - | changed |  | old IL_001B,IL_0020; new - |
+| `System.Text.Json.Utf8JsonWriter.WriteRawValue(string, bool)` | throws | 1 | 0 | -1 |  | old IL_001B,IL_0020; new - |
+| `System.Text.Json.Utf8JsonWriter.WriteBase64StringSegmentWithLeftover(System.ReadOnlySpan<byte>, bool)` | unsafe | 0 | 1 | +1 |  |  |
+| `System.Text.Json.Utf8JsonWriter.WriteStringSegmentData(System.ReadOnlySpan<byte>)` | copies | 0 | 1 | +1 |  | old -; new IL_003F |
+| `System.Text.Json.Utf8JsonWriter.WriteStringSegmentEscapeValue(System.ReadOnlySpan<byte>, int, bool)` | unsafe | 0 | 1 | +1 |  |  |
+| `System.Text.Json.Utf8JsonWriter.WriteStringSegmentEscapeValue(System.ReadOnlySpan<char>, int, bool)` | unsafe | 0 | 1 | +1 |  |  |
+| `System.Text.Json.Utf8JsonWriter.WriteStringSegmentWithLeftover(System.ReadOnlySpan<byte>, bool)` | unsafe | 0 | 1 | +1 |  |  |
+| `System.Text.Json.Utf8JsonWriter.WriteStringSegmentWithLeftover(System.ReadOnlySpan<char>, bool)` | unsafe | 0 | 1 | +1 |  |  |
+| `System.Text.Json.Utf8JsonWriter.set_PartialBase64StringData(System.ReadOnlySpan<byte>)` | copies | 0 | 1 | +1 |  | old -; new IL_000A |
+| `System.Text.Json.Utf8JsonWriter.set_PartialUtf16StringData(System.ReadOnlySpan<char>)` | copies | 0 | 1 | +1 |  | old -; new IL_000F |
+| `System.Text.Json.Utf8JsonWriter.set_PartialUtf8StringData(System.ReadOnlySpan<byte>)` | copies | 0 | 1 | +1 |  | old -; new IL_000A |

@@ -16,7 +16,7 @@ using LegacyFixtures =
 
 namespace ILInspector.Metadata.Tests;
 
-public sealed class MemorySafetyMetadataIndexTests
+public sealed partial class MemorySafetyMetadataIndexTests
 {
     [Fact]
     public void MemorySafetyMetadataIndex_RecognizesCompilerProducedModels()
@@ -1118,7 +1118,8 @@ public sealed class MemorySafetyMetadataIndexTests
         bool duplicatePropertySemantics = false,
         bool propertySetterHasGetterArity = false,
         bool duplicateDirectCarrier = false,
-        bool duplicateAssociatedCarrier = false)
+        bool duplicateAssociatedCarrier = false,
+        bool sharedPropertyGetter = false)
     {
         var metadata = new MetadataBuilder();
         ModuleDefinitionHandle module = metadata.AddModule(
@@ -1472,6 +1473,17 @@ public sealed class MemorySafetyMetadataIndexTests
                 property,
                 MethodSemanticsAttributes.Getter,
                 attributeOnly);
+        }
+        if (sharedPropertyGetter)
+        {
+            PropertyDefinitionHandle shared = metadata.AddProperty(
+                PropertyAttributes.None,
+                metadata.GetOrAddString("SharedProperty"),
+                metadata.GetOrAddBlob(propertySignatureBuilder));
+            metadata.AddMethodSemantics(
+                shared,
+                MethodSemanticsAttributes.Getter,
+                propertyGetter);
         }
         if (propertySetterHasGetterArity)
         {

@@ -33,6 +33,7 @@ public static class PackageOptionsParser
         Option<bool> ToolsOption,
         Option<string?> LibraryOption,
         Option<bool> NamesakeLibraryOption,
+        Option<bool> FirstLibraryOption,
         Option<bool> AllLibrariesOption,
         Option<bool> VersionsOption,
         Option<bool> VersionsWithFeedOption,
@@ -104,6 +105,7 @@ public static class PackageOptionsParser
             Discover = opts.ParseDiscover(result),
             Count = result.GetValue(opts.Count),
             PackageLibrary = result.GetValue(args.NamesakeLibraryOption)
+                || result.GetValue(args.FirstLibraryOption)
                 ? ""
                 : GetExactLibrary(result.CommandResult, args),
             AllLibraries = IsAggregateLibraryTarget(
@@ -111,6 +113,8 @@ public static class PackageOptionsParser
                 args),
             NamesakeLibrary =
                 result.GetValue(args.NamesakeLibraryOption),
+            FirstLibrary =
+                result.GetValue(args.FirstLibraryOption),
         };
         return PackageCommand.GetMultiPackageConflicts(mode).Count > 0
             ? 1
@@ -161,6 +165,7 @@ public static class PackageOptionsParser
         result.GetResult(args.LibraryOption)
             is { Implicit: false }
         || result.GetValue(args.NamesakeLibraryOption)
+        || result.GetValue(args.FirstLibraryOption)
         || result.GetResult(args.AllLibrariesOption)
             is { Implicit: false };
 
@@ -168,6 +173,7 @@ public static class PackageOptionsParser
         CommandResult result,
         PackageCommandArgs args) =>
         result.GetValue(args.NamesakeLibraryOption)
+        || result.GetValue(args.FirstLibraryOption)
         || GetExactLibrary(result, args) is not null;
 
     /// <summary>
@@ -177,6 +183,8 @@ public static class PackageOptionsParser
     /// </summary>
     private static string? InvalidPackageReferenceReason(string packageArg)
     {
+        if (PackageReferenceAdmission.IsCandidate(packageArg))
+            return null;
         if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
             || File.Exists(packageArg)
             || Directory.Exists(packageArg))
@@ -243,6 +251,7 @@ public static class PackageOptionsParser
 
         PackageReferenceTarget? selectedTarget =
             packageArgs is [var selectedPackageReference]
+                && !PackageReferenceAdmission.IsCandidate(selectedPackageReference)
                 ? PackageExtractor.ParsePackageTarget(
                     selectedPackageReference)
                 : null;
@@ -263,18 +272,26 @@ public static class PackageOptionsParser
         }
         bool namesakeLibrary =
             parseResult.GetValue(args.NamesakeLibraryOption);
+        bool firstLibrary =
+            parseResult.GetValue(args.FirstLibraryOption);
         bool explicitLibrary =
             parseResult.GetResult(args.LibraryOption)
                 is { Implicit: false };
-        if (namesakeLibrary && explicitLibrary)
+        if (namesakeLibrary && firstLibrary)
         {
             return new InvalidArguments(
-                "--namesake-library cannot be combined with --library.");
+                "--namesake-library cannot be combined with --first-library.");
+        }
+        if ((namesakeLibrary || firstLibrary) && explicitLibrary)
+        {
+            return new InvalidArguments(
+                $"{(namesakeLibrary ? "--namesake-library" : "--first-library")} "
+                    + "cannot be combined with --library.");
         }
         bool allLibraries = IsAggregateLibraryTarget(
             parseResult.CommandResult,
             args);
-        var packageLibrary = namesakeLibrary
+        var packageLibrary = namesakeLibrary || firstLibrary
             ? ""
             : GetExactLibrary(parseResult.CommandResult, args);
 
@@ -558,6 +575,7 @@ public static class PackageOptionsParser
             PackageLibrary = packageLibrary,
             AllLibraries = allLibraries,
             NamesakeLibrary = namesakeLibrary,
+            FirstLibrary = firstLibrary,
             FilesExplicitlySet = parseResult.GetValue(args.FilesOption),
             PathFilter = pathFilter,
             PathFilters = pathFilters,

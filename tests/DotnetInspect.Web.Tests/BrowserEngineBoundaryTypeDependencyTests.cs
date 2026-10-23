@@ -75,6 +75,58 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task QueryTypeProjection_RetainsExactRuntimeIdentifier()
+    {
+        string packageId =
+            $"Browser.TypeDependencies.Runtime.{Guid.NewGuid():N}";
+        string typeName = $"{packageId}.Consumer";
+        byte[] image =
+            BuildTypeDependencyImage(
+                packageId,
+                typeName,
+                typeof(IDisposable));
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                PackageEntries(
+                    (
+                        $"runtimes/linux-x64/lib/net11.0/{packageId}.dll",
+                        [0x01]),
+                    (
+                        $"runtimes/win-x64/lib/net11.0/{packageId}.dll",
+                        image)),
+                fromCache: false));
+
+        string json =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .QueryTypeProjection(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    $"{packageId}.dll",
+                    typeName,
+                    typeName,
+                    "win-x64",
+                    $$"""
+                    [
+                      {
+                        "package": "{{packageId}}",
+                        "version": "1.0.0",
+                        "framework": "net11.0",
+                        "runtimeIdentifier": "win-x64"
+                      }
+                    ]
+                    """);
+
+        using JsonDocument document = JsonDocument.Parse(json);
+        Assert.Empty(
+            document.RootElement
+                .GetProperty("inspectionFailures")
+                .EnumerateArray());
+    }
+
+    [Fact]
     public async Task QueryTypeProjection_ExpandsDependenciesAcrossWorkspacePackages()
     {
         const string rootPackageId =
@@ -1160,6 +1212,39 @@ public sealed partial class BrowserEngineBoundaryTests
             "active package coordinate exactly once",
             failure.Message,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TypeProjectionRequests_DistinguishRuntimeIdentifier()
+    {
+        (BrowserPackageRequest[] requests, int rootIndex) =
+            DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .TypeProjectionRequests(
+                    "Root.Package",
+                    "1.0.0",
+                    "net11.0",
+                    "win-x64",
+                    """
+                    [
+                      {
+                        "package": "Root.Package",
+                        "version": "1.0.0",
+                        "framework": "net11.0",
+                        "runtimeIdentifier": "linux-x64"
+                      },
+                      {
+                        "package": "Root.Package",
+                        "version": "1.0.0",
+                        "framework": "net11.0",
+                        "runtimeIdentifier": "win-x64"
+                      }
+                    ]
+                    """);
+
+        Assert.Equal(1, rootIndex);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            requests.Select(request => request.RuntimeIdentifier));
     }
 
     static async Task<BrowserTypeMetadata> QueryTypeProjection(

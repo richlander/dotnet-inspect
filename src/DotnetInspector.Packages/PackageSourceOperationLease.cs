@@ -6,8 +6,8 @@ using NuGetFetch;
 namespace DotnetInspector.Packages;
 
 /// <summary>
-/// Owns one context and root registration for sequential Package Source steps.
-/// Each step must settle before the next step or synchronous release.
+/// Owns one context and root registration for bounded Package Source steps.
+/// Every admitted step must settle before synchronous release.
 /// </summary>
 [ResourceOwnership]
 public sealed class PackageSourceOperationLease : IDisposable
@@ -15,16 +15,23 @@ public sealed class PackageSourceOperationLease : IDisposable
     private readonly object _gate = new();
     private readonly PackageSourceSettlementGeneration _generation;
     private readonly NuGetOperationContext _context;
-    private ActiveWorkRegistration? _work;
+    private readonly PackageSourceDependencyVersionObservations
+        _dependencyVersions = new();
+    private int _activeSteps;
     private bool _disposed;
 
     internal PackageSourceOperationLease(
         PackageSourceSettlementGeneration generation,
-        NuGetOperationContext context)
+        NuGetOperationContext context,
+        int maximumConcurrentSteps)
     {
         _generation = generation;
         _context = context;
+        MaximumConcurrentSteps = maximumConcurrentSteps;
     }
+
+    /// <summary>Gets the maximum number of simultaneously active source steps.</summary>
+    public int MaximumConcurrentSteps { get; }
 
     /// <summary>Gets the per-request deadline carried by this operation.</summary>
     public TimeSpan RequestTimeout => _context.RequestTimeout;
@@ -199,7 +206,8 @@ public sealed class PackageSourceOperationLease : IDisposable
 
     public Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
         string packageId,
-        IPackageSourceAuthorization sourceAuthorization)
+        IPackageSourceAuthorization sourceAuthorization,
+        Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
@@ -207,13 +215,16 @@ public sealed class PackageSourceOperationLease : IDisposable
             StartWork(),
             packageId,
             sourceAuthorization,
-            PackageVersionDiscoveryContract.DependencyRangeResolution);
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            log,
+            _dependencyVersions);
     }
 
     public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
         string packageId,
         IPackageSourceAuthorization sourceAuthorization,
-        PackageVersionDiscoveryContract contract)
+        PackageVersionDiscoveryContract contract,
+        Action<string>? log = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
@@ -222,15 +233,24 @@ public sealed class PackageSourceOperationLease : IDisposable
             StartWork(),
             packageId,
             sourceAuthorization,
-            contract);
+            contract,
+            log);
     }
 
     public Task<PackageVersionDiscoveryResult> DiscoverDependencyVersionsAsync(
         string packageId,
-        PackageSourceAuthorization authorization) =>
-        DiscoverVersionsAsync(
-            packageId, authorization,
-            PackageVersionDiscoveryContract.DependencyRangeResolution);
+        PackageSourceAuthorization authorization)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentNullException.ThrowIfNull(authorization);
+        return DiscoverCoreAsync(
+            StartWork(),
+            packageId,
+            authorization,
+            PackageVersionDiscoveryContract.DependencyRangeResolution,
+            log: null,
+            _dependencyVersions);
+    }
 
     public Task<PackageVersionDiscoveryResult> DiscoverVersionsAsync(
         string packageId,
@@ -270,7 +290,23 @@ public sealed class PackageSourceOperationLease : IDisposable
         PackageAcquisitionCandidate candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
-        return ManifestCoreAsync(StartWork(), candidate);
+        return ManifestCoreAsync(
+            StartWork(),
+            candidate,
+            requiredAuthority: null);
+    }
+
+    internal Task<ConfiguredPackageManifestResult>
+        AcquireCandidateManifestFromAuthorityAsync(
+            PackageAcquisitionCandidate candidate,
+            ConfiguredPackageAuthority requiredAuthority)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(requiredAuthority);
+        return ManifestCoreAsync(
+            StartWork(),
+            candidate,
+            requiredAuthority);
     }
 
     /// <param name="rangedRead">
@@ -292,7 +328,41 @@ public sealed class PackageSourceOperationLease : IDisposable
         ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(createStore);
         return PayloadCoreAsync(
-            StartWork(), candidate, createStore, log, limits, transferPolicy, rangedRead);
+            StartWork(),
+            candidate,
+            createStore,
+            log,
+            limits,
+            transferPolicy,
+            rangedRead,
+            requiredAuthority: null);
+    }
+
+    internal Task<ConfiguredPackagePayloadResult>
+        AcquireCandidatePayloadFromAuthorityAsync(
+            PackageAcquisitionCandidate candidate,
+            ConfiguredPackageAuthority requiredAuthority,
+            Func<
+                ConfiguredPackageAuthority,
+                PackageProducerIdentity,
+                IPackageStore> createStore,
+            Action<string>? log = null,
+            PackagePayloadLimits? limits = null,
+            IPackagePayloadTransferPolicy? transferPolicy = null,
+            PackageRangedRead? rangedRead = null)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(requiredAuthority);
+        ArgumentNullException.ThrowIfNull(createStore);
+        return PayloadCoreAsync(
+            StartWork(),
+            candidate,
+            createStore,
+            log,
+            limits,
+            transferPolicy,
+            rangedRead,
+            requiredAuthority);
     }
 
     public void Dispose()
@@ -301,16 +371,17 @@ public sealed class PackageSourceOperationLease : IDisposable
         {
             if (_disposed)
                 return;
-            if (_work is not null)
+            if (_activeSteps != 0)
                 throw new InvalidOperationException(
-                    "The current Package Source step must settle before releasing its operation.");
+                    "Every active Package Source step must settle before releasing its operation.");
             _disposed = true;
             try
             {
-                _context.Dispose();
+                _context.Complete();
             }
             finally
             {
+                _dependencyVersions.Clear();
                 _generation.ReleaseOperation();
             }
         }
@@ -321,22 +392,19 @@ public sealed class PackageSourceOperationLease : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_work is not null)
+            if (_activeSteps == MaximumConcurrentSteps)
                 throw new InvalidOperationException(
-                    "Only one Package Source step may be active per operation.");
-            return _work = new(this, _generation, _context);
+                    "The Package Source operation's active-step capacity is exhausted.");
+            var work = new ActiveWorkRegistration(this, _generation, _context);
+            _activeSteps++;
+            return work;
         }
     }
 
-    private void ReleaseWork(ActiveWorkRegistration work)
+    private void ReleaseWork()
     {
         lock (_gate)
-        {
-            if (!ReferenceEquals(_work, work))
-                throw new InvalidOperationException(
-                    "The active work registration is not owned by this operation.");
-            _work = null;
-        }
+            _activeSteps--;
     }
 
     internal Task<TResult> RunAsync<TResult>(
@@ -361,7 +429,7 @@ public sealed class PackageSourceOperationLease : IDisposable
         internal NuGetOperationContext Context { get; } = context;
 
         public void Dispose() =>
-            Interlocked.Exchange(ref _parent, null)?.ReleaseWork(this);
+            Interlocked.Exchange(ref _parent, null)?.ReleaseWork();
     }
 
     private static async ValueTask<PackageAcquisitionCandidateResult> ResolvePinnedCoreAsync(
@@ -429,24 +497,30 @@ public sealed class PackageSourceOperationLease : IDisposable
         ActiveWorkRegistration work,
         string packageId,
         IPackageSourceAuthorization authorization,
-        PackageVersionDiscoveryContract contract)
+        PackageVersionDiscoveryContract contract,
+        Action<string>? log,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         using (work)
             return await work.Generation.DiscoverVersionsAsync(
                 packageId,
                 authorization,
                 contract,
-                operationContext: work.Context).ConfigureAwait(false);
+                operationContext: work.Context,
+                log,
+                observations).ConfigureAwait(false);
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverCoreAsync(
         ActiveWorkRegistration work, string packageId, PackageSourceAuthorization authorization,
         PackageVersionDiscoveryContract contract,
-        Action<string>? log)
+        Action<string>? log,
+        PackageSourceDependencyVersionObservations? observations = null)
     {
         using (work)
             return await work.Generation.DiscoverVersionsAsync(
-                packageId, authorization, contract, operationContext: work.Context, log).ConfigureAwait(false);
+                packageId, authorization, contract, operationContext: work.Context, log,
+                observations).ConfigureAwait(false);
     }
 
     private static async Task<PackageVersionDiscoveryResult> DiscoverBoundedCoreAsync(
@@ -477,11 +551,19 @@ public sealed class PackageSourceOperationLease : IDisposable
     }
 
     private static async Task<ConfiguredPackageManifestResult> ManifestCoreAsync(
-        ActiveWorkRegistration work, PackageAcquisitionCandidate candidate)
+        ActiveWorkRegistration work,
+        PackageAcquisitionCandidate candidate,
+        ConfiguredPackageAuthority? requiredAuthority)
     {
         using (work)
-            return await work.Generation.AcquireCandidateManifestAsync(
-                candidate, operationContext: work.Context).ConfigureAwait(false);
+            return requiredAuthority is null
+                ? await work.Generation.AcquireCandidateManifestAsync(
+                    candidate,
+                    operationContext: work.Context).ConfigureAwait(false)
+                : await work.Generation.AcquireCandidateManifestAsync(
+                    candidate,
+                    work.Context,
+                    requiredAuthority).ConfigureAwait(false);
     }
 
     private static async Task<ConfiguredPackagePayloadResult> PayloadCoreAsync(
@@ -489,11 +571,27 @@ public sealed class PackageSourceOperationLease : IDisposable
         Func<ConfiguredPackageAuthority, PackageProducerIdentity, IPackageStore> createStore,
         Action<string>? log, PackagePayloadLimits? limits,
         IPackagePayloadTransferPolicy? transferPolicy,
-        PackageRangedRead? rangedRead)
+        PackageRangedRead? rangedRead,
+        ConfiguredPackageAuthority? requiredAuthority)
     {
         using (work)
-            return await work.Generation.AcquireCandidatePayloadAsync(
-                candidate, createStore, work.Context, log, limits,
-                transferPolicy, rangedRead).ConfigureAwait(false);
+            return requiredAuthority is null
+                ? await work.Generation.AcquireCandidatePayloadAsync(
+                    candidate,
+                    createStore,
+                    work.Context,
+                    log,
+                    limits,
+                    transferPolicy,
+                    rangedRead).ConfigureAwait(false)
+                : await work.Generation.AcquireCandidatePayloadAsync(
+                    candidate,
+                    createStore,
+                    work.Context,
+                    requiredAuthority,
+                    log,
+                    limits,
+                    transferPolicy,
+                    rangedRead).ConfigureAwait(false);
     }
 }

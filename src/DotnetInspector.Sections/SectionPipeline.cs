@@ -23,6 +23,7 @@ public sealed record SectionEntry<TModel>
     public SectionSizeClass SizeClass { get; init; }
     public SectionCost Cost { get; init; }
     public SectionShape? Shape { get; init; }
+    public SectionDescription? Description { get; init; }
     public ImmutableArray<InspectionQueryDefinition> Queries { get; init; } = [];
     public bool HasExplicitApplicability { get; init; }
     public required Func<TModel, bool> IsApplicable { get; init; }
@@ -244,6 +245,7 @@ public sealed class SectionPipeline<TModel>
             SizeClass = TDescriptor.SizeClass,
             Cost = TDescriptor.Cost,
             Shape = TDescriptor.Shape,
+            Description = TDescriptor.Description,
             Queries = [.. queries],
             HasExplicitApplicability = isApplicable != null || canRender != null,
             IsApplicable = isApplicable ?? canRender ?? TDescriptor.CanRender,
@@ -411,6 +413,17 @@ public sealed class SectionPipeline<TModel>
         .ToDictionary(
             static e => e.Name,
             static e => e.Shape!.Value,
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The description of every section that declares one, keyed by name.
+    /// Sections that have not declared a description are absent.
+    /// </summary>
+    public IReadOnlyDictionary<string, SectionDescription> SectionDescriptions => _entries
+        .Where(static e => e.Description is not null)
+        .ToDictionary(
+            static e => e.Name,
+            static e => e.Description!,
             StringComparer.OrdinalIgnoreCase);
 
     /// <summary>

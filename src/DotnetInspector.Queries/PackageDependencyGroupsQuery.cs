@@ -101,32 +101,12 @@ public static class PackageDependencyGroupsQuery
                     .ConfigureAwait(false);
             }
 
-            PackageSourceCoordinate coordinate =
-                PackageSourceCoordinate.Create(
-                    packageId,
-                    packageVersion);
-            PackageManifestFactsResult facts =
-                PackageManifestFactsQuery.Execute(
-                    manifestBytes,
-                    coordinate);
-            if (facts is PackageManifestFactsResult.Failed failed)
-            {
-                return new PackageDependencyGroupsResult.Failed(
-                    new InvalidDataException(failed.Failure.Message),
-                    failed.Failure);
-            }
-
-            string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
-                ? null
-                : requestedTargetFramework;
-            PackageManifestFacts manifest =
-                ((PackageManifestFactsResult.Available)facts).Value;
-            return new PackageDependencyGroupsResult.Available(
-                manifest,
-                ProjectDependencyGroups(
-                    manifest,
-                    requested,
-                    allowCompatibleFallbackForRequestedTfm));
+            return Execute(
+                manifestBytes,
+                packageId,
+                packageVersion,
+                requestedTargetFramework,
+                allowCompatibleFallbackForRequestedTfm);
         }
         catch (Exception ex) when (
             ex is IOException
@@ -136,6 +116,47 @@ public static class PackageDependencyGroupsQuery
         {
             return new PackageDependencyGroupsResult.Failed(ex);
         }
+    }
+
+    /// <summary>
+    /// Projects dependency groups from one already selected bounded nuspec.
+    /// </summary>
+    public static PackageDependencyGroupsResult Execute(
+        ReadOnlyMemory<byte> manifestBytes,
+        string packageId,
+        string packageVersion,
+        string? requestedTargetFramework = null,
+        bool allowCompatibleFallbackForRequestedTfm = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageVersion);
+
+        PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate.Create(
+                packageId,
+                packageVersion);
+        PackageManifestFactsResult facts =
+            PackageManifestFactsQuery.Execute(
+                manifestBytes,
+                coordinate);
+        if (facts is PackageManifestFactsResult.Failed failed)
+        {
+            return new PackageDependencyGroupsResult.Failed(
+                new InvalidDataException(failed.Failure.Message),
+                failed.Failure);
+        }
+
+        string? requested = string.IsNullOrWhiteSpace(requestedTargetFramework)
+            ? null
+            : requestedTargetFramework;
+        PackageManifestFacts manifest =
+            ((PackageManifestFactsResult.Available)facts).Value;
+        return new PackageDependencyGroupsResult.Available(
+            manifest,
+            ProjectDependencyGroups(
+                manifest,
+                requested,
+                allowCompatibleFallbackForRequestedTfm));
     }
 
     internal static PackageDependencyGroups ProjectDependencyGroups(

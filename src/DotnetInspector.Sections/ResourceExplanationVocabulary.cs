@@ -48,9 +48,20 @@ internal static class ResourceExplanationVocabulary
         new(CoreSchemaIdentity, "integer");
     internal static readonly ExplanationDataShapeIdentity BooleanShape =
         new(CoreSchemaIdentity, "boolean");
+    internal static readonly ExplanationDataShapeIdentity ComponentFieldShape =
+        new(CoreSchemaIdentity, "component-field");
+    internal static readonly ExplanationDataShapeIdentity ComponentLimitShape =
+        new(CoreSchemaIdentity, "component-field-limit");
+    internal static readonly ExplanationResourceTypeIdentity ComponentContractType =
+        new(CoreSchemaIdentity, "component-contract");
+    internal static readonly ExplanationResourceTypeIdentity ComponentContractsType =
+        new(CoreSchemaIdentity, "component-contracts");
     internal static readonly ExplanationDataShapeIdentity
         OpaqueExternalIdentityShape =
             new(QuerySchemaIdentity, "opaque-external-identity");
+    internal static readonly ExplanationDataShapeIdentity
+        QueryFacetOptionShape =
+            new(QuerySchemaIdentity, "query-facet-option");
     internal static readonly ExplanationPublicAddressKindIdentity
         ResourcePathAddressKind =
             new(CoreSchemaIdentity, "resource-path");
@@ -58,6 +69,15 @@ internal static class ResourceExplanationVocabulary
     internal static readonly ExplanationResourceTypeIdentity
         NavigationCollectionType =
             new(CoreSchemaIdentity, "navigation-collection");
+    internal static readonly ExplanationResourceTypeIdentity
+        ExplanationRootType =
+            new(CoreSchemaIdentity, "explanation-root");
+    internal static readonly ExplanationResourceTypeIdentity
+        RoutingCollectionType =
+            new(CoreSchemaIdentity, "routing-collection");
+    internal static readonly ExplanationResourceTypeIdentity
+        RoutingEntryType =
+            new(CoreSchemaIdentity, "routing-entry");
     internal static readonly ExplanationResourceTypeIdentity CatalogType =
         new(StructuralSchemaIdentity, "catalog");
     internal static readonly ExplanationResourceTypeIdentity
@@ -74,6 +94,9 @@ internal static class ResourceExplanationVocabulary
     internal static readonly ExplanationResourceTypeIdentity
         HostNeutralRouteType =
             new(CapabilitySchemaIdentity, "host-neutral-route");
+    internal static readonly ExplanationResourceTypeIdentity
+        RelatedOperationType =
+            new(CapabilitySchemaIdentity, "related-operation");
     internal static readonly ExplanationResourceTypeIdentity QuerySpaceType =
         new(QuerySchemaIdentity, "query-space");
     internal static readonly ExplanationResourceTypeIdentity QueryFacetType =
@@ -101,6 +124,9 @@ internal static class ResourceExplanationVocabulary
         new(ProductVocabularySchemaIdentity, "map-entry");
     internal static readonly ExplanationDataShapeIdentity MapValueShape =
         new(ProductVocabularySchemaIdentity, "map-value");
+
+    /// <summary>The most representative questions one routing entry carries.</summary>
+    internal const int RoutingQuestionLimit = 8;
 
     /// <summary>The most maps one value vocabulary declares.</summary>
     internal const int MapLimit = 64;
@@ -140,6 +166,10 @@ internal static class ResourceExplanationVocabulary
         new ExplanationValue.Scalar(
             ExplanationScalarValue.FromInteger(new BigInteger(value)));
 
+    internal static ExplanationValue Boolean(bool value) =>
+        new ExplanationValue.Scalar(
+            ExplanationScalarValue.FromBoolean(value));
+
     internal static ExplanationFactObservation TextFact(
         ExplanationResourceTypeIdentity resourceType,
         string identity,
@@ -157,6 +187,24 @@ internal static class ResourceExplanationVocabulary
             Fact(resourceType, identity),
             ExplanationObservationState.Available,
             [Integer(value)]);
+
+    internal static ExplanationFactObservation BooleanFact(
+        ExplanationResourceTypeIdentity resourceType,
+        string identity,
+        bool value) =>
+        new(
+            Fact(resourceType, identity),
+            ExplanationObservationState.Available,
+            [Boolean(value)]);
+
+    internal static ExplanationFactObservation ValuesFact(
+        ExplanationResourceTypeIdentity resourceType,
+        string identity,
+        IEnumerable<ExplanationValue> values) =>
+        new(
+            Fact(resourceType, identity),
+            ExplanationObservationState.Available,
+            values);
 
     internal static ExplanationFactObservation TextsFact(
         ExplanationResourceTypeIdentity resourceType,
@@ -341,6 +389,32 @@ internal static class ResourceExplanationVocabulary
                 "A Boolean value.",
                 valueBudget,
                 ExplanationScalarKind.Boolean);
+        var queryFacetOptionShape =
+            new ExplanationDataShapeDeclaration.Record(
+                QueryFacetOptionShape,
+                "Query facet option",
+                "One owner-issued query-facet option or suggestion.",
+                valueBudget,
+                [
+                    MapField(
+                        QueryFacetOptionShape,
+                        "value",
+                        "Value",
+                        "The portable operand value.",
+                        TextShape),
+                    MapField(
+                        QueryFacetOptionShape,
+                        "label",
+                        "Label",
+                        "The display label.",
+                        TextShape),
+                    MapField(
+                        QueryFacetOptionShape,
+                        "summary",
+                        "Summary",
+                        "The option meaning.",
+                        TextShape),
+                ]);
         var mapDeclarationShape =
             new ExplanationDataShapeDeclaration.Record(
                 MapDeclarationShape,
@@ -480,6 +554,84 @@ internal static class ResourceExplanationVocabulary
                         ValueVocabularyType),
                 ]);
 
+        ExplanationResourceTypeDeclaration root =
+            Type(
+                ExplanationRootType,
+                "Explanation root",
+                "The one entry from which every installed explanation "
+                + "resource of this host's catalog is reachable.",
+                [
+                    TextFact("name", "Name"),
+                    TextFact("coverage", "Coverage"),
+                    IntegerFact("members", "Members"),
+                ],
+                [
+                    Relationship(
+                        "root-collection",
+                        "Routing collection",
+                        RoutingCollectionType),
+                ]);
+        ExplanationResourceTypeDeclaration routingCollection =
+            Type(
+                RoutingCollectionType,
+                "Routing collection",
+                "The ordered routing entries of one role under the "
+                + "explanation root.",
+                [
+                    TextFact("name", "Name"),
+                    IntegerFact("members", "Members"),
+                ],
+                [
+                    Relationship(
+                        "collection-routing-entry",
+                        "Collection member",
+                        RoutingEntryType),
+                ]);
+        ExplanationResourceTypeDeclaration routingEntry =
+            Type(
+                RoutingEntryType,
+                "Routing entry",
+                "One owner-issued routing declaration: a subject kind, "
+                + "operation, or reference collection a reader can choose "
+                + "from the root.",
+                [
+                    TextFact("identity", "Identity"),
+                    TextFact("role", "Role"),
+                    TextFact("name", "Name"),
+                    TextFact("issuer", "Issuer"),
+                    TextFact("purpose", "Purpose"),
+                    TextsFact("questions", "Questions", RoutingQuestionLimit),
+                    OptionalTextFact("grain", "Grain"),
+                    OptionalTextFact("scope", "Scope"),
+                    OptionalTextFact("not-yet-explainable", "Not yet explainable"),
+                ],
+                [
+                    Relationship(
+                        "routing-destination-catalog",
+                        "Routing destination",
+                        CatalogType),
+                    Relationship(
+                        "routing-destination-document",
+                        "Routing destination",
+                        InspectionDocumentType),
+                    Relationship(
+                        "routing-destination-collection",
+                        "Routing destination",
+                        NavigationCollectionType),
+                    Relationship(
+                        "routing-destination-component-contracts",
+                        "Routing destination",
+                        ComponentContractsType),
+                    Relationship(
+                        "accepts-subject-kind",
+                        "Accepts subject kind",
+                        RoutingEntryType),
+                    Relationship(
+                        "accepted-by-operation",
+                        "Accepted by operation",
+                        RoutingEntryType),
+                ]);
+
         ExplanationResourceTypeDeclaration catalog =
             Type(
                 CatalogType,
@@ -530,6 +682,10 @@ internal static class ResourceExplanationVocabulary
                     IntegerFact("members", "Members"),
                     OptionalTextFact("shape", "Shape"),
                     OptionalTextFact("cardinality", "Cardinality"),
+                    OptionalTextFact("summary", "Summary"),
+                    OptionalTextFact("basis", "Basis"),
+                    OptionalTextFact("empty", "Empty"),
+                    OptionalTextFact("boundary", "Boundary"),
                 ],
                 [
                     Relationship(
@@ -600,6 +756,16 @@ internal static class ResourceExplanationVocabulary
                         "Consumer binding",
                         ConsumerBindingType),
                 ]);
+        ExplanationResourceTypeDeclaration relatedOperation =
+            Type(
+                RelatedOperationType,
+                "Related operation",
+                "One owner-issued operation related to another resource.",
+                [
+                    TextFact("identity", "Identity"),
+                    TextFact("name", "Name"),
+                    TextFact("summary", "Summary"),
+                ]);
         ExplanationResourceTypeDeclaration querySpace =
             Type(
                 QuerySpaceType,
@@ -633,6 +799,33 @@ internal static class ResourceExplanationVocabulary
                     TextsFact("examples", "Examples", 256),
                     TextsFact("effects", "Effects", 256),
                     TextsFact("input-rules", "Input rules", 64),
+                    OptionalIntegerFact(
+                        "presentation-order",
+                        "Presentation order"),
+                    OptionalTextFact("control-kind", "Control kind"),
+                    OptionalTextFact(
+                        "presentation-kind",
+                        "Presentation kind"),
+                    OptionalTextFact(
+                        "execution-class",
+                        "Execution class"),
+                    OptionalTextFact(
+                        "selection-group",
+                        "Selection group"),
+                    OptionalBooleanFact(
+                        "combines-within-selection-group",
+                        "Combines within selection group"),
+                    OptionalTextFact(
+                        "replacement-group",
+                        "Replacement group"),
+                    OptionalTextFact(
+                        "option-source",
+                        "Option source"),
+                    ShapedFact(
+                        "options",
+                        "Options",
+                        QueryFacetOptionShape,
+                        256),
                 ],
                 [
                     Relationship(
@@ -643,6 +836,10 @@ internal static class ResourceExplanationVocabulary
                         "required-context",
                         "Required context",
                         QueryFacetType),
+                    Relationship(
+                        "related-operation",
+                        "Related operation",
+                        RelatedOperationType),
                     Relationship(
                         "exposed-by",
                         "Exposed by",
@@ -760,13 +957,45 @@ internal static class ResourceExplanationVocabulary
                         VocabularyValueType),
                 ]);
 
+        var componentField = new ExplanationDataShapeDeclaration.Record(
+            ComponentFieldShape, "Component field", "One owner-issued declaration field.", valueBudget,
+            [
+                MapField(ComponentFieldShape, "id", "Identity", "Owner-issued fact identity.", TextShape),
+                MapField(ComponentFieldShape, "name", "Name", "Owner-issued field name.", TextShape),
+                MapField(ComponentFieldShape, "meaning", "Meaning", "Owner-issued field meaning.", TextShape),
+                MapField(ComponentFieldShape, "shape", "Shape", "Qualified owner-issued value shape.", TextShape),
+                MapField(ComponentFieldShape, "cardinality", "Cardinality", "Owner-issued cardinality.", TextShape),
+                new(new(ComponentFieldShape, "states"), "States", "Admitted observation states.",
+                    TextShape, ExplanationCardinality.OrderedMany, 4),
+            ]);
+        var componentLimit = new ExplanationDataShapeDeclaration.Record(
+            ComponentLimitShape, "Field limit", "An owner-issued finite field population limit.", valueBudget,
+            [
+                MapField(ComponentLimitShape, "field", "Field", "Owner-issued fact identity.", TextShape),
+                MapField(ComponentLimitShape, "maximum_values", "Maximum values", "Maximum field population.", IntegerShape),
+            ]);
+        var componentContract = Type(ComponentContractType, "Component contract",
+            "An owner-issued contract for a detached declarative component.",
+            [
+                TextFact("name", "Name"), TextFact("purpose", "Purpose"),
+                TextFact("contract", "Contract"), TextFact("owner", "Owner"),
+                TextFact("schema", "Schema"), IntegerFact("version", "Version"),
+                TextFact("resource_type", "Resource type"),
+                ShapedFact("fields", "Fields", ComponentFieldShape, 64),
+                ShapedFact("field_limits", "Field limits", ComponentLimitShape, 64),
+            ]);
+        var componentContracts = Type(ComponentContractsType, "Component contracts",
+            "The installed declaration contracts admitted for component explanation.",
+            [TextFact("name", "Name"), TextFact("purpose", "Purpose"), IntegerFact("members", "Members")],
+            [Relationship("collection-component-contract", "Component contract", ComponentContractType)]);
+
         return
         [
             new(
                 CoreSchemaIdentity,
                 Version,
-                [textShape, integerShape, booleanShape],
-                [navigation],
+                [textShape, integerShape, booleanShape, componentField, componentLimit],
+                [navigation, root, routingCollection, routingEntry, componentContract, componentContracts],
                 [address]),
             new(
                 StructuralSchemaIdentity,
@@ -777,11 +1006,11 @@ internal static class ResourceExplanationVocabulary
                 CapabilitySchemaIdentity,
                 Version,
                 [],
-                [document, route]),
+                [document, route, relatedOperation]),
             new(
                 QuerySchemaIdentity,
                 Version,
-                [opaqueExternalIdentityShape],
+                [opaqueExternalIdentityShape, queryFacetOptionShape],
                 [querySpace, queryFacet]),
             new(
                 ConsumerSchemaIdentity,
@@ -919,6 +1148,36 @@ internal static class ResourceExplanationVocabulary
                     displayName,
                     $"The optional {displayName.ToLowerInvariant()} fact.",
                     TextShape,
+                    ExplanationCardinality.OptionalOne,
+                    ExplanationObservationStates.Available
+                        | ExplanationObservationStates.Absent);
+
+        Func<
+            ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> OptionalIntegerFact(
+            string identity,
+            string displayName) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The optional {displayName.ToLowerInvariant()} fact.",
+                    IntegerShape,
+                    ExplanationCardinality.OptionalOne,
+                    ExplanationObservationStates.Available
+                        | ExplanationObservationStates.Absent);
+
+        Func<
+            ExplanationResourceTypeIdentity,
+            ExplanationFactDeclaration> OptionalBooleanFact(
+            string identity,
+            string displayName) =>
+            resourceType =>
+                new(
+                    Fact(resourceType, identity),
+                    displayName,
+                    $"The optional {displayName.ToLowerInvariant()} fact.",
+                    BooleanShape,
                     ExplanationCardinality.OptionalOne,
                     ExplanationObservationStates.Available
                         | ExplanationObservationStates.Absent);

@@ -5,16 +5,17 @@
 This document owns **background analysis** in the website: Library and Type
 analysis the page starts on its own, without a user action, to give a reader
 immediate context. It owns the page-side queue, its order, relevance and
-de-duplication, the foreground-first rule, and the default comparison
-baselines. It is tracked by
+de-duplication, and the foreground-first rule. It runs the depth-1 step of the
+comparison targets that [Browser Diff targets](inspect-web-diff-targets.md#diff)
+owns. It is tracked by
 [#9716](https://github.com/richlander/dotnet-inspect/issues/9716).
 
-It consumes the single-threaded Worker contract in
-[Inspect-web worker runtime](inspect-web-worker-runtime.md#speculative-worker-local-preparation):
-the Worker gives background work no priority or preemption, so background
-work must return to the Worker event loop under a feature-owned structural
-bound. Each adopter's producer owns that bound; for Fast Diff it is
-[Fast Diff steps](fast-diff.md#steps).
+It consumes the single-threaded Worker contract in [Inspect-web worker
+runtime](inspect-web-worker-runtime.md#speculative-worker-local-preparation):
+the Worker gives background work no priority or preemption, so background work
+must return to the Worker event loop under a feature-owned structural bound.
+Each adopter's producer owns that bound; for Finding Diff Any it is [Finding
+Diff Any steps](finding-diff-any.md#steps).
 
 ## Why
 
@@ -64,7 +65,7 @@ only when its producer yields the Worker under a structural bound.
 ### Order
 
 1. **Visible subject:** cues for the Type on screen.
-2. **Library baselines:** Fast Diff against the default baselines, in the
+2. **Library baselines:** Finding Diff Any against the default baselines, in the
    order listed below.
 3. **Library rankings:** whole-Library rankings such as structural salience
    and top leverage.
@@ -73,29 +74,36 @@ Library analysis tabs stay on demand and are not queued.
 
 ### Default baselines
 
-A Gallery package's Library page compares its current version against:
+A Gallery package's Library page runs, for each checked scenario among the
+Package's [comparison targets](inspect-web-diff-targets.md#diff), that
+scenario's depth-1 step, whatever depth the reader has chosen. With both
+scenarios checked, as by default, that is two comparisons:
 
-1. **Last patch version**, both axes: the highest listed version below the
-   current one with the same major and minor version. When there is none, as
-   for an `X.Y.0` release, it is the highest listed version below the current
-   one. Both cases are the inventory's existing `previousVersion`.
-2. **Last major version**, API axis only: the highest listed version with a
-   lower major version.
+1. **Supply chain**, both axes: the active version against the highest
+   candidate below it, the automatic previous version that
+   [Browser Diff targets](inspect-web-diff-targets.md#specific-version)
+   defines once.
+2. **API evolution**, API axis only: the active version against the
+   projection's representative of the highest major below it.
 
-Prereleases are candidates only when the current version is a prerelease. A
-baseline that resolves to the same version as an earlier one runs once. An
-explicit Library Compare targets the single version the user selects and does
-not change these defaults.
+The [version window projection](version-resolution.md#version-window-projection)
+selects both points. A point that both windows name, as for an `X.0.0`
+release, is acquired once. An explicit Library Compare targets the versions
+the user selects and does not change these defaults.
 
-The background run acquires each baseline package without a user action. That
-is an approved exception to explicit network work, limited to these baseline
-packages.
+The background run acquires these packages without a user action. That is an
+approved exception to explicit network work, limited to the depth-1 steps.
+The rest of a deeper window, and a Specific version, run and acquire only when
+the reader enters Compare; choosing them does not.
 
 ### Navigation cues
 
-Outside Library Compare, the Type navigation marks each Type that the
-last-patch baseline reports with an axis `Changed` or `Indeterminate`. The
-cue names the baseline version and each reported axis, and an
+Outside Library Compare, the Type navigation marks each Type that the last
+step of the Supply chain window, the active version against the automatic
+previous version, reports with an axis `Changed` or `Indeterminate`. When
+Supply chain is unchecked, the navigation shows no cue. Cues over a whole
+window belong to [#9920](https://github.com/richlander/dotnet-inspect/issues/9920).
+The cue names the baseline version and each reported axis, and an
 `Indeterminate` axis is described as undecided rather than changed. Inside
 Library Compare, cues come from the Compare result for the user's target, as
 before.
@@ -129,20 +137,20 @@ reports changed with the API Member glyph. The header adds one finding from the 
 - when the row reports a declaration change and no changed Member, the change
   is in the Type's declaration;
 - when the diff has no row for the Type, the complete API diff shows no change
-  for it, which happens when Fast Diff over-reports or leaves the API axis
-  undecided; and
+  for it, which happens when Finding Diff Any over-reports or leaves the API
+  axis undecided; and
 - when the diff fails, the failure, with a retry.
 
-Implementation cues are not placed on Members until Fast Diff has per-Member
-states ([Fast Diff adoption](fast-diff.md#adoption) step 7); until then the
-Members header's Compare bodies action is their view.
+Implementation cues are not placed on Members until Finding Diff Any has
+per-Member states ([Finding Diff Any adoption](finding-diff-any.md#adoption)
+step 7); until then the Members header's Compare bodies action is their view.
 
 ## Gates
 
 - `background-analysis.test.ts`: order, foreground idleness before start,
   relevance before start and while running, and key de-duplication.
-- `library-fast-diff.test.ts`: baseline request derivation, cue mapping per
-  axis state, and failure status.
+- `library-finding-diff-any.test.ts`: baseline request derivation, cue mapping
+  per axis state, and failure status.
 - `engine-worker-ordinary.test.ts`: a background binding does not count as
   Worker activity.
 - `type-api-diff-cues.test.ts`: the one-Type API Diff request, held member
@@ -150,12 +158,12 @@ Members header's Compare bodies action is their view.
 
 ## Adoption
 
-1. **Queue and Fast Diff last-patch baseline** (#9817): the queue, the
+1. **Queue and Finding Diff Any last-patch baseline** (#9817): the queue, the
    background binding, and the navigation cues.
 2. **Member cues for the Type on screen** (#9826): the first
    visible-subject task and the Members header's Compare actions.
-3. **Library Compare lists and last-major baseline:** with
-   [Fast Diff adoption step 5](fast-diff.md#adoption).
+3. **Library Compare lists and the API evolution default window:** with
+   [Finding Diff Any adoption step 5](finding-diff-any.md#adoption).
 4. **Type heat and method leverage:** move their pumps onto the queue's
    visible-subject class and retire their own pumps.
 5. **Library rankings:** structural salience and top leverage, after their

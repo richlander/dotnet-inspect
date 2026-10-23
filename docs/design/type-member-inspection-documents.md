@@ -10,13 +10,19 @@ The design is approved. The four public document declarations, their shared
 exact-Member declaration shape, population correspondence guards,
 source-generated JSON contracts, and selector-driven Member document
 resolution and contextual explanation subject mapping are implemented.
-Existing production operations still return
-explicitly named transitional content shapes; later adoption slices must
-switch those producers without presenting the target contract as current
-behavior.
+The Type-side producers now have role-specific names:
+`TypeDocumentInspectionOperation` produces the public `TypeDocument`, while
+`TypeSubjectInspectionOperation` provides the reusable exact-Type subject and
+optional Member-group population used by compact projections and direct
+discovery. Remaining transitional Member content shapes and host-local
+composition must not be presented as the target contract.
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
+Final Member documentation attachment composition is implemented separately
+from the declaration documents. It preserves the completed exact or overview
+resolution while associating independently settled documentation outcomes with
+the exact subjects carried by that final document.
 
 The user approved defining these four documents together and integrating their
 resolved Member subjects with
@@ -38,7 +44,10 @@ authority.
 > Given one owner-resolved exact Type, MemberGroup, or exact Member, produce
 > the requested compact overview, complete declaration document, overload-set
 > overview, or exact-Member document while preserving one owner-issued subject
-> and population correspondence across every returned declaration.
+> and population correspondence across every returned declaration; when an
+> explicit documentation attachment request accompanies final Member
+> resolution, preserve that resolution and correlate one independently settled
+> outcome to each exact subject it carries.
 
 This owner defines:
 
@@ -52,6 +61,8 @@ This owner defines:
 - Rows and Count correspondence for one bound population and intent;
 - the count-directed distinction between a Member overview and an exact Member
   document; and
+- correspondence between final Member declarations and explicitly requested
+  documentation attachments, without redefining documentation evidence; and
 - the resolved subject handed to contextual explanation.
 
 It does not define:
@@ -59,7 +70,7 @@ It does not define:
 - Metadata facts, declaration decoding, signature spelling, or exact identity;
 - Library acquisition, ownership, borrowing, or retirement;
 - QuerySpace filtering, ordering, terminal, or continuation semantics;
-- documentation, source, metrics, or Analysis attachment semantics;
+- documentation, source, metrics, or Analysis attachment evidence semantics;
 - CLI sections, defaults, command syntax, or rendering;
 - Browser interaction, navigation presentation, or transport;
 - reusable-reference wire syntax; or
@@ -272,7 +283,7 @@ Its Member declarations are declaration rows, not embedded `MemberDocument`
 values. Exact-subject documentation, source, metrics, Analysis, and other
 attachments remain independently requested.
 
-`CompleteTypeDocumentInspectionOperation` resolves the exact Type once through
+`TypeDocumentInspectionOperation` resolves the exact Type once through
 the existing Library and Metadata Type-document path. Metadata projects every
 admitted declaration during the same classified-Member scan that defines the
 compact Type population. The scan applies spelling, accessibility, receiver,
@@ -381,6 +392,36 @@ declaration document or become success-shaped empty content.
 Completely drained rows and Count for the same population binding and intent
 must agree. A disagreement is a product defect, not host-specific behavior.
 
+## Member documentation attachment composition
+
+`MemberDocumentAttachmentCompositionOperation` is the final association
+boundary between Member declaration documents and DocumentationHouse-backed
+outcomes. It accepts one ordinary `MemberDocumentResolutionPlan` plus one
+explicit documentation demand. Resolution runs first:
+
+- exact resolution requests documentation for that one `MemberSubject`;
+- overview resolution requests documentation once for every declaration in
+  final document order; and
+- rejected, incomplete, or failed resolution performs no documentation work.
+
+The result retains the ordinary `MemberDocumentResolutionOutcome` unchanged.
+Its optional `MemberDocumentationAttachmentOutcome` settles independently.
+Available attachments must correspond in order to every exact subject carried
+by the completed final document. Result-set or subject mismatch is a typed
+attachment failure beside that document, not a replacement for it.
+
+DocumentationHouse and Queries continue to own documentation demand,
+settlement, evidence, provenance, and channel outcomes. This composition owns
+only association with the already resolved declaration subjects. It does not
+infer identity from documentation IDs, signatures, ordinals, or display text.
+
+The user approved this focused CLI-first adoption after the returned-row
+compiled-documentation table was identified as the only remaining
+`MemberGroupDocumentInspectionOperation` production caller. Inspect Web has no
+equivalent multi-row documentation-table gesture; its existing exact-Member
+documentation surface is unchanged. A future host gesture may consume the same
+host-neutral composition without changing this contract.
+
 ## Platform and safety boundary
 
 Requests, documents, population receipts, and explanation handoffs are
@@ -407,6 +448,27 @@ production adoption as focused slices:
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
 
+The Type-side naming collision in step 8 is retired:
+`TypeSubjectInspectionOperation` names the reusable subject/population
+substrate, and `TypeDocumentInspectionOperation` names the final public
+document producer. Member-side names and any remaining host-local composition
+are separate residual work.
+
+CLI default and explicit Tree presentation for one name-only method group now
+consume `MemberDocumentResolutionOperation`. A singleton population renders
+the final `MemberDocument`; a multi-declaration population renders the final
+`MemberOverviewDocument`. The distinct returned-row compiled-documentation
+table consumes `MemberDocumentAttachmentCompositionOperation`, preserving the
+same final resolution while attaching one compiled-documentation outcome to
+each returned declaration. `MemberGroupDocumentInspectionOperation` and its
+transitional `MemberGroupDocument` content are retired.
+
+Browser package, Platform, and uploaded-Library family views now consume the
+same final resolution. The managed exports preserve the established
+`queryMemberGroupDocument` transport and project either final document into
+that stable Browser contract, so TypeScript navigation and presentation do not
+reconstruct document identity or change wire behavior.
+
 Rendering work is not part of slices 1 through 6 and does not define the object
 model. CLI MemberGroup Tree presentation now streams the owner-issued complete
 exact-Member Rows through shared presentation without constructing a
@@ -415,17 +477,18 @@ presentation profile over the same owner-issued hierarchy; Count and other
 projections retain their independently admitted routes.
 
 As a performance prerequisite for later slice 7 adoption, exact direct-Library
-effective discovery in the CLI uses the transitional host-neutral Type
-inspection operation without claiming adoption of the four public document
-declarations. Exact `Type Info` requests only the detached Type subject. Bare
-discovery adds declared Member-group selector Counts and a separately typed
-same-image contextual-extension Exists request. Both share one opened assembly
-image; neither constructs Member-group Rows or the rich API surface. Direct
-bare discovery admits only minimal, non-tree output, which lists categories
-without their members, so it does not run the opt-in unsafe applicability
-probe; exact `Unsafe Members` discovery still runs it on demand. Unsupported
-declaration shapes, non-exact or non-round-tripping names, and requests that
-list category members retain the established route and its probe.
+effective discovery in the CLI uses
+`TypeSubjectInspectionOperation` without claiming adoption of the four public
+document declarations. Exact `Type Info` requests only the detached Type
+subject. Bare discovery adds declared Member-group selector Counts and a
+separately typed same-image contextual-extension Exists request. Both share one
+opened assembly image; neither constructs Member-group Rows or the rich API
+surface. Direct bare discovery admits only minimal, non-tree output, which
+lists categories without their members, so it does not run the opt-in unsafe
+applicability probe; exact `Unsafe Members` discovery still runs it on demand.
+Unsupported declaration shapes, non-exact or non-round-tripping names, and
+requests that list category members retain the established route and its
+probe.
 
 The motivating production case is .NET 11 RC1 CoreLib
 `System.Text.StringBuilder`, whose previous exact direct-Library effective

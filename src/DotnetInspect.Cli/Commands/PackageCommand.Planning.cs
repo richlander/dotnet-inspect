@@ -78,6 +78,22 @@ public partial class PackageCommand
         var schemas = new List<AllLibrariesRowSchema>
         {
             new(
+                SectionNames.DependencyStructure,
+                [
+                    "Package",
+                    "Version",
+                    "Library",
+                    "TFM",
+                    .. LibraryDependencyStructureTableOutput.Headers,
+                ],
+                [
+                    "package",
+                    "version",
+                    "library",
+                    "tfm",
+                    .. LibraryDependencyStructureTableOutput.StableHeaders,
+                ]),
+            new(
                 SectionNames.LibraryInfo,
                 [
                     "Package",

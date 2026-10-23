@@ -12,6 +12,13 @@ Current product spellings and renderings remain current behavior until their
 owning command adopts this contract. Examples marked **target** describe the
 settled direction; they do not claim that the behavior is already executable.
 
+The operator approved the representation-selection and JSON Document target on
+2026-10-20. [Section representations](#section-representations) supersedes the
+earlier exactly-one-presentation-shape rule and bare-array JSON lowerings below.
+The semantic Table, Hierarchy, and Text definitions remain applicable. Existing
+command-specific adoption records describe earlier shape adoption, not
+conformance to this newer representation contract.
+
 [Relationship Section Naming](relationship-section-naming.md) is the merged
 precedent: it names a relationship section by its semantic result shape. This
 document applies the same discipline to presentation. A section's shape, not
@@ -22,11 +29,12 @@ be shown.
 
 Section Shapes owns one claim:
 
-> After a section's semantic result is known, the section declares exactly one
-> shape — Table, Hierarchy, or Text — and that shape decides which output
-> formats can present the section, which format is native when the user
-> selects that one section and names no format, and what each supported
-> format preserves when it lowers the section.
+> A section's owner declares the representations it offers for its semantic
+> result. The consumer selects representation demand before content execution;
+> that demand determines the typed content returned and the work required,
+> without changing the declared rows, ordering, selection, or Count. The CLI
+> prefers Hierarchy, then Table, then Document; JSON consumes the structured
+> Document.
 
 This owner defines the three shapes, the native and permitted lowerings of
 each, the owner-issued properties that give a result its context, the
@@ -36,9 +44,204 @@ Document already names a content kind in
 [Host-observable content kinds](host-observable-content-kinds.md) and a
 multi-section rendered shape in [Output shapes](output-shapes.md); a
 Text-shaped section may well carry a content-kind Document, and the three
-classifications are independent axes of one section. It does not own section identity, categories, selection,
+classifications are independent axes of one section. A Document representation
+is a structured composition, not a synonym for a Text payload or rendered
+Markdown. This document does not own section identity, categories, selection,
 verbosity, cardinality, discovery surfaces, format spellings, or any
 command's data.
+
+## Section representations
+
+### One result, several representations
+
+A section may expose Hierarchy, Table, and Document representations in any
+supported combination. These answer the same semantic question over the same
+subject and selected population; they are not a requirement to materialize
+one rich object containing every representation. Demand alone does not
+authorize acquisition beyond the operation's existing permissions.
+The semantic definitions below still distinguish rows, parent relationships,
+and text payloads. An owner may expose a Table alongside a Hierarchy, or a
+Document alongside either, without changing that semantic grain.
+
+A Table contains one ordered row population with one column schema. A
+Hierarchy adds owner-issued parent relationships over that population; context
+nodes do not become rows. A Document carries the payload and the structured
+summary or context needed to interpret it. It may also carry an owner's text
+payload, hierarchy, completeness evidence, or scoped failures. It need not be
+table-centric.
+
+For a table-centric section, the Document contains the same typed, selected,
+ordered rows that feed the Table representation. The Document can retain
+additional row facts; tabular display spelling need not be the JSON schema.
+Identity, population, and meaning must agree, not the rendered bytes.
+
+Summary values are owner-issued structured facts, not sentences parsed back
+into fields. Their scope must be defined: totals over the complete result must
+not be mistaken for totals over a selected row window. Row selection does not
+silently recompute a complete-result summary. Each owner defines the summary's
+scope and any selection context needed to interpret it; this contract does not
+impose a universal summary schema.
+
+### Typed demand and work
+
+The operator approved this type and work boundary on 2026-10-21:
+
+> The selected representation determines the final content type `T` in
+> `InspectionEnvelope<T>`. Encoding does not. Table and Hierarchy demand
+> excludes work performed solely to construct Document summary or context.
+
+The host maps its format gesture to an offered representation before executing
+the section's content plan. The shared owner consumes typed representation
+demand, not CLI format flags. For example, TSV and JSONL both request the same
+Table content type; changing between those encodings changes neither `T` nor
+its producer work. JSON requests the owner's Document type. Markdown requests
+that Document type when offered, or the declared structural fallback type.
+
+Conceptually, a Diff owner can issue
+`InspectionEnvelope<ChangesTable>` for Table demand and
+`InspectionEnvelope<ChangesDocument>` for Document demand. These illustrative
+names prescribe neither CLR types nor a universal schema. Each owner defines
+its concrete typed request/result pairs; a method does not dynamically change
+its declared return type after inspecting an encoding flag. The shared
+boundary must preserve the selected type rather than erase it to `object`,
+serialize every representation, or require a stable all-representations
+Document with unused summary slots.
+
+Table and Hierarchy demand must avoid Document-only summary computation,
+acquisition, and allocation. Building a complete Document and then discarding
+its summary is not conforming. Shared prerequisites and facts needed for the
+requested rows, parent relationships, selection, or required completeness and
+failure evidence still run; facts already produced by that work may be reused.
+There is no requirement to duplicate a scan or prevent incidental production
+of a fact. There is a requirement not to add Document-only aggregation,
+materialization, or prerequisite work to a structural request.
+
+Document demand composes the selected payload with its owner-issued summary
+and context. Owners share mechanisms and prerequisites where their inputs and
+invariants agree, rather than running a second inspection solely to wrap the
+rows. Document demand remains subject to existing cost and acquisition
+authorization; a format preference grants no additional network permission.
+
+Thus "same result" means the same semantic question and declared row
+population, not the same fully materialized object or identical work plan.
+Summary scope remains defined even when producing that summary requires work
+that structural requests deliberately avoid. The envelope continues to wrap
+one owner-issued content value with Share and diagnostics; selecting a
+different `T` does not alter those service responsibilities.
+
+### Consumer selection
+
+For one effective section with no explicit format intent, the CLI chooses the
+first available representation in this order:
+
+1. Hierarchy, rendered as a tree.
+2. Table, rendered as TSV rows.
+3. Document, rendered according to its content; a lone text payload retains
+   its undecorated native spelling.
+
+Section selection, including which section is the command's default, remains
+with its existing owner. A multi-section selection uses a representation that
+can carry the complete selection under the existing composition rules; the
+preference order does not authorize concatenating incompatible row schemas or
+discarding selected sections. A heterogeneous composition uses Document.
+
+Explicit output intent takes precedence:
+
+| Request | Representation and rendering |
+| --- | --- |
+| `--tsv`, `--table`, `--jsonl` | Table rows only, including an admitted flat Table representation of a Hierarchy |
+| `--json` | Structured Document, serialized with native value types |
+| `--markdown` | Authored Document rendering when offered; otherwise a Table rendered as a Markdown table or a Hierarchy rendered as a Markdown-framed tree |
+| Explicit tree or diagram format | The corresponding admitted Hierarchy lowering |
+
+A row stream has one schema and no document-summary preamble or trailer.
+Changing to a tabular formatter over an entire Document is not Table
+selection. Genuine field-entry rows of a scalar Table remain rows; the rule
+removes incidental Document context, not deliberately selected scalar content.
+Failures remain visible under the producer's outcome and host diagnostic
+contracts; they are not hidden to make the row stream look successful.
+
+An unsupported explicit representation fails visibly before acquisition where
+capability admission can determine that failure. The host does not silently
+substitute another representation. Merely preferring a richer representation
+does not authorize additional expensive or network work.
+
+### JSON Document
+
+`--json` serializes the structured Document, never rendered Markdown, TSV, or
+string-valued formatter callbacks. A typical table-centric Document is
+conceptually:
+
+```json
+{
+  "summary": {
+    "breaking": 1,
+    "additive": 2
+  },
+  "rows": [
+    { "change": "added", "type": "Example.Widget" }
+  ]
+}
+```
+
+This example illustrates composition, not prescribed property names, a complete
+population, or a universal wire schema. Each owner retains its typed contract.
+Hierarchy- and text-centric Documents retain their corresponding payloads
+rather than manufacturing table rows. Selecting one section does not discard
+its Document wrapper or interpretation context merely because one table
+remains. An empty successful row population remains distinguishable from an
+incomplete or unavailable result.
+
+Supported section, row, field, and column projection operates on the Document's
+declared typed content before serialization. It does not change `--json` to a
+display-value dialect; an unsupported projection fails rather than being
+ignored or silently selecting that dialect. Existing display-only projections
+require explicit owner adoption rather than inferred mappings from labels.
+
+This is a content-level composition, not a second service envelope.
+`InspectionEnvelope<TContent>` retains its existing Content, Share, and
+diagnostics boundary. Ordinary `--json` emits the Document content; an admitted
+`--envelope` request emits the service envelope. Owner-specific non-available
+outcomes retain their typed failure contracts rather than becoming empty
+Documents.
+
+### Motivation and adoption boundary
+
+The concrete witness is repository source at
+`4d86f7d84`, particularly
+[`DiffTableView` and `DiffDetailedChangesView`](https://github.com/richlander/dotnet-inspect/blob/4d86f7d84/src/DotnetInspect.Cli/Views/DiffViews.cs#L13-L65):
+both combine Versions and Summary fields with Changes rows.
+[`LibraryApiDiffOutput`](https://github.com/richlander/dotnet-inspect/blob/4d86f7d84/src/DotnetInspect.Cli/Output/LibraryApiDiffOutput.cs#L113-L160)
+passes those whole views to the tabular serializer.
+[`CommandLine_ApiAnalysisMemberScopePreservesBreakingGenericConstraint`](https://github.com/richlander/dotnet-inspect/blob/4d86f7d84/tests/DotnetInspect.Cli.Tests/DiffCommandTests.cs#L3256-L3295)
+even requires `Summary\t1 breaking` in `-S Changes --tsv` output. Complexity
+Context and Structural Context use the same whole-view pattern.
+
+That behavior motivates distinct Table and Document representations, not
+deleting summaries from all formats. CLI row output is the immediate consumer;
+JSON and Markdown consume the richer Document. Browser/Wasm consumers can
+choose among the same owner-issued representations without adopting the CLI
+preference order.
+
+Implementation remains staged by owner. Diff is the motivating first adoption;
+other command owners follow independently. Existing shape declarations,
+public JSON schemas, and display-lowered JSON paths are not migrated by this
+documentation change. Each implementation adoption must record its public
+compatibility change and retire its superseded whole-Document tabular path.
+
+The initial end-to-end plan is tracked by
+[#10385](https://github.com/richlander/dotnet-inspect/issues/10385), with three
+planned slices:
+
+1. This representation-pattern specification, with no runtime adoption.
+2. Shared Diff representations and CLI adoption, including retirement of
+   whole-Document tabular serialization and superseded JSON dialect routing.
+3. Browser/Wasm Diff adoption of the shared representations under its own
+   presentation owner, retiring any superseded equivalent host-only projection.
+
+Each implementation slice gets a focused issue before it begins. Three is the
+initial plan's total, not a claim that every command has migrated. Other command
+owners require separately tracked adoptions.
 
 ## Why shape belongs on the section
 
@@ -163,15 +366,15 @@ shape cannot carry fails before acquisition and names the shape.
 
 ## The three shapes
 
-A shape is a statement about the result, not about a renderer. The owner
-classifies the section once, from the semantic result it issues, and every
-host and format follows that classification.
+A semantic shape is a statement about the result, not about a renderer. The
+definitions below constrain its offered representations; they do not restrict
+the section to one representation.
 
-Each shape's JSON lowering below describes the section's JSON value. Whether
-that value is the root, how it sits inside a document or envelope, and whether
-a request routes to typed or lowered JSON are owned by
-[Projected JSON](projected-json.md); this document does not change that
-routing.
+The earlier per-shape JSON lowerings below describe payloads within the
+structured Document, not permission to omit that Document.
+[Projected JSON](projected-json.md) records the display-lowered compatibility
+path. Its dialect routing remains current behavior only until an owner adopts
+the Document representation contract above.
 
 ### Table
 
@@ -179,11 +382,12 @@ A Table is an ordered set of rows sharing one column schema. Its row unit is
 whatever the owner declares — a target framework, a dependency, a type, a
 finding — and nothing in the presentation adds or removes rows.
 
-The native format is the row stream: TSV in the CLI. Permitted lowerings are
+The native Table rendering is the row stream: TSV in the CLI. Permitted lowerings are
 the pretty table, JSONL, a JSON value that is an array of row objects, the
 Markdown table under the section heading whether the Table is selected alone
 or composed, and the Count and projection steps of the
-[output-shape ladder](output-shapes.md#the-shape-ladder).
+[output-shape ladder](output-shapes.md#the-shape-ladder). Under the representation
+contract, that JSON array is the Table payload within a Document.
 
 A scalar record such as `Package Info` or single-Library `Library Info` is a
 Table whose row unit is a field entry. [Section
@@ -299,11 +503,12 @@ Where properties appear follows from the format:
 - a row stream has no place for them and omits them, because a header row
   describes columns, not context.
 
-Structured formats do not carry properties under this document.
-[Projected JSON](projected-json.md) gives each section one value and owns the
-root namespace, so a per-section property association is a Projected JSON
-design question. Until that owner defines one, structured output omits
-properties, and no adoption invents a carriage of its own.
+The Document representation retains owner-issued interpretation context under
+its typed contract; this document prescribes no universal property container
+or machine keys. The earlier display-lowered compatibility path in
+[Projected JSON](projected-json.md) has no per-section property association and
+continues to omit these properties until its owner adopts the new contract.
+Row streams continue to omit them.
 
 The subject's identity itself — the package, library, type, or member being
 inspected — is not a property. Identity is owned by the subject's resolution;
@@ -336,16 +541,20 @@ lowerings decide only whether the request is admissible. An inadmissible pair
 fails before acquisition and names the shape and the formats it supports. The
 host never substitutes a different lowering or a different section.
 
-**Composition formats carry every shape.** Markdown and JSON can present any
-selection of sections. Row-stream formats require either one section or a
-family whose members lower to one homogeneous row schema; the
+**Document composition can carry every semantic shape.** JSON requires an
+offered Document representation for each selected section. A Table-only
+section therefore rejects `--json`; the host does not manufacture an unoffered
+Document. Markdown uses the offered Document or its declared Table/Hierarchy
+fallbacks. Row-stream formats require either one section or a family whose
+members lower to one homogeneous row schema; the
 [section model](section-model.md#output-shapes) owns that heterogeneity rule
 and this document adds only that a Text's fact row counts as its row
 schema for the purpose.
 
-**Shape is discoverable.** The shape is an owner-issued property of the
-section, exposed through the same discovery surface as its name and
-categories, and the section's supported-format list derives from it. The
+**Representations are discoverable.** The semantic shape and offered
+representations are owner-issued declarations, exposed through the same
+discovery surface as the section's name and categories. Its supported-format
+list derives from those declarations. The
 [schema query](schema-query.md) design owns the discovery surface; [Output
 shapes](output-shapes.md#structural-format-capabilities) owns how a host
 evaluates a complete selection against those capabilities.
@@ -354,7 +563,7 @@ evaluates a complete selection against those capabilities.
 
 | Concern | Owner | Boundary |
 | --- | --- | --- |
-| Shape classification, native and permitted lowerings, properties, lowering invariants | This document | Defines the three shapes, the properties contract, and what every lowering preserves |
+| Semantic shapes, offered representations, selection policy, properties, lowering invariants | This document | Defines representation alternatives and what every lowering preserves |
 | Section identity, categories, selection, verbosity, heterogeneity | [Section Model](section-model.md) and [Section Pipeline](section-pipeline.md) | Apply authored shape without deriving it from spelling or renderer |
 | Scalar versus inventory, Rows and Count | [Section Cardinality](section-cardinality.md) | Decides whether a section has rows at all |
 | Shape ladder, projection, complete-selection capability evaluation | [Output Shapes](output-shapes.md) | Narrows a selected shape and evaluates a selection; supported modes derive from the declared shape |
@@ -444,8 +653,10 @@ unchanged.
    inventory and `Library Info`, under the same three shapes (#9511). Every
    section is a Table except `Reference Hierarchy`, a Hierarchy of rooted
    reference occurrences whose Mermaid format is its explicit diagram
-   lowering, and `Dependency Structure`, a Graph of namespace nodes and edges
-   that keeps its diagram formats. The library catalog has
+   lowering. `Dependency Structure` is a Table of namespace edges with a
+   Document, and its Mermaid format lowers the same graph
+   ([Library dependency structure](library-dependency-structure.md)). The
+   library catalog has
    no Text. Its field-set records — single-Library `Library Info`, the
    SourceLink availability and integrity records, `Symbols`, and
    `Metadata: Image` — are scalar Tables; every other section is an
@@ -456,8 +667,7 @@ unchanged.
    `Allocation`, `Safety`, and `Cost` list the regions or facts at the
    coordinate, one row each, and `Metadata: Heap` rows are heap entries.
    A lone selected Table streams its rows and `Reference Hierarchy` renders
-   its tree when no format is named; `Dependency Structure`, declaring no
-   shape, keeps its rendering.
+   its tree when no format is named.
 3. **Type owner.** Classifies the `type` sections, including the member tree
    and the `Source` family. The default Type overview is a Hierarchy: the
    Type, its categories as context, and its MemberGroups as rows, each
@@ -500,6 +710,19 @@ This specification is documentation-only. `markdownlint` and
 Runtime conformance remains **unverified** until each adoption adds Release
 gates covering, for its command:
 
+- Table output with exactly one schema and no Document-summary rows, including
+  an empty primary population;
+- agreement between Document payload rows and Table rows after the same
+  selection, with declared summary scope preserved;
+- representation-specific typed content at the shared boundary, with the same
+  Table type for TSV and JSONL encodings;
+- Table and Hierarchy demand avoiding Document-only summary computation,
+  acquisition, and allocation while preserving required row, completeness,
+  and failure work;
+- JSON Document serialization with native types, retained context, and
+  projection that never switches to display-lowered JSON;
+- default representation preference and explicit Markdown Document preference
+  with Table and Hierarchy fallbacks;
 - the declared shape of every section in discovery output;
 - the native lowering for each shape when exactly one section is selected
   and no format is named;
@@ -514,7 +737,7 @@ gates covering, for its command:
 - the absence of host replay text from structured content;
 - title and heading text composed only from the subject identity and issued
   properties, a bare payload for a native Text, and no properties in row
-  streams or structured output; and
+  streams; and
 - the one-row hierarchy, absent document, heterogeneous request, and
   homogeneous family cases above.
 
@@ -527,12 +750,12 @@ observable lowering gates.
 This document does not:
 
 - rename current runtime sections or change current defaults before adoption;
-- define a fourth shape, or a Graph shape, which remains with its Graph owners;
+- define a Graph shape, which remains with its Graph owners;
 - define format spellings, the environment default, or terminal detection;
 - define JSON schemas for any command;
 - define Browser/Wasm widgets or interaction;
 - change section identity, categories, verbosity presets, or cost classes;
 - define discovery output columns;
 - fix the vocabulary of property names, which each owner issues;
-- define how structured formats carry properties, which Projected JSON owns; or
+- impose a universal schema for Document context properties; or
 - authorize one implementation sweep across commands.

@@ -21,6 +21,9 @@ retired. `LibraryBodyAnalysisService` now publishes only
 results. The migration narrative below records how that boundary was reached
 and does not describe a still-supported compatibility path.
 
+[Role map](assembly-analysis-operation.md#role-map) maps each
+role this service performs to its target owner.
+
 The remaining producer hub is now observable through an opt-in typed stage
 participation receipt. A diagnostic request records actual method enumeration,
 body acquisition, local-signature decode, canonical context construction,
@@ -105,6 +108,42 @@ once over the already-prefetched authoritative image, scopes the request to
 the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
+
+The safety-only drain slice moves IL-coordinate preparation to
+`ExactMethodAnalysisProducer`. CLI and Library Address borrow their existing
+prefetched metadata context, deduplicate the requested MethodDef tokens, and
+execute one owner-issued exact request. `ILOffsetSafetyAnalysisInput` carries
+the safety evidence, unsafe occurrences, diagnostics, source receipt, and work
+receipt independently of the legacy three-result input.
+
+The allocation-only follow-up plans `ExactMethodAllocationProducer` over the
+same deduplicated MethodDef population. `ILOffsetAllocationAnalysisInput`
+carries detached allocation occurrences, diagnostics, source receipt, and work
+receipt. Direct CLI and Library Address reuse one focused input across every
+coordinate row and do not execute this service. Cost-only and combined
+semantic coordinate requests still use this service because cost requires the
+donor-owned public direct-call rows.
+
+The method-analysis-support prerequisite for exact allocation and optimization
+is tracked by
+[#10307](https://github.com/richlander/dotnet-inspect/issues/10307).
+`DeclaredSourceAttribution` now composes the
+[Method Query Source support](method-query-source.md#method-analysis-support)
+used by the legacy builder's method resolver, method-reference resolver,
+generic-constraint classifier, and stable-receiver classifier. The primary
+resolver's memory-safety index is lazy, so allocation and optimization support
+does not silently construct unrelated safety infrastructure. This is a
+composition and ownership transfer, not production QuerySpace adoption:
+allocation and optimization for the shared CLI and Browser/Wasm exact-method
+operation moved in #10285. `ExactMethodAllocationProducer` owns the canonical
+allocation context and facts consumed by `ExactMethodOptimizationProducer`,
+while the composed exact bundle publishes direct calls, final signals,
+allocations, and optimization opportunities without constructing this service.
+Allocation-only matched-member requests plan
+`ExactMethodAllocationProducer` and therefore omit call collection, safety,
+signals, and optimization entirely. Cost and combined coordinate requests
+still use this service. Final fallback drainage and deletion remain with #8965
+and #9959.
 
 The CLI session adoption moved both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
@@ -278,6 +317,10 @@ a declared-method token. Resolution binds it by token and then by signature,
 using the same current-module test and signature comparison as the call graph's
 own traversal. Consumers must use this outcome and must not match
 `CalleeDefinitionToken` against `DeclaredMethods`. Resolution is a pure function of the published result.
+`SameModuleMethodResolver` owns the judgment. This result supplies its
+declared methods as candidates, and
+[Method Query Source call-target support](method-query-source.md#same-module-call-target-support)
+supplies candidates from metadata, so the two issue the same target.
 
 The first production consumer is the Library Metrics relationship projection.
 Library Dependency Structure is the second.
@@ -595,9 +638,10 @@ The result distinguishes:
 - effective physical bodies after expansion and work bounds; and
 - declared methods that have no managed physical body.
 
-Existing `LibraryBodyDeclaredSourceResolver` and
-`LibraryBodyAsyncSourceResolver` remain the owners of authenticated expansion
-and attribution. Metric selection makes their scope expansion eligible even
+Existing `DeclaredSourceResolver` and
+`StateMachineSourceResolver` remain the owners of authenticated expansion
+and attribution, which `LibraryBodyDeclaredSourcePublication` applies to a
+plan. Metric selection makes that scope expansion eligible even
 when the coarse `MethodEvidence` feature is absent. The metric result retains
 each expansion edge with its physical token, declared owner token when known,
 and owner-issued reason.
@@ -743,8 +787,18 @@ constructed, then releases reader-bound state before returning.
 During migration,
 `LibraryBodyAnalysisFeatures.ImplementationProfiles` normalizes to the named
 `CompleteProfileV1` metric request. The plan records that compatibility origin,
-and the focused metric result remains the sole Analysis result source for each
-profile value.
+so both routes share the named metric and fact plan while retirement
+progresses.
+
+The explicit `CreateCompleteImplementationProfile` route now executes that
+composition through focused metric producers. The legacy
+`ImplementationProfiles` feature temporarily retains its original execution
+path as the parity oracle; it does not force explicit complete-profile requests
+back onto `MethodEvidence` or legacy profile collection.
+When complete-profile structural metrics already traverse decoded
+instructions, direct-invocation counting joins that traversal instead of
+running a separate discovery pass. Count-only requests retain the shallow
+discovery producer and do not acquire canonical context.
 
 `LibraryImplementationProfileAnalysisResult` becomes an adapter over
 `LibraryImplementationMetricAnalysisResult`. It preserves:
@@ -1095,9 +1149,9 @@ The counted implementation path is:
 5. Publish per-body typed outcomes and per-metric coverage in
    `LibraryImplementationMetricAnalysisResult`.
 6. Adapt the complete implementation profile from the focused result and
-   migrate `AssemblyContextImplementationProfileFamilyQuery` and
-   `AssemblyContextLibraryMetricsQuery`, preserving their existing CLI and
-   Inspect Web consumers.
+   migrate `AssemblyContextImplementationProfileFamilyQuery`, preserving its
+   existing CLI and Inspect Web consumers. `AssemblyContextLibraryMetricsQuery`
+   instead consumes the exact structural result described below.
 7. Retire the monolithic feature bit after remaining complete-profile callers
    move, then let #8445 adopt the selective result through
    `MemberMetricsInspect`.
@@ -1135,8 +1189,24 @@ This request publishes `LibraryStructuralAnalysisResult`; it does not publish
 `MethodImplementationProfile` rows. Research consumes the structural result
 directly and preserves the existing Library Metrics document, compatibility
 receipt, population coverage, diagnostics, ordering, and transport bytes.
-Other queries, including Implementation Profiles and exact-family Member
-Metrics, retain their existing result and execution routes.
+The direct CLI route and the host-neutral
+`AssemblyContextLibraryMetricsQuery` used by package and platform Browser/Wasm
+exports both issue this request. Other queries, including Implementation
+Profiles and exact-family Member Metrics, retain their existing result and
+execution routes.
+
+The CLI exact-family Member Metrics route carries the exact TypeDef token and
+complete public overload selectors already issued by its member projection.
+For ordinary method families, the Analysis query projects only that TypeDef's
+declared public API, authenticates the complete family against the participant,
+and resolves its body tokens and scoped failures without reconstructing the
+whole compatibility API surface before scoped body Analysis.
+Selector-only callers, including the current Browser exports, retain the
+compatibility projection and its validation. Prepared families containing
+receiver-contextual extension methods also retain that route because exact
+TypeDef projection intentionally excludes attached extensions. Both routes
+publish the same family inspection result and preserve the complete-family
+requirement.
 
 The Library Metrics physical plan uses one shallow decoded instruction array
 per admitted body. One scan computes instruction, branch, switch, backward-loop,
@@ -1540,6 +1610,9 @@ The initial Release gates are:
 - existing `AssemblyContextMethodAnalysisQueryTests` for exact physical
   method evidence, visible participant failures, resolver use, and
   cancellation;
+- `ExactMethodAnalysis_UsesOnePhysicalBodyAndMatchesLegacyFacts` for the first
+  exact-member producer's one-body source receipt and identity, direct-call,
+  safety, diagnostic, and exception-region parity with this donor;
 - existing `AssemblyContextOptimizationOpportunitiesQueryTests` for ranking,
   public-member attribution, participant isolation, resolver use, and visible
   failure; and
@@ -1559,6 +1632,31 @@ The initial Release gates are:
 
 No source-code absence gate enforces service usage. Consumer migration is
 established by the production call sites and focused behavior gates.
+
+`AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
+`ExactMethodAnalysisProducer` owns semantic identity, safety evidence and
+occurrences, direct calls, allocation occurrences, intrinsic optimization
+opportunities, call-site multiplicities, diagnostics, and detached physical
+exception regions through its focused producer bundle. Public direct-call
+rows, final `MethodSignals`, declared-source attribution, and
+optimization-row enrichment complete without this service.
+`MatchedApiMemberAnalysisQuery.InspectAllocations` no longer consumes that
+complete envelope. It plans an exact allocation-only producer and publishes
+its rows directly, so an allocation finding cannot accidentally select call,
+safety, signal, string-materialization, or optimization work.
+Exact single-member CLI Diff requests containing only allocation analysis now
+consume the same focused producer for the direct MethodDef selected from each
+endpoint's API surface. Package endpoints map that surface MethodDef through
+the endpoint's surface-to-implementation role correspondence before analysis;
+bodyless or unavailable mappings fall back. That route opens no
+`MethodBodyInspectionSession` and does not execute this service. Mixed
+body-analysis sets, forwarded or one-sided targets, and target shapes without
+one direct managed body continue through the established shared service path.
+Recoverable whole-body Calls failure does not erase independent focused
+evidence: exception regions are already detached, and a recovery-only
+owner-issued operand resolver preserves the safety-occurrence prefix while the
+already materialized instructions preserve call-independent operation-safety
+evidence and the diagnostic remains visible.
 
 Each result-type migration additionally gates:
 

@@ -156,7 +156,10 @@ public abstract record PackageDependencyTraversalManifestFailureDetail
         ImmutableArray<PackageAuthorityFailure> Failures) :
         PackageDependencyTraversalManifestFailureDetail;
 
-    /// <summary>The shared operation deadline expired before manifest acquisition settled.</summary>
+    /// <summary>
+    /// The shared operation deadline expired before manifest acquisition, local
+    /// projection, or traversal publication settled.
+    /// </summary>
     public sealed record IncompleteAcquisition(
         ImmutableArray<PackageAuthorityFailure> Failures) :
         PackageDependencyTraversalManifestFailureDetail;

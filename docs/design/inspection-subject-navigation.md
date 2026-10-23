@@ -204,7 +204,7 @@ defining-Library result, preserves active ancestors, and applies forwarded
 fallback under #5584. CLI and Browser/Wasm adoption remain separately
 unverified.
 
-The aggregate-first Package policy below remains **target-only in shared
+The First-Library Package policy below remains **target-only in shared
 Navigation** under
 [#7318](https://github.com/richlander/dotnet-inspect/issues/7318). Current
 `NavigationInitialSubjectRecommendation` still prefers one primary or
@@ -216,8 +216,10 @@ selection accepts either `ID@VERSION` or explicit
 `package ID --version VERSION`; the latest Version is the one-row inventory
 query `package ID --versions -n 1`. Commandless routing deliberately rejects
 the singular `--version` option because a generic version lens does not
-compose across routable subjects. Shared Navigation, API/Type/Member, Find, and Browser
-adoption remain with their focused slices.
+compose across routable subjects. Shared Navigation, API/Type/Member, and Find
+adoption remain with their focused slices. Inspect Web's First Library default
+is the first host adoption of the revised initial-subject policy; CLI aggregate
+defaults remain a separate successor.
 
 ## Consumer and complexity record
 
@@ -532,8 +534,8 @@ Inspection Subject Navigation owns:
 - separation of exact subject identity from the route used to reach it;
 - subject applicability, availability, and failure classification;
 - initial subject recommendation and subject-scoped lens recommendation;
-- Package aggregate recommendation plus exact-, namesake-, and First Library
-  narrowing;
+- First Library initial recommendation plus explicit aggregate, exact, and
+  namesake Library requests;
 - Workspace, Ecosystem, Package, Library, Type, Member, and lens navigation
   descriptors;
 - exact subject and lens activation outcomes;
@@ -815,10 +817,10 @@ occurrences. Registration therefore supplies relevance and route evidence, not
 fabricated membership.
 
 Package remains an exact occurrence, not an aggregate over all packages.
-The Package-scoped `All libraries` aggregate is the recommended Library/API
-subject where that Package supports it; it does not become ancestry for an
-exact Type and it does not create Workspace-wide or Ecosystem-wide aggregate
-subjects.
+First Library is the recommended Library/API subject where that Package
+supports it. The Package-scoped `All libraries` aggregate is explicit opt-in;
+it does not become ancestry for an exact Type and it does not create
+Workspace-wide or Ecosystem-wide aggregate subjects.
 Navigation may supply owner-issued Ecosystem, Package, and Library inventories
 without inventing `All ecosystems`, `All packages`, or `All libraries`
 structural identities.
@@ -1165,23 +1167,58 @@ delegated to the consumer.
 
 ### Initial aggregate and Package
 
-Library/API recommendation selects:
+Fresh exact Package navigation selects:
 
-1. The available Package-scoped `All libraries` aggregate.
-2. The exact Package when no aggregate is available.
+1. The exact Library chosen by **First Library**.
+2. The exact Package only when the selected projection admits no Library
+   subject or its population cannot be established.
 
-The aggregate contains every admitted Library from one PackageHouse-selected
-compile projection in the exact `PackageLibraries` basis. Its cardinality may
-be one or many; cardinality never changes its identity into a one-Library
-subject. The former primary and declaration-order Library preferences do not
-participate in initial subject selection.
+`All libraries` is an explicit opt-in subject, not the initial recommendation.
+It contains every admitted Library from one PackageHouse-selected Library
+population in the exact `PackageLibraries` basis. Compile selection has
+precedence. Only `NoCompileAssets` or `EmptyCompileGroup` permits the runtime
+selector to issue one implementation population, and that selector infers a
+RID only when exactly one eligible managed RID exists. No result merges
+targets, RIDs, or roles. Its cardinality may be one or many; cardinality never
+changes its identity into a one-Library subject.
+
+First Library selection is inventory work. A host may therefore acquire the
+package directory, choose one exact Library, and issue exact Library content
+demand without first acquiring sibling Library bodies. Selecting `All
+libraries`, a Package-wide Type view, or another aggregate-capable operation
+may broaden that demand explicitly.
+
+The initial recommendation is not a product-wide Library-scope default. A
+Package-grain operation whose
+[Package Library Scope](package-library-scope.md#aggregate-scope) is aggregate
+consumes every Library in the owner-issued population even when its host would
+recommend one exact Library for interactive navigation. The CLI therefore
+accepts `All libraries` as the implicit scope for Package-scoped Type lookup;
+its supported exact `--library` source narrows that operation. Inspect Web
+instead recommends First Library when a person opens a Package, while keeping
+`All libraries` and every exact Library as explicit choices. These host
+defaults differ only in entry gesture. They do not redefine the operation's
+aggregate or exact semantics, and they do not imply that every host exposes
+every Library gesture on every command.
+
+`Microsoft.Azure.SignalR` 1.33.1 is the motivating real asset. Its `net8.0`
+population contains `Microsoft.Azure.SignalR.dll` and
+`Microsoft.Azure.SignalR.Common.dll`, while
+`Microsoft.Azure.SignalR.AccessTokenAlgorithm` is declared only by the
+non-namesake Common Library. A Package-scoped Type request for that exact Type
+must therefore search the complete population and resolve it without an
+explicit Library gesture. First Library navigation may still begin at the
+namesake Library because it is a recommendation for browsing, not evidence
+that sibling Libraries are outside Package scope.
 
 Participant rejection, decode failure, or inspection failure remains attached
-to the aggregate result. Healthy participant evidence may remain usable, but
-the snapshot and every projection identify the result as partial; Navigation
-never turns incomplete evidence into a complete successful aggregate.
-Package-only occurrences, including the tools-v2 pointer-package case
-implemented by #4829, select Package with the selection explanation visible.
+to the selected Library or aggregate result. A failed chosen Library stays the
+chosen Library and exposes its non-success; Navigation never substitutes a
+healthy sibling. Package-only occurrences, including the tools-v2
+pointer-package case implemented by #4829, remain at Package with the
+selection explanation visible. A population failure may also leave Package
+visible as the only activatable subject, but it is not reported as a
+successful fallback.
 
 Explicit subject requests take precedence over this recommendation:
 
@@ -1198,7 +1235,8 @@ Explicit subject requests take precedence over this recommendation:
   could change either conclusion. Every non-applied outcome retains the
   ordered candidates and participant evidence and never falls back to
   declaration order, the aggregate, or Package.
-- **First Library** takes the first namesake in Library order, or the first
+- **First Library** is both the fresh-Package default and an explicit request.
+  It takes the first namesake in Library order, or the first
   Library in that order when there is no namesake. It is the shape of LINQ's
   `FirstOrDefault(isNamesake) ?? First()`. Namesake comparison is the
   Namesake Library comparison above. Because the request asks for the first
@@ -1241,31 +1279,42 @@ several namesakes that differ only in tie-break order,
 `FirstLibraryRequest_WithoutNamesakeSelectsFirstInLibraryOrder`,
 `FirstLibraryRequest_UnresolvedIdentityFailsClosed`, and
 `FirstLibraryRequest_EmptyPopulationIsUnavailable` gate `PackageLibraryOrder`.
-The chosen-Library rule remains **unverified** until a consuming route adds
-`FirstLibraryRequest_ChosenLibraryNonSuccessDoesNotFallback`, under
-[#9683](https://github.com/richlander/dotnet-inspect/issues/9683).
+Inspect Web gates the consuming chosen-Library rule with
+`QueryPackage_FirstLibraryFailureDoesNotSelectSiblingSurface` and
+`a failed First Library surface remains selected instead of using a sibling`.
+Shared Navigation adoption remains unverified.
 
 One Navigation evaluation consumes one selected framework projection. A
 coordinator requesting multiple frameworks presents separately associated
 aggregates; it cannot merge their Library identities or API evidence into one
 `All libraries` subject.
 
-The browser adoption in #6098 uses the existing `defaultAssemblyId` projection
-for fresh package entry, including opening retained packages through Search.
+Inspect Web consumes one owner-issued First Library ID for fresh package entry,
+including opening retained packages through Search. Compile inventory uses
+`PackageCompileAssetSelector`'s `PackageLibraryOrder` result; tool inventory
+uses the same order over the tool owner's issued simple names. Summary and
+broad-surface projections preserve that exact ID, including when its surface
+fails, and never replace it with a projected sibling. Library Overview then
+issues exact Library demand; `All libraries` remains an explicit navigation
+row whose activation can request the broad Package surface.
+
 Explicit Package, Library, Type, Member and inspector destinations, and
 restored workspace/history state, take precedence. Package remains explicitly
-reachable and retains its full Library inventory. The existing Library Overview
-is the browser's entry inspector; this slice does not adopt the separate
-Registry-backed lens-recommendation protocol below.
+reachable and retains its full Library inventory. The existing Library
+Overview is the browser's entry inspector; this slice does not adopt the
+separate Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
 their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by
-`inspect-web/browser/library-hierarchy.package-loading.spec.ts`; root-only and
-failed selection modeling is gated by `test/package-acquisition.test.ts` in
-that host.
+`inspect-web/browser/library-hierarchy.package-loading.spec.ts` and
+`test/default-package-library-scope.test.ts`; root-only, chosen-Library
+failure, and no-sibling-fallback modeling is gated by
+`test/package-acquisition.test.ts` and
+`QueryPackage_FirstLibraryFailureDoesNotSelectSiblingSurface`.
 This is the pre-#7318 default-entry adoption, not completion of #5510/#5511's
 broader snapshot and result-authority migration. The #7428 successor retires
-its primary-Library preference after consuming this aggregate recommendation.
+its primary-Library preference after consuming this First Library
+recommendation.
 
 ### Bounded subject inventory classification
 
@@ -1352,10 +1401,12 @@ The current one-Library ranking is gated by
 `NavigationInitialSubjectRecommendationTests.InitialRecommendation_PrefersLibraryThenPackage`
 and `LibraryRecommendation_UsesPrimaryThenProducerOrderRegardlessOfTypes`.
 Those gates describe pre-#7318 behavior and retire with its implementation.
-The aggregate-first replacement remains **unverified** and requires
-`InitialRecommendation_PrefersAggregateThenPackage`,
-`InitialRecommendation_AggregateCardinalityDoesNotSelectOneLibrary`,
-`InitialRecommendation_ExcludesIndividualLibraryCandidates`,
+The First-Library replacement remains **unverified** in shared Navigation and
+requires
+`InitialRecommendation_PrefersFirstLibraryThenPackage`,
+`InitialRecommendation_FirstLibraryUsesPackageLibraryOrder`,
+`InitialRecommendation_FirstLibraryNonSuccessDoesNotFallback`,
+`InitialRecommendation_AllLibrariesRequiresExplicitRequest`,
 `PackageLibrariesBasis_RequiresExactOccurrenceRealizationAndParticipantCorrespondence`,
 `PackageLibrariesBasis_RejectsCrossGenerationFrameworkAndSettlementPairingBeforeRecommendation`,
 `ExactLibraryNarrowing_UsesOnlyExactSelectedLibraryIdentity`,
@@ -1364,7 +1415,7 @@ The aggregate-first replacement remains **unverified** and requires
 `NamesakeLibraryNarrowing_ZeroOrMultipleMatchesDoNotFallback`,
 `NamesakeLibraryNarrowing_UnresolvedIdentityFailsClosed`,
 `NamesakeLibraryNarrowing_RetainsCandidatesAndParticipantEvidence`,
-`AggregateRecommendation_UsesOneSelectedFrameworkProjection`, and
+`AllLibrariesRequest_UsesOneSelectedFrameworkProjection`, and
 `SeparateFrameworkSelections_NeverMergeAggregateIdentity`.
 `InitialRecommendation_NeverChoosesTypeOrMember` remains a neighboring gate.
 Candidate coordinate, Library, Type, primary-role, and accessibility
@@ -1515,14 +1566,9 @@ A host may expose a compound subject-and-lens gesture when the user moves from
 [First Library](#initial-aggregate-and-package) request, then activates the
 requested inspector. When First Library does not apply, the gesture shows its
 typed result and leaves the current subject active; it does not activate the
-inspector. Inspect Web currently implements a host-local approximation in
-`preferredLibrarySubjectId`. It matches and sorts selector-issued file stems
-with a culture-sensitive collation and checks no assembly identity. Adoption
-under #9683 replaces it with the shared result. That changes the name basis to
-owner-issued assembly simple names, changes the collation to ordinal, adds
-failure on unresolved identity, and stops activating the inspector when First
-Library does not apply. The gesture can therefore choose a different Library
-than it does today.
+inspector. Inspect Web consumes the same owner-issued First Library ID used for
+fresh Package navigation. It performs no host-local namesake matching or
+Library ordering.
 The transition runs only for user inspector navigation. Restoration,
 rerendering, and asynchronous settlement do not repeat it. A later explicit
 `All libraries` gesture remains active and receives the unsupported-arity
@@ -2790,8 +2836,9 @@ must preserve the same typed outcomes and fresh destination content.
 | Resolved coordinate subject has an unknown or inapplicable requested inspector | Rejected inspector request remains visible on the resolved subject, with no effective lens or substituted inspector |
 | Coordinate variation begins with a recommendation basis | Recommendation runs for the resolved subject; a previously recommended fallback is not explicit intent |
 | Coordinate correspondence falls back from Member to Type | Type receives its own recommendation, never the Member's inspector request |
-| Ordinary package | Package-scoped `All libraries` subject with the aggregate-capable recommended lens; exact Package remains explicitly reachable |
-| Single-Library package | Package-scoped `All libraries` subject containing one Library; cardinality does not implicitly narrow |
+| Ordinary package | Exact First Library with Library Overview; exact Package and `All libraries` remain explicitly reachable |
+| Single-Library package | Exact First Library; `All libraries` remains a distinct explicit aggregate even at cardinality one |
+| Package-scoped exact Type request whose declaration is in a non-namesake Library | Aggregate Library scope resolves the Type from the complete owner-issued population; First Library recommendation does not narrow the request |
 | Package occurrence paired with another settlement, generation, or selected TFM | Invalid `PackageLibraries` basis rejected before recommendation, aggregate identity construction, or narrowing |
 | Exact Library gesture | Exact selected one-Library subject, or typed non-success with no aggregate, sibling-Library, or Package fallback |
 | Unique namesake gesture | Exact one-Library subject whose owner-issued assembly simple name uniquely matches the Package ID ignoring case |
@@ -2819,10 +2866,10 @@ must preserve the same typed outcomes and fresh destination content.
 | Explicit unavailable lens becomes available on refresh | Exact identity is re-resolved without considering a sibling fallback |
 | Exact non-success while its subject disappears without correspondence | Result retains the exact request evidence; current snapshot uses the fallback subject's recommendation basis |
 | Navigation preparation fails after Registry availability | Failed result identifies Navigation; snapshot and revision remain unchanged |
-| Multi-library package | Package-scoped `All libraries` subject containing every admitted Library in the selected compile projection |
-| Libraries with no Types | Package-scoped `All libraries` with its aggregate-capable References lens; Type is validly unavailable |
+| Multi-library package | Exact First Library subject; `All libraries` is explicit opt-in over every admitted Library in the selected projection |
+| Libraries with no Types | Exact First Library with Library Overview; explicit `All libraries` can use its aggregate-capable References lens |
 | Tools-v2 pointer package | Package with Package Overview; lower subjects unavailable |
-| Primary Library has no default-accessibility Type | Package-scoped `All libraries` remains the recommendation; Type accessibility does not narrow the initial subject |
+| First Library has no default-accessibility Type | First Library remains the recommendation; Type accessibility does not change the initial subject |
 | Partial Type inventory | Deterministic successful candidate plus retained failures |
 | Member disappears | Containing Type, never another Member |
 | Type disappears with Library retained and other Types available | Defining Library, never another Type; missing lower context is truncated and its diagnostic retained |

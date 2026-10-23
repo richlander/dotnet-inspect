@@ -16,6 +16,8 @@ internal sealed record DependsAssetRequestPlan(
     bool Pruning,
     bool SupplementalEvidence)
 {
+    internal bool LatestVersions { get; init; }
+
     internal bool PackageTraversal => Traversal || Licenses;
 
     internal static DependsAssetRequestPlan FromSections(
@@ -28,17 +30,21 @@ internal sealed record DependsAssetRequestPlan(
             sections.Contains(DependsAssetSections.Pruning);
         bool licenses =
             sections.Contains(DependsAssetSections.Licenses);
+        bool latestVersions =
+            sections.Contains(DependsAssetSections.LatestVersions);
         return new DependsAssetRequestPlan(
             Declarations: dependencies
                 || sections.Contains(DependsAssetSections.DependencyGroups)
                 || failures
                 || pruning
-                || licenses,
+                || licenses
+                || latestVersions,
             RestoredRelationships: dependencies
                 || sections.Contains(DependsAssetSections.RestoredEdges)
                 || sections.Contains(DependsAssetSections.RestoredPackages)
                 || failures
-                || licenses,
+                || licenses
+                || latestVersions,
             Traversal:
                 sections.Contains(DependsAssetSections.DependencyHierarchy),
             Licenses: licenses,
@@ -47,7 +53,10 @@ internal sealed record DependsAssetRequestPlan(
                 sections.Contains(DependsAssetSections.Roots)
                 || sections.Contains(DependsAssetSections.RestoredEdges)
                 || sections.Contains(DependsAssetSections.DependencyGroups)
-                || sections.Contains(DependsAssetSections.RestoredPackages));
+                || sections.Contains(DependsAssetSections.RestoredPackages))
+        {
+            LatestVersions = latestVersions,
+        };
     }
 }
 
@@ -148,6 +157,9 @@ internal sealed record DependsAssetProjection(
 
     internal ImmutableArray<DependencyInspectionLicense> Licenses =>
         Content.Licenses;
+
+    internal ImmutableArray<DependencyInspectionLatestVersion>
+        LatestVersions => Content.LatestVersions;
 
     internal DependencyInspectionEvidenceDocument? Evidence =>
         Enriched?.Evidence;

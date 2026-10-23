@@ -517,7 +517,11 @@ request it served was satisfied, failed, or aborted by a critical failure
 (see [Budget exhaustion aborts the execution](#budget-exhaustion-aborts-the-execution)).
 A failure is contained to that producer. Each dependent receives a typed prerequisite
 failure rather than a missing value, and independent producers are
-unaffected.
+unaffected. A source that reached a declared bound and kept a retained prefix
+completes its producers with the `SourceBounded` outcome: the value describes
+only that prefix and is not `HasValue`, so a consumer reads it only when it
+decides what the prefix proves
+([Method Query Source](method-query-source.md#completion-failure-bounds-and-cancellation)).
 
 *Lesson:* Roslyn contains a crashing analyzer as a diagnostic instead of
 failing the compilation. Retrofitting an outcome shape onto result types that

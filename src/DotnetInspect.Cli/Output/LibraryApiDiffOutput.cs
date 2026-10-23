@@ -13,7 +13,7 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class LibraryApiDiffOutput
 {
-    static readonly InspectionEnvelopeJsonContract<LibraryApiDiffOutcome> JsonContract =
+    internal static readonly InspectionEnvelopeJsonContract<LibraryApiDiffOutcome> JsonContract =
         new("library-api-diff", 1, LibraryApiDiffJsonContext.Default.LibraryApiDiffOutcome);
 
     internal static int Write(
@@ -21,8 +21,23 @@ internal static class LibraryApiDiffOutput
         string name,
         string beforeVersion,
         string afterVersion,
-        DiffOptions options)
+        DiffOptions options,
+        string? beforeFramework = null,
+        string? afterFramework = null)
     {
+        // Each endpoint selects its own framework unless --tfm names one for
+        // both; when they differ, the versions name them
+        // (docs/design/package-endpoint-scope.md, step 4 part 1).
+        string beforeLabel = beforeVersion;
+        string afterLabel = afterVersion;
+        if (beforeFramework is not null
+            && afterFramework is not null
+            && !beforeFramework.Equals(afterFramework, StringComparison.OrdinalIgnoreCase))
+        {
+            beforeLabel = $"{beforeVersion} ({beforeFramework})";
+            afterLabel = $"{afterVersion} ({afterFramework})";
+        }
+
         foreach (InspectionDiagnostic diagnostic in envelope.Diagnostics)
             CommandError.WriteNote(diagnostic.Summary.ToString());
 
@@ -49,7 +64,7 @@ internal static class LibraryApiDiffOutput
             {
                 var document = new DiffDocumentView(
                     DiffViewText.Field($"Diff: {name}"),
-                    DiffViewText.Field($"{beforeVersion} -> {afterVersion}"),
+                    DiffViewText.Field($"{beforeLabel} -> {afterLabel}"),
                     DiffViewText.Field(reason),
                     null, null, null, null, null, null, null,
                     null, null, null,
@@ -71,7 +86,7 @@ internal static class LibraryApiDiffOutput
         string summary = Summary(types);
         var detailed = new DiffDetailedChangesView(
             DiffViewText.Field($"API Diff: {name}"),
-            DiffViewText.Field($"{beforeVersion} -> {afterVersion}"),
+            DiffViewText.Field($"{beforeLabel} -> {afterLabel}"),
             DiffViewText.Field(summary))
         {
             Rows = types.SelectMany(DetailedRows).ToList() is { Count: > 0 } rows
@@ -125,7 +140,9 @@ internal static class LibraryApiDiffOutput
                                     change.Classification == ChangeClassification.Breaking) => "x",
                                 _ => "~",
                             },
-                            TypeMatcher.GetSimpleName(type.Subject.Display),
+                            MarkObsolete(
+                                TypeMatcher.GetSimpleName(type.Subject.Display),
+                                type),
                             type.Subject.Comparison.PairKind switch
                             {
                                 LibraryApiTypePairKind.Added => "added",
@@ -148,7 +165,10 @@ internal static class LibraryApiDiffOutput
         {
             var view = new DiffFullView(
                 detailed.TitleText,
-                DiffViewText.Field($"**{beforeVersion}** → **{afterVersion}**"),
+                DiffViewText.Field(
+                    beforeLabel == beforeVersion
+                        ? $"**{beforeVersion}** → **{afterVersion}**"
+                        : $"**{beforeVersion}** ({beforeFramework}) → **{afterVersion}** ({afterFramework})"),
                 types.Count == 0
                     ? InertString.Empty
                     : DiffViewText.Field($"**Summary:** {summary}"))
@@ -156,8 +176,11 @@ internal static class LibraryApiDiffOutput
                 BreakingChanges = ChangeRows(ChangeClassification.Breaking),
                 PotentiallyBreakingChanges = ChangeRows(ChangeClassification.PotentiallyBreaking),
                 AdditiveChanges = ChangeRows(ChangeClassification.Additive),
-                OtherChanges = types.SelectMany(UnclassifiedRows)
-                    .Select(row => new DiffChangeRow(row.TypeText, row.DetailText))
+                NonBreakingChanges = ChangeRows(ChangeClassification.NonBreaking),
+                OtherChanges = types.SelectMany(type => UnclassifiedRows(type)
+                    .Select(row => new DiffChangeRow(
+                        MarkObsolete(row.TypeText, type),
+                        row.DetailText)))
                     .ToList() is { Count: > 0 } other ? other : null,
             };
             if (types.Count == 0)
@@ -179,9 +202,11 @@ internal static class LibraryApiDiffOutput
                     .Select(change => DiffOutputFormatter.BuildChangeRow(
                         type.Subject.Display,
                         change.Kind,
-                        change.Message,
+                        MarkObsolete(change),
                         change.OldValue,
-                        change.NewValue))),
+                        change.NewValue) is var row
+                            ? row with { TypeNameText = MarkObsolete(row.TypeNameText, type) }
+                            : null!)),
             ];
             return rows.Count == 0 ? null : rows;
         }
@@ -199,40 +224,59 @@ internal static class LibraryApiDiffOutput
                 DiffCommand.MatchesAnyDiffTypeFilter(
                     subject.Display, options.TypeFilter));
         }
-        List<SelectedType> types =
+        List<ComparisonSubject<LibraryApiTypeDiff>> matched =
         [
-            .. subjects.OrderBy(subject => subject.Display, StringComparer.Ordinal)
-                .Select(subject => new SelectedType(
-                    subject,
-                    subject.Comparison.CompatibilityChanges)),
+            .. subjects.OrderBy(subject => subject.Display, StringComparer.Ordinal),
         ];
         // A Type-filtered comparison extracts only the selected Types, so it
         // cannot tell whether other Types changed; the note reports only that
         // the filter selected no changed Type.
-        if (types.Count == 0 && options.TypeFilter.Count > 0)
+        if (matched.Count == 0 && options.TypeFilter.Count > 0)
         {
             CommandError.WriteNote(
                 $"type filter matched no changed types: {string.Join(", ", options.TypeFilter)}.");
         }
-        if (!options.Breaking && !options.Additive)
-            return types;
 
-        List<SelectedType> filtered =
-        [
-            .. types.Select(type => type with
+        // An API axis comparison shows the ordinary population: a row is shown
+        // when either side is ordinary, and the note counts the rows the other
+        // selections keep that are outside it
+        // (docs/design/library-api-diff-presentation.md#ordinary-presentation).
+        bool ordinaryOnly = document.PresentsOrdinaryPopulation;
+        bool classified = options.Breaking || options.Additive;
+        int outside = 0;
+        List<SelectedType> types = [];
+        foreach (ComparisonSubject<LibraryApiTypeDiff> subject in matched)
+        {
+            LibraryApiCompatibilityChange[] kept =
+            [
+                .. subject.Comparison.CompatibilityChanges.Where(change =>
+                    !classified
+                    || options.Breaking && change.Classification == ChangeClassification.Breaking
+                    || options.Additive && change.Classification == ChangeClassification.Additive),
+            ];
+            var type = new SelectedType(
+                subject,
+                [.. kept.Where(change => !ordinaryOnly || change.IsOrdinary)],
+                IncludeUnclassified: !classified,
+                OrdinaryOnly: ordinaryOnly);
+            if (ordinaryOnly)
             {
-                Changes =
-                [
-                    .. type.Changes.Where(change =>
-                        options.Breaking && change.Classification == ChangeClassification.Breaking
-                        || options.Additive && change.Classification == ChangeClassification.Additive),
-                ],
-                IncludeUnclassified = false,
-            }).Where(type => !type.Changes.IsEmpty),
-        ];
-        if (types.Count > 0 && filtered.Count == 0)
+                outside += kept.Count(change => !change.IsOrdinary)
+                    + UnclassifiedCandidates(type).Count(candidate => !candidate.IsOrdinary);
+            }
+            if (!type.Changes.IsEmpty || UnclassifiedRows(type).Any())
+                types.Add(type);
+        }
+        if (classified && matched.Count > 0 && types.Count == 0)
             CommandError.WriteNote("classification filter removed all changes after type/member filters.");
-        return filtered;
+        if (outside > 0)
+        {
+            CommandError.WriteNote(
+                $"{outside} API change {(outside == 1 ? "row is" : "rows are")} outside the ordinary "
+                    + "population (protected or hidden declarations) and not shown; "
+                    + "unprojected --json reports the complete comparison.");
+        }
+        return types;
     }
 
     static IEnumerable<DiffDetailedChangeRow> DetailedRows(SelectedType type)
@@ -244,40 +288,39 @@ internal static class LibraryApiDiffOutput
                 change.Subject.BeforeMember?.Anchor.StableSelector
                     ?? change.Subject.AfterMember?.Anchor.StableSelector
                     ?? "",
-                change.Message,
+                MarkObsolete(change),
                 change.OldValue,
-                change.NewValue))
-            .Concat(UnclassifiedRows(type));
+                change.NewValue) is var row
+                    ? row with { TypeText = MarkObsolete(row.TypeText, type) }
+                    : null!)
+            .Concat(UnclassifiedRows(type).Select(row =>
+                row with { TypeText = MarkObsolete(row.TypeText, type) }));
 
     static IEnumerable<DiffDetailedChangeRow> UnclassifiedRows(SelectedType type)
+        => UnclassifiedCandidates(type)
+            .Where(candidate => !type.OrdinaryOnly || candidate.IsOrdinary)
+            .Select(candidate => candidate.Row);
+
+    static IEnumerable<(DiffDetailedChangeRow Row, bool IsOrdinary)> UnclassifiedCandidates(
+        SelectedType type)
     {
         if (!type.IncludeUnclassified)
             yield break;
 
-        LibraryApiTypeDiff value = type.Subject.Comparison;
-        if (value.TypeDefinitionChanged is true
-            && !type.Changes.Any(change => change.Subject.Kind == ApiChangeSubjectKind.Type))
+        foreach (LibraryApiUnclassifiedEvidence evidence in
+            LibraryApiOrdinaryPresentation.UnclassifiedEvidence(type.Subject.Comparison))
         {
-            yield return Unclassified(
-                "", "TypeDefinitionChanged",
-                "Type definition changed without a compatibility classification.");
-        }
-        if (value.PairKind is LibraryApiTypePairKind.Added or LibraryApiTypePairKind.Removed)
-            yield break;
-        foreach (LibraryApiMemberDiff member in value.Members)
-        {
-            LibraryApiMemberRelation relation = member.Relation;
-            if (type.Changes.Any(change =>
-                relation.Before is not null && change.Subject.BeforeMember == relation.Before
-                || relation.After is not null && change.Subject.AfterMember == relation.After))
-            {
-                continue;
-            }
-            yield return Unclassified(
-                relation.Before?.Anchor.StableSelector
-                    ?? relation.After!.Anchor.StableSelector,
-                $"Member{relation.PairKind}",
-                $"Member {relation.PairKind.ToString().ToLowerInvariant()} without a compatibility classification.");
+            yield return (
+                evidence.Relation is not { } relation
+                    ? Unclassified(
+                        "", "TypeDefinitionChanged",
+                        "Type definition changed without a compatibility classification.")
+                    : Unclassified(
+                        relation.Before?.Anchor.StableSelector
+                            ?? relation.After!.Anchor.StableSelector,
+                        $"Member{relation.PairKind}",
+                        $"Member {relation.PairKind.ToString().ToLowerInvariant()} without a compatibility classification."),
+                evidence.IsOrdinary);
         }
 
         DiffDetailedChangeRow Unclassified(string member, string kind, string detail)
@@ -292,6 +335,31 @@ internal static class LibraryApiDiffOutput
                 InertString.Empty);
     }
 
+    // The compact obsolete marker (D4): a Type column names an obsolete Type, and a row's
+    // detail names an obsolete Member, by the attribute's own C# spelling.
+    const string ObsoleteMarker = "[Obsolete]";
+
+    static bool IsObsolete(SelectedType type)
+        => (type.Subject.Comparison.After ?? type.Subject.Comparison.Before)!
+            .Status.IsObsolete;
+
+    static string MarkObsolete(string typeText, SelectedType type)
+        => IsObsolete(type) ? $"{typeText} {ObsoleteMarker}" : typeText;
+
+    static InertString MarkObsolete(InertString typeText, SelectedType type)
+        => IsObsolete(type)
+            ? InertString.Format(TextPolicy.Field, $"{typeText} {ObsoleteMarker}")
+            : typeText;
+
+    // An obsolete-status row already says so; only other rows mark an obsolete Member.
+    static InertString MarkObsolete(LibraryApiCompatibilityChange change)
+        => change.Subject.Kind == ApiChangeSubjectKind.Member
+            && change.State != LibraryApiChangeState.Obsoleted
+            && (change.Subject.AfterMember ?? change.Subject.BeforeMember)?.Status.IsObsolete
+                == true
+                ? InertString.Format(TextPolicy.Field, $"{ObsoleteMarker} {change.Message}")
+                : change.Message;
+
     static string Summary(List<SelectedType> types)
         => types.Count == 0
             ? "no changes"
@@ -305,7 +373,8 @@ internal static class LibraryApiDiffOutput
             : DiffOutputFormatter.FormatSummaryCounts(
                 rows.Count(change => change.Classification == ChangeClassification.Breaking),
                 rows.Count(change => change.Classification == ChangeClassification.Additive),
-                rows.Count(change => change.Classification == ChangeClassification.PotentiallyBreaking));
+                rows.Count(change => change.Classification == ChangeClassification.PotentiallyBreaking),
+                rows.Count(change => change.Classification == ChangeClassification.NonBreaking));
     }
 
     static void WriteJson(
@@ -383,5 +452,6 @@ internal static class LibraryApiDiffOutput
     sealed record SelectedType(
         ComparisonSubject<LibraryApiTypeDiff> Subject,
         ImmutableArray<LibraryApiCompatibilityChange> Changes,
-        bool IncludeUnclassified = true);
+        bool IncludeUnclassified = true,
+        bool OrdinaryOnly = false);
 }

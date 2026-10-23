@@ -391,6 +391,7 @@ Each semantic fact has one owner:
 | Section projection, shape, cost, and row sets | Section owner |
 | Facets, operators, stages, orders, and binders | Query Space owner |
 | Effective section and query subset | Route profile owner |
+| Related operations issued from effective query facets | Route owner |
 | CLI tokens and lowering | CLI binding owner |
 | Browser gesture and lowering | Browser binding owner |
 | Reverse callers, available paths, and adoption state | Derived capability catalog |
@@ -420,6 +421,24 @@ The route references effective Query Space bindings. It does not expose a
 second string list of supported facet names. The document descriptor similarly
 references owner-issued section and result contracts instead of recreating
 their schemas.
+
+A route may associate one of its effective query facets with an owner-issued
+related-operation affordance. The association is valid only for a facet in that
+route's effective Query Space and is projected as a Resource Explanation
+relationship. A host may bind the exact affordance identity to one of its own
+gestures; facet keys, labels, examples, and result evidence are not binding
+currency. The route does not issue a Browser lens, URL, command spelling, or
+universal next-action ranking.
+
+A route may also register host-neutral presentation facts for one effective
+query facet: order, control and presentation kinds, execution class, selection
+and replacement groups, combining behavior, inline options, and an external
+option-source identity. These declarations are optional descriptive structure,
+not execution authority. Every presentation source must belong to the route's
+effective Query Space; source identities are unique; and inline option values
+must exactly match the effective facet values. Resource Explanation projects
+the declaration without creating a host-specific catalog. Consumers still own
+rendering, interaction, and layout.
 
 The non-generic registration projection contains only resource-free
 descriptive structure. The typed route retains execution. Catalog enumeration
@@ -512,12 +531,16 @@ Construction validates:
 3. Every structural or query reference belongs to the route's owner-issued
    effective profile.
 4. Every query capability has the executable binding required by Query Space.
-5. Every consumer binding references one registered route.
-6. A consumer cannot add a section, facet, effect, result grain, or completion
+5. Every query-facet related operation references one effective facet and is
+   unique within that route.
+6. Every query-facet presentation references one effective facet, is unique
+   within that route, and preserves the effective facet's listed values.
+7. Every consumer binding references one registered route.
+8. A consumer cannot add a section, facet, effect, result grain, or completion
    meaning outside that route.
-7. Equivalent top-level and operation-backed-section bindings reference the
+9. Equivalent top-level and operation-backed-section bindings reference the
    same route and compatible subject roles.
-8. Every declared production-adoption requirement has the required binding
+10. Every declared production-adoption requirement has the required binding
    kind or produces one explicit adoption gap.
 
 Duplicate, missing, incompatible, or out-of-profile registration prevents
@@ -573,7 +596,7 @@ surfaces:
 | --- | --- |
 | `-D` | Effective structural sections and items for the selected route |
 | `-Q` | Effective executable Query Space bindings for the selected route |
-| Resource Explanation | Installed document, route, surface, and binding resources plus their declared relationships |
+| Resource Explanation | Installed document, route, surface, related-operation, and binding resources plus their declared relationships |
 | Command-local `--explain` | Contextual Resource Explanation selection of the command resource or exact-subject affordance issued by its owners |
 | Subject-affordance explanation | Applicable registered routes whose roles admit the resolved subject, when issued by the reusable-reference owner |
 
@@ -595,6 +618,29 @@ The projections preserve three levels:
 An explanation must identify which level it describes. It cannot present a
 document capability omitted by the current binding as though the user can
 invoke it through that host.
+
+### Routing declarations
+
+Inspection Capability Composition issues the explanation root's operation
+declarations for the capability families a host composes, under the
+[Resource Explanation routing contract](resource-explanation.md#routing-declarations):
+
+| Operation | Destination | Accepts |
+| --- | --- | --- |
+| `package-query` | The Package Query inspection document | `package` |
+| `package-files` | The Package Files inspection document | `package` |
+| `diff-analysis` | The `analyses` collection | The subject kinds the registered analyses' Compare participation names |
+
+The Diff operation derives its accepted subject kinds from the registered
+participation surfaces. In product order these are Library, Type, and
+Member; Root and Workspace surfaces have no subject-kind declaration. Each
+declaration also carries an owner-written purpose, representative questions,
+grain, and scope, in `CapabilityRoutingDeclarations`.
+
+Every operation accepts Schema Query subject kinds. A host therefore admits
+these declarations only together with
+[Schema Query's](schema-query.md#routing-declarations); admitting them alone
+names undeclared subject kinds and is an invalid registry.
 
 ## Failure and diagnostics
 
@@ -688,6 +734,16 @@ Browser-managed binding and
 `dotnet run --project tests/DotnetInspector.Sections.Tests -c Release` for
 resource-free catalog construction. NativeAOT and single-threaded Wasm remain
 **unverified** until their existing product gates exercise the new substrate.
+
+The routing declarations' gate is the CLI root test
+`ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`.
+It asserts four things:
+
+- the three operations route to their destinations;
+- the Diff operation accepts Library, Type, and Member;
+- the Package subject lists both package operations; and
+- every resource of the complete catalog, including every Package Query,
+  Package Files, and analysis resource, is reachable from the root.
 
 Catalog construction accepts only caller-supplied modules and exposes no
 assembly-scan or CLR-type-discovery entrypoint. Construction tests provide

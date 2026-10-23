@@ -174,6 +174,49 @@ public sealed partial class PackageHouseExecutionTests
         Assert.Equal(
             PackageAssemblyReferenceSupplierTier.SelectedFileName,
             selected.Selection.Evidence.Tier);
+
+        ResolvedAssemblyReference resolvedCaller =
+            ResolvedAssemblyReference.CreateFromPath(
+                CallGraphCallerPath,
+                AssemblyResolutionProvenance.Local(
+                    "Package supplier participant evidence test"));
+        ResolvedAssemblyReference contextTarget =
+            ResolvedAssemblyReference.CreateFromPath(
+                CallGraphTargetPath,
+                AssemblyResolutionProvenance.Local(
+                    "Package supplier participant evidence test"));
+        var contextPolicy =
+            new SelectedIdentityBindingPolicy(contextTarget);
+        var callerParticipant =
+            new AssemblyContextParticipant(resolvedCaller, contextPolicy);
+        await using var inspectionWorkspace = new InspectionWorkspace();
+        using AssemblyContextGroup group =
+            inspectionWorkspace.CreateAssemblyContextGroup(
+                [
+                    callerParticipant,
+                    new(contextTarget, contextPolicy),
+                ]);
+        var evidence = Assert.IsType<
+            AssemblyContextEntry<
+                ImmutableArray<AssemblyContextReferenceBindingEvidence>>
+                .Available>(
+                    AssemblyContextReferencesQuery
+                        .ExecuteParticipantBindingEvidence(
+                            group,
+                            callerParticipant));
+        ImmutableArray<PackageAssemblyReferenceSupplierCoordinate>
+            coordinates =
+                await focal.ResolveAsync(
+                    evidence.Value,
+                    house,
+                    operation);
+        PackageAssemblyReferenceSupplierCoordinate contextSelected =
+            Assert.Single(
+                coordinates,
+                coordinate =>
+                    coordinate.Name == identity.Name);
+        Assert.Null(contextSelected.Supplier);
+
         operation.Dispose();
         await environment.AssertRootSettledAsync();
     }
@@ -1190,10 +1233,9 @@ public sealed partial class PackageHouseExecutionTests
             HouseEnvironment environment,
             PackageRootBinding rootBinding)
     {
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
         PackageDependencyTraversalOutcome traversal =
             await PackageDependencyTraversalQuery.ExecuteAsync(
                 new PackageDependencyTraversalRequest(
@@ -1205,14 +1247,13 @@ public sealed partial class PackageHouseExecutionTests
                     ],
                     TraversalTargetFrameworkPolicy.ProductDefault,
                     new PackageDependencyTraversalCandidateAdapter(
-                        candidateSource),
-                    new AuthorizedPackageDependencyManifestSource(
-                        candidateSource),
+                        environment.Authorization),
+                    new AuthorizedPackageDependencyManifestSource(),
                     new PackageDependencyTraversalWorkBudget(
                         maxManifestProjections: 8,
                         maxDeclarationResolutions: 8),
                     maxDepth: 2),
-                TestContext.Current.CancellationToken);
+                operation);
         Assert.Equal(
             PackageDependencyTraversalRootCompletion.Complete,
             traversal.Roots[0].Completion);
@@ -1241,6 +1282,23 @@ public sealed partial class PackageHouseExecutionTests
                     AssemblyResolutionProvenance.Local(
                         "Package supplier association test"))),
             AssemblyResolutionScope.Any);
+
+    private sealed class SelectedIdentityBindingPolicy(
+        ResolvedAssemblyReference selected)
+        : IAssemblyBindingPolicy
+    {
+        public AssemblyBindingPolicyVersion Version { get; } = new();
+
+        public AssemblyBindingSelectionSnapshot Select(
+            AssemblyBindingRequest request) =>
+            new(
+                Version,
+                request.Target
+                        is AssemblyBindingTarget.AssemblyReference target
+                    && target.Identity.IsEquivalentTo(selected.Identity)
+                    ? AssemblyBindingSelection.Found(selected)
+                    : AssemblyBindingSelection.NameNotOwned());
+    }
 
     private sealed record ResolutionEnvironment(
         AssemblyReferenceResolutionGenerationReceipt Generation,

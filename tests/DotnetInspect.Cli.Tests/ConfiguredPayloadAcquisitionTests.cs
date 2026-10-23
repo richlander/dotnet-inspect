@@ -437,6 +437,7 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         var legacyRequest = new PackageRootReacquisitionRequest(
             PackageArtifactRootRequest.Create(
                 legacyCoordinate,
+                binding.Root.RequestedTargetFramework,
                 binding.CompileTargetFramework,
                 binding.ImplementationSelectionTargetFramework,
                 binding.Root.RequestedRuntimeIdentifier,
@@ -607,34 +608,21 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             failure.Kind);
         Assert.Null(observation.DenialReason);
 
-        PackageAcquisitionCandidateResult compatibility =
-            composition.ResolvePinnedCandidate(
-                PackageSourceCoordinate.Create(Id, Version),
-                sourceOptions,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-        Assert.NotNull(compatibility.Candidate);
+        using var operation = composition.IssueSettlementOperation(
+            TestContext.Current.CancellationToken);
+        PackageAcquisitionCandidateResult candidate =
+            await operation.ResolvePinnedCandidateAsync(
+                composition.CreateDependencySourceAuthorization(
+                    sourceOptions),
+                PackageSourceCoordinate.Create(Id, Version));
+        Assert.NotNull(candidate.Candidate);
         Assert.Same(
             authority,
             Assert.Single(
-                compatibility.Candidate.Authorities).Authority);
+                candidate.Candidate.Authorities).Authority);
         Assert.Equal(
             failure.Message,
-            Assert.Single(compatibility.Failures).Message);
-        PackageAcquisitionCandidateResult houseCompatibility =
-            await composition.ResolvePinnedCandidateAsync(
-                PackageSourceCoordinate.Create(Id, Version),
-                sourceOptions,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-        Assert.NotNull(houseCompatibility.Candidate);
-        Assert.Same(
-            authority,
-            Assert.Single(
-                houseCompatibility.Candidate.Authorities).Authority);
-        Assert.Equal(
-            failure.Message,
-            Assert.Single(houseCompatibility.Failures).Message);
+            Assert.Single(candidate.Failures).Message);
         PackageSourceAuthorization repeated =
             composition.AuthorizeSourcesFor(Id, sourceOptions);
         Assert.Same(
@@ -675,17 +663,16 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Sources = [source],
         };
         await using var composition = LocalComposition();
+        using var operation = composition.IssueSettlementOperation(
+            TestContext.Current.CancellationToken);
         PackageAcquisitionCandidateResult authorization =
-            await composition.ResolvePinnedCandidateAsync(
-                PackageSourceCoordinate.Create(Id, Version),
-                sourceOptions,
-                cancellationToken:
-                    TestContext.Current.CancellationToken);
-
+            await operation.ResolvePinnedCandidateAsync(
+                composition.CreateDependencySourceAuthorization(
+                    sourceOptions),
+                PackageSourceCoordinate.Create(Id, Version));
         ConfiguredPackageManifestResult result =
-            await composition.AcquireCandidateManifestAsync(
-                authorization.Candidate!,
-                TestContext.Current.CancellationToken);
+            await operation.AcquireCandidateManifestAsync(
+                authorization.Candidate!);
 
         Assert.NotNull(result.Manifest);
         Assert.Equal(
@@ -729,37 +716,38 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
     }
 
     [Fact]
-    public async Task ConfiguredRootPayloadProvider_NotFoundNamesAuthority()
+    public async Task ConfiguredRootHouseExecutor_NotFoundNamesAuthority()
     {
         const string Id = "Pinned.ProviderNotFound";
         var requests = new ConcurrentQueue<string>();
-        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
-            source => new NotFoundPayloadFeedHandler(
-                source,
+        DesktopPackageSourceComposition composition = CreateComposition(
+            (source, _) => new NotFoundPayloadFeedHandler(
+                source.Url,
                 Id,
                 requests));
-        await using var provider = new ConfiguredPackageRootPayloadProvider(
-            TimeSpan.FromSeconds(5),
-            new NuGetSourceOptions { Sources = [FirstFeed] });
+        var loadOptions = new WorkspaceContextLoadOptions
+        {
+            HttpClient = new HttpClient(),
+            SourceAuthorization =
+                new UniformPackageSourceAuthorization(
+                    [new PackageSource("first", FirstFeed)]),
+            PackageStore = new InMemoryPackageStore(),
+        };
+        await using var executor =
+            new ConfiguredPackageRootHouseExecutor(
+                composition,
+                new NuGetSourceOptions { Sources = [FirstFeed] },
+                loadOptions);
 
-        PackageRootPayloadResult.Unavailable unavailable =
-            Assert.IsType<PackageRootPayloadResult.Unavailable>(
-                await provider.GetPayloadAsync(
-                    PackageSourceCoordinate.Create(Id, Version),
-                    requiredProducerKey: null,
-                    PackagePayloadLimits.Default,
+        PackageRootAcquisitionOutcome.Failed unavailable =
+            Assert.IsType<PackageRootAcquisitionOutcome.Failed>(
+                await PackageRootAcquisition.AcquireAsync(
+                    PackageRootAcquisitionRequest.Create(Id, Version),
+                    executor.Execution,
                     TestContext.Current.CancellationToken));
-
         Assert.Equal(
             PackageRootAcquisitionFailureKind.PackageUnavailable,
-            unavailable.FailureKind);
-        Assert.Equal(
-            PackageSourceFailureKind.NotFound,
-            unavailable.SourceFailureKind);
-        Assert.Contains(
-            FirstFeed,
-            unavailable.Producer.ToString(),
-            StringComparison.Ordinal);
+            unavailable.Kind);
         Assert.Contains(
             FirstFeed,
             unavailable.Message,
@@ -1151,6 +1139,232 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         {
             DesktopPackageExtractor.Cleanup(result.TempDir);
         }
+    }
+
+    [Fact]
+    public async Task
+        ExtractPinnedPackage_LibraryPopulationRetainsRuntimeRealization()
+    {
+        string id = $"Pinned.RuntimePopulation.{Guid.NewGuid():N}";
+        byte[] archive = CreatePackage(
+            id,
+            "runtime-only package",
+            library: new byte[17],
+            libraryName: $"{id}.dll",
+            libraryDirectory: "runtimes/linux-x64/lib/net11.0",
+            extraEntries:
+            [
+                ("analyzers/dotnet/cs/Analyzer.dll", new byte[5]),
+            ]);
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        using var client = new HttpClient(
+            new RejectNetworkHandler(new HttpClientHandler()));
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                client,
+                id,
+                Version,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [FirstFeed] },
+                compileTargetContext:
+                    PackageHouseTargetContext.OwnerDefault(),
+                assetSelection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        PackageExtractionResult result = outcome.Result!;
+        try
+        {
+            PackageHouseSettlement.Acquired settlement =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    result.HouseSettlement);
+            var realization = Assert.IsType<
+                PackageHouseRealizationReceipt.LibraryPopulation>(
+                    settlement.Result.Evidence.Realization);
+            var population = Assert.IsType<
+                PackageLibraryPopulationSelection.Runtime>(
+                    realization.Selection);
+            var selected = Assert.IsType<
+                PackageAssetSelection.Selected>(
+                    population.RuntimeReceipt.Selection);
+
+            Assert.Equal("linux-x64", selected.Universe.RuntimeIdentifier);
+            Assert.Equal("net11.0", selected.Universe.TargetFramework);
+            Assert.Equal(
+                $"runtimes/linux-x64/lib/net11.0/{id}.dll",
+                Assert.Single(selected.Universe.Assets).EntryPath);
+            Assert.True(
+                File.Exists(
+                    Path.Combine(
+                        result.ExtractPath,
+                        "runtimes",
+                        "linux-x64",
+                        "lib",
+                        "net11.0",
+                        $"{id}.dll")));
+            Assert.Equal(
+                1,
+                requests.Count(request =>
+                    request.EndsWith(
+                        ".nupkg",
+                        StringComparison.Ordinal)));
+        }
+        finally
+        {
+            DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
+    }
+
+    [Fact]
+    public async Task
+        ExtractPinnedPackage_LibraryPopulationRetainsToolRealization()
+    {
+        string id = $"Pinned.ToolPopulation.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreateToolPackage(
+            id,
+            "DotnetTool",
+            ($"tools/net8.0/any/{id}.dll", assembly),
+            ($"tools/net11.0/any/{id}.dll", assembly),
+            ("tools/net11.0/any/runtimes/win/lib/net11.0/Companion.dll",
+                assembly),
+            ("tools/net11.0/any/runtimes/win/native/Native.dll",
+                new byte[5]),
+            ($"tools/net11.0/any/fr/{id}.resources.dll",
+                new byte[7]),
+            ("analyzers/dotnet/cs/Analyzer.dll", new byte[11]));
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+        using var client = new HttpClient(
+            new RejectNetworkHandler(new HttpClientHandler()));
+        PackageExtractionOutcome outcome =
+            await DesktopPackageExtractor.ExtractPinnedPackageAsync(
+                client,
+                id,
+                Version,
+                sourceOptions:
+                    new NuGetSourceOptions { Sources = [FirstFeed] },
+                compileTargetContext:
+                    PackageHouseTargetContext.OwnerDefault(),
+                assetSelection:
+                    PackageHouseAssetSelectionKind.LibraryPopulation);
+
+        Assert.True(outcome.IsSuccess, outcome.ErrorMessage);
+        PackageExtractionResult result = outcome.Result!;
+        try
+        {
+            PackageHouseSettlement.Acquired settlement =
+                Assert.IsType<PackageHouseSettlement.Acquired>(
+                    result.HouseSettlement);
+            var realization = Assert.IsType<
+                PackageHouseRealizationReceipt.LibraryPopulation>(
+                    settlement.Result.Evidence.Realization);
+            var population = Assert.IsType<
+                PackageLibraryPopulationSelection.Tool>(
+                    realization.Selection);
+
+            Assert.Equal(
+                "net11.0",
+                population.ToolSelection.SelectedTargetFramework);
+            Assert.Equal(
+                [
+                    $"tools/net11.0/any/{id}.dll",
+                    "tools/net11.0/any/runtimes/win/lib/net11.0/Companion.dll",
+                ],
+                population.ToolSelection.SelectedEntries);
+            Assert.True(
+                File.Exists(
+                    Path.Combine(
+                        result.ExtractPath,
+                        "tools",
+                        "net11.0",
+                        "any",
+                        $"{id}.dll")));
+            Assert.True(
+                File.Exists(
+                    Path.Combine(
+                        result.ExtractPath,
+                        "tools",
+                        "net11.0",
+                        "any",
+                        "runtimes",
+                        "win",
+                        "lib",
+                        "net11.0",
+                        "Companion.dll")));
+            Assert.Equal(
+                1,
+                requests.Count(request =>
+                    request.EndsWith(
+                        ".nupkg",
+                        StringComparison.Ordinal)));
+        }
+        finally
+        {
+            DesktopPackageExtractor.Cleanup(result.TempDir);
+        }
+    }
+
+    [Fact]
+    public async Task
+        PackageCommand_ExactLibraryUsesDeclaredToolPopulation()
+    {
+        string id = $"Pinned.ToolCommand.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] archive = CreateToolPackage(
+            id,
+            "DotnetTool",
+            ($"tools/net11.0/any/{id}.dll", assembly),
+            ("tools/net11.0/any/runtimes/win/lib/net11.0/Companion.dll",
+                assembly),
+            ("tools/net11.0/any/runtimes/win/native/Native.dll",
+                new byte[5]));
+        var requests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new PayloadFeedHandler(
+                source,
+                id,
+                () => new ByteArrayContent(archive),
+                requests));
+
+        var (exit, output, error) = await RunCommandAsync(
+            [
+                "package",
+                $"{id}@{Version}",
+                "--source",
+                FirstFeed,
+                "--library",
+                $"{id}.dll",
+                "--tfm",
+                "net11.0",
+                "-S",
+                "Library Info",
+                "--markdown",
+            ]);
+
+        Assert.True(exit == 0, $"Exit {exit}: {error}");
+        Assert.Contains("| Name | DotnetInspect.Cli.Tests |", output);
+        Assert.Equal(
+            1,
+            requests.Count(request =>
+                request.EndsWith(
+                    ".nupkg",
+                    StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -1721,9 +1935,10 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
             Assert.Empty(error);
         }
 
-        // The second run is a durable cache hit.
+        // Directory-first completion uses suffix and missing-prefix requests;
+        // the complete-package fallback and second run reuse that archive.
         Assert.Equal(
-            1,
+            2,
             requests.Count(request =>
                 request.EndsWith(".nupkg", StringComparison.Ordinal)));
     }
@@ -2295,7 +2510,9 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
         IReadOnlyList<(string Path, byte[] Content)>? extraEntries = null,
         IReadOnlyList<(string Id, string Version)>? dependencies = null,
         string? nuspecContent = null,
-        byte[]? pdb = null)
+        byte[]? pdb = null,
+        IReadOnlyList<(string Path, DateTimeOffset LastWriteTime)>?
+            explicitDirectories = null)
     {
         string dependenciesXml = dependencies is { Count: > 0 }
             ? "<dependencies><group targetFramework=\"net11.0\">"
@@ -2318,6 +2535,14 @@ public sealed partial class ConfiguredPayloadAcquisitionTests : IDisposable
                     </metadata></package>
                     """);
             WriteEntry(archive, "README.md", readme);
+            if (explicitDirectories is not null)
+            {
+                foreach (var (path, lastWriteTime) in explicitDirectories)
+                {
+                    ZipArchiveEntry entry = archive.CreateEntry(path);
+                    entry.LastWriteTime = lastWriteTime;
+                }
+            }
             if (library is not null)
             {
                 using Stream entry = archive.CreateEntry(

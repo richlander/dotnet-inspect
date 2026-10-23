@@ -24,6 +24,12 @@ public enum PackageQueryTermControlKind
     Choice,
 }
 
+public enum PackageQueryTermPresentationKind
+{
+    Fact,
+    ValueQuery,
+}
+
 public sealed record PackageQueryTermOptionDescriptor(
     string Value,
     string Label,
@@ -51,6 +57,12 @@ public sealed record PackageQueryTermDescriptor(
     public string? ReplacementGroupId { get; init; }
     public string? DisplayGroupId { get; init; }
     public string? DisplayGroupLabel { get; init; }
+    public PackageQueryTermPresentationKind PresentationKind { get; init; } =
+        ControlKind is PackageQueryTermControlKind.Toggle
+            or PackageQueryTermControlKind.Choice
+            ? PackageQueryTermPresentationKind.Fact
+            : PackageQueryTermPresentationKind.ValueQuery;
+    public string? OptionSourceId { get; init; }
 }
 
 internal enum PackageQueryPredicateKind

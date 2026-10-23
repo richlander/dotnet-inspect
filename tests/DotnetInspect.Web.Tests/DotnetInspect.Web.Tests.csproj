@@ -23,6 +23,7 @@
     <PackageDownload Include="Microsoft.AspNetCore.App.Runtime.linux-x64" Version="[10.0.10]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64" Version="[10.0.10];[11.0.0-rc.1.26425.128]" />
     <PackageDownload Include="Newtonsoft.Json" Version="[13.0.4]" />
+    <PackageDownload Include="WrongTurn" Version="[0.1.15]" />
   </ItemGroup>
 
   <ItemGroup>
@@ -74,6 +75,9 @@
     <None Include="$(NuGetPackageRoot)newtonsoft.json\13.0.4\newtonsoft.json.13.0.4.nupkg"
       Link="RealAssets\FileDemand\newtonsoft.json.13.0.4.nupkg"
       CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)wrongturn\0.1.15\wrongturn.0.1.15.nupkg"
+      Link="RealAssets\FileDemand\wrongturn.0.1.15.nupkg"
+      CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -102,8 +106,8 @@
     <ProjectReference Include="..\..\fixtures\inspect-web\InspectWeb.SourceComparisonFixtures.V2\InspectWeb.SourceComparisonFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FastDiff.V1\ILInspector.Metadata.FastDiff.V1.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FastDiff.V2\ILInspector.Metadata.FastDiff.V2.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FindingDiffAny.V1\ILInspector.Metadata.FindingDiffAny.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FindingDiffAny.V2\ILInspector.Metadata.FindingDiffAny.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DotnetInspector.FixtureInfrastructure\DotnetInspector.FixtureInfrastructure.csproj" />
   </ItemGroup>
 </Project>

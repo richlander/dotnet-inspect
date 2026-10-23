@@ -14,30 +14,102 @@ export function assertNever(value: never, vocabulary: string): never {
   throw new Error(`Unhandled ${vocabulary}: ${JSON.stringify(value)}`);
 }
 
-// Not exported: every consumer now goes through `typeLensesFor`, which applies the
-// runtime-pack filter. A direct export would be a way to skip it.
-const lenses = [
-  ["api", "API"],
-  ["compare", "Compare"],
-  ["metadata", "Metadata"],
-  ["source", "Source"]
-] as const;
+const typeLensRouteByFacetId = {
+  "type.api": "api",
+  "type.metadata": "metadata",
+  "type.source": "source",
+  "type.compare": "compare",
+} as const;
 
-export type TypeLens = (typeof lenses)[number][0] | "overview";
+export type TypeLens =
+  (typeof typeLensRouteByFacetId)[keyof typeof typeLensRouteByFacetId]
+  | "overview";
+
+type RegisteredTypeLens = Exclude<TypeLens, "overview">;
+
+export interface TypeViewFacetDescriptor {
+  readonly id: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly order: number;
+}
+
+let typeLenses: readonly (readonly [RegisteredTypeLens, string])[] | null = null;
+
+export function setTypeViewFacetCatalog(
+  descriptors: readonly TypeViewFacetDescriptor[],
+): void {
+  const typeDescriptors = descriptors.filter(
+    descriptor => descriptor.kind === "Type");
+  const seen = new Set<string>();
+  let previousOrder = Number.NEGATIVE_INFINITY;
+  const projected: (readonly [RegisteredTypeLens, string])[] = [];
+  for (const descriptor of typeDescriptors) {
+    if (!(descriptor.id in typeLensRouteByFacetId)) {
+      throw new Error(
+        `Type view facet '${descriptor.id}' has no Browser renderer binding.`);
+    }
+    if (seen.has(descriptor.id)) {
+      throw new Error(`Type view facet '${descriptor.id}' is duplicated.`);
+    }
+    if (!descriptor.title.trim()) {
+      throw new Error(`Type view facet '${descriptor.id}' has no title.`);
+    }
+    if (!Number.isFinite(descriptor.order) || descriptor.order < previousOrder) {
+      throw new Error(
+        "Type view facets must retain product-issued finite ascending order.");
+    }
+    seen.add(descriptor.id);
+    previousOrder = descriptor.order;
+    projected.push([
+      typeLensRouteByFacetId[
+        descriptor.id as keyof typeof typeLensRouteByFacetId
+      ],
+      descriptor.title,
+    ]);
+  }
+  for (const id of Object.keys(typeLensRouteByFacetId)) {
+    if (!seen.has(id)) {
+      throw new Error(`Required Type view facet '${id}' is missing.`);
+    }
+  }
+  typeLenses = projected;
+}
 
 export function isTypeLens(
   value: string | null | undefined,
 ): value is TypeLens {
   return typeof value === "string"
-    && (value === "overview" || lenses.some(([id]) => id === value));
+    && (value === "overview"
+      || Object.values(typeLensRouteByFacetId).some(id => id === value));
 }
 
 export const packageLenses = [
   ["overview", "Overview"],
   ["compare", "Compare"],
-  ["dependencies", "Dependencies"],
+  ["dependencies", "References"],
+  ["hierarchy", "Dependency Hierarchy"],
   ["vulnerabilities", "Vulnerabilities"],
 ] as const;
+
+interface PackageInspectorContext {
+  isRuntimePack?: boolean;
+  source: { kind: string };
+  packageChildren?: { content: { status: string } };
+}
+
+export function isEmptyPackageFramework(pkg: PackageInspectorContext | null): boolean {
+  return pkg?.packageChildren?.content.status === "SelectedEmpty";
+}
+
+export function packageLensesFor(pkg: PackageInspectorContext | null) {
+  return packageLenses.filter(([id]) => {
+    if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) return id === "overview";
+    if (id === "hierarchy") return false;
+    if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
+    return true;
+  });
+}
 
 export const libraryLenses = [
   ["overview", "Overview"],
@@ -108,11 +180,17 @@ export interface PackageIdentity {
   id: string;
   version: string;
   activeFramework: string;
+  runtimeIdentifier?: string | null;
 }
 
 export function packageIdentityKey(pkg: PackageIdentity | null | undefined): string {
   if (!pkg) return "";
-  return [pkg.id, pkg.version, pkg.activeFramework]
+  return [
+    pkg.id,
+    pkg.version,
+    pkg.activeFramework,
+    pkg.runtimeIdentifier ?? "",
+  ]
     .map(value => encodeURIComponent(value.toLowerCase()))
     .join("|");
 }
@@ -333,6 +411,30 @@ export function dependencyGraphExternalKey(packageId: string, declaredRange: str
   return `external\u0000${packageId.toLowerCase()}\u0000${declaredRange || ""}`;
 }
 
+export function platformReferencesForDependencyGroup<
+  TReference,
+>(
+  references: readonly TReference[],
+  defaultReference: TReference | null | undefined,
+  groups: readonly {
+    readonly index: number;
+    readonly isComplete?: boolean;
+    readonly dependencies: readonly unknown[];
+  }[],
+  selectedGroupIndex: number | null,
+): readonly TReference[] {
+  if (!defaultReference) return references;
+  if (!groups.length) return [...references, defaultReference];
+  const selected = groups.find(group => group.index === selectedGroupIndex)
+    ?? groups[0];
+  if (!selected
+    || selected.isComplete === false
+    || selected.dependencies.length !== 0) {
+    return references;
+  }
+  return [...references, defaultReference];
+}
+
 export interface BoundedGraphNodeResult<T> {
   node: T | null;
   truncated: boolean;
@@ -495,9 +597,7 @@ export interface RemoveWorkspacePackageInput extends PackageIdentity {
 export function workspacePackageRemovalKey(
   pkg: RemoveWorkspacePackageInput | null | undefined,
 ): string {
-  const packageKey = packageIdentityKey(pkg);
-  if (!packageKey || !pkg?.runtimeIdentifier) return packageKey;
-  return `${packageKey}|${encodeURIComponent(pkg.runtimeIdentifier.toLowerCase())}`;
+  return packageIdentityKey(pkg);
 }
 
 export interface RemoveWorkspacePackageResult<T> {
@@ -528,6 +628,7 @@ export function removeWorkspacePackage<T extends RemoveWorkspacePackageInput>(
 export interface DependencyGroup {
   index: number;
   isActive?: boolean;
+  isComplete?: boolean;
   framework: string;
   dependencies?: readonly DependencyGroupDependency[];
 }
@@ -540,6 +641,15 @@ interface DependencyGroupDependency {
 export interface DependencyGroupData {
   dependencyGroups?: readonly DependencyGroup[];
   dependencyGroupError?: string | null;
+  platformReferences?: readonly {
+    family: string;
+    label: string;
+  }[];
+  defaultPlatformReference?: {
+    family: string;
+    label: string;
+  } | null;
+  platformReferenceError?: string | null;
 }
 
 export function dependencyGroupSelectionMessage(data: DependencyGroupData | null | undefined): string {
@@ -629,7 +739,10 @@ export function workspaceCoordinatesMatch(
     packageIdentityKey(packages[index]) === packageIdentityKey({
       id: tab.id,
       version: tab.version,
-      activeFramework: tab.framework
+      activeFramework: tab.framework,
+      ...(tab.runtimeIdentifier === undefined
+        ? {}
+        : { runtimeIdentifier: tab.runtimeIdentifier }),
     }));
 }
 
@@ -1731,15 +1844,18 @@ export function typeLensesFor(
   forwarded = false,
 ): readonly (readonly [TypeLens, string])[] {
   if (forwarded) return [["overview", "Overview"]];
+  if (typeLenses === null) {
+    throw new Error("The product Type view-facet catalog is unavailable.");
+  }
   if (pkg?.source?.kind === "file")
-    return lenses.filter(([id]) => id === "api");
+    return typeLenses.filter(([id]) => id === "api");
   if (pkg?.isRuntimePack)
-    return lenses.filter(([id]) => id === "api" || id === "source");
+    return typeLenses.filter(([id]) => id === "api" || id === "source");
   // Compare follows the Library rule: its Package-owned Diff baseline exists
   // only for Gallery packages.
   return pkg?.source !== undefined && pkg.source.kind !== "nuget.org"
-    ? lenses.filter(([id]) => id !== "compare")
-    : lenses;
+    ? typeLenses.filter(([id]) => id !== "compare")
+    : typeLenses;
 }
 
 const FORMAT_CHARACTER = /^\p{Cf}$/u;

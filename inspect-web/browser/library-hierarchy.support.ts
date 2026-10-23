@@ -15,9 +15,16 @@ import type {
 import type {
   BrowserCallGraph,
   BrowserHomeDemoCatalogEntry,
+  BrowserHomeDemoResolved,
   BrowserHomeDemoRunResult,
   BrowserWorkspacePackageSourceRequirement,
 } from "../src/facades/inspect-web-catalog.d.ts";
+import type {
+  PackageQueryDurableRowDescriptors,
+} from "../src/package-query-durable-row.ts";
+import {
+  parseGeneratedStaticJson,
+} from "../scripts/generated-static-json.ts";
 import type { PlatformAssemblyRow, PlatformCatalogTarget } from "../src/platform-index.ts";
 
 function subjectTab(page: Page, subject: string) {
@@ -124,12 +131,14 @@ async function chooseSubject(page: Page, subject: string, label: string) {
 
 async function openApplicationAction(
   page: Page,
-  action: "settings" | "keyboard-help",
+  action: "settings" | "legend" | "keyboard-help",
 ): Promise<void> {
   const button = page.locator("#application-menu-button");
   const item = page.locator(`[data-application-action="${action}"]`);
   const outcome = page.locator(
-    action === "settings" ? "#settings-dialog" : "#keyboard-help-dialog");
+    action === "settings" ? "#settings-dialog"
+      : action === "legend" ? "#legend-dialog"
+      : "#keyboard-help-dialog");
   await expect(async () => {
     if (!await item.isVisible()) await button.click();
     await item.evaluate(element => {
@@ -206,9 +215,6 @@ const run: BrowserMemberSurface = {
   returnType: "void",
   parameters: [],
   documentationId: "M:Example.Widget.Run",
-  summary: "Runs the widget.",
-  returns: null,
-  exceptions: [],
   stableSelector: "Run",
   anchorDigest: "widget-run",
   canonicalSignature: "void Example.Widget.Run()",
@@ -341,12 +347,18 @@ interface PlatformFixture {
 
 interface HomeDemoFixture {
   catalog: readonly BrowserHomeDemoCatalogEntry[];
+  resolutions?: Readonly<Record<string, BrowserHomeDemoResolved>>;
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
   catalogPending?: boolean;
+  resolutionPendingOrdinal?: number;
+  resolutionFailureOrdinal?: number;
+  surfaceAdmissionPendingOrdinal?: number;
 }
 
 interface DiagnosticsFixture {
   packageDocumentTitles?: "ready" | "deferred";
+  packageDocumentContainment?: "ready" | "deferred" | "rejected";
+  packageDocumentText?: string;
   libraryApiDiffPilot?: "ready" | "empty";
   runtimeFailure?: boolean;
   buildIdentity?: "ready" | "pending" | "failed";
@@ -355,6 +367,7 @@ interface DiagnosticsFixture {
   libraryApiFailure?: boolean;
   libraryApiIncomplete?: boolean;
   deferTypeMemberPopulation?: boolean;
+  rejectedPerformanceTypeMemberPopulation?: boolean;
   qualifiedStructuralSalience?: boolean;
   physicalOnlyStructuralSalience?: boolean;
   rejectedOwnershipStructuralSalience?: boolean;
@@ -374,13 +387,25 @@ interface PackageLoadingFixture {
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
 
+function isPackageQueryDurableRowDescriptors(
+  value: unknown,
+): value is PackageQueryDurableRowDescriptors {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every(descriptor =>
+      typeof descriptor === "object"
+      && descriptor !== null
+      && "schema" in descriptor
+      && "bindings" in descriptor);
+}
+
 // Exercise the production composition root and bindings with deterministic facade
 // responses. Codec and participant-query behavior have separate engine outcome gates.
 async function installFacades(
   page: Page,
   model = surface,
   additionalSurfaces: readonly BrowserPackageSurface[] = [],
-  references: "ready" | "workspace-library" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
+  references: "ready" | "workspace-library" | "external-supplier" | "long" | "empty" | "query-error" | "inspection-error" | "deferred" = "ready",
   integrations: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
   platform?: PlatformFixture,
   opportunities: "ready" | "long" | "empty" | "partial" | "partial-empty" | "query-error" | "deferred" = "ready",
@@ -637,6 +662,32 @@ async function installFacades(
     },
     noBody: false,
   };
+  const packageFacadeSource = await readFile(new URL(
+    "../DotnetInspect.Web/facades/inspect-web-package.ts",
+    import.meta.url), "utf8");
+  const descriptorLine = packageFacadeSource.split("\n").find(candidate =>
+    candidate.startsWith(
+      "export const jsonSchemaVocabularyDescriptors = "));
+  if (descriptorLine === undefined) {
+    throw new Error("Generated Package facade has no schema descriptors.");
+  }
+  const durableRowDescriptorsSource = descriptorLine.slice(
+    descriptorLine.indexOf("=") + 1,
+    descriptorLine.lastIndexOf(" as const;")).trim();
+  const parsedDescriptors =
+    parseGeneratedStaticJson(durableRowDescriptorsSource);
+  if (!isPackageQueryDurableRowDescriptors(parsedDescriptors)) {
+    throw new Error("Generated Package facade descriptor export is invalid.");
+  }
+  const durableRowDescriptors = parsedDescriptors;
+  const durableRowDescriptor = durableRowDescriptors[0];
+  if (durableRowDescriptor === undefined) {
+    throw new Error("Generated Package facade has no durable-row descriptor.");
+  }
+  const durableRowTerms =
+    durableRowDescriptor.bindings.map(binding => binding.term);
+  const durableRowSnapshotIdentity =
+    durableRowDescriptor.vocabularySnapshotIdentity;
   const modules: Record<string, string> = {
     host: `
       const diagnosticsOptions = ${JSON.stringify(diagnostics)};
@@ -675,6 +726,70 @@ async function installFacades(
       }`,
     package: `
       ${surfaceLookup}
+      export const jsonSchemaVocabularyDescriptors =
+         ${durableRowDescriptorsSource};
+      function packageDocumentContainedText(policy, text) {
+        let contained = "";
+        for (const scalar of text) {
+          const value = scalar.codePointAt(0);
+          if (value === undefined) continue;
+          if (scalar === "\\\\") {
+            contained += "\\\\\\\\";
+            continue;
+          }
+          const categoryRefused = /[\\p{Cf}\\p{Cs}]/u.test(scalar)
+            || value === 0x2028 || value === 0x2029
+            || (/[\\p{Cc}]/u.test(scalar)
+              && (policy === "Field"
+                || (value !== 0x09 && value !== 0x0A && value !== 0x0D)));
+          if (!categoryRefused) {
+            contained += scalar;
+            continue;
+          }
+          if (value <= 0x1F) {
+            contained += "\\\\^" + String.fromCodePoint(value + 0x40);
+          } else if (value === 0x7F) {
+            contained += "\\\\^?";
+          } else if (value <= 0xFFFF) {
+            contained += "\\\\u" + value.toString(16).toUpperCase().padStart(4, "0");
+          } else {
+            contained += "\\\\U" + value.toString(16).toUpperCase().padStart(8, "0");
+          }
+        }
+        return contained;
+      }
+      export async function containPackageDocumentLeaves(generation, leaves) {
+        document.documentElement.dataset.packageDocumentContainment =
+          JSON.stringify({ generation, leaves });
+        if (diagnosticsOptions.packageDocumentContainment === "deferred"
+          && /^package-document-\\d+$/.test(generation)) {
+          await new Promise(resolve =>
+            document.addEventListener("package-document-containment", resolve));
+        }
+        document.documentElement.dataset.packageDocumentContainmentCompletion =
+          generation;
+        if (diagnosticsOptions.packageDocumentContainment === "rejected") {
+          return {
+            outcome: "rejected",
+            generation,
+            failure: {
+              kind: "OutputTextTooLarge",
+              identity: null,
+              actual: 2,
+              limit: 1,
+            },
+          };
+        }
+        return {
+          outcome: "contained",
+          generation,
+          leaves: leaves.map(leaf => ({
+            identity: leaf.identity,
+            policy: leaf.policy,
+            text: packageDocumentContainedText(leaf.policy, leaf.text),
+          })),
+        };
+      }
       ${diagnostics.packageDocumentTitles ? `
       const documentTitleReads = new Set();
       export async function getPackageDocument(packageId, version, path) {
@@ -690,7 +805,14 @@ async function installFacades(
           "untitled.md": "## Secondary heading\nNo H1",
         })};
         document.documentElement.dataset.packageDocumentTitleCompletion = JSON.stringify([version, path]);
-        return { kind: "Markdown", name: path, path, text: version === "0.9.0" ? "# Older package" : texts[path] ?? "# Document" };
+        return {
+          kind: "Markdown",
+          name: path,
+          path,
+          text: version === "0.9.0"
+            ? "# Older package"
+            : diagnosticsOptions.packageDocumentText ?? texts[path] ?? "# Document"
+        };
       }` : ""}
       const platformTarget = ${JSON.stringify(catalogTarget)};
       const platformOptions = ${JSON.stringify(platform ?? {})};
@@ -1083,7 +1205,14 @@ async function installFacades(
           }],
         };
       }
-      export function listPackageQueryCatalog() { return { presets: [], terms: [] }; }
+      export function inspectPackageQueryFacets() {
+        return JSON.stringify({
+          scope: { profile: "query-preparation/v1", completeness: "Complete" },
+          facet_order: [],
+          facets: {},
+          bindings: {},
+        });
+      }
       const packageQueryOperations = new Map();
       function packageQueryRow(ecosystemId, index) {
         const packageId = index === 0
@@ -1355,8 +1484,14 @@ async function installFacades(
         return {
           package: id, version, activeFramework: framework, assembly: selected.name,
           dependencyGroups: [], declarationFailures: [], dependencyGroupError: null,
+          platformReferences: [], defaultPlatformReference: null, platformReferenceError: null,
           assemblyReferences: scenario === "inspection-error" ? "Cannot decode AssemblyRef."
             : { references: scenario === "empty" ? [] : scenario === "workspace-library"
+            ? [{
+                name: "Reference.Target", version: "1.0.0.0",
+                culture: "neutral", publicKeyToken: null
+              }]
+            : scenario === "external-supplier"
             ? [{
                 name: "Reference.Target", version: "1.0.0.0",
                 culture: "neutral", publicKeyToken: null
@@ -1370,6 +1505,17 @@ async function installFacades(
             : [{ name: selected.name + ".Dependency", version: "1.0.0.0", culture: null, publicKeyToken: null }] },
           compileLibrary: surface.compileLibrary
         };
+      }
+      export async function queryReferencePackageSuppliers(id, version, framework, asset) {
+        document.documentElement.dataset.referenceSupplierRequest =
+          JSON.stringify([id, version, framework, asset]);
+        const scenario = ${JSON.stringify(references)};
+        if (scenario !== "external-supplier") return [];
+        await new Promise(resolve => document.addEventListener(
+          "fixture-reference-suppliers-ready", resolve, { once: true }));
+        return [{ name: "Reference.Target", version: "1.0.0.0",
+          culture: "neutral", publicKeyToken: null,
+          packageId: "Reference.Target", packageVersion: "2.0.0" }];
       }
       export async function queryPackageVulnerabilities(id, version) {
         document.documentElement.dataset.packageVulnerabilitiesRequest =
@@ -1464,11 +1610,11 @@ async function installFacades(
           value: {
             libraryIdentifier: "Example.Core", libraryDisplay: "Example.Core",
             target: endpoint(request.targetVersion), current: endpoint(request.currentVersion),
-            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0 },
+            aggregate: { changedTypeCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 1}, addedTypeCount: 0, removedTypeCount: 0, changedMemberCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, breakingCount: 0, additiveCount: ${diagnostics.libraryApiDiffPilot === "empty" ? 0 : 3}, potentiallyBreakingCount: 0, nonBreakingCount: 0 },
             types: ${JSON.stringify(diagnostics.libraryApiDiffPilot === "empty" ? [] : [{
               documentIdentifier: "Example.Widget", display: "Example.Widget", state: "Diff",
               typeDefinitionChanged: false, changedMemberCount: 3,
-              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0,
+              breakingCount: 0, additiveCount: 3, potentiallyBreakingCount: 0, nonBreakingCount: 0,
               before: { identifier: "before-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
               after: { identifier: "after-widget", namespace: "Example", segments: ["Widget"], display: "Example.Widget" },
               members: [], changes: [],
@@ -1716,6 +1862,14 @@ async function installFacades(
             accessibility,
           ]);
         await waitForTypeMemberPopulationGate();
+        if (${JSON.stringify(diagnostics.rejectedPerformanceTypeMemberPopulation === true)}) {
+          return {
+            outcome: "Rejected",
+            detail: "The ranked Member population was rejected.",
+            population: null,
+            diagnostics: [],
+          };
+        }
         return typeMemberPopulation(
           implementationPerformanceSurface(
             surfaceFor(id, version, framework)),
@@ -3197,7 +3351,17 @@ async function installFacades(
         hasWorkspaceRegistration: true,
       }];
       const homeDemoResults = ${JSON.stringify(homeDemos?.results ?? {})};
+      const homeDemoResolutions =
+        ${JSON.stringify(homeDemos?.resolutions ?? {})};
       const homeDemoCatalogPending = ${Boolean(homeDemos?.catalogPending)};
+      const homeDemoResolutionPendingOrdinal =
+        ${homeDemos?.resolutionPendingOrdinal ?? 0};
+      const homeDemoResolutionFailureOrdinal =
+        ${homeDemos?.resolutionFailureOrdinal ?? 0};
+      const homeDemoSurfaceAdmissionPendingOrdinal =
+        ${homeDemos?.surfaceAdmissionPendingOrdinal ?? 0};
+      let homeDemoResolutionOrdinal = 0;
+      let homeDemoSurfaceAdmissionOrdinal = 0;
       const workspaceSources = ${JSON.stringify(workspaceSources)};
       const retainedWorkspaceSurface = ${JSON.stringify(model)};
       let preparedRetainedWorkspace = null;
@@ -3522,13 +3686,233 @@ async function installFacades(
           cleanup: null,
         };
       }
+      function homeDemoWorkspacePosting(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        scenarioId,
+      ) {
+        const demo = homeDemoResolutions[scenarioId];
+        const result = homeDemoResults[scenarioId];
+        if (!demo || !result?.activation) return null;
+        const publicationOrdinal = ++nextRetainedPublicationOrdinal;
+        const workspaceId = "home-demo-workspace";
+        const focus = demo.tabs[demo.focusTabIndex];
+        const packageMembers = demo.workspaceMembers.filter(
+          member => member.kind === "package");
+        const platformMembers = demo.workspaceMembers.filter(
+          member => member.kind === "platform");
+        const tabs = demo.tabs.map(tab => ({
+          id: tab.id,
+          kind: tab.member.kind,
+          source: tab.member.id,
+          version: tab.member.version,
+          framework: tab.member.framework,
+          runtimeIdentifier: null,
+        }));
+        const activeTabId =
+          focus?.member.kind === "package" ? focus.id : null;
+        const packageSurfaces = Object.fromEntries(
+          packageMembers.map((member, index) => [
+            demo.tabs.find(tab =>
+              tab.member.kind === "package"
+              && tab.member.id === member.id
+              && tab.member.version === member.version
+              && tab.member.framework === member.framework)?.id
+                ?? "package-" + index,
+            result.packages[index],
+          ]));
+        const platformSurface = result.packages.find(surface =>
+          surface.package === result.activation.focusId)
+          ?? result.packages.at(-1);
+        const packageSubjects = packageMembers.map((member, index) => {
+          const navigationId = demo.tabs.find(tab =>
+            tab.member.kind === "package"
+            && tab.member.id === member.id
+            && tab.member.version === member.version
+            && tab.member.framework === member.framework)?.id
+              ?? "package-" + index;
+          return {
+            navigationId,
+            subject: {
+              id: "home-demo-package-" + index,
+              kind: "Package",
+              label: member.id,
+              summary: null,
+              parent: workspaceId,
+            },
+            member,
+          };
+        });
+        const activePackage = packageSubjects.find(
+          item => item.navigationId === activeTabId);
+        const workspaceSubject = {
+          id: workspaceId,
+          kind: "Workspace",
+          label,
+          summary: null,
+          parent: null,
+        };
+        const activeSubject = activePackage?.subject ?? workspaceSubject;
+        const packages = packageSubjects.map((item, index) => {
+          const surface = packageSurfaces[item.navigationId];
+          return {
+            navigationId: item.navigationId,
+            contextIndex: 0,
+            consumerPackageSubjectId: item.subject.id,
+            summary: {
+              selectedCompileFramework: item.member.framework,
+              libraryCount: surface?.assemblies.length ?? 0,
+              typeCount: surface?.types.length ?? 0,
+              memberCount: surface?.totalMembers ?? 0,
+              documentCount: surface?.documents.length ?? 0,
+              hasInspectionNotices:
+                (surface?.inspectionErrors.length ?? 0) > 0,
+            },
+            defaultLibrary: null,
+          };
+        });
+        const platforms = platformMembers.map((member, index) => ({
+          navigationId: demo.tabs.find(tab =>
+            tab.member.kind === "platform"
+            && tab.member.id === member.id
+            && tab.member.version === member.version
+            && tab.member.framework === member.framework)?.id
+              ?? "platform-" + index,
+          contextIndex: 0,
+          family: member.id,
+          runtimeIdentifier: null,
+          summary: {
+            selectedCompileFramework: member.framework,
+            libraryCount: platformSurface?.assemblies.length ?? 0,
+            typeCount: platformSurface?.types.length ?? 0,
+            memberCount: platformSurface?.totalMembers ?? 0,
+            documentCount: platformSurface?.documents.length ?? 0,
+            hasInspectionNotices:
+              (platformSurface?.inspectionErrors.length ?? 0) > 0,
+          },
+        }));
+        return {
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          canonicalPacket: null,
+          realizationId: "home-demo-realization-" + publicationOrdinal,
+          publicationOrdinal,
+          definition: {
+            tabs,
+            contexts: [{
+              id: "home-demo-context",
+              tabIds: tabs.map(tab => tab.id),
+            }],
+            registrations: [],
+            activeTabId,
+            selectedContextId: "home-demo-context",
+          },
+          navigation: {
+            operation: "Initialize",
+            request: "home-demo-request",
+            snapshot: {
+              generation: "home-demo-generation",
+              scope: { kind: "Current", runtimeFailure: null },
+              workspace: workspaceSubject,
+              activePackage: activePackage?.subject.id ?? null,
+              activeSubject,
+              typeInventoryLibraryContext: null,
+              packages: packageSubjects.map((item, index) => ({
+                order: index,
+                subject: item.subject,
+                packageId: item.member.id,
+                version: item.member.version,
+                framework: item.member.framework,
+                runtimeIdentifier: null,
+                realization: "home-demo-package-realization-" + index,
+                realizationFailure: null,
+                state: item === activePackage ? "Active" : "Available",
+                isCurrent: item === activePackage,
+                action: null,
+              })),
+              hierarchy: [{
+                kind: "Workspace",
+                label,
+                subject: workspaceSubject,
+                state: "Active",
+                isActive: activePackage === undefined,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }, ...packageSubjects.map(item => ({
+                kind: "Package",
+                label: item.member.id,
+                subject: item.subject,
+                state: item === activePackage ? "Active" : "Available",
+                isActive: item === activePackage,
+                isRetained: true,
+                evidence: [],
+                action: null,
+              }))],
+              libraries: [],
+              types: [],
+              members: [],
+              lenses: [],
+              lensOutcome: {
+                kind: "Unavailable",
+                basis: "NoSelection",
+                subject: activeSubject,
+                effectiveLens: null,
+                request: null,
+                preferredRole: null,
+                policyFailure: null,
+                resolution: null,
+                suspension: null,
+              },
+              diagnostics: [],
+            },
+            outcome: {
+              kind: "Applied",
+              rejection: null,
+              failureSource: null,
+              message: null,
+              request: null,
+              resolution: null,
+              scope: null,
+              diagnostics: [],
+              coordinateRetention: null,
+            },
+            synchronization: "SynchronizationRequired",
+            authority: {
+              session: "home-demo-session",
+              revision: "home-demo-revision",
+              intent: "home-demo-intent",
+              epoch: "home-demo-epoch",
+            },
+          },
+          packages,
+          platforms,
+          predecessor: null,
+          cleanup: null,
+          fixturePackageSurfaces: packageSurfaces,
+          fixturePlatformSurface: platformSurface,
+        };
+      }
       export function inspectVocabulary() {
         return {
           content: {
             formatVersion: 1,
             catalog: { value: "dotnet-inspect.product" },
-            identity: { value: "sha256:${"0".repeat(64)}" },
-            vocabularies: [],
+            identity: { value: "${durableRowSnapshotIdentity}" },
+            vocabularies: [{
+              identity: { value: "package-query.durable-row" },
+              displayLabel: "Package Query durable row",
+              summary: "Durable Package Query fields.",
+              maps: [],
+              terms: ${JSON.stringify(durableRowTerms.map(term => ({
+                identity: { value: term },
+                displayLabel: `Label ${term}`,
+                summary: `Summary ${term}.`,
+                mapEntries: [],
+              })))},
+            }],
           },
           share: {
             kind: "nonProjectable",
@@ -3545,6 +3929,25 @@ async function installFacades(
             "finish-home-demo-catalog", resolve, { once: true }));
         }
         return { demos: homeDemos };
+      }
+      export async function resolveHomeDemo(id) {
+        document.documentElement.dataset.homeDemoResolve = id;
+        homeDemoResolutionOrdinal++;
+        if (homeDemoResolutionOrdinal
+            === homeDemoResolutionPendingOrdinal) {
+          document.documentElement.dataset.homeDemoResolutionPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-home-demo-resolution", resolve, { once: true }));
+          document.documentElement.dataset.homeDemoResolutionPending = "false";
+        }
+        if (homeDemoResolutionOrdinal
+            === homeDemoResolutionFailureOrdinal) {
+          throw new Error("Fixture product demo resolution failed.");
+        }
+        return {
+          found: homeDemoResolutions[id] !== undefined,
+          demo: homeDemoResolutions[id] ?? null,
+        };
       }
       export function listEcosystems() {
         return { ecosystems: productEcosystems };
@@ -3718,6 +4121,48 @@ async function installFacades(
         return {
           status: "prepared",
           receipt: "ecosystem-receipt",
+          preparation: {
+            retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
+            label: preparedRetainedWorkspace.label,
+            canonicalLocation: preparedRetainedWorkspace.canonicalLocation,
+            canonicalPacket: preparedRetainedWorkspace.canonicalPacket,
+            definition: preparedRetainedWorkspace.definition,
+            navigation: preparedRetainedWorkspace.navigation,
+            packages: preparedRetainedWorkspace.packages,
+            platforms: preparedRetainedWorkspace.platforms,
+          },
+          posting: null,
+          failure: null,
+        };
+      }
+      export async function prepareHomeDemoWorkspaceDefinition(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        scenarioId,
+      ) {
+        document.documentElement.dataset.homeDemoPrepare = scenarioId;
+        preparedRetainedWorkspace = homeDemoWorkspacePosting(
+          retainedDefinitionId,
+          label,
+          canonicalLocation,
+          scenarioId,
+        );
+        if (preparedRetainedWorkspace === null) {
+          return {
+            status: "failed",
+            receipt: null,
+            preparation: null,
+            posting: null,
+            failure: {
+              kind: "UnknownDemo",
+              message: "Fixture product demo is unavailable.",
+            },
+          };
+        }
+        return {
+          status: "prepared",
+          receipt: "home-demo-receipt",
           preparation: {
             retainedDefinitionId: preparedRetainedWorkspace.retainedDefinitionId,
             label: preparedRetainedWorkspace.label,
@@ -3922,17 +4367,67 @@ async function installFacades(
       export function abandonRetainedWorkspaceNavigation() {
         return "accepted";
       }
-      export async function admitRetainedWorkspacePackage() {
+      async function holdHomeDemoSurfaceAdmission() {
+        homeDemoSurfaceAdmissionOrdinal++;
+        if (homeDemoSurfaceAdmissionOrdinal
+            !== homeDemoSurfaceAdmissionPendingOrdinal) return;
+        document.documentElement.dataset.homeDemoSurfaceAdmissionPending =
+          "true";
+        await new Promise(resolve => document.addEventListener(
+          "finish-home-demo-surface-admission", resolve, { once: true }));
+        document.documentElement.dataset.homeDemoSurfaceAdmissionPending =
+          "false";
+      }
+      export async function admitRetainedWorkspacePackage(
+        _retainedDefinitionId,
+        _realizationId,
+        navigationId,
+      ) {
+        await holdHomeDemoSurfaceAdmission();
+        const surface =
+          preparedRetainedWorkspace?.fixturePackageSurfaces?.[navigationId]
+          ?? retainedWorkspaceSurface;
+        const inventory = preparedRetainedWorkspace?.packages.find(
+          item => item.navigationId === navigationId);
         return {
           status: "admitted",
           package: {
-            navigationId: "source-package-navigation",
-            contextIndex: 0,
-            consumerPackageSubjectId: "source-package",
-            surface: retainedWorkspaceSurface,
+            navigationId,
+            contextIndex: inventory?.contextIndex ?? 0,
+            consumerPackageSubjectId:
+              inventory?.consumerPackageSubjectId ?? "source-package",
+            surface,
             typePage: {
               offset: 0,
-              totalTypes: retainedWorkspaceSurface.types.length,
+              totalTypes: surface.types.length,
+              nextOffset: null,
+            },
+          },
+          message: null,
+        };
+      }
+      export async function admitRetainedWorkspacePlatform(
+        _retainedDefinitionId,
+        _realizationId,
+        navigationId,
+      ) {
+        await holdHomeDemoSurfaceAdmission();
+        const surface =
+          preparedRetainedWorkspace?.fixturePlatformSurface
+          ?? platformFocusSurface;
+        const inventory = preparedRetainedWorkspace?.platforms.find(
+          item => item.navigationId === navigationId);
+        return {
+          status: "admitted",
+          platform: {
+            navigationId,
+            contextIndex: inventory?.contextIndex ?? 0,
+            family: inventory?.family ?? "runtime",
+            runtimeIdentifier: inventory?.runtimeIdentifier ?? null,
+            surface,
+            typePage: {
+              offset: 0,
+              totalTypes: surface.types.length,
               nextOffset: null,
             },
           },
@@ -4189,6 +4684,7 @@ export type {
   BrowserTypeSurface,
   BrowserCallGraph,
   BrowserHomeDemoCatalogEntry,
+  BrowserHomeDemoResolved,
   BrowserHomeDemoRunResult,
   PlatformAssemblyRow,
   PlatformCatalogTarget,

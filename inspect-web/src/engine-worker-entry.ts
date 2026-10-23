@@ -16,6 +16,10 @@ import {
   type EngineWorkerPackageQueryFacade,
 } from "./engine-worker-package-query.ts";
 import {
+  resolvePackageQueryDurableRowLayout,
+  type PackageQueryDurableRowLayout,
+} from "./package-query-durable-row.ts";
+import {
   registerEngineWorkerTypeSourceOperation,
   type EngineWorkerTypeSourceFacade,
 } from "./engine-worker-source.ts";
@@ -35,6 +39,8 @@ let vocabularyInspection:
   ReturnType<
     typeof import("/inspect-web-catalog.js")["inspectVocabulary"]
   > | undefined;
+let packageQueryDurableRowLayout:
+  PackageQueryDurableRowLayout | undefined;
 let ordinaryFacades: EngineWorkerOrdinaryFacades | undefined;
 registerEngineWorkerOrdinaryOperations(operations, () => {
   if (ordinaryFacades === undefined) {
@@ -59,8 +65,19 @@ registerEngineWorkerStartupOperations(operations, {
     }
     return vocabularyInspection;
   },
+  async packageQueryDurableRowLayout() {
+    if (packageQueryDurableRowLayout === undefined) {
+      throw new Error(
+        "Package Query durable-row layout is unavailable before Worker readiness.",
+      );
+    }
+    return packageQueryDurableRowLayout;
+  },
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
+  },
+  async listTypeViewFacets() {
+    return (await import("/inspect-web-catalog.js")).listTypeViewFacets();
   },
   async listEcosystems() {
     return (await import("/inspect-web-catalog.js")).listEcosystems();
@@ -69,8 +86,10 @@ registerEngineWorkerStartupOperations(operations, {
     return (await import("/inspect-web-package.js"))
       .listPackageActivityEcosystems();
   },
-  async listPackageQueryCatalog() {
-    return (await import("/inspect-web-package.js")).listPackageQueryCatalog();
+  async inspectPackageQueryFacets() {
+    const data: unknown = JSON.parse(
+      (await import("/inspect-web-package.js")).inspectPackageQueryFacets());
+    return data;
   },
 });
 let sourceFacade:
@@ -151,6 +170,10 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   sourceFacade = loadedSourceFacade;
   packageQueryFacade = packageFacade;
   packageChangesFacade = packageFacade;
+  vocabularyInspection ??= catalogFacade.inspectVocabulary();
+  packageQueryDurableRowLayout = await resolvePackageQueryDurableRowLayout(
+    packageFacade.jsonSchemaVocabularyDescriptors,
+    vocabularyInspection);
   ordinaryFacades = {
     package: packageFacade,
     library: libraryFacade,

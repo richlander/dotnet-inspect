@@ -12,9 +12,9 @@ namespace ILInspector.Analysis;
 /// candidates, then applies source-dependent accessibility and dispatch
 /// filtering. Unknown, ambiguous, or receiver-erased relationships fail
 /// closed.
-/// <c>OptimizationOpportunities_InheritedSiblingUsesNearestNameLevel</c>,
-/// <c>OptimizationOpportunities_InheritedSynchronousReceiverHidingFailsClosed</c>,
-/// and <c>OptimizationOpportunities_DistinctCalleesIndexCandidateTypeOnce</c>
+/// <c>AsyncSiblingProducer_InheritedSiblingUsesNearestNameLevel</c>,
+/// <c>AsyncSiblingProducer_InheritedSynchronousReceiverHidingFailsClosed</c>,
+/// and <c>AsyncSiblingMethodIndex_ConcurrentReadsBuildTypeOnce</c>
 /// gate representative lookup and caching behavior.
 /// </summary>
 internal sealed class LibraryBodyAsyncSiblingCandidateResolver(

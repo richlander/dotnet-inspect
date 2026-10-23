@@ -651,8 +651,9 @@ public class PackageQueryCliTests
 
         Assert.Equal(expectedCandidates, options!.Plan.MaximumCandidates);
         Assert.True(options.Plan.RequiresLibraryLiteralEvaluation);
-        Assert.Equal(take is null ? 1 : null, options.Plan.MaximumMatches);
-        Assert.Equal(take is null, options.SemanticHeadPushedDown);
+        Assert.Equal(1, options.Plan.MaximumMatches);
+        Assert.True(options.SemanticHeadPushedDown);
+        Assert.Equal(take is not null, options.CandidateBoundRequested);
     }
 
     [Fact]
@@ -955,7 +956,7 @@ public class PackageQueryCliTests
     }
 
     [Fact]
-    public void ExplicitTake_PreventsSemanticHeadPushdown()
+    public void ExplicitTake_KeepsSemanticHeadPushdownInsideTheWindow()
     {
         RowSelectionIntent<string> head = RowSelectionIntent<string>.Create(
             [RowSelectionIntentOperation<string>.Head(2)]);
@@ -969,9 +970,13 @@ public class PackageQueryCliTests
             out var options,
             out var error),
             error.ToString());
+        // --take 100 -n 2 stops at the second match or the 100th candidate,
+        // whichever comes first (cli-execution-bounds.md#three-query-shapes).
         Assert.Equal(100, options!.Plan.MaximumCandidates);
-        Assert.Null(options.Plan.MaximumMatches);
-        Assert.False(options.SemanticHeadPushedDown);
+        Assert.Equal(2, options.Plan.MaximumMatches);
+        Assert.True(options.SemanticHeadPushedDown);
+        Assert.True(options.CandidateBoundRequested);
+        Assert.True(options.ExplicitTake);
     }
 
     [Theory]
@@ -1285,9 +1290,10 @@ public class PackageQueryCliTests
                     boundedCountOptions! with { Count = true },
                     boundedCountSource,
                     null));
-            // The explicit candidate bound is not semantic Head: Count
-            // reports the observed match, exits as Rows does, and keeps the
-            // bound's disclosure rather than claiming the scope's total.
+            // The explicit candidate bound is the request's scope, not
+            // semantic Head: Count is exact for those candidates, exits zero,
+            // and names the bound as its scope rather than warning that the
+            // package-ID scope was not exhausted.
             Assert.Equal(0, boundedCountResult.ExitCode);
             Assert.Equal("1", boundedCountResult.Output.Trim());
             Assert.Equal(2, boundedCountFixture.ManifestRequests);
@@ -1295,7 +1301,10 @@ public class PackageQueryCliTests
                 "Cannot count Package Query rows",
                 boundedCountResult.Error);
             Assert.Contains(
-                "CandidateLimitReached",
+                "Package Query scope: the first 2 package candidates",
+                boundedCountResult.Error);
+            Assert.DoesNotContain(
+                "do not exhaust",
                 boundedCountResult.Error);
         }
 
@@ -2102,6 +2111,32 @@ public class PackageQueryCliTests
         Assert.Contains(libraryPath, markdown.Output);
         Assert.Contains("/IL_", markdown.Output);
         Assert.Contains(rootToken, markdown.Output);
+
+        // Hand the actual owner-issued query result through the ordinary
+        // Package parser to completed inspection, without a Workspace packet.
+        var reopened = await Run(
+            "package", rootToken, "--files", "--json");
+        Assert.True(reopened.ExitCode == 0, reopened.Error);
+        Assert.Empty(reopened.Error);
+        Assert.Contains(libraryPath, reopened.Output, StringComparison.Ordinal);
+        Assert.Contains(rootRequest.Coordinate.Version, reopened.Output, StringComparison.Ordinal);
+
+        var routed = await Run(rootToken, "--files", "--json");
+        Assert.True(routed.ExitCode == 0, routed.Error);
+        Assert.Equal(reopened.Output, routed.Output);
+        Assert.Empty(routed.Error);
+
+        foreach (string[] sourceQuery in new string[][]
+        {
+            ["library", "Newtonsoft.Json.dll", "--package", rootToken, "-S", "Library Info", "--json"],
+            ["type", "Newtonsoft.Json.JsonConvert", "--package", rootToken, "--json"],
+            ["member", "Newtonsoft.Json.JsonConvert", "SerializeObject:1", "--package", rootToken, "-S", "Signature", "--count"],
+        })
+        {
+            var inspected = await Run(sourceQuery);
+            Assert.True(inspected.ExitCode == 0, $"{sourceQuery[0]}: {inspected.Error}");
+            Assert.NotEmpty(inspected.Output);
+        }
     }
 
     [Fact]
@@ -2498,16 +2533,44 @@ public class PackageQueryCliTests
         PackageQueryOptions query = Options(
             "depends=Dependency.One",
             maximumCandidates: 1);
+
+        // An explicit --take is the request's scope: an exact zero for that
+        // population, named as the scope, with exit zero.
         var result = await ConsoleCapture.RunAsync(() => PackageQueryCommand.ExecuteAsync(
             query with { Count = true },
             source, null));
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("0", result.Output.Trim());
         Assert.Equal(1, fixture.ManifestRequests);
-        Assert.Contains("CandidateLimitReached", result.Error);
+        Assert.Contains(
+            "Package Query scope: the first 1 package candidate (--take)",
+            result.Error);
+        Assert.DoesNotContain("do not exhaust", result.Error);
+
+        // The same stop under a default ceiling the user did not set is a
+        // partial view: Rows and Count print what was observed, warn, and
+        // exit nonzero (cli-execution-bounds.md#disclosure).
+        PackageQueryOptions ceiling = query with
+        {
+            CandidateBoundRequested = false,
+            ExplicitTake = false,
+        };
+        var ceilingCount = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(
+                ceiling with { Count = true },
+                source, null));
+        Assert.Equal(1, ceilingCount.ExitCode);
+        Assert.Equal("0", ceilingCount.Output.Trim());
+        Assert.Contains("CandidateLimitReached", ceilingCount.Error);
         Assert.Contains(
             "These results do not exhaust the requested package-ID scope",
-            result.Error);
+            ceilingCount.Error);
+        var ceilingRows = await ConsoleCapture.RunAsync(() =>
+            PackageQueryCommand.ExecuteAsync(ceiling, source, null));
+        Assert.Equal(1, ceilingRows.ExitCode);
+        Assert.Contains(
+            "These results do not exhaust the requested package-ID scope",
+            ceilingRows.Error);
     }
 
     [Fact]
@@ -2530,7 +2593,9 @@ public class PackageQueryCliTests
         Assert.Contains(
             "Package Query row selection stage 1",
             result.Error);
-        Assert.Contains("CandidateLimitReached", result.Error);
+        Assert.Contains(
+            "Package Query scope: the first 1 package candidate",
+            result.Error);
     }
 
     [Fact]
@@ -2878,9 +2943,12 @@ public class PackageQueryCliTests
             maximumMatches: null,
             rowSelection: rowSelection);
         var accepted = Assert.IsType<PackageQueryPlanResult.Accepted>(result);
+        // A supplied candidate budget stands in for an explicit --take.
         return new()
         {
             Plan = accepted.Plan,
+            CandidateBoundRequested = maximumCandidates is not null,
+            ExplicitTake = maximumCandidates is not null,
             Tabular = true,
             Tsv = true,
         };

@@ -152,6 +152,28 @@ public sealed class AssemblyContextMemberSelectionQueryTests
     }
 
     [Fact]
+    public async Task ExecuteOptionalBody_ReturnsAvailableNullWhenBodyIsAbsent()
+    {
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = SelfGroup(workspace);
+        AssemblyContextParticipant participant = Assert.Single(
+            group.Participants);
+        ApiType type = ProbeType(group, participant);
+
+        AssemblyContextMemberBody? result = Available(
+            AssemblyContextMemberSelectionQuery.ExecuteOptionalBody(
+                group,
+                participant,
+                new(
+                    type.DefinitionName!.ToEscapedFullName(),
+                    "Missing",
+                    "opaque"),
+                Limits));
+
+        Assert.Null(result);
+    }
+
+    [Fact]
     public async Task SelectBody_ReusesCallerProjectedSurface()
     {
         await using var workspace = new InspectionWorkspace();

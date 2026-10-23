@@ -239,6 +239,56 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
+    public void SelectPackageLibrary_CandidateNamesake_NotFoundWhenNoNamesake()
+    {
+        string library = WriteAssembly(
+            "lib/net8.0/Library.dll",
+            typeof(TfmSelector).Assembly.Location);
+
+        var result = TfmSelector.SelectPackageLibrary(
+            [library],
+            _tempDir,
+            "Contoso.Missing",
+            requestedLibrary: "",
+            tfm: "net8.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus.NamesakeNotFound,
+            result.Status);
+        Assert.Equal([library], result.CandidatePaths);
+        Assert.Equal("lib/net8.0/", result.PopulationPath);
+    }
+
+    [Fact]
+    public void
+        SelectPackageLibrary_CandidateNamesake_AmbiguousWhenSeveralNamesakes()
+    {
+        string first = WriteAssembly(
+            "lib/net8.0/First.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string second = WriteAssembly(
+            "lib/net8.0/Second.dll",
+            typeof(TfmSelectorTests).Assembly.Location);
+        string packageId =
+            typeof(TfmSelectorTests).Assembly.GetName().Name!;
+
+        var result = TfmSelector.SelectPackageLibrary(
+            [first, second],
+            _tempDir,
+            packageId,
+            requestedLibrary: "",
+            tfm: "net8.0");
+
+        Assert.False(result.IsSelected);
+        Assert.Equal(
+            TfmSelector.PackageLibraryResolutionStatus.NamesakeAmbiguous,
+            result.Status);
+        Assert.Equal([first, second], result.CandidatePaths);
+        Assert.Equal("lib/net8.0/", result.PopulationPath);
+    }
+
+    [Fact]
     public void SelectPackageLibrary_CandidateNamesake_ReportsUnreadableIdentity()
     {
         var unreadable = WriteDll("lib/net8.0/Unreadable.dll");
@@ -256,6 +306,7 @@ public class TfmSelectorTests : IDisposable
                 .NamesakeIdentityUnavailable,
             result.Status);
         Assert.Equal([unreadable], result.IdentityFailurePaths);
+        Assert.Equal("lib/net8.0/", result.PopulationPath);
     }
 
     [Fact]
@@ -363,6 +414,7 @@ public class TfmSelectorTests : IDisposable
         Assert.Equal([unreadable], result.IdentityFailurePaths);
         Assert.Equal([namesake, unreadable], result.CandidatePaths);
         Assert.Null(result.FirstLibraryReason);
+        Assert.Equal("lib/net8.0/", result.PopulationPath);
     }
 
     [Fact]
@@ -384,33 +436,27 @@ public class TfmSelectorTests : IDisposable
     }
 
     [Fact]
-    public void FindAssembliesInPackage_ReturnsEveryNamedMatchOrTheExactPath()
+    public void FindAssemblyInPackage_MatchesNamesWithoutCaseOrPrefixMatches()
     {
         string net8 = WriteDll("lib/net8.0/Lib.dll");
         string net10 = WriteDll("lib/net10.0/Lib.dll");
-        string other = WriteDll("lib/net10.0/Other.dll");
+        WriteDll("lib/net10.0/Other.dll");
         string core = WriteDll("lib/net10.0/Lib.Core.dll");
-        string[] dlls = [net8, net10, other, core];
+        string[] dlls = [net8, net10, core];
 
-        Assert.Equal(
-            [net8, net10],
-            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Lib"));
-        Assert.Equal(
-            [net8, net10],
-            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "LIB.DLL"));
-        Assert.Equal(
-            [core],
-            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Lib.Core"));
         Assert.Equal(
             net10,
             TfmSelector.FindAssemblyInPackage(dlls, _tempDir, "LIB.DLL", tfm: null).path);
         Assert.Equal(
-            [net10],
-            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "lib/net10.0/Lib.dll"));
-        Assert.Empty(
-            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "Missing.dll"));
-        Assert.Empty(
-            TfmSelector.FindAssembliesInPackage(dlls, _tempDir, "lib/net9.0/Lib.dll"));
+            core,
+            TfmSelector.FindAssemblyInPackage(dlls, _tempDir, "Lib.Core", tfm: null).path);
+        Assert.Equal(
+            net8,
+            TfmSelector.FindAssemblyInPackage(dlls, _tempDir, "lib/net8.0/Lib.dll", tfm: null).path);
+        Assert.Null(
+            TfmSelector.FindAssemblyInPackage(dlls, _tempDir, "Missing.dll", tfm: null).path);
+        Assert.Null(
+            TfmSelector.FindAssemblyInPackage(dlls, _tempDir, "lib/net9.0/Lib.dll", tfm: null).path);
     }
 
     [Fact]
@@ -608,73 +654,6 @@ public class TfmSelectorTests : IDisposable
         var result = TfmSelector.FindAssemblyByTfm(_tempDir, "net8.0");
 
         Assert.Equal(runtimeAssembly, result);
-    }
-
-    /// <summary>
-    /// The archive-directory form of the explicit-framework selection picks
-    /// exactly the package-relative paths the extracted-tree form picks, so
-    /// the package endpoint scope can apply the legacy selector before
-    /// anything is extracted (docs/design/package-endpoint-scope.md).
-    /// </summary>
-    [Theory]
-    [InlineData("RealAssets/PackageReadDemand/avalonia.12.1.2.nupkg", "net8.0")]
-    [InlineData("RealAssets/PackageReadDemand/avalonia.12.1.2.nupkg", "net10.0")]
-    [InlineData("RealAssets/PackageReadDemand/avalonia.12.1.2.nupkg", "netstandard2.0")]
-    [InlineData("RealAssets/PackageAdmission/System.Text.Json.10.0.0.nupkg", "net8.0")]
-    [InlineData("RealAssets/PackageAdmission/System.Text.Json.10.0.0.nupkg", "net462")]
-    [InlineData("fixtures/nugetfetch/pclstorage.1.0.2.nupkg", "net45")]
-    public void SelectAssembliesByTfmFromEntries_MatchesTheExtractedSelection(
-        string archive,
-        string tfm)
-    {
-        string path = Path.Combine(AppContext.BaseDirectory, archive);
-        string[] entries;
-        using (var zip = System.IO.Compression.ZipFile.OpenRead(path))
-        {
-            entries = [.. zip.Entries.Select(static entry => entry.FullName)];
-        }
-        System.IO.Compression.ZipFile.ExtractToDirectory(path, _tempDir);
-
-        string[] extracted =
-        [
-            .. TfmSelector.SelectAssembliesByTfmFromPackage(_tempDir, tfm).paths
-                .Select(selected => Path.GetRelativePath(_tempDir, selected).Replace('\\', '/'))
-                .Order(StringComparer.Ordinal),
-        ];
-
-        Assert.Equal(extracted, TfmSelector.SelectAssembliesByTfmFromEntries(entries, tfm));
-    }
-
-    [Fact]
-    public void SelectAssembliesByTfmFromEntries_MatchesTheExtractedSelectionForSatellitesAndTools()
-    {
-        string[] entries =
-        [
-            "lib/net8.0/MyLib.dll",
-            "lib/net8.0/fr/MyLib.resources.dll",
-            "lib/net8.0/de/Orphan.resources.dll",
-            "ref/net8.0/MyLib.dll",
-            "tools/net8.0/any/Tool.dll",
-            "runtimes/win/lib/net8.0/MyLib.dll",
-            "runtimes/win/native/native.dll",
-            "lib/net6.0/MyLib.dll",
-            "analyzers/dotnet/cs/MyLib.Analyzers.dll",
-            "lib/net8.0/",
-        ];
-        foreach (string entry in entries.Where(static entry => !entry.EndsWith('/')))
-            WriteDll(entry);
-
-        string[] extracted =
-        [
-            .. TfmSelector.SelectAssembliesByTfmFromPackage(_tempDir, "net8.0").paths
-                .Select(selected => Path.GetRelativePath(_tempDir, selected).Replace('\\', '/'))
-                .Order(StringComparer.Ordinal),
-        ];
-
-        Assert.Equal(extracted, TfmSelector.SelectAssembliesByTfmFromEntries(entries, "net8.0"));
-        Assert.Contains("ref/net8.0/MyLib.dll", extracted);
-        Assert.Contains("lib/net8.0/MyLib.dll", extracted);
-        Assert.DoesNotContain("lib/net8.0/fr/MyLib.resources.dll", extracted);
     }
 
     private string WriteDll(string relativePath)

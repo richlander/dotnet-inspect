@@ -24,6 +24,7 @@ public sealed class RangedPackageContent :
 {
     private readonly IReadOnlyList<PackageContentEntry> _entries;
     private readonly IReadOnlyList<string>? _directories;
+    private readonly IReadOnlyList<PackageContentEntry>? _directoryEntries;
     private readonly IReadOnlyDictionary<string, ReadOnlyMemory<byte>> _materialized;
     private readonly PackageContentGenerationIdentity _generationIdentity;
 
@@ -33,8 +34,10 @@ public sealed class RangedPackageContent :
         string producerKey,
         PackageContentGenerationIdentity generationIdentity,
         long? archiveLength = null,
-        IReadOnlyList<string>? directories = null)
+        IReadOnlyList<string>? directories = null,
+        IReadOnlyList<PackageContentEntry>? directoryEntries = null)
     {
+        _directoryEntries = directoryEntries;
         _directories = directories;
         _entries = entries;
         _materialized = materialized;
@@ -51,7 +54,8 @@ public sealed class RangedPackageContent :
         IReadOnlyList<PackageContentEntry> entries,
         string producerKey,
         long? archiveLength = null,
-        IReadOnlyList<string>? directories = null)
+        IReadOnlyList<string>? directories = null,
+        IReadOnlyList<PackageContentEntry>? directoryEntries = null)
     {
         ArgumentNullException.ThrowIfNull(entries);
         ArgumentException.ThrowIfNullOrEmpty(producerKey);
@@ -61,7 +65,8 @@ public sealed class RangedPackageContent :
             producerKey,
             new PackageContentGenerationIdentity(),
             archiveLength,
-            directories);
+            directories,
+            directoryEntries);
     }
 
     internal static RangedPackageContent CreateDirectory(
@@ -110,7 +115,8 @@ public sealed class RangedPackageContent :
             ProducerKey,
             _generationIdentity,
             ArchiveLength,
-            _directories);
+            _directories,
+            _directoryEntries);
     }
 
     internal long? ArchiveLength { get; }
@@ -244,6 +250,14 @@ public sealed class RangedPackageContent :
     {
         directories = _directories;
         return directories is not null;
+    }
+
+    bool IPackageArchiveEntryManifest.TryGetArchiveDirectoryEntries(
+        [NotNullWhen(true)]
+        out IReadOnlyList<PackageContentEntry>? directoryEntries)
+    {
+        directoryEntries = _directoryEntries;
+        return directoryEntries is not null;
     }
 
     /// <inheritdoc />

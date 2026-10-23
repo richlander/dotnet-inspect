@@ -126,6 +126,159 @@ Related docs:
   relational (`graph integrations`) shape a subset of "wide query" questions
   actually need, instead of this document's flat, per-package row model.
 
+## Installed capability explanation
+
+The CLI adoption tracked by
+[#9952](https://github.com/richlander/dotnet-inspect/issues/9952) admits
+`package query --explain` as a command-only terminal operation. Its exact claim
+is: return the existing complete HAL reading dataset for the owner-issued
+`PackageQueryCapabilityResourcePaths.QuerySpace`, without query planning,
+candidate enumeration, or package acquisition. The command token is not a
+resource identity; the binding uses the registered path directly.
+
+The motivating asset is
+[Microsoft.Extensions.Http.Polly@10.0.12](https://www.nuget.org/packages/Microsoft.Extensions.Http.Polly/10.0.12).
+The retained
+[command-bound trials](../../tools/ExplainReadingScenarios/usability/command-bound/README.md)
+observed its direct Polly dependency and four agents using help/`-Q` rather than
+explain. One attempted dependency depth four with 40 candidates, exceeding the
+registered five-candidate bound. These observations motivate making installed
+dependency semantics and bounds directly available at the command; they do
+not establish an agent-efficiency improvement.
+
+[Resource Explanation](resource-explanation.md) supplies the existing catalog,
+normalized reading dataset, HAL projection, and addresses.
+[Contextual Resource Explanation](contextual-resource-explanation.md#command-level-resource)
+supplies the command-resource admission and terminal-placement contract.
+[The companion-family grammar](view-facet-query-composition.md#companion-family)
+supplies option placement and dotted projection ownership. This terminal
+admits no subject selectors: any package argument, inspection predicate,
+execution bound, source override, content-section selection, or competing
+output operation fails before
+acquisition. It never falls back from a rejected target to command explanation.
+`.tips`, `.references`, and other projections fail visibly; `-E` adoption and
+resolved-query explanation remain outside this slice.
+
+HAL JSON is this installed-query terminal's natural output; `--json` is
+optional. Other explicit formats and output modifiers are rejected. This differs
+from Member's textual contextual explanation because the installed dataset is
+intended for local jq selection of complete query rules. It reuses the existing
+dataset serializer rather than a new Markout view; the generic human resource
+view currently omits input rules. Ordinary query output retains its existing
+format behavior.
+Process-wide controls such as `--offline` and `--http-timeout` remain valid:
+the executable configures these controls before command parsing; they do not select
+explanation Content. Explicit root output modifiers such as `-v q` are rejected.
+The normal environment-format precedence applies: a non-JSON
+`DOTNET_INSPECT_FORMAT` fails visibly unless overridden with `--json`.
+
+The adoption under
+[#9997](https://github.com/richlander/dotnet-inspect/issues/9997) admits `-Q`
+alongside this primary explanation as an exact facet-key narrowing modifier.
+Its exact claim is: select keys from the same owner-issued reading model before
+assembly, close declared required context, retain applicable binding rules,
+and perform no query planning or acquisition. It uses
+`ResourceExplanationDataset.Create` from the shared projection in #9986;
+`-Q` neither defines another schema nor changes HAL vocabulary.
+
+A comma/semicolon-separated list uses existing projection-list parsing. Keys
+are exact and case-sensitive; duplicates collapse. Wildcards, section/category
+names such as `Packages`, and inspection predicates are not facet-key aliases
+in this mode. Bare `-Q` imposes no narrowing; an explicitly empty value fails.
+`--query-help` and ordinary option placement remain valid aliases/grammar.
+The generic query-discovery wrapper defers to this terminal when `--explain`
+is present, so it cannot replace a narrowed explanation with section discovery.
+The terminal otherwise retains its acquisition-free admission and format rules.
+
+A selected response is complete for its selected facets and required context,
+not the whole installed catalog. It preserves all registered facet meaning and
+host rules. The shared HAL projection omits a narrowed self address and emits
+one implemented collection link for missing knowledge. Unknown keys fail
+without a partial response or fallback to package execution. Root explain and
+its explicit direct JSON selection remain available; no generic root-explain
+narrowing grammar is added by this host slice.
+
+Existing standalone `-Q Packages` and `Query: Packages` discovery keep their
+section/facet presentation and query selection behavior. Their Package Query
+summary now composes the registered route description and binding input rules;
+`PackageQueryOptions.DiscoverySummary` and its independently maintained domain
+inventory are retired. Predicate meaning remains in owner-issued facet facts,
+not a CLI summary. Registered knowledge does not claim every operation rule
+has been described; missing producer guidance is separate owner work.
+
+The motivating Http.Polly asset and prefix Polly workflow use:
+
+```bash
+dotnet-inspect package query --explain -Q depends,dependency-target > selected.hal.json
+jq '._embedded | {facets: [.facets[] | {key, operators, input_rules}],
+  bindings: [.bindings[] | {gesture, input_rules}]}' selected.hal.json
+```
+
+This reads the same facts as filtering a full response locally, with fewer
+transferred records. It needs no collection fetch to prepare the stated query.
+A literal selection similarly includes its target locally:
+
+```bash
+dotnet-inspect package query --explain -Q library-literal
+```
+
+`PackageQueryExplanationTests` checks equivalent selected/full records,
+required-context closure, binding rules and exposure, duplicate/list/alias and
+placement handling, bare selection, unknown/empty refusal, collection recovery,
+and zero network requests. Existing query discovery gates preserve standalone
+section discovery. This is CLI host adoption slice 9 of 10 under #9762;
+Browser/Wasm query-explanation admission remains slice 10. No producer meaning,
+shared projection contract, Browser gesture, or shipped skill changes here.
+
+An agent can read one response and select the dependency rules locally:
+
+```bash
+dotnet-inspect package query --explain > query.hal.json
+jq '{
+  bindings: [._embedded.bindings[] | {input_rules}],
+  facets: [._embedded.facets[]
+    | select(.key == "depends" or .key == "dependency-target"
+        or .key == "dependency-depth")
+    | {key, summary, operators, input_rules, requires}]
+}' query.hal.json
+```
+
+The embedded facets carry their input rules and the bindings describe CLI
+lowering. Read those before choosing target scope, depth, and `--take`; avoid
+following links for information already embedded. When only one facet is
+needed, root explain remains the focused entrance:
+
+```bash
+dotnet-inspect explain package-query/query/facets/depends .hal --json
+```
+
+For the retained Polly scenario, the selected rules permit a direct query:
+
+```bash
+dotnet-inspect package query 'Microsoft.Extensions.*' \
+  --where 'depends=Polly' --where 'dependency-target=net10.0' \
+  --take 40 --json
+```
+
+Adding `--where 'dependency-depth=4'` requires reducing `--take` to at most
+five. `-n 5` alone does not replace that inspection work bound. The response
+describes installed capabilities, not live matches or a guarantee that a
+bounded prefix scan exhausts Microsoft.Extensions packages.
+
+The original command-entrance follow-up (#9952) had one production slice: the CLI binding, documentation, and
+offline gates. It adds no shared substrate or replacement architecture.
+Browser already consumes the same descriptors through its capability catalog
+facade; no browser gesture or migration/retirement is required here. The
+original compact-data delivery completed under #9762; the current narrowing
+phase and its remaining host adoption are counted separately above. Fresh
+agent trials after landing will assess whether these entrances improve adoption.
+
+Release gates assert byte equality with root `.hal`, complete dependency
+rules and host bindings, zero requests through a fail-fast network handler,
+and visible rejection of conflicting inputs and unsupported projections,
+including explicit root output modifiers. Offline mode retains the same HAL.
+Existing Package Query CLI and root-explain tests cover their adjacent behavior.
+
 ## Package Query term binding
 
 Every Package Query condition is a `QuerySpace.PortableQueryTerm`. The shared
@@ -179,7 +332,20 @@ incompatible with either specific format. Equivalent normalized bindings
 collapse, including case variants of NuGet package IDs. Distinct values for
 the exclusive `downloads` and `prerelease` families are incompatible.
 
-The CLI spells inspection terms through the existing predicate grammar:
+The CLI spells inspection terms through the existing predicate grammar.
+
+The installed CLI binding's `input_rules` pair comparison identities with
+their CLI forms: `eq` uses `--where "key=value"`; `starts-with` uses
+`--where "key starts-with value"`. A spelling does not admit an operator for
+every facet; the facet's exposed operators remain authoritative.
+
+The [landed Package Query trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md)
+retain Microsoft.Extensions.Http.Polly@10.0.12 and an agent's fallback to `-Q`
+for the non-equality spelling after reading HAL. This motivates exposing syntax
+in the existing binding rather than extending the query grammar or skill.
+`PackageQueryExplanationTests.InstalledComparisonSpelling_PreparesOnlyFacetAdmittedPredicates`
+reads installed HAL to prepare equality and prefix predicates through the CLI
+parser, with an equality-only facet as the negative control, without acquisition.
 
 ```console
 dotnet-inspect package query 'Microsoft.Extensions.*' \

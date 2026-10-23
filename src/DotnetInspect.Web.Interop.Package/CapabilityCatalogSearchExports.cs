@@ -12,12 +12,7 @@ internal static class BrowserCapabilityCatalogSearch
         string text,
         int maximumResults)
     {
-        InspectionCapabilityCatalog catalog =
-            InspectionCapabilityCatalog.Create(
-                [
-                    PackageQueryCapability.ProductModule,
-                    PackageQueryCapabilityBinding.Module,
-                ]);
+        InspectionCapabilityCatalog catalog = CreateCatalog();
         ResourceExplanationCatalog explanation =
             ResourceExplanationCatalog.CreateCapabilities(
                 catalog,
@@ -27,6 +22,10 @@ internal static class BrowserCapabilityCatalogSearch
             explanation,
             new(text, maximumResults));
     }
+
+    internal static InspectionCapabilityCatalog CreateCatalog() =>
+        InspectionCapabilityCatalog.Create(
+            [PackageQueryCapability.ProductModule, PackageQueryCapabilityBinding.Module]);
 }
 
 [SupportedOSPlatform("browser")]
@@ -83,8 +82,20 @@ public static partial class PackageExports
                 "Unknown capability-search Share outcome."),
         };
 
+    // The Browser admits no structural catalog yet, so every result it
+    // projects carries a composed capability identity.
     private static BrowserCapabilityCatalogSearchResult Project(
         CapabilityCatalogSearchResult result) =>
+        Project(
+            result,
+            result.ResourceIdentity
+            ?? throw new InvalidOperationException(
+                "The Browser capability-search wire projection does not "
+                + "carry structural results."));
+
+    private static BrowserCapabilityCatalogSearchResult Project(
+        CapabilityCatalogSearchResult result,
+        InspectionCapabilityResourceIdentity identity) =>
         new(
             result.Similarity,
             result.MatchedTerm,
@@ -111,7 +122,7 @@ public static partial class PackageExports
             },
             result.IsSegment,
             new BrowserCapabilityResourceIdentity(
-                result.ResourceIdentity.Kind switch
+                identity.Kind switch
                 {
                     InspectionCapabilityResourceKind.Document =>
                         BrowserCapabilityResourceKind.Document,
@@ -126,8 +137,8 @@ public static partial class PackageExports
                     _ => throw new InvalidOperationException(
                         "Unknown capability resource kind."),
                 },
-                result.ResourceIdentity.Identity,
-                result.ResourceIdentity.ParentIdentity),
+                identity.Identity,
+                identity.ParentIdentity),
             result.ResourceKind switch
             {
                 CapabilityCatalogSearchResourceKind.InspectionDocument =>

@@ -69,6 +69,7 @@ dotnet-inspect has several introspection surfaces with different jobs:
 | --- | --- |
 | `-D` | Which structural resources are available here? |
 | `-Q` | Which query capabilities does this route expose? |
+| `explain` | Which subjects, operations, and references can I start from? |
 | `explain vocabularies` | Which stable values may I supply? |
 | `explain <search text>` | Which installed product resources might match this text? |
 | `explain <resource path>` | What exactly is this one product resource, and how is it related to other resources? |
@@ -125,6 +126,410 @@ Resource Explanation uses several precedents by role, not as authorities:
 about a selected live resource instance. dotnet-inspect's package, Library,
 Type, Member, Diff, Depends, and other inspection commands already fill that
 subject-oriented role.
+
+## Continuous discovery and declarative components
+
+Status: **partially implemented**, beginning with the proposal in
+[#10133](https://github.com/richlander/dotnet-inspect/issues/10133) of
+[#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
+This section extends Resource Explanation's navigation and detached-input
+contract. It uses the existing CLI resource-path and projection gestures and
+does not change the Workspace wire format.
+
+### Root reachability and routing knowledge
+
+Each host's explanation graph has one discoverable root. Shared Resource
+Explanation code projects that root over the catalog the host composes; hosts
+compose catalogs, not roots, so one declaration projects identically wherever
+it is admitted. Every admitted installed resource has a directed navigation
+path from that root. Every admitted
+contextual resource kind has a discoverable contract and input affordance;
+its instances are reached with the input required by their owner. Reachability
+does not mean enumerating every possible package, member or future Workspace.
+A public path remains an address projection, not semantic ownership or a
+requirement to duplicate the root's prefix in every existing address.
+
+The lean root exposes subject kinds and operations as distinct, connected
+collections of bounded summaries, not embedded canonical definitions. Subject
+kinds describe what can be configured or inspected, such
+as Workspace, Package, Library, Type and Member. Operations describe available
+work, such as Find, Depends, Diff and the Package or Type inspection operation.
+These are two navigation entrances into one graph, not an exhaustive taxonomy
+of every node: facets and schemas remain reachable through their registered
+relationships. A shared resource family that is neither inspected nor
+performed, such as value vocabularies, may have a third, reference entry where
+nothing else reaches it. Operation descriptions are themselves addressable
+explanation resources without becoming subject kinds.
+
+Identity preserves the distinction when labels overlap. A Package subject kind
+and the Package operation have separate owner-issued typed identities even if
+both display as `package`. A CLI spelling is an operation binding, not the
+identity or discriminator of either node. Lowerings preserve each role and
+relationship target; consumers cannot join the collections by display name or
+bare key text.
+
+A subject kind's selected description links to its owner-registered applicable
+or conditional operations. An operation's selected description identifies its
+declared input kinds and roles and routes to subject-specific explanation.
+Learning which facets Diff exposes over Package requires querying that
+operation/subject combination; neither the root summary nor the operation
+overview embeds the cross-product of subject kinds and facet definitions.
+The selected explanation preserves the owner's applicable facets, input rules,
+produced kinds, result grains and context/availability conditions. An
+unsupported combination and one requiring unavailable context retain their
+owner-issued outcomes rather than appearing to have no facets. Selecting a
+subject kind alone does not require acquiring a concrete instance or executing
+the operation. Instance-dependent applicability remains qualified until its
+required input is supplied.
+
+Input kinds and result grains remain separate facts: Diff's compared subjects
+need not have the same grain as its change results. Resource Explanation
+projects these relationships from owner declarations; it neither infers
+applicability from matching names nor defines operation/query semantics.
+Subject-first and operation-first routes converge on the same applicable
+description, which can also be requested directly when its keys are known.
+
+Root and collection readings preserve the owner-issued identity, purpose and
+usable next destinations needed to choose among immediate members. Where
+registered, result grain, scope and representative questions further distinguish
+those choices. Routing hints are projections of owner declarations, not an
+independently maintained skill summary or a list inferred from CLI command
+names. A question's expected route must have distinguishing evidence in these
+hints; whether an unfamiliar agent selects it efficiently is a usability claim
+requiring the later trials.
+
+Discovery embeds bounded local summaries and links to further knowledge.
+Summary entries identify and describe their destinations sufficiently to choose
+the next reading; they do not duplicate the destination's canonical definition,
+facet inventory, validation rules or nested relationships. A HAL embedded entry
+may be a partial representation whose `self` identifies the described resource;
+its presence is not evidence that the full definition is already available.
+Detailed constraints, examples and required preparation context belong at the
+selected leaf. A reader can enter directly at a known resource or narrow a
+known dataset; visiting each ancestor is not a prerequisite. Request limits
+and completeness remain visible. Omitted detail is not known-empty data, and a
+bounded root cannot claim to enumerate unreturned members completely. The
+existing complete and query-preparation readings remain distinct explicit
+purposes; a smaller discovery view must identify its scope rather than silently
+claim the full preparation profile.
+
+HAL makes the root immediately recognizable through `_links` and `_embedded`.
+The proposed discovery addresses identify resources independently of their
+representation: they do not carry `?projection=hal`. Hosts select HAL or direct
+JSON for the request. This replaces the existing projected-address binding only
+when the discovery contract is adopted; it does not change today's CLI parser.
+Direct JSON carries equivalent routing facts and destination identities. Links
+advertise missing knowledge, including scoped related collections backed by
+owner-issued reverse indexes when available. The relationship's population and
+completeness remain those supplied by its owner; a local index cannot establish
+a global dependent population. Navigation does not automatically execute the
+linked operation or expand every reverse match.
+
+### Routing declarations
+
+Status: **partially implemented**. The design slice is
+[#10312](https://github.com/richlander/dotnet-inspect/issues/10312). Shared
+root projection, declaration validation, and the reachability report are
+implemented. Every owner of a resource family the CLI composes has adopted:
+
+- Schema Query
+  ([#10316](https://github.com/richlander/dotnet-inspect/issues/10316));
+- Inspection Capability Composition
+  ([#10317](https://github.com/richlander/dotnet-inspect/issues/10317)); and
+- Product Vocabulary
+  ([#10318](https://github.com/richlander/dotnet-inspect/issues/10318)).
+
+The CLI's root over its complete catalog satisfies the reachability
+invariant, and the CLI publishes it as bare `explain`
+([#10139](https://github.com/richlander/dotnet-inspect/issues/10139); see
+[Explain root admission](../cli-architecture.md#explain-root-admission)).
+The shared discovery reading now supplies direct JSON (`.data`) and HAL
+(`.hal`) over the same root, role collections and entries. Root reading closes
+at the entries; destination definitions are linked rather than expanded.
+Collection-level member hints beyond those declared routing entries remain
+staged work.
+
+The shared projection places the role collections at the top-level paths
+`subject-kinds`, `operations`, and `references`, and each entry at
+`<collection>/<identity>`. A host assigns only the root's own path.
+
+The root's entries are projections of **routing declarations**. An owner issues
+one routing declaration for each subject kind, operation, or reference
+collection it wants a reader to be able to choose from the root. Resource
+Explanation defines the declaration contract, validates declarations against
+the composed catalog, and projects the root from them. It writes none of their
+content.
+
+A routing declaration carries:
+
+- an owner-issued typed identity, unique within its role;
+- one role: **subject kind**, **operation**, or **reference**. A reference
+  entry routes to a shared resource family, such as value vocabularies, that
+  is neither something inspected nor work performed;
+- a display title, which is never used to join or discriminate entries;
+- a one-sentence purpose stating what the destination covers;
+- representative questions the destination answers, written as a reader
+  would ask them;
+- the result grain and scope, where the owner registers them; and
+- either one or more destinations, each the explanation key of an installed
+  resource in the composed catalog, or an explicit not-yet-explainable state
+  naming why no destination exists.
+
+An operation declaration also names the subject kinds it accepts, by their
+subject-kind identities. The root projects that relationship in both
+directions, so subject-first and operation-first readers reach the same
+operation. Applicability that depends on an instance stays qualified; the
+declaration does not claim it.
+
+Declarations are routing hints, not definitions. The purpose and questions
+summarize; the destination's canonical definition, facets, and validation
+remain at the destination. A declaration cannot embed a destination's members,
+facet inventory, or subject-by-facet cross-product.
+
+#### Root composition
+
+The root is one installed resource with its own typed identity. It has three
+ordered collections, one per role. Each entry is a bounded summary of one
+declaration: its title, purpose, questions, grain and scope, its destinations,
+and, for an operation, its accepted subject kinds. The root's direct facts state
+that each collection covers the declarations registered with this host's
+catalog, not every command the host exposes. A not-yet-explainable entry is
+listed with its state, so a reader learns that the subject or operation exists
+and that explanation does not yet cover it, rather than inferring from its
+absence that it does not exist.
+
+Collection readings below the root carry the same kind of routing hint for
+each member. A member's summary is projected from its owner's purpose fact
+where the owner issues one. A member without one is listed by identity alone,
+and the reading does not synthesize a summary from its key or title.
+
+A host admits a declaration only together with the owner module that issues
+its destinations, so a host's catalog either contains every destination of a
+declaration it admits or the declaration is not admitted at all. Root
+composition never filters entries. The root has a typed identity; its public
+address and bare entry are assigned by the host adoption that admits it
+(#10139 for the CLI).
+
+#### Validation and reachability
+
+Catalog construction validates admitted declarations with the existing
+[Exact resolution](#exact-resolution) outcomes. It is an invalid registry, and
+the catalog is not published, when:
+
+- two declarations of the same role share an identity;
+- any destination does not resolve to exactly one installed resource in the
+  composed catalog, or resolves to a resource type the root has no
+  destination relationship for;
+- an operation names a subject kind no admitted declaration issues; or
+- a declaration has neither a destination nor an explicit not-yet-explainable
+  state, or has both.
+
+The root schema declares one destination relationship per routable resource
+type. Each adopting owner adds the relationship for its destination type, so
+a destination of any other type is rejected rather than projected untyped.
+The routable types are structural catalogs, inspection documents, and
+navigation collections.
+
+Reachability is separate: it decides whether the host may publish its root,
+not whether its catalog is valid. The root's reachability invariant holds when
+every resource that exact explanation resolves in the host belongs to the
+host's composed catalog and is reachable from the root through owner-issued
+navigation, membership, or entry relationships. A resource with no incoming
+relationship must therefore be a declaration's destination. The check runs
+over the completed catalog, not a maintained list of expected paths. While it
+fails, the catalog, exact explanation, and search stay published unchanged and
+the host withholds only the root, reporting the unreachable resources in its
+own gate rather than at run time.
+
+Direct JSON and HAL readings of the root carry the same entries, facts, and
+destination identities. The HAL reading embeds the entry summaries and links
+each destination. Neither reading expands a destination.
+
+#### Adoption
+
+A host publishes its root only when the reachability invariant holds over that
+host's complete catalog; partial adoption therefore never breaks existing
+explanation. Each owner of a resource family without an
+incoming relationship adopts this contract by issuing its declarations, in its
+own focused effort: Schema Query for the structural subject kinds (#10316),
+Inspection Capability Composition for Package Query, Package Files, and
+analyses (#10317), and Product Vocabulary for value vocabularies (#10318).
+The Library address view's coordinate sections joined the complete catalog
+under the one `library` root (#10315). Until every such owner has adopted it,
+hosts keep their current required-operand behavior; bare root admission belongs to the
+[CLI host](../cli-architecture.md) and Browser host adoptions, which consume
+the published root and do not compose one themselves.
+
+This contract does not change any owner's identities, paths, or definitions;
+declare which commands exist; rank or recommend routes; or measure whether a
+reader chooses well. Whether the hints suffice for an unfamiliar agent is the
+agent-trial claim under [Evidence, consumers and staged
+adoption](#evidence-consumers-and-staged-adoption).
+
+### Workspace participation and detached component input
+
+A Workspace contribution is declarative construction intent. Workspace
+Definitions owns its interpretation and validity; a lens's owner supplies the
+inspection capability and configuration over a realized environment. These
+control-plane resources participate in the same description graph as the
+capabilities that operate over data-plane content. Plane classification follows
+semantic role, not JSON encoding or whether a value is called metadata.
+
+An explanation input supplied by a component owner identifies its resource kind
+and schema, carries the validated detached declaration, and states any supplied
+identity/context basis. Resource Explanation composes that input with the same
+registered kind contract discoverable from the root. It does not infer the kind
+from object keys or parse a packet-local component path as a global
+`ResourcePath`. An advertised contract reference is a dispatch hint; the
+receiving semantic owner still validates the submitted input. Unsupported kind,
+version or malformed declarations retain visible failure and never fall through
+to capability search.
+
+Extraction may leave enough information to explain the declaration's local
+fields without enough information to explain inherited context or a realization.
+The input owner supplies that distinction. Only supplied and owner-validated
+facts become observations. Missing parent context remains unavailable where
+needed; it is not reconstructed from defaults, the active Workspace or a
+matching cached package. Owner-declared defaults and explicitly supplied values
+retain their owner's distinction. Explaining a declaration does not restore a
+Workspace, resolve floating versions, acquire package content or execute an
+inspection to manufacture additional facts.
+
+The same packet-local path in two packets does not establish one global
+component identity. A standalone declaration may be explained without a claim
+that it is a particular occurrence in an omitted parent packet. If the input
+owner requires parent information to validate the requested input or answer,
+that input must be supplied or the request visibly qualified/refused under the
+existing observation and failure contracts. A consumer cannot repair the gap
+by inventing a packet identity or serializing process-local authority.
+
+#### Registered Package contribution contract and reading
+
+Workspace Definitions' implemented typed handoff is
+`WorkspacePackageComponentExplanationInput`. Resource Explanation consumes it
+after owner admission and uses the existing detached Document operation; it
+does not parse or repair submitted JSON. Standalone local values and
+supplied/defaulted field distinctions become native observations. Parent path,
+context membership and focus are unavailable until the input contains a
+parent-qualified occurrence. The component path remains a fact, never a global
+ResourcePath or an instance `self` link.
+
+The detached join key identifies the submitted explanation input, including a
+digest of the supplied canonical packet when present. It is bounded output
+metadata, not public packet identity or realization authority. It separates
+equal coordinate/path text qualified by different packet contents, and carries
+no parent basis when the input is standalone.
+
+The installed reference collection `component-contracts` routes to
+`workspace/components/package`. Resource Explanation issues this meta-contract
+collection and its routing declaration; the leaf's name, purpose, field
+identities, meanings, value shapes, cardinalities, admitted states and finite
+population limits are projected from the Workspace-owned schema. Field limits
+are a sparse separate table, so unbounded/one-valued fields do not repeat null
+limits. These are schema descriptions, not a second Package validity manual.
+The leaf is the same contract referenced by detached Package explanation.
+
+Hosts compose this catalog and its reference declaration with their installed
+catalog. The existing completed-catalog reachability check applies; it is not a
+separate list of expected component paths. The CLI composition is the first
+production consumer. Component-file admission remains Contextual Resource
+Explanation's next adoption, with the Browser consuming the same operation in
+its counted host slice.
+
+Generic HAL reading puts `_links` first. Native facts, observation outcomes and
+traversal bounds live under `_embedded.data`; already expanded resources live
+under `_embedded.resources`. Canonical links identify installed resources and
+complete addressable relationship targets, without repeating their typed keys
+and address arrays. Complete empty relationships are a sparse `empty_relations`
+set. Exceptional relationship outcomes, incomplete targets and targets without
+canonical addresses retain their full typed observations under `relationships`.
+Detached input keys and noncanonical address kinds remain explicit. Both direct
+and HAL lower the same completed Document with the same scalar and observation
+projection. Available false, optional absence, unavailable parent facts, and
+traversal completeness retain distinct meanings. A detached input
+has no `self`; `describedby` links to its registered kind contract when further
+field interpretation is needed. These discovery/contract links identify
+resources without projection parameters. Existing specialized query and
+vocabulary reading profiles retain their own contracts.
+
+The real motivating input is the captured System.Text.Json 10.0.0/net10.0
+[component descriptor](../examples/workspace-package-component.json), whose
+canonical parent can qualify the same declaration. Durable gates are
+`WorkspaceComponentExplanationTests` for owner-field preservation, direct/HAL
+equivalence, unavailable context, native false, distinct parent inputs and
+root-to-leaf reachability; and `ResourceExplanationCommandTests` for the
+production root/collection/contract route and rejected value narrowing. The
+operation's only inputs are validated declaration data and bounded explanation
+options; it performs no Workspace restoration or content inspection.
+
+The [worked reading](../../tools/ExplainReadingScenarios/continuous-components/README.md)
+retains real root/contract requests, jq selections, standalone and qualified
+component output, and serialized-byte counts. Those captures demonstrate the
+implemented shape; they do not claim agent usability or latency results.
+
+### Evidence, consumers and staged adoption
+
+The motivating real asset is `System.Text.Json` **10.0.0** for **net10.0**.
+The pinned repository witness
+[`WorkspaceComponentEditing.cs` at bdba62c](https://github.com/richlander/dotnet-inspect/blob/bdba62c74c77f98ad5fb4937f022681c5c42241e/src/DotnetInspector.Queries/Definitions/WorkspaceComponentEditing.cs)
+and Workspace Definitions'
+[component example](workspace-definitions.md#component-identity-and-immutable-packet-editing)
+expose the source shape and its packet-local path. PR #10539 (issue #10137)
+adds the explicit contract/schema handoff; the shared registered
+contract and detached projection consume that handoff without guessing from
+`package_id`.
+The [worked proposal](../../tools/ExplainReadingScenarios/continuous-resources/README.md)
+shows root routing, extraction, local questions, missing parent context and a
+scoped wormhole. Its JSON is a mockup, not product output or measured evidence.
+
+Supporting boundaries remain independently owned:
+
+- [Workspace Definitions](workspace-definitions.md#component-identity-and-immutable-packet-editing)
+  supplies component types, packet validity, local identity, extraction and any
+  new owner-issued explanation input. Its packet schema and codec are unchanged
+  by this proposal.
+- [Contextual Resource Explanation](contextual-resource-explanation.md#explain-facade-dispatch)
+  owns input admission and direct typed handoff. Its present three operand
+  families are unchanged until its focused adoption adds a component entrance.
+- [CLI host architecture](../cli-architecture.md) owns bare-root and `--help`
+  admission; [Find Workspace scope](find-workspace-scope.md) and query owners
+  supply the bindings and grains of the intended unified `find` route. This
+  proposal does not independently consolidate query commands.
+- [Artifact acquisition and workspaces](artifact-acquisition-and-workspaces.md)
+  owns realization and authority; Browser host adoption consumes the same
+  shared explanation result without importing that authority into a packet.
+
+The counted composition plan is tracked in #10132: this proposal; the
+Workspace-owned command-placement proposal (#10183), ecosystem authoring
+(#10210), Package add-and-activate (#10211), Member context adoption,
+exact Root inspection admission and CLI
+retirement (#10184 through #10186), and router activation (#4647); Workspace
+owner declarations; shared graph/projection implementation; CLI root/help;
+contextual component admission; Browser adoption; individually owned index
+relations; and fresh-agent trials. Each later slice changes one owner's
+contract. The root's declaration contract is
+[Routing declarations](#routing-declarations) (#10312), projected by shared
+code over each host's catalog; it precedes CLI
+root/help (#10139) and does not wait for Workspace component inputs.
+There is no second explanation model to maintain or retire: consumers
+reuse the existing catalog, typed snapshots and lowerings. The required-operand
+bootstrap and superseded discovery summaries are retired in their host adoption.
+
+Before production claims, shared gates must check root coverage over registered
+resources/kinds, distinct subject/operation identities for overlapping labels,
+owner-issued applicability/input/result relationships, summary-only root and
+collection entries, subject-specific facet disclosure without an eager
+operation/subject cross-product, unsupported and context-dependent combination
+outcomes, bounded collection outcomes, equivalent direct/HAL routing,
+exact detached-field preservation, valid kind dispatch, local identity scope and
+unavailable context. Workspace's own validation/default/version gates remain
+authoritative. CLI gates cover independent help and root admission; Browser
+gates exercise its real facade and equivalent content. A no-acquisition probe
+must cover component explanation. Agent trials then measure correct root-to-goal
+routing, known-resource shortcuts and sufficient extracted-component answers,
+with request/presented-content accounting and an unchanged retrospective after
+answers/logs are frozen. Unadopted facade, Browser, shortcut and usability claims
+remain unverified until their named gates exist.
 
 ## Terminology and owner map
 
@@ -232,6 +637,7 @@ and whole-value Base64 do not satisfy the canonical handoff requirement.
 | [Host-observable Content Kinds](host-observable-content-kinds.md) | The semantic meaning of Document Content. |
 | [Inspection Envelope](inspection-envelope.md) and [Output Shapes](output-shapes.md) | Completed service transport, Share, diagnostics, `(result_kind, schema_version)`, serializers, and output-contract identity. |
 | Reusable Inspection Reference | Subject-reference identity, shell-safe subject IDs, unchanged handoff, and affordance descriptors. |
+| Each adopting owner of a root destination | Its [routing declarations](#routing-declarations): subject-kind, operation, or reference identity, purpose, representative questions, grain and scope, destinations or not-yet-explainable state, and an operation's accepted subject kinds. |
 
 Resource Explanation may project those facts into its Document. It may not
 repair, reinterpret, or supplement a missing owner fact from labels, rendered
@@ -997,8 +1403,9 @@ selection. Vocabulary datasets include their values and declared target
 vocabularies. Facet datasets include required-context closure and the host
 bindings that expose selected facets. Sparse tables are used only for complete,
 available observations; unsupported or incomplete selected data fails visibly.
-Identity, source addresses, property declarations, and order remain available.
-Closure admits at most 256 resources and 4,096 observed targets. Binding
+Vocabulary selections retain identity, source addresses, property declarations,
+and order. Query selections use the semantic reading profile below rather than
+repeating those metadata wrappers. Closure admits at most 256 resources and 4,096 observed targets. Binding
 exposure lists contain only selected facets; their original total member count
 remains in binding facts.
 These selections do not claim that unregistered validation rules are present.
@@ -1022,11 +1429,12 @@ Unlike the HAL draft's recommended documentation-linked extension relations,
 these names do not resolve to relation documentation. CURIEs are not emitted:
 the current single-product vocabulary demonstrates neither documentation
 lookup nor namespace disambiguation that would justify them.
-Embedded inventories supply member self links rather than repeating
-the complete inventory in root links. Links carry titles and destination media
+Vocabulary inventories supply member self links rather than repeating
+the complete inventory in root links. Query preparation omits navigation to
+already embedded facets and bindings under the reading profile below. Links carry titles and destination media
 types. CLI HAL self and dataset links use
 `inspect-resource:/<path>?projection=hal`; following them unchanged retains HAL.
-JSON detail destinations are explicitly typed `application/json`. Root
+JSON detail destinations are explicitly typed `application/json`. Vocabulary root
 `describedby` links use `?projection=contract` to disclose complete schema and
 observation details separately. `self` identifies the current resource and
 representation; `describedby` describes it rather than naming a canonical
@@ -1045,6 +1453,155 @@ link mechanics; whether unfamiliar agents immediately recognize HAL and need
 fewer navigation tips remains an agent usability evaluation, not an asserted
 outcome. Existing default output and explicit `.contract` remain comparison
 surfaces.
+
+### Query-preparation reading selection
+
+Status: **shared projection implemented** under
+[#9982](https://github.com/richlander/dotnet-inspect/issues/9982); the retained
+proposal and experimental JSON remain historical evidence under
+[#9975](https://github.com/richlander/dotnet-inspect/issues/9975), continuing
+[#9762](https://github.com/richlander/dotnet-inspect/issues/9762).
+The [worked reading proposal](../../tools/ExplainReadingScenarios/query-preparation/README.md)
+starts with the dependency and literal preparation questions rather than a
+website-shaped descriptor or a graph-depth expansion.
+
+The claim is: a query-preparation selection preserves the selected
+facets' issued meaning, operators, operand kinds, examples, listed values,
+effects, registered input rules, declared required context, related-operation
+affordances, and applicable consumer-binding syntax and exposure. Registered
+execution class, external option-source identity, and value descriptions also belong to
+reading knowledge. A presentation consumer explicitly requests the richer
+profile, preserving registered order, control and presentation kinds,
+grouping, combining behavior, and structured options. Its stated
+preparation questions resolve locally. Direct JSON and HAL carry equivalent
+selected knowledge; lowering
+vocabulary does not choose a larger population or add domain meaning.
+Completeness qualifies the selected population and semantic profile, not every
+facet in the installed catalog or every validation rule in the operation.
+An unselected facet remains unknown, including when the returned selection is
+complete. Unsupported or non-available selected data must retain visible
+outcomes or fail explicitly; it cannot become known empty data.
+
+Owner declarations remain the source of truth. One selected assembly consumes
+Query Space's facet facts and the binding's host syntax, rather than separately
+maintaining an agent summary or `-Q` inventory. This owner supplies the shared
+selection boundary; CLI admission and narrowing gestures remain with the CLI
+owner. A narrowing gesture can reduce the work left for jq without selecting a
+second schema or changing the facts' meaning. Full contract inspection remains
+an independent consumer. Browser interaction and layout remain host-owned while
+consuming the same owner-issued preparation and optional presentation facts.
+
+A selected reading document normalizes prerequisite records and shared binding
+rules once. A small binding exposure index is justified by the critical query
+that distinguishes authorable terms from required context. Keys inherit an
+explicit resource scope. Arrays or keyed tables are lowering choices; both
+must preserve the selected semantic fields and declared order. Empty-array
+omission needs an explicit fixed-profile convention and complete available
+observations; it never licenses omission of unknown or failed facts. Display
+names, internal receipt IDs, and repeated membership navigation need not be
+included when none of the stated reading questions uses them.
+
+HAL places selected facets and bindings in `_embedded`, with population
+qualifications in resource state. Ordinary navigation advertises missing
+knowledge rather than repeating links to every already embedded record.
+An example `collection` link leads to the larger installed facet dataset when
+a new question needs an unselected facet. The generated examples have no
+implemented self address. This proposal does not redefine generic graph
+inspection, remove explicit contract inspection, or claim that HAL vocabulary
+supplies input semantics. Selection, shared knowledge, and HAL lowering are
+independent decisions.
+
+The motivating production asset is `Microsoft.Extensions.Http.Polly` 10.0.12,
+whose direct dependency evidence appears in the
+[landed Package Query trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md).
+The example source is the retained NativeAOT command-local HAL response from
+`88500f2d8298e3ede5640c9284ad00ddbdb86c15`. The local projector recovers every
+selected semantic field, compares five jq questions across both lowerings,
+checks source answers, and rejects unresolved required context. Its retained
+byte measurements predate the optional presentation and related-operation
+projection added for the Browser consumer; they remain historical reading
+evidence rather than current payload-size claims. These are byte measurements,
+not runtime or agent-performance claims. The examples retain whole prose rules;
+they do not trim conditional constraints by guessing which sentences matter.
+
+The [compact reading demo](../../tools/ExplainReadingScenarios/query-reading/README.md)
+retains production JSON, dependency preparation with jq, and the explicit
+presentation boundary under [#10125](https://github.com/richlander/dotnet-inspect/issues/10125).
+
+The shared reading implementation emits `scope.profile = query-preparation/v2`
+in both lowerings. The scope names the query space by its owner-issued identity,
+the requested root by its routing path, selected-facet completeness, and the
+original catalog facet count. Missing optional array properties inside a
+complete selected facet mean known empty registered arrays; an unselected
+facet remains unknown. Operators are always present. Direct JSON has keyed
+facet and binding tables plus `facet_order`; HAL embeds the same complete
+records as relation arrays. Binding keys retain their owner-issued identities
+and records retain consumer kind, gesture, input rules, and selected exposure.
+The reading profile carries registered `execution_class` and `option_source`
+only when present. `value_descriptions` maps native option values to their
+whole owner-issued summaries; it omits picker labels and repeats no option
+objects. An omitted description table means no registered option descriptions,
+not that arbitrary operands are invalid or that every valid value is listed.
+The original `values` list remains available independently. No summary is
+inferred from a label or rewritten by the reader. Registered empty arrays and
+explicit absence permit omission; unavailable or failed observations reject
+the selection even when a field is outside this reading profile.
+
+`ToQueryPresentationJson` explicitly retains `query-preparation/v1` for
+presentation consumers, including every registered presentation field in
+`snake_case`. Explicitly absent presentation values remain `null`. Browser
+startup consumes this profile to build controls; ordinary Browser explanation
+and CLI `.data`, `.hal`, and command-local `--explain` consume v2. This is an
+output-profile distinction within Resource Explanation, not a second query
+model or a new CLI projection switch. The shared selection closes the same
+prerequisites in both profiles. A narrowing selection never changes the
+profile. Control order, picker kinds, selection/replacement groups and their
+combining behavior are presentation knowledge, not a promise of additional
+query validation in the reading profile. `related_operations` retains
+owner-issued operation identities and is present as an array, including when empty.
+
+`ResourceExplanationDataset.Create` optionally accepts facet keys at a query
+space root, closes declared context, retains all registered rule prose, and
+refuses unknown or empty key requests. It uses typed relationship targets and
+issued key facts rather than parsing resource paths or display names. The
+current CLI consumes this shared lowering through its existing `.data`, `.hal`,
+and command-local Package Query explanation entrances. No narrowing CLI syntax
+is added here. HAL retains one usable root self link for existing exact
+selections; a key-narrowed selection has no implemented self address and emits
+only its owning collection link. Facet-root selections also offer that
+collection for missing knowledge. Explicit contract inspection remains
+available; automatic schema navigation is omitted from this reading profile.
+
+Gates: `QueryPreparationSelectionTests` compares all retained semantic fields
+against the catalog, equivalent lowerings, declared order, selected exposure,
+context closure, unknown/empty key refusals, and host-bound navigation. It also
+compares value descriptions with registered option summaries and compares the
+explicit presentation profile with every owner-issued control field.
+`BrowserPackageQueryOperationsTests` retains the website startup controls;
+`BrowserPackageQueryExplanationTests` exercises the compact reading entrance.
+`ResourceExplanationCommandTests` and `PackageQueryExplanationTests` exercise
+installed entrances and preparation plans; `ResourceExplanationDatasetTests`
+and `ResourceExplanationDataProjectionTests` retain generic outcome and bound
+gates. `BrowserVocabularyCompositionTests` confirms unchanged current facade
+content. Query-facet semantic fact declarations require Available observations;
+the catalog rejects non-available producer observations before they can become
+empty data. The reader also refuses unavailable required facts or incomplete
+relationship knowledge. Browser query-explanation admission remains its later
+host slice; address-binding equivalence is not a claim of that admission.
+
+Production adoption is staged in four slices: this focused owner proposal and
+examples; shared Resource Explanation implementation with cross-host gates;
+CLI narrowing adoption and retirement of its independent discovery summary;
+and Browser/Wasm query-explanation adoption and retirement of its superseded
+reading projection. The shared implementation retires the earlier query
+serializer in the existing selected CLI paths.
+The tracker counts both hosts. Host-specific admission changes are separately
+owned adoption work. Production gates must preserve semantic equality,
+required-context closure, selected completeness, non-available outcomes, and
+usable host addresses before smaller defaults ship. Agent usability testing
+then measures valid preparation, whole-task content, and necessary navigation.
+The local examples neither enforce that production contract nor establish an
+optimal minimum or complete coverage of unregistered rules.
 
 ### Compact resource projection contract
 
@@ -1136,8 +1693,10 @@ CLI bindings. Lowering must specify URI resolution and address-kind handling
 before implementation, including targets that are addressable only in one
 host. A host binding may not replace the canonical target identity.
 
-Contract inspection is explicitly discoverable from resource data when its
-owner has registered a usable address. Until that registration exists, the
+General resource data makes contract inspection explicitly discoverable when
+its owner has registered a usable address. The fixed query-preparation reading
+profile below instead uses the host's explicit contract-selection gesture,
+without embedding contract-navigation links. Until that registration exists, the
 host must offer explicit contract selection over the current resource rather
 than emit a dangling schema link. No JSON Schema or result-contract resource
 is advertised before its owning catalog has adopted it.
@@ -1207,11 +1766,19 @@ validation task benefits from that structure. Both `.data` and `.hal` retain
 these declarations; HAL's navigation does not supply operand semantics.
 
 A facet response preserves its issued key, operand kind, operators, values,
-examples, effects, and declared relationship targets. Vocabulary navigation
-does not mean the facet accepts all vocabulary terms. An empty values list
-does not establish an open domain. Query-local constraints remain Query Space
-facts; an accepted subset or open-domain assertion requires that owner's
-explicit declaration.
+examples, effects, input rules, related operations, and declared relationship
+targets. When the route owner registers presentation, selected facet data also
+preserves order, control and presentation kinds, execution class, selection and
+replacement groups, combining behavior, structured inline options, and an
+external option-source identity. Missing presentation remains explicit absent
+state; Resource Explanation does not infer it from operators or display text.
+
+Vocabulary navigation does not mean the facet accepts all vocabulary terms. An
+empty values list does not establish an open domain. Query-local constraints
+remain Query Space facts; an accepted subset or open-domain assertion requires
+that owner's explicit declaration. Inline presentation option values equal the
+effective Query Space values; an external option-source identity delegates
+choice population to another owner-issued product catalog.
 
 Acceptance uses three current production witnesses:
 
@@ -1377,6 +1944,10 @@ Structural adaptation must preserve:
 - every item identity as the owning section plus opaque owner-issued item kind
   plus name;
 - owner-issued section Shape and Cardinality as typed direct facts;
+- owner-issued [section description](section-model.md#description) as typed
+  direct section-description facts of the section resource, distinct from
+  schema declaration meanings, with an undeclared description reported as
+  undeclared;
 - sections with no item-level vocabulary; and
 - addressed resource identity separately from compact projected rows.
 
@@ -1534,6 +2105,118 @@ or a reusable subset identity. A later query-owner adoption may issue a typed
 complete, constrained-subset, or open-domain relationship for explanation to
 preserve.
 
+### Vocabulary reading selection
+
+**Status: shared reading and both host narrowing entrances implemented.**
+[#10013](https://github.com/richlander/dotnet-inspect/issues/10013) and the
+[worked vocabulary reads](../../tools/ExplainReadingScenarios/vocabulary-reading/README.md)
+establish the reading profile. Under
+[#10014](https://github.com/richlander/dotnet-inspect/issues/10014), existing
+vocabulary `.data` and `.hal` use this shared lowering. CLI admission landed in
+[#10046](https://github.com/richlander/dotnet-inspect/pull/10046), and Browser/Wasm
+admission landed in [#10058](https://github.com/richlander/dotnet-inspect/pull/10058).
+The [CLI admission contract](../cli-architecture.md#vocabulary-reading-admission)
+owns `-Q` / `--query-help` list syntax; the
+[Browser admission contract](../../inspect-web/README.md#browser-vocabulary-explanation-admission)
+owns the nullable native-ID array. Selection narrows data independently of the
+explicit direct/HAL representation.
+Resource Explanation owns the selection and lowering. Product Vocabulary and
+the declaring term owners continue to own identities, maps, meanings,
+defaults, and accepted input identities.
+
+The claim is: a vocabulary reading selection preserves complete knowledge for
+each selected value and its exact referenced term context, while unselected
+values remain unknown. Direct JSON and HAL carry equivalent selected knowledge.
+Critical reads are legal identity lookup, default selection, Boolean membership,
+optional group membership, and local interpretation of a referenced term.
+The real assets are the composed API accessibility, C# body-kind, and C# style
+declarations, captured from NativeAOT commit
+`7c18afc97b170947835b732797572292dba2fff2`; source bytes, binary digest,
+commands, and reproduction are retained with the worked examples.
+
+Selection consumes the composed owner snapshot, retaining owner order and native
+value identities. It closes term maps over the exact referenced values, including
+their own term references, rather than over an entire target vocabulary. It does
+not automatically include other members of an optional group. Answering a question
+about all group alternatives requires selecting those alternatives; a selected
+group index describes only selected membership. The profile reports the root
+vocabulary, selected completeness, and each included vocabulary's catalog size.
+Completeness describes the selected observation, never whole-catalog coverage.
+
+Map declarations remain once per included vocabulary, with their identity, label,
+meaning, value kind, cardinality, coverage, and term target when applicable. Value
+records retain their owner meaning and scalar or term map values. Boolean property
+sets and optional text groups retain their existing sparse representation,
+restricted to selected values. Absence from a Boolean set means false only for a
+selected value with available complete map coverage. Absence from an optional
+group means no group only under those same preconditions. Defaults are likewise
+restricted to selected values. Partial or unavailable source knowledge cannot be
+silently lowered through these defaults; its outcome needs explicit design before
+admission. Unknown selections and unresolved term context fail visibly.
+
+Direct JSON uses vocabulary and value lookup tables plus explicit owner-order
+arrays. HAL uses `_embedded.vocabularies` and each vocabulary's `_embedded.values`
+in owner order, with the same maps and property indices. The exact identity is
+the default value label when the owner label is identical; different labels and
+all summaries survive. Missing summaries mean no declared summary for a complete
+selected record. Per-value kind tags, self links, repeated link titles, and
+automatic contract navigation are omitted from this reading profile. The
+selected responses advertise only the implemented full-vocabulary `collection`
+destination; they invent no address for the narrower population. No external request is
+needed to interpret embedded terms. `accepted_by` remains an opaque owner-issued
+identity list, not inferred command syntax or whole-vocabulary facet acceptance.
+
+The shared implementation emits `scope.profile = vocabulary-reading/v1`.
+`ResourceExplanationDataset.Create(..., valueIds: ...)` and
+`VocabularyExplanation.SelectData(path, valueIds)` accept optional exact native
+identities on a vocabulary root: null selects all root values; nonempty selections
+are deduplicated and emitted in owner order. Empty, unknown, case-mismatched and
+pattern selections fail. Value selection on a query root, or facet selection on a
+vocabulary root, fails rather than applying a selector to the wrong domain.
+Included vocabulary definitions and values count against the host resource bound;
+term targets count against the target bound. Exceeding either fails without a
+partial dataset. A narrow selection can read an otherwise oversized vocabulary.
+
+Full HAL roots emit one implemented `self` link. Shared API selections emit one
+full-vocabulary `collection` link and no invented selected address. Direct values
+include `value_order`; HAL value arrays carry that order. Both forms include
+`map_order`. The writer projects facts only for selected resources from the
+already composed catalog. Catalog composition itself still builds the installed
+snapshot; this slice does not claim producer pushdown. The prior shared vocabulary
+metadata/navigation lowering and its contract-link binder are retired. Ordinary
+compact explanation and explicit `.contract` still have their own projections.
+
+`VocabularyReadingTests` compares all five current product vocabularies against
+owner declarations, checks direct/HAL knowledge equality, exact and cyclic term
+closure, selected group/default membership, case-sensitive selection and a narrow
+read of an oversized vocabulary. `ResourceExplanationDatasetTests` enforces
+partial-coverage/absent-Boolean refusal and whole-selection limits. CLI
+`ResourceExplanationCommandTests` and Browser `BrowserVocabularyCompositionTests`
+exercise full and narrowed production entrances, shared content pins, native
+identity/order, sparse defaults, required term context and visible rejection.
+The generated Browser facade, Worker transport and published Wasm smoke exercise
+the native-ID array. Value-root reading projection remains rejected.
+
+The offline projector checks selected-field recovery and jq answers against
+the unmodified source, including known false versus unselected and unresolved
+context. It is design evidence, not a product gate. Production adoption enforces
+these claims through the shared dataset and both host entrances.
+Comparisons separate identical populations from narrower value selections;
+serialized byte counts are not latency evidence. They establish neither a
+minimum format nor improved agent behavior.
+
+The four vocabulary slices are complete: this proposal;
+[#10014 shared selection](https://github.com/richlander/dotnet-inspect/issues/10014);
+[#10015 CLI adoption](https://github.com/richlander/dotnet-inspect/issues/10015);
+and [#10016 Browser/Wasm adoption](https://github.com/richlander/dotnet-inspect/issues/10016),
+under overall [#9762](https://github.com/richlander/dotnet-inspect/issues/9762).
+Host admission decisions belong in their respective host contracts. The
+superseded vocabulary reading serializer is retired; both entrances consume the
+shared profile.
+Explicit contracts and the website Settings snapshot remain separate consumers.
+Agent testing follows adoption and measures valid answers, total retrieved
+content, and navigation necessary for the actual question.
+
 ### Contextual resources
 
 Contextual Resource Explanation supplies one installed command resource or one
@@ -1641,24 +2324,33 @@ After Library structural explanation presents the same Formats facts from
 ### Browser/Wasm
 
 Browser/Wasm consumes the shared compact projection and bounded selected data
-through `CatalogExports.ExplainVocabularies(path, depth)`. An ordinary canonical
+through `CatalogExports.ExplainVocabularies(path, depth, valueIds)`. With null
+value IDs, an ordinary canonical
 path returns compact resource data with requested expansion. Full declaration
 serialization is retired from ordinary output and remains explicit contract
 inspection. The facade accepts `inspect-resource:/<path>` addresses unchanged;
 `?projection=data` and `?projection=hal` select vocabulary reading datasets at
 depth zero, while `?projection=contract` selects the complete Document at the
-requested depth. Projected datasets reject depth overrides and unsupported
-roots with `InvalidSelection`, preserving an explanatory rejection. HAL self
-and vocabulary links retain `projection=hal`; `describedby` selects contract
-inspection. Value detail links use ordinary compact data. These addresses are
+requested depth. A nonempty native-ID array narrows only a vocabulary-root
+data/HAL read at depth zero. It retains exact case, deduplicates in owner order
+and closes only required term context through the shared selection. Empty arrays,
+unknown IDs, patterns and combined list strings fail visibly. Projected datasets
+reject depth overrides and unsupported roots with `InvalidSelection`, preserving
+an explanatory rejection. Full HAL readings advertise `self`; narrowed readings
+advertise the full-vocabulary `collection`. Both retain `projection=hal`.
+Contract inspection is an explicit request, without automatic reading navigation.
+These addresses are
 operands for the catalog facade, not Browser HTTP routes or endpoints.
 
-This is the vocabulary catalog adoption for #9854, production slice 4 of #9762.
+The ordinary compact vocabulary catalog adoption is #9854; reading-profile and
+native-array adoption are #10014 and #10016. All four vocabulary slices under
+overall #9762 are complete.
 It does not add a user interface, structural explanation routes, or query-facet
 Browser registrations. Hosts do not reconstruct the graph from CLI text or
 restate owner catalogs in TypeScript. `BrowserVocabularyCompositionTests`
-checks actual facade projections, contract pins, all advertised selected HAL
-links, and typed rejection cases. `ProductVocabularyPin.CompactContent` pins
+checks actual facade projections, contract pins, full/selected knowledge,
+collection navigation, export round trips and typed rejection cases.
+`ProductVocabularyPin.CompactContent` pins
 ordinary, direct selected, and HAL selected output in the CLI and Browser suites. The production branch of
 `verify-published-engine-facades.ts` executes compact, selected, contract, link
 navigation, and invalid-selection requests through the generated catalog facade
@@ -1668,16 +2360,33 @@ A worked facade request is:
 
 ```javascript
 const result = catalog.explainVocabularies(
-  "inspect-resource:/vocabularies/csharp.style-choices?projection=hal", 0);
-const choices = result.explanation.content._embedded.values;
-const contract = catalog.explainVocabularies(
-  result.explanation.content._links.describedby.href, 0);
+  "inspect-resource:/vocabularies/csharp.style-choices?projection=hal",
+  0, ["slot-local-names"]);
+if (result.outcome !== "Explained") throw new Error(result.rejection.message);
+const content = result.explanation.content;
+const choices = content._embedded.vocabularies
+  .find(vocabulary => vocabulary.id === "csharp.style-choices");
+const choice = choices._embedded.values[0]; // slot-local-names
+const tiers = content._embedded.vocabularies
+  .find(vocabulary => vocabulary.id === "csharp.style-tiers");
+const tier = tiers._embedded.values[0]; // Synthesis
 ```
 
-The normal reading request has values, property sets, and referenced vocabulary
-data locally. The contract fetch is for declaration inspection and is not
-needed to read those values. Pass advertised hrefs back to `explainVocabularies`
-rather than to `fetch`.
+The initialized facade returns the choice, property sets and exact referenced
+tier locally. The agent stops when these answer its question. An absent choice
+is unselected, not false; a changed question about `qualify-field-access` justifies
+another narrowed read:
+
+```javascript
+const next = catalog.explainVocabularies(
+  content._links.collection.href, 0, ["qualify-field-access"]);
+```
+
+Pass null instead of the array when the full population is needed for discovery.
+For declaration inspection, explicitly request the same root with
+`?projection=contract` and null value IDs. Pass advertised hrefs back to
+`explainVocabularies` rather than to `fetch`. A verification-only collection or
+contract request adds no knowledge needed for the finished answer.
 
 The shared implementation targets NativeAOT and single-threaded Browser/Wasm
 and uses explicit static registrations and source-generated serialization.
@@ -1732,6 +2441,80 @@ discovery friction remained. Retained requests, replayable jq views, and
 byte/hash receipts distinguish retrieval from rendered content. This
 diagnostic sample supports a focused reading-guide/discovery experiment, not
 a general format ranking or retirement of the broader skill.
+
+The [minimal-instruction trials](../../tools/ExplainReadingScenarios/usability/minimal/README.md)
+remove table-name, HAL-vocabulary and sparse-property coaching. Two fresh
+participants per task and representation compare unfamiliar direct JSON with
+identified HAL using shared discovery instructions. Their retained answers
+and traces distinguish domain-task correctness from navigation and
+schema-exploration mistakes; this remains diagnostic evidence rather than a
+spontaneous-recognition gate or a general format ranking.
+
+The [HAL stopping-rule trials](../../tools/ExplainReadingScenarios/usability/hal-stop/README.md)
+add one local-data-first instruction without changing product responses. Query
+retrieval falls in this diagnostic sample; Style agents recognize embedded
+tiers but still fetch schema contracts. A follow-up adds the user's explicit
+low-latency preference and prohibition of verification-only reads. Correct
+answers and necessary navigation persist, but the stronger wording does not
+establish reliable adherence. Neutral questions are asked only after answers
+and logs are frozen; reflections distinguish confirmation from semantic
+uncertainty without changing results or establishing a causal effect.
+
+The [selective-link trials](../../tools/ExplainReadingScenarios/usability/selective-links/README.md)
+hold that strong guide fixed and project only HAL link exposure in the recorder.
+Neither new Style reader fetches the large schema; both still retrieve already
+embedded tiers. Query reads remain mixed, while a retained partial-binding link
+keeps missing dependency facts reachable. Original and projected bytes, frozen
+feedback, and representation overrides are retained separately. This is a
+production-policy candidate, not shipped behavior or reliable stopping evidence.
+
+The [mainline relationship trials](../../tools/ExplainReadingScenarios/usability/relations/README.md)
+execute bounded Polly package searches and installed-platform JSON extension
+inspections. Both package formats support the answer; HAL repeats locally
+available facets. Extension discovery requires help and exercises neither
+selected format, identifying a coverage boundary rather than a format ranking.
+Frozen evidence separates guidance from inspection bytes and retains search,
+output-selection, and platform qualifications. These diagnostic observations
+change no production behavior or shipped skill guidance.
+
+The [command-bound entrance trials](../../tools/ExplainReadingScenarios/usability/command-bound/README.md)
+offer accurate primary/companion syntax alongside help, query help and root
+recovery. Four agents answer the same relation questions with help and `-Q`,
+without requesting any explain entrance. A pinned support audit distinguishes
+Member's text/companion adoption from Package Query and Extensions gaps.
+This is descriptive evidence of available reading paths and narrow adoption;
+it does not validate agent use of primary/companion explanation or rank formats.
+
+The [landed Package Query entrance trials](../../tools/ExplainReadingScenarios/usability/package-query-adoption/README.md)
+observe three of four fresh agents using command-local HAL, with all four
+answering from bounded direct-dependency evidence. HAL users read embedded
+data without link or schema fetches, but their guidance retrieval and local
+reading remain larger than the `-Q` path. One agent seeks non-equality CLI
+syntax through query help; #9962 preserves that binding-registration gap.
+These observations establish usable adoption, not format superiority or a
+causal efficiency improvement.
+
+The [landed narrowing trials](../../tools/ExplainReadingScenarios/usability/narrowed/README.md)
+use six fresh participants with a version-current experimental skill prototype,
+including guide bytes in content accounting. Package readers execute bounded
+Polly searches; API readers answer through ordinary inspection without explain.
+Vocabulary readers understand native-ID selection and complete selected scope,
+but spend 19/24 requests reaching the small final reading. One reader re-fetches
+already available package facets; another requests HAL after a complete direct
+vocabulary answer. Frozen answers, neutral retrospectives and a replayable local
+jq selection preserve those costs and a format violation. This supports a
+focused bootstrap/local-reuse guide experiment, not a controlled format ranking,
+a latency claim or evidence that the shipped skill can already be retired.
+
+The [bootstrap and cached-reading follow-up](../../tools/ExplainReadingScenarios/usability/bootstrap-reuse/README.md)
+keeps the executable/platform, tasks and recorder fixed while adding three
+concrete instructions to the experimental guide. New vocabulary readers use
+the collection immediately, reducing requests from 19/24 to 3/6, but duplicate
+subset and off-profile identity reads remain. Package HAL uses cached jq;
+other retrieval/rendering costs are mixed, including larger API documentation
+reads and a disclosed partial-metadata warning. The frozen comparison supports
+the bootstrap gesture as a release-guide candidate, not reliable stopping,
+a causal efficiency improvement or a format ranking.
 
 ## Demo scenario
 

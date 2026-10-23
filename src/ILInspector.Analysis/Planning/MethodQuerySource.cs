@@ -34,6 +34,36 @@ public enum MethodDefinitionSourceExpansion
     GeneratedExecutionBodies = 1,
 }
 
+/// <summary>
+/// Roles of the generated bodies a declared source owns. Generated-body
+/// expansion names the roles it includes; every role is owned by the source.
+/// </summary>
+[Flags]
+public enum MethodDefinitionGeneratedBodyRoles
+{
+    None = 0,
+
+    /// <summary>
+    /// The resolved state-machine <c>MoveNext</c> and authenticated lifted
+    /// bodies. Expansion always includes this role.
+    /// </summary>
+    Execution = 1,
+
+    /// <summary>
+    /// State-machine methods that are neither instance constructors nor
+    /// MethodImpl bodies, such as an iterator's <c>&lt;&gt;m__Finally1</c>.
+    /// </summary>
+    UserHelper = 2,
+
+    /// <summary>
+    /// State-machine instance constructors and MethodImpl bodies other than
+    /// <c>MoveNext</c>, such as <c>GetEnumerator</c> and <c>Dispose</c>.
+    /// </summary>
+    Scaffolding = 4,
+
+    All = Execution | UserHelper | Scaffolding,
+}
+
 /// <summary>Finite work bounds for generated execution-body discovery.</summary>
 public sealed record MethodDefinitionGeneratedExpansionLimits
 {
@@ -70,6 +100,21 @@ public sealed record MethodDefinitionGeneratedExpansionLimits
             maximumProbeEncodedIlBytes: 256L * 1024 * 1024,
             maximumRelationshipNodes: 10_000);
 
+    /// <summary>
+    /// The default for the all-definition relation, sized to the metadata
+    /// tables rather than to a selection: a MethodDef table holds at most
+    /// 2^24 rows. Its probes cover only bodies traversal did not record.
+    /// </summary>
+    public static MethodDefinitionGeneratedExpansionLimits AllDefinitions { get; } =
+        new(
+            maximumCandidateDefinitions: MaximumMetadataRows,
+            maximumGeneratedMethods: MaximumMetadataRows,
+            maximumProbeBodies: MaximumMetadataRows,
+            maximumProbeEncodedIlBytes: 256L * 1024 * 1024,
+            maximumRelationshipNodes: 4 * MaximumMetadataRows);
+
+    const int MaximumMetadataRows = 0xFFFFFF;
+
     public int MaximumCandidateDefinitions { get; }
 
     public int MaximumGeneratedMethods { get; }
@@ -79,6 +124,16 @@ public sealed record MethodDefinitionGeneratedExpansionLimits
     public long MaximumProbeEncodedIlBytes { get; }
 
     public int MaximumRelationshipNodes { get; }
+}
+
+/// <summary>Generated-body expansion work dimension that reached its bound.</summary>
+public enum MethodDefinitionGeneratedExpansionLimitKind
+{
+    CandidateDefinitions,
+    GeneratedMethods,
+    ProbeBodies,
+    ProbeEncodedIlBytes,
+    RelationshipNodes,
 }
 
 /// <summary>Terminal Method-source work dimension that reached its bound.</summary>
@@ -122,13 +177,19 @@ public sealed class MethodDefinitionSourceBreadth
         ImmutableArray<TypeDefinitionHandle> types,
         MethodDefinitionSourceExpansion expansion,
         MethodDefinitionGeneratedExpansionLimits?
-            generatedExpansionLimits)
+            generatedExpansionLimits,
+        MethodDefinitionGeneratedBodyRoles generatedRoles =
+            MethodDefinitionGeneratedBodyRoles.None,
+        bool includesUnauthenticatedCandidates = false)
     {
         Kind = kind;
         Methods = methods;
         Types = types;
         Expansion = expansion;
         GeneratedExpansionLimits = generatedExpansionLimits;
+        GeneratedRoles = generatedRoles;
+        IncludesUnauthenticatedCandidates =
+            includesUnauthenticatedCandidates;
     }
 
     public static MethodDefinitionSourceBreadth AllDefinitions { get; } =
@@ -150,6 +211,18 @@ public sealed class MethodDefinitionSourceBreadth
     public MethodDefinitionGeneratedExpansionLimits?
         GeneratedExpansionLimits
     { get; }
+
+    /// <summary>
+    /// The generated-body roles expansion includes; <see cref="MethodDefinitionGeneratedBodyRoles.None"/>
+    /// without expansion.
+    /// </summary>
+    public MethodDefinitionGeneratedBodyRoles GeneratedRoles { get; }
+
+    /// <summary>
+    /// Whether generated-body expansion adds its unauthenticated candidates
+    /// to breadth, where they are visited without a declared owner.
+    /// </summary>
+    public bool IncludesUnauthenticatedCandidates { get; }
 
     public bool IsEmpty =>
         Kind switch
@@ -272,17 +345,42 @@ public sealed class MethodDefinitionSourceBreadth
     }
 
     /// <summary>
-    /// Includes authenticated generated execution bodies under finite
-    /// discovery bounds.
+    /// Includes authenticated generated bodies in the requested
+    /// <paramref name="roles"/> under finite discovery bounds. The
+    /// <see cref="MethodDefinitionGeneratedBodyRoles.Execution"/> role is
+    /// always included. Over exact-type breadth, expansion also reaches the
+    /// methods of compiler-generated nested types; when
+    /// <paramref name="includeUnauthenticatedCandidates"/> is set, the reached
+    /// methods no edge authenticates join breadth without an owner.
     /// </summary>
+    /// <remarks>
+    /// All-definition breadth already contains every body, so it declares the
+    /// declared-source relation without changing breadth. That relation
+    /// settles at source completion under
+    /// <see cref="MethodDefinitionGeneratedExpansionLimits.AllDefinitions"/>
+    /// by default, and it takes no unauthenticated candidates.
+    /// </remarks>
     public MethodDefinitionSourceBreadth IncludeGeneratedExecutionBodies(
-        MethodDefinitionGeneratedExpansionLimits? limits = null)
+        MethodDefinitionGeneratedExpansionLimits? limits = null,
+        MethodDefinitionGeneratedBodyRoles roles =
+            MethodDefinitionGeneratedBodyRoles.Execution,
+        bool includeUnauthenticatedCandidates = false)
     {
-        if (Kind == MethodDefinitionSourceBreadthKind.AllDefinitions)
+        bool allDefinitions =
+            Kind == MethodDefinitionSourceBreadthKind.AllDefinitions;
+        if (allDefinitions && includeUnauthenticatedCandidates)
         {
-            throw new InvalidOperationException(
-                "All-definition breadth already contains every generated "
-                + "physical MethodDef.");
+            throw new ArgumentException(
+                "All-definition breadth already visits every unauthenticated "
+                + "candidate.",
+                nameof(includeUnauthenticatedCandidates));
+        }
+        if ((roles & ~MethodDefinitionGeneratedBodyRoles.All) != 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(roles),
+                roles,
+                "Unknown generated-body role.");
         }
 
         return new(
@@ -291,7 +389,12 @@ public sealed class MethodDefinitionSourceBreadth
             Types,
             Expansion
                 | MethodDefinitionSourceExpansion.GeneratedExecutionBodies,
-            limits ?? MethodDefinitionGeneratedExpansionLimits.Default);
+            limits
+                ?? (allDefinitions
+                    ? MethodDefinitionGeneratedExpansionLimits.AllDefinitions
+                    : MethodDefinitionGeneratedExpansionLimits.Default),
+            roles | MethodDefinitionGeneratedBodyRoles.Execution,
+            includeUnauthenticatedCandidates);
     }
 }
 
@@ -358,6 +461,9 @@ public abstract class MethodDefinitionSourceRequest
                 + "Method-source terminal.");
         }
     }
+
+    public static AssemblyAnalysisSourceIdentity SourceIdentity { get; } =
+        new("Method definitions");
 
     QuerySpaceRequest? StructuralRequestOrNull { get; }
 
@@ -471,9 +577,120 @@ public sealed class MethodDefinitionSourceRequest<TResult>
     /// <summary>The focused producer result this request publishes.</summary>
     public ProducerDeclaration<TResult> Producer { get; }
 
+    /// <summary>Creates the adapter consumed by assembly orchestration.</summary>
+    public AssemblyAnalysisSourceRequest<TResult>
+        AsAssemblyAnalysisSource() =>
+        new MethodDefinitionAssemblyAnalysisSource<TResult>(this);
+
     internal override object BoxResult(
         MethodDefinitionExecution execution) =>
         execution.ResultOf(Producer);
+}
+
+sealed class MethodDefinitionAssemblyAnalysisSource<TResult>
+    : AssemblyAnalysisSourceRequest<TResult>
+{
+    readonly MethodDefinitionSourceRequest<TResult> _request;
+
+    internal MethodDefinitionAssemblyAnalysisSource(
+        MethodDefinitionSourceRequest<TResult> request)
+        : base(MethodDefinitionSourceRequest.SourceIdentity)
+    {
+        _request = request;
+    }
+
+    internal MethodDefinitionSourceRequest<TResult> Request => _request;
+
+    internal override WorkDescription Work => _request.Work;
+
+    internal override ProducerDeclaration<TResult> Producer =>
+        _request.Producer;
+
+    internal override bool RequiresReferenceBinding =>
+        (_request.DeclaredLayers
+            & MethodDefinitionLayers.ReferenceBinding) != 0;
+
+    internal override AssemblyAnalysisSourceExecution<TResult> Execute(
+        AssemblyInspectionSubjectIdentity subject,
+        string sourceName,
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding)
+    {
+        MethodQuerySourceExecution<TResult> execution =
+            MethodQuerySource.Execute(
+                _request,
+                subject,
+                sourceName,
+                peReader,
+                referenceBinding);
+        return new(
+            execution.Receipt,
+            execution.WorkReceipt,
+            execution.Result);
+    }
+}
+
+/// <summary>Typed Method-source recovery at assembly-analysis sinks.</summary>
+public static class MethodDefinitionAssemblyAnalysisExtensions
+{
+    public static MethodDefinitionSourceRequest<TResult>
+        MethodDefinitionRequest<TResult>(
+            this AssemblyAnalysisOperation<TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (operation.Source
+            is not MethodDefinitionAssemblyAnalysisSource<TResult> source)
+        {
+            throw new ProducerContractException(
+                "The assembly analysis operation does not carry a "
+                + "Method-definition source request.");
+        }
+
+        return source.Request;
+    }
+
+    public static MethodDefinitionSourceReceipt
+        MethodDefinitionReceipt<TResult>(
+            this AssemblyAnalysisExecution<TResult> execution)
+    {
+        ArgumentNullException.ThrowIfNull(execution);
+        if (execution.Operation.Source
+                is not MethodDefinitionAssemblyAnalysisSource<TResult> source
+            || execution.SourceReceipt
+                is not MethodDefinitionSourceReceipt receipt
+            || !ReferenceEquals(
+                receipt.Source,
+                MethodDefinitionSourceRequest.SourceIdentity)
+            || !ReferenceEquals(
+                receipt.Request,
+                source.Request.Identity))
+        {
+            throw new ProducerContractException(
+                "The assembly analysis execution was not produced by the "
+                + "Method-definition source.");
+        }
+
+        return receipt;
+    }
+
+    public static MethodDefinitionSourceRequestSetExecution
+        MethodDefinitionExecution(
+            this AssemblyAnalysisSourceRequestSetExecution execution)
+    {
+        ArgumentNullException.ThrowIfNull(execution);
+        if (execution
+                is not MethodDefinitionSourceRequestSetExecution methodExecution
+            || !ReferenceEquals(
+                methodExecution.Source,
+                MethodDefinitionSourceRequest.SourceIdentity))
+        {
+            throw new ProducerContractException(
+                "The assembly analysis request-set execution was not "
+                + "produced by the Method-definition source.");
+        }
+
+        return methodExecution;
+    }
 }
 
 /// <summary>One caller association with one resolved Method-source request.</summary>
@@ -558,10 +775,12 @@ public sealed class MethodDefinitionSourceGroupPlan
 
 /// <summary>Immutable QuerySpace and source plans for one Method request set.</summary>
 public sealed class MethodDefinitionSourceRequestSetPlan
+    : AssemblyAnalysisSourceRequestSetPlan
 {
     internal MethodDefinitionSourceRequestSetPlan(
         QuerySpaceRequestSetPlan<MethodDefinitionSourceRequest> requests,
         ImmutableArray<MethodDefinitionSourceGroupPlan> groups)
+        : base(MethodDefinitionSourceRequest.SourceIdentity)
     {
         Requests = requests;
         Groups = groups;
@@ -575,12 +794,27 @@ public sealed class MethodDefinitionSourceRequestSetPlan
     /// <summary>The union of layers any planned request declares.</summary>
     public MethodDefinitionLayers DeclaredLayers { get; }
 
+    internal override bool RequiresReferenceBinding =>
+        (DeclaredLayers & MethodDefinitionLayers.ReferenceBinding) != 0;
+
     internal QuerySpaceRequestSetPlan<MethodDefinitionSourceRequest> Requests
     {
         get;
     }
 
     public ImmutableArray<MethodDefinitionSourceGroupPlan> Groups { get; }
+
+    internal override AssemblyAnalysisSourceRequestSetExecution Execute(
+        AssemblyInspectionSubjectIdentity subject,
+        string sourceName,
+        PEReader peReader,
+        AssemblyReferenceBindingAccess? referenceBinding) =>
+        MethodQuerySource.Execute(
+            this,
+            subject,
+            sourceName,
+            peReader,
+            referenceBinding);
 }
 
 /// <summary>The accepted or rejected result of Method request-set planning.</summary>
@@ -761,7 +995,10 @@ public static class MethodDefinitionSourceRequestSet
         && first.Types.SequenceEqual(second.Types)
         && first.Expansion == second.Expansion
         && first.GeneratedExpansionLimits
-            == second.GeneratedExpansionLimits;
+            == second.GeneratedExpansionLimits
+        && first.GeneratedRoles == second.GeneratedRoles
+        && first.IncludesUnauthenticatedCandidates
+            == second.IncludesUnauthenticatedCandidates;
 
     sealed class SourceGroupBuilder
     {
@@ -782,8 +1019,12 @@ public static class MethodDefinitionSourceRequestSet
                 _associations[0].Request;
             MethodDefinitionSourceRequest request =
                 association.Request;
+            // A shared traversal carries no declared-source relation, so a
+            // request that declares one keeps its own lane.
             if (first.Breadth.Kind
                     != MethodDefinitionSourceBreadthKind.AllDefinitions
+                || first.Breadth.Expansion
+                    != MethodDefinitionSourceExpansion.None
                 || !SameBreadth(first.Breadth, request.Breadth)
                 || first.Work.PassCount != 1
                 || request.Work.PassCount != 1)
@@ -906,6 +1147,27 @@ public sealed record MethodDefinitionSourceCoverage(
 
     public MethodDefinitionInstructionWorkCoverage InstructionWork
     { get; init; } = MethodDefinitionInstructionWorkCoverage.Empty;
+
+    public MemorySafetyContractCoverage MemorySafetyContracts
+    { get; init; } = MemorySafetyContractCoverage.Empty;
+
+    public SameModuleCallTargetCoverage CallTargets
+    { get; init; } = SameModuleCallTargetCoverage.Empty;
+
+    public MethodCallMetadataCoverage Calls
+    { get; init; } = MethodCallMetadataCoverage.Empty;
+
+    public MethodSemanticIdentityCoverage SemanticIdentity
+    { get; init; } = MethodSemanticIdentityCoverage.Empty;
+
+    public MethodAnalysisSupportCoverage MethodAnalysis
+    { get; init; } = MethodAnalysisSupportCoverage.Empty;
+
+    public PublicMethodRootCoverage PublicMethodRoots
+    { get; init; } = PublicMethodRootCoverage.Empty;
+
+    public ReferenceAssemblyStatusCoverage ReferenceAssemblyStatus
+    { get; init; } = ReferenceAssemblyStatusCoverage.Empty;
 }
 
 /// <summary>Why one generated physical MethodDef entered source breadth.</summary>
@@ -919,15 +1181,43 @@ public enum MethodDefinitionGeneratedExpansionOriginKind
 public sealed record MethodDefinitionGeneratedExpansionOrigin(
     MethodDefinitionHandle Method,
     MethodDefinitionHandle DeclaredOwner,
-    MethodDefinitionGeneratedExpansionOriginKind Kind);
+    MethodDefinitionGeneratedExpansionOriginKind Kind,
+    MethodDefinitionGeneratedBodyRoles Role =
+        MethodDefinitionGeneratedBodyRoles.Execution);
 
-/// <summary>Exact generated breadth-discovery work.</summary>
+/// <summary>
+/// Exact generated breadth-discovery work and the declared-source outcome of
+/// each generated body it examined.
+/// </summary>
+/// <param name="Origins">
+/// Authenticated bodies in a requested role, each in breadth.
+/// </param>
+/// <param name="AttributedOutsideRoles">
+/// Authenticated state-machine methods outside the requested roles. They are
+/// owned but not in breadth.
+/// </param>
+/// <param name="UnauthenticatedCandidates">
+/// Generated bodies no edge authenticates, in metadata order. They join
+/// breadth, without an owner, only when the request includes them.
+/// </param>
+/// <param name="ReachedLimit">
+/// The bound that stopped expansion before the relation settled, if any.
+/// </param>
+/// <param name="ReachedAtToken">
+/// The metadata token being recorded when <paramref name="ReachedLimit"/> was
+/// reached.
+/// </param>
 public sealed record MethodDefinitionGeneratedExpansionCoverage(
     MethodDefinitionHandleCoverage CandidateDefinitionsExamined,
     MethodDefinitionHandleCoverage ProbeBodiesAttempted,
     long ProbeEncodedIlBytes,
     int RelationshipNodes,
-    ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Origins)
+    ImmutableArray<MethodDefinitionGeneratedExpansionOrigin> Origins,
+    ImmutableArray<MethodDefinitionGeneratedExpansionOrigin>
+        AttributedOutsideRoles,
+    ImmutableArray<MethodDefinitionHandle> UnauthenticatedCandidates,
+    MethodDefinitionGeneratedExpansionLimitKind? ReachedLimit = null,
+    int? ReachedAtToken = null)
 {
     public static MethodDefinitionGeneratedExpansionCoverage Empty { get; } =
         new(
@@ -935,7 +1225,34 @@ public sealed record MethodDefinitionGeneratedExpansionCoverage(
             MethodDefinitionHandleCoverage.Empty,
             0,
             0,
+            [],
+            [],
             []);
+
+    /// <summary>
+    /// Whether expansion stopped at a declared bound. The outcomes then
+    /// describe the retained prefix only.
+    /// </summary>
+    public bool IsBounded => ReachedLimit is not null;
+
+    /// <summary>
+    /// Over all-definition breadth, the bodies whose call and function-pointer
+    /// operands the relation scanned during traversal, whether a producer had
+    /// already acquired the body or the relation read it. Exact breadth scans
+    /// none.
+    /// </summary>
+    public int TraversalReferenceBodies { get; init; }
+
+    /// <summary>
+    /// The subset of <see cref="TraversalReferenceBodies"/> the relation read
+    /// itself because no producer had acquired them.
+    /// </summary>
+    public int TraversalReferenceBodiesAcquired { get; init; }
+
+    /// <summary>
+    /// The encoded IL bytes of <see cref="TraversalReferenceBodies"/>.
+    /// </summary>
+    public long TraversalReferenceEncodedIlBytes { get; init; }
 }
 
 /// <summary>Actual physical-body work admitted to terminal producers.</summary>
@@ -977,6 +1294,8 @@ public sealed record MethodDefinitionSourceReceipt(
     MethodDefinitionSourceFailure? SourceFailure,
     MethodDefinitionSourceCoverage Coverage,
     int ModuleLookups)
+    : AssemblyAnalysisSourceReceipt(
+        MethodDefinitionSourceRequest.SourceIdentity)
 {
     public int DefinitionsVisited => Coverage.MethodsSelected.Count;
 
@@ -1027,6 +1346,7 @@ public sealed record MethodDefinitionSourceGroupReceipt(
 
 /// <summary>Detached result set preserving request order and group work.</summary>
 public sealed class MethodDefinitionSourceRequestSetExecution
+    : AssemblyAnalysisSourceRequestSetExecution
 {
     readonly Dictionary<
         QuerySpaceRequestAssociationIdentity,
@@ -1036,6 +1356,7 @@ public sealed class MethodDefinitionSourceRequestSetExecution
         MethodDefinitionSourceRequestSetPlan plan,
         ImmutableArray<MethodDefinitionSourceRequestResult> results,
         ImmutableArray<MethodDefinitionSourceGroupReceipt> groupReceipts)
+        : base(MethodDefinitionSourceRequest.SourceIdentity)
     {
         Plan = plan;
         Results = results;
@@ -1172,13 +1493,11 @@ internal static class MethodQuerySource
         if (breadth.Expansion.HasFlag(
                 MethodDefinitionSourceExpansion
                     .GeneratedExecutionBodies)
-            && (breadth.Kind
-                    == MethodDefinitionSourceBreadthKind.AllDefinitions
-                || breadth.GeneratedExpansionLimits is null))
+            && breadth.GeneratedExpansionLimits is null)
         {
             throw new ProducerContractException(
-                "Generated execution-body expansion requires exact breadth "
-                + "and finite work limits.");
+                "Generated execution-body expansion requires finite work "
+                + "limits.");
         }
 
         return new(
@@ -1390,6 +1709,8 @@ internal static class MethodQuerySource
                 MethodDefinitionSourceCompletion.ProducerFailed,
             ProducerOutcome.Aborted =>
                 MethodDefinitionSourceCompletion.Aborted,
+            ProducerOutcome.SourceBounded =>
+                MethodDefinitionSourceCompletion.SourceIncomplete,
             _ => throw new ProducerContractException(
                 $"Unknown producer outcome '{outcome}'."),
         };
@@ -1405,6 +1726,59 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAttempted = new();
     readonly MethodDefinitionHandleCoverageBuilder _bodiesAcquired = new();
     readonly MethodDefinitionHandleCoverageBuilder _moduleLookupMethods = new();
+    readonly MethodDefinitionHandleCoverageBuilder _memorySafetyMethods = new();
+    bool _memorySafetyConstructed;
+    MemorySafetyMetadataWork _memorySafetyConstruction =
+        MemorySafetyMetadataWork.Empty;
+    MemorySafetyMetadataWork _memorySafetyQueries =
+        MemorySafetyMetadataWork.Empty;
+    int _memorySafetyQueryCount;
+    bool _publicRootsConstructed;
+    PublicMethodRootInventoryReceipt? _publicRootsReceipt;
+    bool _publicRootsFailed;
+    int _publicRootReads;
+    bool _referenceStatusConstructed;
+    int _referenceStatusAttributeRows;
+    int _referenceStatusReads;
+    readonly MethodDefinitionHandleCoverageBuilder _callTargetMethods = new();
+    bool _callTargetsConstructed;
+    SameModuleCallTargetWork _callTargetQueries =
+        SameModuleCallTargetWork.Empty;
+    int _callTargetQueryCount;
+    readonly MethodDefinitionHandleCoverageBuilder _methodCallMethods = new();
+    bool _methodCallsConstructed;
+    MethodCallMetadataWork _methodCallWork =
+        MethodCallMetadataWork.Empty;
+    int _methodCallReads;
+    int _localSignatureReads;
+    int _fieldOperandReads;
+    readonly MethodDefinitionHandleCoverageBuilder _semanticIdentityMethods =
+        new();
+    bool _semanticIdentityConstructed;
+    MethodSemanticIdentityWork _semanticIdentityWork =
+        MethodSemanticIdentityWork.Empty;
+    int _semanticIdentitiesDecoded;
+    int _semanticIdentitiesBounded;
+    int _semanticIdentitiesMalformed;
+    readonly MethodDefinitionHandleCoverageBuilder
+        _methodAnalysisResolverMethods =
+        new();
+    bool _methodAnalysisConstructed;
+    MethodAnalysisResolverWork _methodAnalysisResolverWork =
+        MethodAnalysisResolverWork.Empty;
+    int _methodAnalysisResolverQueries;
+    readonly MethodDefinitionHandleCoverageBuilder
+        _exactDeclaredSourceMethods =
+            new();
+    ExactDeclaredSourceWork _exactDeclaredSourceWork =
+        ExactDeclaredSourceWork.Empty;
+    int _exactDeclaredSourceQueries;
+    readonly MethodDefinitionHandleCoverageBuilder
+        _generatedCodeEvidenceMethods =
+            new();
+    MethodGeneratedCodeEvidenceWork _generatedCodeEvidenceWork =
+        MethodGeneratedCodeEvidenceWork.Empty;
+    int _generatedCodeEvidenceQueries;
     MethodDefinitionGeneratedExpansionCoverage _generatedExpansion =
         MethodDefinitionGeneratedExpansionCoverage.Empty;
     int _noRetentionSourcesOpened;
@@ -1480,6 +1854,196 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
             _moduleLookupMethods.Add(handle);
     }
 
+    public void RecordMemorySafetyConstruction(
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyConstructed = true;
+        _memorySafetyConstruction = work;
+    }
+
+    public void RecordMemorySafetyQuery(
+        MethodDefinitionHandle handle,
+        MemorySafetyMetadataWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _memorySafetyMethods.Add(handle);
+        _memorySafetyQueries = _memorySafetyQueries.Plus(work);
+        _memorySafetyQueryCount = checked(_memorySafetyQueryCount + 1);
+    }
+
+    public void RecordPublicMethodRootsConstruction(
+        PublicMethodRootsResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!_enabled)
+            return;
+
+        _publicRootsConstructed = true;
+        _publicRootsReceipt =
+            (result as PublicMethodRootsResult.Read)?.Inventory.Receipt;
+        _publicRootsFailed = result is PublicMethodRootsResult.Failed;
+    }
+
+    public void RecordPublicMethodRootsRead()
+    {
+        if (_enabled)
+            _publicRootReads = checked(_publicRootReads + 1);
+    }
+
+    public void RecordReferenceAssemblyStatusConstruction(
+        int attributeRows)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(attributeRows);
+        if (!_enabled)
+            return;
+
+        _referenceStatusConstructed = true;
+        _referenceStatusAttributeRows = attributeRows;
+    }
+
+    public void RecordReferenceAssemblyStatusRead()
+    {
+        if (_enabled)
+            _referenceStatusReads = checked(_referenceStatusReads + 1);
+    }
+
+    public void RecordCallTargetConstruction()
+    {
+        if (_enabled)
+            _callTargetsConstructed = true;
+    }
+
+    public void RecordCallTargetQuery(
+        MethodDefinitionHandle handle,
+        SameModuleCallTargetWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _callTargetMethods.Add(handle);
+        _callTargetQueries = _callTargetQueries.Plus(work);
+        _callTargetQueryCount = checked(_callTargetQueryCount + 1);
+    }
+
+    public void RecordMethodCallConstruction()
+    {
+        if (_enabled)
+            _methodCallsConstructed = true;
+    }
+
+    public void RecordMethodCallQuery(
+        MethodDefinitionHandle handle,
+        MethodCallMetadataWork work,
+        int callReads,
+        int localSignatureReads,
+        int fieldOperandReads)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _methodCallMethods.Add(handle);
+        _methodCallWork = _methodCallWork.Plus(work);
+        _methodCallReads = checked(_methodCallReads + callReads);
+        _localSignatureReads =
+            checked(_localSignatureReads + localSignatureReads);
+        _fieldOperandReads =
+            checked(_fieldOperandReads + fieldOperandReads);
+    }
+
+    public void RecordSemanticIdentityConstruction()
+    {
+        if (_enabled)
+            _semanticIdentityConstructed = true;
+    }
+
+    public void RecordSemanticIdentity(
+        MethodDefinitionHandle handle,
+        MethodSemanticIdentityResult result,
+        MethodSemanticIdentityWork work)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (!_enabled)
+            return;
+
+        _semanticIdentityMethods.Add(handle);
+        _semanticIdentityWork = _semanticIdentityWork.Plus(work);
+        switch (result)
+        {
+            case MethodSemanticIdentityResult.Decoded:
+                _semanticIdentitiesDecoded =
+                    checked(_semanticIdentitiesDecoded + 1);
+                break;
+            case MethodSemanticIdentityResult.SignatureBoundExceeded:
+                _semanticIdentitiesBounded =
+                    checked(_semanticIdentitiesBounded + 1);
+                break;
+            default:
+                _semanticIdentitiesMalformed =
+                    checked(_semanticIdentitiesMalformed + 1);
+                break;
+        }
+    }
+
+    public void RecordMethodAnalysisConstruction()
+    {
+        if (_enabled)
+            _methodAnalysisConstructed = true;
+    }
+
+    public void RecordMethodAnalysisResolverQuery(
+        MethodDefinitionHandle handle,
+        MethodAnalysisResolverWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _methodAnalysisResolverMethods.Add(handle);
+        _methodAnalysisResolverWork =
+            _methodAnalysisResolverWork.Plus(work);
+        _methodAnalysisResolverQueries =
+            checked(_methodAnalysisResolverQueries + 1);
+    }
+
+    public void RecordExactDeclaredSourceQuery(
+        MethodDefinitionHandle handle,
+        ExactDeclaredSourceWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _exactDeclaredSourceMethods.Add(handle);
+        _exactDeclaredSourceWork =
+            _exactDeclaredSourceWork.Plus(work);
+        _exactDeclaredSourceQueries =
+            checked(_exactDeclaredSourceQueries + 1);
+    }
+
+    public void RecordGeneratedCodeEvidenceQuery(
+        MethodDefinitionHandle handle,
+        MethodGeneratedCodeEvidenceWork work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (!_enabled)
+            return;
+
+        _generatedCodeEvidenceMethods.Add(handle);
+        _generatedCodeEvidenceWork =
+            _generatedCodeEvidenceWork.Plus(work);
+        _generatedCodeEvidenceQueries =
+            checked(_generatedCodeEvidenceQueries + 1);
+    }
+
     public void RecordGeneratedExpansion(
         MethodDefinitionGeneratedExpansionCoverage coverage)
     {
@@ -1525,6 +2089,80 @@ internal sealed class MethodDefinitionSourceCoverageBuilder
                     _noRetentionSourcesOpened,
                     _lazyRetainedSourcesOpened,
                     _instructionsVisited),
+            MemorySafetyContracts =
+                _memorySafetyConstructed || _memorySafetyQueryCount != 0
+                    ? new(
+                        _memorySafetyConstructed,
+                        _memorySafetyConstruction,
+                        _memorySafetyQueries,
+                        _memorySafetyQueryCount,
+                        _memorySafetyMethods.Build())
+                    : MemorySafetyContractCoverage.Empty,
+            CallTargets =
+                _callTargetsConstructed || _callTargetQueryCount != 0
+                    ? new(
+                        _callTargetsConstructed,
+                        _callTargetQueries,
+                        _callTargetQueryCount,
+                        _callTargetMethods.Build())
+                    : SameModuleCallTargetCoverage.Empty,
+            Calls =
+                _methodCallsConstructed
+                || _methodCallMethods.Count != 0
+                    ? new(
+                        _methodCallsConstructed,
+                        _methodCallWork,
+                        _methodCallReads,
+                        _localSignatureReads,
+                        _fieldOperandReads,
+                        _methodCallMethods.Build())
+                    : MethodCallMetadataCoverage.Empty,
+            SemanticIdentity =
+                _semanticIdentityConstructed
+                || _semanticIdentityMethods.Count != 0
+                    ? new(
+                        _semanticIdentityConstructed,
+                        _semanticIdentityWork,
+                        _semanticIdentityMethods.Build(),
+                        _semanticIdentitiesDecoded,
+                        _semanticIdentitiesBounded,
+                        _semanticIdentitiesMalformed)
+                    : MethodSemanticIdentityCoverage.Empty,
+            MethodAnalysis =
+                _methodAnalysisConstructed
+                || _methodAnalysisResolverQueries != 0
+                || _exactDeclaredSourceQueries != 0
+                || _generatedCodeEvidenceQueries != 0
+                    ? new(
+                        _methodAnalysisConstructed,
+                        new(
+                            _methodAnalysisResolverWork,
+                            _methodAnalysisResolverQueries,
+                            _methodAnalysisResolverMethods.Build()),
+                        new(
+                            _exactDeclaredSourceWork,
+                            _exactDeclaredSourceQueries,
+                            _exactDeclaredSourceMethods.Build()),
+                        new(
+                            _generatedCodeEvidenceWork,
+                            _generatedCodeEvidenceQueries,
+                            _generatedCodeEvidenceMethods.Build()))
+                    : MethodAnalysisSupportCoverage.Empty,
+            PublicMethodRoots =
+                _publicRootsConstructed || _publicRootReads != 0
+                    ? new(
+                        _publicRootsConstructed,
+                        _publicRootsReceipt,
+                        _publicRootsFailed,
+                        _publicRootReads)
+                    : PublicMethodRootCoverage.Empty,
+            ReferenceAssemblyStatus =
+                _referenceStatusConstructed || _referenceStatusReads != 0
+                    ? new(
+                        _referenceStatusConstructed,
+                        _referenceStatusAttributeRows,
+                        _referenceStatusReads)
+                    : ReferenceAssemblyStatusCoverage.Empty,
         };
 }
 

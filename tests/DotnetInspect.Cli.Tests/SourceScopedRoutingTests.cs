@@ -14,6 +14,8 @@ using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using NuGetFetch.Plugins;
+using NuGetOperationContext = NuGetFetch.NuGetOperationContext;
+using PackageSourceTimeoutKind = NuGetFetch.PackageSourceTimeoutKind;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -1999,6 +2001,60 @@ public sealed class SourceScopedRoutingTests : IDisposable
                 new HttpClientFactoryOptions { Offline = true });
             DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
+    }
+
+    [Fact]
+    public async Task OperationContext_ExpiredBeforeAuthorizationReturnsTypedFailures()
+    {
+        const string Source = "https://expired.example/v3/index.json";
+        bool transportCreated = false;
+        await using var composition = new DesktopPackageSourceComposition(
+            TimeSpan.FromSeconds(1),
+            new UnavailableCredentialSource(),
+            (_, _) =>
+            {
+                transportCreated = true;
+                throw new InvalidOperationException(
+                    "An expired operation must not create transport.");
+            });
+        using var operation = new NuGetOperationContext(
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromMilliseconds(1),
+            TestContext.Current.CancellationToken);
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(50),
+            TestContext.Current.CancellationToken);
+
+        PackageVersionDiscoveryResult result =
+            await composition.GetVersionsAsync(
+                "expired-before-authorization",
+                includePrerelease: false,
+                limit: null,
+                new NuGetSourceOptions { Sources = [Source] },
+                cancellationToken:
+                    TestContext.Current.CancellationToken,
+                operationContext: operation);
+
+        Assert.Equal(PackageVersionDiscoveryState.Failed, result.State);
+        Assert.Empty(result.Versions);
+        Assert.Equal(2, result.Failures.Count);
+        Assert.All(
+            result.Failures,
+            failure =>
+            {
+                Assert.Equal(
+                    PackageAuthorityFailureKind.Timeout,
+                    failure.Kind);
+                Assert.Equal(
+                    PackageSourceTimeoutKind.Operation,
+                    failure.Timeout?.Kind);
+            });
+        Assert.Contains(
+            result.Failures,
+            failure => failure.Message.Contains(
+                "operation deadline expired",
+                StringComparison.Ordinal));
+        Assert.False(transportCreated);
     }
 
     [Fact]

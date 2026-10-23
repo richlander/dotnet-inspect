@@ -913,7 +913,11 @@ public static partial class MetadataFindings
     static ApiSurface FocusSurface(ApiSurface surface, string typeFullName)
     {
         var type = FindType(surface, typeFullName);
-        return new ApiSurface { Types = type is null ? [] : [type] };
+        return new ApiSurface
+        {
+            Types = type is null ? [] : [type],
+            ExtractionScope = surface.ExtractionScope,
+        };
     }
 
     static string GetAttributeName(string attribute)

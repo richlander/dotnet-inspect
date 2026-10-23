@@ -69,10 +69,15 @@ applies that pruning query, and returns the ordered outcomes through
 and Inspect Web package pruning both consume that operation while retaining
 their own input scope, source and inventory authorization, completion policy,
 and presentation.
-`DesktopPackageSourceComposition` still owns desktop configuration,
-credentials, transports, clients, stores, and disposal, but its
-composition-owned exact and selecting payload operations, asynchronous pinned
-candidate path, and candidate-manifest path now settle through PackageHouse.
+`DesktopPackageSourceComposition` remains a transitional native-host bundle:
+it resolves source policy, supplies installed credential-provider integration,
+creates native HTTP or local source clients, owns their settlement root and
+lifetime, and issues Package Source operations. Package stores are
+caller-supplied. Its asynchronous pinned-candidate compatibility path and
+direct dependency-version convenience are retired. Callers issue one Package
+Source operation for pinned candidate and candidate-manifest work;
+composition-owned exact and selecting payload operations continue to settle
+through PackageHouse.
 The CLI's online `package Package@latest --versions` query and `@latest`
 package opening consume the shared `PackageVersionSettlementInspection`
 envelope, also used by Inspect Web exact/latest package opening. The shared inspection
@@ -135,6 +140,9 @@ The owner defines:
 - the distinction between settlement, acquisition, and realization;
 - composition of owner-issued package source, version, pruning, payload,
   asset-selection, and dependency capabilities;
+- composition of one Navigation-issued Library-population demand with compile
+  precedence, typed one-RID runtime fallback, and declaration-authenticated
+  tool fallback when runtime selection has no match;
 - package-local compile-selection policy and preservation of the complete
   owner-issued inventory beside its selected projection;
 - the House result envelope and terminal outcome;
@@ -156,7 +164,8 @@ It does not define:
 - platform/package pruning inventory or comparison;
 - dependency candidate resolution or graph traversal;
 - package archive admission, content generation, or cache publication;
-- compile, runtime, resource, analyzer, or build asset selection;
+- compile, runtime, tool, resource, analyzer, or build asset selection;
+- tool declaration grammar or tool-slice membership;
 - framework compatibility, compile-slice ranking, asset-role preference,
   empty-group interpretation, or managed-image classification;
 - artifact identity, Workspace admission, revisions, leases, replacement, or
@@ -270,17 +279,32 @@ the compatibility result, including not-found and reporting authorities,
 without publishing those details as a second House receipt or retaining live
 source authority.
 
-An overload supplied with a caller-owned `NuGetOperationContext` remains an
-explicit direct compatibility branch. The composition cannot transfer a
-borrowed context into PackageHouse's consumed operation lease. The synchronous
-`ResolvePinnedCandidate` compatibility method also remains direct. Its
-asynchronous replacement uses House when no borrowed context is supplied and
-preserves the direct branch for query operations that still share one external
-context. Those branches retire with their callers rather than disguising
-borrowed operation authority as House ownership.
+Composition-owned payload overloads supplied with a caller-owned
+`NuGetOperationContext` remain explicit direct compatibility branches because
+the composition cannot transfer a borrowed context into PackageHouse's
+consumed operation lease. Candidate resolution has no corresponding branch:
+callers supply explicit authorization and an issued operation, including when
+they subsequently acquire the candidate manifest.
 
 Browser/Wasm and query adapters supply their host-created clients through the
 same lease contract.
+
+Standalone API coordinate matching is a compile-realization adopter. The
+host-neutral query issues one exact `Realize` request per distinct endpoint
+with `Surface` demand and consumes the House-issued compile selection when
+creating each Package Root. Coordinate matching observes the complete selected
+API population, its declarations, assembly identities, references, and type
+forwarders; it does not execute or inspect method bodies, and a package without
+a separate reference surface already uses its `lib/` assets as that surface.
+The destination host execution retains the source acquisition's typed producer
+identity. The host supplies store, transfer, source-authorization, and
+operation-lifetime policy; the query neither requests a complete payload nor
+reruns package asset selection. The CLI's operation-local store does not
+persist ranged entries: distinct endpoints are each realized once, and an
+equal destination reuses the source Root without another acquisition. The
+settlement-owned ranged content therefore remains the one retained copy of
+selected entry bytes. `ApiCoordinateMatchInspectionTests` gates the existing Avalonia
+forwarder result, exact House request shape, and destination producer affinity.
 
 This is the adopted PackageHouse operation-ownership step 17b under
 [#6544](https://github.com/richlander/dotnet-inspect/issues/6544). Library
@@ -570,6 +594,11 @@ answer:
 - **selected projection** contains the one applicable slice and zero, one, or
   many selected compile assets, or one typed non-success.
 
+Each selected compile asset retains its package-relative path and owner-issued
+assembly leaf and simple names. Consumers use those identities directly rather
+than reconstructing them from the path under inspecting-host filesystem
+semantics.
+
 Complete means complete for compile selection within the exact acquired
 package-content generation. It does not mean every package entry is a compile
 candidate, turn package inventory into Workspace inventory, or authorize
@@ -579,17 +608,25 @@ full content and acquisition evidence.
 PackageHouse owns the policy supplied to the selector, not the compatibility
 or asset-selection algorithm:
 
-| Package-local request | PackageHouse selection policy |
-| --- | --- |
-| No requested target framework | `HighestAvailable` |
-| Explicit requested target framework | `ExplicitTarget` |
+| Package-local request | Selection policy | Candidate eligibility |
+| --- | --- | --- |
+| No requested target framework | `HighestAvailable` | Owner-default, including nested compile assets |
+| Compatible explicit target framework | `ExplicitTarget` | Package-local, including nested compile assets |
+| Caller-authored exact-target-only framework | `ExactTarget` | Direct compile assets only |
+| Frozen owner-selected framework | `ExactTarget` | Owner-default, including nested compile assets |
 
 `HighestAvailable` asks the owner to select its highest available compile
-slice. An explicit target asks the owner to select the applicable compile
-slice for that request. In both cases PackageHouse preserves the policy source,
-the requested framework when present, the selected framework when one exists,
-and the exact selector receipt. It does not choose a framework by sorting
-strings, infer one from a host default, or rerun selection over rendered paths.
+slice. `ExplicitTarget` asks the owner to select the applicable compatible
+compile slice for that request. `ExactTarget` accepts only the requested
+compile slice while retaining the same typed no-match evidence when only
+neighboring compatible slices exist. The target context independently records
+whether direct-only or owner-default candidate eligibility applies, so a
+durable frozen target can prohibit compatible fallback without losing nested
+assets admitted by its original owner-default selection. In every case
+PackageHouse preserves the policy source, candidate eligibility, requested
+framework when present, selected framework when one exists, and the exact
+selector receipt. It does not choose a framework by sorting strings, infer one
+from a host default, or rerun selection over rendered paths.
 
 The selected projection preserves these distinct outcomes:
 
@@ -808,7 +845,7 @@ operation, source authorization, authority-scoped store plan, limits, transfer
 policy, and operation lease. It owns a package-wide semantic Files query,
 combined with File List over the same directory snapshot, case-insensitive
 manifest resolution, actual-path preservation, and generation-bound
-`OpenRead()`. PackageHouse owns cache-first and size-first ranged execution
+`OpenRead()`. PackageHouse owns cache-first and directory-first ranged execution
 plus complete fallback; either path publishes only the exact queried entry
 even when the store retains the complete archive. The File List preserves the
 complete physical inventory for follow-on decisions such as legacy tool-wrapper
@@ -1269,7 +1306,7 @@ this handoff. It accepts one exact or version-selecting package demand, exact
 target framework, typed Library selector, selection or implementation depth,
 optional companion demand, source authorization, authority-scoped ranged
 store plan, and operation lease. It owns compile `Realize` request
-construction, cache-first and size-first execution, named implementation
+construction, cache-first and directory-first execution, named implementation
 demand, and resolution of exactly one settlement-issued compile handoff.
 Hosts bind their environment and consume the typed result; they do not
 recreate those steps.
@@ -1395,8 +1432,20 @@ rather than throwing, guessing another identity, or weakening correspondence.
 
 An exact package Root reacquisition request from
 [#5837](https://github.com/richlander/dotnet-inspect/issues/5837) re-enters the
-same House realization path. It retains the original selection request while
-allowing a replacement physical generation.
+same House realization path. Ordinary targeted Roots use the exact-target-only
+mode; durable requests use compatible explicit selection only when their token
+authorizes it; initial untargeted Roots use owner-default selection, while
+their durable requests use the frozen-target mode to repeat the selected
+framework and owner-default candidate eligibility without rewriting the Root's
+absent caller-requested target. Root acquisition consumes the House
+compile receipt directly, retains the original requested target, acquisition
+framework, producer spelling, and frozen implementation-selection input even
+for a negative selection outcome, and rejects a replacement generation whose
+receipt does not reproduce the durable selection request. The durable Root
+boundary issues a request only when both selector-issued targets satisfy the
+House exact-target grammar; otherwise it returns typed `InvalidCoordinate`,
+and a previously issued request outside that grammar fails the same way before
+House execution.
 
 ## Host boundaries
 
@@ -1472,6 +1521,50 @@ its evidence and traversal algorithms usable. PackageHouse does not introduce
 a generic Houses assembly. Exact moves from `DotnetInspector.Services` remain
 tracked by [#6335](https://github.com/richlander/dotnet-inspect/issues/6335).
 
+## Host-specific package type vocabulary
+
+`Desktop` is not a positive package responsibility and is not a replacement
+prefix. Package types name the distinction they own:
+
+- configuration provenance uses the `Machine`, `User`, `Repo`, and `Project`
+  scopes, while source policy names their resolution and authorization
+  together with explicit inputs;
+- native capability names installed credential-provider integration, native
+  HTTP or local routes, and the lifetime of their source clients;
+- filesystem capability names temporary or durable file-backed stores; and
+- CLI-local adapters name the package operation they adapt. Their enclosing
+  namespace and owner already establish the host.
+
+`Ambient` may describe implicit configuration discovery in explanatory prose;
+it is not a product type, policy, or configuration-scope name. When provenance
+matters, the product identifies the contributing `Machine`, `User`, `Repo`, or
+`Project` scope. `NuGetSourceOptions` can additionally replace or add sources,
+select an explicit config file or directory, or carry Workspace sources and
+credentials. The existing `SourcePolicyPackageSourceAuthorization` owns that
+broader accumulated and explicit policy input.
+
+The classified production symbols and applied dispositions are:
+
+| Classified symbol | Current symbol or disposition | Positive responsibility |
+| --- | --- | --- |
+| `DesktopPackageSourceComposition` | Unchanged; remove the compatibility identity under the retirement plan below rather than granting it a durable replacement name. | Transitional native-host bundle for source-policy resolution, installed credential providers, native HTTP/local clients, settlement-root lifetime, and operation issuance. |
+| `DesktopPlatformPackageSourceRuntime` | `PackagePlatformSourceRuntime` | CLI-local coordinator for Package Source authorization and operations, temporary package stores, and the package-backed Platform adapter. |
+| `DesktopPackageStoreScope` | `TemporaryPackageStoreScope` | Lazily created authority-scoped stores under one temporary filesystem root. |
+| `DesktopPackageDependencyMemberCallGraphContinuationSource` | `PackageDependencyMemberCallGraphContinuationSource` | CLI call-graph continuation that combines installed and package-backed Platform sources. |
+| `DesktopHistoryCellExecutor` | `HistoryCellExecutor` | Private `diff --history` PackageHouse version-cell executor. |
+| `DesktopWorkspacePackageDependencyManifestProvider` | `WorkspacePackageDependencyManifestProvider` | Private Workspace dependency-manifest provider over PackageHouse content acquisition. |
+| `DesktopPortablePdbPackageContentSource` | `PortablePdbPackageContentSource` | Private Portable PDB package-content adapter over PackageHouse content acquisition. |
+
+`DesktopPackageSourceComposition` is now the only remaining production
+`Desktop*` package type. Its name remains a visible compatibility residual,
+not an endorsed host-specific vocabulary.
+
+Browser and native transports may differ below the shared package-source
+contract, but neither host label becomes package identity, authority, producer
+identity, or policy. Tests may use host labels when the behavior under test is
+specifically a host transport capability; they do not establish product type
+vocabulary.
+
 ## Current implementation retirement
 
 Retirement is staged:
@@ -1484,6 +1577,35 @@ Retirement is staged:
 5. remove the `DesktopPackageSourceComposition` identity; and
 6. close or supersede #4653 after every carried requirement and unresolved
    finding is assigned to a landed focused slice or explicit residual issue.
+
+The identity retirement has started at its direct-operation seams. Configured
+version enumeration now delegates to Package Source settlement; the
+composition retains only compatibility input validation, exact authority
+registration, and its remaining host capability and direct-operation
+surfaces. Removing the type still waits for those surfaces and their production
+callers to adopt their owner-issued operations.
+
+Dependency traversal has adopted one host-issued Package Source operation for
+its sequential candidate and manifest schedule. CLI and Browser/Wasm traversal
+adapters now retain explicit authorization and consume the transferred
+operation instead of retaining a settlement root or
+`DesktopPackageSourceComposition` manifest adapter. Dependency license
+inventory now retains explicit authorization and issues an independent
+operation for every concurrent manifest acquisition under one shared
+inventory deadline; each lease still admits only one active source step.
+Dependency pruning now retains explicit authorization and transfers one
+Package Source operation through its sequential candidate-required declaration
+schedule. Candidate-free applicability remains source-free. Workspace
+dependency enrichment now retains explicit authorization and transfers one
+Package Source operation through its sequential candidate-resolution schedule
+while root Nuspec acquisition remains a PackageHouse semantic-content demand.
+Its adoption removed the final production owner of
+`DesktopPackageDependencyCandidateSource`, so that adapter is gone. The
+subsequent compatibility cleanup removed the candidate-source interface and
+authorized test adapter, direct candidate methods on the settlement root, and
+direct pinned/dependency-version conveniences on desktop composition. Tests
+now exercise the same explicit authorization and issued-operation contract as
+production callers.
 
 No compatibility facade or obsolete CLI path is retained solely to preserve
 the old architecture. A direct path remains only while it is the shipping path
@@ -1638,6 +1760,13 @@ counted production-adoption steps:
     direct host bypasses and the desktop composition identity, and close or
     supersede #4653.
 
+Dependency license inventory no longer transfers a compatibility
+`NuGetOperationContext` through `DesktopPackageSourceComposition`. Its
+deterministic eight-way manifest schedule issues independent Package Source
+operations under one inventory deadline, leaving each lease's one-active-step
+contract unchanged. The composition and settlement root no longer expose a
+direct candidate-manifest compatibility operation.
+
 Each step after this design is separately reviewed and leaves a usable
 product. A direct path is retired only after its House replacement is live in
 every supported host that uses it.
@@ -1709,12 +1838,12 @@ focused successor slices rather than broadening the owner document.
 | Pruning correspondence | Platform delegation consumes the policy-issued inventory/coordinate/supply receipt, compares the coordinate through the package owner's normalization, and matches the actual supplier family and exact target version. |
 | Payload authority | Discovered payload comes only from a reporting authority; pinned payload follows the Package Source Model's eligible-authority rule; the acquisition receipt and live payload match source, producer, origin, and generation. |
 | Selection correspondence | Realization consumes a selector-issued generation/request/outcome receipt matching the exact acquisition and target context. |
-| Package-local policy | Owner-default compile realization records `HighestAvailable`; explicit-target realization records `ExplicitTarget`, the requested framework, and the separately selected framework. |
+| Package-local policy | Owner-default compile realization records `HighestAvailable`; compatible explicit-target realization records `ExplicitTarget`; caller-authored and frozen exact-target realization record `ExactTarget` and do not select a neighboring compatible compile slice; frozen realization separately preserves owner-default nested-candidate eligibility. |
 | Compile inventory | Selected, selected-empty, no-slice, no-applicable-slice, and invalid-selection outcomes retain every owner-issued available compile slice and candidate from the acquired generation through the final House result. |
 | Projection cardinality | Zero, one, and many selected compile assets remain distinct valid projections; no path or package-name heuristic chooses a representative asset. |
 | Selected-slice measurements | Multi-Library selection measures the retained archive and exactly one owner-paired payload entry per selected compile asset, including RID-specific implementation preference. Selected-empty, no-slice, no-applicable-slice, invalid-selection, House-failure, and unavailable entry-manifest outcomes remain typed and retain the acquisition and selection receipts. |
 | Multi-slice isolation | A coordinator selecting multiple target frameworks receives separately associated projections and cannot merge their assets into one selected universe. |
-| Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
+| Selection completion | `ExactCompileRealizeBindsSelectionAndLibraryHandoff`, `ExactTargetCompileRealizeDoesNotSelectCompatibleFramework`, `FrozenTargetCompileRealizePreservesNestedOwnerEligibility`, `ExactRuntimeRealizeAppliesExactRidOverlay`, `ExactCompileRealizePreservesExplicitEmptyGroup`, `ExactCompileRealizePreservesNoMatchWithPayload`, `RuntimeRealizeKeepsRequestedAndSelectedFrameworksDistinct`, `SameCoordinateWithTwoTargetsKeepsDistinctRealizations`, `NonSubsumedCandidateRealizeRetainsPruningAndSelection`, and `RuntimeOwnerDefaultRealizeIsVisiblyRejected` compose selector-issued outcomes through execution. Selector suites gate ambiguity and invalid-layout classification; `PackageHouseContractTests` gate their corresponding House terminal arms. |
 | Selection timeout | `TimeoutAfterSelectionRetainsPayloadAndRealization` proves that operation timeout remains terminal after synchronous selection while retaining the caller-owned payload and completed acquisition and realization receipts. |
 | Target-aware realization | A `net10.0` dependency with `net10.0` and `net11.0` folders selects `net10.0` and retains requested-versus-selected evidence. |
 | Context separation | The same coordinate realized under two target contexts retains two realization receipts and cannot share one selected asset universe. |

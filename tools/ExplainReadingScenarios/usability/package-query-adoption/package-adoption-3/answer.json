@@ -1,0 +1,88 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "id": "Microsoft.Extensions.Http.Polly",
+        "inspected_version": "10.0.12",
+        "dependency_classification": "direct declared dependency",
+        "dependency_evidence": [
+          {
+            "id": "Polly",
+            "declared_version_specification": "7.2.4"
+          },
+          {
+            "id": "Polly.Extensions.Http",
+            "declared_version_specification": "3.0.0"
+          }
+        ],
+        "framework_evidence": "For dependency-target=net10.0, dotnet-inspect selected the package manifest group .NETStandard2.0; that group declares both Polly dependencies.",
+        "provenance": "response-05.out results[0].package.manifest.dependencyGroups[0], results[0].evidence, and results[0].answers"
+      }
+    ],
+    "exhausts_package_family": false,
+    "coverage": "The search evaluated 40 Microsoft.Extensions.* package candidates and found one match. It stopped at the explicit 40-candidate limit, so further members of the package family may match.",
+    "direct_vs_indirect": "The Polly declaration is a direct package manifest dependency in the selected group. This query did not traverse transitive dependencies, so it does not establish which other Microsoft.Extensions packages depend on Polly indirectly."
+  },
+  "executed_commands": [
+    {
+      "arguments": [
+        "package",
+        "query",
+        "--help"
+      ],
+      "response": "response-01.out",
+      "purpose": "CLI syntax and candidate-bound options"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "--explain"
+      ],
+      "response": "response-02.out",
+      "purpose": "Installed dependency facets, scope, and bindings"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "-Q",
+        "depends"
+      ],
+      "response": "response-03.err",
+      "outcome": "Section name rejected; available section was Packages"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "-Q",
+        "Packages"
+      ],
+      "response": "response-04.out",
+      "purpose": "Query syntax and dependency behavior"
+    },
+    {
+      "arguments": [
+        "package",
+        "query",
+        "Microsoft.Extensions.*",
+        "--take",
+        "40",
+        "--where",
+        "depends starts-with Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--json"
+      ],
+      "responses": [
+        "response-05.out",
+        "response-05.err"
+      ],
+      "purpose": "Bounded net10.0 dependency search and completion status"
+    }
+  ],
+  "uncertainty": "The result is complete only for the 40 evaluated candidates and direct dependencies selected by net10.0. It cannot exclude additional direct matches later in the family or indirect Polly dependencies. The 7.2.4 and 3.0.0 strings are declared dependency version specifications, not independently inspected resolved package versions.",
+  "discovery_schema_navigation_friction": "The --explain resource gave the needed facets and CLI bindings. The first -Q attempt used the facet name depends and failed because -Q expects the Packages section; -Q Packages supplied readable syntax. The JSON result included the selected manifest group and match previews, so no separate package inspection was needed.",
+  "truncation": "No recorder response or product view was truncated."
+}

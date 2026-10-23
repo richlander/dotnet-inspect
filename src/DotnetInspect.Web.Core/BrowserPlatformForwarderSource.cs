@@ -7,7 +7,6 @@ using DotnetInspector.PlatformHouse;
 using DotnetInspector.PlatformHouse.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
-using ILInspector.Metadata;
 using NuGetFetch;
 
 namespace DotnetInspect.Web;
@@ -112,45 +111,12 @@ internal sealed class BrowserPlatformForwarderSource
                     "unavailable", "The exact declaring Library is absent from the Platform implementation.");
             }
 
-            int index = population.Population.Value.Members.ToList().IndexOf(member);
-            LibraryContentOwner owner = population.Population.Owners[index];
-            if (owner.IssueOperationLease(member.PlatformLibrary.Library)
-                is not LibraryOperationLeaseIssueOutcome.Issued issued)
-            {
-                throw new BrowserPlatformForwarderOperationException(
-                    "failed", "The declaring Library could not issue a resolution lease.");
-            }
-            ResolvedAssemblyReference descriptor;
-            using (LibraryOperationLease lease = issued.Lease)
-            {
-                descriptor = lease.Snapshot(
-                    member.PlatformLibrary.Library
-                        .ImplementationAssembly!,
-                    static (view, _) =>
-                    {
-                        byte[] image = view.Content.ToArray();
-                        return ResolvedAssemblyReference.CreateFromArtifactIfManaged(
-                            view.Reference.Registration,
-                            () => new MemoryStream(image, writable: false),
-                            AssemblyResolutionProvenance.Designated(
-                                "Browser Platform forwarder activation"))
-                            ?? throw new BadImageFormatException(
-                                "The Platform implementation Library has no managed metadata.");
-                    },
-                    cancellationToken);
-            }
-            if (descriptor.Registration.ModuleVersionId != activation.SourceModuleVersionId)
-            {
-                throw new BrowserPlatformForwarderOperationException(
-                    "stale", "The declaring Library no longer matches the published forwarding declaration.");
-            }
-
             var resolutionRequest = Request(
                 activation.Target,
                 new PlatformHouseOperation.ResolveTypeDefinition.FromImplementation<PlatformPopulationMember>(
                     new(
-                        TypeResolutionRequest.FromAssembly(
-                            descriptor, AssemblyResolutionScope.Platform, activation.Type),
+                        activation.Type,
+                        activation.SourceModuleVersionId,
                         "browser-platform-forwarder"),
                     new(member, "browser-platform-forwarder-start")),
                 activation.Sources,

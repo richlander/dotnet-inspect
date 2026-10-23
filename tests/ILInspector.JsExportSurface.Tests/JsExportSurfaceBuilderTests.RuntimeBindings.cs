@@ -61,6 +61,185 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.DoesNotContain(hostileMemberName, exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Build_RejectsCallerUnsafeExport(bool explicitContract)
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Absent);
+        export.MemorySafety = new(
+            Guid.Empty,
+            explicitContract
+                ? new MemorySafetyMemberContractResult.Explicit(evidence)
+                : new MemorySafetyMemberContractResult.Implicit(evidence),
+            MemorySafetyPointerEvidence.Absent);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "caller-unsafe JS exports are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsSafeCallablePointerBearingExport()
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Present);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.None(evidence),
+            MemorySafetyPointerEvidence.Present);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "pointer-bearing JS export signatures are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_CallerUnsafePointerBearingExportReportsCallerContract()
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Present);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.Explicit(evidence),
+            MemorySafetyPointerEvidence.Present);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "caller-unsafe JS exports are not supported",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "pointer-bearing",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_RejectsUnavailableCallerSafetyContract()
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(MemorySafetyPointerEvidence.Absent);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.Unavailable(
+                evidence,
+                new(
+                    MemorySafetyMemberContractFailureKind.MetadataUnavailable,
+                    "Hostile\u001b[31mDetail")),
+            MemorySafetyPointerEvidence.Absent);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "JS export caller-safety contract is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Hostile",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(MemorySafetyPointerEvidence.NotExamined)]
+    [InlineData(MemorySafetyPointerEvidence.Unavailable)]
+    public void Build_RejectsUnavailablePointerShapeEvidence(
+        MemorySafetyPointerEvidence pointerEvidence)
+    {
+        ApiSurface apiSurface = ExportSurface(0x06000001);
+        ApiMember export = Assert.Single(Assert.Single(apiSurface.Types).Members);
+        MemorySafetyMemberContractEvidence evidence =
+            MemorySafetyEvidence(pointerEvidence);
+        export.MemorySafety = new(
+            Guid.Empty,
+            new MemorySafetyMemberContractResult.None(evidence),
+            pointerEvidence);
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(apiSurface));
+
+        Assert.Contains(
+            "JS export pointer-shape evidence is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_WithBodiesRequiresTypedMemorySafetyFacts()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FixtureExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name == nameof(FixtureExports.Ping));
+        SelectOnlyRuntimeJsExport(apiSurface, export);
+        export.MemorySafety = null;
+
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => JsExportSurfaceBuilder.Build(
+                    apiSurface,
+                    OpenWireContractBodyAnalysis(path)));
+
+        Assert.Contains(
+            "JS export memory-safety evidence is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Build_AcceptsSafeContractWithInnerUnsafeImplementation()
+    {
+        string path = typeof(FixtureExports).Assembly.Location;
+        ApiSurface apiSurface = ExtractApiSurface(path);
+        ApiType exports = Assert.Single(
+            apiSurface.Types,
+            type => type.Name == nameof(FixtureExports));
+        ApiMember export = Assert.Single(
+            exports.Members,
+            member => member.Name
+                == nameof(FixtureExports.SafeBoundaryWithInnerUnsafe));
+        export.HasRuntimeJsExport = true;
+        exports.Members = [export];
+        apiSurface.Types = [exports];
+
+        Assert.IsType<MemorySafetyMemberContractResult.None>(
+            export.MemorySafety!.CallerContract);
+        Assert.Equal(
+            MemorySafetyPointerEvidence.Absent,
+            export.MemorySafety.SignaturePointer);
+        Assert.Single(JsExportSurfaceBuilder.Build(apiSurface).Functions);
+    }
+
     [Fact]
     public void Build_RejectsDegradedJsExportSignature()
     {
@@ -94,6 +273,17 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Throws<UnsupportedJsExportSurfaceException>(
             () => JsExportSurfaceBuilder.Build(apiSurface));
     }
+
+    static MemorySafetyMemberContractEvidence MemorySafetyEvidence(
+        MemorySafetyPointerEvidence pointer) =>
+        new(
+            0x06000001,
+            null,
+            pointer,
+            MemorySafetyFixedBufferEvidence.NotExamined,
+            RequiresUnsafeAttributeEvidence.NotExamined,
+            RequiresUnsafeAttributeEvidence.NotExamined,
+            AssociatedMemberToken: null);
 
     [Fact]
     public void Build_IgnoresLookalikeJsExportAttribute()
@@ -1987,40 +2177,25 @@ public sealed partial class JsExportSurfaceBuilderTests
             StringComparison.Ordinal);
     }
 
-    /// <summary>
-    /// TypeScript emission describes every <c>long</c> as <c>number</c>, which
-    /// is the wrong type for a JavaScript <c>BigInt</c>. Until descriptor-aware
-    /// TypeScript types exist, an authentic
-    /// <c>[JSMarshalAs&lt;JSType.BigInt&gt;] long</c> export is rejected
-    /// visibly rather than published under a type that misdescribes it.
-    /// </summary>
     [Fact]
-    public void Build_RejectsBigIntMarshaledLongExport()
+    public void Build_PublishesBigIntMarshaledLongExport()
     {
-        UnsupportedJsExportSurfaceException exception =
-            Assert.Throws<UnsupportedJsExportSurfaceException>(
-                () => BuildMarshaledLongSurface(
-                    nameof(BigIntMarshalFixture),
-                    nameof(BigIntMarshalFixture.EchoBigInt)));
+        JsExportFunction function = Assert.Single(
+            BuildMarshaledLongSurface(
+                nameof(BigIntMarshalFixture),
+                nameof(BigIntMarshalFixture.EchoBigInt)).Functions);
 
-        Assert.Contains(
-            "recognized but not supported",
-            exception.Message,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "get_BigInt64",
-            exception.Message,
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "[JSMarshalAs<JSType.Number>]",
-            exception.Message,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            JsExportInt64Marshaling.BigInt,
+            function.ReturnInt64Marshaling);
+        JsExportParameterInt64Marshaling parameter =
+            Assert.Single(function.ParameterInt64Marshalings);
+        Assert.Equal(0, parameter.ParameterIndex);
+        Assert.Equal(
+            JsExportInt64Marshaling.BigInt,
+            parameter.Marshaling);
     }
 
-    /// <summary>
-    /// The close negative for the rejection above: the Int52 descriptor is what
-    /// <c>number</c> does describe, so the same <c>long</c> keeps publishing.
-    /// </summary>
     [Fact]
     public void Build_PublishesNumberMarshaledLongExport()
     {
@@ -2032,5 +2207,77 @@ public sealed partial class JsExportSurfaceBuilderTests
         Assert.Equal(
             nameof(Int52MarshalFixture.EchoInt52),
             function.Name);
+        Assert.Equal(
+            JsExportInt64Marshaling.Number,
+            function.ReturnInt64Marshaling);
+        JsExportParameterInt64Marshaling parameter =
+            Assert.Single(function.ParameterInt64Marshalings);
+        Assert.Equal(0, parameter.ParameterIndex);
+        Assert.Equal(
+            JsExportInt64Marshaling.Number,
+            parameter.Marshaling);
+    }
+
+    [Fact]
+    public void Build_RejectsNestedBigIntMarshaledLongExport()
+    {
+        UnsupportedJsExportSurfaceException exception =
+            Assert.Throws<UnsupportedJsExportSurfaceException>(
+                () => BuildMarshaledLongSurface(
+                    nameof(NestedBigIntMarshalFixture),
+                    nameof(
+                        NestedBigIntMarshalFixture
+                            .EchoBigIntAsync)));
+
+        Assert.Contains(
+            "get_BigInt64",
+            exception.Message,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "nested BigInt descriptor projection is unavailable",
+            exception.Message,
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(
+        nameof(BigIntMarshalFixture),
+        nameof(BigIntMarshalFixture.EchoBigInt),
+        "bigint")]
+    [InlineData(
+        nameof(Int52MarshalFixture),
+        nameof(Int52MarshalFixture.EchoInt52),
+        "number")]
+    public void Emit_UsesAuthenticatedLongMarshaling(
+        string typeName,
+        string exportName,
+        string expectedType)
+    {
+        ILInspector.JsExportSurface.JsExportSurface surface =
+            BuildMarshaledLongSurface(typeName, exportName);
+
+        string dts = DtsEmitter.Emit(surface);
+        string facade = TypeScriptFacadeEmitter.Emit(
+            surface,
+            "./dotnet.js");
+        string functionName = char.ToLowerInvariant(exportName[0])
+            + exportName[1..];
+
+        Assert.Contains(
+            $"export declare function {functionName}(value: {expectedType}): {expectedType};",
+            dts,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"readonly \"{exportName}.",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"\": (value: {expectedType}) => {expectedType};",
+            facade,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            $"export function {functionName}(value: {expectedType}): {expectedType} {{",
+            facade,
+            StringComparison.Ordinal);
     }
 }

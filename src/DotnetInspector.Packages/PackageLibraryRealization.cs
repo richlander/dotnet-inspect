@@ -47,6 +47,41 @@ public sealed class PackageLibrarySelector
 
     public PackageLibrarySelectionKind Kind { get; }
 
+    /// <summary>Resolves this selector against owner-issued compile correspondence.</summary>
+    public IReadOnlyList<PackageCompileAsset> Select(PackageCompileAssetSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        if (!selection.IsSelected)
+            return [];
+        if (Kind is PackageLibrarySelectionKind.AssetId or PackageLibrarySelectionKind.Query)
+        {
+            PackageCompileAsset[] identities = [.. selection.Assets.Where(asset =>
+                asset.Id.Equals(Value, StringComparison.Ordinal))];
+            if (Kind == PackageLibrarySelectionKind.AssetId || identities.Length > 0)
+                return identities;
+        }
+        string path = Kind == PackageLibrarySelectionKind.Query
+            && Value.Contains('/')
+            && !Value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+                ? Value + ".dll"
+                : Value;
+        return [.. selection.Assets.Where(asset =>
+        {
+            PackageCompileAsset? implementation = selection.FindImplementationAsset(asset);
+            return Kind == PackageLibrarySelectionKind.AssetPath || Value.Contains('/')
+                ? asset.Path.Equals(path, StringComparison.OrdinalIgnoreCase)
+                    || implementation?.Path.Equals(path, StringComparison.OrdinalIgnoreCase) == true
+                : NameMatches(asset.AssemblyName, Value)
+                    || implementation is not null && NameMatches(implementation.AssemblyName, Value);
+        })];
+    }
+
+    private static bool NameMatches(string name, string query) =>
+        WithoutDll(name).Equals(WithoutDll(query), StringComparison.OrdinalIgnoreCase);
+
+    private static ReadOnlySpan<char> WithoutDll(string value) =>
+        value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? value.AsSpan(0, value.Length - 4) : value;
+
     internal string ImplementationName
     {
         get
@@ -56,7 +91,7 @@ public sealed class PackageLibrarySelector
                     StringComparison.Ordinal)
                 ? Value["compile:".Length..]
                 : Value;
-            string name = Path.GetFileName(value);
+            string name = PackageEntryPath.GetLeafName(value);
             return name.EndsWith(
                     ".dll",
                     StringComparison.OrdinalIgnoreCase)
@@ -266,7 +301,8 @@ public static class PackageLibraryRealization
             evidenceDemand: PackageHouseEvidenceDemand.None,
             libraryCompanionDemand: request.CompanionDemand,
             contentQuery: null,
-            allowReferenceOnlyImplementationNames: implementation);
+            allowReferenceOnlyImplementationNames: implementation,
+            materializeCompileAssets: false);
 
     private static PackageLibraryRealizationResult Project(
         PackageHouseSettlement settlement,
@@ -308,80 +344,8 @@ public static class PackageLibraryRealization
         PackageHouseRealizationReceipt.Compile realization,
         PackageLibrarySelector selector)
     {
-        PackageHouseLibraryHandoff.Compile[] handoffs =
-        [
-            .. realization.LibraryHandoffs
-                .OfType<PackageHouseLibraryHandoff.Compile>(),
-        ];
-        if (selector.Kind is PackageLibrarySelectionKind.AssetId
-            or PackageLibrarySelectionKind.Query)
-        {
-            PackageHouseLibraryHandoff.Compile[] identityMatches =
-            [
-                .. handoffs.Where(candidate =>
-                    candidate.Asset.Id.Equals(
-                        selector.Value,
-                        StringComparison.Ordinal)),
-            ];
-            if (selector.Kind == PackageLibrarySelectionKind.AssetId
-                || identityMatches.Length > 0)
-            {
-                return [.. identityMatches];
-            }
-        }
-
-        if (selector.Kind == PackageLibrarySelectionKind.AssetPath
-            || selector.Value.Contains('/'))
-        {
-            return
-            [
-                .. handoffs.Where(candidate =>
-                    PathMatches(candidate, selector.Value)),
-            ];
-        }
-
-        return
-        [
-            .. handoffs.Where(candidate =>
-                NameMatches(candidate.Asset.AssemblyName, selector.Value)
-                || candidate.ImplementationAsset is { } implementation
-                    && NameMatches(
-                        implementation.AssemblyName,
-                        selector.Value)),
-        ];
+        IReadOnlyList<PackageCompileAsset> selected = selector.Select(realization.Selection);
+        return [.. realization.LibraryHandoffs.OfType<PackageHouseLibraryHandoff.Compile>()
+            .Where(handoff => selected.Any(asset => asset.Id.Equals(handoff.Asset.Id, StringComparison.Ordinal)))];
     }
-
-    private static bool PathMatches(
-        PackageHouseLibraryHandoff.Compile candidate,
-        string path) =>
-        candidate.Asset.Path.Equals(
-            path,
-            StringComparison.OrdinalIgnoreCase)
-        || candidate.ImplementationAsset?.Path.Equals(
-            path,
-            StringComparison.OrdinalIgnoreCase)
-            is true;
-
-    private static bool NameMatches(string assetName, string query)
-    {
-        if (assetName.Equals(
-            query,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        ReadOnlySpan<char> assetAssemblyName =
-            WithoutDllExtension(assetName);
-        ReadOnlySpan<char> queryAssemblyName =
-            WithoutDllExtension(query);
-        return assetAssemblyName.Equals(
-            queryAssemblyName,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static ReadOnlySpan<char> WithoutDllExtension(string value) =>
-        value.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-            ? value.AsSpan(0, value.Length - ".dll".Length)
-            : value;
 }

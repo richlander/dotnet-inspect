@@ -358,7 +358,8 @@ public static partial class SourceExports
                             destination.NodeId,
                             BrowserSourceWireProjection.Project(
                                 BrowserCallGraphProjection.Target(
-                                    destination.Target,
+                                    AssemblyContextMemberCallGraphQuery
+                                        .ProjectNode(destination.Target),
                                     [participantIdentity],
                                     platformPackForAssembly,
                                     surfaceParticipants)))),
@@ -380,7 +381,8 @@ public static partial class SourceExports
                     BrowserCallGraphTarget target =
                         BrowserSourceWireProjection.Project(
                             BrowserCallGraphProjection.Target(
-                                evidence.Member,
+                                CallGraphMemberNavigationProjection.Project(
+                                    evidence.Member),
                                 participantIdentity,
                                 $"finding-{evidence.FactId}",
                                 surfaceParticipants,
@@ -433,7 +435,8 @@ public static partial class SourceExports
                             relationship.Occurrence.InLoop,
                             BrowserSourceWireProjection.Project(
                                 BrowserCallGraphProjection.Target(
-                                    relationship.Target,
+                                    AssemblyContextMemberCallGraphQuery
+                                        .ProjectNode(relationship.Target),
                                     [participantIdentity],
                                     platformPackForAssembly,
                                     surfaceParticipants)))),
@@ -460,7 +463,8 @@ public static partial class SourceExports
                                 .. finding.Targets.Select(target =>
                                     BrowserSourceWireProjection.Project(
                                         BrowserCallGraphProjection.Target(
-                                            target,
+                                            AssemblyContextMemberCallGraphQuery
+                                                .ProjectNode(target),
                                             [participantIdentity],
                                             platformPackForAssembly,
                                             surfaceParticipants))),
@@ -544,7 +548,8 @@ public static partial class SourceExports
                                     .. path.Targets.Select(target =>
                                         BrowserSourceWireProjection.Project(
                                             BrowserCallGraphProjection.Target(
-                                                target,
+                                                AssemblyContextMemberCallGraphQuery
+                                                    .ProjectNode(target),
                                                 [participantIdentity],
                                                 platformPackForAssembly,
                                                 surfaceParticipants))),

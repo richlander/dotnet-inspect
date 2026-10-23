@@ -3,8 +3,11 @@ using System.IO;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
+using DotnetInspector.Services;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
+using ILInspector.Metadata;
 using Xunit;
 
 namespace runfaster.Tests;
@@ -32,7 +35,7 @@ public class E2EFixtureTests
             RedirectStandardOutput = true,
             RedirectStandardError = true
         });
-        
+
         Assert.NotNull(correlate);
         string output = correlate.StandardOutput.ReadToEnd();
         string error = correlate.StandardError.ReadToEnd();
@@ -146,33 +149,26 @@ public class E2EFixtureTests
                     .CallsSyncSiblingFromAsync),
                 BindingFlags.Public | BindingFlags.Static);
         Assert.NotNull(sourceMethod);
-        LibraryBodyAnalysisExecution analysis =
-            LibraryBodyAnalysisService.ExecutePath(
+        AsyncSiblingProducerResult analysis =
+            ExecuteAsyncSiblings(
                 Path.Combine(
                     AppContext.BaseDirectory,
-                    "runfaster.Tests.dll"),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures
-                        .AsyncSiblingOpportunities));
-        var opportunity = Assert.Single(
-            analysis.Optimization.Opportunities,
-            opportunity =>
-                opportunity.Shape == "sync-call-in-async"
-                && opportunity.Method.MetadataToken
+                    "runfaster.Tests.dll"));
+        AsyncSiblingRow opportunity = Assert.Single(
+            analysis.Rows,
+            row => row.Caller.MetadataToken
                     == sourceMethod.MetadataToken);
-        int evidenceMethodToken = Assert.IsType<int>(
-            opportunity.EvidenceMethodToken);
-        int ilOffset = Assert.IsType<int>(
-            opportunity.ILOffset);
+        int evidenceMethodToken =
+            opportunity.SynchronousCall
+                .EvidenceMethod.MetadataToken;
+        int ilOffset = opportunity.SynchronousCall.ILOffset;
         Assert.NotEqual(
             sourceMethod.MetadataToken,
             evidenceMethodToken);
         Assert.Equal(
             "MoveNext",
-            Assert.Single(
-                analysis.CallGraph.Methods,
-                method => method.MetadataToken
-                    == evidenceMethodToken).Name);
+            opportunity.SynchronousCall
+                .EvidenceMethod.Name);
 
         string triagePath = Path.Combine(
             Path.GetTempPath(),
@@ -180,12 +176,12 @@ public class E2EFixtureTests
         try
         {
             string member =
-                $"{opportunity.Method.DeclaringType.ToQualifiedDisplayString()}"
-                + $".{opportunity.Method.Name}";
+                $"{opportunity.Caller.DeclaringType.ToQualifiedDisplayString()}"
+                + $".{opportunity.Caller.Name}";
             File.WriteAllText(
                 triagePath,
                 $$$"""
-                {"performance":{"async":[{"member":"{{{member}}}","assembly":"{{{opportunity.Method.AssemblyName}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethodToken:X8}}}","shape":"sync-call-in-async","il":"IL_{{{ilOffset:X4}}}"}]}}
+                {"performance":{"async":[{"member":"{{{member}}}","assembly":"{{{opportunity.Caller.AssemblyName}}}","method_token":"0x{{{sourceMethod.MetadataToken:X8}}}","evidence_method":"0x{{{evidenceMethodToken:X8}}}","shape":"sync-call-in-async","il":"IL_{{{ilOffset:X4}}}"}]}}
                 """);
 
             var result = RunCorrelate(
@@ -3533,6 +3529,67 @@ public class E2EFixtureTests
             }
             return result;
         }
+    }
+
+    static AsyncSiblingProducerResult ExecuteAsyncSiblings(
+        string path)
+    {
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(path)
+            {
+                IncludeDepsJsonAssets = false,
+                IncludeAspNetCoreSharedFramework = false,
+                PreferImplementationAssemblies = true,
+            });
+        ResolvedAssemblyReference subject =
+            ResolvedAssemblyReference.CreateFromPath(
+                path,
+                AssemblyResolutionProvenance.Local(
+                    "runfaster test"));
+        using var session = AssemblyInspectionSession.Open(subject);
+        var binding = new AssemblyReferenceBindingAccess(
+            subject,
+            new AssemblyReferenceBindingPolicy(resolver));
+        AsyncSiblingProducer producer = AsyncSiblingProducer.Instance;
+        WorkDescription work = Assert.IsType<
+            ProducerPlanResult.Accepted>(
+                ProducerPlanner.Plan(
+                [
+                    new ProducerRequest(
+                        producer,
+                        ProducerTerminal.Rows),
+                ]))
+            .Description;
+        AssemblyAnalysisOperation<AsyncSiblingProducerResult>
+            operation =
+                AssemblyAnalysisOperation<
+                    AsyncSiblingProducerResult>.Create(
+                        "runfaster-async-sibling-test",
+                        MethodDefinitionSourceRequest<
+                            AsyncSiblingProducerResult>.Create(
+                                work,
+                                producer,
+                                MethodDefinitionSourceBreadth
+                                    .AllDefinitions)
+                            .AsAssemblyAnalysisSource());
+
+        return session.SnapshotOperation(
+            operation,
+            binding,
+            access =>
+            {
+                var completed = Assert.IsType<
+                    AssemblyAnalysisServiceResult<
+                        AsyncSiblingProducerResult>.Completed>(
+                            AssemblyAnalysisService.Instance
+                                .Execute(
+                                    operation,
+                                    access));
+                return Assert.IsType<
+                    AsyncSiblingProducerResult>(
+                        completed.Execution.ResultOf(
+                            producer).Value);
+            });
     }
 
     static AllocationOccurrence GetAllocationOccurrence(

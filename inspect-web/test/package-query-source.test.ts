@@ -3,8 +3,9 @@ import test from "node:test";
 
 import {
   createBrowserPackageQueryDataSource,
-  packageQueryCatalog,
+  packageQueryFacets,
   type BrowserPackageQueryEngine,
+  type PackageQueryFacetData,
 } from "../src/package-query-source.ts";
 import {
   createEcosystemQueryRequest,
@@ -21,7 +22,6 @@ import type {
   BrowserPackageQueryCancellation,
   BrowserPackageQueryCompletion,
   BrowserPackageQueryEvent,
-  BrowserPackageQueryCatalog,
   BrowserPackageQueryMatchCreditResponse,
   BrowserPackageQueryResult,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -1205,107 +1205,91 @@ const toolMatchEvent: BrowserPackageQueryEvent = {
   },
 };
 
-test("packageQueryCatalog preserves product descriptors and producer ordering", () => {
-  const catalog: {
-    presets: Array<
-      BrowserPackageQueryCatalog["presets"][number] & {
-        workspaceLens: "Dependencies" | null;
-      }
-    >;
-    terms: Array<
-      BrowserPackageQueryCatalog["terms"][number] & {
-        workspaceLens: "Dependencies" | null;
-      }
-    >;
-  } = {
-    presets: [
-      {
+test("packageQueryFacets preserves owner-issued presentation and facet ordering", () => {
+  const facet = (
+    overrides: Partial<PackageQueryFacetData["facets"][string]>
+      & Pick<PackageQueryFacetData["facets"][string], "key" | "name" | "summary">,
+  ): PackageQueryFacetData["facets"][string] => ({
+    operators: ["eq"],
+    valueKind: "closed value",
+    examples: [],
+    effects: ["AcquisitionTier: nuspec"],
+    inputRules: [],
+    presentationOrder: 0,
+    controlKind: "choice",
+    presentationKind: "fact",
+    executionClass: "nuspec",
+    selectionGroup: null,
+    combinesWithinSelectionGroup: false,
+    replacementGroup: null,
+    optionSource: null,
+    options: [],
+    relatedOperations: [],
+    ...overrides,
+  });
+  const data: PackageQueryFacetData = {
+    facetOrder: ["dependencies", "readme", "references", "tool-format"],
+    bindings: {
+      browser: {
+        consumerKind: "Browser",
+        exposedFacets: ["dependencies", "readme", "references", "tool-format"],
+      },
+    },
+    facets: {
+      dependencies: facet({
         key: "dependencies",
-        operator: "eq",
-        value: "none",
-        label: "No dependencies",
-        summary: "Packages with no dependency groups.",
-        weight: 20,
-        tier: "Nuspec",
-        executionClass: "Nuspec",
-        selectionGroupId: null,
-        combinesWithinSelectionGroup: false,
-        replacementGroupId: null,
-        displayGroupId: null,
-        displayGroupLabel: null,
-        categoryId: "dependencies",
-        categoryLabel: "Dependencies",
-        categoryOrder: 200,
-        workspaceLens: "Dependencies",
-      },
-      {
+        name: "Dependencies",
+        summary: "Matches package dependencies.",
+        presentationOrder: 20,
+        options: [{
+          value: "none",
+          label: "No dependencies",
+          summary: "Packages with no dependency groups.",
+        }],
+        relatedOperations: ["package.dependencies.inspect"],
+      }),
+      readme: facet({
         key: "readme",
-        operator: "eq",
-        value: "true",
-        label: "Embedded README",
+        name: "Embedded README",
         summary: "Packages that declare an embedded README.",
-        weight: 10,
-        tier: "Nuspec",
-        executionClass: "Nuspec",
-        selectionGroupId: null,
-        combinesWithinSelectionGroup: false,
-        replacementGroupId: null,
-        displayGroupId: null,
-        displayGroupLabel: null,
-        categoryId: "package-metadata",
-        categoryLabel: "Package metadata",
-        categoryOrder: 100,
-        workspaceLens: null,
-      },
-    ],
-    terms: [
-      {
+        presentationOrder: 10,
+        options: [{
+          value: "true",
+          label: "Embedded README",
+          summary: "Packages that declare an embedded README.",
+        }],
+      }),
+      references: facet({
         key: "references",
-        label: "Assembly reference",
+        name: "Assembly reference",
         summary: "Matches an AssemblyRef simple name.",
-        weight: 10,
-        tier: "PackageContent",
-        executionClass: "Metadata",
-        operators: ["eq"],
         valueKind: "assembly simple name",
-        example: "Windows",
-        multiline: false,
-        allowsCustomValue: true,
-        replacementGroupId: null,
-        options: [],
-        workspaceLens: null,
-      },
-      {
+        examples: ["Windows"],
+        effects: ["AcquisitionTier: package-content"],
+        presentationOrder: 10,
+        controlKind: "input",
+        presentationKind: "value-query",
+        executionClass: "metadata",
+      }),
+      "tool-format": facet({
         key: "tool-format",
-        label: "DotnetCliTool",
+        name: "DotnetCliTool",
         summary: "Matches the tool settings format.",
-        weight: 30,
-        tier: "PackageContent",
-        executionClass: "PackageContent",
-        operators: ["eq"],
-        valueKind: "closed value",
-        example: "v2",
-        multiline: false,
-        allowsCustomValue: false,
-        replacementGroupId: "package.query.replacement.dotnet-tool",
+        examples: ["v2"],
+        effects: ["AcquisitionTier: package-content"],
+        presentationOrder: 30,
+        presentationKind: "value-query",
+        executionClass: "package-content",
+        replacementGroup: "package.query.replacement.dotnet-tool",
         options: [
-          {
-            value: "v1",
-            label: "v1",
-            summary: "Portable format.",
-          },
-          {
-            value: "v2",
-            label: "v2",
-            summary: "RID-specific format.",
-          },
+          { value: "v1", label: "v1", summary: "Portable format." },
+          { value: "v2", label: "v2", summary: "RID-specific format." },
         ],
-        workspaceLens: null,
-      },
-    ],
+      }),
+    },
   };
 
-  const projected = packageQueryCatalog(catalog);
+  const projected = packageQueryFacets(data, { productEcosystems: [] });
   assert.deepEqual(projected.presets, [
     {
       id: "dependencies:eq:none",
@@ -1325,7 +1309,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       categoryId: "dependencies",
       categoryLabel: "Dependencies",
       categoryOrder: 200,
-      workspaceLens: "dependencies",
+      relatedOperations: ["package.dependencies.inspect"],
     },
     {
       id: "readme:eq:true",
@@ -1345,7 +1329,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       categoryId: "package-metadata",
       categoryLabel: "Package metadata",
       categoryOrder: 100,
-      workspaceLens: null,
+      relatedOperations: [],
     },
   ]);
   assert.deepEqual(projected.terms, [
@@ -1363,7 +1347,7 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
       allowsCustomValue: true,
       replacementGroupId: null,
       options: [],
-      workspaceLens: null,
+      relatedOperations: [],
     },
     {
       key: "tool-format",
@@ -1390,9 +1374,71 @@ test("packageQueryCatalog preserves product descriptors and producer ordering", 
           summary: "RID-specific format.",
         },
       ],
-      workspaceLens: null,
+      relatedOperations: [],
     },
   ]);
+
+  assert.throws(
+    () => packageQueryFacets({
+      ...data,
+      bindings: {},
+    }, { productEcosystems: [] }),
+    /exactly one Browser binding/);
+  assert.throws(
+    () => packageQueryFacets({
+      ...data,
+      facets: {
+        ...data.facets,
+        readme: {
+          ...data.facets.readme!,
+          presentationKind: "unknown",
+        },
+      },
+    }, { productEcosystems: [] }),
+    /Unsupported package-query presentation kind/);
+
+  const ecosystemData: PackageQueryFacetData = {
+    ...data,
+    facetOrder: [...data.facetOrder, "depends-ecosystem"],
+    bindings: {
+      browser: {
+        ...data.bindings.browser!,
+        exposedFacets: [
+          ...data.bindings.browser!.exposedFacets,
+          "depends-ecosystem",
+        ],
+      },
+    },
+    facets: {
+      ...data.facets,
+      "depends-ecosystem": facet({
+        key: "depends-ecosystem",
+        name: "Depends on ecosystem",
+        summary: "Matches dependencies in a product ecosystem.",
+        presentationOrder: 40,
+        controlKind: "input",
+        presentationKind: "value-query",
+        executionClass: "nuspec",
+        optionSource: "product-ecosystems",
+      }),
+    },
+  };
+  assert.throws(
+    () => packageQueryFacets(ecosystemData, { productEcosystems: null }),
+    /facet 'depends-ecosystem' requires unavailable option source 'product-ecosystems'/);
+  assert.deepEqual(
+    packageQueryFacets(ecosystemData, {
+      productEcosystems: [{
+        id: "ecosystem.aspire",
+        title: "Aspire",
+        summary: "Packages in the Aspire ecosystem.",
+      }],
+    }).terms.find(term => term.key === "depends-ecosystem")?.options,
+    [{
+      value: "ecosystem.aspire",
+      label: "Aspire",
+      summary: "Packages in the Aspire ecosystem.",
+    }]);
 });
 
 test("Browser data source maps package-content rows and visible failures", async () => {

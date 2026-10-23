@@ -18,6 +18,7 @@ internal sealed class LibraryBodyStableReceiverGetterClassifier
     readonly MetadataReader _reader;
     readonly PEReader _peReader;
     readonly Action<MethodDefinitionHandle>? _getterClassified;
+    readonly Action<MethodDefinitionHandle, int>? _getterBodyRead;
     readonly ConcurrentDictionary<
         MethodDefinitionHandle,
         Lazy<bool>> _stableReceiverGetters = new();
@@ -25,11 +26,13 @@ internal sealed class LibraryBodyStableReceiverGetterClassifier
     internal LibraryBodyStableReceiverGetterClassifier(
         MetadataReader reader,
         PEReader peReader,
-        Action<MethodDefinitionHandle>? getterClassified)
+        Action<MethodDefinitionHandle>? getterClassified,
+        Action<MethodDefinitionHandle, int>? getterBodyRead = null)
     {
         _reader = reader;
         _peReader = peReader;
         _getterClassified = getterClassified;
+        _getterBodyRead = getterBodyRead;
     }
 
     internal bool IsStableReceiverGetter(
@@ -84,11 +87,14 @@ internal sealed class LibraryBodyStableReceiverGetterClassifier
         MethodBodyReadResult read = MethodBodySource.Read(
             _peReader,
             MetadataTokens.GetToken(methodHandle));
-        if (read is not MethodBodyReadResult.Available available
-            || available.Body.ExceptionRegionCatalog.HasExceptionRegions)
-        {
+        if (read is not MethodBodyReadResult.Available available)
             return false;
-        }
+        _getterBodyRead?.Invoke(
+            methodHandle,
+            available.Body.IL.Length);
+        if (available.Body.ExceptionRegionCatalog.HasExceptionRegions)
+            return false;
+
         DecodedInstruction? first = null;
         DecodedInstruction? fieldLoad = null;
         DecodedInstruction? third = null;

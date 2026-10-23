@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Packages;
@@ -115,6 +116,12 @@ public enum PackageVersionMajorRepresentativePolicy
 
     /// <summary>Select the highest admitted version in each major.</summary>
     Latest,
+
+    /// <summary>
+    /// Select the highest admitted stable version in each major, falling back
+    /// to the highest admitted prerelease when that major has no stable version.
+    /// </summary>
+    LatestStable,
 }
 
 /// <summary>
@@ -299,11 +306,8 @@ public sealed class PackageVersionVector
                 return parsed;
             })
             .ToArray();
-        var versions = parsedVersions
-            .Where((version, index) => !parsedVersions
-                .Take(index)
-                .Any(previous => VersionComparer.Equals(previous, version)))
-            .ToArray();
+        var seen = new HashSet<NuGetVersion>(VersionComparer);
+        var versions = parsedVersions.Where(seen.Add).ToArray();
 
         if (policy == PackageVersionPopulationPolicy.ExactEndpoints)
         {
@@ -345,6 +349,41 @@ public sealed class PackageVersionVector
             .ToImmutableArray();
 
         return new PackageVersionVector(range.PackageId, range.Start, range.End, addresses);
+    }
+
+    /// <summary>
+    /// The normalized range text, Start..End, for a caller that presents the
+    /// vector without depending on NuGet versioning. It is a method, not a
+    /// property, so serialized vectors are unchanged.
+    /// </summary>
+    public string FormatRange() =>
+        $"{Start.ToNormalizedString()}..{End.ToNormalizedString()}";
+
+    /// <summary>
+    /// Creates an ascending vector from versions its caller already admitted,
+    /// deduplicated, and ordered, such as a version window's population.
+    /// </summary>
+    internal static PackageVersionVector CreateOrdered(
+        string packageId,
+        ReadOnlySpan<NuGetVersion> ascending)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        if (ascending.IsEmpty)
+            throw new ArgumentException("An ordered vector requires a version.", nameof(ascending));
+
+        var addresses = ImmutableArray.CreateBuilder<PackageVersionAddress>(ascending.Length);
+        for (int position = 0; position < ascending.Length; position++)
+        {
+            Debug.Assert(position == 0
+                || VersionComparer.Compare(ascending[position - 1], ascending[position]) < 0);
+            addresses.Add(new PackageVersionAddress(position, ascending[position]));
+        }
+
+        return new PackageVersionVector(
+            packageId,
+            ascending[0],
+            ascending[^1],
+            addresses.MoveToImmutable());
     }
 
     /// <summary>
@@ -413,6 +452,16 @@ public sealed class PackageVersionVector
                                 .FirstOrDefault(),
                         PackageVersionMajorRepresentativePolicy.Latest =>
                             group.OrderByDescending(
+                                    address => address.Version,
+                                    SortComparer)
+                                .FirstOrDefault(),
+                        PackageVersionMajorRepresentativePolicy.LatestStable =>
+                            stable.OrderByDescending(
+                                    address => address.Version,
+                                    SortComparer)
+                                .FirstOrDefault()
+                            ?? group
+                                .OrderByDescending(
                                     address => address.Version,
                                     SortComparer)
                                 .FirstOrDefault(),

@@ -46,6 +46,7 @@ internal sealed record MethodBodyAnalysisResult(
     IReadOnlyDictionary<(string Namespace, string Name), bool> InAssemblyTypeIsException,
     IReadOnlySet<int> NonHeapNewObjOperandTokens,
     IReadOnlyDictionary<int, MethodIdentity> DeclaredSources,
+    IReadOnlySet<int> DeclaredSourceSuppressedMethodTokens,
     ImmutableArray<MethodLocalThrowEvidence> LocalThrows);
 
 internal sealed record FailedMethodBodyAnalysis(
@@ -58,8 +59,7 @@ internal sealed record SafetyAnalysisResult(
     MemorySafetyRulesResult Rules,
     UnsafeModeBreakdown Modes,
     IReadOnlyDictionary<int, ImmutableArray<UnsafetyOccurrence>> Occurrences,
-    ImmutableArray<UnsafeMemberUse> MemberUses,
-    UnsafeMemberCensus? MemberCensus = null);
+    ImmutableArray<UnsafeMemberUse> MemberUses);
 
 internal sealed record AllocationAnalysisResult(
     IReadOnlyDictionary<int, ImmutableArray<AllocationOccurrence>> Occurrences);

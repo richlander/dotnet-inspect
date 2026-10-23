@@ -1,0 +1,1 @@
+{"path":"member","facts":{"name":"Member","members":"26"},"relationships":["catalog-category-entry","catalog-section-entry","navigation"],"links":["catalog-category-entry","catalog-section-entry","navigation","self"]}

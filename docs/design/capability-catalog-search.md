@@ -14,21 +14,27 @@ Spotlight interaction, production `library-literal` witness, and shipped router
 workflow are implemented. Portable Browser Share and reusable-reference facade
 dispatch remain follow-up work.
 
+The [structural catalog population](#structural-catalog-population) for
+[#10068](https://github.com/richlander/dotnet-inspect/issues/10068) is
+implemented for the CLI, which admits its six explained structural catalogs.
+
 ## Owner and exact claim
 
 **Capability Catalog Search** owns this exact claim:
 
-> Given one non-empty bounded search text and one settled composed
-> available-capability graph, project a bounded set of canonical search terms
-> from each available resource, rank matching resources with the repository's
-> existing string-similarity model, and return one deterministic bounded
-> Document that preserves each result's exact resource path, owning route, and
-> available production bindings without acquisition or producer execution.
+> Given one non-empty bounded search text and one settled search population,
+> the composed available-capability graph together with the structural
+> catalogs the host explains under one root and binds to a production
+> section-selection gesture, project a bounded set of canonical search terms from each available
+> resource, rank matching resources with the repository's existing
+> string-similarity model, and return one deterministic bounded Document that
+> preserves each result's exact resource path, owning route, and available
+> production bindings without acquisition or producer execution.
 
 This owner defines:
 
 - the host-neutral search request and result Document;
-- which composed owner-issued fields participate in search;
+- which composed and structural owner-issued fields participate in search;
 - canonical term segmentation and comparison normalization;
 - similarity threshold, score aggregation, tie-breaking, and result bounds;
 - visible match provenance and complete-empty meaning;
@@ -130,6 +136,8 @@ capability from UI labels.
 | Owner | Contract consumed by catalog search |
 | --- | --- |
 | [Inspection Capability Composition](inspection-capability-composition.md) | The deterministic available-capability graph, owner-issued resource facts, routes, and production bindings |
+| [Section model](section-model.md) | Section and category identity, names, and section descriptions |
+| [Structural view registry](../../src/DotnetInspect.Cli/Planning/StructuralViewRegistry.cs) | The registered structural routes and the catalog each one projects |
 | [Resource Explanation](resource-explanation.md) | Canonical product-resource paths and exact-path explanation |
 | [`StringDistance`](../../src/ILInspector.MetadataPrimitives/StringDistance.cs) | Levenshtein edit distance and normalized similarity |
 | [Inspection Envelope](inspection-envelope.md) | Completed host-neutral Content, Share, and diagnostics |
@@ -197,7 +205,7 @@ above a capability identity or short task phrase.
 
 `MaximumResults` defaults to 20 and is admitted from 1 through 100. It is a
 semantic retrieval bound: the operation still evaluates the complete
-available-capability population, reports the total match count, and returns
+search population, reports the total match count, and returns
 the highest-ranked prefix. A host may map its ordinary row-limit gesture to
 this value, but it may not clip a larger hidden result and describe the
 remaining population as unknown.
@@ -208,15 +216,24 @@ plans, and pagination are outside this contract.
 
 ## Search population
 
-The input population is the settled **available-capability** projection from
-Inspection Capability Composition. A resource is searchable only when the
-composed graph proves that it is reachable from an executable registered
-route and at least one production consumer binding.
+The search population has two explicit families:
+
+1. the **capability family**, the settled available-capability projection
+   from Inspection Capability Composition; and
+2. the **structural family**, the host's admitted
+   [structural catalogs](#structural-catalog-population).
+
+A capability-family resource is searchable only when the composed graph
+proves that it is reachable from an executable registered route and at least
+one production consumer binding. A structural-family resource is searchable
+only when its catalog meets the admission rule of the structural catalog
+population. No resource is searchable by any other path.
 
 This excludes:
 
 - proposed or partially registered resources with no production binding;
-- legacy paths that do not participate in the modern composed graph;
+- command-local paths that neither participate in the composed graph nor
+  belong to an admitted structural catalog;
 - adoption-gap records used for engineering census;
 - parser commands and options that are not owner-issued product resources;
 - CLR types, source-code symbol names, and reflection-discovered values; and
@@ -225,6 +242,106 @@ This excludes:
 The complete composed graph may separately expose adoption gaps to engineering
 tools. User-facing catalog search does not mix unavailable plans into a result
 that promises a next production gesture.
+
+### Structural catalog population
+
+Structural sections and categories are not composed capability resources.
+Inspection Capability Composition keeps command-local section catalogs
+outside the graph rather than wrapping them, and the composed graph has no
+route whose Content is a Library section. Those resources are nonetheless
+installed, explainable by exact path, and selectable through a production
+command, and an agent that starts from task text cannot reach them without
+search. Search therefore admits a second explicit population family: the
+structural catalogs the host already explains.
+
+A host supplies one structural population entry per explained structural
+catalog:
+
+```text
+CapabilityCatalogSearchStructuralCatalog
+  Document            structural Discovery projection
+  Paths               structural resource path registrations
+  Route               identity, name, and catalog root ResourcePath
+  Bindings            one or more of:
+    Binding           identity, name, consumer kind, and gesture
+    Resources         the Sections and Categories the binding selects
+```
+
+A structural catalog is projected across every registered view that selects
+its sections. A section stays in the projection when at least one of those
+views can supply its inputs, so the catalog explains each section once
+whichever command selects it.
+
+Each entry is admissible only when all four hold:
+
+1. its Document and Paths are the Discovery projection and path registrations
+   of one structural catalog across its registered views, the same inputs
+   the host creates that catalog's structural Resource Explanation catalog
+   from for exact explanation;
+2. its Route is that registered catalog, and its ResourcePath is the
+   catalog root path that Resource Explanation issues for that catalog;
+3. each Binding is the production gesture of one of those views that selects
+   a section or category of that catalog by its owner-issued name, and its
+   Resources are the Sections that view selects on its own and the
+   Categories that contain one; and
+4. every admitted Section and Category has at least one Binding, and no
+   Binding names a resource the entry does not admit.
+
+The host owns the Route and Binding values and spells the Binding gesture
+from its own command grammar, for example `library -S` in the CLI. Search
+does not compose a command line from the gesture and a resource name. The
+result keeps the gesture and the resource name as separate values, and a host
+may lower them together into a copyable command.
+
+Search reads the Document and Paths directly and does not create or combine
+the structural Resource Explanation catalogs. Those catalogs hold every item
+and navigation collection and validate every snapshot against its schema.
+In a NativeAOT CLI, a search that created and combined all six took 75 ms;
+reading the projections takes 41 ms, against 32 ms with no structural
+population. Because the entry and the exact
+catalog share their inputs, a search path is the path exact explanation
+resolves. That equivalence, and that every explained catalog is admitted, are
+host wiring invariants with host tests, not checks repeated on every search.
+
+From each admitted catalog, search takes the Section and Category resources.
+Structural items, item collections, navigation collections, and the catalog
+root are excluded. Items are column and field declarations of a section's
+schema slice, not independently selectable capabilities, and roots and
+collections are reached by exact path. A Section or Category is searchable
+even when its producer finds no rows for a given subject, because search
+describes installed capability, not subject applicability.
+
+A host admits only the structural catalogs whose exact paths it resolves
+under one root. The CLI admits the six structural catalogs its combined
+`explain` catalog resolves:
+
+<!-- markdownlint-disable MD013 -->
+
+| Catalog root | Structural view | Binding gesture |
+| --- | --- | --- |
+| `library` | `DirectLibrary` | `library -S` |
+| `library` | `LibraryAddress` | `library address -S` |
+| `package` | `Package` | `package -S` |
+| `type` | `Type` | `type -S` |
+| `member` | `MemberType` | `member -S` |
+| `member-overload` | `MemberTarget` | `member -S` |
+| `member-detail` | `MemberTarget` | `member -S` |
+
+<!-- markdownlint-enable MD013 -->
+
+The two Library views project one `library` catalog. The `LibraryAddress`
+view requires a section that consumes its coordinate and selects the rest of
+its schema only alongside one, so its binding covers the coordinate-scoped
+`Context:` sections, `Metadata: Heap`, and the `@Context` and `@Metadata`
+categories that contain them. Every other Library section and category
+carries only the `library -S` binding, and `@Metadata` carries both.
+
+A search over both families evaluates the complete union.
+`CandidateResourceCount` counts every admitted capability and structural
+resource, and the same ranking applies to both. A host that adds a structural
+catalog to search and omits it from exact explanation, or the reverse, breaks
+a host wiring invariant; the host's wiring test fails rather than the host
+shipping a partial population.
 
 ## Canonical search-term projection
 
@@ -241,6 +358,30 @@ Each searchable resource projects terms from the following composed fields:
 The search adapter selects these fields explicitly for each adopted descriptor
 family. It does not use reflection, property enumeration, serializer metadata,
 display-object inspection, or rendered text.
+
+For a structural Section or Category, the projected fields are:
+
+1. its owner-issued name, the exact name that selects it, as its owner
+   identity;
+2. its canonical Resource Explanation path;
+3. its owner-issued name as its resource name;
+4. for a Section, the Summary of its [section
+   description](section-model.md#description) when one is declared; and
+5. the identity and name of its admitted Route and Binding.
+
+A structural resource has no canonical key or example value. A Section
+description's Basis, Empty, and Boundary parts, its schema columns, and its
+cardinality and shape do not participate: they describe how to read a
+section's evidence, not which capability it is. An undeclared description
+contributes no Summary term; search does not substitute the section name or
+any other text.
+
+This projection does not change [Search input](#search-input). The whole
+search text is still compared with each term, so the single words `metrics`,
+`unsafe`, `leverage`, and `families` reach the sections that own them, while
+a phrase such as `unsafe code` scores below the threshold against the term
+`unsafe`. Segmenting the search text is a separate ranking change, not part
+of this population.
 
 Each selected field contributes:
 
@@ -342,6 +483,7 @@ CapabilityCatalogSearchResult
   MatchSource
   IsSegment
   ResourceIdentity
+  StructuralIdentity
   ResourceKind
   ResourceName
   CanonicalKeys[]
@@ -350,14 +492,34 @@ CapabilityCatalogSearchResult
   ProductionBindings[]
 ```
 
-`CandidateResourceCount` is the complete available-capability population
+`CandidateResourceCount` is the complete search population
 evaluated by this request. `MatchCount` is the number at or above the
 threshold before `MaximumResults`. `ReturnedCount` is the result-array length,
 and `IsTruncated` is true exactly when `MatchCount > ReturnedCount`.
 
+Exactly one of `ResourceIdentity` and `StructuralIdentity` is present.
+A capability-family result carries its composed
+`InspectionCapabilityResourceIdentity`. A structural result carries its
+catalog name and its typed Discovery resource identity, with `ResourceKind`
+`Section` or `Category`. A structural result has one owning route, the Route
+its host admitted, and the admitted Bindings whose Resources contain it, in
+admission order. Their `ResourcePath` values are the catalog root path. No
+structural resource is represented by a fabricated capability identity.
+
 `CanonicalKeys` retains owner-issued keys applicable to the resource, including
-`library-literal` for the production witness. Each route and
-production-binding reference retains its typed composed identity. The CLI may
+`library-literal` for the production witness. It is empty for a structural
+result.
+
+This changes the serialized result shape. Plain Content JSON and `--envelope`
+serialize `resource_identity` as `null` for a structural result and
+`structural_identity` as `null` for a capability-family result. A host that
+admits no structural catalog, as the Browser does today, emits only
+capability-family results, whose existing serialized fields are unchanged.
+The Browser wire projection carries no structural identity until the Browser
+admits structural catalogs; until then it rejects a structural result
+visibly rather than projecting it without its identity. Each
+capability-family route and production-binding reference retains its typed
+composed identity. The CLI may
 render a copyable discovery or execution gesture from a CLI binding; the
 Browser may render a navigation action from a Browser binding. Those
 projections do not become search-owned free-form command text.
@@ -391,6 +553,21 @@ CapabilityCatalogSearch.Search(
   CapabilityCatalogSearchRequest request)
   -> InspectionEnvelope<CapabilityCatalogSearchDocument>
 ```
+
+A host that admits structural catalogs passes them with the same request:
+
+```text
+CapabilityCatalogSearch.Search(
+  InspectionCapabilityCatalog catalog,
+  ResourceExplanationCatalog explanationCatalog,
+  IEnumerable<CapabilityCatalogSearchStructuralCatalog> structuralCatalogs,
+  CapabilityCatalogSearchRequest request)
+  -> InspectionEnvelope<CapabilityCatalogSearchDocument>
+```
+
+`explanationCatalog` resolves the capability family's paths; the structural
+family's paths come from its entries. The three-argument form searches an
+empty structural population.
 
 The operation is synchronous because it consumes a settled in-memory catalog
 and performs no I/O. Ordinary inspection execution continues to call typed
@@ -450,9 +627,13 @@ Selecting or copying a returned path is the explicit transition to exact
 explanation.
 
 The handoff gate must prove that every returned path resolves to the same
-typed resource identity represented by the search row. A dangling path, a
-path that resolves to another identity, or a result synthesized without an
-explainable resource prevents catalog construction or operation completion.
+typed resource identity represented by the search row. For the capability
+family, a dangling path, a path that resolves to another identity, or a result
+synthesized without an explainable resource prevents catalog construction or
+operation completion. For the structural family, the gate is the host's wiring
+test, because search reads the same inputs the host creates its exact
+structural catalog from (see
+[Structural catalog population](#structural-catalog-population)).
 
 ## Explain facade and Browser adoption
 
@@ -556,6 +737,10 @@ Request validation rejects:
 Catalog construction failure remains a typed operation failure. Search does
 not skip malformed resources, duplicate identities, missing paths, dangling
 routes, or invalid production bindings and then claim a complete population.
+The same rule covers a structural entry whose Route path is not its catalog
+root, two entries for the same catalog, a Section or Category with no path
+registration or more than one, a registration with no Discovery resource, and
+a path outside its catalog root.
 
 Cancellation is not required for the first synchronous bounded operation. If
 later catalog scale requires cancellation, the operation must distinguish
@@ -572,7 +757,8 @@ publish a partially ranked prefix as complete.
 | `literal` discovers the `library-literal` query facet through its canonical key segment | Implemented: host-neutral search test over the composed Package Query capability graph |
 | A close misspelling uses the existing similarity model | Implemented: search test asserting `litteral` ranks `library-literal` with the `StringDistance` score |
 | Search terms use owner-issued fields rather than adapter-authored explanation prose | Implemented: bounded-result regression proving generic Query Space and consumer-binding summaries do not participate |
-| A host searches every capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
+| A host searches every composed capability family it exposes for exact explanation and production use | Implemented: CLI regression discovering both Package Query and Package File Inventory from one composed search graph |
+| A host searches every structural catalog it explains | Implemented: a CLI wiring test proves every Section and Category of the complete `explain` catalog is admitted, and a CLI facade theory finds a result under each of the six roots |
 | Ranking is independent of registration order | Implemented: permutation test over equivalent composed catalogs |
 | Equal scores use provenance, complete-versus-segment, and path tie-breakers | Implemented: focused ordering tests over production and bounded synthetic capability graphs |
 | Search evaluates the complete available population before applying the result bound | Implemented: result-count and truncation test |
@@ -587,6 +773,12 @@ publish a partially ranked prefix as complete.
 | Equal requests over the same catalog generation produce equal Content, Share, and diagnostics | Guaranteed by the single host-neutral operation; a cross-host shared-generation harness remains pending |
 | The real agent path reaches the production literal query | Implemented: CLI end-to-end test using `literal`, exact explanation, and `Microsoft.Azure.SignalR@1.33.1` at `net8.0` |
 | Capability search has an available portable Browser Share | Pending: the first adoption reports `InspectionShare.NonProjectable` explicitly |
+| `metrics`, `unsafe`, `leverage`, and `families` reach the Library sections that own them | Implemented: CLI facade theory that also follows each returned path through exact explanation |
+| A structural section's Summary participates and its Basis, Empty, Boundary, and columns do not | Implemented: host-neutral term-provenance tests |
+| Every structural result path resolves to the same Discovery resource in the exact-explanation catalog | Implemented: a CLI wiring test resolves every admitted path in the complete `explain` catalog to its Section or Category type, a host-neutral test resolves every candidate in the structural catalog created from the same inputs, and host-neutral rejection tests cover the entry checks |
+| The structural population covers every Section and Category of each admitted catalog and no item, root, or collection | Implemented: host-neutral candidate-count test over a catalog with a column item |
+| A structural result carries only the Bindings whose view selects it on its own, and an entry with an unbound resource or a binding over an unadmitted one is rejected | Implemented: host-neutral binding-scope and rejection tests, and CLI theories that find `Context: Member` and `Metadata: Heap` under `library` with only the `library address -S` binding |
+| Structural search acquires nothing and runs no producer | Implemented: the CLI acquisition seam test runs a structural match |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -613,6 +805,11 @@ implementation; this adoption adds no new matching algorithm.
 5. Replace detailed capability inventory in the shipped router skill with the
    search, explain, discover, and execute workflow after both production hosts
    are available. **Complete.**
+6. Admit the CLI's explained structural catalogs, Library first, as the
+   structural catalog population with their section-selection bindings
+   ([#10068](https://github.com/richlander/dotnet-inspect/issues/10068)).
+   **Complete for the CLI.** The Browser admits structural catalogs when its
+   structural explanation consumer lands.
 
 Each slice lands with its own production consumer. A search implementation
 over a synthetic test-only registry does not complete this design.

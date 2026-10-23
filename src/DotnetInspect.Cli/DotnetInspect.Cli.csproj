@@ -81,6 +81,8 @@
     <EmbeddedResource Include="../../skills/performance/SKILL.md" LogicalName="dotnet-inspect.skills.performance.md" />
     <EmbeddedResource Include="../../skills/relationships/SKILL.md" LogicalName="dotnet-inspect.skills.relationships.md" />
     <EmbeddedResource Include="../../skills/project-analysis/SKILL.md" LogicalName="dotnet-inspect.skills.project-analysis.md" />
+    <EmbeddedResource Include="../DotnetInspector.Ecosystems/FindIndexes/aspire.json" LogicalName="dotnet-inspect.find-index.aspire.json" />
+    <EmbeddedResource Include="../DotnetInspector.Ecosystems/FindIndexes/microsoft-extensions.json" LogicalName="dotnet-inspect.find-index.microsoft-extensions.json" />
   </ItemGroup>
 
   <ItemGroup>
@@ -107,6 +109,7 @@
     <ProjectReference Include="..\ILInspector.SourceLink\ILInspector.SourceLink.csproj" />
     <ProjectReference Include="..\Inspector.Text\Inspector.Text.csproj" />
     <ProjectReference Include="..\DotnetInspector.Ecosystems\DotnetInspector.Ecosystems.csproj" />
+    <ProjectReference Include="..\DotnetInspector.Diff\DotnetInspector.Diff.csproj" />
     <ProjectReference Include="..\DotnetInspector.PackageQueries\DotnetInspector.PackageQueries.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.PlatformHouse.Local\DotnetInspector.PlatformHouse.Local.csproj" />

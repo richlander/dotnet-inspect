@@ -12,14 +12,18 @@ public static class ResourceExplanationCommandDefinitions
     {
         var command = new Command(
             ResourceExplanationCommand.Name,
-            "Explain an exact product resource or search installed capabilities");
-        var operandArgument = new Argument<string>("resource-or-search")
+            "Explain an exact product resource or search installed capabilities; "
+            + "with no operand, list the subject kinds, operations, and "
+            + "references to start from");
+        var operandArgument = new Argument<string?>("resource-or-search")
         {
             Description =
                 "Exact product-resource path, such as "
                 + "library/sections/reference-hierarchy or "
                 + "package-query/query/facets/library-literal; otherwise "
-                + "bounded capability-search text such as literal",
+                + "bounded capability-search text such as literal. Omit it "
+                + "to explain the root",
+            Arity = ArgumentArity.ZeroOrOne,
         };
         var projectionArgument = new Argument<string?>("projection")
         {
@@ -39,6 +43,12 @@ public static class ResourceExplanationCommandDefinitions
             DefaultValueFactory = static _ => 0,
         };
         var outputPathOption = SharedOptions.CreateOutputPathOption();
+        var valuesOption = new Option<string?>("-Q")
+        {
+            Description = "Narrow vocabulary .data/.hal to exact native value IDs (comma/semicolon-separated; bare: all)",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        valuesOption.Aliases.Add("--query-help");
 
         depthOption.Validators.Add(result =>
         {
@@ -56,21 +66,47 @@ public static class ResourceExplanationCommandDefinitions
         opts.AddEnvelopeOptionTo(command);
         command.Options.Add(opts.Limit);
         command.Options.Add(outputPathOption);
+        command.Options.Add(valuesOption);
         SharedOptions.AddOutputPathValidator(command, outputPathOption);
 
         command.SetAction(parseResult =>
-            ResourceExplanationCommand.Execute(
-                parseResult.GetValue(operandArgument)!,
+        {
+            // A lone projection token selects that projection of the root,
+            // as in "explain .contract --json".
+            string? operand = parseResult.GetValue(operandArgument);
+            string? projection = parseResult.GetValue(projectionArgument);
+            if (projection is null
+                && operand is ".contract" or ".data" or ".hal")
+            {
+                projection = operand;
+                operand = null;
+            }
+            string[]? valueIds = SharedOptions.ParseProjectionList(parseResult, valuesOption);
+            if (parseResult.GetValue(valuesOption) is not null && valueIds is not { Length: > 0 })
+            {
+                CommandError.Write("-Q requires at least one exact vocabulary value identity when a value is supplied.");
+                return 1;
+            }
+            return ResourceExplanationCommand.Execute(
+                operand,
                 parseResult.GetValue(depthOption),
                 parseResult.GetResult(depthOption) is { Implicit: false },
                 parseResult.GetValue(opts.Limit),
-                opts.ResolveFormat(parseResult),
+                // Bare explain is the agent's starting point, so its default
+                // reading is the routing table as TSV.
+                opts.ResolveFormat(
+                    parseResult,
+                    operand is null
+                        && projection is null
+                        ? OutputFormat.Tsv
+                        : OutputFormat.Markdown),
                 parseResult.GetValue(opts.Envelope),
                 parseResult.GetValue(opts.NoHeaders),
                 parseResult.GetValue(outputPathOption),
-                parseResult.GetValue(projectionArgument) == ".contract",
-                parseResult.GetValue(projectionArgument) is ".data" or ".hal"
-                    ? parseResult.GetValue(projectionArgument) : null));
+                projection == ".contract",
+                projection is ".data" or ".hal" ? projection : null,
+                valueIds);
+        });
         return command;
     }
 }

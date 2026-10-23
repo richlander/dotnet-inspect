@@ -7,6 +7,7 @@ using SemanticRowSelection =
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
@@ -728,6 +729,25 @@ public partial class PackageCommand
             return null;
         }
 
+        PackageInfoInventoryAttempt inventoryAttempt =
+            await TryInspectPackageInfoInventoryAsync(
+                    target,
+                    options,
+                    producerOptions,
+                    context,
+                    pipeline,
+                    packageInfoTargetContext,
+                    wantsFilesSection,
+                    hasSourceQueries:
+                        !sourceQueryPlan.SectionPlan.Queries.IsEmpty)
+                .ConfigureAwait(false);
+        if (inventoryAttempt.Handled)
+        {
+            if (inventoryAttempt.Result is { } inventoryResult)
+                FilterResultForOutput(inventoryResult, options);
+            return inventoryAttempt.Result;
+        }
+
         try
         {
             PackageExtractionOutcome outcome;
@@ -746,7 +766,11 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            packageInfoTargetContext)
+                            packageInfoTargetContext,
+                        assetSelection:
+                            PackageInfoAssetSelection(
+                                options,
+                                packageInfoTargetContext))
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         context.HttpClient,
                         target.PackageName,
@@ -757,7 +781,11 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            packageInfoTargetContext);
+                            packageInfoTargetContext,
+                        assetSelection:
+                            PackageInfoAssetSelection(
+                                options,
+                                packageInfoTargetContext));
             }
             else
             {
@@ -1463,6 +1491,352 @@ public partial class PackageCommand
             pipeline);
     }
 
+    private static async ValueTask<int?>
+        TryExecutePackageInfoInventoryAsync(
+            PackageReferenceTarget target,
+            InspectionOptions options,
+            InspectionOptions producerOptions,
+            CommandContext context,
+            SectionPipeline<InspectionResult> pipeline,
+            PackageHouseTargetContext? targetContext)
+    {
+        if (!CanRenderPackageInfoInventory(options))
+            return null;
+
+        PackageInfoInventoryAttempt attempt =
+            await TryInspectPackageInfoInventoryAsync(
+                    target,
+                    options,
+                    producerOptions,
+                    context,
+                    pipeline,
+                    targetContext,
+                    wantsFilesSection: false,
+                    hasSourceQueries: false)
+                .ConfigureAwait(false);
+        if (!attempt.Handled)
+            return null;
+        if (attempt.Result is not { } result)
+            return 1;
+
+        FilterResultForOutput(result, options);
+        WarnEmptySections(result, options, pipeline);
+        if (ProjectionAudit.RejectUnloweredJson(
+                options,
+                options.JsonOutput))
+        {
+            return 1;
+        }
+
+        string output =
+            OutputFormatter.FormatResult(
+                result,
+                options,
+                pipeline);
+        bool writesFile =
+            !string.IsNullOrEmpty(options.OutputPath);
+        OutputDestination.Write(
+            options.OutputPath,
+            options.Rows,
+            writer =>
+            {
+                writer.Write(output);
+                if (!writesFile)
+                    writer.WriteLine();
+            });
+        return PackageIntegrityExitCode(result);
+    }
+
+    private static async Task<PackageInfoInventoryAttempt>
+        TryInspectPackageInfoInventoryAsync(
+            PackageReferenceTarget target,
+            InspectionOptions options,
+            InspectionOptions producerOptions,
+            CommandContext context,
+            SectionPipeline<InspectionResult> pipeline,
+            PackageHouseTargetContext? targetContext,
+            bool wantsFilesSection,
+            bool hasSourceQueries)
+    {
+        if (!CanUsePackageInfoInventory(
+                target,
+                options,
+                producerOptions,
+                pipeline,
+                targetContext,
+                wantsFilesSection,
+                hasSourceQueries))
+        {
+            return PackageInfoInventoryAttempt.NotHandled;
+        }
+
+        await using DesktopPackageSourceComposition composition =
+            context.CreatePackageSourceComposition();
+        using var stores = new SearchPackageStores();
+        bool isPinned =
+            PackageExtractor.TryNormalizePackageVersion(
+                target.Version,
+                out string pinnedVersion);
+        ConfiguredPackagePayloadResult acquisition;
+        if (isPinned)
+        {
+            acquisition =
+                await composition
+                    .AcquirePinnedCompileInspectionAsync(
+                        target.PackageName,
+                        pinnedVersion,
+                        targetContext!,
+                        stores.GetStore,
+                        options.SourceOptions,
+                        context.Logger.Log)
+                    .ConfigureAwait(false);
+        }
+        else
+        {
+            acquisition =
+                await composition
+                    .AcquireSelectedCompileInspectionAsync(
+                        target.PackageName,
+                        target.Version.Length > 0
+                            ? target.Version
+                            : null,
+                        targetContext!,
+                        stores.GetStore,
+                        options.SourceOptions,
+                        context.Logger.Log,
+                        options.IncludePrerelease)
+                    .ConfigureAwait(false);
+        }
+        if (acquisition.HouseSettlement
+                is not PackageHouseSettlement.Acquired settlement)
+        {
+            WritePackageInfoAcquisitionFailure(
+                target.PackageName,
+                isPinned
+                    ? pinnedVersion
+                    : target.Version,
+                acquisition,
+                isPinned,
+                context.Logger.Log);
+            return PackageInfoInventoryAttempt.Failed;
+        }
+
+        IReadOnlyList<PackageContentEntry> entries =
+            settlement.Result.Evidence.FileList?.Entries
+            ?? [];
+        if (MayRequireLegacyToolWrapperHandling(
+                settlement.Payload.Content.EnumerateEntries())
+            || entries.Any(static entry =>
+                RequiresLegacyPackageInfoToolContent(entry.Path)))
+        {
+            context.Logger.Log(
+                $"{target.PackageName}@{settlement.Payload.Coordinate.Version} "
+                + "contains tool metadata requiring complete-content analysis; "
+                + "inspecting Package Info "
+                + "through the complete package path.");
+            return PackageInfoInventoryAttempt.NotHandled;
+        }
+
+        bool wantsEcosystemDependencies =
+            RequestsPackageEcosystemDependencies(
+                producerOptions,
+                pipeline);
+        NuspecData? nuspec =
+            ReadCompileInventoryNuspec(
+                settlement.Payload.Content,
+                wantsEcosystemDependencies);
+        if (nuspec?.IsToolPackage == true)
+            return PackageInfoInventoryAttempt.NotHandled;
+
+        InspectionResult result =
+            PackageInspector.InspectPackageInventory(
+                settlement,
+                nuspec);
+        ApplyPackageInfoMeasurementInspection(
+            result,
+            PackageInfoMeasurementInspection.Project(
+                settlement),
+            context.Logger.Log);
+        if (wantsEcosystemDependencies)
+        {
+            InspectionEnvelope<
+                EcosystemDependencyRecognitionOutcome>
+                ecosystemInspection =
+                await PackageEcosystemDependencyRecognitionInspection
+                    .ExecuteAsync(settlement)
+                    .ConfigureAwait(false);
+            ApplyPackageEcosystemDependencies(
+                result,
+                ecosystemInspection,
+                RequiresPackageEcosystemDiagnosticDisclosure(
+                    producerOptions),
+                context.Logger.Log);
+        }
+
+        result.Source = SourceKind.NuGet;
+        return new(
+            Handled: true,
+            result);
+    }
+
+    private static bool CanUsePackageInfoInventory(
+        PackageReferenceTarget target,
+        InspectionOptions options,
+        InspectionOptions producerOptions,
+        SectionPipeline<InspectionResult> pipeline,
+        PackageHouseTargetContext? targetContext,
+        bool wantsFilesSection,
+        bool hasSourceQueries)
+    {
+        if (target.IsLocalFile
+            || DotnetInspector.Networking.HttpClientFactory.IsOffline
+            || options.JsonOutput
+            || targetContext is null
+            || producerOptions.Discover is not null
+            || producerOptions.IncludeSections is not { Count: 1 } sections
+            || !sections.Contains(PackageSections.PackageInfo)
+            || wantsFilesSection
+            || options.ShowContent
+            || options.AllLibraries
+            || options.PackageLibrary is not null
+            || RequiresIdentifierMetadata(
+                producerOptions,
+                pipeline)
+            || RequiresPackageMetadata(
+                producerOptions,
+                pipeline)
+            || RequestsRidPackageAvailability(
+                producerOptions,
+                target.IsLocalFile,
+                pipeline)
+            || ShouldPopulatePackageContentAudit(
+                producerOptions,
+                pipeline)
+            || ShouldPopulatePackageSourceFiles(
+                producerOptions)
+            || hasSourceQueries)
+        {
+            return false;
+        }
+
+        bool wantsSignals =
+            RequestsSelectedOrDiscoveredSection(
+                producerOptions,
+                PackageSections.Signals,
+                pipeline);
+        return !ShouldVerifyPackageSignature(
+            options,
+            wantsSignals);
+    }
+
+    private static bool CanRenderPackageInfoInventory(
+        InspectionOptions options) =>
+        options.Discover is null
+        && !options.Count
+        && !options.Value
+        && !options.Urls
+        && !options.Paths
+        && !options.Roots
+        && !options.Print
+        && !options.Raw
+        && !options.Tree
+        && !options.Tabular
+        && options.Fields is null
+        && options.Columns is null
+        && options.Rows is null
+        && options.PackageTfmRowSelection is null
+        && options.EcosystemDependencyRowSelection is null;
+
+    private static bool RequiresLegacyPackageInfoToolContent(
+        string path) =>
+        PackageEntryPath.IsToolSettingsPath(path)
+        || path.StartsWith(
+                "tools/",
+                StringComparison.OrdinalIgnoreCase)
+            && path.EndsWith(
+                ".deps.json",
+                StringComparison.OrdinalIgnoreCase);
+
+    private static NuspecData? ReadCompileInventoryNuspec(
+        IPackageContent content,
+        bool ecosystemRecognitionRequested)
+    {
+        string? manifestPath =
+            PackageManifestContent.FindRootManifest(content);
+        if (manifestPath is null
+            || !content.TryOpenEntry(
+                manifestPath,
+                PackageManifestFactsProjection.MaxManifestBytes,
+                out Stream? manifest))
+        {
+            return null;
+        }
+
+        using (manifest)
+        {
+            try
+            {
+                return NuspecParser.Parse(
+                    manifest,
+                    PackageManifestFactsProjection
+                        .MaxManifestCharacters);
+            }
+            catch (NuspecParseException) when (
+                ecosystemRecognitionRequested)
+            {
+                return null;
+            }
+        }
+    }
+
+    private static void WritePackageInfoAcquisitionFailure(
+        string packageId,
+        string versionSelector,
+        ConfiguredPackagePayloadResult acquisition,
+        bool isPinned,
+        Action<string>? log)
+    {
+        foreach (PackageAuthorityFailure failure
+            in acquisition.Failures)
+        {
+            log?.Invoke(
+                $"{failure.Authority}: {failure.Message}");
+        }
+        IReadOnlyList<string> stageReasons =
+            acquisition.HouseSettlement is { } settlement
+                ? [
+                    .. settlement.Result.Evidence.Failures
+                        .OfType<PackageHouseFailure.Stage>()
+                        .Select(failure =>
+                            failure.Reason.ToString()),
+                ]
+                : [];
+        foreach (string reason in stageReasons)
+            log?.Invoke(reason);
+
+        string request = isPinned
+            ? $"Package '{packageId}' version '{versionSelector}'"
+            : $"Package '{packageId}' selection '"
+                + $"{(string.IsNullOrEmpty(versionSelector) ? "latest" : versionSelector)}'";
+        string noMatch = isPinned
+            ? "No eligible source supplied this exact coordinate."
+            : "No eligible reporting source supplied a matching payload.";
+        IEnumerable<string> reasons =
+            acquisition.Failures.Select(
+                    failure =>
+                        $"{failure.Authority}: {failure.Message}")
+                .Concat(stageReasons);
+        string detail = acquisition.Failures.Count == 0
+            ? string.Join(
+                Environment.NewLine,
+                [noMatch, .. stageReasons])
+            : string.Join(
+                Environment.NewLine,
+                reasons);
+        CommandError.Write(
+            $"{request} could not be acquired. {detail}");
+    }
+
     private static void WritePackageFileAcquisitionFailure(
         string packageId,
         string versionSelector,
@@ -1484,12 +1858,24 @@ public partial class PackageCommand
                 "No eligible configured source supplied the selected package archive.");
         }
 
-        string requested = string.IsNullOrEmpty(versionSelector)
-            ? packageId
-            : $"{packageId}@{versionSelector}";
+        string requested =
+            string.IsNullOrEmpty(versionSelector)
+                ? packageId
+                : $"{packageId}@{versionSelector}";
         CommandError.Write(
             $"Package '{requested}' could not be acquired for file inventory.",
             details.ToArray());
+    }
+
+    private readonly record struct PackageInfoInventoryAttempt(
+        bool Handled,
+        InspectionResult? Result)
+    {
+        internal static PackageInfoInventoryAttempt NotHandled =>
+            new(false, null);
+
+        internal static PackageInfoInventoryAttempt Failed =>
+            new(true, null);
     }
 
     private static int WritePackageFileInventoryResult(
@@ -1891,7 +2277,7 @@ public partial class PackageCommand
     /// which is the outcome this command exists to prevent.
     /// </summary>
     private static bool NamesAKind(string path)
-        => Path.GetFileName(path.AsSpan()).Contains('.');
+        => PackageEntryPath.GetLeafName(path).Contains('.');
 
     private static PackageFileContent ReadPackageFileContent(
         string extractPath,

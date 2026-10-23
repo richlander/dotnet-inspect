@@ -15,7 +15,7 @@ namespace DotnetInspect.Web.Tests;
 /// suite failing. These are PR-fast catalog and projection gates with no acquisition.
 /// </summary>
 [SupportedOSPlatform("browser")]
-public sealed class BrowserVocabularyCompositionTests
+public sealed partial class BrowserVocabularyCompositionTests
 {
     [Fact]
     public void BrowserCompositionMatchesTheProductVocabularyPin()
@@ -44,6 +44,7 @@ public sealed class BrowserVocabularyCompositionTests
                 "csharp.style-tiers",
                 "csharp.style-choices",
                 "csharp.body-kinds",
+                "package-query.durable-row",
             ],
             inspection.Content.Vocabularies.Select(vocabulary => vocabulary.Identity.Value));
         var share = Assert.IsType<BrowserVocabularyNonProjectableShare>(inspection.Share);
@@ -94,7 +95,7 @@ public sealed class BrowserVocabularyCompositionTests
         BrowserVocabularyExplanationResult? result = JsonSerializer.Deserialize(
             CatalogExports.ExplainVocabularies(
                 "vocabularies/csharp.style-tiers/values/spelling",
-                0),
+                0, null),
             BrowserCatalogJsonContext.Default.BrowserVocabularyExplanationResult);
 
         Assert.NotNull(result);
@@ -144,19 +145,19 @@ public sealed class BrowserVocabularyCompositionTests
             .SelectData(new ResourcePath(path));
         Assert.True(JsonElement.DeepEquals(dataset.ToJson(
             static path => "inspect-resource:/" + path.Value, hal: projection == "hal",
-            bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal",
-            bindContractAddress: static path => "inspect-resource:/" + path.Value + "?projection=contract"),
+            bindHalAddress: static path => "inspect-resource:/" + path.Value + "?projection=hal"),
             result.Explanation!.Content));
         if (projection == "hal")
         {
-            Assert.Equal("Complete", result.Explanation.Content.GetProperty("data_scope")
+            Assert.Equal("Complete", result.Explanation.Content.GetProperty("scope")
                 .GetProperty("completeness").GetString());
-            Assert.NotEmpty(result.Explanation.Content.GetProperty("_embedded").GetProperty("values").EnumerateArray());
+            Assert.NotEmpty(result.Explanation.Content.GetProperty("_embedded").GetProperty("vocabularies")[0]
+                .GetProperty("_embedded").GetProperty("values").EnumerateArray());
         }
         else
         {
             JsonElement choices = result.Explanation.Content.GetProperty("vocabularies").GetProperty("csharp.style-choices");
-            Assert.NotEmpty(choices.GetProperty("values").EnumerateArray());
+            Assert.NotEmpty(choices.GetProperty("values").EnumerateObject());
             Assert.True(choices.TryGetProperty("property_sets", out _));
         }
     }
@@ -167,13 +168,13 @@ public sealed class BrowserVocabularyCompositionTests
         var result = CatalogExports.ExplainVocabulariesCore(
             "inspect-resource:/vocabularies/csharp.style-choices?projection=hal", 0);
         string[] links = Hrefs(result.Explanation!.Content).Distinct().ToArray();
-        Assert.True(links.Length > 10);
+        Assert.Single(links);
         foreach (string href in links)
         {
             var followed = CatalogExports.ExplainVocabulariesCore(href, 0);
             Assert.Equal(BrowserVocabularyExplanationOutcome.Explained, followed.Outcome);
             if (href.EndsWith("?projection=hal", StringComparison.Ordinal))
-                Assert.True(followed.Explanation!.Content.TryGetProperty("data_scope", out _));
+                Assert.True(followed.Explanation!.Content.TryGetProperty("scope", out _));
             if (href.EndsWith("?projection=contract", StringComparison.Ordinal))
                 Assert.True(followed.Explanation!.Content.TryGetProperty("schemas", out _));
         }
