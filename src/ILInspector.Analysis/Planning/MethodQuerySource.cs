@@ -1184,7 +1184,8 @@ public sealed record MethodDefinitionGeneratedExpansionOrigin(
     MethodDefinitionGeneratedExpansionOriginKind Kind,
     MethodDefinitionGeneratedBodyRoles Role =
         MethodDefinitionGeneratedBodyRoles.Execution,
-    bool DeclaredOwnerSuppressesOpportunities = false);
+    bool DeclaredOwnerSuppressesOpportunities = false,
+    bool IsAsyncStateMachine = false);
 
 /// <summary>
 /// Exact generated breadth-discovery work and the declared-source outcome of

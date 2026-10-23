@@ -845,7 +845,11 @@ terminal breadth:
   TypeDef, attribute, and enclosing-relationship reads; and
 - exact local-allocation exception classification follows the operand's
   TypeDef or TypeSpec definition and its bounded base chain rather than
-  constructing a module-wide type-name index.
+  constructing a module-wide type-name index. An exact `System.Exception`
+  anchor is positive, exact `System.Object`, `System.ValueType`, and
+  `System.Enum` anchors are negative, and any other external or generic base is
+  unknown so the consuming signal policy can apply the constructed type's own
+  name heuristic.
 
 Those reads are supporting probes, not terminal methods. They do not add
 MethodDefs to the producer's visited population or bodies to its terminal body
@@ -1354,8 +1358,11 @@ Migration is incremental:
     settled all-definition declared-source relation. That relation
     admits only the inferred lifted-owner methods of a top-level
     compiler-generated type while excluding its unrelated methods and nested
-    generated implementation types; the Call Graph sink maps lifted and async
-    execution bodies while retaining sync iterator identity.
+    generated implementation types. Its origin preserves whether an
+    authenticated state-machine body is classic async or async-iterator rather
+    than sync iterator; the Call Graph sink maps lifted and async execution
+    bodies while retaining sync iterator identity, without re-inferring the
+    lowering from the declared return type.
     `AssemblyContextCallGraphAnalysis` consumes the resulting focused
     operation and no longer executes `LibraryBodyAnalysisService`.
 14. Move remaining producers and delete each superseded legacy scan and index

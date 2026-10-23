@@ -904,9 +904,18 @@ internal sealed class LibraryBodyPrimaryMetadataResolver
                     _reader,
                     (TypeReferenceHandle)baseHandle,
                     0);
-            return baseType.Name.EndsWith(
-                "Exception",
-                StringComparison.Ordinal);
+            if (baseType.Namespace == "System"
+                && baseType.Name == "Exception")
+            {
+                return true;
+            }
+            if (baseType.Namespace == "System"
+                && baseType.Name
+                    is "Object" or "ValueType" or "Enum")
+            {
+                return false;
+            }
+            return null;
         }
         return false;
     }

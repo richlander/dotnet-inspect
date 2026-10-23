@@ -205,10 +205,7 @@ public sealed class LibraryCallGraphProducer :
                 && (generated.Origin.Kind
                         == MethodDefinitionGeneratedExpansionOriginKind
                             .LiftedExecutionBody
-                    || LibraryBodyAsyncSiblingSignatureMatcher
-                        .IsAsyncReturnType(declaredOwner.ReturnType)
-                    || declaredOwner.ReturnType.Equals(
-                        TypeRef.CoreLib("System", "Void"))))
+                    || generated.Origin.IsAsyncStateMachine))
             {
                 owner = declaredOwner;
                 ownerSuppressesOpportunities =

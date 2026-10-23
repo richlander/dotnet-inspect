@@ -1,3 +1,4 @@
+using ILInspector.Analysis.ClassicAsyncFixtures;
 using ILInspector.Analysis.Planning;
 
 namespace ILInspector.Analysis.Tests;
@@ -103,6 +104,22 @@ public sealed partial class MethodDefinitionRequestSetTests
                             method.MetadataToken),
                     method.ToString());
             }
+
+            MethodIdentity localFaultFactory =
+                Assert.Single(
+                    actual.Methods,
+                    static method =>
+                        method.DeclaringType.Name
+                            == nameof(CallGraphExceptionFixture)
+                        && method.Name
+                            == nameof(
+                                CallGraphExceptionFixture
+                                    .ConstructUnsuffixedLocalException));
+            Assert.DoesNotContain(
+                nameof(CallGraphLocalFault),
+                actual.MethodSignals[
+                        localFaultFactory.MetadataToken]
+                    .ExceptionTypes);
         }
         finally
         {
@@ -155,4 +172,93 @@ public sealed partial class MethodDefinitionRequestSetTests
                             method =>
                                 method.MetadataToken == token)));
     }
+
+    [Fact]
+    public void LibraryCallGraphProducer_UsesSourceOwnedStateMachineKind()
+    {
+        string path =
+            typeof(ClassicAsyncSiblingFixture).Assembly.Location;
+        MethodDefinitionSourceAssociation association =
+            Association(
+                LibraryCallGraphProducer.Instance,
+                ProducerTerminal.Rows,
+                MethodDefinitionSourceBreadth
+                    .AllDefinitions
+                    .IncludeGeneratedExecutionBodies());
+        MethodDefinitionSourceRequestSetExecution execution =
+            ExecuteAt(AcceptedPlan([association]), path);
+        LibraryCallGraphProducerResult produced =
+            Assert.IsType<LibraryCallGraphProducerResult>(
+                ResultOf<LibraryCallGraphProducerResult>(
+                    execution,
+                    association).Value);
+        MethodDefinitionSourceRequestResult sourceResult =
+            execution.ResultOf(association);
+        LibraryCallGraphAnalysisResult graph =
+            LibraryCallGraphAnalysisResult.FromProducer(
+                path,
+                produced,
+                sourceResult.SourceReceipt,
+                sourceResult.WorkReceipt);
+        try
+        {
+            MethodIdentity customTaskOwner =
+                Assert.Single(
+                    graph.DeclaredMethods,
+                    static method =>
+                        method.DeclaringType.Name
+                            == nameof(ClassicAsyncSiblingFixture)
+                        && method.Name
+                            == nameof(
+                                ClassicAsyncSiblingFixture
+                                    .UsesCustomAsyncBuilder));
+            DirectCall customTaskCompletion =
+                Assert.Single(
+                    graph.DirectCalls,
+                    call =>
+                        call.Caller == customTaskOwner
+                        && call.Callee.Name == "SetResult");
+            Assert.NotEqual(
+                customTaskCompletion.Caller,
+                customTaskCompletion.EvidenceMethod);
+
+            MethodIdentity iteratorOwner =
+                Assert.Single(
+                    graph.DeclaredMethods,
+                    static method =>
+                        method.DeclaringType.Name
+                            == nameof(ClassicAsyncSiblingFixture)
+                        && method.Name
+                            == "ScopedIteratorAsyncLocalAllocationOwner");
+            DirectCall iteratorCall =
+                Assert.Single(
+                    graph.DirectCalls,
+                    call =>
+                        call.Callee.Name.Contains(
+                            "BuildAsync",
+                            StringComparison.Ordinal)
+                        && call.EvidenceMethod.Name == "MoveNext"
+                        && call.EvidenceMethod.DeclaringType.Name
+                            .Contains(
+                                iteratorOwner.Name,
+                                StringComparison.Ordinal));
+            Assert.Equal(
+                iteratorCall.EvidenceMethod,
+                iteratorCall.Caller);
+            Assert.NotEqual(iteratorOwner, iteratorCall.Caller);
+        }
+        finally
+        {
+            graph.ReleaseCaches();
+        }
+    }
+}
+
+public sealed class CallGraphLocalFault
+    : InvalidOperationException;
+
+public static class CallGraphExceptionFixture
+{
+    public static object ConstructUnsuffixedLocalException() =>
+        new CallGraphLocalFault();
 }

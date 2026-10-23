@@ -336,7 +336,8 @@ internal sealed class DeclaredSourceResolver(
                         sourceMethod,
                         work,
                         out MethodDefinitionHandle executionMethod,
-                        out TypeDefinitionHandle stateMachineType))
+                        out TypeDefinitionHandle stateMachineType,
+                        out bool isAsyncStateMachine))
                 {
                     work.RecordCandidateDefinition(executionMethod);
                     work.RecordRelationshipNode(executionMethod);
@@ -353,6 +354,8 @@ internal sealed class DeclaredSourceResolver(
                         stateMachineOwner,
                         MethodDefinitionGeneratedExpansionOriginKind
                             .StateMachineExecutionBody,
+                        isAsyncStateMachine:
+                            isAsyncStateMachine,
                         suppressesOpportunities:
                             suppressesOpportunities);
                     if (helperRoles != MethodDefinitionGeneratedBodyRoles.None
@@ -375,7 +378,10 @@ internal sealed class DeclaredSourceResolver(
                                         MethodDefinitionGeneratedExpansionOriginKind
                                             .StateMachineExecutionBody,
                                         role,
-                                        suppressesOpportunities));
+                                        DeclaredOwnerSuppressesOpportunities:
+                                            suppressesOpportunities,
+                                        IsAsyncStateMachine:
+                                            isAsyncStateMachine));
                                 continue;
                             }
                             AddGenerated(
@@ -384,6 +390,8 @@ internal sealed class DeclaredSourceResolver(
                                 MethodDefinitionGeneratedExpansionOriginKind
                                     .StateMachineExecutionBody,
                                 role,
+                                isAsyncStateMachine:
+                                    isAsyncStateMachine,
                                 suppressesOpportunities);
                         }
                     }
@@ -498,6 +506,7 @@ internal sealed class DeclaredSourceResolver(
             MethodDefinitionGeneratedExpansionOriginKind kind,
             MethodDefinitionGeneratedBodyRoles role =
                 MethodDefinitionGeneratedBodyRoles.Execution,
+            bool isAsyncStateMachine = false,
             bool suppressesOpportunities = false)
         {
             var origin =
@@ -506,7 +515,8 @@ internal sealed class DeclaredSourceResolver(
                     owner,
                     kind,
                     role,
-                    suppressesOpportunities);
+                    suppressesOpportunities,
+                    isAsyncStateMachine);
             work.RecordGeneratedMethod(origin);
             int token = MetadataTokens.GetToken(method);
             attributed.Add(token);
