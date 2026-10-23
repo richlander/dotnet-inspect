@@ -186,7 +186,7 @@ inside the protocol try).
 | Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
 | Hoisted parameter | a machine field the kickoff stores one parameter into; Roslyn names it after that parameter, but the kickoff store is the binding | that parameter |
 | Housekeeping clear | `field = null` or `default` for a hoisted field where the store is provably the compiler's and provably dead: inside the completion catch or tail; a store to a compiler temporary (`<>7__wrapN`, `<>s__N`), which no source statement can name, from which no read of that field is reachable before another store to it; or the second of two adjacent clears of one field with no effect between them (the user's `x = null` at a scope end followed by Roslyn's own). A compiler-temporary store that a read can reach is state, not a clear: the await-in-`catch`/`finally` lowering resets its pending-branch selector and pending-exception holder at every loop iteration, and those stores are carried | removed |
-| Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back and, for a hoisted `foreach` iteration or `using` variable, blocks that statement's raise rather than producing an illegal store; a later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
+| Scope-end clear | Roslyn's `<name>5__N = null` or `default` at the exit of the local's declaring block, outside the forms above; a user's own `x = null` has the same physical form, and the block extent lives only in the PDB's hoisted-local scope record | carried as `x = null;`, which costs one redundant store at compile-back. For a hoisted `using` variable the carried store makes `UsingStatementPass` keep the try/finally form, which is valid. For a hoisted `foreach` iteration variable the carried store must make `ForeachStatementPass` keep the enumerator form; today that pass checks only the enumerator local and would raise a `foreach` whose variable is assigned (CS1656 at Full), so [#10577](https://github.com/richlander/dotnet-inspect/issues/10577) is a stage 2 prerequisite. A later slice may read the PDB scope record, or bind the raised `foreach`/`using` variable that C# forbids a user store to, to remove the compiler's form |
 
 Class-constrained generic awaiters (the boxed awaiter form), `async void`,
 `ValueTask`, and custom builders are the same roles with different member
@@ -276,8 +276,9 @@ retire. Nothing in this slice adds a cross-layer reference.
    code after it, for the clears), a compiler-produced negative with a user's
    mid-block `x = null` before an await that must stay in the output, a
    compiler-produced negative with an await in a `catch` and in a `finally`
-   inside a loop whose selector resets must stay, the smallest accepted
-   boundary, a still-flat negative
+   inside a loop whose selector resets must stay, a compiler-produced async
+   `foreach` over a reference-type iteration variable (valid only once #10577
+   lands), the smallest accepted boundary, a still-flat negative
    per proof obligation, the five real witnesses pinned, and the four
    unraised classic async fixtures in the pinned classic corpus measured
    (`Async_AwaitInCatchAndFinally`, `Async_InstanceGeneric`,
