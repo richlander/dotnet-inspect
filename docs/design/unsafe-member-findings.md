@@ -407,11 +407,16 @@ The scan decides a body only when all of these hold:
   indirect load or store.
 - Every call, `callvirt`, `newobj`, `ldftn`, and `ldvirtftn` operand resolves
   as the full rule resolves it, and cannot be an explicit-contract call. The
-  callee resolves through the declared Calls support. The target resolves
-  through call-target support only when the operand may reach the current
+  callee resolves through the declared Calls support. An operand whose
+  method is a MethodDef of this module binds by token: its target is that
+  MethodDef, or unresolved when a call-site check fails, and target
+  resolution reads only what the callee decode read plus the signature blob
+  and the caller's scope. The scan reads the blob and checks the caller's
+  scope instead of resolving the target. Any other operand resolves its
+  target through call-target support only when it may reach the current
   module: its definition is a MethodDef here, or its declaring type may
-  resolve here. Any other operand's target is external or runtime-provided
-  after the same callee decode, so its resolution cannot fail differently.
+  resolve here. Otherwise its target is external or runtime-provided after
+  the same callee decode, so its resolution cannot fail differently.
 
 A call operand can be an explicit-contract call in two cases:
 
@@ -426,12 +431,16 @@ explicit same-image target, so its current-module targets need no contract
 read.
 
 Call-operand facts are keyed by the operand token, the caller's type and
-method generic arities, and whether the operand is called or loaded. Those
-are all the inputs that operand resolution and its failures depend on, so one
-fact serves every caller with the same key. A caller-scope check can only
-leave a target unresolved, which makes the scan more conservative and never
-less. The facts belong to the execution: memory-safety contract support
-constructs them at first use.
+method generic arities, and whether the operand is called or loaded. Apart
+from the caller's scope, those are all the inputs that operand resolution and
+its failures depend on, so one fact serves every caller with the same key.
+The caller's scope is checked per body instead: the reads that call-target
+support performs for any call in the body, which are the declaring type's
+decoded definition and generic parameter names, memoized per type, and the
+method's own generic parameter names. A caller-scope check can only leave a
+target unresolved, which makes the scan more conservative and never less.
+The facts belong to the execution: memory-safety contract support constructs
+them at first use.
 
 The scan never decides a body that the full rule would fail. A decode,
 resolution, or contract failure leaves the body on the full rule, which
@@ -445,6 +454,10 @@ same evidence. `analysis-harness --unsafe-role-scan-agreement <corpus list>`
 runs the same check over any corpus. Over the 313 assemblies of the
 Microsoft.NETCore.App and Microsoft.AspNetCore.App 11.0 rc.1 shared
 frameworks, it decides 176,431 of 188,240 bodies with no disagreement.
+`RoleScanDecisionsAgreeWithTheFullRuleOverMutatedMetadata` (`Speed=Slow`)
+holds the same agreement over 1,500 single-byte mutations each of the
+#Strings, #Blob, and table streams of three fixtures; it rejects a scan that
+skips callee resolution for loaded operands.
 
 ## Non-claims
 

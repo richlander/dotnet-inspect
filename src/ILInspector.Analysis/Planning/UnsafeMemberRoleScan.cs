@@ -34,6 +34,8 @@ internal static class UnsafeMemberRoleScan
                 return true;
 
             UnsafeMemberRoleScanFacts facts = view.GetUnsafeMemberRoleScanFacts();
+            if (!facts.CallerScopeReads(view.MethodDefinition))
+                return false;
             var scope = new CallerArity(
                 view.TypeDefinition.GetGenericParameters().Count,
                 view.MethodDefinition.GetGenericParameters().Count);
@@ -123,6 +125,7 @@ internal readonly record struct CallerArity(int TypeArity, int MethodArity);
 internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
 {
     readonly Dictionary<(int Token, CallerArity Scope, bool Loads), bool> _defers = [];
+    readonly Dictionary<TypeDefinitionHandle, bool> _callerTypes = [];
     bool? _namesContractAttribute;
     SameImageSignatureComparer? _comparer;
 
@@ -179,6 +182,13 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
         EntityHandle method = handle.Kind == HandleKind.MethodSpecification
             ? reader.GetMethodSpecification((MethodSpecificationHandle)handle).Method
             : handle;
+        if (method.Kind == HandleKind.MethodDefinition
+            && MetadataTokens.GetRowNumber(method) is > 0 and int row
+            && row <= reader.MethodDefinitions.Count)
+        {
+            return DefinitionDefers(view, (MethodDefinitionHandle)method, callee, loads);
+        }
+
         EntityHandle definition = MetadataTokens.EntityHandle(
             MemberResolver.DefinitionToken(reader, MetadataTokens.GetToken(method)));
         _comparer ??= new SameImageSignatureComparer(
@@ -221,6 +231,75 @@ internal sealed class UnsafeMemberRoleScanFacts(MetadataReader reader)
         // this caller while another caller with the same key resolves it.
         return definition.Kind != HandleKind.MethodDefinition
             || MayBeExplicit(view, definition);
+    }
+
+    // A call whose method is a MethodDef of this module binds by token. Its
+    // target resolution reads the callee's declaring type, generic parameters,
+    // and signature header, which the callee decode already read, plus the
+    // signature blob and the caller's scope, which CallerScopeReads checks per
+    // body. Its target is that MethodDef, or unresolved when a call-site check
+    // fails, so the fact needs no target resolution.
+    bool DefinitionDefers(
+        scoped MethodDefinitionView view,
+        MethodDefinitionHandle method,
+        MemberRef callee,
+        bool loads)
+    {
+        try
+        {
+            reader.GetBlobReader(reader.GetMethodDefinition(method).Signature);
+        }
+        catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
+        {
+            return true;
+        }
+
+        if (loads)
+            return false;
+        if (PlatformCallerUnsafeContracts.Embedded.Contains(callee))
+            return true;
+        _namesContractAttribute ??= NamesContractAttribute(reader);
+        return _namesContractAttribute == true && MayBeExplicit(view, method);
+    }
+
+    /// <summary>
+    /// Whether the caller-scope reads that target resolution performs for any
+    /// call in <paramref name="caller"/>'s body succeed: its declaring type's
+    /// decoded definition and generic parameter names, and its own generic
+    /// parameter names.
+    /// </summary>
+    public bool CallerScopeReads(MethodDefinition caller)
+    {
+        try
+        {
+            TypeDefinitionHandle type = caller.GetDeclaringType();
+            if (!_callerTypes.TryGetValue(type, out bool reads))
+            {
+                try
+                {
+                    MemberResolver.GenericParameterNames(
+                        reader,
+                        reader.GetTypeDefinition(type).GetGenericParameters());
+                    TypeRefDecoder.Instance.GetTypeFromDefinition(reader, type, 0);
+                    reads = true;
+                }
+                catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
+                {
+                    reads = false;
+                }
+                _callerTypes[type] = reads;
+            }
+            if (!reads)
+                return false;
+            GenericParameterHandleCollection parameters = caller.GetGenericParameters();
+            if (parameters.Count != 0)
+                MemberResolver.GenericParameterNames(reader, parameters);
+            return true;
+        }
+        catch (Exception ex) when (AnalysisMethodFailures.IsRecoverable(ex))
+        {
+            return false;
+        }
     }
 
     static bool MayBeExplicit(
