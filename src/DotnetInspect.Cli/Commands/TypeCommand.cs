@@ -56,6 +56,13 @@ public static partial class TypeCommand
                 ExactLibraryApiInspectionJsonContext.Default
                     .ExactLibraryApiInspectionResult);
 
+    private static readonly InspectionEnvelopeJsonContract<
+        AnnotatedTypeRelationsDocument> AnnotatedTypeRelationsJsonContract =
+            new(
+                "annotated-type-relations",
+                1,
+                AnnotatedTypeRelationsJson.Write);
+
     public static Task<int> ExecuteAsync(TypeOptions options)
         => ExecuteAsync(
             options,
@@ -379,7 +386,8 @@ public static partial class TypeCommand
                     cancellationToken)).ConfigureAwait(false);
         }
 
-        if (options.EnvelopeOutput)
+        if (options.EnvelopeOutput
+            && !AnnotatedTypeRelationsCliExecutor.IsSelected(options))
         {
             CommandError.Write(
                 "--envelope on type requires exact package-backed Type or Library API inspection, or --match.");
@@ -429,6 +437,41 @@ public static partial class TypeCommand
         bool inspectionIncomplete = false;
         try
         {
+            if (AnnotatedTypeRelationsCliExecutor.IsSelected(options))
+            {
+                (
+                    AnnotatedTypeRelationsCliExecution? execution,
+                    string? relationsError) =
+                        await AnnotatedTypeRelationsCliExecutor.ExecuteAsync(
+                                options,
+                                source,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                if (relationsError is not null)
+                {
+                    CommandError.Write(relationsError);
+                    return 1;
+                }
+
+                if (execution is null)
+                {
+                    throw new InvalidOperationException(
+                        "Annotated Type Relations execution completed without "
+                            + "a result or an error.");
+                }
+
+                if (options.Count)
+                    ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+
+                return InspectionEnvelopeOutput.TryWrite(
+                        execution.Inspection,
+                        AnnotatedTypeRelationsJsonContract,
+                        options.EnvelopeOutput,
+                        options.CompactJson)
+                    ? 0
+                    : 1;
+            }
+
             if (exactTypeOverview is { Format: var hierarchyFormat })
             {
                 int? hierarchyExitCode =
@@ -1043,6 +1086,7 @@ public static partial class TypeCommand
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
             || options.WorkspacePacket is not null
+            || AnnotatedTypeRelationsCliExecutor.IsSelected(options)
             || string.IsNullOrWhiteSpace(options.Tfm)
             || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(options.TypeName)

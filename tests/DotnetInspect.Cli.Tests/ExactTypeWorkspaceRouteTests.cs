@@ -982,6 +982,14 @@ public sealed class ExactTypeWorkspaceRouteTests
                 options with
                 {
                     JsonOutput = true,
+                    AnnotatedRelationIds = ["all"],
+                },
+                out _));
+        Assert.False(
+            TypeCommand.TryCreateSharedExactTypeRequest(
+                options with
+                {
+                    JsonOutput = true,
                     RequestAllTaste = true,
                 },
                 out _));
