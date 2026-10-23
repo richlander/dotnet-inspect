@@ -10,9 +10,13 @@
 
 ## Status and decision
 
-Design. Tracking:
-[#5276](https://github.com/richlander/dotnet-inspect/issues/5276), advancing
-[#4472](https://github.com/richlander/dotnet-inspect/issues/4472).
+Implemented recipes under
+[#5276](https://github.com/richlander/dotnet-inspect/issues/5276); the
+[general inverse](#general-inverse) that replaces them is designed under
+[#4472](https://github.com/richlander/dotnet-inspect/issues/4472) for
+[#10190](https://github.com/richlander/dotnet-inspect/issues/10190) slice 2
+and is not yet implemented. The recipe sections below remain the contract of
+the shipped recipes until the staged retirement in that section removes them.
 
 The focused composition clarification is tracked in
 [#6178](https://github.com/richlander/dotnet-inspect/issues/6178). It changes
@@ -77,6 +81,159 @@ The core does **not** own or claim:
 - general CFG, CLR exception-flow, or behavioral-equivalence soundness;
 - runtime-async or iterator reconstruction; or
 - a new accepted classic recipe family.
+
+## General inverse
+
+Decision (2026-10-23, [#4472](https://github.com/richlander/dotnet-inspect/issues/4472)
+for [#10190](https://github.com/richlander/dotnet-inspect/issues/10190)
+slice 2): the recipe index is replaced by one general inverse. The inverse
+recognizes the Roslyn classic lowering protocol by its physical roles in the
+raw `MoveNext` import, removes those roles, splices the continuations into
+one sequential body, rebinds machine storage to the kickoff's parameters,
+`this`, and fresh locals, and hands that body to the ordinary pass pipeline.
+The existing structurer forms the user's control flow; no shape of user code
+is matched. The authenticated request boundary, the visible `DEC0004`
+decline, and the exactly-once completion proof are unchanged invariants. The
+pattern is the one `ReducibleIteratorReconstruction` already uses for
+irreducible iterators: strip the scaffolding from a fresh raw import, re-run
+the pipeline, and validate the result instead of matching the input.
+
+### Why the recipe index cannot grow
+
+Measured at `36e265297` with a disposable harness over the pinned real-world
+corpus (14 assemblies, 89,065 methods):
+
+| Population | Count |
+| --- | ---: |
+| Authenticated classic kickoffs | 335 |
+| Reconstructed today (all by `classic-await-return`) | 12 |
+| Lowering-protocol proof passes, no recipe matches | 113 |
+| Lowering-protocol proof fails | 210 |
+
+The 210 proof failures have five causes, none of them user-code shapes: the
+completion catch clears hoisted fields before `SetException` (89); the body
+has more than one `finally` region (58); the dispatch is a `switch` or a
+nested `num != 0` cascade the proof does not bind (49); a `finally` guard
+reads the state local (9); the user body has its own catch or filter (5).
+Every cause is a protocol form, so a general protocol recognizer covers them
+without naming the user code they surround. The 113 protocol-clean declines
+are ordinary sequential, conditional, and loop bodies with one or two awaits.
+Together they are 323 of the 335 kickoffs, and the state-machine headline on
+the real-world baseline (60 of 540 fully raised) cannot move without them.
+
+### Lowering shell
+
+The domain is Roslyn `AsyncMethodToStateMachineRewriter` output for a classic
+(`runtime-async=off`) `async` method with any builder the kickoff's
+`<>t__builder` field names. The roles below are physical facts of the raw
+import: field tokens, member references, state constants, and IL offsets.
+Real witnesses, dumped from the pinned corpus at `36e265297`:
+`Newtonsoft.Json.JsonReader::SkipAsync` (await in a loop condition),
+`JsonReader::ReadArrayIntoByteArrayAsync` (hoisted-field clears in the
+completion catch), `JsonTextWriter::DoWritePropertyNameAsync` (three awaits,
+`switch` dispatch), `Newtonsoft.Json.Linq.JRaw::CreateAsync` (two nested
+`using` regions with guarded `finally` disposal), and
+`Microsoft.CodeAnalysis.Diagnostics.CompilationWithAnalyzers::GetAnalyzerTelemetryInfoAsync`
+(user catch with a filter inside the protocol try).
+
+| Role | Physical form | Disposition |
+| --- | --- | --- |
+| State load | the entry block's `V_state = this.<>1__state` | removed |
+| `this` copy | `V_this = this.<>4__this` in the entry block, or `<>4__this` reads at each use | `this` |
+| Dispatch | any branch whose condition depends only on `V_state` and constants: `brfalse`/`==`/`!=` chains, `switch (V_state)`, and the `V_state != 0` guards Roslyn emits at every exception-region entry | evaluated under `V_state = -1`; the taken edge stays, the other edges go |
+| Suspension site | `V_aw = GetAwaiter(op)`; `if (V_aw.IsCompleted) goto K`; then `V_state = N; this.<>1__state = N; this.<>u__k = V_aw; this.<>t__builder.Await[Unsafe]OnCompleted(ref V_aw, ref this); return` | the three blocks collapse to the edge into `K`; `GetResult(ref V_aw)` in `K` becomes `await op` |
+| Resume landing | the dispatch target for `N`: `V_aw = this.<>u__k; this.<>u__k = default; V_state = -1; this.<>1__state = -1`, falling into `K` | removed; reachable only through dispatch |
+| Completion catch | the outer `catch (Exception V_ex) { this.<>1__state = -2; clears; this.<>t__builder.SetException(V_ex); return; }` | removed |
+| Completion tail | `this.<>1__state = -2; clears; this.<>t__builder.SetResult([V_result]); return` after the try | removed; every `leave` to it is `return [V_result]` |
+| Finally guard | `if (V_state < 0 [&& x])` around a `finally` body | folds to `[if (x)]` under `V_state = -1` |
+| Hoisted local | `<name>5__N`, `<>7__wrapN`, `<>s__N`, `<>8__N` fields on the machine | fresh local; `name` where the field carries one |
+| Hoisted parameter | a machine field named like a kickoff parameter and stored once by the kickoff | the parameter |
+| Housekeeping clear | `field = null` or `default` for a hoisted field inside the completion catch or tail | removed |
+
+Class-constrained generic awaiters (the boxed awaiter form), `async void`,
+`ValueTask`, and custom builders are the same roles with different member
+identities. Debug lowering adds spill locals and re-reads but no role; it is
+in domain by construction and unmeasured, and no claim covers it until a
+compiler-produced Debug fixture does. An await inside a user `catch` lowers to
+a pending-exception dispatch after the try; the inverse carries that lowered
+form as ordinary user code, which is valid C# but not fully raised, and a
+later slice owns the `catch`-with-await raise.
+
+### Proof obligations
+
+1. **Consumed ownership is total.** Every removed node carries exactly one role
+   from the table. Every suspension state constant appears in exactly one
+   suspension site and one resume landing; every `<>u__k` field and awaiter
+   local has only protocol uses; `<>1__state` has only the entry load and
+   protocol stores; `<>t__builder` has only the proven callbacks; after
+   dispatch folding no read of `V_state` remains. A block reachable only
+   through dispatch must consist of protocol roles. Any other node that is
+   neither a role nor carried into the output is a decline.
+2. **Control flow.** Dispatch removal changes only edges whose condition is a
+   state test. Each suspension site collapses to one edge. Every exception
+   region other than the completion catch is preserved with its clauses,
+   filters, and handler ranges. The spliced body has one entry: the first
+   block that is not dispatch. The structurer then owns successor identity
+   and multiplicity under
+   [control-flow structuring](control-flow-structuring.md); a residual goto
+   or label after the pipeline is a decline, never a partial raise.
+3. **Replacement.** `await op` is typed by `GetResult`'s return type, carries
+   the proven `GetAwaiter`, `IsCompleted`, and `GetResult` members, and keeps
+   `ConfigureAwait` and every other call inside `op`. Each `leave` to the
+   completion tail becomes `return` of the result local, folded into the
+   immediately preceding store when that store ends the same block. Output
+   validity is judged after the full pipeline: no machine field, builder
+   member, awaiter member, state local, or residual transfer survives, and
+   the `await` count equals the proven suspension count.
+4. **Compile-back.** The raised body recompiles to a new kickoff and
+   `MoveNext`; opcode fidelity against the kickoff MethodDef is the wrong
+   subject, as #4472 records. Evidence is the whole-fixture recompile in the
+   fidelity dockets and the compile-back status of each pinned real witness,
+   with the changed population's compile-back attempted and classified.
+
+Decline boundary: a state-local read that does not fold under `-1`; a
+dispatch-only block with a non-protocol node; a state constant without its
+pair; an unproven builder or awaiter use; more than one completion catch,
+`SetResult`, or `SetException`, or a filter on the completion catch; a
+residual transfer, machine field, or await-count mismatch after the pipeline;
+the existing unsafe-context decline. Each decline names its reason and
+preserves the kickoff. Budget exhaustion remains `Failed`. Falsifier: a
+compiler-produced or corpus method whose raised body passes every check above
+yet whose compile-back shows a changed call or store order, or an exception
+region with a different extent.
+
+### Layering
+
+The recognizer consumes the Metadata relationship certificate through the
+[request adapter](classic-async-request-adapter.md) and never recreates
+identity from names. Its own inputs and outputs are physical: tokens, member
+references, state constants, offsets. That keeps it movable: if a Finding
+later needs suspension points or hoisted-storage classification, the
+recognizer can descend to a shared facts substrate consumed by both Analysis
+and the Decompiler, and the Analysis callee checks for builder callbacks can
+retire. Nothing in this slice adds a cross-layer reference.
+
+### Staging and retirement
+
+1. **This design.** No product change.
+2. **General inverse behind the recipe index.** The inverse runs when the
+   recipe index declines with `NoRecipeMatched`, which today is silent; every
+   decline becomes a typed reason. A general plan carries its role ledger in
+   place of the three recipe ledgers. The fixture family lands in
+   `ILInspector.Decompiler.Fixtures.ClassicAsync`: a compiler-produced
+   positive per role, the smallest accepted boundary, a still-flat negative
+   per proof obligation, the five real witnesses pinned, and the four
+   unraised classic async fixtures in the pinned classic corpus measured. The
+   census reports the state-machine headline on the real-world baseline and
+   the classic baseline, with every regression classified.
+3. **Recipes retire.** The inverse runs first; a recipe is consulted only when
+   the inverse declines. Each recipe whose accepted population the inverse
+   covers is deleted with its tests; the body node algebra, accountant, and
+   receipts leave with the last recipe. Every acceptance loss is a classified
+   honesty correction or is fixed before the recipe goes.
+
+Iterators keep their own passes; the strip-and-restructure pattern is shared,
+and a later slice may unify the two recognizers behind one role table.
 
 ## Ordered single-await continuation effects
 
@@ -1500,18 +1657,17 @@ tracker [#4472](https://github.com/richlander/dotnet-inspect/issues/4472) has
 three host-adoption steps: authenticated raw import; shared-core delegation
 and detached application with retirement of the private authorization engine;
 and shared decompilation/C# rendering through CLI and browser/Wasm. PR #5671
-has wired those steps but remains unmerged and incomplete. Composition is
+merged those steps at `a0c02aced` (2026-09-09). Composition is
 internal to step two, not a new host adapter or rendering strategy. The
 focused design in #6178 changes no product behavior and does not complete the
 seven outstanding findings.
 
-1. Introduce the detached decision, plan, and receipt values at the core
-   boundary without changing the accepted population.
-2. Make one existing compiler-produced recipe issue all three proof ledgers.
-3. Add the effectful-expression and structured-ancestor negatives.
-4. Migrate each remaining accepted recipe through the same boundary, measuring
-   every acceptance loss as an honesty correction.
-5. Only after every accepted recipe uses the proof boundary may downstream
-   owners consume `Reconstruct`. The independent #5277 adapter forms requests;
-   #5278, #5279, #5292, and #5293 consume typed decisions or results without
-   redefining this contract.
+Steps 1 through 5 of the recipe sequence (detached decision and plan values,
+one recipe through all three ledgers, the effectful-expression and
+structured-ancestor negatives, migration of each recipe, downstream
+consumption of `Reconstruct`) are complete for the shipped recipes. The
+sequence continues under [Staging and retirement](#staging-and-retirement):
+the general inverse lands behind the recipe index, then runs first, then the
+recipes retire. The independent #5277 adapter forms requests, and the
+adjacent owners (#5278, #5279, #5292, and #5293) consume typed decisions or
+results without redefining this contract.
