@@ -86,9 +86,9 @@ raised block is authored by hand.
 
 ## Correctness-fix contract
 
-For an invalid-`Full` or output-correctness fix, replace the proof-obligation
-table with this one and keep the structural review whenever the rendered body
-changes.
+For an invalid-`Full` or output-correctness fix, add this table alongside the
+proof-obligation table, or use it in place of that table only when no raise
+changes; keep the structural review whenever the rendered body changes.
 
 | Obligation | Contract |
 | --- | --- |
@@ -136,9 +136,9 @@ physical method identities differ, write
 the standalone Before and After bodies. This presentation boundary does not
 change the raise verdict.
 
-The PDB Source → After lens is part of the required attempt; record it
-beside the structural review as Not directional (retain a generated
-unavailable result rather than deleting the lens): its checksum proves agreement with the Portable PDB declaration,
+The PDB Source → After lens is part of the required attempt. Record it beside
+the structural review as Not directional, keeping a generated unavailable
+result rather than deleting the lens: its checksum proves agreement with the Portable PDB declaration,
 not independent build provenance, and compile-back status stays an
 independent oracle. When no matching C# is available, retain the generated
 unavailable result and treat raw IL as the compiled-body evidence.
