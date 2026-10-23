@@ -9,12 +9,12 @@ public sealed partial class BrowserEngineBoundaryTests
     [Theory]
     [InlineData(
         "System.Text.Json",
-        "10.0.0",
+        "10.0.13",
         "net10.0",
         "System.Text.Json.dll",
         "System.Text.Json.JsonSerializer",
-        "FrameworkActivation",
-        "system.text.json.10.0.0.nupkg")]
+        "FileDemand",
+        "system.text.json.10.0.13.nupkg")]
     [InlineData(
         "Newtonsoft.Json",
         "13.0.4",
