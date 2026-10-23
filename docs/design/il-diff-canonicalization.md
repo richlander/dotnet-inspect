@@ -271,6 +271,59 @@ leaves to step 2's laziness and cost gates, which measure lockstep over two
 cursors against Finding Diff Any's walk and are recorded on #10227; this
 table is the baseline of the exhaustive paths those gates leave unchanged.
 
+### Cost of the operand key
+
+The operand's identity becoming its row's Symbol Key through one
+`IlCensusSide` per image ([#10547](https://github.com/richlander/dotnet-inspect/pull/10547))
+was measured with the same tool on the same six pairs: base `61b3d5549`
+(the branch base, binary `51401353`) against head (binary `1e62c15f`),
+NativeAOT linux-x64 on the same development server, with every process
+started only when the one-minute load was under 1.5 and no process
+disturbed (load after each between 0.7 and 1.3). Two rounds per pair, ten
+timed runs each after two warmups, pooled to twenty samples; verdict counts
+identical on both binaries for every pair. The census and comparison paths
+run over one side per image per run, as `IlAssemblyDiff` and Research do;
+the endpoint path creates its sides per call, as the hosts do. The raw
+outputs, binary hashes, run script, and pooling script are attached to the
+PR.
+
+Median wall time in ms, base → head:
+
+| Pair | Assembly | Inspect | Compare | Endpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 1,783 → 1,557 (−12.7%) | 606 → 615 (+1.5%) | 1,241 → 1,270 (+2.3%) | 2,143 → 2,218 (+3.5%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 277 → 232 (−16.3%) | 117 → 113 (−3.0%) | 199 → 193 (−3.4%) | 326 → 319 (−2.2%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 435 → 371 (−14.7%) | 160 → 153 (−4.0%) | 316 → 299 (−5.3%) | 527 → 500 (−5.1%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 384 → 338 (−11.9%) | 154 → 148 (−3.6%) | 278 → 268 (−3.4%) | 473 → 467 (−1.2%) |
+| System.Private.Xml 10 to 11 | 1,911 → 1,680 (−12.1%) | 672 → 634 (−5.6%) | 1,411 → 1,346 (−4.6%) | 2,369 → 2,290 (−3.3%) |
+| System.Private.CoreLib 10 to 11 | 2,175 → 1,906 (−12.4%) | 895 → 861 (−3.8%) | 1,506 → 1,479 (−1.8%) | 2,498 → 2,468 (−1.2%) |
+
+Median bytes allocated per run, in MB, base → head:
+
+| Pair | Assembly | Inspect | Compare | Endpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 4,290 → 3,642 (−15.1%) | 2,101 → 1,967 (−6.4%) | 2,770 → 2,636 (−4.8%) | 4,890 → 4,837 (−1.1%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 732 → 616 (−15.8%) | 417 → 382 (−8.3%) | 479 → 448 (−6.5%) | 837 → 846 (+1.1%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 1,103 → 954 (−13.6%) | 562 → 522 (−7.1%) | 718 → 678 (−5.5%) | 1,262 → 1,265 (+0.2%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 985 → 855 (−13.2%) | 552 → 513 (−6.9%) | 642 → 608 (−5.3%) | 1,129 → 1,133 (+0.3%) |
+| System.Private.Xml 10 to 11 | 4,345 → 3,851 (−11.4%) | 2,417 → 2,239 (−7.3%) | 3,018 → 2,853 (−5.5%) | 5,192 → 5,254 (+1.2%) |
+| System.Private.CoreLib 10 to 11 | 5,641 → 4,993 (−11.5%) | 3,137 → 2,964 (−5.5%) | 3,693 → 3,526 (−4.5%) | 6,422 → 6,753 (+5.2%) |
+
+Reading. The whole-assembly comparison, where a side spells each row once
+for every body of the image, is 12–16% faster with 11–16% less allocation
+on every pair; p95 moves with the median. The sealed census paths, which
+spell a key and project its text once per distinct operand, are 2–6%
+faster with 5–8% less allocation on five pairs and 1.5–2.3% slower on
+Aspire.Hosting, whose generated bodies name many rows once, so the key and
+the text are each spelled about as often as the formatted operand was. The
+endpoint path, which the hosts call one member at a time and which creates
+its two sides per call, is 1–5% faster on five pairs and 3.5% slower on
+Aspire.Hosting, with 0–5% more allocation from the per-call side setup (two
+builders, a speller with its scratch, and the memos; CoreLib +5.2%). Sharing
+sides across a host's member requests, or a smaller speller scratch for a
+one-method side, is recorded on
+[#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
+
 ## Guarantees
 
 ### Opcode macro folding
