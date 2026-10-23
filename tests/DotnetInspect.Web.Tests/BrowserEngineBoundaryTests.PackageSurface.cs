@@ -1157,18 +1157,29 @@ public sealed partial class BrowserEngineBoundaryTests
         var workspaceHandler =
             new MultiplePlatformVersionHandler(version, packages);
         using var workspaceClient = new HttpClient(workspaceHandler);
-        PackageSourceAuthorization authorized =
-            PackageSourceAuthorization.Authorize(
-                [PackageSource.NuGetOrg]);
-        var sourceAuthorization =
-            new FixedPackageSourceAuthorization(authorized);
+        byte[] runtimePackage =
+            PlatformPackage((assembly, assemblyBytes));
+        var galleryPackages =
+            new Dictionary<string, HttpMessageHandler>(
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] =
+                    new GalleryPackageHandler(
+                        "microsoft.netcore.app.runtime.linux-x64",
+                        version,
+                        runtimePackage),
+                ["microsoft.netcore.app.ref"] =
+                    new GalleryPackageHandler(
+                        "microsoft.netcore.app.ref",
+                        version,
+                        referencePackage),
+            };
         using IPackageSourceClient packageClient =
-            PackageSourceClientFactory.CreateGallery(
-                authorized.Authorities[0].Association,
-                new GalleryPackageHandler(
-                    "microsoft.netcore.app.ref",
-                    version,
-                    referencePackage));
+            BrowserPackageWorkspace.CreateGallerySource(
+                new MultipleGalleryPackageHandler(version, galleryPackages),
+                new NuGetFetchOptions());
+        IPackageSourceAuthorization sourceAuthorization =
+            BrowserPackageWorkspace.SourceAuthorizationFor(packageClient);
 
         return await query(
             workspaceClient,
