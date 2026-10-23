@@ -56,6 +56,20 @@ public class LoweredFidelityGateTests
         // return-free proof and stays Exact.
         "TryFinallyRetryLoop",
         "NestedOuterRetryLoop",
+        // #10192 PR 3: the moved-arm fixtures re-lower their if/else tree with
+        // `bgt`/`bne.un` where the original switch used `bgt.un`/`beq`, and
+        // LoopTailAfterLatch declares `int end = default` for its out-of-loop
+        // use (see the FidelityGateTests docket).
+        "SwitchTreeWithMergingArms",
+        "SwitchTreeWithSharedArm",
+        "SwitchTreeWithScatteredSharedArm",
+        "LoopTailAfterLatch",
+        // #10494 round 1: the `goto case` fixtures keep their valid goto form
+        // (the fallthrough arm is not movable), and ReturnMergePass duplicates
+        // the short return tail into each arm, so the recompiled switch inlines
+        // the tail per arm like GotoCommonExit above. Valid C#, not opcode-exact.
+        "GotoSharedCaseNoLoop",
+        "GotoReturnCaseNoLoop",
         // #3514: the restored trailing default makes the reference-type switch
         // witness valid, while the lowered nested-if form recompiles through
         // direct returns instead of the original result-temp convergence.

@@ -63,6 +63,26 @@ public class FidelityGateTests
         // return-free proof and stays Exact.
         "TryFinallyRetryLoop",
         "NestedOuterRetryLoop",
+        // #10192 PR 3: a lowered char switch now structures as the if/else
+        // tree its comparison tree spells out, with each case body moved into
+        // its selecting guard. Valid C#, but csc re-lowers an if/else tree with
+        // `bgt`/`bne.un` tests where the original switch used `bgt.un`/`beq`
+        // (SwitchTreeWithMergingArms, SwitchTreeWithSharedArm), the same
+        // sparse-switch over-render as the docket entries above; the
+        // scattered-shared-arm fixture keeps its goto form and differs only
+        // by that signed `bgt` polarity. LoopTailAfterLatch's body extends
+        // past its latch; its diff is the `int end = default` declaration the
+        // definite-assignment pass adds for the out-of-loop use.
+        "SwitchTreeWithMergingArms",
+        "SwitchTreeWithSharedArm",
+        "SwitchTreeWithScatteredSharedArm",
+        "LoopTailAfterLatch",
+        // #10494 round 1: the `goto case` fixtures keep their valid goto form
+        // (the fallthrough arm is not movable), and ReturnMergePass duplicates
+        // the short return tail into each arm, so the recompiled switch inlines
+        // the tail per arm like GotoCommonExit above. Valid C#, not opcode-exact.
+        "GotoSharedCaseNoLoop",
+        "GotoReturnCaseNoLoop",
         // #3514: the compiler-backed reference-type switch witness proves the
         // missing shared default is restored and the body compiles, but the
         // valid nested-if form re-lowers with direct returns rather than csc's

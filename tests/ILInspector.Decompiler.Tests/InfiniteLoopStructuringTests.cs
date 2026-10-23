@@ -312,6 +312,25 @@ public class InfiniteLoopStructuringTests
     }
 
     [Fact]
+    public void LoopTailAfterLatch_ExtendsBodyToTheLoopExit()
+    {
+        var function = Raised(nameof(CfgSampleClass.LoopTailAfterLatch));
+
+        // The latch (`i++; br head`) sits before two arms that break or throw;
+        // the body extends over them to the exit, so the latch is an explicit
+        // `continue` and both breaks target the exit.
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>(), IsWhileTrue);
+        Assert.Single(loop.Body.Descendants.OfType<Continue>());
+        Assert.Equal(2, loop.Body.Descendants.OfType<Break>().Count());
+        Assert.Equal(2, loop.Body.Descendants.OfType<Throw>().Count());
+        Assert.Empty(function.Descendants.OfType<Branch>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
+
+        var output = DecidedPrint.Print(function).Output!;
+        Assert.DoesNotContain("goto", output);
+    }
+
+    [Fact]
     public void WhileTrueWithArmContinueAndBottomTest_RaisesBreakAtBottom()
     {
         var function = Raised(nameof(CfgSampleClass.WhileTrueWithArmContinueAndBottomTest));
@@ -513,8 +532,15 @@ public class InfiniteLoopStructuringTests
         Assert.NotEmpty(function.Descendants.OfType<Branch>());
     }
 
+    /// <summary>
+    /// The past-region target holds a <c>continue</c> owned by the enclosing
+    /// do-while. Cloning it into the candidate loop would retarget that
+    /// continue, so the clone is declined; the dispatch-arm slice's loop-exit
+    /// rule instead extends the body to that target as the loop's exit, and
+    /// the continue stays outside the raised loop.
+    /// </summary>
     [Fact]
-    public void PastRegionCloneContainingOuterContinue_StaysFlat()
+    public void PastRegionTargetContainingOuterContinue_BecomesLoopExit()
     {
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var voidType = TypeRef.CoreLib("System", "Void");
@@ -535,7 +561,8 @@ public class InfiniteLoopStructuringTests
         candidate.Add(interveningExit);
 
         var continueArm = new Block();
-        continueArm.Add(new Continue());
+        var outerContinue = new Continue();
+        continueArm.Add(outerContinue);
         var clonedTail = new Block(0x40);
         clonedTail.Add(new IfStatement(
             new LoadArgument(1, "again", boolType),
@@ -570,11 +597,13 @@ public class InfiniteLoopStructuringTests
         new StructuringPass().Run(function, PassContext.None);
         function.CheckInvariant();
 
-        Assert.Empty(function.Descendants.OfType<WhileLoop>());
-        Assert.Single(function.Descendants.OfType<Continue>());
-        Assert.Contains(
-            function.Descendants.OfType<ConditionalBranch>(),
-            branch => branch.TargetOffset == 0x40);
+        var loop = Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.True(IsWhileTrue(loop));
+        Assert.DoesNotContain(outerContinue, loop.Descendants);
+        // The latch is no longer the body's last block, so it is an explicit continue.
+        Assert.Single(loop.Body.Descendants.OfType<Continue>());
+        Assert.Single(loop.Body.Descendants.OfType<Break>());
+        Assert.Empty(function.Descendants.OfType<ConditionalBranch>());
     }
 
     [Fact]
