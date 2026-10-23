@@ -275,13 +275,15 @@ table is the baseline of the exhaustive paths those gates leave unchanged.
 
 The operand's identity becoming its row's Symbol Key through one
 `IlCensusSide` per image ([#10547](https://github.com/richlander/dotnet-inspect/pull/10547))
-was measured with the same tool on the same six pairs: base `61b3d5549`
-(the branch base, binary `51401353`) against head (binary `1e62c15f`),
-NativeAOT linux-x64 on the same development server, with every process
-started only when the one-minute load was under 1.5 and no process
-disturbed (load after each between 0.7 and 1.3). Two rounds per pair, ten
-timed runs each after two warmups, pooled to twenty samples; verdict counts
-identical on both binaries for every pair. The census and comparison paths
+was measured with each side's own `eng/measure-il-diff-exhaustive.cs` on
+the same six pairs: base `61b3d5549` (the branch base, binary `51401353`)
+against head (binary `1e62c15f`), NativeAOT linux-x64 on the same
+development server, with every process started only when the one-minute
+load was under 1.5 and none disturbed (load after each between 0.7 and
+1.4; the Aspire.Hosting pair was rerun once, all four processes, after a
+load burst in its first head round). Two rounds per pair, ten timed runs
+each after two warmups, pooled to twenty samples; verdict counts identical
+on both binaries for every pair. At head the census and comparison paths
 run over one side per image per run, as `IlAssemblyDiff` and Research do;
 the endpoint path creates its sides per call, as the hosts do. The raw
 outputs, binary hashes, run script, and pooling script are attached to the
@@ -312,16 +314,20 @@ Median bytes allocated per run, in MB, base → head:
 Reading. The whole-assembly comparison, where a side spells each row once
 for every body of the image, is 12–16% faster with 11–16% less allocation
 on every pair; p95 moves with the median. The sealed census paths, which
-spell a key and project its text once per distinct operand, are 2–6%
-faster with 5–8% less allocation on five pairs and 1.5–2.3% slower on
-Aspire.Hosting, whose generated bodies name many rows once, so the key and
-the text are each spelled about as often as the formatted operand was. The
-endpoint path, which the hosts call one member at a time and which creates
-its two sides per call, is 1–5% faster on five pairs and 3.5% slower on
-Aspire.Hosting, with 0–5% more allocation from the per-call side setup (two
-builders, a speller with its scratch, and the memos; CoreLib +5.2%). Sharing
-sides across a host's member requests, or a smaller speller scratch for a
-one-method side, is recorded on
+spell a key and project its text once per distinct operand, allocate 4–8%
+less on every pair and are 2–6% faster on five of them and 1.5–2.3% slower
+on Aspire.Hosting; the likely cause, not counted by the run, is that its
+generated bodies name most rows once, so the key and the text are each
+spelled about as often as the formatted operand was. The endpoint path,
+which the hosts call one member at a time and which creates its two sides
+per call, is 1–5% faster on five pairs and 3.5% slower on Aspire.Hosting,
+reproduced in both head rounds; Aspire.Hosting allocates 1.1% less on it,
+so that cost is the same key-plus-text work as its Compare cell, while the
+other five pairs allocate 0.2–5.2% more from the per-call side setup (two
+builders, a speller with its scratch, and the memos; CoreLib +5.2%).
+Sharing sides across a host's member requests, a smaller speller scratch
+for a one-method side, and a text projection from the key's parts are
+recorded on
 [#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
 
 ## Guarantees
