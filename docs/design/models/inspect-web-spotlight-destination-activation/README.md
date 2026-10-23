@@ -12,8 +12,9 @@ normative owner. This model checks its interaction boundary:
 > Selection transfers that retained basis into a new activation intent rather
 > than reclassifying from live state. A current Package may commit before focus
 > settles, while only a current Definitions-issued complete activation may
-> publish a fresh Workspace. A package-backed Type prepares its exact focus in
-> that complete activation before publication.
+> publish a fresh Workspace. Definitions prepares a package-backed Type as the
+> exact selected subject during private construction and returns that proof
+> with the complete activation before publication.
 
 This is bounded design evidence, not implementation conformance.
 
@@ -38,8 +39,8 @@ This is bounded design evidence, not implementation conformance.
 - one indexed `Microsoft.Extensions.Hosting.AspireRedisExtensions` Type from
   `Aspire.StackExchange.Redis@13.6.3`; and
 - three package-Type plans: add a covered Package and focus its Type, focus the
-  Type in an already-current occurrence, or restore and focus the Type in a
-  fresh Workspace.
+  Type in an already-current occurrence, or restore a fresh Workspace whose
+  Definitions result already contains that exact selected Type.
 
 Registration profile 1 covers the Platform `System.Text.Json` Library and
 `Microsoft.Extensions.Logging`, but not the package `System.Text.Json`
@@ -72,12 +73,13 @@ The model retains the product join currencies used by Spotlight:
 Adjacent operations are abstracted at their observable boundaries. A current
 Package admission either commits a new Scope revision or does not. Focus
 settles separately and must consume the retained or newly issued exact Package
-occurrence for a package-origin Library. Workspace Definitions nondeterministically
-returns a complete activation or failure; the model does not reproduce its
-construction or cleanup phases.
-For a fresh package-backed Type, exact focus preparation succeeds or fails
-against that complete activation before host publication. The model records
-the ordering boundary without reproducing Navigation binding.
+occurrence for a package-origin Library. Workspace Definitions
+nondeterministically returns an ordinary complete activation, a complete
+activation with an exact selected-Type preparation, or failure; the model does
+not reproduce its construction or cleanup phases. For a fresh package-backed
+Type, exact selected-subject preparation succeeds or fails inside that
+Definitions boundary before host publication. The model records the ordering
+boundary without reproducing Navigation binding.
 
 The model does not copy Workspace Scope, Navigation, Platform, source,
 Artifact, or retained-host collection transitions. Their detailed outcomes are
@@ -99,7 +101,7 @@ Workspace replacement, or settlement at the consumed boundary.
 | Current Package membership classifies its not-yet-realized Library without duplicate Add | `Safety`, `ReachabilityMembershipCoveredLibrary` | occurrence checks below |
 | Package-origin Library focus uses the exact retained or Scope-returned occurrence | `Safety` | `BrokenWrongLibraryOccurrence` |
 | Covered and already-current package-backed Types use the exact retained or Scope-returned occurrence | `SafetyPackageType`, `ReachabilityAddCurrentPackageType`, `ReachabilityActivateCurrentPackageType` | `BrokenWrongPackageTypeOccurrence` |
-| A fresh package-backed Type Workspace publishes only after exact Type focus is prepared | `SafetyPackageType`, `ReachabilityFreshPackageType` | `BrokenPublishUnfocusedFreshType` |
+| A fresh package-backed Type Workspace publishes only with the exact selected-Type preparation returned by Definitions | `SafetyPackageType`, `ReachabilityFreshPackageType` | `BrokenPublishUnfocusedFreshType` |
 | One attempt cannot produce both current and fresh-Workspace effects | `Safety` | `BrokenDualCurrentAndFreshPublication` |
 | Covered failure never creates a fallback Workspace | `Safety` | `BrokenFallbackAfterCoveredFailure` |
 | Current Package commit, direct focus, post-commit focus, and fresh publication require current captured authority | `Safety` | `BrokenStaleCurrentCommit`, `BrokenStaleDirectFocus`, `BrokenStalePostMembershipFocus`, `BrokenStaleFreshPublication` |

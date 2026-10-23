@@ -184,13 +184,13 @@ Ready == "ready"
 CurrentMembershipCommitted == "current-membership-committed"
 DefinitionsPending == "definitions-pending"
 DefinitionsPrepared == "definitions-prepared"
-DefinitionsTypeFocused == "definitions-type-focused"
+DefinitionsTypePrepared == "definitions-type-prepared"
 Phases ==
     {Ready,
      CurrentMembershipCommitted,
      DefinitionsPending,
      DefinitionsPrepared,
-     DefinitionsTypeFocused}
+     DefinitionsTypePrepared}
 
 NoSelectionBasisStatus == "no-selection-basis-status"
 CurrentAtSelection == "current-at-selection"
@@ -1186,10 +1186,18 @@ RequestDefinitionsActivation(token) ==
           descriptorState>>
 
 DefinitionsPrepareCompleteActivation(token) ==
+    LET typeRequest ==
+            attempts[token].plan = RestoreExternalPackageTypeWorkspace
+        preparedPhase ==
+            IF /\ typeRequest
+               /\ Mutation # PublishUnfocusedFreshType
+            THEN DefinitionsTypePrepared
+            ELSE DefinitionsPrepared
+    IN
     /\ attempts[token].state = Pending
     /\ attempts[token].phase = DefinitionsPending
     /\ attempts' =
-        [attempts EXCEPT ![token].phase = DefinitionsPrepared]
+        [attempts EXCEPT ![token].phase = preparedPhase]
     /\ definitionsReady' = definitionsReady \cup {token}
     /\ UNCHANGED
         <<activeWorkspace,
@@ -1257,67 +1265,6 @@ DefinitionsFailActivation(token) ==
           badLibraryOccurrence,
           descriptorState>>
 
-PrepareFreshTypeFocus(token) ==
-    /\ attempts[token].state = Pending
-    /\ attempts[token].phase = DefinitionsPrepared
-    /\ attempts[token].plan = RestoreExternalPackageTypeWorkspace
-    /\ CapturedBasisIsCurrent(token)
-    /\ attempts' =
-        [attempts EXCEPT ![token].phase = DefinitionsTypeFocused]
-    /\ UNCHANGED
-        <<activeWorkspace,
-          scopeRevision,
-          scopeBase,
-          registrationProfile,
-          packageOccurrences,
-          realizedLibraries,
-          focus,
-          intent,
-          results,
-          membershipCommits,
-          focusPublications,
-          freshPublications,
-          visibleFailures,
-          definitionsRequests,
-          definitionsReady,
-          sourceMutations,
-          badCurrentCommit,
-          badDirectFocus,
-          badPostMembershipFocus,
-          badFreshPublication,
-          badLibraryOccurrence,
-          descriptorState>>
-
-FailFreshTypeFocus(token) ==
-    /\ attempts[token].state = Pending
-    /\ attempts[token].phase = DefinitionsPrepared
-    /\ attempts[token].plan = RestoreExternalPackageTypeWorkspace
-    /\ CapturedBasisIsCurrent(token)
-    /\ attempts' = [attempts EXCEPT ![token].state = Settled]
-    /\ results' = [results EXCEPT ![token] = Failed]
-    /\ visibleFailures' = visibleFailures \cup {token}
-    /\ UNCHANGED
-        <<activeWorkspace,
-          scopeRevision,
-          scopeBase,
-          registrationProfile,
-          packageOccurrences,
-          realizedLibraries,
-          focus,
-          intent,
-          membershipCommits,
-          focusPublications,
-          freshPublications,
-          definitionsRequests,
-          definitionsReady,
-          sourceMutations,
-          badCurrentCommit,
-          badDirectFocus,
-          badPostMembershipFocus,
-          badFreshPublication,
-          badLibraryOccurrence,
-          descriptorState>>
-
 PublishFreshActivation(token) ==
     LET freshWorkspace == FreshWorkspaceFor(token)
         sourceWorkspace == attempts[token].workspace
@@ -1328,7 +1275,7 @@ PublishFreshActivation(token) ==
     /\ attempts[token].state = Pending
     /\ (/\ attempts[token].phase = DefinitionsPrepared
         /\ attempts[token].plan = RestoreExternalPackageWorkspace
-        \/ /\ attempts[token].phase = DefinitionsTypeFocused
+        \/ /\ attempts[token].phase = DefinitionsTypePrepared
            /\ attempts[token].plan =
                 RestoreExternalPackageTypeWorkspace
         \/ /\ Mutation = PublishUnfocusedFreshType
@@ -1450,8 +1397,6 @@ SettleAttempt(token) ==
     \/ RequestDefinitionsActivation(token)
     \/ DefinitionsPrepareCompleteActivation(token)
     \/ DefinitionsFailActivation(token)
-    \/ PrepareFreshTypeFocus(token)
-    \/ FailFreshTypeFocus(token)
     \/ PublishFreshActivation(token)
     \/ SettleUnavailable(token)
     \/ SettleStaleOrSuperseded(token)
@@ -1573,10 +1518,10 @@ FreshPublicationsMatchPlanAndDefinitions ==
                  RestoreExternalPackageTypeWorkspace}
         /\ token \in definitionsReady
 
-FreshTypePublicationRequiresPreparedFocus ==
+FreshTypePublicationRequiresPreparedSubject ==
     \A token \in freshPublications :
         attempts[token].plan = RestoreExternalPackageTypeWorkspace
-        => attempts[token].phase = DefinitionsTypeFocused
+        => attempts[token].phase = DefinitionsTypePrepared
 
 OneWorkspaceEffectPerAttempt ==
     /\ membershipCommits \cap freshPublications = {}
@@ -1705,7 +1650,7 @@ NoFreshPackageTypePublication ==
     \A token \in Tokens :
         ~(/\ attempts[token].plan =
                 RestoreExternalPackageTypeWorkspace
-          /\ attempts[token].phase = DefinitionsTypeFocused
+          /\ attempts[token].phase = DefinitionsTypePrepared
           /\ results[token] = FreshWorkspaceActivated)
 
 NoUnavailableLibrarySettlement ==

@@ -170,8 +170,7 @@ SpotlightDestinationActivationPlan
   | AddCurrentPackageType(exact package request, exact Type intent)
   | RestoreExternalPackageWorkspace(exact Definitions request)
   | RestoreExternalPackageTypeWorkspace(
-      exact Definitions request,
-      exact Type intent)
+      exact Definitions request carrying an exact Type preparation intent)
   | Unavailable(exact reason)
 ```
 
@@ -329,20 +328,27 @@ not installed; its owner-issued non-install path retains cleanup authority.
 Spotlight asks the user to select from current results rather than publishing
 the old plan.
 
-`RestoreExternalPackageTypeWorkspace` carries the exact Type intent beside the
-Definitions request; the intent is not encoded into or reconstructed from the
-Definitions packet. After Definitions returns one complete prepared Workspace
-and before host publication, Spotlight passes the exact restored Package
-occurrence and retained Type intent through the same Navigation-operation
-port. Host publication is eligible only when that exact Type effect is
-prepared in the candidate Workspace.
+`RestoreExternalPackageTypeWorkspace` carries the exact Type intent into the
+Definitions-owned registration-only request. The intent remains a nonportable
+in-process input: it is not encoded into or reconstructed from a Definitions
+packet. During private Workspace construction, Definitions resolves that
+intent against the exact restored Package occurrence and Library asset and
+uses ordinary Navigation construction to prepare the structured Type subject.
+The returned typed result includes both the complete activation and its
+owner-issued exact selected-Type preparation. This contract is the focused
+Workspace Definitions prerequisite tracked by
+[#10566](https://github.com/richlander/dotnet-inspect/issues/10566).
 
-Unavailable or ambiguous Type binding, Navigation failure, cancellation,
-supersession, or stale source authority takes the Definitions-owned
-non-install path. The fresh Workspace is not published first and corrected
-afterward, and the package root is not presented as a success-shaped fallback.
-Publication rejection after successful Type preparation likewise retains the
-existing non-install cleanup authority.
+Spotlight performs no operation against the candidate after Definitions
+returns. Host publication is eligible only when the Definitions result proves
+that the prepared selected Type exactly matches the retained intent.
+Unavailable or ambiguous Type binding, Navigation failure, cancellation, or
+supersession therefore fails complete restoration before construction access
+is released and takes the Definitions-owned non-install path. Stale source
+authority detected after completion also takes that path. The fresh Workspace
+is not published first and corrected afterward, and the package root is not
+presented as a success-shaped fallback. Publication rejection after successful
+Type preparation likewise retains the existing non-install cleanup authority.
 
 ## Settlement and authority
 
@@ -359,7 +365,7 @@ SpotlightDestinationActivationResult
     fresh Workspace activated
   Focus effect
     applied
-    prepared for fresh publication
+    prepared by Definitions for fresh publication
     not attempted
     failed
     superseded
@@ -439,8 +445,9 @@ The required walkthrough is:
 7. Selecting the indexed Aspire Type through a registered Aspire population
    admits its exact Package occurrence and opens that Type in the current
    Workspace.
-8. Selecting the same Type through request-scoped Aspire admission prepares
-   the exact Type in a fresh curated Workspace before host publication.
+8. Selecting the same Type through request-scoped Aspire admission carries its
+   exact intent into Definitions, which prepares the Type during construction
+   and returns it with the fresh curated Workspace before host publication.
 
 ## Model
 
@@ -453,8 +460,8 @@ selection-time transfer into activation intent, current Package commit followed
 by independent focus, a Definitions-issued complete fresh activation,
 active-Workspace replacement, supersession, and visible failure.
 It also represents a package-backed Aspire Type across current Package
-admission, already-current Package focus, Definitions restoration, exact Type
-preparation, and fresh publication.
+admission, already-current Package focus, Definitions construction-time exact
+Type preparation, and fresh publication.
 
 The model predates the
 [Spotlight presentation boundary](#spotlight-presentation-boundary). Its
@@ -481,8 +488,8 @@ check that:
 - current membership committed before focus failure or supersession remains
   present;
 - a failed or stale Definitions result is never host-published;
-- a fresh package-backed Type Workspace is never published before its exact
-  Type focus is prepared; and
+- a fresh package-backed Type Workspace is never published without an exact
+  selected-Type preparation returned by Definitions; and
 - every bounded activation attempt settles under weakly fair owner
   completion.
 
@@ -503,7 +510,7 @@ design evidence, not implementation conformance.
 | [Inspect Web Navigation Presentation](inspect-web-navigation-presentation.md) | Grouping, labels, accessibility, and opaque-action interaction |
 | [Inspect Web framework declaration activation](inspect-web-framework-declaration-activation.md) | Exact framework occurrence binding, Browser-local Library/Type actions, and detached effects |
 | PlatformHouse and Browser framework realization | Internal target, view, Library acquisition, catalog, projection, and provenance |
-| [Workspace Definitions](workspace-definitions.md), Artifact Acquisition, and retained Browser host | Complete external-package activation, non-install cleanup and drainage, collection publication, and active identity |
+| [Workspace Definitions](workspace-definitions.md), Artifact Acquisition, and retained Browser host | Complete external-package activation, construction-time selected-subject preparation, non-install cleanup and drainage, collection publication, and active identity |
 
 Production adoption is staged by owner:
 
@@ -517,9 +524,11 @@ Production adoption is staged by owner:
    production Spotlight; #7029 is retired.
 5. Adopt the Definitions-owned complete-restoration path and current-authority
    host publication for uncovered packages.
-6. Carry exact package-backed Type intents through current Package admission
-   or fresh restoration in #10560.
-7. Run Browser original-host and Firefox acceptance gates, then include the
+6. Add Definitions-owned construction-time selected-Type preparation for the
+   nonportable registration-only request in #10566.
+7. Carry exact package-backed Type intents through current Package admission
+   or consume that fresh-restoration result in #10560.
+8. Run Browser original-host and Firefox acceptance gates, then include the
    capability in a separately authorized release and website deployment.
 
 Stage 2 is implemented in the managed Inspect Web composition layer. Its
@@ -585,11 +594,12 @@ collection, TypeScript selection intent, HTML effects, and end-to-end Browser
 acceptance remain owned by
 [#6686](https://github.com/richlander/dotnet-inspect/issues/6686).
 
-Stage 6 is designed here and remains unimplemented. It extends only this
-owner's destination family and settlement ordering. Ecosystem Find index
-admission and evaluation, managed Browser transport, Spotlight phase
-composition and presentation, published Firefox/Wasm acceptance, and Member
-activation remain the separately counted successors in
+Stages 6 and 7 are designed here and remain unimplemented. Stage 6 is the
+separately owned prerequisite; stage 7 extends only this owner's destination
+family and settlement ordering. Ecosystem Find index admission and evaluation,
+managed Browser transport, Spotlight phase composition and presentation,
+published Firefox/Wasm acceptance, and Member activation remain the separately
+counted successors in
 [#10090](https://github.com/richlander/dotnet-inspect/issues/10090).
 
 Each implementation stage receives its own focused issue and PR. This design
@@ -610,10 +620,13 @@ Production adoption follows this dependency order:
 4. Current Package and package-origin Library actions enter through the exact
    active realization in
    [#7030](https://github.com/richlander/dotnet-inspect/issues/7030).
-5. [#10560](https://github.com/richlander/dotnet-inspect/issues/10560) carries
-   exact package-backed Type intents through current or fresh Workspace
-   settlement.
-6. [#6686](https://github.com/richlander/dotnet-inspect/issues/6686) connects
+5. [#10566](https://github.com/richlander/dotnet-inspect/issues/10566) prepares
+   an exact package-backed Type during Definitions-owned private construction
+   and returns the owner-issued selected-Type result.
+6. [#10560](https://github.com/richlander/dotnet-inspect/issues/10560) carries
+   exact package-backed Type intents through current Workspace settlement or
+   consumes that fresh-Workspace result.
+7. [#6686](https://github.com/richlander/dotnet-inspect/issues/6686) connects
    the remaining owner-issued paths to Spotlight interaction and runs the
    complete Package and Library Browser acceptance matrix without Platform
    actions.
@@ -643,8 +656,8 @@ fields, or treat a frontend-retained record as live Workspace authority.
 | Select an uncovered Library | The result is unavailable; Spotlight does not infer an enclosing package by name |
 | Select an indexed Type whose package is covered but absent | The exact package becomes current membership and the exact Type opens through its Scope-issued occurrence |
 | Select an indexed Type whose package is already current | The existing exact occurrence is retained and the exact Type opens without duplicate Package admission |
-| Select an indexed Type from a request-scoped uncovered Ecosystem | The fresh curated Workspace is published only with that exact Type prepared as active |
-| Exact indexed Type binding is unavailable or ambiguous during fresh restoration | No Workspace is published, cleanup runs, and the typed non-success remains visible |
+| Select an indexed Type from a request-scoped uncovered Ecosystem | Definitions prepares that exact Type during private construction and the fresh curated Workspace is published only with its owner-issued selected-Type result |
+| Exact indexed Type binding is unavailable or ambiguous during fresh restoration | Definitions returns typed non-success before releasing candidate access; no Workspace is published and cleanup runs |
 | Source authorization denies a registration-covered candidate | The owner denial remains visible; registration does not override it |
 
 The TLA+ configurations registered in
@@ -667,11 +680,15 @@ Spotlight acceptance gate.
 Definitions capture, real retained-owner publication of a nonprojectable
 Workspace, stale source-registration settlement without cutover, and
 exact-realization operation admission.
-The #10560 implementation must add focused destination, current-Package, and
-prepared-Workspace gates for the real
+The #10566 implementation must gate Definitions-owned construction-time
+preparation for the real
+`Aspire.StackExchange.Redis@13.6.3` Type intent, exact restored occurrence and
+Library identity, unavailable and ambiguous binding, and failure before
+candidate release. The #10560 implementation must add focused destination,
+current-Package, and prepared-result consumption gates for the same
 `Aspire.StackExchange.Redis@13.6.3` Type intent, same-spelled cross-source
 identity, unavailable and ambiguous binding, post-membership focus failure,
-prepublication Type-focus failure, and stale settlement.
+prepublication prepared-subject refusal, and stale settlement.
 `WorkspaceScopeTests` gates publication-base-guarded admission and exact
 binding-to-occurrence resolution. Workspace Definitions retains its separate
 non-install cleanup gate for external-package restoration. Selection-intent
@@ -683,10 +700,11 @@ Presentation is Browser-native stateful interaction and does not require
 Markout. The model and future Browser tests are the selected positive gates;
 no source-prohibition or host-inventory absence claim is made.
 
-The package-backed Type intent is a new join currency, and prepublication Type
-preparation is a new lifecycle state in the focused model. The package-Type
-safety, liveness, reachability, and mutation configurations gate that extension
-alongside the existing source-basis, publication, and non-install transitions.
+The package-backed Type intent is a new join currency, and
+Definitions-returned selected-Type preparation is a new lifecycle state in the
+focused model. The package-Type safety, liveness, reachability, and mutation
+configurations gate that extension alongside the existing source-basis,
+publication, and non-install transitions.
 
 ## Non-claims
 
