@@ -99,7 +99,11 @@ Ordinary feature and fix work does not edit release-managed central files:
 `AGENTS.md`, root `README.md`, `docs/overview.md`, `docs/architecture.md`, or
 any `SKILL.md`. Edit them only when explicitly authorized; otherwise add a
 concise suggestion with the PR or stack link to the current release tracker.
-Update other documentation only when its owned claim changes.
+Update other documentation only when its owned claim changes. A design-doc
+delta is required only when an owned contract changes: a narrow fix that
+keeps every owned claim cites the owner in its PR and changes no design
+document, while a change to an owned claim lands the design delta in the same
+PR.
 
 Keep product skills under `skills/` separate from contributor skills under
 `.github/skills/` and `.claude/skills/`; follow
