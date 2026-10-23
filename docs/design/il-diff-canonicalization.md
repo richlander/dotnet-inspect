@@ -16,11 +16,13 @@ emits summary counts, failure buckets, operation-family buckets, and typed
 example diffs. Bodies pair by the method's member key under the Body policy's
 scope (the shared speller's spelling, [Symbol Key](symbol-key.md#metadata-rows),
 with no assembly identity), as Finding Diff Any pairs members, and by
-occurrence among the methods that spell one key; under the Body policy the
-map spells through the comparison's own `IlCensusSide`s, so a method's key
-serves its pairing and every call operand that names it, and under another
-policy through a pair of Body-policy sides, since pairing never carries a
-dependency's identity or a folded name. A method the speller cannot spell is
+occurrence among the methods that spell one key; when the comparison omits
+assembly scopes (`NormalizeAssemblyScope`) without the generated-ordinal
+correspondence, the map spells through the comparison's own `IlCensusSide`s,
+whose member keys are the same, so a method's key serves its pairing and
+every call operand that names it, and otherwise through a pair of
+Body-policy sides, since pairing never carries a dependency's identity or a
+folded name. A method the speller cannot spell is
 an identity failure, classified through the text identity's mechanisms, and
 leaves the map; the text identity (declaring Type, name, arity, and the
 signature's types with their assembly names) is projected only for the

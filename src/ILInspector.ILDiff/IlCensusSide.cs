@@ -317,9 +317,26 @@ public sealed class IlCensusSide
     /// pairs bodies by: the same spelling a call operand naming the method
     /// memoizes, so a map built through the comparison's side spells each
     /// method once for both. A compiler-controlled definition is spelled (two
-    /// of them pair by occurrence); only a reference to one is refused.
+    /// of them pair by occurrence); only a reference to one is refused. A
+    /// definition the speller rejects is a failure of that method alone: the
+    /// spelling it left open is abandoned, and memoized keys stay valid.
     /// </summary>
-    internal StagedSymbolKey<IlOperandPart> Definition(MethodDefinitionHandle handle) => Row(handle, rewrite: true);
+    internal bool TryDefinition(MethodDefinitionHandle handle, out StagedSymbolKey<IlOperandPart> key, out string? failure)
+    {
+        try
+        {
+            key = Row(handle, rewrite: true);
+            failure = null;
+            return true;
+        }
+        catch (Exception ex) when (IsMalformed(ex))
+        {
+            Abandon();
+            key = default;
+            failure = ex.Message;
+            return false;
+        }
+    }
 
     StagedSymbolKey<IlOperandPart> TypeDefinition(TypeDefinitionHandle handle, bool rewrite)
     {
@@ -417,8 +434,11 @@ public sealed class IlCensusSide
         _rewriting = false;
     }
 
+    // A builder or speller used out of its lifetime is a defect, not malformed
+    // input, and is never classified as the image's.
     static bool IsMalformed(Exception ex)
-        => ex is BadImageFormatException or ArgumentException or InvalidOperationException;
+        => ex is BadImageFormatException or ArgumentException or InvalidOperationException
+            && ex is not SymbolKeyStateException;
 
     /// <summary>
     /// The side as the speller's consumer: a struct, so the speller's

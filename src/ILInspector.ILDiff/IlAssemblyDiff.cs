@@ -572,13 +572,9 @@ public static class IlAssemblyDiff
         var failures = ImmutableArray.CreateBuilder<IlIdentityResolutionFailure>();
         foreach (var handle in reader.MethodDefinitions)
         {
-            StagedSymbolKey<IlOperandPart> key;
-            try
+            if (!side.TryDefinition(handle, out StagedSymbolKey<IlOperandPart> key, out string? reason))
             {
-                key = side.Definition(handle);
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
-            {
+                // The method alone fails; the text identity names the mechanism.
                 var text = MethodKey(reader, handle, reader.GetMethodDefinition(handle));
                 AddIdentityFailure(
                     failures,
@@ -587,7 +583,7 @@ public static class IlAssemblyDiff
                     text.Failure ?? MetadataTypeNameFailure.ForMechanism(
                         MetadataTypeNameFailureMechanism.Signature,
                         handle,
-                        ex.Message));
+                        reason!));
                 continue;
             }
 
