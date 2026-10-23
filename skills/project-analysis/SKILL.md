@@ -225,9 +225,10 @@ maintainability score.
 Read structure from the `Dependency Structure` JSON document, which needs one
 exact library (`--namesake-library` or a dll path). `cycles` lists each
 namespace cycle, and every entry in `namespaces` carries `level` and
-`cycleIndex` (`null` outside any cycle), so a Markdown `cycle 0` means cycle
-number 0. Each `namespaceEdges` entry names its strongest contributing type
-pairs in `explainingTypeEdges`, with `remainingContributorCount` for the rest;
+zero-based `cycleIndex` (`null` outside any cycle). Markdown states the cycle
+count and members, and tags a member namespace `cycle 1 of N`. Each
+`namespaceEdges` entry names its strongest contributing type pairs in
+`explainingTypeEdges`, with `remainingContributorCount` for the rest;
 `typeEdges` holds every type pair:
 
 ```bash

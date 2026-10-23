@@ -1978,9 +1978,11 @@ currently `nonProjectable`.
 
 Exact `library ... -S "Dependency Structure"` reports internal namespace
 dependencies derived from whole-library method evidence. Namespace edges are
-the section's QuerySpace rows. Nodes show Type count and topological level;
-cycle members are emphasized and carry their exact cycle index. Isolated
-namespaces remain visible in an unwindowed graph:
+the section's QuerySpace rows. The section first states the cycle count
+(`Cycles`) and, under `Cycle Members`, each cycle's namespaces; edge selection
+never narrows either. Nodes show Type count and topological level; cycle
+members are emphasized and tagged with their cycle's 1-based position, such as
+`cycle 1 of 1`. Isolated namespaces remain visible in an unwindowed graph:
 
 ```bash
 dotnet-inspect library FluentValidation.dll \
@@ -1998,8 +2000,8 @@ dotnet-inspect library FluentValidation.dll \
 rendering; a selected graph retains only edge endpoints. `--count` executes the
 namespace-edge QuerySpace Count terminal. The section is explicit-only and is
 not added by verbosity or category selection. Markdown and tabular formats
-lower the Markout graph as an edge table; `--mermaid` lowers the same graph as
-a diagram.
+lower the cycle facts as tables and the Markout graph as an edge table;
+`--mermaid` lowers only the same graph, as a diagram.
 
 Exact `-S "Dependency Structure" --json` emits the complete Research document:
 Analysis and population receipts, Type and namespace nodes, internal and

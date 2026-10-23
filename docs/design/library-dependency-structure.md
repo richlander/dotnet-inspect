@@ -581,7 +581,16 @@ cache.
 3. **CLI:** an exact-name-only `library` section, `Dependency Structure`,
    outside the default `-v:m` view. It uses Markout for tables and the Mermaid
    graph lowering, and `--envelope` carries the complete Content with Share
-   and diagnostics.
+   and diagnostics. The document and row formats state the cycle facts
+   outright before the edges: a `Cycles` field carries the document's complete
+   cycle count, suffixed `among admitted call evidence` when the document is
+   qualified; a `Cycle Members` table, omitted when there are no cycles, lists
+   each cycle with its namespace count and members in issued order; and a
+   `Namespace Edges` graph lowers the selected edges. Edge selection never
+   narrows the count or the membership. Cycles are named by 1-based position
+   among all cycles, `cycle 1 of 1`, so that a namespace's tag never reads as
+   a count; JSON keeps the issued zero-based `cycleIndex`. Mermaid lowers only
+   the graph, with the same node tags.
 4. **Browser/Wasm:** the Library Analysis inspector exposes a dedicated
    **Dependencies** tab with a levelized namespace view, marked cycles, and
    drill-down from one selected namespace edge to its explaining Type edges.

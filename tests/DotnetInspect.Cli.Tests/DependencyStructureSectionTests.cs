@@ -33,13 +33,46 @@ public sealed class DependencyStructureSectionTests
         Assert.Contains(
             "&lt;global namespace&gt; (1 type, level 1)",
             result.Output);
-        Assert.Contains("cycle 0", result.Output);
+        Assert.Contains("cycle 1 of 1", result.Output);
+        string edges = result.Output[
+            result.Output.IndexOf(
+                "### Namespace Edges",
+                StringComparison.Ordinal)..];
         Assert.Equal(
             3,
-            result.Output.Split('\n').Count(
+            edges.Split('\n').Count(
                 static line => line.StartsWith("| ", StringComparison.Ordinal)
                     && !line.StartsWith("| From ", StringComparison.Ordinal)
                     && !line.StartsWith("| ---- ", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Markdown_StatesCycleCountAndMembership()
+    {
+        var result = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName = FixturePath,
+                IncludeSections = [SectionNames.DependencyStructure],
+                Markdown = true,
+                DependencyStructureRowSelection =
+                    RowSelectionIntent<string>.Create(
+                    [RowSelectionIntentOperation<string>.Head(1)]),
+            }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        // The fixture's unresolved calli qualifies the document, so the
+        // count carries its evidence qualification. Edge selection never
+        // narrows the count or the membership.
+        Assert.Contains(
+            "| Cycles | 1 among admitted call evidence |",
+            result.Output);
+        Assert.Contains("### Cycle Members", result.Output);
+        Assert.Contains(
+            "| cycle 1 of 1 | 3 | Alpha, Beta, Gamma |",
+            result.Output);
+        Assert.DoesNotContain("cycle 0", result.Output);
     }
 
     [Fact]
@@ -100,7 +133,7 @@ public sealed class DependencyStructureSectionTests
         Assert.Empty(result.Error);
         Assert.StartsWith("graph TD", result.Output);
         Assert.Contains(
-            "Alpha (1 type, level 1, cycle 0)",
+            "Alpha (1 type, level 1, cycle 1 of 1)",
             result.Output);
         Assert.Contains(
             "|\"1 relationship (1 call, 0 function references)\"|",
