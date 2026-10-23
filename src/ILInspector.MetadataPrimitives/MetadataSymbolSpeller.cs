@@ -41,11 +41,13 @@ public interface IMetadataRowKeys<TDomain, TRow>
 /// owns their storage and memo, so two consumers over one image spell one row
 /// with the same bytes. Guards bound every signature and specification decode;
 /// a rejected shape is a <see cref="BadImageFormatException"/>. The consumer is
-/// a type parameter so its resolve and embed are direct calls on the hot path.
+/// a struct type parameter, so the instantiation is specialized and its
+/// resolve and embed are direct calls on the hot path; a class argument would
+/// share code and dispatch through the interface.
 /// </summary>
 public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     where TDomain : unmanaged, Enum
-    where TRows : class, IMetadataRowKeys<TDomain, TRow>
+    where TRows : struct, IMetadataRowKeys<TDomain, TRow>
 {
     readonly MetadataSymbolScope _scope;
     readonly TRows _rows;
@@ -61,7 +63,6 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(names);
-        ArgumentNullException.ThrowIfNull(rows);
         _reader = reader;
         _scope = scope;
         _rows = rows;
