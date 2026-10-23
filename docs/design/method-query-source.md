@@ -756,12 +756,16 @@ The same declared support exposes two facts only when the producer asks:
 
 One execution-scoped lookup owns signature decoding. The packet caches Calls,
 the local signature, and each distinct field token for one physical MethodDef.
-Lanes in one shared execution group reuse those packet facts. The physical
-receipt charges each decode once; each request receipt receives the shared
-decode work once and retains its own logical read counts. Work records call
-sites, method and field operands, local signatures, generic-parameter rows,
-and signature bytes. `CallTargets` separately receipts target-resolution work
-for every site, including replay to a lane that reads cached Calls.
+The lookup also shares resolved MethodDef identities and MemberRef identities
+whose parent is not a caller-scoped TypeSpec across physical bodies; TypeSpec
+parents and MethodSpecs share identity only when the operand handle and
+structural caller scope both match. Lanes in one shared execution group reuse
+those packet facts. The physical receipt charges each decode once; each request
+receipt receives the shared decode work once and retains its own logical read
+counts. Work records call sites, method and field operands, local signatures,
+generic-parameter rows, and signature bytes. `CallTargets` separately receipts
+target-resolution work for every site, including replay to a lane that reads
+cached Calls.
 
 Shallow call-count producers do not declare `Calls`. They retain no
 instructions, decode no call operand or external signature, construct no
@@ -1491,6 +1495,7 @@ Calls support is gated in Release:
 - `MethodQuerySource_CallsAbsentWhenUndeclared`
 - `MethodQuerySource_CallsRequireDeclaration`
 - `MethodQuerySource_CallsReceiptExactMethodWork`
+- `MethodQuerySource_SharesScopeIndependentCalleeIdentityAcrossBodies`
 - `MethodQuerySource_ClosedGenericFieldTypeIsInstantiated`
 - `MethodQuerySource_CalleeIdentityPreservesPlatformContractHit`
 - `MethodQuerySource_CallsAreDecodedOnceAcrossLanes`
