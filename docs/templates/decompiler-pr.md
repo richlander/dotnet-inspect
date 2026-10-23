@@ -24,8 +24,9 @@ PR comment, not in this description.
 <!--
 Required for every behavior-changing raise. State the proof before the
 output; "the tests pass" is not a lowering or ownership proof. For an
-invalid-`Full` or output-correctness fix, use the correctness-fix table in the
-reference instead and keep the structural review below.
+invalid-`Full` or output-correctness fix, add the correctness-fix table from
+the reference alongside this one, or in its place when no raise changes, and
+keep the structural review below.
 -->
 
 | Obligation | Contract |
@@ -52,6 +53,9 @@ claimed change: exact result}. Acquire exact base and head
 `DecompilerHarness --structural-review`; the attempt is required for every
 output-changing PR (reference: Two-lens review).
 
+PDB Source → After (`-S "Source Diff"` at the head): {Different / Identical /
+PDB Source unavailable; compile-back status}. Not directional.
+
 ### Before
 
 ```csharp
@@ -77,8 +81,14 @@ output-changing PR (reference: Two-lens review).
 - Commit: `{head}`
 
 Fully raised: {The After decompilation is in the fully raised state. / the
-intended fully raised C# follows, with tracking issue #{issue} naming the
+intended fully raised C# follows, and each linked tracking issue names the
 remaining slice}
+
+```csharp
+// intended fully raised output; delete when After is fully raised
+```
+
+- Tracking issue: #{issue} — {remaining slice}
 
 ## Corpus card
 

@@ -136,8 +136,9 @@ physical method identities differ, write
 the standalone Before and After bodies. This presentation boundary does not
 change the raise verdict.
 
-Record the PDB Source → After lens beside the structural review as Not
-directional: its checksum proves agreement with the Portable PDB declaration,
+The PDB Source → After lens is part of the required attempt; record it
+beside the structural review as Not directional (retain a generated
+unavailable result rather than deleting the lens): its checksum proves agreement with the Portable PDB declaration,
 not independent build provenance, and compile-back status stays an
 independent oracle. When no matching C# is available, retain the generated
 unavailable result and treat raw IL as the compiled-body evidence.

@@ -16,9 +16,11 @@ For raising, typing, structuring, fidelity, or printer changes, continue to
 [raise-work discipline](decompiler-raise-discipline.md) and use the one-page
 [decompiler PR template](templates/decompiler-pr.md), citing sections of the
 [decompiler PR reference](templates/decompiler-pr-reference.md) only when they
-apply. A PR edits a design document only when it changes an owned contract; a
-narrow fix that keeps every owned claim names the owner and changes nothing
-there. The harness command reference lives in
+apply. A PR changes a design document's contract only when it changes an
+owned claim; a narrow fix that keeps every owned claim names the owner and
+adds only the records another owner requires, such as the real-asset record
+[Development practices](development-practices.md#ground-product-behavior-in-real-assets)
+asks of a significant fix. The harness command reference lives in
 [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md).
 
 The core idea is to stop treating the harness modes as a bag of independent
