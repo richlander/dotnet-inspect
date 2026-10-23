@@ -1,0 +1,78 @@
+[
+  {
+    "name": "version",
+    "argv": [
+      "--version"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 15,
+    "stdout_sha256": "e1c140afe4471f6ff5f9af05630c86266f4365f027f53b5a83e52d89a72d1b85",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-collection",
+    "argv": [
+      "explain",
+      "vocabularies",
+      "--json"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 2975,
+    "stdout_sha256": "4dac7db0c6581d93026e861c4aaa30ad020c3ae79ce2e713cf71d701d438dff5",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-hal-selected",
+    "argv": [
+      "explain",
+      "vocabularies/csharp.body-kinds",
+      ".hal",
+      "--json",
+      "-Q",
+      "ObjectCreationExpression,BreakStatement"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 656,
+    "stdout_sha256": "7b3a345547eddb8723a12856855081c4cf4b865852e4109705b7e8b6a6310ca0",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "vocabulary-data-selected",
+    "argv": [
+      "explain",
+      "vocabularies/csharp.body-kinds",
+      ".data",
+      "--json",
+      "-Q",
+      "ObjectCreationExpression,BreakStatement"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 540,
+    "stdout_sha256": "f732f0ecf4de1fb69de71d836cbfb61657ec9096828cab035d181908ef52ef91",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "package-hal-selected",
+    "argv": [
+      "package",
+      "query",
+      "--explain",
+      "-Q",
+      "depends,dependency-target"
+    ],
+    "exit": 0,
+    "expected_exit": 0,
+    "stdout_bytes": 4469,
+    "stdout_sha256": "00b13c0fe164fbef89f01906cef2580050f3350ff1a82cfe9b33e6ad7478f3a3",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

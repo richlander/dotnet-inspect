@@ -2822,7 +2822,7 @@ public static partial class AttributeReader
             == AttributeTypeIdentityDisposition.Match;
     }
 
-    static bool IsTopLevelAttributeType(
+    internal static bool IsTopLevelAttributeType(
         MetadataReader reader,
         EntityHandle constructor,
         string @namespace,

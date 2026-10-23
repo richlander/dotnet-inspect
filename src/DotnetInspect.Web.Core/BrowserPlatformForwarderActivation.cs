@@ -471,6 +471,16 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
             PlatformHouseOutcome<
                 PlatformTypeDefinitionValue.Implementation<
                     PlatformTypeDefinitionResolutionResult>>.Rejected
+                        rejected
+                when IsStaleCandidate(rejected.Receipt) =>
+                    Blocked(
+                        action,
+                        new BrowserPlatformForwarderActivationBlock.Stale(
+                            BrowserPlatformForwarderStaleReason.Result,
+                            rejected.Receipt)),
+            PlatformHouseOutcome<
+                PlatformTypeDefinitionValue.Implementation<
+                    PlatformTypeDefinitionResolutionResult>>.Rejected
                         rejected =>
                 Blocked(
                     action,
@@ -499,6 +509,15 @@ internal sealed class BrowserPlatformForwarderActivation : IDisposable
                         failed.Receipt)),
             _ => throw new InvalidOperationException(
                 "Unknown PlatformHouse forwarder-resolution outcome."),
+        };
+
+    private static bool IsStaleCandidate(PlatformHouseReceipt receipt) =>
+        receipt.Termination is PlatformHouseTermination.Rejected
+        {
+            Rejection: PlatformHouseRejection.OwnerEvidence
+            {
+                Kind: PlatformHouseRejectionKind.StaleCandidate,
+            },
         };
 
     private static BrowserPlatformForwarderActivationResult Project(

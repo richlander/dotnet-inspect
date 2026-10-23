@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -7,30 +8,6 @@ using System.Text;
 using InertText;
 
 namespace ILInspector.Metadata;
-
-/// <summary>
-/// One metadata Name range whose UTF-8 meaning is established by the Metadata grammar.
-/// </summary>
-public readonly struct MetadataUtf8Name
-{
-    private readonly OpaqueByteRange _range;
-
-    internal MetadataUtf8Name(OpaqueByteRange range) =>
-        _range = range;
-
-    /// <summary>Tests an exact caller-supplied UTF-8 sequence without decoding this Name.</summary>
-    public bool ValueTextEquals(ReadOnlySpan<byte> utf8Text) =>
-        new Utf8RangeReader(_range).ValueTextEquals(utf8Text);
-
-    internal OpaqueByteRange Range => _range;
-
-    /// <summary>Constructs the policy-contained UTF-8 presentation value.</summary>
-    public InertUtf8String Contain(TextPolicy policy) =>
-        new(policy, new Utf8RangeReader(_range));
-
-    /// <summary>The number of exact metadata Name bytes.</summary>
-    public int Length => _range.Length;
-}
 
 /// <summary>
 /// A host-owned exact Type query with one UTF-8 encoding of its structured
@@ -92,6 +69,58 @@ public sealed class MetadataUtf8TypeDefinitionName
                 .. Segments.Select(segment =>
                     segment.Contain(policy)),
             ]);
+
+    /// <summary>
+    /// Contains this identity for display, removing a segment's canonical arity suffix when
+    /// it declares exactly the generic parameters that segment introduces.
+    /// </summary>
+    /// <returns>
+    /// The display name, or <see langword="null"/> when a generic parameter in
+    /// <paramref name="signature"/> names a segment this identity does not have.
+    /// </returns>
+    /// <remarks>
+    /// A segment whose suffix disagrees with its introduced count keeps its exact Name, which
+    /// is the <see cref="MetadataTypeNameFormatter"/> rule for a Type display name.
+    /// </remarks>
+    public MetadataContainedTypeDefinitionName? ContainDisplay(
+        TextPolicy policy,
+        MetadataTypeDeclarationSignature signature)
+    {
+        ArgumentNullException.ThrowIfNull(signature);
+
+        Span<int> introduced = Segments.Length <= 32
+            ? stackalloc int[Segments.Length]
+            : new int[Segments.Length];
+        introduced.Clear();
+        foreach (MetadataTypeGenericParameterDeclarationEvidence parameter
+            in signature.GenericParameters)
+        {
+            if ((uint)parameter.DefinitionSegmentIndex
+                >= (uint)Segments.Length)
+            {
+                return null;
+            }
+            introduced[parameter.DefinitionSegmentIndex]++;
+        }
+
+        var segments =
+            ImmutableArray.CreateBuilder<InertUtf8String>(
+                Segments.Length);
+        for (int i = 0; i < Segments.Length; i++)
+        {
+            MetadataUtf8Name segment = Segments[i];
+            segments.Add(
+                segment.TryRemoveAritySuffix(
+                    introduced[i],
+                    out MetadataUtf8Name withoutArity)
+                    ? withoutArity.Contain(policy)
+                    : segment.Contain(policy));
+        }
+
+        return new(
+            Namespace.Contain(policy),
+            segments.MoveToImmutable());
+    }
 }
 
 /// <summary>
@@ -206,35 +235,22 @@ internal static class MetadataUtf8TypeDefinitionNameReader
                 totalLength + sourceRanges[i + 1].Length);
         }
 
-        byte[] bytes =
-            GC.AllocateUninitializedArray<byte>(totalLength);
-        var backing = new OpaqueByteBacking(bytes);
-        int destinationOffset = 0;
+        var builder = new OpaqueByteRangeBuilder(totalLength);
+        Span<OpaqueByteRangeSlot> slots =
+            stackalloc OpaqueByteRangeSlot[consumedNodes + 1];
+        for (int i = 0; i < sourceRanges.Length; i++)
+            slots[i] = Append(builder, heap, sourceRanges[i]);
 
-        var @namespace =
-            new MetadataUtf8Name(
-                CopyRange(
-                    heap,
-                    bytes,
-                    backing,
-                    sourceRanges[0],
-                    ref destinationOffset));
+        OpaqueByteRange population = builder.Freeze();
         var segments =
             ImmutableArray.CreateBuilder<MetadataUtf8Name>(
                 consumedNodes);
         for (int i = 0; i < consumedNodes; i++)
-        {
-            segments.Add(
-                new MetadataUtf8Name(
-                    CopyRange(
-                        heap,
-                        bytes,
-                        backing,
-                        sourceRanges[i + 1],
-                        ref destinationOffset)));
-        }
+            segments.Add(new(population.Slice(slots[i + 1])));
 
-        return new(@namespace, segments.MoveToImmutable());
+        return new(
+            new(population.Slice(slots[0])),
+            segments.MoveToImmutable());
     }
 
     private static BlobReader GetStringHeap(
@@ -254,32 +270,22 @@ internal static class MetadataUtf8TypeDefinitionNameReader
             return false;
 
         heap.Offset = offset;
-        return Utf8RangeReader.ValueTextEquals(
-            expected,
+        return expected.SequenceEqual(
             new ReadOnlySpan<byte>(
                 heap.CurrentPointer,
                 length));
     }
 
-    private static OpaqueByteRange CopyRange(
+    private static unsafe OpaqueByteRangeSlot Append(
+        OpaqueByteRangeBuilder builder,
         BlobReader heap,
-        byte[] destination,
-        OpaqueByteBacking backing,
-        (int Offset, int Length) source,
-        ref int destinationOffset)
+        (int Offset, int Length) source)
     {
         heap.Offset = source.Offset;
-        heap.ReadBytes(
-            source.Length,
-            destination,
-            destinationOffset);
-        var range = new OpaqueByteRange(
-            backing,
-            destinationOffset,
-            source.Length);
-        destinationOffset = checked(
-            destinationOffset + source.Length);
-        return range;
+        return builder.Append(
+            new ReadOnlySpan<byte>(
+                heap.CurrentPointer,
+                source.Length));
     }
 
     private static (int Offset, int Length) GetRange(
@@ -326,37 +332,47 @@ internal static class MetadataUtf8TypeDefinitionNameFactory
                 totalLength + Encoding.UTF8.GetByteCount(segment));
         }
 
-        byte[] bytes =
-            GC.AllocateUninitializedArray<byte>(totalLength);
-        var backing = new OpaqueByteBacking(bytes);
-        int offset = 0;
-        MetadataUtf8Name @namespace =
-            Encode(type.Namespace, bytes, backing, ref offset);
+        var builder = new OpaqueByteRangeBuilder(totalLength);
+        OpaqueByteRangeSlot @namespace =
+            Append(builder, type.Namespace);
+        Span<OpaqueByteRangeSlot> slots =
+            type.Segments.Length <= 32
+                ? stackalloc OpaqueByteRangeSlot[type.Segments.Length]
+                : new OpaqueByteRangeSlot[type.Segments.Length];
+        for (int i = 0; i < slots.Length; i++)
+            slots[i] = Append(builder, type.Segments[i]);
+
+        OpaqueByteRange population = builder.Freeze();
         var segments =
             ImmutableArray.CreateBuilder<MetadataUtf8Name>(
-                type.Segments.Length);
-        foreach (string segment in type.Segments)
-        {
-            segments.Add(
-                Encode(segment, bytes, backing, ref offset));
-        }
+                slots.Length);
+        foreach (OpaqueByteRangeSlot slot in slots)
+            segments.Add(new(population.Slice(slot)));
 
-        return new(@namespace, segments.MoveToImmutable());
+        return new(
+            new(population.Slice(@namespace)),
+            segments.MoveToImmutable());
     }
 
-    private static MetadataUtf8Name Encode(
-        string value,
-        byte[] destination,
-        OpaqueByteBacking backing,
-        ref int offset)
+    private static OpaqueByteRangeSlot Append(
+        OpaqueByteRangeBuilder builder,
+        string value)
     {
-        int length =
-            Encoding.UTF8.GetBytes(
-                value,
-                destination.AsSpan(offset));
-        var range =
-            new OpaqueByteRange(backing, offset, length);
-        offset = checked(offset + length);
-        return new(range);
+        int length = Encoding.UTF8.GetByteCount(value);
+        byte[]? rented = null;
+        Span<byte> utf8 =
+            length <= 256
+                ? stackalloc byte[length]
+                : rented = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            int written = Encoding.UTF8.GetBytes(value, utf8);
+            return builder.Append(utf8[..written]);
+        }
+        finally
+        {
+            if (rented is not null)
+                ArrayPool<byte>.Shared.Return(rented);
+        }
     }
 }

@@ -4,7 +4,6 @@ import {
   alphabetizeLibrarySubjects,
   bindLibrarySubjectNav,
   librarySubjectDisplayLabels,
-  preferredLibrarySubjectId,
   renderLibrarySubjectNav,
 } from "../src/library-subject-nav.ts";
 import { fakeDom } from "./fake-dom.ts";
@@ -169,7 +168,27 @@ test("Library navigation renders unknown Counts instead of zero", () => {
   assert.doesNotMatch(html, /0 types|0 members/);
 });
 
-test("Library subjects sort alphabetically and prefer a case-insensitive namesake", () => {
+test("Library navigation does not report pending Summary Counts as unavailable", () => {
+  const html = renderLibrarySubjectNav({
+    libraries: [{
+      id: "compile:lib/net10.0/Example.Pending.dll",
+      name: "Example.Pending",
+      asset: "lib/net10.0/Example.Pending.dll",
+      types: null,
+      members: null,
+      countsPending: true,
+      unavailableDetail: null,
+    }],
+    selectedLibraryId: "compile:lib/net10.0/Example.Pending.dll",
+    escapeHtml,
+  });
+
+  assert.match(html, /Example\.Pending/);
+  assert.doesNotMatch(html, /unavailable/i);
+  assert.doesNotMatch(html, /0 types|0 members/);
+});
+
+test("Library subjects sort alphabetically for presentation", () => {
   const libraries = [
     {
       id: "asset:zulu",
@@ -191,13 +210,6 @@ test("Library subjects sort alphabetically and prefer a case-insensitive namesak
   assert.deepEqual(
     alphabetizeLibrarySubjects(libraries).map(library => library.id),
     ["asset:alpha", "asset:namesake", "asset:zulu"]);
-  assert.equal(
-    preferredLibrarySubjectId(libraries, "Example.Package"),
-    "asset:namesake");
-  assert.equal(
-    preferredLibrarySubjectId(libraries, "Missing.Package"),
-    "asset:alpha");
-  assert.equal(preferredLibrarySubjectId([], "Example.Package"), null);
 });
 
 test("Library navigation qualifies duplicate names with product-owned assets", () => {

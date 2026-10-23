@@ -29,16 +29,12 @@ public sealed record TypeSubjectInspectionPlan
 
         Declarations = declarations;
         ExactInput = exactInput;
-        ContainedExactInput =
-            exactInput?.Contain(TextPolicy.Field);
     }
 
     public MetadataTypeDefinitionName Type { get; }
     public ApiSurfaceExtractionBounds Bounds { get; }
     public TypeMemberGroupPopulationRequest? Declarations { get; }
     public MetadataExactTypeInput? ExactInput { get; }
-    internal MetadataContainedTypeDefinitionName? ContainedExactInput
-    { get; }
 }
 
 public sealed record TypeSubjectInspectionRequest
@@ -188,12 +184,50 @@ public sealed record TypeSubject
     public LibraryAssemblyIdentity Assembly { get; }
     public Guid ModuleVersionId { get; }
     public MetadataTypeDefinitionName Type { get; }
+    /// <summary>
+    /// The matched byte-native name contained for presentation, created on first read.
+    /// </summary>
+    /// <remarks>
+    /// Most Type outputs never present this name as bytes, so containment waits for the sink
+    /// that does. Absent for a deserialized subject, which carries no byte-native identity.
+    /// </remarks>
     [JsonIgnore]
-    public MetadataContainedTypeDefinitionName? ContainedType
+    public MetadataContainedTypeDefinitionName? ContainedType =>
+        _matchedName?.Contained;
+
+    internal MetadataUtf8TypeDefinitionName? MatchedName
     {
-        get;
-        internal init;
+        get => _matchedName?.Name;
+        init => _matchedName = value is null ? null : new(value);
     }
+
+    // A reference holder rather than a cache field on the record: record equality compares
+    // fields, so a field filled on first read would make otherwise equal copies differ.
+    private readonly LazyContainedName? _matchedName;
+
+    /// <summary>
+    /// The byte-native generic-parameter declarations behind <see cref="Signature"/>.
+    /// </summary>
+    /// <remarks>
+    /// Absent for a deserialized subject, which carries only the contained
+    /// <see cref="Signature"/> names.
+    /// </remarks>
+    [JsonIgnore]
+    public MetadataTypeDeclarationSignature? DeclarationSignature { get; internal init; }
+
+    /// <summary>
+    /// Contains the matched name for display, without each segment's canonical arity suffix.
+    /// </summary>
+    /// <returns>
+    /// The display name, or <see langword="null"/> when the subject carries no byte-native
+    /// identity or declarations.
+    /// </returns>
+    public MetadataContainedTypeDefinitionName? ContainDisplayType() =>
+        _matchedName is { } matched
+            && DeclarationSignature is { } signature
+            ? matched.Name.ContainDisplay(TextPolicy.Field, signature)
+            : null;
+
     public int TypeDefinitionToken { get; }
     public TypeDocumentDeclarationSignature Signature { get; }
     public MetadataTypeDeclarationCategory Category { get; }
@@ -204,6 +238,16 @@ public sealed record TypeSubject
     public bool IsReadOnly { get; }
     public bool DefinesCoreLibraryRoot { get; }
     public int? DeclaringTypeDefinitionToken { get; }
+
+    private sealed class LazyContainedName(MetadataUtf8TypeDefinitionName name)
+    {
+        private MetadataContainedTypeDefinitionName? _contained;
+
+        internal MetadataUtf8TypeDefinitionName Name => name;
+
+        internal MetadataContainedTypeDefinitionName Contained =>
+            _contained ??= name.Contain(TextPolicy.Field);
+    }
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]

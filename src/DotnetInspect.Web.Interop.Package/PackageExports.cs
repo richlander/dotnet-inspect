@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
@@ -46,13 +47,15 @@ public static partial class PackageExports
     public static async Task<string> QueryPackage(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string runtimeIdentifier = "")
     {
         BrowserPackageLoadResult result =
             await PackageLoadAsync(
                 packageId,
                 version,
                 targetFramework,
+                runtimeIdentifier,
                 includeSurface: true);
         return JsonSerializer.Serialize(
             result,
@@ -66,13 +69,15 @@ public static partial class PackageExports
     public static async Task<string> QueryPackageSummary(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string runtimeIdentifier = "")
     {
         BrowserPackageLoadResult result =
             await PackageLoadAsync(
                 packageId,
                 version,
                 targetFramework,
+                runtimeIdentifier,
                 includeSurface: false);
         return JsonSerializer.Serialize(
             result,
@@ -105,12 +110,21 @@ public static partial class PackageExports
                                     coordinate,
                                     deadline.Token)
                                 .ConfigureAwait(false);
+                    string? defaultLibraryId =
+                        SelectFirstLibraryId(
+                            coordinate,
+                            packageChildren.Content);
                     return new BrowserPackageRootLoadResult(
                         BrowserPackageWireProjection.Project(
                             packageChildren),
                         BrowserPackageWireProjection.Project(
                             coordinate.Package.Documents()),
-                        coordinate.DefaultAsset?.Id);
+                        defaultLibraryId)
+                    {
+                        RuntimePopulation =
+                            BrowserPackageWireProjection.Project(
+                                coordinate.RuntimePopulationChoice),
+                    };
                 },
                 BrowserPackageWorkspace.PackageOperationTimeout);
         return JsonSerializer.Serialize(
@@ -123,14 +137,21 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
+        string runtimeIdentifier,
         bool includeSurface)
     {
         BrowserPackageRealizationResult result =
             includeSurface
                 ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
-                    packageId, version, targetFramework)
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier)
                 : await BrowserPackageWorkspace.InventoryWithSettlementAsync(
-                    packageId, version, targetFramework);
+                    packageId,
+                    version,
+                    targetFramework,
+                    runtimeIdentifier);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(
@@ -139,7 +160,8 @@ public static partial class PackageExports
                 PackageInfo: null,
                 PackageChildren: null,
                 Documents: [],
-                Surface: null);
+                Surface: null,
+                RuntimePopulation: null);
         }
 
         BrowserPackageRealization realization =
@@ -149,6 +171,10 @@ public static partial class PackageExports
                     realization.Coordinate,
                     CancellationToken.None)
                 .ConfigureAwait(false);
+        string? defaultLibraryId =
+            SelectFirstLibraryId(
+                realization.Coordinate,
+                packageChildren.Content);
         BrowserPackageSurface? surface = null;
         if (includeSurface)
         {
@@ -157,10 +183,15 @@ public static partial class PackageExports
                     realization,
                     CancellationToken.None);
             BrowserInspectionScope scope = scopeLease.Scope;
-            surface = BrowserPackageWireProjection.Project(
+            BrowserPackageSurfaceInfo projected =
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
-                    scope.Coordinates[0]));
+                    scope.Coordinates[0]) with
+                {
+                    DefaultAssemblyId = defaultLibraryId,
+                };
+            surface = BrowserPackageWireProjection.Project(
+                projected);
         }
 
         return new(
@@ -173,8 +204,49 @@ public static partial class PackageExports
                 realization.Coordinate.Package.Documents()),
             surface)
         {
-            DefaultLibraryId = realization.Coordinate.DefaultAsset?.Id,
+            DefaultLibraryId = defaultLibraryId,
+            RuntimePopulation =
+                BrowserPackageWireProjection.Project(
+                    realization.Coordinate.RuntimePopulationChoice),
         };
+    }
+
+    private static string? SelectFirstLibraryId(
+        BrowserPackageCoordinate coordinate,
+        PackageChildrenDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(coordinate);
+        ArgumentNullException.ThrowIfNull(document);
+        if (coordinate.DefaultAsset is { } compileDefault
+            && document.Libraries.Any(library =>
+                library.AssetId.ToString().Equals(
+                    compileDefault.Id,
+                    StringComparison.Ordinal)))
+        {
+            return compileDefault.Id;
+        }
+
+        (PackageLibraryChild Library, PackageLibraryIdentity Identity)[] rows =
+        [
+            .. document.Libraries.Select(
+                static library =>
+                    (
+                        library,
+                        new PackageLibraryIdentity(
+                            library.AssetPath.ToString(),
+                            library.AssemblyName.ToString()))),
+        ];
+        FirstPackageLibrarySelection selection =
+            PackageLibraryOrder.SelectFirst(
+                [.. rows.Select(static row => row.Identity)],
+                [],
+                document.Subject.PackageId.ToString());
+        if (selection is not FirstPackageLibrarySelection.Selected selected)
+            return null;
+
+        return rows.Single(
+                row => ReferenceEquals(row.Identity, selected.Library))
+            .Library.AssetId.ToString();
     }
 
     private static async ValueTask<
@@ -361,10 +433,10 @@ public static partial class PackageExports
                     return new PackageLibraryChildCandidate(
                         path,
                         path,
-                        Path.GetFileNameWithoutExtension(path),
+                        PackageEntryPath.GetStemName(path),
                         measurements.SelectedTargetFramework,
                         entryPointFileNames.Contains(
-                            Path.GetFileName(path))
+                            PackageEntryPath.GetLeafName(path))
                             ? PackageLibraryChildRole.ToolEntryPoint
                             : PackageLibraryChildRole.ToolLibrary);
                 })
@@ -549,18 +621,32 @@ public static partial class PackageExports
     /// <see cref="PackageDependencyEvidenceQuery"/>, and the assembly-context query owns the
     /// metadata session. This method only adapts their typed results for the browser.
     /// </summary>
+    public static Task<string> QueryPackageDependencies(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId) =>
+        QueryPackageDependencies(
+            packageId,
+            version,
+            targetFramework,
+            assemblyId,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryPackageDependencies(
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        string? runtimeIdentifier)
     {
         BrowserPackageDependencies dependencies = await PackageDependenciesAsync(
             packageId,
             version,
             targetFramework,
-            assemblyId);
+            assemblyId,
+            runtimeIdentifier);
         return JsonSerializer.Serialize(
             dependencies,
             BrowserPackageJsonContext.Default.BrowserPackageDependencies);
@@ -781,13 +867,15 @@ public static partial class PackageExports
         string packageId,
         string version,
         string targetFramework,
-        string assemblyId)
+        string assemblyId,
+        string? runtimeIdentifier)
     {
         BrowserPackageCoordinate realizedCoordinate =
             await BrowserPackageWorkspace.ResolveAsync(
                 packageId,
                 version,
-                targetFramework);
+                targetFramework,
+                runtimeIdentifier);
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 [realizedCoordinate],
@@ -1072,18 +1160,97 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// Visually contains sanitized package-document HTML immediately before browser publication.
-    /// Markdown structure and active-content sanitization have already been applied by the host.
+    /// Contains one bounded generation of identified package-document presentation leaves.
+    /// The host retains structure and verifies exact current-generation correspondence before
+    /// constructing a completed leaf population.
     /// </summary>
     [JSExport]
-    public static string ContainPackageDocumentHtml(string html)
+    public static string ContainPackageDocumentLeaves(
+        string generation,
+        string leavesJson)
     {
-        BrowserPackageDocumentHtml document =
-            BrowserPackageWireProjection.ProjectDocumentHtml(html);
+        BrowserDocumentPresentationLeaf[] leaves =
+            JsonSerializer.Deserialize(
+                leavesJson,
+                BrowserPackageJsonContext.Default
+                    .BrowserDocumentPresentationLeafArray)
+            ?? throw new ArgumentException(
+                "A package-document presentation-leaf batch is required.",
+                nameof(leavesJson));
+
+        PresentationLeafContainmentOutcome contained =
+            PresentationLeafContainment.Execute(
+                generation,
+                [.. leaves.Select(BrowserPackageWireProjection.Project)],
+                new(
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerCollectionEntries,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters));
+        BrowserDocumentLeafContainmentOutcome outcome =
+            BrowserPackageWireProjection.Project(contained);
+        using JsonDocument document = JsonSerializer.SerializeToDocument(
+            outcome,
+            BrowserPackageJsonContext.Default
+                .BrowserDocumentLeafContainmentOutcome);
+        long collectionEntries =
+            BrowserOrdinaryWorkerJsonBudget.OrdinaryWorkerResultTupleOverhead
+            + BrowserOrdinaryWorkerJsonBudget.CollectionEntries(
+                document.RootElement);
+        if (collectionEntries
+            > BrowserOrdinaryWorkerJsonBudget
+                .MaxOrdinaryWorkerCollectionEntries)
+        {
+            outcome = DocumentLeafContainmentRejection(
+                generation,
+                BrowserDocumentLeafContainmentFailureKind
+                    .ResultCollectionTooLarge,
+                collectionEntries,
+                BrowserOrdinaryWorkerJsonBudget
+                    .MaxOrdinaryWorkerCollectionEntries);
+        }
+        else
+        {
+            long serializedCharacters =
+                BrowserOrdinaryWorkerJsonBudget.JsonStringifyCharacters(
+                    document.RootElement)
+                + BrowserOrdinaryWorkerJsonBudget
+                    .OrdinaryWorkerResultTupleOverhead;
+            if (serializedCharacters
+                > BrowserOrdinaryWorkerJsonBudget
+                    .MaxOrdinaryWorkerJsonCharacters)
+            {
+                outcome = DocumentLeafContainmentRejection(
+                    generation,
+                    BrowserDocumentLeafContainmentFailureKind
+                        .SerializedResultTooLarge,
+                    serializedCharacters,
+                    BrowserOrdinaryWorkerJsonBudget
+                        .MaxOrdinaryWorkerJsonCharacters);
+            }
+        }
+
         return JsonSerializer.Serialize(
-            document,
-            BrowserPackageJsonContext.Default.BrowserPackageDocumentHtml);
+            outcome,
+            BrowserPackageJsonContext.Default
+                .BrowserDocumentLeafContainmentOutcome);
     }
+
+    private static BrowserDocumentLeafContainmentRejected
+        DocumentLeafContainmentRejection(
+        string? generation,
+        BrowserDocumentLeafContainmentFailureKind kind,
+        long actual,
+        long limit) =>
+        new(
+            generation,
+            new(
+                kind,
+                Identity: null,
+                Actual: actual,
+                Limit: limit));
 
     /// <summary>
     /// One exact member's unified documentation outcome from the

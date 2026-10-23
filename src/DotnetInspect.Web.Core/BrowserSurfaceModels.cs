@@ -66,6 +66,8 @@ internal sealed record BrowserTypeSurfaceInfo(
     BrowserMemberSurfaceInfo[] Api,
     string? PlatformPack);
 
+// API inventory carries the documentation identity only. Documentation content is acquired
+// separately for an exact Member and belongs in the application model after that request settles.
 internal sealed record BrowserMemberSurfaceInfo(
     string Name,
     string Kind,
@@ -84,9 +86,6 @@ internal sealed record BrowserMemberSurfaceInfo(
     string? ReturnType,
     ImmutableArray<BrowserParameterSurfaceInfo> Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserExceptionSurfaceInfo[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -100,12 +99,7 @@ internal readonly record struct BrowserParameterSurfaceInfo(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
-
-internal sealed record BrowserExceptionSurfaceInfo(
-    string Type,
-    string Description);
+    string? DefaultValue);
 
 internal readonly record struct BrowserMemberBodySelectorInfo(
     int Token,

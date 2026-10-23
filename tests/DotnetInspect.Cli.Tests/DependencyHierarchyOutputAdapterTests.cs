@@ -305,7 +305,6 @@ public sealed class DependencyHierarchyOutputAdapterTests
                     document,
                     rows,
                     format,
-                    tree: false,
                     embeddedMermaid: false,
                     noHeader: false,
                     compactJson: false));

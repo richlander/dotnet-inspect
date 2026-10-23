@@ -20,8 +20,13 @@ public static partial class PackageExports
     public static async Task<string> QueryPackageHierarchy(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string? traversalTargetFramework)
     {
+        TraversalTargetFrameworkPolicy traversalTargetPolicy =
+            traversalTargetFramework is null
+                ? TraversalTargetFrameworkPolicy.ProductDefault
+                : new TraversalTargetFrameworkPolicy(traversalTargetFramework);
         BrowserPackageHierarchy hierarchy =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 async deadline =>
@@ -46,10 +51,16 @@ public static partial class PackageExports
                                 : throw new InvalidOperationException(
                                     "The Package hierarchy requested an "
                                         + "unauthorized package source."));
-                    var candidateSource =
-                        new AuthorizedPackageDependencyCandidateSource(
-                            BrowserPackageWorkspace.PackageSourceAuthorization,
-                            sourceLease);
+                    TimeSpan operationTimeout =
+                        BrowserPackageWorkspace
+                            .SourceSettlementOperationTimeout(
+                                deadline.Remaining);
+                    using PackageSourceOperationLease traversalOperation =
+                        sourceLease.IssueOperationLease(
+                            deadline.Token,
+                            operationTimeout,
+                            operationTimeout,
+                            PackageDependencyTraversalQuery.DefaultMaximumConcurrentSteps);
                     PackageDependencyTraversalOutcome traversal =
                         await PackageDependencyTraversalQuery.ExecuteAsync(
                             new PackageDependencyTraversalRequest(
@@ -59,15 +70,14 @@ public static partial class PackageExports
                                         .RecursiveSources,
                                     PackageDependencyTraversalRootRecurrenceAuthority
                                         .ExactCoordinate)],
-                                new TraversalTargetFrameworkPolicy(
-                                    coordinate.Framework),
+                                traversalTargetPolicy,
                                 new PackageDependencyTraversalCandidateAdapter(
-                                    candidateSource),
-                                new AuthorizedPackageDependencyManifestSource(
-                                    candidateSource),
+                                    BrowserPackageWorkspace
+                                        .PackageSourceAuthorization),
+                                new AuthorizedPackageDependencyManifestSource(),
                                 new PackageDependencyTraversalWorkBudget(
                                     1_024, 16_384)),
-                            deadline.Token).ConfigureAwait(false);
+                            traversalOperation).ConfigureAwait(false);
                     DependencyHierarchyDocument document =
                         DependencyHierarchyDocument.Create(
                             PackageTraversalGraphProjection.Project(
@@ -102,6 +112,7 @@ public static partial class PackageExports
                         coordinate.PackageId,
                         coordinate.Version,
                         coordinate.Framework,
+                        traversalTargetPolicy.TargetFramework,
                         traversal.IsComplete,
                         traversal.Roots[0].Completion.ToString(),
                         rows,
@@ -127,7 +138,7 @@ public static partial class PackageExports
             PackageDependencyTraversalManifestFailureDetail.Acquisition =>
                 $"Could not acquire the dependency manifest for {subject}.",
             PackageDependencyTraversalManifestFailureDetail.IncompleteAcquisition =>
-                $"Timed out acquiring the dependency manifest for {subject}.",
+                $"Timed out before dependency traversal could finish for {subject}.",
             PackageDependencyTraversalManifestFailureDetail.Identity =>
                 $"The dependency manifest for {subject} is invalid.",
             PackageDependencyTraversalManifestFailureDetail.Declaration =>

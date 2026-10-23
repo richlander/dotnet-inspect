@@ -45,6 +45,7 @@ function posting(
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       operation: "Initialize",
@@ -119,6 +120,7 @@ function posting(
       navigationId: "package-navigation",
       contextIndex: 0,
       consumerPackageSubjectId: "package-subject",
+      defaultLibrary: null,
       summary: {
         selectedCompileFramework: null,
         libraryCount: 1,
@@ -180,6 +182,12 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
     canonicalLocation: string;
     packageId: string;
     version: string;
+  }> = [];
+  readonly homeDemoRequests: Array<{
+    retainedDefinitionId: string;
+    label: string;
+    canonicalLocation: string;
+    scenarioId: string;
   }> = [];
   readonly packageSourceCredentialPayloads: Array<
     Readonly<Record<string, BrowserRetainedWorkspacePackageSourceCredential>>
@@ -323,6 +331,21 @@ class ActivationClient implements RetainedWorkspaceActivationClient {
       label,
       canonicalLocation,
       ecosystemId,
+    });
+    return this.prepareRetainedWorkspaceDefinition();
+  }
+
+  prepareHomeDemoWorkspaceDefinition(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    scenarioId: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult> {
+    this.homeDemoRequests.push({
+      retainedDefinitionId,
+      label,
+      canonicalLocation,
+      scenarioId,
     });
     return this.prepareRetainedWorkspaceDefinition();
   }
@@ -597,6 +620,32 @@ test("Ecosystem definitions use their owner-issued preparation path", async () =
   }]);
 });
 
+test("product home demo definitions use their owner-issued preparation path", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "System.Text.Json",
+    canonicalLocation: "/demos?demo=product.stj.serializer",
+    homeDemo: {
+      id: "product.stj.serializer",
+    },
+  });
+
+  const activation = fixture.controller.activate(definition.id);
+  fixture.client.activations[0]!.resolve({
+    status: "activated",
+    posting: posting(definition.id, "realization-home-demo"),
+    failure: null,
+  });
+  await activation;
+
+  assert.deepEqual(fixture.client.homeDemoRequests, [{
+    retainedDefinitionId: definition.id,
+    label: "System.Text.Json",
+    canonicalLocation: "/demos?demo=product.stj.serializer",
+    scenarioId: "product.stj.serializer",
+  }]);
+});
+
 test("committed activation retains posting without replacing a newer route", async () => {
   const fixture = createFixture();
   const definition = fixture.controller.retain({
@@ -732,6 +781,35 @@ test("activation passes endpoint credentials without retaining them in controlle
     ],
   );
   assert.doesNotMatch(JSON.stringify(fixture.controller.state), /session-only-secret/);
+});
+
+test("product home demo activation rejects endpoint credentials", async () => {
+  const fixture = createFixture();
+  const definition = fixture.controller.retain({
+    label: "System.Text.Json",
+    canonicalLocation: "/demos?demo=product.stj.serializer",
+    homeDemo: {
+      id: "product.stj.serializer",
+    },
+  });
+
+  await assert.rejects(
+    fixture.controller.activate(
+      definition.id,
+      undefined,
+      undefined,
+      undefined,
+      {
+        "https://nuget.pkg.github.com/example/index.json": {
+          username: "example-user",
+          pat: "session-only-secret",
+        },
+      },
+    ),
+    /Product home demo Workspace definitions do not accept credential bindings/,
+  );
+  assert.deepEqual(fixture.client.homeDemoRequests, []);
+  assert.deepEqual(fixture.client.activations, []);
 });
 
 test("consumer rejection cancels before cutover", async () => {

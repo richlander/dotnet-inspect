@@ -22,6 +22,7 @@ public sealed class ClassicAsyncArtifactMatrixTests
     const string RecoverableMethod = "RecoverableAsync";
     const string RemovedMethod = "RemovedAsync";
     const string DefaultInterfaceMethod = "DefaultAsync";
+    const string AsyncIteratorMethod = "StreamAsync";
 
     static readonly Lazy<Task<ArtifactMatrix>> s_matrix =
         new(BuildMatrixAsync);
@@ -89,6 +90,116 @@ public sealed class ClassicAsyncArtifactMatrixTests
                 StateMachineMethodRole.SetStateMachine));
 
         AssertReconstructsAcceptedRecipe(matrix.Trimmed);
+    }
+
+    [Fact]
+    public async Task
+        TrimmedAsyncIteratorWithoutRolePreservation_AuthenticatesAbsentSupport()
+    {
+        ArtifactMatrix matrix = await s_matrix.Value;
+
+        using ArtifactEvidence artifact = ArtifactEvidence.Open(matrix.Trimmed);
+        var resolved = AssertAsyncIteratorRelationship(
+            artifact,
+            artifact.Relationship(FixtureType, AsyncIteratorMethod),
+            expectSetStateMachine: false);
+        Assert.True(
+            resolved.Relationship.StateMachineType.TryResolve(
+                artifact.Reader,
+                out TypeDefinitionHandle stateMachineHandle));
+        TypeDefinition definition = artifact.Reader.GetTypeDefinition(
+            stateMachineHandle);
+        AssertDirectAsyncStateMachineInterface(
+            artifact.Reader,
+            definition);
+        Assert.DoesNotContain(
+            definition.GetMethodImplementations(),
+            handle => IsMethodDeclaration(
+                artifact.Reader,
+                artifact.Reader.GetMethodImplementation(handle)
+                    .MethodDeclaration,
+                "System.Runtime.CompilerServices",
+                "IAsyncStateMachine",
+                "SetStateMachine"));
+        Assert.DoesNotContain(
+            definition.GetMethods(),
+            handle => artifact.Reader.GetString(
+                    artifact.Reader.GetMethodDefinition(handle).Name)
+                .EndsWith("SetStateMachine", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task
+        UntrimmedAndRolePreservedAsyncIterator_AuthenticateEveryRole()
+    {
+        ArtifactMatrix matrix = await s_matrix.Value;
+
+        foreach (string path in new[]
+            {
+                matrix.Untrimmed,
+                matrix.RolePreservedTrimmed,
+            })
+        {
+            using ArtifactEvidence artifact = ArtifactEvidence.Open(path);
+            AssertAsyncIteratorRelationship(
+                artifact,
+                artifact.Relationship(FixtureType, AsyncIteratorMethod),
+                expectSetStateMachine: true);
+        }
+    }
+
+    static StateMachineRelationshipResult.Resolved
+        AssertAsyncIteratorRelationship(
+            ArtifactEvidence artifact,
+            StateMachineRelationshipResult result,
+            bool expectSetStateMachine)
+    {
+        var resolved =
+            Assert.IsType<StateMachineRelationshipResult.Resolved>(result);
+        Assert.Equal(
+            StateMachineClaimKind.AsyncIterator,
+            resolved.Relationship.Kind);
+        foreach (StateMachineMethodRole role in new[]
+            {
+                StateMachineMethodRole.MoveNext,
+                StateMachineMethodRole.MoveNextAsync,
+                StateMachineMethodRole.DisposeAsync,
+            })
+        {
+            var present = Assert.IsType<
+                StateMachineRoleDisposition.Present>(
+                    resolved.Relationship.GetRole(role));
+            MethodDefinition method =
+                artifact.Reader.GetMethodDefinition(present.Method.Handle);
+            Assert.True(
+                resolved.Relationship.StateMachineType.TryResolve(
+                    artifact.Reader,
+                    out TypeDefinitionHandle stateMachine));
+            Assert.Equal(stateMachine, method.GetDeclaringType());
+            AssertManagedIlBody(method);
+        }
+
+        StateMachineRoleDisposition setStateMachine =
+            resolved.Relationship.GetRole(
+                StateMachineMethodRole.SetStateMachine);
+        if (expectSetStateMachine)
+        {
+            Assert.IsType<StateMachineRoleDisposition.Present>(
+                setStateMachine);
+        }
+        else
+        {
+            Assert.IsType<
+                StateMachineRoleDisposition.AbsentFromArtifact>(
+                    setStateMachine);
+            Assert.False(
+                resolved.Relationship.TryGetMethod(
+                    StateMachineMethodRole.SetStateMachine,
+                    out _));
+        }
+
+        Assert.Equal(4, resolved.Relationship.Roles.Length);
+        return resolved;
     }
 
     [Fact]

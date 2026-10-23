@@ -107,7 +107,6 @@ public static partial class WorkspaceCommand
             return "Package update requires --version, --tfm, or both.";
         if (options.Packages.Length != 0
             || options.Tfm is not null
-            || options.RootRequest is not null
             || options.OrderedRegistrations.Length != 0
             || options.RegisteredLibraries.Length != 0
             || options.RegisteredPackagePrefixes.Length != 0
@@ -116,16 +115,7 @@ public static partial class WorkspaceCommand
             return "Package update uses the complete --packet definition "
                 + "and cannot be combined with direct construction options.";
         }
-        if (options.ActivePackage is not null
-            || options.ActiveEcosystem is not null
-            || options.Library is not null || options.AllLibraries
-            || options.Type is not null || options.Member is not null
-            || options.Lens is not null)
-        {
-            return "Package update retains the packet's committed view; "
-                + "do not restate Navigation selectors.";
-        }
-        if (options.InventoryKinds.Length != 0 || options.Count
+        if (options.Inventory || options.InventoryKinds.Length != 0 || options.Count
             || options.Rows is not null || options.NoHeader)
         {
             return "Package update emits a complete scenario and "

@@ -35,18 +35,24 @@ namespace DotnetInspect.Cli.Commands;
 public partial class PackageCommand
 {
     public const string Name = "package";
-    public static Task<int> ExecuteAsync(InspectionOptions options)
+    public static Task<int> ExecuteAsync(
+        InspectionOptions options,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return ExecuteAsync(
-            options,
-            new CommandContext(options.Verbose));
+        var context = new CommandContext(options.Verbose);
+        return PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? ExecutePackageReferenceAsync(
+                options, context, cancellationToken: cancellationToken)
+            : ExecuteAsync(options, context);
     }
 
     internal static async Task<int> ExecuteAsync(
         InspectionOptions options,
         CommandContext context) =>
-        await ExecuteCoreAsync(
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context).ConfigureAwait(false)
+            : await ExecuteCoreAsync(
             options,
             context,
             preResolved: null,
@@ -61,7 +67,10 @@ public partial class PackageCommand
         InspectionOptions options,
         CommandContext context,
         WorkspaceContextLoadOptions workspaceLoadOptions) =>
-        await ExecuteCoreAsync(
+        PackageReferenceAdmission.Contains(options.PackageArgs)
+            ? await ExecutePackageReferenceAsync(options, context, workspaceLoadOptions)
+                .ConfigureAwait(false)
+            : await ExecuteCoreAsync(
             options,
             context,
             preResolved: null,
@@ -565,7 +574,7 @@ public partial class PackageCommand
                 workspaceLoadOptions).ConfigureAwait(false);
         }
 
-        if (packageArgs.Length == 1)
+        if (preResolved is null && packageArgs.Length == 1)
         {
             PackageReferenceTarget houseTarget =
                 options.DeclaredPackageTarget
@@ -582,7 +591,7 @@ public partial class PackageCommand
                 return exitCode;
         }
 
-        if (options.ShowContent && packageArgs.Length == 1)
+        if (preResolved is null && options.ShowContent && packageArgs.Length == 1)
         {
             PackageReferenceTarget houseTarget =
                 options.DeclaredPackageTarget
@@ -1239,6 +1248,16 @@ public partial class PackageCommand
                     .ConfigureAwait(false);
             if (packageInfoInventoryExitCode is { } infoInventoryExitCode)
                 return infoInventoryExitCode;
+
+            int? admittedPackageExitCode =
+                await TryExecuteOnlinePackageAsync(
+                    target,
+                    options with { Verbosity = userVerbosity },
+                    context,
+                    packageInfoTargetContext)
+                    .ConfigureAwait(false);
+            if (admittedPackageExitCode is { } onlineExitCode)
+                return onlineExitCode;
         }
 
         string? extractPath = null;
@@ -1268,13 +1287,21 @@ public partial class PackageCommand
                             client, packageName, pinnedVersion, logger.Log,
                             sourceOptions: options.SourceOptions,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext)
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext))
                         : await PackageExtractor.ExtractSelectedPackageAsync(
                             client, packageName, version.Length > 0 ? version : null, logger.Log,
                             sourceOptions: options.SourceOptions,
                             includePrerelease: options.IncludePrerelease,
                             createComposition: context.CreatePackageSourceComposition,
-                            compileTargetContext: packageInfoTargetContext);
+                            compileTargetContext: packageInfoTargetContext,
+                            assetSelection:
+                                PackageInfoAssetSelection(
+                                    options,
+                                    packageInfoTargetContext));
                 }
                 else
                 {
@@ -1637,7 +1664,8 @@ public partial class PackageCommand
                     extractPath,
                     packageName,
                     version,
-                    options);
+                    options,
+                    admittedPackageRoot?.Root.AssetSelection);
             }
 
             if (options.Tree && !effectiveDiscovery)

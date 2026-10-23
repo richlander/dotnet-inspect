@@ -20,4 +20,14 @@ public static class OpaqueByteRangeEncoder
         value.Bytes.CopyTo(output);
         destination.Advance(value.Length);
     }
+
+    /// <summary>Writes an exact copy of the range into destination-owned storage of its length.</summary>
+    public static void Encode(
+        OpaqueByteRange value,
+        Span<byte> destination)
+    {
+        if (destination.Length != value.Length)
+            throw new ArgumentException("The destination holds exactly the range's length.", nameof(destination));
+        value.Bytes.CopyTo(destination);
+    }
 }

@@ -503,22 +503,9 @@ public static class TypeSubjectInspectionOperation
                     document.Subject.Type.ModuleVersionId,
                     startOrdinal);
         TypeDocumentDeclarationSignature signature =
-            new(
-                ImmutableArray.CreateRange(
-                    document.Subject.Signature
-                        .GenericParameters
-                        .Select(parameter =>
-                            new TypeDocumentGenericParameter(
-                                parameter.DefinitionSegmentIndex,
-                                parameter.MetadataIndex,
-                                parameter.Name,
-                                parameter.Attributes))));
-        MetadataContainedTypeDefinitionName containedType =
-            document.ReusedExactInput
-                ? plan.ContainedExactInput
-                    ?? throw new InvalidOperationException(
-                        "Reused exact input requires its contained query.")
-                : document.MatchedName?.Contain(TextPolicy.Field)
+            ProjectSignature(document.Subject.Signature);
+        MetadataUtf8TypeDefinitionName matchedName =
+            document.MatchedName
             ?? throw new InvalidOperationException(
                 "An available Type document requires its matched byte-native Type identity.");
         TypeSubject subject = libraryCorrespondence is null
@@ -537,12 +524,13 @@ public static class TypeSubjectInspectionOperation
                 document.Subject.DefinesCoreLibraryRoot,
                 document.Subject.DeclaringType?.Definition.Value)
             {
-                ContainedType = containedType,
+                MatchedName = matchedName,
+                DeclarationSignature = document.Subject.Signature,
             }
             : ProjectSubject(
                 libraryCorrespondence,
                 plan.Type,
-                containedType,
+                matchedName,
                 document.Subject,
                 assembly);
         var outcome =
@@ -570,7 +558,7 @@ public static class TypeSubjectInspectionOperation
     internal static TypeSubject ProjectSubject(
         LibraryTypeDocumentCorrespondence correspondence,
         MetadataTypeDefinitionName type,
-        MetadataContainedTypeDefinitionName containedType,
+        MetadataUtf8TypeDefinitionName matchedName,
         MetadataTypeDeclarationEvidence subject,
         LibraryAssemblyIdentity assembly) =>
         new(
@@ -579,15 +567,7 @@ public static class TypeSubjectInspectionOperation
             subject.Type.ModuleVersionId,
             type,
             subject.Type.Definition.Value,
-            new(
-                ImmutableArray.CreateRange(
-                    subject.Signature.GenericParameters.Select(
-                        parameter =>
-                            new TypeDocumentGenericParameter(
-                                parameter.DefinitionSegmentIndex,
-                                parameter.MetadataIndex,
-                                parameter.Name,
-                                parameter.Attributes)))),
+            ProjectSignature(subject.Signature),
             subject.Category,
             subject.Attributes,
             subject.IsHidden,
@@ -597,8 +577,23 @@ public static class TypeSubjectInspectionOperation
             subject.DefinesCoreLibraryRoot,
             subject.DeclaringType?.Definition.Value)
         {
-            ContainedType = containedType,
+            MatchedName = matchedName,
+            DeclarationSignature = subject.Signature,
         };
+
+    private static TypeDocumentDeclarationSignature ProjectSignature(
+        MetadataTypeDeclarationSignature signature) =>
+        new(
+            ImmutableArray.CreateRange(
+                signature.GenericParameters.Select(
+                    parameter =>
+                        new TypeDocumentGenericParameter(
+                            parameter.DefinitionSegmentIndex,
+                            parameter.MetadataIndex,
+                            parameter.Name
+                                .Contain(TextPolicy.Field)
+                                .ToInertString(),
+                            parameter.Attributes))));
 
     private static TypeSubjectMemberGroups ProjectDeclarations(
         AssemblyReferenceIdentity assemblyIdentity,

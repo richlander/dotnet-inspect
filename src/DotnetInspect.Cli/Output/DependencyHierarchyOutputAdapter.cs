@@ -41,6 +41,11 @@ internal sealed record DependencyHierarchyOccurrenceRow(
     internal InertString TargetText { get; init; }
 
     internal InertString? EvidenceIdentityText { get; init; }
+
+    internal DependencyHierarchyOccurrenceIdentity OccurrenceIdentity =>
+        new(
+            new DependencyRootOccurrenceIdentity(RootOccurrence),
+            OccurrenceId);
 }
 
 internal sealed record DependencyHierarchyJsonRoot(
@@ -189,24 +194,12 @@ internal static class DependencyHierarchyOutputAdapter
         DependencyHierarchyDocument document,
         IReadOnlyList<DependencyHierarchyOccurrenceRow> rows,
         OutputFormat format,
-        bool tree,
         bool embeddedMermaid,
         bool noHeader,
         bool compactJson,
         TextWriter? output = null)
     {
         output ??= Console.Out;
-        if (tree)
-        {
-            WriteGraph(
-                document,
-                rows,
-                new PlainTextFormatter(),
-                markWindowedFragments: true,
-                output);
-            return;
-        }
-
         switch (format)
         {
             case OutputFormat.Json:
@@ -696,9 +689,7 @@ internal static class DependencyHierarchyOutputAdapter
 
     private static DependencyHierarchyOccurrenceIdentity Identity(
         DependencyHierarchyOccurrenceRow row) =>
-        new(
-            new DependencyRootOccurrenceIdentity(row.RootOccurrence),
-            row.OccurrenceId);
+        row.OccurrenceIdentity;
 
     private static DependencyHierarchyOccurrenceIdentity ParentIdentity(
         DependencyHierarchyOccurrenceRow row) =>

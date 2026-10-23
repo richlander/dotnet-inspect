@@ -17,6 +17,7 @@ internal sealed class LibraryBodyMethodReferenceResolver
     readonly MetadataReader _reader;
     readonly Action<MethodDefinitionHandle, int>?
         _methodReferenceResolved;
+    readonly Action<int>? _methodReferenceWorkReserved;
     // These assembly-owned caches are gated by
     // OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce and
     // OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies.
@@ -53,10 +54,12 @@ internal sealed class LibraryBodyMethodReferenceResolver
 
     internal LibraryBodyMethodReferenceResolver(
         MetadataReader reader,
-        Action<MethodDefinitionHandle, int>? methodReferenceResolved)
+        Action<MethodDefinitionHandle, int>? methodReferenceResolved,
+        Action<int>? methodReferenceWorkReserved = null)
     {
         _reader = reader;
         _methodReferenceResolved = methodReferenceResolved;
+        _methodReferenceWorkReserved = methodReferenceWorkReserved;
     }
 
     internal MethodReferenceKey CreateIdentity(
@@ -1250,16 +1253,23 @@ internal sealed class LibraryBodyMethodReferenceResolver
     }
 
     void ReserveMethodReferenceSignatureWork(int charge)
-        => ReserveMethodReferenceWork(
+    {
+        ReserveMethodReferenceWork(
             ref _methodReferenceSignatureWork,
             charge,
             "Method-reference signature identity work exceeds the assembly budget.");
+        _methodReferenceWorkReserved?.Invoke(charge);
+    }
 
     void ReserveMethodReferenceDecodeWork(int charge)
-        => ReserveMethodReferenceWork(
+    {
+        int reserved = Math.Max(charge, 1);
+        ReserveMethodReferenceWork(
             ref _methodReferenceDecodeWork,
-            Math.Max(charge, 1),
+            reserved,
             "Method-reference decoding work exceeds the assembly budget.");
+        _methodReferenceWorkReserved?.Invoke(reserved);
+    }
 
     static void ReserveMethodReferenceWork(
         ref long work,

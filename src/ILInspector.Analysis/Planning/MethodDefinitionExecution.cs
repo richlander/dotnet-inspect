@@ -34,6 +34,24 @@ public sealed class MethodDefinitionExecution
     SameModuleCallTargetSupport? _callTargets;
     MethodCallMetadataSupport? _methodCalls;
     MethodSemanticIdentitySupport? _semanticIdentity;
+    MethodAnalysisSupport? _methodAnalysis;
+    PublicMethodRootSupport? _publicRoots;
+    ReferenceAssemblyStatusSupport? _referenceStatus;
+    MethodDefinitionDeclaredSources? _declaredSources;
+
+    /// <summary>
+    /// The attribution that records traversed bodies' operands while an
+    /// all-definition relation is pending; null once it settles or when the
+    /// breadth declares none.
+    /// </summary>
+    DeclaredSourceAttribution? _pendingRelation;
+    MethodDefinitionGeneratedExpansionWork? _pendingRelationWork;
+
+    /// <summary>
+    /// The physical group's receipt when this execution is one lane of a
+    /// shared traversal; otherwise this execution's own receipt.
+    /// </summary>
+    MethodDefinitionSourceCoverageBuilder _physicalCoverage;
     CriticalFailure? _critical;
 
     /// <summary>
@@ -58,6 +76,7 @@ public sealed class MethodDefinitionExecution
                 tracksSourceCoverage
                     ? terminalWorkLimits
                     : null);
+        _physicalCoverage = _sourceCoverage;
         _states = new ProducerState[description.Producers.Length];
     }
 
@@ -81,6 +100,21 @@ public sealed class MethodDefinitionExecution
     internal LibraryMethodAnalysisRunner? Lookup => _lookup;
 
     internal MethodBodyAnalyzerPlan? InstructionPlan => _instructionPlan;
+
+    /// <summary>
+    /// The declared-source outcome of each unit, present when the breadth
+    /// declared generated-body expansion and the relation has settled: before
+    /// traversal over exact breadth, and at source completion over
+    /// all-definition breadth.
+    /// </summary>
+    internal MethodDefinitionDeclaredSources? DeclaredSources =>
+        _declaredSources;
+
+    /// <summary>
+    /// Whether the breadth declared a relation that settles at source
+    /// completion and has not settled yet.
+    /// </summary>
+    internal bool DeclaredSourcesPending => _pendingRelation is not null;
 
     internal int CurrentOrdinal { get; private set; } = -1;
 
@@ -142,6 +176,18 @@ public sealed class MethodDefinitionExecution
                 terminalWorkLimits,
                 tracksSourceCoverage,
                 instructionPlan);
+        MetadataReader? exposureReader =
+            peReader.HasMetadata ? peReader.GetMetadataReader() : null;
+        if (execution._states.Any(
+                static state => state.HasPublicMethodRootsLayer))
+        {
+            execution._publicRoots = new(exposureReader);
+        }
+        if (execution._states.Any(
+                static state => state.HasReferenceAssemblyStatusLayer))
+        {
+            execution._referenceStatus = new(exposureReader);
+        }
         if (!peReader.HasMetadata)
         {
             execution.CompleteWithoutUnits();
@@ -166,14 +212,18 @@ public sealed class MethodDefinitionExecution
         bool callTargetsDeclared = false;
         bool methodCallsDeclared = false;
         bool semanticIdentityDeclared = false;
+        bool methodAnalysisDeclared = false;
         foreach (ProducerState state in execution._states)
         {
             lookupDeclared |= state.HasLookupLayer;
             referenceBindingDeclared |= state.HasReferenceBindingLayer;
             memorySafetyDeclared |= state.HasMemorySafetyLayer;
             callTargetsDeclared |= state.HasCallTargetLayer;
-            methodCallsDeclared |= state.HasCallsLayer;
+            methodCallsDeclared |=
+                state.HasCallsLayer
+                || state.HasLocalSignatureLayer;
             semanticIdentityDeclared |= state.HasSemanticIdentityLayer;
+            methodAnalysisDeclared |= state.HasMethodAnalysisLayer;
         }
         execution._memorySafety =
             memorySafetyDeclared
@@ -190,6 +240,14 @@ public sealed class MethodDefinitionExecution
         execution._semanticIdentity =
             semanticIdentityDeclared
                 ? new MethodSemanticIdentitySupport(reader, sourceName)
+                : null;
+        execution._methodAnalysis =
+            methodAnalysisDeclared
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    execution._memorySafety)
                 : null;
         if (referenceBindingDeclared && referenceBinding is null)
         {
@@ -210,7 +268,12 @@ public sealed class MethodDefinitionExecution
                 : null;
         // Expansion needs only declared-source attribution. The module lookup
         // still runs on the legacy builder, which then shares the same
-        // attribution and its caches.
+        // attribution and its caches over exact breadth, where the relation
+        // settles first. A pending all-definition relation keeps its work
+        // apart from the lookup's, so no unit visit charges it.
+        bool relationPending =
+            generatedExpansion
+            && breadth.Kind == MethodDefinitionSourceBreadthKind.AllDefinitions;
         DeclaredSourceAttribution? attribution =
             generatedExpansion
                 ? new DeclaredSourceAttribution(
@@ -227,7 +290,7 @@ public sealed class MethodDefinitionExecution
                 peReader,
                 bindingPolicy: referenceBinding?.Policy,
                 rootAssembly: referenceBinding?.Subject,
-                attribution: attribution)
+                attribution: relationPending ? null : attribution)
             : null;
         execution._lookup =
             lookupDeclared
@@ -237,7 +300,15 @@ public sealed class MethodDefinitionExecution
         LibraryMethodAnalysisRunner? lookup = execution.Lookup;
         int unitsVisited = 0;
 
-        if (generatedExpansion)
+        if (relationPending)
+        {
+            // Every body is already in breadth, so the relation adds none. It
+            // reads the operands traversal records and settles at source
+            // completion.
+            execution._pendingRelation = attribution;
+            execution._pendingRelationWork = expansionWork;
+        }
+        else if (generatedExpansion)
         {
             try
             {
@@ -245,22 +316,36 @@ public sealed class MethodDefinitionExecution
                     ResolveDirectMethods(reader, breadth);
                 MethodDefinitionGeneratedExpansionResult expansion =
                     attribution!.ExpandGeneratedExecutionBodies(
-                        directMethods);
+                        directMethods,
+                        breadth.GeneratedRoles,
+                        breadth.Kind
+                            == MethodDefinitionSourceBreadthKind.ExactTypes
+                                ? breadth.Types
+                                : [],
+                        breadth.IncludesUnauthenticatedCandidates);
                 execution._sourceCoverage.RecordGeneratedExpansion(
                     expansion.Coverage);
+                execution._declaredSources =
+                    new MethodDefinitionDeclaredSources(expansion.Coverage);
                 execution._breadth =
                     MethodDefinitionSourceBreadth.ExactMethods(
                         expansion.Methods);
+                if (expansion.Bound is { } bound)
+                    execution.BoundRelationReaders(bound);
             }
             catch (Exception ex)
                 when (LibraryMethodAnalysisRunner
                     .IsRecoverableMethodFailure(ex))
             {
+                expansionWork!.Settle();
                 execution._sourceCoverage.RecordGeneratedExpansion(
-                    expansionWork!.Build());
+                    expansionWork.Build());
+                execution._declaredSources =
+                    new MethodDefinitionDeclaredSources(
+                        MethodDefinitionGeneratedExpansionCoverage.Empty);
                 execution.FailActiveSource(
                     0,
-                    "(generated body expansion)",
+                    GeneratedExpansionLabel,
                     ex);
                 execution._breadth =
                     MethodDefinitionSourceBreadth.ExactMethods();
@@ -293,6 +378,7 @@ public sealed class MethodDefinitionExecution
                 if (visiting.Length != 1
                     || breadth.Kind
                         != MethodDefinitionSourceBreadthKind.AllDefinitions
+                    || execution._pendingRelation is not null
                     || visiting[0].HasDependencies
                     || visiting[0].RetainsFacts
                     || !visiting[0].TryRunKernel(
@@ -312,6 +398,8 @@ public sealed class MethodDefinitionExecution
                 unitsVisited = Math.Max(unitsVisited, passUnits);
             }
 
+            if (execution._pendingRelation is not null)
+                execution.SettleAllDefinitionRelation(reader);
             foreach (int completion in pass.Completions)
                 execution.CompleteProducer(execution._states[completion]);
         }
@@ -455,11 +543,40 @@ public sealed class MethodDefinitionExecution
 
         ImmutableArray<MethodDefinitionExecution> lanes =
             executions.MoveToImmutable();
+        var physicalCoverage =
+            new MethodDefinitionSourceCoverageBuilder(enabled: true);
+        MetadataReader? exposureReader =
+            peReader.HasMetadata ? peReader.GetMetadataReader() : null;
+        PublicMethodRootSupport? publicRoots =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasPublicMethodRootsLayer))
+                ? new(exposureReader)
+                : null;
+        ReferenceAssemblyStatusSupport? referenceStatus =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasReferenceAssemblyStatusLayer))
+                ? new(exposureReader)
+                : null;
+        foreach (MethodDefinitionExecution lane in lanes)
+        {
+            lane._physicalCoverage = physicalCoverage;
+            if (lane._states.Any(
+                    static state => state.HasPublicMethodRootsLayer))
+            {
+                lane._publicRoots = publicRoots;
+            }
+            if (lane._states.Any(
+                    static state => state.HasReferenceAssemblyStatusLayer))
+            {
+                lane._referenceStatus = referenceStatus;
+            }
+        }
+
         if (!peReader.HasMetadata)
         {
             foreach (MethodDefinitionExecution lane in lanes)
                 lane.CompleteWithoutUnits();
-            return new(lanes, EmptySourceCoverage());
+            return new(lanes, physicalCoverage.Build());
         }
 
         MetadataReader reader = peReader.GetMetadataReader();
@@ -477,13 +594,24 @@ public sealed class MethodDefinitionExecution
                 : null;
         MethodCallMetadataSupport? methodCalls =
             lanes.Any(static lane => lane._states.Any(
-                static state => state.HasCallsLayer))
+                static state =>
+                    state.HasCallsLayer
+                    || state.HasLocalSignatureLayer))
                 ? new MethodCallMetadataSupport(reader)
                 : null;
         MethodSemanticIdentitySupport? semanticIdentity =
             lanes.Any(static lane => lane._states.Any(
                 static state => state.HasSemanticIdentityLayer))
                 ? new MethodSemanticIdentitySupport(reader, sourceName)
+                : null;
+        MethodAnalysisSupport? methodAnalysis =
+            lanes.Any(static lane => lane._states.Any(
+                static state => state.HasMethodAnalysisLayer))
+                ? new MethodAnalysisSupport(
+                    sourceName,
+                    reader,
+                    peReader,
+                    memorySafety)
                 : null;
         try
         {
@@ -512,7 +640,9 @@ public sealed class MethodDefinitionExecution
                     lane._callTargets = callTargets;
                 }
                 if (lane._states.Any(
-                        static state => state.HasCallsLayer))
+                        static state =>
+                            state.HasCallsLayer
+                            || state.HasLocalSignatureLayer))
                 {
                     lane._methodCalls = methodCalls;
                 }
@@ -520,6 +650,11 @@ public sealed class MethodDefinitionExecution
                         static state => state.HasSemanticIdentityLayer))
                 {
                     lane._semanticIdentity = semanticIdentity;
+                }
+                if (lane._states.Any(
+                        static state => state.HasMethodAnalysisLayer))
+                {
+                    lane._methodAnalysis = methodAnalysis;
                 }
                 if (referenceBinding is null
                     && lane._states.Any(
@@ -554,8 +689,6 @@ public sealed class MethodDefinitionExecution
                 }
             }
 
-            var physicalCoverage =
-                new MethodDefinitionSourceCoverageBuilder(enabled: true);
             var unit = new MethodDefinitionUnit(
                 reader,
                 peReader,
@@ -816,14 +949,6 @@ public sealed class MethodDefinitionExecution
         }
     }
 
-    static MethodDefinitionSourceCoverage EmptySourceCoverage() =>
-        new(
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty,
-            MethodDefinitionHandleCoverage.Empty);
-
     static bool AnyLaneActive(ProducerState[][] lanes)
     {
         foreach (ProducerState[] lane in lanes)
@@ -861,6 +986,44 @@ public sealed class MethodDefinitionExecution
             FailSource(state, unit, label, error);
         }
     }
+
+    /// <summary>
+    /// Whether the producer will still complete and so reads the relation:
+    /// it is active, or its visits stopped at a settled terminal.
+    /// </summary>
+    static bool ReadsRelation(ProducerState state) =>
+        state.IsActive || state.Outcome is ProducerOutcome.Stopped;
+
+    /// <summary>
+    /// Marks every producer that reads the relation as running over the
+    /// retained prefix of a bounded expansion. The producers still visit that
+    /// prefix and complete; their outcome becomes
+    /// <see cref="ProducerOutcome.SourceBounded"/>, including a producer that
+    /// stopped early, because it answered only over the prefix.
+    /// </summary>
+    void BoundRelationReaders(
+        MethodDefinitionGeneratedExpansionBoundException bound)
+    {
+        // The bound is source work, not a unit; its subject token stays in
+        // the expansion coverage and the message.
+        const int unit = 0;
+        string message = ProducerFailure.Describe(bound);
+        foreach (ProducerState state in _states)
+        {
+            if (!ReadsRelation(state))
+                continue;
+
+            state.SourceBounded = true;
+            state.Failure =
+                new ProducerFailure(unit, GeneratedExpansionLabel, message);
+            state.SourceFailure = new MethodDefinitionSourceFailure(
+                unit,
+                GeneratedExpansionLabel,
+                message);
+        }
+    }
+
+    const string GeneratedExpansionLabel = "(generated body expansion)";
 
     void FailActiveSourceForCurrentType(
         int unit,
@@ -921,6 +1084,7 @@ public sealed class MethodDefinitionExecution
             state.Outcome = ProducerOutcome.Aborted;
             state.Failure = null;
             state.SourceFailure = null;
+            state.SourceBounded = false;
             state.FailedPrerequisite = null;
             state.ClearResult();
             state.IsActive = false;
@@ -961,6 +1125,8 @@ public sealed class MethodDefinitionExecution
         {
             ProducerOutcome.Complete or ProducerOutcome.Stopped =>
                 new(state.Outcome.Value, state.Result),
+            ProducerOutcome.SourceBounded =>
+                new(state.Outcome.Value, state.Result, state.Failure),
             ProducerOutcome.Failed =>
                 new(state.Outcome.Value, default, state.Failure),
             ProducerOutcome.PrerequisiteFailed =>
@@ -1261,11 +1427,110 @@ public sealed class MethodDefinitionExecution
             SelectRequest(ref unit, methodHandle);
             visited++;
             PassUnitsVisited = visited;
-            if (!VisitPreparedUnit(visiting, ref unit, methodHandle))
+            bool anyActive =
+                VisitPreparedUnit(visiting, ref unit, methodHandle);
+            if (_pendingRelation is not null)
+                RecordRelationReferences(ref unit);
+            if (!anyActive)
                 return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Records the visited unit's call and function-pointer operands for the
+    /// pending relation, from the body a producer already acquired or, when
+    /// none did, from the relation's own read of it.
+    /// </summary>
+    void RecordRelationReferences(ref MethodDefinitionUnit unit)
+    {
+        try
+        {
+            MethodDefinition method = unit.MethodDefinition;
+            MethodBodyBlock? body = null;
+            bool acquiredByRelation = false;
+            if (method.RelativeVirtualAddress != 0)
+            {
+                body = unit.AcquiredBody;
+                if (body is null)
+                {
+                    body = unit.AcquireRelationBody();
+                    acquiredByRelation = true;
+                }
+            }
+            _pendingRelation!.RecordTraversedBodyReferences(
+                unit.MethodHandle,
+                method,
+                body,
+                acquiredByRelation);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            // An unreadable body stays unrecorded; settling probes it, and
+            // that probe observes the same failure.
+        }
+    }
+
+    /// <summary>
+    /// Settles the all-definition relation at source completion: the sparse
+    /// expansion from every user type's methods, reading the operands
+    /// traversal recorded. A reached bound keeps the retained prefix.
+    /// </summary>
+    void SettleAllDefinitionRelation(MetadataReader reader)
+    {
+        DeclaredSourceAttribution attribution = _pendingRelation!;
+        MethodDefinitionGeneratedExpansionWork work = _pendingRelationWork!;
+        _pendingRelation = null;
+        _pendingRelationWork = null;
+        try
+        {
+            var userTypes =
+                ImmutableArray.CreateBuilder<TypeDefinitionHandle>();
+            var userMethods =
+                ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+            foreach (TypeDefinitionHandle typeHandle in reader.TypeDefinitions)
+            {
+                if (attribution.PrimaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(typeHandle))
+                {
+                    continue;
+                }
+                userTypes.Add(typeHandle);
+                userMethods.AddRange(
+                    reader.GetTypeDefinition(typeHandle).GetMethods());
+            }
+
+            MethodDefinitionGeneratedExpansionResult relation =
+                attribution.ExpandGeneratedExecutionBodies(
+                    userMethods.ToImmutable(),
+                    _breadth.GeneratedRoles,
+                    userTypes.ToImmutable());
+            _sourceCoverage.RecordGeneratedExpansion(relation.Coverage);
+            _declaredSources =
+                new MethodDefinitionDeclaredSources(relation.Coverage);
+            if (relation.Bound is { } bound)
+                BoundRelationReaders(bound);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner
+                .IsRecoverableMethodFailure(ex))
+        {
+            work.Settle();
+            _sourceCoverage.RecordGeneratedExpansion(work.Build());
+            _declaredSources =
+                new MethodDefinitionDeclaredSources(
+                    MethodDefinitionGeneratedExpansionCoverage.Empty);
+            // A producer that stopped early still reads the relation at
+            // completion, so the failure is its source failure too.
+            foreach (ProducerState state in _states)
+            {
+                if (ReadsRelation(state))
+                    FailSource(state, 0, GeneratedExpansionLabel, ex);
+            }
+        }
     }
 
     void SelectRequest(
@@ -1282,6 +1547,7 @@ public sealed class MethodDefinitionExecution
             _callTargets,
             _methodCalls,
             _semanticIdentity,
+            _methodAnalysis,
             _sourceCoverage,
             CurrentOrdinal);
     }
@@ -1672,6 +1938,7 @@ public sealed class MethodDefinitionExecution
         // A producer whose visits stopped at a settled terminal still needs
         // its completion prerequisites, so only a final outcome is skipped.
         if (state.Outcome is ProducerOutcome.Complete
+            or ProducerOutcome.SourceBounded
             or ProducerOutcome.Failed
             or ProducerOutcome.PrerequisiteFailed
             or ProducerOutcome.Aborted)
@@ -1761,8 +2028,66 @@ public sealed class MethodDefinitionExecution
             return;
         }
 
-        state.Outcome ??= ProducerOutcome.Complete;
+        // A bounded source settles no terminal: even a producer that stopped
+        // early answered only over the retained prefix.
+        state.Outcome =
+            state.SourceBounded
+                && state.Outcome is null or ProducerOutcome.Stopped
+                ? ProducerOutcome.SourceBounded
+                : state.Outcome ?? ProducerOutcome.Complete;
         state.IsActive = false;
+    }
+
+    /// <summary>
+    /// The subject's public MethodDef roots, recording the computation for the
+    /// physical source once and for the lane whose read created it.
+    /// </summary>
+    internal PublicMethodRootsResult ReadPublicMethodRoots()
+    {
+        PublicMethodRootSupport support =
+            _publicRoots ?? throw new InvalidOperationException(
+                "Public MethodDef root support was not declared by any "
+                + "planned producer.");
+        PublicMethodRootsResult result =
+            support.Acquire(out bool constructed);
+        RecordExposure(coverage =>
+        {
+            if (constructed)
+                coverage.RecordPublicMethodRootsConstruction(result);
+            coverage.RecordPublicMethodRootsRead();
+        });
+        return result;
+    }
+
+    /// <summary>
+    /// The subject's reference-assembly status, recording the classification
+    /// for the physical source once and for the lane whose read created it.
+    /// </summary>
+    internal ReferenceAssemblyState ReadReferenceAssemblyStatus()
+    {
+        ReferenceAssemblyStatusSupport support =
+            _referenceStatus ?? throw new InvalidOperationException(
+                "Reference-assembly status support was not declared by any "
+                + "planned producer.");
+        ReferenceAssemblyState state =
+            support.Acquire(out bool constructed);
+        RecordExposure(coverage =>
+        {
+            if (constructed)
+            {
+                coverage.RecordReferenceAssemblyStatusConstruction(
+                    support.AttributeRowsRead);
+            }
+            coverage.RecordReferenceAssemblyStatusRead();
+        });
+        return state;
+    }
+
+    void RecordExposure(Action<MethodDefinitionSourceCoverageBuilder> record)
+    {
+        record(_sourceCoverage);
+        if (!ReferenceEquals(_physicalCoverage, _sourceCoverage))
+            record(_physicalCoverage);
     }
 
     void CompleteWithoutUnits()
@@ -1827,11 +2152,39 @@ public sealed class MethodDefinitionExecution
                     state.SemanticIdentityUses));
             }
 
+            if (state.HasPublicMethodRootsLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.PublicMethodRoots),
+                    state.PublicMethodRootReads));
+            }
+
+            if (state.HasReferenceAssemblyStatusLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.ReferenceAssemblyStatus),
+                    state.ReferenceAssemblyStatusReads));
+            }
+
             if (state.HasCallsLayer)
             {
                 layers.Add(new ProducerLayerParticipation(
                     nameof(MethodDefinitionLayers.Calls),
                     state.CallsUses));
+            }
+
+            if (state.HasLocalSignatureLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.LocalSignature),
+                    state.LocalSignatureUses));
+            }
+
+            if (state.HasMethodAnalysisLayer)
+            {
+                layers.Add(new ProducerLayerParticipation(
+                    nameof(MethodDefinitionLayers.MethodAnalysis),
+                    state.MethodAnalysisUses));
             }
 
             producers.Add(new ProducerParticipation(
@@ -2028,6 +2381,24 @@ public sealed class MethodDefinitionExecution
         public bool HasCallsLayer { get; } =
             (layers & MethodDefinitionLayers.Calls) != 0;
 
+        public bool HasLocalSignatureLayer { get; } =
+            (layers & MethodDefinitionLayers.LocalSignature) != 0;
+
+        public bool HasMethodAnalysisLayer { get; } =
+            (layers & MethodDefinitionLayers.MethodAnalysis) != 0;
+
+        public bool HasPublicMethodRootsLayer { get; } =
+            (layers & MethodDefinitionLayers.PublicMethodRoots) != 0;
+
+        public bool HasReferenceAssemblyStatusLayer { get; } =
+            (layers & MethodDefinitionLayers.ReferenceAssemblyStatus) != 0;
+
+        /// <summary>Completion reads of public MethodDef root support.</summary>
+        public int PublicMethodRootReads;
+
+        /// <summary>Completion reads of reference-assembly status support.</summary>
+        public int ReferenceAssemblyStatusReads;
+
         public bool IsActive { get; set; } = true;
 
         public ProducerOutcome? Outcome { get; set; }
@@ -2035,6 +2406,9 @@ public sealed class MethodDefinitionExecution
         public ProducerFailure? Failure { get; set; }
 
         public MethodDefinitionSourceFailure? SourceFailure { get; set; }
+
+        /// <summary>Whether the source covers only a bounded expansion's retained prefix.</summary>
+        public bool SourceBounded { get; set; }
 
         public string? FailedPrerequisite { get; set; }
 
@@ -2073,6 +2447,16 @@ public sealed class MethodDefinitionExecution
         public int CallsUses;
 
         public int LastCallsUnit;
+
+        /// <summary>Units whose local-signature support was read.</summary>
+        public int LocalSignatureUses;
+
+        public int LastLocalSignatureUnit;
+
+        /// <summary>Units in which method-analysis support was queried.</summary>
+        public int MethodAnalysisUses;
+
+        public int LastMethodAnalysisUnit;
 
         /// <summary>Counts <paramref name="unitToken"/> once, however often a layer is read in it.</summary>
         public void CountUnit(ref int lastUnit, int unitToken, ref int count)

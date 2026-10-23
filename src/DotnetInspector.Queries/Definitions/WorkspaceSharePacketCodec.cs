@@ -69,6 +69,41 @@ public static class WorkspaceSharePacketCodec
         string encoded,
         CancellationToken cancellationToken = default)
     {
+        bool recognized = false;
+        return DecodeCore(encoded, cancellationToken, ref recognized);
+    }
+
+    /// <summary>
+    /// Recognizes packet intent at the top-level format property, returning
+    /// the canonical packet or its existing typed validation failure.
+    /// Inputs that cannot reach that marker within the codec's bounds remain
+    /// unrecognized; explicitly declared packet inputs should use Decode.
+    /// </summary>
+    public static WorkspaceSharePacketRecognition Recognize(
+        string input,
+        CancellationToken cancellationToken = default)
+    {
+        bool recognized = false;
+        try
+        {
+            return new WorkspaceSharePacketRecognition.Recognized(
+                DecodeCore(input, cancellationToken, ref recognized));
+        }
+        catch (WorkspaceSharePacketException failure)
+        {
+            return recognized
+                ? new WorkspaceSharePacketRecognition.Invalid(
+                    failure.Kind,
+                    failure.Message)
+                : new WorkspaceSharePacketRecognition.Unrecognized();
+        }
+    }
+
+    private static WorkspaceSharePacket DecodeCore(
+        string encoded,
+        CancellationToken cancellationToken,
+        ref bool recognized)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(encoded);
 
@@ -89,7 +124,8 @@ public static class WorkspaceSharePacketCodec
                 $"Workspace share state exceeds the {MaxDecodedUtf8Length}-byte decoded limit.");
         }
 
-        WorkspaceSharePacket packet = ParseJson(utf8Json, cancellationToken);
+        WorkspaceSharePacket packet = ParseJson(
+            utf8Json, cancellationToken, ref recognized);
         ValidateEncodedLength(packet.FormatVersion, encoded.Length);
 
         string canonical = Encode(packet);
@@ -177,6 +213,15 @@ public static class WorkspaceSharePacketCodec
         ReadOnlyMemory<byte> utf8Json,
         CancellationToken cancellationToken)
     {
+        bool recognized = false;
+        return ParseJson(utf8Json, cancellationToken, ref recognized);
+    }
+
+    private static WorkspaceSharePacket ParseJson(
+        ReadOnlyMemory<byte> utf8Json,
+        CancellationToken cancellationToken,
+        ref bool recognized)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         if (utf8Json.Length == 0)
             throw Failure(WorkspaceSharePacketFailureKind.Empty, "Workspace share JSON is empty.");
@@ -191,7 +236,8 @@ public static class WorkspaceSharePacketCodec
         ValidateJsonBudget(
             utf8Json.Span,
             MaxJsonDepth,
-            MaxJsonValues);
+            MaxJsonValues,
+            ref recognized);
 
         JsonDocument document;
         try
@@ -222,7 +268,8 @@ public static class WorkspaceSharePacketCodec
                 ValidateJsonBudget(
                     utf8Json.Span,
                     MaxFormat1JsonDepth,
-                    MaxFormat1JsonValues);
+                    MaxFormat1JsonValues,
+                    ref recognized);
             }
 
             return Bind(document.RootElement, formatVersion);
@@ -286,7 +333,8 @@ public static class WorkspaceSharePacketCodec
     private static void ValidateJsonBudget(
         ReadOnlySpan<byte> utf8Json,
         int maxDepth,
-        int maxValues)
+        int maxValues,
+        ref bool recognized)
     {
         try
         {
@@ -301,6 +349,16 @@ public static class WorkspaceSharePacketCodec
             int values = 0;
             while (reader.Read())
             {
+                // The one-character name has two JSON spellings. Do not
+                // unescape unrelated property text before normal validation.
+                if (!recognized
+                    && reader.TokenType == JsonTokenType.PropertyName
+                    && reader.CurrentDepth == 1
+                    && (reader.ValueSpan.SequenceEqual("f"u8)
+                        || reader.ValueSpan.SequenceEqual("\\u0066"u8)))
+                {
+                    recognized = true;
+                }
                 if (reader.TokenType is
                     JsonTokenType.StartObject
                     or JsonTokenType.StartArray
@@ -403,7 +461,8 @@ public static class WorkspaceSharePacketCodec
             "s",
             "c",
             "o",
-            "l");
+            "l",
+            "b");
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
@@ -443,12 +502,13 @@ public static class WorkspaceSharePacketCodec
             memberSignature,
             section,
             libraries,
-            sourceView);
+            sourceView,
+            ReadTraversalTargetPolicy(root));
     }
 
     private static WorkspaceSharePacket BindFormat2(JsonElement root)
     {
-        ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v");
+        ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v", "b");
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
@@ -486,7 +546,8 @@ public static class WorkspaceSharePacketCodec
             focusedTab,
             selectedContext,
             viewStates,
-            queries);
+            queries,
+            ReadTraversalTargetPolicy(root));
     }
 
     private static WorkspaceSharePacket BindFormat3Or4(
@@ -494,9 +555,9 @@ public static class WorkspaceSharePacketCodec
         int formatVersion)
     {
         if (formatVersion == Format5Version)
-            ValidateProperties(root, "f", "s", "t", "g", "r", "a", "x", "q", "v");
+            ValidateProperties(root, "f", "s", "t", "g", "r", "a", "x", "q", "v", "b");
         else
-            ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
+            ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v", "b");
 
         WorkspacePackageSourceDefinition[] packageSources =
             formatVersion == Format5Version
@@ -560,6 +621,8 @@ public static class WorkspaceSharePacketCodec
                         + "one context or registration.");
         }
 
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy =
+            ReadTraversalTargetPolicy(root);
         return formatVersion switch
         {
             Format5Version => WorkspaceSharePacket.CreateV5(
@@ -570,7 +633,8 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
             Format4Version => WorkspaceSharePacket.CreateV4(
                 tabs,
                 contexts,
@@ -578,7 +642,8 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
             _ => new WorkspaceSharePacket(
                 tabs,
                 contexts,
@@ -586,8 +651,30 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
         };
+    }
+
+    private static TraversalTargetFrameworkPolicy? ReadTraversalTargetPolicy(
+        JsonElement root)
+    {
+        string? framework = OptionalString(root, "b");
+        if (framework is null)
+            return null;
+        return ParseTraversalTargetFramework(framework);
+    }
+
+    internal static TraversalTargetFrameworkPolicy ParseTraversalTargetFramework(
+        string framework)
+    {
+        if (!NuGetTargetFrameworkIdentity.TryNormalize(framework, out string canonical)
+            || !string.Equals(framework, canonical, StringComparison.Ordinal))
+        {
+            throw InvalidShape(
+                "A workspace traversal target must be one canonical lowercase target framework.");
+        }
+        return new TraversalTargetFrameworkPolicy(framework);
     }
 
     private static void ValidateProperties(
@@ -1871,6 +1958,7 @@ public static class WorkspaceSharePacketCodec
             writer.WriteByte((byte)']');
         }
 
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
         writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
@@ -1912,7 +2000,9 @@ public static class WorkspaceSharePacketCodec
                 Format2Version);
         }
 
-        writer.WriteAscii("]}"u8);
+        writer.WriteByte((byte)']');
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
+        writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
 
@@ -2016,7 +2106,9 @@ public static class WorkspaceSharePacketCodec
                 formatVersion);
         }
 
-        writer.WriteAscii("]}"u8);
+        writer.WriteByte((byte)']');
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
+        writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
 

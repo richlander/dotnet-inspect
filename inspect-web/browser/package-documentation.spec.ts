@@ -38,3 +38,126 @@ test("late document titles cannot overwrite a replacement package version", asyn
   await expect(page.locator("html")).toHaveAttribute("data-package-document-title-completion", /1.0.0/);
   await expect(page.locator(".doc-title")).toHaveText("Older package");
 });
+
+test("publishes body and frontmatter through one contained fragment", async ({ page }) => {
+  const model = {
+    ...surface,
+    documents: [{ kind: "readme", name: "README.md", path: "README.md", size: 120 }],
+  };
+  await installFacades(
+    page,
+    model,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {
+      packageDocumentTitles: "ready",
+      packageDocumentText: [
+        "---",
+        "name: package\u202Ename",
+        "version: literal-\\u202E",
+        "description: <p>description\u202Evalue</p>",
+        "---",
+        "# Heading \u202E",
+        "",
+        "Body literal-\\u202E and actual-\u202E.",
+        "",
+        "[link\u202E](https://example.test/path \"title\u202E\") with `code\u202E`.",
+      ].join("\n"),
+    },
+  );
+  await page.goto(root);
+  await page.locator('[data-doc-path="README.md"]').click();
+
+  const viewer = page.locator(".doc-viewer-body");
+  await expect(viewer.locator("h1")).toHaveText("Heading \\u202E");
+  await expect(viewer).toContainText("Body literal-\\\\u202E and actual-\\u202E.");
+  await expect(viewer.locator("a")).toHaveText("link\\u202E");
+  await expect(viewer.locator("a")).toHaveAttribute("title", "title\\u202E");
+  await expect(viewer.locator("a")).not.toHaveAttribute("href", /.+/);
+  await expect(viewer.locator("code")).toHaveText("code\\u202E");
+  await expect(viewer.locator(".doc-frontmatter")).toContainText("package\\u202Ename");
+  await expect(viewer.locator(".doc-frontmatter")).toContainText("literal-\\\\u202E");
+  await expect(
+    viewer.locator(".doc-frontmatter > .doc-fm-desc > p"),
+  ).toHaveText("description\\u202Evalue");
+  await expect(viewer.locator(".doc-frontmatter > p")).toHaveCount(0);
+
+  const containment = await page.locator("html").getAttribute("data-package-document-containment");
+  expect(containment).not.toBeNull();
+  const containmentRequest: unknown = JSON.parse(containment ?? "{}");
+  expect(containmentRequest).toEqual(expect.objectContaining({
+    generation: expect.stringMatching(/^package-document-\d+$/),
+    leaves: expect.arrayContaining([
+      expect.objectContaining({ policy: "Prose", text: "Heading \u202E" }),
+      expect.objectContaining({ policy: "Field", text: "package\u202Ename" }),
+      expect.objectContaining({ policy: "Field", text: "title\u202E" }),
+    ]),
+  }));
+});
+
+test("shows managed containment rejection as a document failure", async ({ page }) => {
+  const model = {
+    ...surface,
+    documents: [{ kind: "readme", name: "README.md", path: "README.md", size: 120 }],
+  };
+  await installFacades(
+    page,
+    model,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {
+      packageDocumentTitles: "ready",
+      packageDocumentContainment: "rejected",
+    },
+  );
+  await page.goto(root);
+  await page.locator('[data-doc-path="README.md"]').click();
+  await expect(page.getByRole("dialog", { name: "Package document" })).toContainText(
+    "Package document containment rejected managed-rejection (OutputTextTooLarge; actual 2; limit 1)",
+  );
+});
+
+test("closing during containment prevents stale document publication", async ({ page }) => {
+  const model = {
+    ...surface,
+    documents: [{ kind: "readme", name: "README.md", path: "README.md", size: 120 }],
+  };
+  await installFacades(
+    page,
+    model,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {
+      packageDocumentTitles: "ready",
+      packageDocumentContainment: "deferred",
+    },
+  );
+  await page.goto(root);
+  await page.locator('[data-doc-path="README.md"]').click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-document-containment",
+    /"generation":"package-document-\d+"/,
+  );
+  await page.getByRole("button", { name: "Close" }).click();
+  await releaseFacade(page, "package-document-containment");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-package-document-containment-completion",
+    /^package-document-\d+$/,
+  );
+  await expect(page.getByRole("dialog", { name: "Package document" })).toBeHidden();
+});

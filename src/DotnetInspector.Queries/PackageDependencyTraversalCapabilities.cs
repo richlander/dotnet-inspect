@@ -90,8 +90,7 @@ public interface IPackageDependencyTraversalCandidateResolver
 {
     ValueTask<PackageDependencyTraversalCandidateResult> ResolveAsync(
         PackageDependencyEvidenceDeclaration declaration,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null);
+        PackageSourceOperationLease operation);
 }
 
 /// <summary>
@@ -135,6 +134,5 @@ public interface IPackageDependencyTraversalManifestAcquirer
 {
     Task<PackageDependencyTraversalManifestResult> AcquireAsync(
         PackageAcquisitionCandidate candidate,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null);
+        PackageSourceOperationLease operation);
 }

@@ -37,7 +37,7 @@ public sealed class MetadataDeclarationTextTests
         MetadataParameterDeclarationEvidence namedParameter =
             new(
                 HasRow: true,
-                Name: Text("left\u202e"),
+                Name: Name("left\u202e"u8),
                 Attributes: ParameterAttributes.None,
                 Markers: new(
                     IsComplete: true,
@@ -49,6 +49,8 @@ public sealed class MetadataDeclarationTextTests
                     UnscopedRefCount: 0));
         MetadataParameterDeclarationEvidence unnamedParameter =
             namedParameter with { Name = null };
+        MetadataParameterDeclarationEvidence illFormedParameter =
+            namedParameter with { Name = Name([(byte)'l', 0xFF]) };
         MetadataNamedTypeIdentity namedType =
             new(
                 new(
@@ -68,6 +70,9 @@ public sealed class MetadataDeclarationTextTests
             MetadataDeclarationText.RenderParameterName(namedParameter));
         Assert.Null(
             MetadataDeclarationText.RenderParameterName(unnamedParameter));
+        Assert.Equal(
+            "l\\uDCFF",
+            MetadataDeclarationText.RenderParameterName(illFormedParameter));
         Assert.Equal(
             "int",
             MetadataDeclarationText.RenderPrimitiveName(primitive));
@@ -113,4 +118,7 @@ public sealed class MetadataDeclarationTextTests
 
     static InertString Text(string value) =>
         new(TextPolicy.Field, value);
+
+    static MetadataUtf8Name Name(ReadOnlySpan<byte> value) =>
+        new(OpaqueByteRange.Copy(value));
 }

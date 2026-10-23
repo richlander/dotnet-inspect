@@ -450,6 +450,10 @@ population. Query selection may accept ordinary generic shorthand such as
 definition name, owner-issued declaration occurrence, and acquisition
 registration. Equivalent Type text or assembly identity cannot substitute for
 that authority, and multiple matching selected occurrences remain ambiguous.
+Subject Relations therefore owns construction of a process-local hierarchy
+focus from the selected-context operation's owner-issued exact-Type identity
+and declaration occurrence. A host selects the hierarchy form and population
+but does not reconstruct or revalidate the Metadata definition name itself.
 
 Optional Type inspection, relation terminals, diagnostics, sharing, and
 navigation composed for that request consume the same resolved occurrence. A

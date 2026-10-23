@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Text.Json;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 
 using DotnetInspect.Web;
@@ -156,7 +157,11 @@ namespace DotnetInspect.Web.Interop.Catalog
                             definitions.View.Section,
                             [.. definitions.View.Libraries],
                             definitions.View.SourceView,
-                            comparison)),
+                            comparison),
+                        definitions.Workspace.TraversalTargetPolicy.Source
+                            == TraversalTargetFrameworkPolicySource.Configured
+                            ? definitions.Workspace.TraversalTargetPolicy.TargetFramework
+                            : null),
                     Failure: null);
             }
             catch (ArgumentException ex)
@@ -492,7 +497,11 @@ namespace DotnetInspect.Web.Interop.Catalog
             var workspace = new WorkspaceDefinition(
                 InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.WorkspaceId,
-                workspaceContexts);
+                workspaceContexts,
+                traversalTargetPolicy:
+                    state.TraversalTargetFramework is { } targetFramework
+                        ? new TraversalTargetFrameworkPolicy(targetFramework)
+                        : null);
             var navigation = new NavigationDefinition(
                 InspectionDefinitionSchema.Version1,
                 WorkspaceSharePacketTransposer.NavigationId,

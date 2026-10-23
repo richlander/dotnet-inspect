@@ -2,7 +2,7 @@
 
 ## Status and owner
 
-**Proposed focused pattern.**
+**Adopted focused pattern.**
 [#10111](https://github.com/richlander/dotnet-inspect/issues/10111) tracks the
 design, shared construction contract, first Browser adoption, CLI assessment,
 and retirement of the transitional package README path.
@@ -116,6 +116,20 @@ Containment constructs one `InertString` or `InertUtf8String` for every
 presentation leaf under that leaf's declared policy. It does not sanitize
 structure, rewrite actionable values, or choose whether a leaf is displayed.
 
+The leaf owner's retained representation decides which contained currency is
+authoritative. A typed UTF-8 source constructs `InertUtf8String` and may write
+that contained spelling directly to a byte sink. A string-only lowering
+projects the same value through `InertUtf8String.ToInertString()`; it does not
+independently re-contain or reinterpret the untreated source. An
+already-decoded or parser-generated UTF-16 leaf may construct `InertString`
+directly rather than round-tripping through UTF-8.
+
+Both routes implement one representation-neutral Inert Text contract:
+`TextPolicy`, canonical visual spelling, concern evidence, and form evidence
+cannot vary by currency. Keeping the UTF-8 and UTF-16 emitters aligned, and
+extracting shared spelling mechanics when needed to prevent drift, remains an
+Inert Text responsibility rather than a contained-document responsibility.
+
 The containing operation returns leaf identity with each contained value.
 Before constructing a contained document, composition verifies:
 
@@ -139,6 +153,30 @@ structure, merely sanitized structure, and an arbitrary serialized string.
 A host sink accepts only the publishable form. Serialization may lower that
 form after construction, but serialized Markdown or HTML is not itself proof
 of complete containment.
+
+## Shared leaf-completion contract
+
+`PresentationLeafContainment` in
+`DotnetInspector.InspectionContracts` implements the host-neutral bounded
+operation. It accepts one generation of unique identities, declared
+`TextPolicy` values, and rendered text; it returns either the complete
+identity-and-policy-preserving `InertString` population or one typed rejection.
+Leaf count and aggregate input and output text are bounded before the operation
+can report success.
+
+The package facade projects that contract across the generated Browser boundary
+as `containPackageDocumentLeaves`. The generated result retains the
+`InertString` brand. `inspect-web/src/contained-document.ts` verifies the
+current generation and exact identity-and-policy correspondence, restores
+request order, and constructs the Browser-local `ContainedLeafPopulation`
+brand only after every expected result is present exactly once.
+
+`ContainedLeafPopulation` is deliberately not a publishable document or
+contained DOM fragment. Structure, leaf placement, actionable values, and
+current-generation ownership remain with the adopter. The Browser package
+document owner combines that population with its privately retained prepared
+fragment and constructs `ContainedDocumentFragment` only after exact
+correspondence.
 
 ## Displayed and actionable values
 
@@ -166,8 +204,8 @@ for assigning the policy that matches its structural role.
 
 ## Browser package README adoption
 
-Inspect Web package README publication is the first planned adopter. Its target
-composition is:
+Inspect Web package README publication is the first adopter. Its composition
+is:
 
 ```text
 decoded package Markdown
@@ -185,7 +223,7 @@ the chosen DOM structure. The managed containment boundary continues to
 construct `InertString` and the generated TypeScript contract continues to
 carry its brand.
 
-The target path:
+The Browser path:
 
 - contains text nodes after Markdown escapes and entities have resolved;
 - contains displayed attributes such as alternative text and tooltips;
@@ -193,31 +231,74 @@ The target path:
   containment;
 - reinserts contained values through text or attribute APIs rather than
   reparsing them as markup;
-- constructs a Browser-local contained-fragment brand only after exact leaf
-  correspondence; and
-- permits the document viewer to publish only that brand.
+- prepares the sanitized Markdown body and directly constructed frontmatter as
+  one fragment with one leaf population;
+- sends that complete population through one managed containment batch;
+- constructs the Browser-local `ContainedDocumentFragment` brand only after
+  exact current-generation correspondence; and
+- permits the document viewer ready sink to publish only that brand.
 
 Frontmatter displayed beside the Markdown participates in the same document
 composition even when the Browser constructs its structure directly rather
 than through Marked.
 
-The whole-serialized-HTML containment operation from #10098 remains a safe
-transitional path. The adoption retires it only after the contained-fragment
-path carries the same ordinary rendering behavior and stronger leaf-completion
-evidence.
+The package document composition root no longer calls the
+whole-serialized-HTML containment operation from #10098. The dedicated
+retirement tracked by #10313 removed that operation after the generated
+facade, worker catalog, managed export inventory, and product source confirmed
+that no remaining consumer required it. Arbitrary serialized HTML therefore
+cannot be mistaken for a completed contained document.
 
 ## CLI and Markout boundary
 
-Ordinary CLI package-document output currently preserves exact document
-content; it is not a rich Markdown renderer and does not become one through
-this pattern. Exact-byte output remains outside contained publication.
+The assessment tracked by #10260 found no CLI adopter for this pattern.
+Ordinary CLI package-document output is a payload projection, not a rich
+Markdown publication path:
 
-Markout already owns host-neutral structure for product-generated documents,
-and many of its view models carry `InertString` leaves. The planned CLI slice
-assesses whether any externally authored structured document crosses Markout
-without complete typed leaf containment. It adopts this pattern only for such a
-consumer. It does not migrate every Markout document merely to introduce a new
-wrapper around already-contained product values.
+- `package -S README --print`, `package --content`, and
+  `project -S README --print` do not parse package Markdown into Markout
+  structure;
+- an explicit unscoped unary file destination preserves the package bytes
+  exactly, while terminal-facing or scoped output uses the existing payload
+  containment contract; and
+- printable `--markdown` output places the selected source in a CLI-owned
+  Markout `CodeSection`; it does not interpret that source as Markdown
+  structure.
+
+Authored C# source and compiled XML documentation summaries likewise enter
+CLI-owned Markout code, paragraph, or table leaves. The surrounding document
+structure is product-generated. Package inspection metadata already crosses
+`PackageInspectionText` as `InertString` before Markout lowering. Generic
+Markout row and direct-writer leaf containment remains an Inert Text concern;
+its existing residual is tracked by #3463. A raw or insufficiently typed leaf
+inside product-owned structure does not become externally authored document
+structure and does not justify a contained-document wrapper.
+
+The CLI therefore adds no prepared-document or publishable-document type in
+this slice and preserves exact package-document transfer unchanged.
+`PayloadLensContainmentTests` gates encoded terminal output and exact file
+export. `PackageInspectionTextTests` and `MarkoutRowContainmentTests` gate the
+existing package-metadata and declared-row boundaries.
+
+A future byte-native README presentation remains a leaf-containment path. When
+the source owner retains typed UTF-8 and the sink accepts bytes, its intended
+flow is:
+
+```text
+typed UTF-8 source -> InertUtf8String -> byte sink
+                                      -> InertString only for a string sink
+```
+
+That flow is distinct from exact export. Exact export writes the admitted
+untreated package bytes through the exact-output capability; presentation
+constructs the policy-contained UTF-8 value before writing bytes. Neither path
+requires a document wrapper merely because its storage is byte-native.
+
+A future CLI consumer must adopt this pattern if it parses or sanitizes an
+externally authored document grammar, retains that source's structure, and
+publishes the resulting structure through Markout or another host sink. Merely
+placing external text in a product-owned code block, paragraph, table cell, or
+payload stream remains a leaf-containment or exact-transfer concern.
 
 ## Failure and bounds
 
@@ -254,19 +335,26 @@ identities have the same numeric or textual spelling.
 | Real asset | The exact `WrongTurn@0.1.15` package README reaches the Browser sink with no raw refused scalar in displayed leaves and unchanged allowed structure. |
 | Neighboring behavior | Ordinary package Markdown, inline formatting, tables, fenced code, links, frontmatter, and document lifecycle retain their supported behavior. |
 
-The design is documentation-only and makes no implementation or performance
-claim. Markdown lint is its local gate. Each implementation and adoption slice
-must name the focused executable gates that establish its subset of this table.
+The original design slice made no implementation or performance claim.
+Markdown lint remains this document's local gate. Each implementation and
+adoption slice names the focused executable gates that establish its subset of
+this table.
 
 ## Adoption sequence
 
 1. Lock this focused pattern and transfer package-document composition from
-   Inert Text without changing that owner's scalar policy.
+   Inert Text without changing that owner's scalar policy. Completed by #10113.
 2. Implement the smallest shared leaf-containment and correspondence contract.
-3. Adopt it in Inspect Web package README publication.
+   Completed by #10175.
+3. Adopt it in Inspect Web package README publication. Completed by #10255.
 4. Assess the CLI/Markout boundary and adopt only an identified externally
-   authored structured-document consumer.
-5. Retire the transitional Browser whole-HTML containment operation.
+   authored structured-document consumer. The #10260 assessment found no
+   adopter and preserves the existing exact-transfer and leaf-containment
+   boundaries. It records `InertUtf8String` as the authoritative presentation
+   value for a future typed UTF-8 README path, with `InertString` only as its
+   string-sink projection.
+5. Retire the transitional Browser whole-HTML containment operation. Completed
+   under #10313.
 
 The Browser package README is the first production consumer. Additional
 document grammars or hosts adopt one owner at a time under
@@ -283,5 +371,4 @@ This contract does not claim:
 - that a structurally valid document has safe presentation leaves;
 - that a contained leaf makes arbitrary surrounding structure safe;
 - that complete containment makes an actionable value trustworthy;
-- exact-byte reconstruction from a contained document; or
-- completed adoption before the tracked implementation slices land.
+- exact-byte reconstruction from a contained document.

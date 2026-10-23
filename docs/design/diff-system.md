@@ -12,8 +12,8 @@ that moves both hosts onto it. It is tracked by
 
 Focused owners keep their contracts:
 
-- each comparison producer keeps its own design, such as
-  [Fast Diff](fast-diff.md), [Implementation diff](implementation-diff.md) and
+- each comparison producer keeps its own design, such as [Finding Diff
+  Any](finding-diff-any.md), [Implementation diff](implementation-diff.md) and
   [IL diff canonicalization](il-diff-canonicalization.md);
 - [Diff History](diff-history.md) keeps History's semantics and its terminal:
   what a transition establishes, window states, Count and Share, and
@@ -104,12 +104,13 @@ serve several scenarios: diff, Diff History, clone search, `api --match` and
 direct member comparison. Examples:
 
 - the pairwise producers themselves;
-- Type and Member correspondence across two images, such as Fast Diff's
+- Type and Member correspondence across two images, such as Finding Diff Any's
   fingerprints and `MemberAnchor`;
-- the axis state vocabulary and its combination rule, the one
-  [Library-scope History](diff-history.md#library-scope-history-over-fast-diff)
-  uses for window states; and
-- producer slicing, which [Fast Diff](fast-diff.md#steps) calls steps.
+- the axis state vocabulary and its combination rule, the one [Library-scope
+  History](diff-history.md#library-scope-history-over-finding-diff-any) uses for
+  window states; and
+- producer slicing, which [Finding Diff Any](finding-diff-any.md#steps) calls
+  steps.
 
 A mechanism that needs a package, a version, a listing or a cell belongs in
 layer 2 or 3. New reusable comparison infrastructure lands in layer 1 first,
@@ -117,9 +118,9 @@ and layer 3 composes it.
 
 ### Vocabulary
 
-A **step** is one comparison between two consecutive points of a diff
-request. A producer's unit of bounded work is a **slice**. [Fast
-Diff](fast-diff.md#steps) renames its steps to slices in the adoption step
+A **step** is one comparison between two consecutive points of a diff request. A
+producer's unit of bounded work is a **slice**. [Finding Diff
+Any](finding-diff-any.md#steps) renames its steps to slices in the adoption step
 that moves its browser driver, so that "step" means one thing.
 
 ## Data structures
@@ -153,14 +154,14 @@ describes.
 The ladder maps onto the diff system's requests:
 
 - **Every point is an Inspect** for a Finding producer: a version's
-  observations are its census. A non-Finding producer, such as Fast Diff,
+  observations are its census. A non-Finding producer, such as Finding Diff Any,
   evaluates pairs only.
 - **Change is Compare.** An exact pair is one Compare. A window, a History
   population and an adaptive bisection are sequences of Compares between
-  adjacent evaluated points, which History calls transitions; bisection
-  chooses its next point from them. Library-scope History over Fast Diff is
-  the same shape: each step is one comparison, and its window states derive
-  from the step states.
+  adjacent evaluated points, which History calls transitions; bisection chooses
+  its next point from them. Library-scope History over Finding Diff Any is the
+  same shape: each step is one comparison, and its window states derive from the
+  step states.
 - **Identity across versions is Correlate.** "Where is this identity, and
   when did it appear or disappear?" is a presence question over sparse
   evaluated points; unevaluated versions are never manufactured as Missing.
@@ -202,15 +203,14 @@ The other generic types have few payloads in production:
 "In production" means a shipped library API: several metadata Compare
 operations, such as switches, union Types and extension members, have no host
 caller yet beyond the analysis catalog. So Compare carries most diff content
-today, across about thirty payloads,
-while the other rungs serve narrow domains: `AnalysisDiff` is text only,
-`ComparisonDocument` is API only, census Correlate covers History's six
-payloads, and exact-identity Correlate is API members only. The
-designed `ComparisonDocument<AnalysisDiff<TItem>>` and
+today, across about thirty payloads, while the other rungs serve narrow domains:
+`AnalysisDiff` is text only, `ComparisonDocument` is API only, census Correlate
+covers History's six payloads, and exact-identity Correlate is API members only.
+The designed `ComparisonDocument<AnalysisDiff<TItem>>` and
 `ComparisonDocument<MappedTextDiff>` forms have no production instantiation.
-Fast Diff's `FastDiffState`, `ApiDiffAnalyzer`'s `ApiChange`, and the IL and
-C# body rows have no `T` at all; they are the producers that the next table
-marks as off the ladder.
+Finding Diff Any's `FindingDiffAnyState`, `ApiDiffAnalyzer`'s `ApiChange`, and
+the IL and C# body rows have no `T` at all; they are the producers that the next
+table marks as off the ladder.
 
 ### Producers
 
@@ -223,14 +223,13 @@ marks as off the ladder.
 | **Canonical IL comparison** | `IlBodyDiff` rows over `CanonicalIlOperation` | One method body | No: native rows; IL Findings take the ladder separately | [IL diff canonicalization](il-diff-canonicalization.md) |
 | **C# body comparison** | `CSharpBodyDiff` line rows; `CSharpStructuralComparison` node matches within one body | One method body | No: native rows; C# Findings take the ladder separately | [Implementation diff](implementation-diff.md#structural-body-comparison) |
 | **API surface comparison** | `ApiDiffAnalyzer` `ApiChange` with `ChangeKind` and `ChangeClassification` | API Type or member | No: `ApiChange` rows; API member Findings, which History correlates, take the ladder separately | [Library API diff presentation](library-api-diff-presentation.md) |
-| **Axis summary** | `FastDiffState` per Type and axis | Type, with Member and residual partitions designed | No: per-pair states | [Fast Diff](fast-diff.md#levels) |
+| **Axis summary** | `FindingDiffAnyState` per Type and axis | Type, with Member and residual partitions designed | No: per-pair states | [Finding Diff Any](finding-diff-any.md#levels) |
 | **Subject composition** | `ComparisonSubjectChange`: Diff, Addition, Deletion, Rename, Move, RenameAndMove | A root or subject in a composed comparison | Composition, not a rung | [Comparison document](comparison-document.md#subject-changes) |
 
 Correspondence across two images uses identity structures that also live in
-layer 1: `MemberAnchor` and its fingerprint, `MethodBodyIdentity`, Fast Diff's
-`SymbolKey`, the `ResearchTargetCorrespondence` family, and
-`ApiQualifiedAnchor`, which
-claims no diff adoption yet.
+layer 1: `MemberAnchor` and its fingerprint, `MethodBodyIdentity`, Finding Diff
+Any's `SymbolKey`, the `ResearchTargetCorrespondence` family, and
+`ApiQualifiedAnchor`, which claims no diff adoption yet.
 
 ### Change vocabulary
 
@@ -243,7 +242,7 @@ transitions, with five states and two facets:
 | **Removed** | Only Before has it | Removal, Deletion, Remove, `TypeRemoved`, `MemberRemoved` |
 | **Changed** | Corresponding items differ | `Changed` in most; IL has no changed kind and emits a removal and an addition in one hunk |
 | **Unchanged** | Corresponding items are equal | Present (`PairKind`), Unchanged, Context, Exact |
-| **Undetermined** | The comparison could not decide | `Indeterminate` and `NotCompared` (`FastDiffState`, History window states), failed comparisons |
+| **Undetermined** | The comparison could not decide | `Indeterminate` and `NotCompared` (`FindingDiffAnyState`, History window states), failed comparisons |
 | **Moved** (placement facet) | Corresponding items changed position | `FindingDifferenceKind.Moved`, `AnalysisDiffPlacementKind.Moved`, `TextMove`, `CSharpStructuralChangeKind.Moved` |
 | **Renamed** (identity facet) | Corresponding items changed name | `ComparisonSubjectChange.Rename`, with no producer |
 
@@ -264,16 +263,16 @@ way for every producer.
 ### What the set does not support yet
 
 - **Moves and renames across members or Types.** No producer emits
-  `ComparisonSubjectChange.Move` or `Rename`; Fast Diff keys Types by name, so
-  a moved Type is one removal and one addition. Clone-assisted recovery is
-  future work in
-  [structural clone search scope](structural-clone-search-scope.md#future-clone-assisted-diff).
+  `ComparisonSubjectChange.Move` or `Rename`; Finding Diff Any keys Types by
+  name, so a moved Type is one removal and one addition. Clone-assisted recovery
+  is future work in [structural clone search
+  scope](structural-clone-search-scope.md#future-clone-assisted-diff).
 - **Moves inside IL and C# line diffs.** Only Findings, text and C# structure
   detect moves.
-- **Correlation for non-Finding producers.** Fast Diff, `ApiDiffAnalyzer`,
-  and the IL and C# body diffs return native rows rather than Findings, so
-  their results cannot be correlated across versions; only their Finding
-  projections can.
+- **Correlation for non-Finding producers.** Finding Diff Any,
+  `ApiDiffAnalyzer`, and the IL and C# body diffs return native rows rather than
+  Findings, so their results cannot be correlated across versions; only their
+  Finding projections can.
 - **One alignment kernel.** Three product LCS implementations exist:
   `FindingMatcher`, and private ones in `IlBodyDiff` and `CSharpBodyDiff`. A
   fourth, `DiffHunks` in the decompiler pipeline tool, is developer tooling. The two body
@@ -300,6 +299,7 @@ information, kept apart:
 | `ImplementationDiffDocument` | Per-member evidence with native IL and C# rows, IL Finding transitions, complexity changes, coverage | Signal, shape, magnitude and in-loop facts on evidence | [Implementation diff](implementation-diff.md#exact-pair-document-and-inspection-envelope) |
 | `MemberSourceDiffPresentation` and the authored source pair | An `AnalysisDiff<string>` and a `MappedTextDiff` | Change labels for whitespace and moves (member source diff only) | [Member source diff presentation](member-source-diff-presentation.md), [member source pair](member-source-pair-query.md) |
 | `AnnotatedSourceDiffDocument` | Per medium (C# and IL), an `AnalysisDiff<string>` with its characterization and a line map | Two whole `AnnotatedSourceDocument`s, whose facts and targets annotate each side | [Annotated source diff document](annotated-source-diff-document.md) |
+| The declaration documents | One row's declaration facts per side and a `FindingComparison<DeclarationFact>` pairing them | None; each fact carries its axis and certainty | [Declaration view](declaration-view.md) |
 | `DiffHistoryOutcome` | Per-version evaluations and `DiffHistoryTransition<T>` between points | Probe receipts and Count | [Diff History](diff-history.md#shared-temporal-outcome-and-document) |
 
 ### The annotated source document
@@ -455,13 +455,19 @@ The two execution modes:
 
 | Mode | Shape | Producers |
 | --- | --- | --- |
-| **Paired steps** | For each step, the operation holds both cells open and runs each pairwise producer on the step's two images. | Fast Diff, API diff, implementation diff, string literals, source pairs |
+| **Paired steps** | For each step, the operation holds both cells open and runs each pairwise producer on the step's two images. | Finding Diff Any, API diff, implementation diff, string literals, source pairs |
 | **Per-point census** | The operation evaluates each point on its own, then compares adjacent results. Each point resolves the focus within that version, with History's absent and ambiguous outcomes. | Today's Diff History Finding producers |
 
-An exact pair is a request with two points and one step. Diff History's
-existing methodology, including adaptive bisection, surveys and next actions,
-becomes the per-point mode. Library-scope History over Fast Diff is the paired
-mode over a version window.
+The modes are how a step reads its images. How far it reads is the other
+axis, **Exists** to the first difference or **Exhaustive** to the end, which
+[Finding census](finding-census.md) owns per row over one streamed census, so
+that a paired step and a per-point census decide one equality where both
+decide, with a per-point `Failed` read as `Indeterminate`.
+
+An exact pair is a request with two points and one step. Diff History's existing
+methodology, including adaptive bisection, surveys and next actions, becomes the
+per-point mode. Library-scope History over Finding Diff Any is the paired mode
+over a version window.
 
 Sharing across requests, such as a host that asks for both a Supply chain and
 an API evolution window, goes through a
@@ -484,10 +490,10 @@ in the shared inspection envelope:
 
 - a Diff History request returns `InspectionEnvelope<DiffHistoryOutcome>`,
   including its Count component, as [Diff History](diff-history.md) owns it;
-- Library-scope History over Fast Diff returns
-  `InspectionEnvelope<DiffHistoryOutcome>` whose Document carries the window,
-  as [Diff History](diff-history.md#library-scope-history-over-fast-diff) owns
-  it; and
+- Library-scope History over Finding Diff Any returns
+  `InspectionEnvelope<DiffHistoryOutcome>` whose Document carries the window, as
+  [Diff History](diff-history.md#library-scope-history-over-finding-diff-any)
+  owns it; and
 - a pair or window request over the analysis catalog returns the per-analysis
   outcomes that the [command transition
   model](command-transition-model.md#content-and-failure) owns, one set per
@@ -527,13 +533,13 @@ first, so later steps retire duplicates rather than add adapters.
 | 2 | Create `DotnetInspector.Diff` with `DiffRequest` and `DiffOperation`. Move Diff History's orchestration into it as the per-point mode, returning `DiffHistoryOutcome` unchanged. `diff --history` calls it. Done: `DiffOperation.ExecuteAsync` and `ExecuteWithEvidenceAsync` take a `DiffHistoryRequest` and a `DiffAcquisition`, and the engines are internal to the diff system. Per-version cell evaluators stay in `PackageQueries` until step 3. | `DiffHistoryInspector`, `DiffHistoryMethodology` and History request types in `PackageQueries`; `DiffHistoryInspection` in `DotnetInspector.Sections` |
 | 2b | History's lowering moves from the CLI host into Presentation, after `FindingTargetFormatter` moves below Presentation; next-action command text stays in the CLI. Done: `DiffHistoryPresentation.Project` builds the Markout view and takes the host's `DiffHistoryNextActionFormatter`; `DiffHistoryJsonOutput` and its context serialize the outcome; Presentation admits `NuGet.Versioning`, which package-version contracts expose. | `DiffHistoryJsonOutput`, the view models and the projection in the CLI; the CLI keeps writing, section selection, row selection and command text |
 | 3 | Every point opens through its kind's seam, in both hosts, finishing [package endpoint scope](package-endpoint-scope.md#adoption) adoption. The browser gains the endpoint scope and a population cell executor; both hosts share one Root and Workspace composition behind the two seams. Prerequisites: the [package cache policy](package-cache-policy.md) decision that endpoint scope adoption names, and Platform endpoints from Platform realization. | `ApiSurfaceEndpointResolver` diff routes; `PackageEndpointDiffSession`; the browser's per-export `OpenScopeAsync` pairs; the duplicate Root and Workspace composition in the CLI's cell executor |
-| 4 | Add the paired-steps mode, version-window requests and the request-set entry. Run Fast Diff as a paired producer, with its slicing driven by the operation. Rename Fast Diff steps to slices. | The browser's own Fast Diff slice loop in `LibraryFastDiffExports` |
+| 4 | Add the paired-steps mode, version-window requests and the request-set entry. Run Finding Diff Any as a paired producer, with its slicing driven by the operation. Rename Finding Diff Any steps to slices. | The browser's own Finding Diff Any slice loop in `LibraryFindingDiffAnyExports` |
 | 5 | One Library correspondence query for paired-mode steps, owned by [compile-asset correspondence](package-asset-selection-correspondence.md#comparison-counterparts). Per-point focus resolution stays History's rule. | `LibraryApiDiffRunner`'s `.Single()` pairing; per-export `FindComparisonAsset` calls |
 | 6 | Move the analysis-set runner and its single input builder into the operation. Single-Library API Diff has one terminal. | `RunAnalysisSet`'s separate input builder; `LibraryApiDiffRunner` and `LibraryApiDiffInspection` as a separate terminal |
 | 7 | Member body content uses one selected-population request | `MemberBodyDiffInspection` as a browser-only path; CLI Implementation Diff's separate population |
-| 8 | Browser exports become thin adapters over the operation; the background cue requests window policies | TypeScript version choice (`resolveEffectiveDiffTarget` choosing versions); per-export pairing and aggregation code; the whole-Library API Diff behind the one-Type cue once Fast Diff's Type level lands |
+| 8 | Browser exports become thin adapters over the operation; the background cue requests window policies | TypeScript version choice (`resolveEffectiveDiffTarget` choosing versions); per-export pairing and aggregation code; the whole-Library API Diff behind the one-Type cue once Finding Diff Any's Type level lands |
 | 9 | CLI `diff` routes, including Platform and local-file diff, collapse onto the operation; the three command-owned routes are owned here | Command-owned routes in the [adoption census](diff-command-adoption-census.md) |
-| 10 | Align documents: Fast Diff's adoption baselines, the census's analysis-set status, and each focused owner's orchestration claims | Stale claims |
+| 10 | Align documents: Finding Diff Any's adoption baselines, the census's analysis-set status, and each focused owner's orchestration claims | Stale claims |
 | 11 | Every diff document exposes the canonical change vocabulary at its boundary, and the browser projections carry it | Per-host vocabulary mapping, such as the browser's three-state Library API Diff Type state |
 | 12 | IL and C# body diffs lower through `MappedTextDiff` and render in the GNU diff model in both hosts | `IlDiffPrinter` and `CSharpDiffPrinter` hunk strings in CLI table cells |
 | 13 | The [annotated source diff document](annotated-source-diff-document.md#adoption) completes its fact comparison and owns the lowering of its facts to `TextDiffAnnotation`, amending its non-claim and Hosts table; Presentation runs that lowering; both hosts render the annotated model; the source diff transport carries change labels | JSON-only CLI output for the annotated source diff; `CSharpStructuralDiffPrinter.RenderAnnotatedBody` as a test-only renderer; label-dropping projections |
@@ -541,7 +547,7 @@ first, so later steps retire duplicates rather than add adapters.
 
 [#9920](https://github.com/richlander/dotnet-inspect/issues/9920)'s remaining
 slices consume this system: its Library cue over a window needs steps 4 and 8,
-its Type compare rows need step 4 and Fast Diff's Type level, its compare
+its Type compare rows need step 4 and Finding Diff Any's Type level, its compare
 controls need step 8, and its CLI `diff --history` at Library scope needs steps
 2 and 4. Its pinned current version opens through the endpoint scope, and its
 other points through their cells, from step 3. The version window projection

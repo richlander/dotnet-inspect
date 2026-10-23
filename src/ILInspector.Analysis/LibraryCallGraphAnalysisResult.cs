@@ -19,6 +19,8 @@ public sealed class LibraryCallGraphAnalysisResult
         bool> _inAssemblyTypeIsException;
     private readonly IReadOnlySet<int> _nonHeapNewObjOperandTokens;
     private readonly IReadOnlyDictionary<int, MethodIdentity> _declaredSources;
+    private readonly IReadOnlySet<int>
+        _declaredSourceSuppressedMethodTokens;
     private ImmutableArray<DirectCall> _physicalDirectCalls;
     private Dictionary<int, MethodSignals>? _signals;
     private IReadOnlyDictionary<int, ImmutableArray<DirectCall>>?
@@ -51,6 +53,9 @@ public sealed class LibraryCallGraphAnalysisResult
         _nonHeapNewObjOperandTokens =
             analysis.Methods.NonHeapNewObjOperandTokens;
         _declaredSources = analysis.Methods.DeclaredSources;
+        _declaredSourceSuppressedMethodTokens =
+            analysis.Methods
+                .DeclaredSourceSuppressedMethodTokens;
         ResourceOwnershipSummaries =
             analysis.ResourceOwnership?.Methods ?? [];
         ResourceOwnershipPublicationComplete =
@@ -93,6 +98,9 @@ public sealed class LibraryCallGraphAnalysisResult
 
     internal bool HasProjectedPhysicalDirectCalls =>
         !_physicalDirectCalls.IsDefault;
+
+    internal bool HasProjectedDeclaredMethodMap =>
+        _declaredMethodMap is not null;
 
     internal bool HasProjectedMethodSignals =>
         _signals is not null;
@@ -230,6 +238,29 @@ public sealed class LibraryCallGraphAnalysisResult
 
         return null;
     }
+
+    internal bool IsExceptionType(TypeRef type)
+    {
+        TypeRef definition =
+            type.Kind == TypeRefKind.GenericInstance
+                ? type.ElementType ?? type
+                : type;
+        if (_inAssemblyTypeIsException.TryGetValue(
+                (definition.Namespace, definition.Name),
+                out bool derivesFromException))
+        {
+            return derivesFromException;
+        }
+
+        return definition.Name.EndsWith(
+            "Exception",
+            StringComparison.Ordinal);
+    }
+
+    internal bool DeclaredSourceSuppressesOpportunities(
+        int physicalMethodToken) =>
+        _declaredSourceSuppressedMethodTokens.Contains(
+            physicalMethodToken);
 
     /// <summary>
     /// Releases lazy single-module graph maps while retaining projected

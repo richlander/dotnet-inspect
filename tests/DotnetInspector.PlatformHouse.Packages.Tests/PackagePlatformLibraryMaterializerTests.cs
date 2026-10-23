@@ -1896,8 +1896,10 @@ public sealed class PackagePlatformLibraryMaterializerTests
         await environment.AssertSettledAsync();
     }
 
-    [Fact]
-    public async Task PackageImplementationOnly_AssignsBothRoles()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PackageImplementationOnly_AssignsBothRoles(bool byName)
     {
         CancellationToken cancellationToken =
             TestContext.Current.CancellationToken;
@@ -1910,7 +1912,8 @@ public sealed class PackagePlatformLibraryMaterializerTests
             adapter,
             PackagePlatformTestData.Identity(image),
             PlatformViewDemand.Implementation,
-            cancellationToken);
+            cancellationToken,
+            byName: byName);
         var implementation = Assert.IsType<
             PackagePlatformHouseResult<
                 PackageImplementationRealization>.Succeeded>(
@@ -2556,7 +2559,8 @@ public sealed class PackagePlatformLibraryMaterializerTests
         PlatformViewDemand view,
         CancellationToken cancellationToken,
         bool packageFirst = true,
-        bool includeCompiledXmlDocumentation = false)
+        bool includeCompiledXmlDocumentation = false,
+        bool byName = false)
     {
         var selections = new List<PlatformSourceSelection>();
         if (view is PlatformViewDemand.Reference
@@ -2589,7 +2593,9 @@ public sealed class PackagePlatformLibraryMaterializerTests
                 PlatformStandaloneOperationIdentity.Create("test")),
             new PlatformHouseOperation.Realize(
                 new PlatformPopulationDemand.Library(
-                    new PlatformLibraryDemand.Assembly(identity)),
+                    byName
+                        ? new PlatformLibraryDemand.AssemblyName(identity.Name)
+                        : new PlatformLibraryDemand.Assembly(identity)),
                 view,
                 includeCompiledXmlDocumentation
                     ? PlatformLibraryContentDemand

@@ -68,7 +68,7 @@ public sealed class ProductionFacadeContextTests
             "ClassifyPackageGraphIdentities",
             "ClearWorkspacePackageOccurrences",
             "ClosePlatformForwarderView",
-            "ContainPackageDocumentHtml",
+            "ContainPackageDocumentLeaves",
             "ExplainPackageQuery",
             "GetPackageDocument",
             "GetPlatformCatalog",
@@ -87,11 +87,13 @@ public sealed class ProductionFacadeContextTests
             "QueryPlatformMemberDocumentation",
             "QueryPackage",
             "QueryPackageDependencies",
+            "QueryPackageHierarchy",
             "QueryPackageIcon",
             "QueryPackageRoot",
             "QueryPackageSummary",
             "QueryPackageVulnerabilities",
             "QueryPackageVersions",
+            "QueryReferencePackageSuppliers",
             "QueryWorkspacePackageOccurrences",
             "RequestPackageQueryMatches",
             "ResolvePackageDependencyVersion",
@@ -109,11 +111,11 @@ public sealed class ProductionFacadeContextTests
         [MetadataAssembly] =
         [
             "CancelLibraryApiDiff",
-            "CancelLibraryFastDiff",
+            "CancelLibraryFindingDiffAny",
             "FindTypes",
             "QueryGraphMemberSurface",
             "QueryLibraryApiDiff",
-            "QueryLibraryFastDiff",
+            "QueryLibraryFindingDiffAny",
             "QueryMemberDeclaration",
             "QueryMemberDocument",
             "QueryMemberGroupDocument",
@@ -223,6 +225,7 @@ public sealed class ProductionFacadeContextTests
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareEcosystemWorkspaceDefinition",
+            "PrepareHomeDemoWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",
@@ -277,7 +280,7 @@ public sealed class ProductionFacadeContextTests
         // No operation name may appear in two modules: a move that forgot to delete its
         // origin, or a name published twice, fails here rather than in the browser.
         string[] everyExport = [.. actual.Values.SelectMany(names => names)];
-        Assert.Equal(159, everyExport.Length);
+        Assert.Equal(162, everyExport.Length);
         Assert.Equal(
             everyExport.Length,
             everyExport.Distinct(StringComparer.Ordinal).Count());

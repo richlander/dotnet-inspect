@@ -7,9 +7,11 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.Presentation;
 using DotnetInspector.Queries;
 using QuerySpace.Rows;
 using DotnetInspector.Sections;
@@ -664,7 +666,7 @@ public partial class DependsCommand
     {
         if (File.Exists(library))
             return false;
-        if (!PlatformResolver.IsPlatformCandidate(library))
+        if (!EcosystemPackCatalog.ShouldSearchPlatform(library))
             return true;
         return !CanResolveInstalledPlatformLibrary(
             library,
@@ -688,7 +690,7 @@ public partial class DependsCommand
         string library,
         string? targetFramework)
     {
-        if (!PlatformResolver.IsPlatformCandidate(library))
+        if (!EcosystemPackCatalog.ShouldSearchPlatform(library))
             return false;
         if (targetFramework is null)
         {
@@ -987,11 +989,10 @@ public partial class DependsCommand
                 options.Tfm is { } framework
                     ? CreateTraversalTargetPolicy(framework)
                     : TraversalTargetFrameworkPolicy.ProductDefault;
-            var candidateSource =
-                new DesktopPackageDependencyCandidateSource(
-                    composition,
-                    options.SourceOptions,
-                    context.Logger.Log);
+            using PackageSourceOperationLease traversalOperation =
+                composition.IssueSettlementOperation(
+                    cancellationToken,
+                    PackageDependencyTraversalQuery.DefaultMaximumConcurrentSteps);
             packageTraversal =
                 await PackageDependencyTraversalQuery.ExecuteAsync(
                     new PackageDependencyTraversalRequest(
@@ -1017,15 +1018,15 @@ public partial class DependsCommand
                         ],
                         traversalTargetPolicy,
                         new PackageDependencyTraversalCandidateAdapter(
-                            candidateSource),
-                        new DesktopPackageDependencyTraversalManifestSource(
-                            composition),
+                            composition.CreateDependencySourceAuthorization(
+                                options.SourceOptions),
+                            context.Logger.Log),
+                        new AuthorizedPackageDependencyManifestSource(),
                         new PackageDependencyTraversalWorkBudget(
                             PackageManifestTraversalBudget,
                             PackageDeclarationTraversalBudget),
                         traversalDepth),
-                    cancellationToken,
-                    operationContext).ConfigureAwait(false);
+                    traversalOperation).ConfigureAwait(false);
             if (plan.Traversal)
             {
                 graphDocuments.Add(
@@ -1160,7 +1161,6 @@ public partial class DependsCommand
                 evidenceOutcome,
                 composition,
                 operationContext,
-                context,
                 cancellationToken).ConfigureAwait(false);
         DependsLatestVersionProjectionResult latestVersions =
             await AcquireLatestVersionProjectionAsync(
@@ -1306,7 +1306,6 @@ public partial class DependsCommand
             PackageDependencyEvidenceOutcome evidenceOutcome,
             DesktopPackageSourceComposition composition,
             NuGetOperationContext operationContext,
-            CommandContext context,
             CancellationToken cancellationToken)
     {
         if (!plan.Licenses)
@@ -1344,16 +1343,18 @@ public partial class DependsCommand
             coordinates.Add(package.Identity.Coordinate);
         }
 
-        var source = new DesktopPackageLicenseManifestSource(
-            composition,
-            options.SourceOptions,
-            context.Logger.Log);
+        var source = new AuthorizedPackageLicenseManifestSource(
+            composition.CreateDependencySourceAuthorization(
+                options.SourceOptions));
+        var execution = new PackageLicenseInventoryExecution(
+            source,
+            operationContext.OperationTimeout,
+            composition.IssueSettlementOperation);
         PackageLicenseInventoryResult inventory =
             await PackageLicenseInventoryQuery.ExecuteAsync(
                 coordinates,
-                source,
-                cancellationToken,
-                operationContext).ConfigureAwait(false);
+                execution,
+                cancellationToken).ConfigureAwait(false);
         bool sourceComplete =
             evidenceOutcome.RootSet.Completion
                 == PackageDependencyEvidenceRootSetCompletion.Complete
@@ -2195,15 +2196,24 @@ public partial class DependsCommand
                 hierarchyRows,
                 output);
 
-        if (options.Tree || options.MermaidOutput)
+        if (options.Tree)
+        {
+            DependencyHierarchyPresentation.WriteTree(
+                projection.Hierarchy,
+                [
+                    .. hierarchyRows.Select(
+                        static row => row.OccurrenceIdentity),
+                ],
+                output);
+            return true;
+        }
+
+        if (options.MermaidOutput)
         {
             DependencyHierarchyOutputAdapter.Write(
                 projection.Hierarchy,
                 hierarchyRows,
-                options.MermaidOutput
-                    ? OutputFormat.Mermaid
-                    : OutputFormat.PlainText,
-                tree: options.Tree,
+                OutputFormat.Mermaid,
                 embeddedMermaid: false,
                 options.NoHeader,
                 options.CompactJson,

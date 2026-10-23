@@ -26,6 +26,7 @@ import {
   onlySyntaxNode,
   type DeclaredFunction,
   functionDeclaration,
+  functionSource,
   onlyCallExpressionNamed,
   objectArgument,
   statementAt,
@@ -240,12 +241,12 @@ test("settled API Diff evidence decorates exact Type and Member navigation rows"
   const typeNav = sourceText(functionDeclaration("renderTypeNavPane"));
   assert.match(
     typeNav,
-    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*const fastDiffCues = libraryFastDiffCueSource\(\)[\s\S]*const identifier = item\.definitionId \?\? item\.id;\s*const diff = fastDiffCues\s*\? libraryFastDiffAchievement\(\s*fastDiffTypes\?\.get\(identifier\),\s*fastDiffCues\.baseline\.targetVersion\)\s*: diffPresence\.typeIdentifiers\.has\(identifier\)\s*\? typeApiDiffAchievement\s*: null;\s*return typeLeverageAchievements\(/,
+    /libraryApiDiffPresence\(state\.libraryApiDiff\)[\s\S]*const findingDiffAnyCues = libraryFindingDiffAnyCueSource\(\)[\s\S]*const identifier = item\.definitionId \?\? item\.id;\s*const diff = findingDiffAnyCues\s*\? libraryFindingDiffAnyAchievement\(\s*findingDiffAnyTypes\?\.get\(identifier\),\s*findingDiffAnyCues\.baseline\.targetVersion\)\s*: diffPresence\.typeIdentifiers\.has\(identifier\)\s*\? typeApiDiffAchievement\s*: null;\s*return typeLeverageAchievements\(/,
   );
-  // Outside Library Compare, Type cues come from the last-patch Fast Diff
+  // Outside Library Compare, Type cues come from the last-patch Finding Diff Any
   // baseline; inside it, from the Compare result. Both are the change glyph.
   assert.match(
-    sourceText(functionDeclaration("libraryFastDiffCueSource")),
+    sourceText(functionDeclaration("libraryFindingDiffAnyCueSource")),
     /if \(currentCompareSubject\(\) !== null\) return null;/,
   );
 
@@ -598,7 +599,7 @@ test("data bar has no expansion state or interaction binding", () => {
   assert.doesNotMatch(dataBarSource, /addEventListener|querySelector/);
 });
 
-test("typed package controls own framework and version selection bindings", () => {
+test("typed package controls own framework, runtime, and version selection bindings", () => {
   const packageControlsCreation =
     appSource.match(/const packageControls = createPackageControls\(\{[\s\S]*?\n}\);/)?.[0]
     ?? "";
@@ -622,7 +623,7 @@ test("typed package controls own framework and version selection bindings", () =
     /function packageFrameworkField|function packageCoordinateFields/);
   assert.match(
     packageControlsBinding,
-    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onVersionSelect: selectVersion,\s*\}\)/);
+    /bindPackageSelections\(root, \{\s*onFrameworkSelect: selectFramework,\s*onRuntimeIdentifierSelect: selectRuntimeIdentifier,\s*onVersionSelect: selectVersion,\s*\}\)/);
   assert.equal(
     workspaceBinding.match(/\bpackageControls\.bind\(document\)/g)?.length,
     1);
@@ -694,7 +695,7 @@ test("typed package inspection owns package-root request coordination", () => {
     /createPackageInspectionCoordinator\(\{[\s\S]*render: renderPreservingMemberFocus,[\s\S]*renderDependencyGraph,/);
   assert.match(
     appSource,
-    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\)\)/);
+    /queryDependencies: packageModel => inspectPackageDependencies\(\s*packageModel\.id,\s*packageModel\.version,\s*packageModel\.activeFramework,\s*packageQueryAssemblyId\(packageModel\),\s*packageModel\.runtimeIdentifier \?\? null\)/);
   for (const engine of [
     "inspectPackageIntegrations",
     "inspectPackageOpportunities",
@@ -729,8 +730,8 @@ test("typed package inspection owns package-root request coordination", () => {
   assert.match(appSource, /packageInspection\.loadMetadata\(/);
   assert.match(
     packageInspectionSource,
-    /async loadDependencies\(packageModel, signature\)[\s\S]*state\.packageDependenciesKey/);
-  assert.doesNotMatch(dependenciesLoader, /state\.packageDependenciesKey/);
+    /async loadDependencies\(packageModel, signature\)[\s\S]*packageInspectionRequestStateKey\(current\) === signature[\s\S]*state\.packageDependencies\.request === request/);
+  assert.doesNotMatch(dependenciesLoader, /state\.packageDependencies/);
 });
 
 test("typed package view owns package navigation bindings", () => {
@@ -849,8 +850,8 @@ test("typed package view owns package navigation bindings", () => {
     binding,
     /onPerformanceMemberSelect: target => \{[\s\S]*drillToPerfMember\(\s*target\.stableSelector,\s*target\.assembly,\s*target\.typeId, target\.resourceMethodToken\)/);
   assert.match(
-    appSource,
-    /function drillToPerfMember\([\s\S]*setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent, resourceMethodToken\)/);
+    functionSource("drillToPerfMember"),
+    /setTypeMemberPopulationIntent\("all", "csharp", "performance"\);[\s\S]*render\(\);[\s\S]*const expectedPopulationKey = typeMemberPopulationKey\(targetType\);[\s\S]*const expectedPopulationIntent = typeMemberPopulationIntentGeneration;[\s\S]*selectPerformanceMember\(\s*stableSelector,\s*expectedView,\s*expectedPopulationKey,\s*expectedPopulationIntent,\s*publication,\s*resourceMethodToken\)/);
   assert.match(
     appSource,
     /implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\)/);
@@ -1044,10 +1045,7 @@ test("keyboard help projects available global and current graph bindings", () =>
     appSource,
     /const workspaceDrillInIsAvailable = \(\) =>\s*workspaceKeyboardContextIsActive\(\) && state\.package !== null/);
   const renderWorkspaceFocus =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?\n}\n\nfunction renderWorkspaceCatalogView/,
-    )?.[0]
-    ?? "";
+    functionSource("renderCore");
   assert.equal(
     renderWorkspaceFocus.match(
       /restoreWorkspaceFocus\(document, workspaceFocus\)/g,
@@ -1147,23 +1145,19 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     appSource.match(/function bindEvents\(\) \{[\s\S]*?\n}\n\nfunction toggleTheme/)?.[0]
     ?? "";
   const typeGraph =
-    appSource.match(/async function renderTypeGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction navigateToTypeByName)/)?.[0]
-    ?? "";
+    functionSource("renderTypeGraph");
   const annotatedRelationshipGraph =
-    appSource.match(/async function renderAnnotatedRelationshipDiagram\(\) \{[\s\S]*?\n}(?=\n\n\/\/ Projects the neutral type-relationship)/)?.[0]
-    ?? "";
+    functionSource("renderAnnotatedRelationshipDiagram");
   const dependencyGraph =
-    appSource.match(/async function renderDependencyGraph\(\) \{[\s\S]*?\n}(?=\n\nasync function renderLibraryReferenceGraph)/)?.[0]
-    ?? "";
+    functionSource("renderDependencyGraph");
   const libraryReferenceGraph =
-    appSource.match(/async function renderLibraryReferenceGraph\(\) \{[\s\S]*?\n}(?=\n\nfunction switchToPackageForDependencies)/)?.[0]
-    ?? "";
+    functionSource("renderLibraryReferenceGraph");
   const callGraph =
-    appSource.match(/function renderMermaidCallGraph\(\): Promise<CallGraphRenderResult> \{[\s\S]*?\n}(?=\n\nfunction callGraphNodeBinding)/)?.[0]
-    ?? "";
+    functionSource("renderMermaidCallGraph");
+  const callGraphNodeBinding =
+    functionSource("callGraphNodeBinding");
   const callGraphBinding =
-    appSource.match(/function callGraphNodeBinding\([\s\S]*?\n}(?=\n\nfunction currentCallGraph)/)?.[0]
-    ?? "";
+    functionSource("callGraphTargetBinding");
   assert.match(
     graphInteractionsSource,
     /export function bindGraphBack\([\s\S]*\[data-graph-back\]/);
@@ -1214,7 +1208,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     /bindGraphPanZoom\(container, viewport, \{[\s\S]*resolveDependencyGraphNode: nodeId => \{[\s\S]*built\.nodeInfoById\.get\(nodeId\)[\s\S]*switchToPackageForDependencies\(info\.packageKey\)[\s\S]*openDependencyPackage\(info\.id, info\.versionRange\)/);
   assert.match(
     dependencyGraph,
-    /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self"\) return null/);
+    /const info = nodeId \? built\.nodeInfoById\.get\(nodeId\) : null;\s*if \(!info \|\| info\.kind === "self" \|\| info\.kind === "platform"\)\s*return null/);
   assert.match(
     libraryReferenceGraph,
     /buildAssemblyReferenceGraphMermaid\([\s\S]*graphControlsHtml\(\)[\s\S]*bindGraphPanZoom\(container, viewport, \{ keybindings \}\)/);
@@ -1228,8 +1222,11 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     callGraph,
     /catch \(error\) \{[\s\S]*const message = errorMessage\(error\);[\s\S]*graph-render-error[\s\S]*return \{ status: "failed", message \}/);
   assert.match(
+    callGraphNodeBinding,
+    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*return callGraphTargetBinding\(target\)/);
+  assert.match(
     callGraphBinding,
-    /callGraph\.targets\?\.find\(candidate => candidate\.id === nodeId\)[\s\S]*const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
+    /const drilled =\s*state\.platformStack\.length > 0 \|\| Boolean\(state\.package\?\.isRuntimePack\);[\s\S]*resolveRuntimeGraphTargetCandidate\(pack, target\)[\s\S]*runtimeGraphTargetNavigationDisposition\([\s\S]*blockedCallGraphNodeBinding/);
   assert.match(
     callGraphBinding,
     /if \(disposition === "member" && pack && resident\) \{[\s\S]*openRuntimeMemberFromGraph\([\s\S]*\} else if \(disposition === "lookup"\) \{[\s\S]*navigateOrDrillPlatform\([\s\S]*target,[\s\S]*runtimeSection,[\s\S]*failureSurface\)[\s\S]*\} else if \(destination === "member"\)[\s\S]*startPlatformDrill\(target\)/);
@@ -1251,7 +1248,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
     graphInteractionsSource,
     /resolveCallGraphNode[\s\S]*setAttribute\("tabindex", "0"\)[\s\S]*setAttribute\("role", "button"\)[\s\S]*setAttribute\("aria-label", binding\.label\)[\s\S]*addEventListener\("click"[\s\S]*"call-graph-node\.activate"[\s\S]*"dependency-graph-node\.activate"[\s\S]*key: \["Enter", " "\]/);
   assert.equal(appSource.match(/\bbindGraphBack\(/g)?.length, 1);
-  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 5);
+  assert.equal(appSource.match(/\bbindGraphPanZoom\(/g)?.length, 6);
   assert.equal(appSource.match(/\bcallGraphNodeBinding\(/g)?.length, 2);
   assert.doesNotMatch(
     `${annotatedRelationshipGraph}\n${typeGraph}\n${dependencyGraph}\n${libraryReferenceGraph}\n${callGraph}`,
@@ -1268,7 +1265,7 @@ test("typed graph interactions own graph controls and Mermaid node bindings", ()
   assert.match(
     appSource,
     /document\.addEventListener\("pointerdown", trackContentFramePointer\)/);
-  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 8);
+  assert.equal(appSource.match(/\.addEventListener\(/g)?.length, 10);
 });
 
 test("Call graph presentation keeps renderer source internal", () => {
@@ -1285,7 +1282,7 @@ test("typed document inspection owns package document request coordination", () 
     ?? "";
   assert.match(
     appSource,
-    /createDocumentInspectionCoordinator\(\{[\s\S]*queryDocument:[\s\S]*renderMarkdown,[\s\S]*renderMarkdownInline,/);
+    /createDocumentInspectionCoordinator\(\{[\s\S]*queryDocument:[\s\S]*renderDocument: renderPackageDocument,/);
   assert.match(
     appSource,
     /queryDocument: request => inspectPackageDocument\(\s*request\.packageId,\s*request\.version,\s*request\.document\.path\)/);
@@ -1678,6 +1675,15 @@ test("typed scope bar owns its rendered control bindings", () => {
   ]) {
     assert.equal(appSource.split(selector).length - 1, 0, selector);
   }
+});
+
+test("package Type and Member inspection retain exact runtime identity", () => {
+  assert.match(
+    appSource,
+    /inspectTypeMemberPopulation\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
+  assert.match(
+    appSource,
+    /\(performance\s*\? inspectPerformanceTypeMemberPopulation\s*: inspectTypeOverviewDocument\)\(\s*pkg\.id,\s*pkg\.version,\s*pkg\.activeFramework,\s*type\.assembly,\s*type\.definitionId \?\? type\.id,\s*state\.memberSpelling,\s*state\.memberAccessibilityFilter,\s*pkg\.runtimeIdentifier \?\? null\)/);
 });
 
 test("typed settings panel owns its rendered control bindings", () => {
@@ -2109,8 +2115,8 @@ test("annotated source Escape and history ownership track the mounted surface", 
     popstate,
     /const dismissedAnnotatedSourceModal = dismissModalsForRoutedNavigation\(\);\s*invalidateMemberDestinationWork\(state\);[\s\S]*if \(dismissedAnnotatedSourceModal\) render\(\{ synchronizeUrl: false \}\);\s*if \(isDiagnosticsPath/);
   assert.match(
-    appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\)[\s\S]*if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
+    functionSource("renderCore"),
+    /if \(productDemosRouteVisible\) \{\s*document\.title = "Demos — dotnet-inspect";\s*\} else if \(state\.rootKind !== "library"\s*&& options\.synchronizeUrl !== false\) \{\s*syncUrl\(\);\s*\}/);
 });
 
 test("package search state owner settles pending work and projects visible cache", () => {

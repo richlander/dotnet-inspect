@@ -15,10 +15,11 @@ namespace DotnetInspect.Cli.Commands;
 
 internal sealed record ILOffsetAnalysisPreparation(
     ILOffsetAnalysisInput? Input,
+    ILOffsetSafetyAnalysisInput? SafetyInput,
     string? Failure)
 {
     internal static ILOffsetAnalysisPreparation None { get; } =
-        new(null, null);
+        new(null, null, null);
 }
 
 internal static class ILOffsetQuery
@@ -147,7 +148,8 @@ internal static class ILOffsetQuery
             Analysis: analysis.Input,
             AnalysisFailure: analysis.Failure,
             AllowNonBoundaryContextAbsence:
-                allowNonBoundaryContextAbsence));
+                allowNonBoundaryContextAbsence,
+            SafetyAnalysis: analysis.SafetyInput));
         if (!outcome.Succeeded)
         {
             var failure = outcome.Failure!;
@@ -192,6 +194,21 @@ internal static class ILOffsetQuery
         try
         {
             PdbContext context = service.Context;
+            if (RequiresOnlySafety(capabilities))
+            {
+                using AssemblyInspectionSession session =
+                    AssemblyInspectionSession.Borrow(context);
+                return new(
+                    Input: null,
+                    ILOffsetSafetyAnalysis.Execute(
+                        session,
+                        context.AssemblyPathOrNull
+                            ?? "IL-offset assembly",
+                        context.ModuleVersionId(),
+                        bodyScope),
+                    Failure: null);
+            }
+
             Analysis.LibraryBodyAnalysisExecution execution =
                 Analysis.LibraryBodyAnalysisService.ExecuteImage(
                     context.AssemblyPathOrNull
@@ -205,6 +222,7 @@ internal static class ILOffsetQuery
                     execution.Allocations,
                     execution.Safety,
                     execution.CallGraph),
+                SafetyInput: null,
                 Failure: null);
         }
         catch (Exception ex) when (ex is BadImageFormatException
@@ -215,6 +233,7 @@ internal static class ILOffsetQuery
         {
             return new(
                 Input: null,
+                SafetyInput: null,
                 $"IL-offset semantic analysis unavailable: "
                     + $"{ex.GetType().Name}: {ex.Message}");
         }
@@ -287,6 +306,14 @@ internal static class ILOffsetQuery
         }
         return features;
     }
+
+    static bool RequiresOnlySafety(
+        ILOffsetProjectionCapabilities capabilities) =>
+        (capabilities
+            & ILOffsetProjectionCapabilities.SafetyContext) != 0
+        && (capabilities
+            & (ILOffsetProjectionCapabilities.AllocationContext
+                | ILOffsetProjectionCapabilities.CostContext)) == 0;
 
     static void WriteError(bool enabled, string message)
     {

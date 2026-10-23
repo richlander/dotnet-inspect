@@ -495,26 +495,6 @@ public sealed partial class DesktopPackageSourceComposition : IAsyncDisposable
             log);
     }
 
-    /// <summary>
-    /// Enumerates the complete listed candidate set required for one NuGet
-    /// dependency version constraint.
-    /// </summary>
-    public Task<PackageVersionDiscoveryResult> GetDependencyVersionsAsync(
-        string packageId,
-        NuGetSourceOptions? sourceOptions = null,
-        Action<string>? log = null,
-        CancellationToken cancellationToken = default,
-        NuGetOperationContext? operationContext = null) =>
-        GetVersionsAsync(
-            packageId,
-            includePrerelease: true,
-            limit: null,
-            sourceOptions,
-            log,
-            cancellationToken,
-            includeUnlisted: false,
-            operationContext);
-
     private static IReadOnlyList<PackageSource> ResolveEligibleSources(
         string packageId,
         NuGetSourceOptions? sourceOptions,

@@ -37,6 +37,9 @@ public partial class CommandExecutionTests
         Assert.Equal("10.0.0", tab.Version);
         Assert.Equal("netstandard2.0", tab.Framework);
         Assert.Equal("hierarchy", packet.Lens);
+        Assert.Equal(
+            "netstandard2.0",
+            packet.TraversalTargetPolicy.TargetFramework);
     }
 
     [Fact]

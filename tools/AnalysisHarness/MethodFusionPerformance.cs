@@ -292,7 +292,7 @@ public static class MethodFusionPerformance
                     operation,
                     access))
         is AssemblyAnalysisRequestSetServiceResult.Completed completed
-            ? completed.Execution
+            ? completed.Execution.MethodDefinitionExecution()
             : throw new InvalidOperationException(
                 "The Method fusion operation was rejected.");
 

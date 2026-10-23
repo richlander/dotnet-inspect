@@ -200,7 +200,8 @@ static IlDiffCard BuildCard(IlAssemblyDiffResult result)
         [.. result.Examples.Select(example => new IlDiffExample(
             example.Method,
             example.Diff.Outcome,
-            IlDiffPrinter.RenderUnified(example.Diff)))]);
+            IlDiffPrinter.RenderUnified(example.Diff)))],
+        result.PairExceptionRegionDiffCount);
 }
 
 static ImmutableArray<CardBucket> Buckets(Dictionary<string, int> counts)
@@ -259,7 +260,8 @@ static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int ma
             PairOpcodeDiffCount: card.PairOpcodeDiffCount,
             PairUnavailableCount: card.PairUnavailableCount,
             ChangedBodyCount: card.ChangedBodyCount,
-            FailureCount: card.FailureCount),
+            FailureCount: card.FailureCount,
+            PairExceptionRegionDiffCount: card.PairExceptionRegionDiffCount),
         Pairs: pairs.Select(pair => new IlDiffSnapshotPair(
             Old: DiffHarnessCommon.AbsoluteSnapshotPath(pair.OldPath),
             New: DiffHarnessCommon.AbsoluteSnapshotPath(pair.NewPath),
@@ -270,7 +272,8 @@ static IlDiffSnapshot BuildSnapshot(ImmutableArray<IlDiffPairCard> pairs, int ma
             PairOpcodeDiffCount: pair.Card.PairOpcodeDiffCount,
             PairUnavailableCount: pair.Card.PairUnavailableCount,
             ChangedBodyCount: pair.Card.ChangedBodyCount,
-            FailureCount: pair.Card.FailureCount)).ToArray(),
+            FailureCount: pair.Card.FailureCount,
+            PairExceptionRegionDiffCount: pair.Card.PairExceptionRegionDiffCount)).ToArray(),
         FailureBuckets: card.FailureBuckets.ToArray(),
         HunkKindBuckets: card.TopHunkKinds.ToArray(),
         OpcodeFamilyBuckets: card.TopOpcodeFamilies.ToArray(),
@@ -306,6 +309,7 @@ static BaselineComparison CompareSnapshots(IlDiffSnapshot baseline, IlDiffSnapsh
     AddDrift(drift, "Pair exact empty", baseline.Summary.PairExactEmptyCount, current.Summary.PairExactEmptyCount);
     AddDrift(drift, "Pair operand diffs", baseline.Summary.PairOperandDiffCount, current.Summary.PairOperandDiffCount);
     AddDrift(drift, "Pair opcode diffs", baseline.Summary.PairOpcodeDiffCount, current.Summary.PairOpcodeDiffCount);
+    AddDrift(drift, "Pair exception-region diffs", baseline.Summary.PairExceptionRegionDiffCount, current.Summary.PairExceptionRegionDiffCount);
     AddDrift(drift, "Pair unavailable", baseline.Summary.PairUnavailableCount, current.Summary.PairUnavailableCount);
     AddDrift(drift, "Changed bodies", baseline.Summary.ChangedBodyCount, current.Summary.ChangedBodyCount);
     AddExistingFailureBucketDrift(drift, baselineFailureBuckets, currentFailureBuckets);
@@ -428,6 +432,7 @@ static List<IlDiffMetricRow> SummaryRows(int pairCount, IlDiffCard card) =>
     new("Pair exact empty", Count(card.PairExactCount)),
     new("Pair operand diffs", Count(card.PairOperandDiffCount)),
     new("Pair opcode diffs", Count(card.PairOpcodeDiffCount)),
+    new("Pair exception-region diffs", Count(card.PairExceptionRegionDiffCount)),
     new("Pair unavailable", Count(card.PairUnavailableCount)),
     new("Changed bodies", Count(card.ChangedBodyCount)),
     new("Failures", Count(card.FailureCount)),
@@ -446,6 +451,7 @@ static List<MetricChange<int>> BaselineMetricRows(BaselineComparison comparison)
     MetricContext("Pair exact empty", comparison.Baseline.Summary.PairExactEmptyCount, comparison.Current.Summary.PairExactEmptyCount),
     MetricContext("Pair operand diffs", comparison.Baseline.Summary.PairOperandDiffCount, comparison.Current.Summary.PairOperandDiffCount),
     MetricContext("Pair opcode diffs", comparison.Baseline.Summary.PairOpcodeDiffCount, comparison.Current.Summary.PairOpcodeDiffCount),
+    MetricContext("Pair exception-region diffs", comparison.Baseline.Summary.PairExceptionRegionDiffCount, comparison.Current.Summary.PairExceptionRegionDiffCount),
     MetricContext("Pair unavailable", comparison.Baseline.Summary.PairUnavailableCount, comparison.Current.Summary.PairUnavailableCount),
     MetricContext("Changed bodies", comparison.Baseline.Summary.ChangedBodyCount, comparison.Current.Summary.ChangedBodyCount),
     MetricGoal("Failures", comparison.Baseline.Summary.FailureCount, comparison.Current.Summary.FailureCount, "max failures", Goal.Lower),
@@ -505,6 +511,7 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
     int pairExact = 0;
     int pairOperandDiff = 0;
     int pairOpcodeDiff = 0;
+    int pairExceptionRegionDiff = 0;
     int pairUnavailable = 0;
     int changed = 0;
     int failureCount = 0;
@@ -516,6 +523,7 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
         pairExact += pair.Card.PairExactCount;
         pairOperandDiff += pair.Card.PairOperandDiffCount;
         pairOpcodeDiff += pair.Card.PairOpcodeDiffCount;
+        pairExceptionRegionDiff += pair.Card.PairExceptionRegionDiffCount;
         pairUnavailable += pair.Card.PairUnavailableCount;
         changed += pair.Card.ChangedBodyCount;
         failureCount += pair.Card.FailureCount;
@@ -548,7 +556,8 @@ static IlDiffCard Aggregate(ImmutableArray<IlDiffPairCard> pairs, int maxExample
         Buckets(failures),
         Buckets(hunkKinds),
         Buckets(opcodeFamilies),
-        examples.ToImmutable());
+        examples.ToImmutable(),
+        pairExceptionRegionDiff);
 }
 
 static IlDiffPairSummaryRow PairSummaryRow(IlDiffPairCard pair)
@@ -560,6 +569,7 @@ static IlDiffPairSummaryRow PairSummaryRow(IlDiffPairCard pair)
         pair.Card.PairExactCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairOperandDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairOpcodeDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        pair.Card.PairExceptionRegionDiffCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.PairUnavailableCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.ChangedBodyCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
         pair.Card.FailureCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -576,6 +586,7 @@ static IlDiffSectionPairSummaryRow SectionedPairSummaryRow(IlDiffPairCard pair)
         row.PairExactEmpty,
         row.PairOperandDiffs,
         row.PairOpcodeDiffs,
+        row.PairExceptionRegionDiffs,
         row.PairUnavailable,
         row.Changed,
         row.Failures);
@@ -621,7 +632,8 @@ sealed record IlDiffCard(
     ImmutableArray<CardBucket> FailureBuckets,
     ImmutableArray<CardBucket> TopHunkKinds,
     ImmutableArray<CardBucket> TopOpcodeFamilies,
-    ImmutableArray<IlDiffExample> Examples);
+    ImmutableArray<IlDiffExample> Examples,
+    int PairExceptionRegionDiffCount = 0);
 
 sealed record CardBucket(string Name, int Count);
 
@@ -721,6 +733,7 @@ sealed record IlDiffPairSummaryRow(
     [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
     [property: MarkoutPropertyName("Pair operand diffs")] string PairOperandDiffs,
     [property: MarkoutPropertyName("Pair opcode diffs")] string PairOpcodeDiffs,
+    [property: MarkoutPropertyName("Pair exception-region diffs")] string PairExceptionRegionDiffs,
     [property: MarkoutPropertyName("Pair unavailable")] string PairUnavailable,
     string Changed,
     string Failures);
@@ -735,6 +748,7 @@ sealed record IlDiffSectionPairSummaryRow(
     [property: MarkoutPropertyName("Pair exact empty")] string PairExactEmpty,
     [property: MarkoutPropertyName("Pair operand diffs")] string PairOperandDiffs,
     [property: MarkoutPropertyName("Pair opcode diffs")] string PairOpcodeDiffs,
+    [property: MarkoutPropertyName("Pair exception-region diffs")] string PairExceptionRegionDiffs,
     [property: MarkoutPropertyName("Pair unavailable")] string PairUnavailable,
     string Changed,
     string Failures);
@@ -792,7 +806,8 @@ sealed record IlDiffSnapshotSummary(
     int PairOpcodeDiffCount,
     int PairUnavailableCount,
     int ChangedBodyCount,
-    int FailureCount);
+    int FailureCount,
+    int PairExceptionRegionDiffCount = 0);
 
 sealed record IlDiffSnapshotPair(
     string Old,
@@ -804,7 +819,8 @@ sealed record IlDiffSnapshotPair(
     int PairOpcodeDiffCount,
     int PairUnavailableCount,
     int ChangedBodyCount,
-    int FailureCount);
+    int FailureCount,
+    int PairExceptionRegionDiffCount = 0);
 
 sealed record BaselineComparison(
     IlDiffSnapshot Baseline,

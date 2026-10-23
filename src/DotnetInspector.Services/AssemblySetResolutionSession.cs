@@ -108,6 +108,9 @@ public sealed class AssemblySetResolutionSession : IDisposable
         {
             Name = name,
             Tfm = tfm,
+            ExtractionScope = includeAll
+                ? ApiSurfaceExtractionScope.IncludeAll
+                : ApiSurfaceExtractionScope.Public,
         };
         bool readSurface = false;
         foreach (AcquisitionFailure failure

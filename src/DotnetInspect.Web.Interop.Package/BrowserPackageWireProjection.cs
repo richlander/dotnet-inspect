@@ -1,7 +1,9 @@
 using System.Runtime.Versioning;
+using DotnetInspector.InspectionContracts;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using InertText;
 
 namespace DotnetInspect.Web.Interop.Package;
 
@@ -292,6 +294,33 @@ internal static class BrowserPackageWireProjection
             [.. inspection.Diagnostics.Select(Project)]);
     }
 
+    internal static BrowserPackageRuntimePopulationChoice? Project(
+        PackageRuntimePopulationChoiceResult? choice)
+    {
+        if (choice is null)
+            return null;
+
+        return new(
+            choice switch
+            {
+                PackageRuntimePopulationChoiceResult.Selected =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Selected,
+                PackageRuntimePopulationChoiceResult.NoMatch =>
+                    BrowserPackageRuntimePopulationChoiceStatus.NoMatch,
+                PackageRuntimePopulationChoiceResult.Ambiguous =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+                PackageRuntimePopulationChoiceResult.Refused =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Refused,
+                PackageRuntimePopulationChoiceResult.Failed =>
+                    BrowserPackageRuntimePopulationChoiceStatus.Failed,
+                _ => throw new InvalidOperationException(
+                    "Unknown runtime-population choice outcome."),
+            },
+            (choice as PackageRuntimePopulationChoiceResult.Selected)
+                ?.RuntimeIdentifier,
+            [.. choice.AvailableRuntimeIdentifiers]);
+    }
+
     internal static BrowserPackageChildrenInspection Project(
         InspectionEnvelope<PackageChildrenDocument> inspection)
     {
@@ -484,17 +513,9 @@ internal static class BrowserPackageWireProjection
                     parameter.Type,
                     parameter.Modifier,
                     parameter.HasDefault,
-                    parameter.DefaultValue,
-                    parameter.Description)),
+                    parameter.DefaultValue)),
             ],
             member.DocumentationId,
-            member.Summary,
-            member.Returns,
-            [
-                .. member.Exceptions.Select(exception => new BrowserExceptionSurface(
-                    exception.Type,
-                    exception.Description)),
-            ],
             member.StableSelector,
             member.AnchorDigest,
             member.CanonicalSignature,
@@ -555,11 +576,80 @@ internal static class BrowserPackageWireProjection
             document.Text);
     }
 
-    internal static BrowserPackageDocumentHtml ProjectDocumentHtml(string html)
+    internal static PresentationLeaf Project(
+        BrowserDocumentPresentationLeaf leaf)
     {
-        ArgumentNullException.ThrowIfNull(html);
-        return new(new(InertText.TextPolicy.Prose, html));
+        ArgumentNullException.ThrowIfNull(leaf);
+        return new(
+            leaf.Identity,
+            leaf.Policy switch
+            {
+                BrowserDocumentTextPolicy.Field => TextPolicy.Field,
+                BrowserDocumentTextPolicy.Prose => TextPolicy.Prose,
+                _ => (TextPolicy)(-1),
+            },
+            leaf.Text);
     }
+
+    internal static BrowserDocumentLeafContainmentOutcome Project(
+        PresentationLeafContainmentOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+        return outcome switch
+        {
+            PresentationLeafContainmentOutcome.Contained contained =>
+                new BrowserDocumentLeafContainmentContained(
+                    contained.Generation,
+                    [.. contained.Leaves.Select(Project)]),
+            PresentationLeafContainmentOutcome.Rejected rejected =>
+                new BrowserDocumentLeafContainmentRejected(
+                    rejected.Generation,
+                    Project(rejected.Failure)),
+            _ => throw new InvalidOperationException(
+                "Unknown presentation-leaf containment outcome."),
+        };
+    }
+
+    private static BrowserContainedDocumentPresentationLeaf Project(
+        ContainedPresentationLeaf leaf) =>
+        new(
+            leaf.Identity,
+            leaf.Policy switch
+            {
+                TextPolicy.Field => BrowserDocumentTextPolicy.Field,
+                TextPolicy.Prose => BrowserDocumentTextPolicy.Prose,
+                _ => throw new InvalidOperationException(
+                    "Unknown contained presentation-leaf policy."),
+            },
+            leaf.Text);
+
+    private static BrowserDocumentLeafContainmentFailure Project(
+        PresentationLeafContainmentFailure failure) =>
+        new(
+            failure.Kind switch
+            {
+                PresentationLeafContainmentFailureKind.InvalidGeneration =>
+                    BrowserDocumentLeafContainmentFailureKind.InvalidGeneration,
+                PresentationLeafContainmentFailureKind.InvalidLeafIdentity =>
+                    BrowserDocumentLeafContainmentFailureKind.InvalidLeafIdentity,
+                PresentationLeafContainmentFailureKind.DuplicateLeafIdentity =>
+                    BrowserDocumentLeafContainmentFailureKind.DuplicateLeafIdentity,
+                PresentationLeafContainmentFailureKind.MissingLeafText =>
+                    BrowserDocumentLeafContainmentFailureKind.MissingLeafText,
+                PresentationLeafContainmentFailureKind.UnsupportedTextPolicy =>
+                    BrowserDocumentLeafContainmentFailureKind.UnsupportedTextPolicy,
+                PresentationLeafContainmentFailureKind.TooManyLeaves =>
+                    BrowserDocumentLeafContainmentFailureKind.TooManyLeaves,
+                PresentationLeafContainmentFailureKind.InputTextTooLarge =>
+                    BrowserDocumentLeafContainmentFailureKind.InputTextTooLarge,
+                PresentationLeafContainmentFailureKind.OutputTextTooLarge =>
+                    BrowserDocumentLeafContainmentFailureKind.OutputTextTooLarge,
+                _ => throw new InvalidOperationException(
+                    "Unknown presentation-leaf containment failure."),
+            },
+            failure.Identity,
+            failure.Actual,
+            failure.Limit);
 
     internal static BrowserPackageIcon? Project(BrowserPackageIconPayload? icon) =>
         icon is null

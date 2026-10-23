@@ -1039,6 +1039,8 @@ test("Platform requests metadata identity while sharing the exact physical Libra
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-platform-metadata-request",
     JSON.stringify(["net11.0", platformVersion, "System.Text.Json.dll", "netcore.app"]));
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-warmup");
+  await expect(page.locator("html")).not.toHaveAttribute("data-platform-versions-request");
 });
 
 test("Package and catalog-only Platform remain distinct coordinates in the same shared Workspace", async ({ page }) => {

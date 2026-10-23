@@ -26,6 +26,20 @@ public sealed class AssemblyContextClosedWorldBindingTests
             AssemblyContextTypeResolutionQuery.Execute(
                 group, fixture.Nodes[0].Participant, TypeName, AssemblyResolutionScope.Any));
         Assert.Same(fixture.Nodes[participant].Assembly, query.Assembly);
+        AssemblyContextTypeResolutionTypeIdentity typeIdentity =
+            Assert.IsType<
+                AssemblyContextTypeResolutionTypeIdentityResult.Valid>(
+                    AssemblyContextTypeResolutionQuery.ParseTypeIdentity(
+                        "N.Type")).Identity;
+        var decision = Assert.IsType<
+            AssemblyContextTypeResolutionDecision.UnsupportedBindingPolicy>(
+                AssemblyContextTypeResolutionQuery.ExecuteDecision(
+                    group,
+                    fixture.Nodes[0].Participant,
+                    typeIdentity,
+                    AssemblyResolutionScope.Any));
+        Assert.True(decision.Assembly.IsEquivalentTo(
+            fixture.Nodes[participant].Assembly.Identity));
         AssertNoAcquisition();
 
         var result = Assert.IsType<WorkspaceResearchTargetCompositionResult.Rejected>(

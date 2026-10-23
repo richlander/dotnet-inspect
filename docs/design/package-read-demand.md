@@ -136,6 +136,30 @@ runtime realization selects its runtime universe as before. The complete
 archive, when a read takes the complete fetch, is unaffected: it holds every
 entry whatever the demand.
 
+`LibraryPopulation` asks PackageHouse to choose one role population from the
+same validated directory used for ranged planning. Compile selection has
+precedence. Only `NoCompileAssets` or `EmptyCompileGroup` permits one-RID
+runtime selection. Only runtime `NoMatch` permits declared-tool selection;
+runtime ambiguity or invalidity remains terminal. The tool-measurement owner
+authenticates an exact `DotnetTool` or `DotnetToolRidPackage` nuspec
+declaration and selects one compatible `tools/<tfm>/` slice. A selected compile
+population expands exactly as compile realization, and a selected runtime
+population expands exactly as runtime realization. A selected tool population
+adds only its exact managed-Library entries, including eligible nested managed
+runtime entries; it does not expand tool folders or admit native, satellite,
+analyzer, build, or another-framework entries.
+
+For ranged HTTP acquisition, PackageHouse first lets complete cache, compile,
+and runtime settlement finish without requesting a candidate nuspec. Only a
+ranged runtime `NoMatch` requests the bounded exact manifest from the same
+authority that supplied the retained central directory. A valid tool
+declaration then permits a second ranged step, restricted to that authority,
+for only the selected tool entries. The final declaration evidence is rebound
+to the final retained content generation. If that authority cannot provide the
+manifest, or the declaration is absent or invalid, no tool entry body is
+transferred and the result is typed non-success. Complete acquisition may read
+its retained nuspec directly and publishes the same selected role population.
+
 The package Root records the demand it was realized with. A surface-only Root
 prepares no implementation role and forms no role correspondence, so no
 consumer can observe a missing implementation as a correspondence failure.
@@ -172,6 +196,10 @@ owner-issued exception: a name is satisfied when it selects an API asset whose
 compile correspondence explicitly has no implementation counterpart. Other
 House callers cannot request that policy, and every other unmatched name still
 fails.
+
+A Library-population realization does not accept implementation names. Its
+role must be selected before a narrower exact-Library probe runs, so named
+implementation demand cannot change which population exists.
 
 Named implementation assets are read in **aligned blocks**, not folders.
 Blocks are fixed by the archive alone:
@@ -373,10 +401,13 @@ names them directly:
 `PackageFileDemand` is a set of exact entry paths and folder prefixes.
 Paths are validated as entry names are: relative, `/`-separated, and without
 an empty, `.`, or `..` segment, a root, `\`, or `:`. They are compared
-without regard to case. A file demand needs no asset realization, so a
-ranged `Acquire` operation may carry one; only an `Acquire` operation does.
-Without a file demand, ranged access still requires a `Realize`
-operation.
+without regard to case. Package-owned lexical projections, including an entry
+leaf, stem, or extension, interpret that entry grammar rather than the
+inspecting host's filesystem grammar. Consumers use those projections instead
+of reconstructing entry identity with `System.IO.Path`. A file demand needs no
+asset realization, so a ranged `Acquire` operation may carry one; only an
+`Acquire` operation does. Without a file demand, ranged access still requires
+a `Realize` operation.
 
 A file demand fetches:
 
@@ -458,7 +489,8 @@ vocabularies:
 | `library address --json` | `SurfaceAndImplementation` plus the established complete Library JSON metadata | complete |
 | CLI package documentation for one exact Library | `SurfaceAndImplementation`; one named implementation and a listed adjacent Portable PDB are added for authored source | directory-first, with complete acquisition at or below the cut |
 | Browser member documentation for one exact Library | `SurfaceAndImplementation`, one named implementation, and a listed adjacent Portable PDB | directory-first, with complete acquisition at or below the cut |
-| `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
+| Package-scoped exact Type overview with one pinned version and explicit TFM | aggregate `Surface` across every owner-issued Library | directory-first exact Library entries, with complete acquisition at or below the cut |
+| Other `type`, `member`, and other `library` operations | `SurfaceAndImplementation` | complete |
 | `graph` | `SurfaceAndImplementation` | complete |
 | `package` | the whole archive | complete |
 | `package ID@VERSION --content` of a root `README.md` or `skills/**/SKILL.md` | one exact file | directory-first, with complete acquisition at or below the cut |
@@ -503,6 +535,8 @@ All gates run in Release.
 | 25. One high-level exact-Library request is cold, warm, or missing | cold execution uses ranged acquisition, warm execution uses the entry cache without a package request, and a missing selector is a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_ColdWarmAndMissing_AreOrchestrated`, real asset `PCLStorage` 1.0.2 |
 | 26. Exact-Library depth and selection are pathological | implementation depth reads fewer implementation entries than selection depth, while an ambiguous query remains a typed result | `PackageRangedRealizationTests.PackageLibraryRealization_DepthReachesRangedAcquisition` and `PackageLibraryRealization_QueryAmbiguityIsTyped`, real asset `Avalonia` 12.1.2 plus an ambiguity fixture |
 | 27. Browser member documentation reads one implementation and its PDB from an archive above the cut | cold execution uses ranges and skips an unrelated 2 MiB implementation plus 2 MiB padding; after store recreation, the same authored documentation makes no package request | `BrowserEngineBoundaryTests.QueryMemberDocumentation_UsesRangeAndWarmEntryCache` |
+| 28. Package Library navigation has no compile population | one eligible runtime RID reads only its selected managed folder; compile assets retain precedence; several eligible RIDs settle ambiguous after directory planning and before entry-body transfer | `PackageRangedRealizationTests.LibraryPopulation_RuntimeOnlyReadsOneSelectedRuntimeFolder`, `LibraryPopulation_CompileSelectionPreventsRuntimeBodyReads`, and `LibraryPopulation_MultipleRuntimeIdentifiersStopBeforeBodyTransfer` |
+| 29. Package Library navigation reaches a declared tool package after compile and runtime miss | compile cache settlement requests no manifest; a ranged runtime miss authenticates the tool role only from the payload authority, then reads only managed Libraries from one selected tool TFM; the cold receipt composes both ranged stages, the warm entry-cache receipt has no package request, and undeclared shape, unavailable declaration, or another authority's declaration transfers no tool bodies | `PackageRangedRealizationTests.LibraryPopulation_CachedCompileSettlesWithoutManifestAcquisition`, `LibraryPopulation_DeclaredToolReadsOnlyTheSelectedToolLibraries`, `LibraryPopulation_ManifestCannotAuthorizeAnotherAuthorityPayload`, `LibraryPopulation_UndeclaredToolShapeStopsBeforeBodyTransfer`, and `LibraryPopulation_UnavailableToolDeclarationStopsBeforeBodyTransfer` |
 
 ## Adoption
 
@@ -519,9 +553,10 @@ All gates run in Release.
    handoff selection, and typed failure for CLI Address, CLI package
    documentation, and Browser member documentation. Documentation selects
    selection or implementation depth from its authored-source demand.
-5. `type`, `member`, and the remaining `library` operations adopt ranged
-   access, naming the assemblies that define what they inspect and reusing the
-   folders a surface search cached.
+5. Package-scoped exact Type overview adopts the semantic Libraries terminal,
+   preserving aggregate all-Library lookup while naming only owner-issued
+   assembly entries. `member`, richer `type`, and the remaining `library`
+   operations follow with their required implementation evidence.
 6. `graph` adopts ranged access with `SurfaceAndImplementation`.
 7. Runtime packs are realized with named implementation demand once the
    [package-backed platform source](package-backed-platform-realization.md)

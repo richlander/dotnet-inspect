@@ -217,6 +217,22 @@ discoverable; it does not infer which product feature should use them.
 Implementation and host migration remain tracked by
 [#8593](https://github.com/richlander/dotnet-inspect/issues/8593).
 
+## Routing declaration
+
+Product Vocabulary issues one reference declaration for the explanation root
+under the
+[Resource Explanation routing contract](resource-explanation.md#routing-declarations).
+Its identity is `vocabularies`, and its destination is the `vocabularies`
+collection. A vocabulary is neither something inspected nor work performed, so
+it is a reference entry rather than a subject kind or operation.
+
+The declaration carries an owner-written purpose and representative questions,
+such as "Which values may I pass to this option?", in
+`VocabularyRoutingDeclarations`. It routes to the collection, not to each
+vocabulary. The collection's ordered membership already reaches every composed
+vocabulary and value, so a vocabulary added to the composition needs no new
+declaration.
+
 ## Current vocabularies
 
 | Vocabulary | Stable ID | Values |

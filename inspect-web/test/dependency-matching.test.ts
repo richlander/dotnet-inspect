@@ -30,7 +30,8 @@ assert.deepEqual(parsed.errors, []);
 const names = [
   "uniqueCompatiblePackage", "dependencyListSectionHtml", "renderPackageDependencyList",
   "renderPackageDependencyIcons",
-  "resolveDependenciesGroupIndex", "renderDependencyGraph", "openDependencyPackage",
+  "packageDependenciesData", "resolveDependenciesGroupIndex",
+  "renderDependencyGraph", "openDependencyPackage",
   "errorMessage", "isRecord", "escapeHtml",
 ];
 const functions = parsed.program.body.filter(node =>
@@ -187,7 +188,11 @@ function harness(
   const state = {
     packages: [{ ...root }, { ...dependency }],
     package: { ...root },
-    packageDependencies: { dependencyGroups: groups },
+    packageDependencies: {
+      status: "ready",
+      key: "current",
+      result: { dependencyGroups: groups },
+    },
     dependenciesGroupIndex: 0,
     workspaceDependencies: {},
     theme: "light", loading: false, error: "", retryAction: null,
@@ -364,16 +369,20 @@ test("unloaded dependencies resolve an exact version before requesting the icon"
 test("duplicate exact coordinates share one package icon request", async () => {
   const h = harness(async () => noMatch);
   h.state.packageDependencies = {
-    dependencyGroups: [{
-      index: 0,
-      framework: "net10.0",
-      isActive: true,
-      isComplete: true,
-      dependencies: [
-        { id: "Duplicate", versionRange: "[4.0.0]" },
-        { id: "Duplicate", versionRange: "[4.0.0]" },
-      ],
-    }],
+    status: "ready",
+    key: "current",
+    result: {
+      dependencyGroups: [{
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: [
+          { id: "Duplicate", versionRange: "[4.0.0]" },
+          { id: "Duplicate", versionRange: "[4.0.0]" },
+        ],
+      }],
+    },
   };
   await h.host.renderPackageDependencyList();
   assert.deepEqual(h.icons, [["Duplicate", "4.0.0"]]);
@@ -398,16 +407,20 @@ test("dependency icon requests use at most four concurrent operations", async ()
       return result;
     });
   h.state.packageDependencies = {
-    dependencyGroups: [{
-      index: 0,
-      framework: "net10.0",
-      isActive: true,
-      isComplete: true,
-      dependencies: Array.from({ length: 6 }, (_, index) => ({
-        id: `Dependency.${index}`,
-        versionRange: "[4.0.0]",
-      })),
-    }],
+    status: "ready",
+    key: "current",
+    result: {
+      dependencyGroups: [{
+        index: 0,
+        framework: "net10.0",
+        isActive: true,
+        isComplete: true,
+        dependencies: Array.from({ length: 6 }, (_, index) => ({
+          id: `Dependency.${index}`,
+          versionRange: "[4.0.0]",
+        })),
+      }],
+    },
   };
   const operation = h.host.renderPackageDependencyList();
   while (pending.length < 4) await Promise.resolve();
@@ -557,8 +570,8 @@ test("duplicate dependency graphs share pending matching and do not cancel their
 
 test("default-only platform evidence renders a dependency graph", async () => {
   const h = harness();
-  h.state.packageDependencies.dependencyGroups = [];
-  Object.assign(h.state.packageDependencies, {
+  h.state.packageDependencies.result.dependencyGroups = [];
+  Object.assign(h.state.packageDependencies.result, {
     platformReferences: [],
     defaultPlatformReference: {
       family: "runtime",

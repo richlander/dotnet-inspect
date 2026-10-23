@@ -35,6 +35,24 @@ namespace DotnetInspect.Web.Interop.Metadata;
     typeof(BrowserTypeMemberPopulationInspection))]
 public static partial class MetadataExports
 {
+    public static Task<string> QueryTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility) =>
+        QueryTypeMemberPopulation(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            spelling,
+            accessibility,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryTypeMemberPopulation(
         string packageId,
@@ -43,7 +61,8 @@ public static partial class MetadataExports
         string assemblyName,
         string typeIdentity,
         string spelling,
-        string accessibility)
+        string accessibility,
+        string? runtimeIdentifier)
         => await QueryPackageTypeMemberPopulation(
                 packageId,
                 version,
@@ -52,9 +71,28 @@ public static partial class MetadataExports
                 typeIdentity,
                 spelling,
                 accessibility,
+                runtimeIdentifier,
                 useImplementation: false,
                 includeHidden: false)
             .ConfigureAwait(false);
+
+    public static Task<string> QueryPerformanceTypeMemberPopulation(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility) =>
+        QueryPerformanceTypeMemberPopulation(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            spelling,
+            accessibility,
+            runtimeIdentifier: null);
 
     [JSExport]
     public static async Task<string> QueryPerformanceTypeMemberPopulation(
@@ -64,7 +102,8 @@ public static partial class MetadataExports
         string assemblyName,
         string typeIdentity,
         string spelling,
-        string accessibility)
+        string accessibility,
+        string? runtimeIdentifier)
         => await QueryPackageTypeMemberPopulation(
                 packageId,
                 version,
@@ -73,6 +112,7 @@ public static partial class MetadataExports
                 typeIdentity,
                 spelling,
                 accessibility,
+                runtimeIdentifier,
                 useImplementation: true,
                 includeHidden: true)
             .ConfigureAwait(false);
@@ -85,6 +125,7 @@ public static partial class MetadataExports
         string typeIdentity,
         string spelling,
         string accessibility,
+        string? runtimeIdentifier,
         bool useImplementation,
         bool includeHidden)
     {
@@ -92,7 +133,8 @@ public static partial class MetadataExports
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
-                targetFramework).ConfigureAwait(false);
+                targetFramework,
+                runtimeIdentifier).ConfigureAwait(false);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         if (!coordinate.Selection.IsSelected)
