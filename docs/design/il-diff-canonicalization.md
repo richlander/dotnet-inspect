@@ -89,7 +89,11 @@ Each instruction becomes a `CanonicalIlOperation`:
 
 - `Offset`: the original IL offset, retained as evidence and display context.
 - `OpcodeFamily`: the opcode name after limited macro folding.
-- `Operand`: an optional typed operand identity.
+- `Operand`: an optional `IlOperandIdentity`. A metadata token operand is
+  its row's Symbol Key under the policy, compared as bytes; an immediate, a
+  slot, a branch or switch target, and a user string are values, compared as
+  their text. The formatted spelling a view shows (`Value`) is a projection
+  from the operand's side, read only where a view shows the operation.
 - `Targets`: the IL offsets the operation points at: a branch's target, a
   switch's arms, or an exception clause's extent boundaries. Offsets are
   evidence and display context.
@@ -133,9 +137,10 @@ without the Finding projection.
 
 Over raw IL the cursor runs a boundary pre-scan that reads instruction lengths
 through the decoder's shallow reader and resolves nothing, then decodes one
-instruction and resolves one operand per advance, memoized per resolver by
-operand kind and token. An instruction the decoder rejects ends the pre-scan
-at its offset: the cursor yields every atom before that offset and ends
+instruction and resolves one operand per advance through its `IlCensusSide`,
+which memoizes by operand kind and token. An instruction the decoder rejects
+ends the pre-scan at its offset: the cursor yields every atom before that
+offset and ends
 `Failed` there, so a difference before the fault is visible in the atoms. A
 branch or switch target that starts no instruction of the body, starts one
 that follows a prefix, or lies at or past the body's end is carried as
@@ -151,6 +156,16 @@ decode; an incomplete decode retains no prefix, so the cursor fails at position
 zero with the decode's reason. Failing to read a present body, one whose RVA is
 non-zero, is a `Reading` failure at position zero; only a definition row the
 image cannot read is an `Identity` failure.
+
+An `IlCensusSide` is one side of a comparison: an image's reader and the
+operand identities its cursors yield under one policy, memoized for the
+side's life, so every body of the image spells a row once. `IlAssemblyDiff`
+creates two per comparison and compares every pair through
+`IlBodyDiff.Compare(oldSide, oldBody, newSide, newBody)`; the per-method entry
+points (`IlFindings.Inspect`, `IlFindings.Compare`, `IlBodyDiff.Compare` over
+readers, `TryCanonicalize`) take a side or create one for the call, and the
+two sides of one comparison are under one policy. A side is used from one
+thread at a time.
 
 `IlBodyDiff.AtomsEqual` is the equality of two atoms' canonical bytes: the
 family, the operand identity under the policy, and each target as an
@@ -302,16 +317,40 @@ declaration order, so a reordered table is a difference.
 ### Symbolic metadata token operands
 
 When comparison is backed by `MetadataReader`, metadata token operands are
-resolved to symbolic identities before comparison:
+resolved to symbolic identities before comparison, through the operand's
+`IlCensusSide`:
 
 - strings resolve as user-string values;
-- method, field, type, and `ldtoken` operands resolve to formatted symbolic
-  identities;
-- standalone signatures resolve to a signature-byte identity.
+- method, field, type, and `ldtoken` operands resolve to the row's Symbol
+  Key, spelled by the shared `MetadataSymbolSpeller`
+  ([Symbol Key](symbol-key.md#metadata-rows)) in the side's populations and
+  memoized by token, so under Finding Diff Any's Body policy the cursor's
+  bytes are the keys that comparison memoizes;
+- `calli` standalone signatures resolve to their signature bytes, as Finding
+  Diff Any compares them, so a renumbered token inside the blob is a
+  difference.
+
+The policy enters the spelling where the speller leaves it to its consumer:
+the scope of a Type (`NormalizeAssemblyScope` omits every scope; the default
+declares it; `NormalizeCurrentAssemblyScope` and
+`NormalizePlatformAssemblyScope` substitute `<current>` and `<platform>` by
+the one rule the generated-ordinal correspondence uses, `AssemblyScopeToken`)
+and the name of a definition (`NormalizeCompilerGeneratedOrdinals` writes the
+correspondence's ordinal-free name for a Type an operand or a declaring Type
+names and for every method or field definition; a Type a signature names
+keeps its stored name). The admitted rows are Finding Diff Any's: a kind the
+opcode takes, a member reference whose parent is a Type, and a method
+specification of a definition or of such a reference. A row the speller
+rejects, whose signature exceeds the decode budget, whose declaring or
+resolution-scope chain cycles or exceeds the node budget, or which an opcode
+does not take, fails the operand, and the body is unavailable
+(`TokenResolutionFailure`); no stand-in identity is compared in its place.
 
 Without a metadata-backed comparison, token operands fail closed. This prevents
 raw token numbers from being treated as comparable identities across assemblies
-or builds.
+or builds. The formatted text of an operand, with the same scope and name
+mechanics, is produced by the side only where `IlOperandIdentity.Value` is
+read, for the rows a view shows; nothing compares it.
 
 ### Hunk and display ownership
 

@@ -1004,6 +1004,11 @@ public static class FindingDiffAny
             public void Embed(SymbolKeyBuilder<FindingDiffAnyPart> into, KeyRef row) => into.Key(row);
 
             public KeyRef Primitive(PrimitiveTypeCode typeCode) => side.Primitive(typeCode);
+
+            // Names are the heap's as stored, and no scope is spelled under Omitted.
+            public void Name(SymbolKeyBuilder<FindingDiffAnyPart> into, EntityHandle definition, StringHandle name) => into.Name(name);
+
+            public ReadOnlySpan<byte> ScopeName(EntityHandle scope) => default;
         }
 
         public MetadataStringHeap Names { get; private set; }
