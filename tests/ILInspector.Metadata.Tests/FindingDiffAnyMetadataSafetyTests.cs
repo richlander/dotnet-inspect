@@ -259,6 +259,58 @@ public sealed class FindingDiffAnyMetadataSafetyTests
         return image;
     }
 
+    // ECMA-335 II.22.28 forbids a MethodSemantics row that names a method of
+    // another Type; the reader hands it over, and the comparison tolerates it as
+    // a spelled accessor rather than failing. The row is resolved before the
+    // property fact opens, so the member key it needs is not built inside it.
+    [Fact]
+    public void PropertyAccessorOfAnotherType_ComparesWithoutFailing()
+    {
+        byte[] image = ForeignAccessorImage();
+        FindingDiffAnyResult result = Compare(image);
+        FindingDiffAnyTypeState holder = Assert.Single(result.Types, type => type.FullName == "N.Holder");
+        Assert.Equal(FindingDiffAnyState.Unchanged, holder.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, holder.Body);
+        FindingDiffAnyTypeState owner = Assert.Single(result.Types, type => type.FullName == "N.Owner");
+        Assert.Equal(FindingDiffAnyState.Unchanged, owner.Api);
+        Assert.Equal(FindingDiffAnyState.Unchanged, owner.Body);
+    }
+
+    // N.Owner declares abstract int Get(); N.Holder declares property P whose
+    // getter row names Owner.Get.
+    static byte[] ForeignAccessorImage()
+    {
+        MetadataBuilder metadata = CreateMetadata();
+        var getter = metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("Get"),
+            metadata.GetOrAddBlob(new byte[] { 0x20, 0x00, 0x08 }),
+            -1,
+            MetadataTokens.ParameterHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Owner"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            getter);
+        var holder = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Class,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Holder"),
+            default,
+            MetadataTokens.FieldDefinitionHandle(1),
+            MetadataTokens.MethodDefinitionHandle(2));
+        var property = metadata.AddProperty(
+            PropertyAttributes.None,
+            metadata.GetOrAddString("P"),
+            metadata.GetOrAddBlob(new byte[] { 0x28, 0x00, 0x08 }));
+        metadata.AddPropertyMap(holder, property);
+        metadata.AddMethodSemantics(property, MethodSemanticsAttributes.Getter, getter);
+        return Serialize(metadata);
+    }
+
     static MetadataBuilder CreateMetadata()
     {
         var metadata = new MetadataBuilder();

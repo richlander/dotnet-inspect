@@ -82,8 +82,10 @@ public sealed record FindingDiffAnyResult(
 /// and compiler-generated nested Types.
 /// </para>
 /// <para>
-/// Tokens compare by symbolic name, resolved once per side, never by token
-/// number or referenced assembly identity. Compiler-generated nested Types
+/// Tokens compare by symbolic name, never by token number or referenced
+/// assembly identity: a Type-level row's name is resolved once per side, a
+/// member row's once per unit that refers to it, and a pair of operand rows
+/// proven equal is remembered for the comparison. Compiler-generated nested Types
 /// (state machines, closures, local-function holders) belong to their nearest
 /// declared Type. Top-level compiler-generated Types are not reported; a
 /// body that references them still compares their names.
@@ -1054,6 +1056,9 @@ public static class FindingDiffAny
             FreezeRetained();
             _unitKeys.Clear();
             _unitKeys.TrimExcess();
+            // The pairing served the body comparison; nothing reads it after.
+            _operandPairs.Clear();
+            _operandPairs.TrimExcess();
             Retained.Release();
             Transient.Release();
             Scratch.Release();
@@ -1451,11 +1456,15 @@ public static class FindingDiffAny
                     continue;
                 }
                 StagedSymbolKey<FindingDiffAnyPart> key = PropertyKey(name, property);
+                // Accessor keys are member keys of this population: resolved before
+                // the fact opens, since a row may name a method of another Type.
+                KeyRef? getter = Accessor(accessors.Getter);
+                KeyRef? setter = Accessor(accessors.Setter);
                 int mark = Transient.Begin();
                 Transient.Mark(FindingDiffAnyPart.PropertyFact).Key(key).Int((int)property.Attributes);
                 Constant(property.GetDefaultValue());
-                Accessor(accessors.Getter);
-                Accessor(accessors.Setter);
+                Optional(getter);
+                Optional(setter);
                 census.Add(Transient.End(mark).Slot);
                 Attributes(census, property.GetCustomAttributes(), key);
             }
@@ -1470,14 +1479,17 @@ public static class FindingDiffAny
                 }
                 // The Event marker keeps an event from spelling the key of its backing field.
                 KeyRef eventType = Key(value.Type);
+                KeyRef? adder = Accessor(accessors.Adder);
+                KeyRef? remover = Accessor(accessors.Remover);
+                KeyRef? raiser = Accessor(accessors.Raiser);
                 int mark = Transient.Begin();
                 StagedSymbolKey<FindingDiffAnyPart> key =
                     Transient.Mark(FindingDiffAnyPart.Event).Key(name).Name(value.Name).Key(eventType).End(mark);
                 mark = Transient.Begin();
                 Transient.Mark(FindingDiffAnyPart.EventFact).Key(key).Int((int)value.Attributes);
-                Accessor(accessors.Adder);
-                Accessor(accessors.Remover);
-                Accessor(accessors.Raiser);
+                Optional(adder);
+                Optional(remover);
+                Optional(raiser);
                 census.Add(Transient.End(mark).Slot);
                 Attributes(census, value.GetCustomAttributes(), key);
             }
@@ -1496,9 +1508,19 @@ public static class FindingDiffAny
             return false;
         }
 
-        void Accessor(MethodDefinitionHandle accessor) => OptionalKey(accessor);
+        /// <summary>An accessor's key, resolved before the fact that embeds it opens; null when the row names none.</summary>
+        KeyRef? Accessor(MethodDefinitionHandle accessor) => accessor.IsNil ? null : Key(accessor);
 
-        // Writes into the open Transient key; a reference key it needs is built in Retained first.
+        void Optional(KeyRef? key)
+        {
+            if (key is { } present)
+                Transient.Key(present);
+            else
+                Transient.Mark(FindingDiffAnyPart.Absent);
+        }
+
+        // A Type-level key (a base Type) may be built while a transient fact is
+        // open: it is staged in the retained population, a different builder.
         void OptionalKey(EntityHandle handle)
         {
             if (handle.IsNil)
