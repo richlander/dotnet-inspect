@@ -347,12 +347,7 @@ internal sealed class DeclaredSourceResolver(
                         suppressionByToken.TryGetValue(
                             MetadataTokens.GetToken(sourceHandle),
                             out bool inheritedSuppression)
-                            ? inheritedSuppression
-                            : CreateAuthenticatedSourceOwner(
-                                CreateIdentity(
-                                    sourceHandle,
-                                    sourceMethod))
-                                .SuppressesOpportunities;
+                        && inheritedSuppression;
                     AddGenerated(
                         executionMethod,
                         stateMachineOwner,
@@ -521,19 +516,6 @@ internal sealed class DeclaredSourceResolver(
             declaredOwnerByToken.Add(token, owner);
             expanded.Add(method);
             pending.Enqueue(method);
-        }
-
-        MethodIdentity CreateIdentity(
-            MethodDefinitionHandle methodHandle,
-            MethodDefinition method)
-        {
-            TypeDefinitionHandle typeHandle = method.GetDeclaringType();
-            TypeDefinition type = _reader.GetTypeDefinition(typeHandle);
-            return _primaryMetadataResolver.CreateMethodIdentity(
-                typeHandle,
-                methodHandle,
-                method,
-                _primaryMetadataResolver.CreateScope(type, method));
         }
 
         // Every method of a compiler-generated type reached from a selected

@@ -1347,7 +1347,8 @@ Migration is incremental:
     `ExactMethodAnalysisProducer` adds sparse declared-source attribution.
     `LibraryCallGraphProducer` consumes the physical fact, allocation fact,
     and the settled all-definition declared-source relation. That relation
-    admits top-level compiler-generated owner types while excluding nested
+    admits only the inferred lifted-owner methods of a top-level
+    compiler-generated type while excluding its unrelated methods and nested
     generated implementation types; the Call Graph sink maps lifted and async
     execution bodies while retaining sync iterator identity.
     `AssemblyContextCallGraphAnalysis` consumes the resulting focused

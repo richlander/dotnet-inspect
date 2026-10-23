@@ -1495,9 +1495,35 @@ public sealed class MethodDefinitionExecution
             {
                 TypeDefinition type = reader.GetTypeDefinition(typeHandle);
                 if (attribution.PrimaryMetadataResolver
-                        .IsCompilerGeneratedTypeOrEnclosing(typeHandle)
-                    && !type.GetDeclaringType().IsNil)
+                    .IsCompilerGeneratedTypeOrEnclosing(typeHandle))
                 {
+                    if (!type.GetDeclaringType().IsNil)
+                        continue;
+
+                    ImmutableArray<MethodDefinitionHandle> methods =
+                        [.. type.GetMethods()];
+                    HashSet<string> liftedOwnerNames =
+                    [
+                        .. methods
+                            .Select(method =>
+                                reader.GetString(
+                                    reader.GetMethodDefinition(
+                                        method).Name))
+                            .Select(name =>
+                                CompilerGeneratedNames
+                                    .TryGetLiftedOwnerName(
+                                        name,
+                                        out string ownerName)
+                                    ? ownerName
+                                    : null)
+                            .OfType<string>(),
+                    ];
+                    userMethods.AddRange(
+                        methods.Where(method =>
+                            liftedOwnerNames.Contains(
+                                reader.GetString(
+                                    reader.GetMethodDefinition(
+                                        method).Name))));
                     continue;
                 }
                 userTypes.Add(typeHandle);
