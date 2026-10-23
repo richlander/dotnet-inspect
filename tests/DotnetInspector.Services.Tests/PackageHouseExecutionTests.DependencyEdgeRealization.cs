@@ -220,10 +220,9 @@ public sealed partial class PackageHouseExecutionTests
                 dependencyPackageId,
                 dependencyVersion,
                 sourceFramework);
-        var candidateSource =
-            new AuthorizedPackageDependencyCandidateSource(
-                environment.Authorization,
-                environment.Root);
+        using PackageSourceOperationLease operation =
+            environment.Root.IssueOperationLease(
+                TestContext.Current.CancellationToken);
         return await PackageDependencyTraversalQuery.ExecuteAsync(
             new PackageDependencyTraversalRequest(
                 [
@@ -234,13 +233,13 @@ public sealed partial class PackageHouseExecutionTests
                 ],
                 new TraversalTargetFrameworkPolicy(traversalFramework),
                 new PackageDependencyTraversalCandidateAdapter(
-                    candidateSource),
+                    environment.Authorization),
                 new UnexpectedManifestAcquirer(),
                 new PackageDependencyTraversalWorkBudget(
                     maxManifestProjections: 1,
                     maxDeclarationResolutions: 1),
                 maxDepth: 1),
-            TestContext.Current.CancellationToken);
+            operation);
     }
 
     private static PackageDependencyEvidenceRoot DependencyRoot(
@@ -285,8 +284,7 @@ public sealed partial class PackageHouseExecutionTests
     {
         public Task<PackageDependencyTraversalManifestResult> AcquireAsync(
             PackageAcquisitionCandidate candidate,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null) =>
+            PackageSourceOperationLease operation) =>
             throw new InvalidOperationException(
                 "A depth-one traversal must not acquire the destination manifest.");
     }

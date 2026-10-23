@@ -60,6 +60,11 @@ public static class SearchCommandDefinitions
             Description = "Search in package(s) (name or name@version). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
+        var workspaceOption = new Option<string?>("--workspace")
+        {
+            Description = "Search the declarations in a registration-only Ecosystem Workspace packet",
+            Arity = ArgumentArity.ExactlyOne,
+        };
         var assemblyOption = new Option<string[]>("--library")
         {
             Description = "Search in library file(s). Can repeat.",
@@ -113,8 +118,16 @@ public static class SearchCommandDefinitions
         {
             Description = "Filter API types by glob (for example --type *Json*)"
         };
+        var takeOption = new Option<int?>("--take")
+        {
+            Description =
+                "Maximum Ecosystem prefix package candidates to inspect "
+                + $"(default {FindOptions.DefaultMaximumEcosystemPrefixPackages}; "
+                + $"maximum {FindOptions.MaximumEcosystemPrefixPackagesLimit})"
+        };
         findCommand.Arguments.Add(patternArg);
         findCommand.Options.Add(packageOption);
+        findCommand.Options.Add(workspaceOption);
         findCommand.Options.Add(assemblyOption);
         findCommand.Options.Add(platformOption);
         findCommand.Options.Add(platformLibraryOption);
@@ -128,6 +141,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(membersOption);
         findCommand.Options.Add(literalOption);
         findCommand.Options.Add(typeFilterOption);
+        findCommand.Options.Add(takeOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(opts.Markdown);
         findCommand.Options.Add(compactOption);
@@ -146,7 +160,8 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             ecosystemOption, extensionsOption, aspnetcoreOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption);
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption,
+            takeOption, workspaceOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {

@@ -14,7 +14,12 @@ public enum ChangeClassification
     /// <summary>Change that will break existing consumers.</summary>
     Breaking,
     /// <summary>Change that may break some consumers depending on usage.</summary>
-    PotentiallyBreaking
+    PotentiallyBreaking,
+    /// <summary>
+    /// Change that leaves the public contract (the API axis) as it was: an accessibility
+    /// move that keeps external reach, or a change wholly outside the API axis.
+    /// </summary>
+    NonBreaking,
 }
 
 /// <summary>
@@ -51,16 +56,31 @@ public enum ChangeKind
     TypeAttributeRemoved,
     MemberAttributeAdded,
     MemberAttributeRemoved,
+
+    // Accessibility: narrowing external reach is breaking, widening is additive,
+    // and a move that keeps it is non-breaking.
+    TypeAccessibilityChanged,
+    MemberAccessibilityChanged,
+
+    // API status (docs/design/api-status-analysis.md): hidden is EditorBrowsable(Never),
+    // obsolete is [Obsolete] with its message and error flag.
+    TypeHiddenChanged,
+    MemberHiddenChanged,
+    TypeObsoleteChanged,
+    MemberObsoleteChanged,
 }
 
 /// <summary>
 /// The API dimension that produced a change. Signature is the compatibility
-/// surface; attributes are opt-in metadata evidence over otherwise matched APIs.
+/// surface; attributes are opt-in metadata evidence over otherwise matched APIs;
+/// status is a subject's hidden or obsolete API status
+/// (docs/design/api-status-analysis.md).
 /// </summary>
 public enum ApiChangeCategory
 {
     Signature,
     Attribute,
+    Status,
 }
 
 public enum ApiChangeSubjectKind
@@ -263,6 +283,7 @@ public record TypeDiff(string TypeFullName, IReadOnlyList<ApiChange> Changes)
     public int BreakingCount => CountByClassification(ChangeClassification.Breaking);
     public int AdditiveCount => CountByClassification(ChangeClassification.Additive);
     public int PotentiallyBreakingCount => CountByClassification(ChangeClassification.PotentiallyBreaking);
+    public int NonBreakingCount => CountByClassification(ChangeClassification.NonBreaking);
 
     public bool IsAdded => Changes.Count == 1 && Changes[0].Kind == ChangeKind.TypeAdded;
     public bool IsRemoved => Changes.Count == 1 && Changes[0].Kind == ChangeKind.TypeRemoved;
@@ -289,6 +310,7 @@ public class ApiDiff
     public int TotalBreaking { get; init; }
     public int TotalAdditive { get; init; }
     public int TotalPotentiallyBreaking { get; init; }
+    public int TotalNonBreaking { get; init; }
     public bool IsEmpty => TypeDiffs.Count == 0 && InspectionFailures.Count == 0;
 }
 
@@ -333,11 +355,16 @@ public static class ApiDiffAnalyzer
             HasIncompleteTypeIdentity(oldSurface);
         bool newIdentityIncomplete =
             HasIncompleteTypeIdentity(newSurface);
+        bool compareTransitions =
+            ComparesTransitions(oldSurface, newSurface);
+        bool classifyByApiAxis =
+            ClassifiesByApiAxis(oldSurface, newSurface);
 
         List<TypeDiff> typeDiffs = [];
         int totalBreaking = 0;
         int totalAdditive = 0;
         int totalPotentiallyBreaking = 0;
+        int totalNonBreaking = 0;
 
         foreach (TypeMatch match in typeMatches)
         {
@@ -369,16 +396,19 @@ public static class ApiDiffAnalyzer
             }
             else
             {
-                changes = CompareTypes(oldType!, newType!, options);
+                changes = CompareTypes(oldType!, newType!, options, compareTransitions);
             }
 
             if (changes.Count > 0)
             {
+                if (classifyByApiAxis)
+                    ClassifyOutsideApiAxisAsNonBreaking(changes);
                 var diff = new TypeDiff(typeName, changes);
                 typeDiffs.Add(diff);
                 totalBreaking += diff.BreakingCount;
                 totalAdditive += diff.AdditiveCount;
                 totalPotentiallyBreaking += diff.PotentiallyBreakingCount;
+                totalNonBreaking += diff.NonBreakingCount;
             }
         }
 
@@ -391,7 +421,8 @@ public static class ApiDiffAnalyzer
                     newSurface),
             TotalBreaking = totalBreaking,
             TotalAdditive = totalAdditive,
-            TotalPotentiallyBreaking = totalPotentiallyBreaking
+            TotalPotentiallyBreaking = totalPotentiallyBreaking,
+            TotalNonBreaking = totalNonBreaking,
         };
     }
 
@@ -577,10 +608,80 @@ public static class ApiDiffAnalyzer
         return lookup;
     }
 
-    private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options)
+    /// <summary>
+    /// Whether transitions between two admitted states of one subject are compared: its
+    /// accessibility moves (docs/design/api-population-scope.md) and its API status
+    /// transitions (docs/design/api-status-analysis.md). Only when both surfaces were extracted
+    /// with the same scope, and that scope is <see cref="ApiSurfaceExtractionScope.ApiAxis"/>
+    /// or <see cref="ApiSurfaceExtractionScope.IncludeAll"/>, the scopes that admit both
+    /// states. A surface whose scope is <see langword="null"/> (merged from disagreeing
+    /// scopes, or deserialized) compares none.
+    /// </summary>
+    internal static bool ComparesTransitions(ApiSurface oldSurface, ApiSurface newSurface)
+        => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.ApiAxis
+                or ApiSurfaceExtractionScope.IncludeAll
+            && oldSurface.ExtractionScope == newSurface.ExtractionScope;
+
+    /// <summary>
+    /// Whether Breaking and Additive are scoped to the API axis, the public contract
+    /// (docs/design/api-population-scope.md): only between two include-all surfaces, the one
+    /// scope that admits subjects outside the API axis. There, a change whose subject is
+    /// outside the API axis on both sides is <see cref="ChangeClassification.NonBreaking"/>.
+    /// </summary>
+    internal static bool ClassifiesByApiAxis(ApiSurface oldSurface, ApiSurface newSurface)
+        => oldSurface.ExtractionScope is ApiSurfaceExtractionScope.IncludeAll
+            && newSurface.ExtractionScope is ApiSurfaceExtractionScope.IncludeAll;
+
+    /// <summary>
+    /// Reclassifies each change whose subject no other assembly can reach on either side as
+    /// <see cref="ChangeClassification.NonBreaking"/>: Breaking and Additive describe the
+    /// public contract. A subject's reach is its effective external reach
+    /// (<see cref="EffectiveReach(ApiType)"/>); a side where the subject is absent has none.
+    /// </summary>
+    internal static void ClassifyOutsideApiAxisAsNonBreaking(List<ApiChange> changes)
     {
-        var changes = CompareTypeFacetsOnly(oldType, newType, options);
-        CompareMembers(oldType, newType, changes, options);
+        for (int index = 0; index < changes.Count; index++)
+        {
+            ApiChange change = changes[index];
+            if (change.Classification != ChangeClassification.NonBreaking
+                && change.Subject is { } subject
+                && IsOutsideApiAxis(subject))
+            {
+                changes[index] = change with { Classification = ChangeClassification.NonBreaking };
+            }
+        }
+    }
+
+    static bool IsOutsideApiAxis(ApiChangeSubject subject)
+        => subject.Kind == ApiChangeSubjectKind.Type
+            ? EffectiveReach(subject.OldType?.Type) == 0
+                && EffectiveReach(subject.NewType?.Type) == 0
+            : EffectiveReach(subject.OldMember) == 0
+                && EffectiveReach(subject.NewMember) == 0;
+
+    /// <summary>
+    /// A Type's external reach: its own accessibility's reach, or none when an enclosing Type
+    /// cannot be reached from another assembly. An absent Type has none; a Type whose enclosing
+    /// reach was not recorded, or whose accessibility is unrecognized, is treated as reachable.
+    /// </summary>
+    static int EffectiveReach(ApiType? type)
+        => type is null || type.EnclosingTypesExternallyReachable is false
+            ? 0
+            : ExternalReach(type.Accessibility) ?? int.MaxValue;
+
+    /// <summary>
+    /// A Member's external reach: its own accessibility's reach within a reachable declaring
+    /// Type, and none within an unreachable one, as for a public method of an internal Type.
+    /// </summary>
+    static int EffectiveReach(ApiMemberHandle? member)
+        => member is null || EffectiveReach(member.Type) == 0
+            ? 0
+            : ExternalReach(member.Member.Accessibility) ?? int.MaxValue;
+
+    private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareTransitions)
+    {
+        var changes = CompareTypeFacetsOnly(oldType, newType, options, compareTransitions);
+        CompareMembers(oldType, newType, changes, options, compareTransitions);
         return changes;
     }
 
@@ -590,12 +691,12 @@ public static class ApiDiffAnalyzer
     /// <see cref="ApiFindingClassifier"/>, which sources member-level changes from the
     /// Finding lane's own member comparison instead of this analyzer's member matcher.
     /// </summary>
-    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options)
+    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options, bool compareTransitions)
     {
         List<ApiChange> changes = [];
         if (IncludesSignature(options))
         {
-            CompareTypeMetadata(oldType, newType, changes);
+            CompareTypeMetadata(oldType, newType, changes, compareTransitions);
             CompareTypeParameters(oldType, newType, changes);
         }
         if (IncludesAttributes(options))
@@ -610,8 +711,35 @@ public static class ApiDiffAnalyzer
         return changes;
     }
 
-    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes)
+    private static void CompareTypeMetadata(ApiType oldType, ApiType newType, List<ApiChange> changes, bool compareTransitions)
     {
+        if (compareTransitions)
+        {
+            CompareAccessibility(
+                oldType.Accessibility,
+                newType.Accessibility,
+                ChangeKind.TypeAccessibilityChanged,
+                $"Type '{oldType.FullName}'",
+                ApiChangeSubject.Type(oldType, newType),
+                changes);
+            CompareStatus(
+                new ApiStatus(
+                    oldType.IsHidden,
+                    oldType.IsObsolete,
+                    oldType.ObsoleteMessage,
+                    oldType.ObsoleteIsError),
+                new ApiStatus(
+                    newType.IsHidden,
+                    newType.IsObsolete,
+                    newType.ObsoleteMessage,
+                    newType.ObsoleteIsError),
+                ChangeKind.TypeHiddenChanged,
+                ChangeKind.TypeObsoleteChanged,
+                $"Type '{oldType.FullName}'",
+                ApiChangeSubject.Type(oldType, newType),
+                changes);
+        }
+
         // Kind changed
         if (oldType.Kind != newType.Kind)
         {
@@ -802,7 +930,7 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    private static void CompareMembers(ApiType oldType, ApiType newType, List<ApiChange> changes, ApiDiffOptions options)
+    private static void CompareMembers(ApiType oldType, ApiType newType, List<ApiChange> changes, ApiDiffOptions options, bool compareTransitions)
     {
         var oldMembers = FilterMembers(oldType.Members);
         var newMembers = FilterMembers(newType.Members);
@@ -910,7 +1038,7 @@ public static class ApiDiffAnalyzer
             {
                 var oldMember = oldBySignature[key];
                 var newMember = newBySignature[key];
-                CompareMemberModifiers(oldType, newType, oldMember, newMember, changes);
+                CompareMemberModifiers(oldType, newType, oldMember, newMember, changes, compareTransitions);
                 CompareMemberTypeParameterConstraints(
                     oldType,
                     newType,
@@ -938,8 +1066,35 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
+    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes, bool compareTransitions)
     {
+        if (compareTransitions)
+        {
+            CompareAccessibility(
+                oldMember.Accessibility,
+                newMember.Accessibility,
+                ChangeKind.MemberAccessibilityChanged,
+                $"Member '{oldMember.Name}'",
+                ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
+                changes);
+            CompareStatus(
+                new ApiStatus(
+                    oldMember.IsHidden,
+                    oldMember.IsObsolete,
+                    oldMember.ObsoleteMessage,
+                    oldMember.ObsoleteIsError),
+                new ApiStatus(
+                    newMember.IsHidden,
+                    newMember.IsObsolete,
+                    newMember.ObsoleteMessage,
+                    newMember.ObsoleteIsError),
+                ChangeKind.MemberHiddenChanged,
+                ChangeKind.MemberObsoleteChanged,
+                $"Member '{oldMember.Name}'",
+                ApiChangeSubject.Member(oldType, oldMember, newType, newMember),
+                changes);
+        }
+
         // Virtual removed
         if (oldMember.IsVirtual && !newMember.IsVirtual)
         {
@@ -970,6 +1125,153 @@ public static class ApiDiffAnalyzer
                 Subject: ApiChangeSubject.Member(oldType, oldMember, newType, newMember)));
         }
     }
+
+    /// <summary>
+    /// Reports an accessibility move (docs/design/api-population-scope.md): every move between
+    /// two known accessibilities is a change, Breaking when external reach narrows, Additive
+    /// when it widens, and NonBreaking when it is unchanged, as <c>internal</c> to
+    /// <c>private</c> is. On the API axis a move that leaves the axis is a population
+    /// difference, which surfaces as a removal or an addition instead; under include-all both
+    /// sides are admitted, so <c>public</c> to <c>internal</c> is a Breaking move. Runs only
+    /// where <see cref="ComparesTransitions"/> holds.
+    /// </summary>
+    static void CompareAccessibility(
+        string? oldAccessibility,
+        string? newAccessibility,
+        ChangeKind kind,
+        string subjectText,
+        ApiChangeSubject subject,
+        List<ApiChange> changes)
+    {
+        string oldText = string.IsNullOrEmpty(oldAccessibility) ? "public" : oldAccessibility;
+        string newText = string.IsNullOrEmpty(newAccessibility) ? "public" : newAccessibility;
+        if (ExternalReach(oldAccessibility) is not { } oldReach
+            || ExternalReach(newAccessibility) is not { } newReach
+            || string.Equals(oldText, newText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        (ChangeClassification classification, string verb) =
+            newReach < oldReach ? (ChangeClassification.Breaking, "narrowed")
+            : newReach > oldReach ? (ChangeClassification.Additive, "widened")
+            : (ChangeClassification.NonBreaking, "changed");
+        changes.Add(new ApiChange(
+            kind,
+            classification,
+            $"{subjectText} accessibility {verb} from '{oldText}' to '{newText}'",
+            oldText,
+            newText,
+            Subject: subject));
+    }
+
+    /// <summary>One subject's API status facts (docs/design/api-status-analysis.md#status-facts).</summary>
+    readonly record struct ApiStatus(
+        bool IsHidden,
+        bool IsObsolete,
+        string? ObsoleteMessage,
+        bool ObsoleteIsError);
+
+    /// <summary>
+    /// Reports a subject's API status transitions (docs/design/api-status-analysis.md): one
+    /// hidden row when <c>EditorBrowsable(Never)</c> is added or removed, and one obsolete row
+    /// when <c>[Obsolete]</c> is added or removed or its error flag or message changes. Each
+    /// is NonBreaking, except an obsolete row that adds <c>[Obsolete]</c>, as a warning or an
+    /// error, or turns its warning into an error: a caller that builds with warnings as errors,
+    /// or any caller of an error, stops compiling, so it is Breaking. Runs only where
+    /// <see cref="ComparesTransitions"/> holds.
+    /// </summary>
+    static void CompareStatus(
+        ApiStatus oldStatus,
+        ApiStatus newStatus,
+        ChangeKind hiddenKind,
+        ChangeKind obsoleteKind,
+        string subjectText,
+        ApiChangeSubject subject,
+        List<ApiChange> changes)
+    {
+        if (oldStatus.IsHidden != newStatus.IsHidden)
+        {
+            changes.Add(new ApiChange(
+                hiddenKind,
+                ChangeClassification.NonBreaking,
+                newStatus.IsHidden
+                    ? $"{subjectText} was hidden"
+                    : $"{subjectText} is no longer hidden",
+                HiddenText(oldStatus.IsHidden),
+                HiddenText(newStatus.IsHidden),
+                ApiChangeCategory.Status,
+                subject));
+        }
+
+        string? oldMessage = oldStatus.IsObsolete ? oldStatus.ObsoleteMessage : null;
+        string? newMessage = newStatus.IsObsolete ? newStatus.ObsoleteMessage : null;
+        bool oldIsError = oldStatus.IsObsolete && oldStatus.ObsoleteIsError;
+        bool newIsError = newStatus.IsObsolete && newStatus.ObsoleteIsError;
+        if (oldStatus.IsObsolete == newStatus.IsObsolete
+            && oldIsError == newIsError
+            && string.Equals(oldMessage, newMessage, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string description =
+            !oldStatus.IsObsolete
+                ? newIsError ? "was made obsolete as an error" : "was made obsolete"
+            : !newStatus.IsObsolete ? "is no longer obsolete"
+            : oldIsError != newIsError
+                ? newIsError
+                    ? "obsolete warning became an error"
+                    : "obsolete error became a warning"
+            : "obsolete message changed";
+        string oldText = ObsoleteText(oldStatus.IsObsolete, oldMessage, oldIsError);
+        string newText = ObsoleteText(newStatus.IsObsolete, newMessage, newIsError);
+        changes.Add(new ApiChange(
+            obsoleteKind,
+            (newStatus.IsObsolete && !oldStatus.IsObsolete) || (newIsError && !oldIsError)
+                ? ChangeClassification.Breaking
+                : ChangeClassification.NonBreaking,
+            $"{subjectText} {description}, from '{oldText}' to '{newText}'",
+            oldText,
+            newText,
+            ApiChangeCategory.Status,
+            subject));
+    }
+
+    static string HiddenText(bool isHidden)
+        => isHidden ? "hidden" : "visible";
+
+    /// <summary>
+    /// The C# spelling of one side's obsolete status, such as <c>[Obsolete("m", true)]</c>,
+    /// or <c>not obsolete</c>.
+    /// </summary>
+    static string ObsoleteText(bool isObsolete, string? message, bool isError)
+    {
+        if (!isObsolete)
+            return "not obsolete";
+        if (message is null)
+            return isError ? "[Obsolete(null, true)]" : "[Obsolete]";
+        string literal = "\"" + message
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        return isError ? $"[Obsolete({literal}, true)]" : $"[Obsolete({literal})]";
+    }
+
+    /// <summary>
+    /// The external reach of an accessibility, widest first: which callers in other
+    /// assemblies, the public contract, a declaration reaches. <c>protected internal</c>
+    /// reaches the same ones <c>protected</c> does; the callers it adds are in its own
+    /// assembly and its friends. <c>internal</c>, <c>private protected</c>, and
+    /// <c>private</c> reach none.
+    /// <see langword="null"/> for an unrecognized accessibility.
+    /// </summary>
+    static int? ExternalReach(string? accessibility) => accessibility switch
+    {
+        null or "" or "public" => 2,
+        "protected internal" or "protected" => 1,
+        "internal" or "private protected" or "private" => 0,
+        _ => null,
+    };
 
     private static List<ApiMember> FilterMembers(List<ApiMember>? members)
     {

@@ -89,6 +89,36 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void CompileLibrariesDemandDeclaresAggregateTargetContent()
+    {
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileLibraries(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                target,
+                PackageAssetDemand.Surface);
+
+        Assert.True(request.IsCompileLibraries);
+        Assert.False(request.IsCompileInventory);
+        Assert.False(request.IsCompileLibrary);
+        Assert.Equal(
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            request.LibraryHandoff);
+        Assert.Same(target, request.TargetContext);
+        Assert.IsType<PackageHouseContentNarrowing.TfmWide>(
+            request.ContentQuery!.Narrowing);
+        var terminal = Assert.IsType<
+            PackageHouseContentTerminal.CompileLibraries>(
+            Assert.Single(request.ContentQuery.Terminals));
+        Assert.Equal(
+            PackageAssetDemand.Surface,
+            terminal.AssetDemand);
+    }
+
+    [Fact]
     public void RequestFloorRetainsExactDemandAndAssociation()
     {
         var demand = new PackageHouseDemand.Exact(Coordinate);
@@ -120,6 +150,33 @@ public sealed class PackageHouseContractTests
                 .Select(type => type.Name)
                 .Order(StringComparer.Ordinal)
                 .ToArray());
+    }
+
+    [Fact]
+    public void LibraryPopulationDemandRejectsNamedImplementation()
+    {
+        var target = PackageHouseTargetContext.OwnerDefault();
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize);
+        var demand = new PackageHouseDemand.Exact(Coordinate);
+
+        var request = new PackageHouseRequest(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.LibraryPopulation);
+
+        Assert.Same(target, request.TargetContext);
+        Assert.Equal(
+            PackageHouseAssetSelectionKind.LibraryPopulation,
+            request.AssetSelection);
+        Assert.Throws<ArgumentException>(() =>
+            new PackageHouseRequest(
+                demand,
+                operation,
+                target,
+                PackageHouseAssetSelectionKind.LibraryPopulation,
+                implementationNames: ["Contoso.Json.dll"]));
     }
 
     [Fact]

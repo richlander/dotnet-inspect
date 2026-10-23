@@ -61,6 +61,15 @@ internal static class ResourceExplanationVocabulary
     internal static readonly ExplanationResourceTypeIdentity
         NavigationCollectionType =
             new(CoreSchemaIdentity, "navigation-collection");
+    internal static readonly ExplanationResourceTypeIdentity
+        ExplanationRootType =
+            new(CoreSchemaIdentity, "explanation-root");
+    internal static readonly ExplanationResourceTypeIdentity
+        RoutingCollectionType =
+            new(CoreSchemaIdentity, "routing-collection");
+    internal static readonly ExplanationResourceTypeIdentity
+        RoutingEntryType =
+            new(CoreSchemaIdentity, "routing-entry");
     internal static readonly ExplanationResourceTypeIdentity CatalogType =
         new(StructuralSchemaIdentity, "catalog");
     internal static readonly ExplanationResourceTypeIdentity
@@ -107,6 +116,9 @@ internal static class ResourceExplanationVocabulary
         new(ProductVocabularySchemaIdentity, "map-entry");
     internal static readonly ExplanationDataShapeIdentity MapValueShape =
         new(ProductVocabularySchemaIdentity, "map-value");
+
+    /// <summary>The most representative questions one routing entry carries.</summary>
+    internal const int RoutingQuestionLimit = 8;
 
     /// <summary>The most maps one value vocabulary declares.</summary>
     internal const int MapLimit = 64;
@@ -534,6 +546,80 @@ internal static class ResourceExplanationVocabulary
                         ValueVocabularyType),
                 ]);
 
+        ExplanationResourceTypeDeclaration root =
+            Type(
+                ExplanationRootType,
+                "Explanation root",
+                "The one entry from which every installed explanation "
+                + "resource of this host's catalog is reachable.",
+                [
+                    TextFact("name", "Name"),
+                    TextFact("coverage", "Coverage"),
+                    IntegerFact("members", "Members"),
+                ],
+                [
+                    Relationship(
+                        "root-collection",
+                        "Routing collection",
+                        RoutingCollectionType),
+                ]);
+        ExplanationResourceTypeDeclaration routingCollection =
+            Type(
+                RoutingCollectionType,
+                "Routing collection",
+                "The ordered routing entries of one role under the "
+                + "explanation root.",
+                [
+                    TextFact("name", "Name"),
+                    IntegerFact("members", "Members"),
+                ],
+                [
+                    Relationship(
+                        "collection-routing-entry",
+                        "Collection member",
+                        RoutingEntryType),
+                ]);
+        ExplanationResourceTypeDeclaration routingEntry =
+            Type(
+                RoutingEntryType,
+                "Routing entry",
+                "One owner-issued routing declaration: a subject kind, "
+                + "operation, or reference collection a reader can choose "
+                + "from the root.",
+                [
+                    TextFact("identity", "Identity"),
+                    TextFact("role", "Role"),
+                    TextFact("name", "Name"),
+                    TextFact("issuer", "Issuer"),
+                    TextFact("purpose", "Purpose"),
+                    TextsFact("questions", "Questions", RoutingQuestionLimit),
+                    OptionalTextFact("grain", "Grain"),
+                    OptionalTextFact("scope", "Scope"),
+                    OptionalTextFact("not-yet-explainable", "Not yet explainable"),
+                ],
+                [
+                    Relationship(
+                        "routing-destination-catalog",
+                        "Routing destination",
+                        CatalogType),
+                    Relationship(
+                        "routing-destination-document",
+                        "Routing destination",
+                        InspectionDocumentType),
+                    Relationship(
+                        "routing-destination-collection",
+                        "Routing destination",
+                        NavigationCollectionType),
+                    Relationship(
+                        "accepts-subject-kind",
+                        "Accepts subject kind",
+                        RoutingEntryType),
+                    Relationship(
+                        "accepted-by-operation",
+                        "Accepted by operation",
+                        RoutingEntryType),
+                ]);
+
         ExplanationResourceTypeDeclaration catalog =
             Type(
                 CatalogType,
@@ -865,7 +951,7 @@ internal static class ResourceExplanationVocabulary
                 CoreSchemaIdentity,
                 Version,
                 [textShape, integerShape, booleanShape],
-                [navigation],
+                [navigation, root, routingCollection, routingEntry],
                 [address]),
             new(
                 StructuralSchemaIdentity,

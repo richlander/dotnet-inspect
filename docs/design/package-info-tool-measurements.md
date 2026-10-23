@@ -13,6 +13,12 @@ through the same `InspectionEnvelope<PackageInfoMeasurements>` used for compile
 packages, so Browser/Wasm can adopt one portable shape instead of rebuilding
 tool measurements in TypeScript.
 
+PackageHouse also composes this owner's declaration evidence and selected-entry
+projection for `LibraryPopulation` after compile selection and one-RID runtime
+selection both yield no population. PackageHouse owns that precedence,
+acquisition, and generation correspondence; this document continues to own the
+tool declaration and slice membership.
+
 ## Contract
 
 The profile consumes the exact `AcquiredPackageSourcePayload` retained by the
@@ -98,6 +104,7 @@ slice from which a representative assembly could be chosen.
 | Selected TFM containment | `PackageInfoEnvelopeMeasuresDeclaredToolPayload` and `PackageCommand_DeclaredToolSelectedFrameworkIsContainedAcrossOutputs` |
 | Direct RID dependency routing | `BuildPackageDependencyTreeAsync_RidToolPackageUsesNuspec` |
 | Shape alone is insufficient | `PackageCommand_UndeclaredToolShapeDoesNotAuthorizeToolMeasurements` |
+| PackageHouse Library-population adoption | `PackageLibraryPopulationSelectorTests.DeclaredToolPackageSelectsOneToolLibraryPopulation`, `PackageRangedRealizationTests.LibraryPopulation_DeclaredToolReadsOnlyTheSelectedToolLibraries`, and `ConfiguredPayloadAcquisitionTests.ExtractPinnedPackage_LibraryPopulationRetainsToolRealization` |
 
 Package Info does not admit `--tfm all`, which
 [All-frameworks package discovery](package-tfm-all-discovery.md) limits to the

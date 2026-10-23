@@ -208,6 +208,21 @@ public partial class DiffCommand
             }
         }
 
+        if (analysisPlan?.Views is [var adoptedView]
+            && (adoptedView == DiffSections.Summary.Name
+                || adoptedView == DiffSections.Transitions.Name))
+        {
+            if (options.Tree)
+            {
+                CommandError.Write($"{adoptedView} does not offer a Hierarchy representation.");
+                return 1;
+            }
+            if (!options.FormatExplicitlySet
+                && !options.JsonOutput && !options.EnvelopeOutput
+                && !options.Tabular && !options.Tsv && !options.Jsonl)
+                options = options with { Tabular = true, Tsv = true };
+        }
+
         string? transportOption = options.EnvelopeOutput ? "--envelope"
             : options.CompactJson ? "--compact" : null;
         bool analysisTransport = analysisPlan is not null
@@ -262,7 +277,6 @@ public partial class DiffCommand
         // (docs/design/package-transfer-receipt.md#delivery).
         if (options.EvidenceEnvelopePath is not null
             && (!hasPackage
-                || !AdmitsPackageEndpointScope(implementationTransport)
                 || analysisPlan is null
                     && !UsesSharedLibraryApiDiff(1, 1, options)))
         {
@@ -334,21 +348,21 @@ public partial class DiffCommand
 
             if (hasPackage)
             {
-                var result =
-                    AdmitsPackageEndpointScope(implementationTransport)
-                        ? await TryExecuteScopedPackageDiffAsync(
-                            options,
-                            analysisPlan is not null,
-                            annotatedSourceTransport
-                                || RequestsWorkspaceImplementationTarget(options)
-                                || ReadsMethodBodies(catalog, options, analysisPlan),
-                            logger,
-                            context.HttpClient,
-                            cancellationToken)
-                        : (null, null);
+                var result = await TryExecuteScopedPackageDiffAsync(
+                    options,
+                    analysisPlan is not null,
+                    annotatedSourceTransport
+                        || RequestsWorkspaceImplementationTarget(options)
+                        || ReadsMethodBodies(catalog, options, analysisPlan),
+                    logger,
+                    context.HttpClient,
+                    cancellationToken);
                 if (result.inputs is null && result.error is null)
                 {
-                    result = await ExecutePackageDiffAsync(
+                    // Only an offline request with an endpoint only discovery
+                    // can settle reaches the AssemblySet route
+                    // (docs/design/package-endpoint-scope.md#offline).
+                    result = await ExecuteOfflineDiscoveryPackageDiffAsync(
                         options,
                         logger,
                         context.HttpClient);
@@ -393,7 +407,13 @@ public partial class DiffCommand
                         cancellationToken);
                 }
                 if (analysisPlan is not null)
-                    return await ExecuteAnalysisSetAsync(inputs, options, analysisPlan, cancellationToken);
+                {
+                    return await ExecuteAnalysisSetAsync(
+                        inputs,
+                        options,
+                        analysisPlan,
+                        cancellationToken);
+                }
                 if (transportOption is not null
                     && !UsesSharedLibraryApiDiff(inputs, options)
                     && !implementationTransport)
@@ -927,7 +947,7 @@ public partial class DiffCommand
     /// <summary>
     /// Publishes the Debug evidence envelope, when one was requested, for an
     /// inspection whose endpoints opened through the package endpoint scope.
-    /// The legacy endpoint route issues no acquisition receipts.
+    /// The offline discovery route issues no acquisition receipts.
     /// </summary>
     static int PublishAcquisitionEvidence<TContent>(
         DiffInputs inputs,
@@ -942,8 +962,8 @@ public partial class DiffCommand
         if (inputs.Owner is not PackageEndpointDiffSession session)
         {
             CommandError.Write(
-                "--evidence-envelope requires the package endpoint scope route; this request "
-                    + "took the legacy endpoint route, which issues no acquisition receipts.");
+                "--evidence-envelope requires the package endpoint scope route; this offline "
+                    + "request took the discovery route, which issues no acquisition receipts.");
             return 1;
         }
         return EvidenceEnvelopeOutput.TryPublishAcquisitionEvidence(
@@ -978,8 +998,16 @@ public partial class DiffCommand
             && (options.IncludeSections is null
                 || options.IncludeSections.SetEquals([DiffSections.Changes.Name]));
 
+    /// <summary>
+    /// The <c>AssemblySet</c> route for an offline pairwise package request
+    /// with an endpoint only discovery can settle, a <c>*</c> pattern or
+    /// <c>latest</c>: it answers a pattern from cached version listings and
+    /// reports why <c>latest</c> can't be resolved, until the House settles
+    /// a <c>Wildcard</c> selection offline
+    /// (docs/design/package-endpoint-scope.md#offline).
+    /// </summary>
     private static async Task<(DiffInputs? inputs, string? error)>
-        ExecutePackageDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
+        ExecuteOfflineDiscoveryPackageDiffAsync(DiffOptions options, VerboseLogger logger, HttpClient httpClient)
     {
         var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
         if (packageName == null || fromVersion == null || toVersion == null)
@@ -1035,25 +1063,6 @@ public partial class DiffCommand
     }
 
     /// <summary>
-    /// Lets a test run the legacy endpoint path as the identity oracle for
-    /// the package endpoint scope route, within one async flow.
-    /// </summary>
-    internal static readonly AsyncLocal<bool> LegacyPackageEndpointsForTesting = new();
-
-    /// <summary>
-    /// Whether the request's package endpoints open as package endpoint
-    /// scopes (docs/design/package-endpoint-scope.md, step 4 parts 2 to 5):
-    /// the API views over the merged participant surface, and the body
-    /// views (Analysis, Implementation, Complexity, Structural, PDB source,
-    /// the workspace implementation comparison, Annotated Source Diff, and
-    /// analysis sets that read method bodies) over the implementation
-    /// participants, string literals among them.
-    /// </summary>
-    static bool AdmitsPackageEndpointScope(bool implementationTransport)
-        => !LegacyPackageEndpointsForTesting.Value
-            && !implementationTransport;
-
-    /// <summary>
     /// Whether an admitted request reads method bodies, so its package
     /// endpoints open with the <c>SurfaceAndImplementation</c> demand.
     /// </summary>
@@ -1066,8 +1075,10 @@ public partial class DiffCommand
             : !DiffAnalysisCatalog.ReadsOnlyApiSurface(analysisPlan.Selection);
 
     /// <summary>
-    /// Opens both endpoints as package endpoint scopes, or returns neither
-    /// inputs nor error so the request takes the legacy path unchanged.
+    /// Opens both endpoints as package endpoint scopes, or reports why one
+    /// did not open. Only an offline request with an endpoint only discovery
+    /// can settle returns neither inputs nor error, so it takes the offline
+    /// discovery route (docs/design/package-endpoint-scope.md#offline).
     /// </summary>
     private static async Task<(DiffInputs? inputs, string? error)>
         TryExecuteScopedPackageDiffAsync(
@@ -1079,20 +1090,20 @@ public partial class DiffCommand
             CancellationToken cancellationToken)
     {
         var (packageName, fromVersion, toVersion) = ParseVersionRange(options.PackageVersionRange!);
-        if (packageName is null
-            || fromVersion is null
-            || toVersion is null
-            || PackageEndpointDiffSession.TryCreateSelection(
-                    packageName,
-                    fromVersion,
-                    toVersion,
-                    options.Tfm) is not { } selection)
+        if (packageName is null || fromVersion is null || toVersion is null)
+            return (null, "Invalid version range. Use format: Package@v1..v2");
+        if (PackageEndpointDiffSession.TryCreateSelection(
+                packageName,
+                fromVersion,
+                toVersion,
+                options.Tfm,
+                out string? selectionError) is not { } selection)
         {
-            return (null, null);
+            return (null, selectionError);
         }
 
-        PackageEndpointDiffSession? session =
-            await PackageEndpointDiffSession.TryOpenAsync(
+        (PackageEndpointDiffSession? session, string? openError) =
+            await PackageEndpointDiffSession.OpenAsync(
                 httpClient,
                 selection,
                 readsMethodBodies
@@ -1102,7 +1113,7 @@ public partial class DiffCommand
                 logger,
                 cancellationToken);
         if (session is null)
-            return (null, null);
+            return (null, openError);
 
         try
         {
@@ -3246,7 +3257,8 @@ public partial class DiffCommand
             InspectionFailures = diff.InspectionFailures,
             TotalBreaking = filtered.Sum(typeDiff => typeDiff.BreakingCount),
             TotalAdditive = filtered.Sum(typeDiff => typeDiff.AdditiveCount),
-            TotalPotentiallyBreaking = filtered.Sum(typeDiff => typeDiff.PotentiallyBreakingCount)
+            TotalPotentiallyBreaking = filtered.Sum(typeDiff => typeDiff.PotentiallyBreakingCount),
+            TotalNonBreaking = filtered.Sum(typeDiff => typeDiff.NonBreakingCount),
         };
     }
 
@@ -3396,9 +3408,28 @@ public partial class DiffCommand
             DiffInputs inputs,
             DiffOptions options)
     {
-        if (!RequestsWorkspaceImplementationTarget(options)
-            || !HasSinglePackageRoot(inputs.From, inputs.Name)
-            || !HasSinglePackageRoot(inputs.To, inputs.Name))
+        if (!RequestsWorkspaceImplementationTarget(options))
+            return null;
+
+        return TryCreateExactMemberTarget(inputs, options);
+    }
+
+    static WorkspaceImplementationTarget? TryCreateExactMemberTarget(
+        DiffInputs inputs,
+        DiffOptions options,
+        bool allowSingleLocalAssembly = false)
+    {
+        if (options.MemberFilter.Count != 1
+            || options.TypeFilter.Count != 1
+            || options.IncludePdbSource
+            || !HasSingleTargetRoot(
+                inputs.From,
+                inputs.Name,
+                allowSingleLocalAssembly)
+            || !HasSingleTargetRoot(
+                inputs.To,
+                inputs.Name,
+                allowSingleLocalAssembly))
         {
             return null;
         }
@@ -3441,20 +3472,91 @@ public partial class DiffCommand
             $"{typeName}.{selector.RequestedText}");
     }
 
+    static WorkspaceMethodAllocationTarget?
+        TryCreateExactAllocationTarget(
+            DiffInputs inputs,
+            DiffOptions options)
+    {
+        if (TryCreateExactMemberTarget(
+                inputs,
+                options,
+                allowSingleLocalAssembly: true)
+                is not { } target
+            || TryResolveExactMethodToken(
+                inputs.FromSurface,
+                target.DeclaringType,
+                target.Selector)
+                is not { } beforeMethod
+            || TryResolveExactMethodToken(
+                inputs.ToSurface,
+                target.DeclaringType,
+                target.Selector)
+                is not { } afterMethod
+            || beforeMethod.SurfaceAssetPath is null
+            || afterMethod.SurfaceAssetPath is null)
+        {
+            return null;
+        }
+
+        return new(
+            beforeMethod,
+            afterMethod);
+    }
+
+    static WorkspaceMethodSurfaceTarget?
+        TryResolveExactMethodToken(
+        ApiSurface surface,
+        MetadataTypeDefinitionName declaringType,
+        MemberTargetSelector selector)
+    {
+        ApiType[] matchingTypes =
+        [
+            .. surface.Types.Where(type =>
+                (type.DefinitionName
+                    ?? ParseWorkspaceImplementationTypeName(
+                        string.IsNullOrEmpty(type.Namespace)
+                            ? type.MetadataName ?? type.Name
+                            : $"{type.Namespace}."
+                                + $"{type.MetadataName ?? type.Name}"))
+                    ?.Equals(declaringType)
+                    == true),
+        ];
+        if (matchingTypes.Length != 1)
+            return null;
+
+        ApiType type = matchingTypes[0];
+        if (MemberTargetResolver.Resolve(
+                    type,
+                    selector).Target?.Body?.MetadataToken
+                is not { } methodToken
+            || (methodToken & unchecked((int)0xff000000))
+                != 0x06000000)
+        {
+            return null;
+        }
+
+        return new(
+            methodToken,
+            type.SourceAssemblyPath);
+    }
+
     /// <summary>
-    /// Whether the endpoint has one package-root assembly: an implementation
-    /// participant of its scope, or an extracted file of its assembly set.
+    /// Whether the endpoint has one package-root assembly, or one local
+    /// assembly when the focused caller explicitly admits that shape.
     /// </summary>
-    static bool HasSinglePackageRoot(
+    static bool HasSingleTargetRoot(
         ApiSurfaceEndpoint endpoint,
-        string packageName)
+        string packageName,
+        bool allowSingleLocalAssembly)
         => endpoint.PackageScope is { } scope
             ? WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
                 scope,
                 packageName)
-            : WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
-                endpoint.AssemblySet,
-                packageName);
+            : (allowSingleLocalAssembly
+                    && endpoint.AssemblySet.Assemblies.Count == 1)
+                || WorkspaceImplementationComparisonRunner.HasSinglePackageRoot(
+                    endpoint.AssemblySet,
+                    packageName);
 
     static async Task<int> ExecuteAnnotatedSourceDiffAsync(
         DiffInputs inputs,
@@ -3783,6 +3885,14 @@ public partial class DiffCommand
         MetadataTypeDefinitionName DeclaringType,
         MemberTargetSelector Selector,
         string Display);
+
+    sealed record WorkspaceMethodAllocationTarget(
+        WorkspaceMethodSurfaceTarget Before,
+        WorkspaceMethodSurfaceTarget After);
+
+    sealed record WorkspaceMethodSurfaceTarget(
+        int MethodToken,
+        string? SurfaceAssetPath);
 
     internal sealed record WorkspaceImplementationTypeSelection(
         MetadataTypeDefinitionName DefinitionName,

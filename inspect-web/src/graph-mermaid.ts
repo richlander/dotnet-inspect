@@ -18,6 +18,8 @@ import type {
 } from "./facades/inspect-web-source.d.ts";
 import type {
   BrowserAssemblyReferenceList,
+  BrowserPackageHierarchy,
+  BrowserPackageHierarchyRow,
 } from "./facades/inspect-web-package.d.ts";
 
 export function resolveMermaidCssVariables(
@@ -53,6 +55,59 @@ export interface AssemblyReferenceGraph {
   referenceCount: number;
   shownReferenceCount: number;
   truncated: boolean;
+}
+
+export interface PackageHierarchyGraph {
+  definition: string;
+  occurrenceCount: number;
+  shownOccurrenceCount: number;
+  truncated: boolean;
+}
+
+export function buildPackageHierarchyGraphMermaid(
+  hierarchy: BrowserPackageHierarchy,
+): PackageHierarchyGraph | null {
+  if (!hierarchy.rows.length) return null;
+  const limit = 80;
+  const children = new Map<number | null, BrowserPackageHierarchyRow[]>();
+  for (const row of hierarchy.rows) {
+    const siblings = children.get(row.parentId) ?? [];
+    siblings.push(row);
+    children.set(row.parentId, siblings);
+  }
+  const queue = [...(children.get(null) ?? [])];
+  const shown: BrowserPackageHierarchyRow[] = [];
+  for (let index = 0; index < queue.length && shown.length < limit; index++) {
+    const row = queue[index];
+    if (!row) continue;
+    shown.push(row);
+    queue.push(...(children.get(row.id) ?? []));
+  }
+  const ids = new Set(shown.map(row => row.id));
+  const lines = ["flowchart TD"];
+  for (const row of shown) {
+    const details = [
+      row.disposition === "Revisit" || row.disposition === "Cycle"
+        ? row.disposition.toLowerCase() : "",
+      row.resolution !== "Resolved" ? row.resolution.toLowerCase() : "",
+    ].filter(Boolean);
+    const label = details.length
+      ? `${row.label} (${details.join(", ")})` : row.label;
+    const style = row.parentId === null ? "inspected"
+      : details.length ? "qualified" : "reference";
+    lines.push(`  h${row.id}["${mermaidLabel(label)}"]:::${style}`);
+    if (row.parentId !== null && ids.has(row.parentId))
+      lines.push(`  h${row.parentId} --> h${row.id}`);
+  }
+  lines.push("classDef inspected fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),color:var(--graph-target-text),stroke-width:2px;");
+  lines.push("classDef reference fill:var(--graph-package-external-fill),stroke:var(--graph-package-external-stroke),color:var(--graph-package-external-text);");
+  lines.push("classDef qualified fill:var(--graph-package-external-fill),stroke:var(--graph-target-stroke),color:var(--graph-package-external-text),stroke-dasharray:4 3;");
+  return {
+    definition: lines.join("\n"),
+    occurrenceCount: hierarchy.rows.length,
+    shownOccurrenceCount: shown.length,
+    truncated: shown.length < hierarchy.rows.length,
+  };
 }
 
 export function buildAssemblyReferenceGraphMermaid(

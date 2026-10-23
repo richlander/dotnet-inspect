@@ -48,6 +48,163 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Online Package inspection admission
+
+Ordinary online single-Package inspection acquires through PackageHouse and
+queries one committed content-only Workspace Root. The CLI preserves the
+original target filter and the acquired authority, generation, and House
+evidence when adapting that Root to existing package presentation.
+Package facts remain available when DLLs are unusable or the requested
+framework has no applicable assets; package inspection does not require
+Library realization. Acquisition, admission, and query failures are terminal,
+not reasons to retry through the legacy extractor.
+
+This is the CLI adopter in the two-slice prerequisite/adoption sequence under
+[#6638](https://github.com/richlander/dotnet-inspect/issues/6638).
+[Content-only package admission](design/artifact-acquisition-and-workspaces.md#content-only-package-admission)
+owns the supporting Root contract; [PackageHouse](design/package-house.md)
+owns acquisition and selection. Existing specialized content/inventory routes,
+local/offline inspection, Library inspection, and tool-wrapper redirection
+remain separate routes. Detecting a wrapper after acquisition retains its
+legacy redirect route and can require another acquisition for temporary stores.
+This slice does not retire the extraction result's presentation compatibility
+shape or change archive transfer policy.
+
+The motivating real asset is nuget.org `Microsoft.NETCore.App.Ref` 10.0.0:
+its package facts must remain inspectable with `--tfm net9.0`, despite its
+`net10.0` assets. Reproduce with source CLI `package
+Microsoft.NETCore.App.Ref@10.0.0 --tfm net9.0 -S "Package Info" --json`.
+Deterministic configured-source tests gate admitted inspection with unusable
+DLLs, unmatched frameworks, and selected versions; existing source, wrapper,
+offline, and Library tests remain neighboring controls.
+
+### Exact Package reference admission
+
+An owner-issued exact Package reference is accepted as positional `package`
+input, as the bare router target, and as `--package` input for Library and
+exact Type or Member inspection. These are ordinary source gestures over the
+same acquired Package binding. The Package owner retains the opaque token's
+validation, producer, logical Root selection, and failure semantics through
+[its transport seam](design/artifact-acquisition-and-workspaces.md#the-transport-seam).
+The receiving CLI supplies source authorization and bounded acquisition. A
+reference conveys no authority and cannot silently become an ordinary NuGet
+coordinate after reopening fails.
+
+The CLI recognizes the owner's current token prefix before name/platform
+probing; successfully decoded legacy references are also accepted. Malformed
+current-prefix values fail as references. It does not interpret token fields.
+The reference supplies version and target selection, so competing versions,
+TFMs, preview/latest selection, Workspace context, or another source fail.
+Library narrowing stays within frozen compile assets. Exact Type/Member
+inspection uses an ephemeral operation context over the already acquired
+binding; it does not author or restore a Workspace packet or reacquire a
+coordinate. Type/Member input requires one exact Type, matching the existing
+admitted-context inspection boundary. Share cannot currently preserve this
+exact source and fails visibly. Other source forms retain their own contracts.
+The former `workspace --root-request` entrance is removed under #10186;
+ordinary Package inspection has no separate reopening option.
+
+The motivating real asset is nuget.org `Newtonsoft.Json` 13.0.4. Running
+`package query Newtonsoft.Json --where
+"library-literal=Unexpected end when reading JSON" --tfm net6.0 --json`
+produced an owner-issued reference for `lib/net6.0/Newtonsoft.Json.dll`.
+That same value can feed `package "$package_ref"`, the bare router, or
+`type Newtonsoft.Json.JsonConvert --package "$package_ref"` and its Member
+inspection. The user approved ordinary Package reference syntax and bare-router
+admission on 2026-10-18, replacing the proposed public `--root-request` option.
+
+Durable tests carry a real query value through these ordinary parser/router
+entrances into completed output. Deterministic controls cover malformed
+references, unauthorized same-named producer content, missing content,
+other-target replacements, absent Types/Members/Libraries, and conflicting
+source selectors. Exact NativeAOT base/head comparisons cover adopted terminal
+families, Count and row narrowing, unchanged coordinate neighbors and the
+retained Workspace entrance. This is source admission; existing section and
+row owners retain their work and rendering semantics.
+
+This CLI adoption is slice 6 of the 15-slice
+[continuous resource discovery plan](https://github.com/richlander/dotnet-inspect/issues/10132),
+implemented by [#10185](https://github.com/richlander/dotnet-inspect/issues/10185).
+It adds no shared token schema or Browser-navigation contract.
+[Acquired Package declaration admission](design/workspace-live-locator.md#exact-acquired-package-declaration-context)
+supplies the supporting Queries-owned adapter to existing exact-Type readers. Duplicate
+Workspace inspection selectors retire under #10186; explicit Workspace
+inventory remains.
+
+### Explain root admission
+
+Bare `dotnet-inspect explain` reads the
+[explanation root](design/resource-explanation.md#routing-declarations). It
+does not print help and does not report a missing operand. The CLI composes
+the root over its complete catalog, from the routing declarations of every
+owner it admits:
+
+- Schema Query;
+- Inspection Capability Composition; and
+- Product Vocabulary.
+
+It publishes the root only while the reachability invariant holds. If the
+invariant fails, bare `explain` and every root path fail visibly, naming the
+first unreachable resource. Those requests do not fall through to search.
+
+The root's address is `root`. Its role collections are the top-level paths
+`subject-kinds`, `operations`, and `references`. Each routing entry is
+`<collection>/<identity>`, as in `operations/package-query`. All of these are
+registered exact paths, so the facade selects Resource Explanation for them
+rather than search.
+
+`explain` is primarily for agents, so bare `explain` defaults to the root's
+routing table as TSV. The table has one header row and one row per routing
+entry. Each row gives:
+
+- the entry's role, path, and name;
+- its purpose and representative questions;
+- for an operation, its accepted subject kinds; and
+- its destinations, or its not-yet-explainable state.
+
+`--table` and `--jsonl` select the same table, and so do the table formats on
+any root path. A collection lists its own entries, and an entry lists itself.
+Like any section selection, the table carries no document facts. The root's
+Coverage caveat, which says the collections cover registered declarations
+rather than every command, is in the Document reading. A table selection
+rejects `--depth`, `-n`, and `--envelope`.
+
+`--markdown`, `--plaintext`, and `--json` select the Document reading. Bare
+`explain` then expands to depth 2 unless `--depth` is given, so one Document
+carries the root, its collections, and every entry. The text Document presents
+the same Routing table in place of the generic expanded and related listings.
+At depth 0 or 1, as in `explain root`, the Document reaches no entry resources,
+so the generic listings remain and name the three collections. JSON carries
+the same resources, facts, and relationships. The root has no HAL reading yet,
+so `explain root .hal --json` fails visibly.
+
+Bare `explain` admits the options of the Resource Explanation operand row in
+[Explain facade dispatch](design/contextual-resource-explanation.md#explain-facade-dispatch).
+A lone `.contract`, `.data`, or `.hal` token is a projection of the root, not
+search text. The search row limit `-n` and vocabulary value selection `-Q`
+fail before any explanation runs.
+
+`explain --help` succeeds without an operand. The required-operand bootstrap
+path is retired. The root is projected from owner declarations; it is not
+rebuilt from help text or from a curated list of command names.
+
+`ResourceExplanationCommandTests` gates this admission:
+
+- `BareExplain_DefaultsToTheRoutingTableAsTsv`;
+- `RootPathTableSelection_ListsTheEntriesThePathReaches`;
+- `BareExplainTable_RejectsDocumentOptions`;
+- `BareExplainMarkdown_ReadsTheRootAsItsRoutingTable`;
+- `RootBelowItsEntries_ListsItsRoutingCollections`;
+- `BareExplainJson_EmbedsEveryRoutingEntry`;
+- `ExplainHelp_SucceedsWithoutAnOperand`;
+- `RoutingEntry_ExplainsItsHintsAndDestinations`;
+- `BareExplain_ProjectsALoneContractToken`;
+- `BareExplain_RejectsSearchAndValueOptions`; and
+- `ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog`, which checks the
+  reachability invariant.
+
+Exact paths and search keep their existing neighbor tests.
+
 ### Vocabulary reading admission
 
 The CLI admits `-Q` / `--query-help` on an exact vocabulary root only with a
@@ -95,105 +252,59 @@ examples, rather than duplicating their inventories here.
 
 ### Workspace top-level inventory
 
-The `workspace` command first distinguishes durable definition output from
-runtime observation. With `--share`, direct Package and registration inputs
-become one schema-version-3 Workspace definition plus its committed peer
-records. Package coordinates coalesce by normalized identity, and
-registrations retain authored cross-kind command-line order. The
-Definitions-owned transposer and codec then emit a canonical format-3 packet or
-URL as the command's stdout scalar. This deliberately differs from noun-command
-Share, which is additive stderr output beside inspection content: the portable
-definition is the `workspace` command's primary result. With `--share`,
-canonical Base64URL packet-string input follows the same resource-free decode,
-transposition, and projection path. No
-`WorkspacePlan`, Package-store access, complete-restoration host, or live
-Workspace exists on this path. Inventory filters, Root reopening, and
-Navigation selectors are rejected rather than ignored because they request
-runtime observation. Inventory row controls are likewise rejected before
-output. Prerelease resolution and explicit NuGet source policy are also
-rejected because they are acquisition settings that the portable definition
-cannot preserve.
+The `workspace` command owns portable environment authoring and explicit
+exhaustive inventory across its contexts. Ordinary construction and packet
+input emit the canonical packet scalar on stdout without acquisition or live
+restoration. `--share packet` is the explicit equivalent; `--share url` emits
+an activation URL; `--json` emits the existing codec's canonical packet JSON.
+JSON and Share are alternative output selections. Bare `workspace` shows help.
+Definitions owns validation, immutable composition, transposition and codec
+semantics; no new packet schema is introduced by this CLI binding.
 
-Without `--share`, the `workspace` command directly owns one ephemeral
-`InspectionWorkspace` built from Package and registration inputs, or delegates
-current-format packet input to the Definitions-owned complete restoration
-transaction. Direct Package membership remains separate from the
-`WorkspacePlan`. Complete restoration owns packet
-decoding and version dispatch, complete context loading, Scope publication,
-retained Navigation restoration, projection, cancellation, and cleanup. Both
-routes capture one exact Workspace operation snapshot before calling
-`WorkspaceTopLevelInventoryOperation`.
+Normalized-equivalent Package coordinates coalesce, while registrations retain
+authored cross-kind command-line order. Source declarations remain portable;
+authoring validates ephemeral credential bindings without reading their
+providers. Inventory filters, row controls, acquisition policy and inventory
+formats require an explicit live observation. Dependency enrichment remains an
+explicit acquisition-backed transformation with `--share`; Package update
+retains its existing scalar/envelope and authorization contract.
 
-The CLI does not read current Scope and registration collections separately.
-It lowers the shared typed document through Markout as compact `Kind`,
-`Location`, and `State` rows. JSON and JSONL retain the shared polymorphic
-entry arms. Kind filtering occurs in the shared operation and does not change
-construction.
+`--inventory` explicitly constructs or completely restores one live Workspace
+and calls `WorkspaceTopLevelInventoryOperation` over its exact operation
+snapshot. Package membership covers every packet context. Inventory reports
+resolved Package versions, producer, requested/selected/effective targets,
+runtime identifier, compile selection and readiness, followed by inert
+registrations. It answers what the Workspace contains, distinct from Find's
+search for matches. Retaining it requires no Find Package-grain prerequisite.
+`--kind` and semantic row controls narrow the returned entries, not Workspace
+construction. Markout renders human output; JSON/JSONL retain the typed arms.
+Verbose human output includes the detailed Package target and producer facts.
+Live inventory cannot be combined with portable definition output or dependency
+enrichment. Direct construction and packet input remain mutually exclusive.
 
-Direct inventory construction supplies a non-projectable realized-Workspace
-Share basis. Packet restoration derives its basis from the exact
-`CompleteRestorationResult.Activated`, including the owner-issued definition
-and projection. The CLI does not independently pair packet text with a
-definition snapshot.
+`workspace packet encode/decode` exposes the resource-free codec.
+`workspace component list` emits owner-issued component paths used unchanged by
+immutable Package and registration edits. Component inspection describes
+declarations; it does not stand in for realized inventory.
 
-`workspace packet encode` and `workspace packet decode` expose the same
-resource-free canonical codec beneath the Workspace noun. `workspace component
-list` projects a packet-local typed component catalog as JSON. Its canonical
-Package paths are emitted by Workspace Definitions and accepted unchanged by
-`workspace package update` and `workspace package remove`; the CLI does not
-derive identity from package inventory order, Navigation row order, or display
-text. Package add and remove are resource-free immutable packet
-transformations. Package update delegates to the existing realization-backed
-fresh-successor operation and preserves its completed envelope.
+Package, Library, Type and Member selection belongs to their ordinary commands
+with admitted `--workspace` context. `package ID --workspace PACKET` replaces
+activation ordinals and can derive a Workspace by adding an admitted Package.
+The duplicate Workspace selectors (`--active-package`, `--active-ecosystem`,
+`--library`, `--all-libraries`, `--type`, `--member`, `--lens`) are removed.
+Exact Package references use ordinary Package/router admission instead of
+`workspace --root-request`. Shared Navigation and complete restoration remain
+available to ordinary commands and Browser consumers. Supplying packet context
+does not silently replay its saved query.
 
-The existing `--active-package` path resolves Package source order through the
-operation's selection receipt, validates the exact occurrence identity, and
-then enters Navigation. Packet-restored Navigation refinement and filtered
-inventory Navigation are rejected rather than silently changing either
-contract. Share is likewise top-level-inventory output and is rejected with
-Package Navigation instead of being silently skipped. Human output remains
-compact by default; verbose lowering appends the Package producer, distinct
-target fields, runtime identifier, and asset-selection status.
-
-### Stateless Workspace navigation
-
-The `workspace` command is the first production consumer of
-`NavigationWorkspaceSnapshotEvaluation`. The default path preserves the
-ordered Package subset of the top-level inventory without choosing an active
-occurrence. An explicit
-`--active-package` request borrows the exact committed Package Root generation,
-materializes bounded API-surface evidence, and retains each realization-issued
-Package asset/participant association through Navigation classification. It
-does not rejoin assets to assemblies by file or assembly name.
-
-Exact Type and Member destinations are selected only from the returned
-scoped inventory and submitted through `DescendantSubjectLensRequest`.
-Projected Member rows retain separate containing and declaring Types, so a
-Type-to-Member selector resolves within its selected source Type rather than a
-flattened global Member list. Selector failure retains the complete snapshot;
-absence is claimed only from complete scoped evidence.
-
-After Navigation validates an exact admitted subject, this CLI supplies
-`Available` facts for the Registry's current active entries. Those entries
-execute on demand, so query or result non-success remains inside the selected
-entry rather than making the entry unavailable. The Navigation evaluator still
-accepts per-subject facts carrying explicit unavailable or failed owner
-evidence; the CLI assumption is narrow to the current catalog and is not a
-permanent availability rule. The CLI does not inspect Registry-private
-execution targets, construct an ID-based availability policy, infer structural
-identity from display text, recommend an intermediate destination lens, or
-install one requested half after a non-applied result.
-
-Markdown, plain text, table, and TSV are Markout lowerings; JSON and JSONL omit
-process-local Workspace, occurrence, generation, action, and authority
-identity while retaining portable Library asset, containing-Type, and
-declaring-Type joins. Portable Library, Type, and Member selector fields use a
-reversible backslash transport spelling before display containment and
-tabular lowering. It escapes line separators, tabs, rendering hazards, literal
-backslashes, and the `&`, `<`, `>`, backtick, and `|` characters rewritten by
-Markdown table lowering; copied values are decoded before exact ordinal
-selector resolution. A nonempty selector remains an identity even when its
-decoded metadata spelling consists only of whitespace or line separators.
+The motivating real asset is nuget.org `System.Text.Json` 10.0.0 on `net10.0`
+with the Runtime ecosystem. Resource-free default authoring preserves these
+coordinates and registrations; explicit inventory retains the resolved Package
+and selected-target facts. Release gates in `WorkspaceCommandTests` cover
+failing HTTP/store authoring fakes, unread credential providers, exact packet
+and JSON round-trips, all-context inventory and existing inventory formats.
+Exact NativeAOT base/head comparisons distinguish authoring output changes from
+retained live inventory rather than treating less work as an inventory speedup.
 
 ## Runtime identity
 
@@ -249,6 +360,202 @@ stdout / stderr / exit code
 Commands may have specialized acquisition and projection steps, but those
 steps retain the same ownership boundary: the host composes the request;
 reusable owners produce the facts.
+
+### Planned Workspace packet activation
+
+Root activation admits Workspace inventory and query-free saved Package
+`package.libraries` and Type `type.api` views. These consume the exact
+selected-subject handoff implemented under
+[#10408](https://github.com/richlander/dotnet-inspect/issues/10408) and invoke
+the ordinary inspection over the admitted Root and Navigation registration.
+Type projection uses its structured definition identity within that exact
+Library; it does not search declaration contexts again. Both raw and `-w`
+entrances preserve ordinary output formats, row controls and Count.
+Other saved facets and attached queries are refused before acquisition.
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647) continues with
+Member and saved-query bindings. The full target contract follows.
+
+This is the target CLI contract for [#4647](https://github.com/richlander/dotnet-inspect/issues/4647),
+partially implemented as described above. The CLI owns command admission,
+the one-shot landing choice, terminal output, and exit behavior. It consumes
+[Workspace Definitions](design/workspace-definitions.md)' canonical codec and
+complete-restoration contracts; inspection operations retain their existing
+selection, query, execution and result contracts. Browser activation remains
+an existing consumer of those shared owners.
+
+The user-requested entrances are:
+
+```bash
+dotnet-inspect -w "$packet"
+dotnet-inspect "$packet"
+```
+
+Both apply the same portable environment and selected scenario for the lifetime
+of one invocation. They do not persist a current Workspace for later commands.
+The convention is the website's packet activation: use its declared environment
+and selected inspection without asking the reader to reconstruct flags. The CLI
+adds one-shot result consumption, rather than the website's retained UI.
+Ordinary `member ... --workspace "$packet"` instead supplies context to the
+new query that the caller explicitly selected.
+
+#### Admission and precedence
+
+`-w` is a root activation entrance, not a global alias for ordinary commands'
+`--workspace`. Its value is authoritative packet input: malformed,
+noncanonical, unsupported or over-limit values fail visibly before acquisition.
+It does not accept a website URL, a file path, JSON text or an implicit stdin
+value. Existing packet conversion commands remain the explicit codec tools.
+
+Raw input participates only in ordinary commandless-target routing. Explicit
+commands keep their existing parsing and value ownership; a packet-looking
+option value does not activate anything. The router consumes the codec owner's
+bounded distinction between a non-packet, a recognized packet failure and a
+valid canonical packet. A recognized packet failure never falls through to
+Package or Type lookup. Non-packet targets retain ordinary routing. The router
+must not derive this distinction from Base64 spelling, packet field names, or
+validation error text. Owner-issued recognition is prerequisite
+[#10369](https://github.com/richlander/dotnet-inspect/issues/10369); its treatment
+of damaged or over-limit envelopes remains the codec owner's responsibility.
+When that owner cannot identify input as a packet, `-w` is the unambiguous
+entrance for reporting packet validation failure.
+
+Root packet activation accepts a single packet. A second target, an explicit
+command combined with root `-w`, a source replacement, or new subject/query
+controls is an admission error. It cannot silently override the saved scenario.
+Help, local execution policy and result presentation are host controls, subject
+to their ordinary capability and conflict checks. Help does not restore or
+acquire. Only the selected operation's admitted result terminals are available;
+an unsupported terminal is refused before realization when knowable.
+
+#### Landing and output
+
+Activation resolves one selected subject and its lens/view. The CLI prints
+that view using the inspection's ordinary default presentation: a Hierarchy,
+Table, or Document, unless a supported output option selects another format.
+Restoring multiple contexts supplies the inspection environment; it does not
+select one output subject per context.
+
+A Workspace landing selects the Workspace subject. Its currently admitted
+default is the inventory Table: Kind, Location, and State columns containing
+Package and registration entries across those contexts. Saved Package, Type,
+and Member subjects retain their own view's default presentation when their
+execution bindings are admitted.
+
+| Selected portable intent | CLI result |
+| --- | --- |
+| Workspace landing without an inspection | Existing exhaustive Workspace top-level inventory |
+| Admitted saved subject, facet and query | That inspection's ordinary result through its owning operation |
+| Saved intent without a CLI execution binding | Visible unsupported-intent failure; no substitute inspection |
+| Failed or incomplete restoration/selection | Existing typed failure; no success-shaped partial landing |
+
+The landing comes from the committed scenario and its selected state. A
+Workspace landing does not choose the first Package; a saved Member or Type
+does not become a Package inspection. Restoring all contexts must not replace
+the selected inspection with whichever tab completes first. Likewise,
+Navigation facet availability alone does not establish that a CLI executor
+exists for that facet and query.
+
+Inspection stdout carries the result, not a packet echo or an activation
+receipt. Diagnostics go to stderr; successful completion returns zero and
+failures return nonzero.
+Workspace inventory uses its existing formats, row selection and Count.
+Inspection terminals retain their owning output/Count semantics. Typed results
+remain structured through the existing operation and rendering boundary;
+Markout remains the default for human/tabular results and existing structured
+lowerings retain their contracts. Activation adds no parallel rendering model.
+
+The CLI must check its execution binding before acquiring content when the
+portable intent is already sufficient to identify missing support. A missing
+binding is not permission to drop a saved query, select a recommended facet,
+show inventory, or reconstruct and invoke a command line. Realization-backed
+absence, ambiguity, authorization, projection and execution failures retain
+their owning outcomes after restoration.
+
+#### Restoration and execution boundary
+
+Consume the shared validated activation input and complete-restoration result.
+The CLI supplies credentials, source authorization, acquisition policy,
+cancellation and cleanup through its existing host composition. Portable
+source declarations are not acquisition authority. Packet application is an
+explicit realization request; resource-free authoring remains with `workspace`.
+
+The chosen operation consumes owner-issued resolved intent and subject/context
+identity within that activation's lifetime. Do not manufacture argv from packet
+fields, infer an exact source from a display coordinate, decode a second packet
+schema, or restore a separate Workspace merely to call an ordinary command.
+Close the invocation-owned realization after result consumption and on failure
+through the existing restoration lifetime. The router introduces no persistent
+controller, new Workspace query grammar, or second Navigation implementation.
+If an existing inspection owner lacks a typed execution entrance, record that
+prerequisite separately rather than rebuilding its semantics in the router.
+
+#### Motivating assets and adoption evidence
+
+`System.Text.Json@10.0.0/net10.0` provides a real Package, the
+`System.Text.Json.JsonSerializer` Type and exact Member selections. The shipped
+Runtime ecosystem supplies a registration-only environment; adding
+`Markout@0.35.2` supplies a second Package/context control. Author environment
+packets through `workspace`; obtain scenario packets through the ordinary
+inspection command's admitted `--share packet` projection. The packet is the
+complete emitted value, not a shortened `ey...` sample.
+
+Compatible-target controls use `System.ValueTuple@4.5.0/net10.0` (an empty
+compile group) and `NUnit@4.2.2/net10.0` (two Libraries selected from net6.0).
+Replay must retain the Root's original framework request for dependency evidence
+while rendering its frozen compile selection; replacing that request with the
+selected asset folder can make the two owner-issued observations disagree.
+Their producer/replay JSON and Count gates retain zero and two children.
+
+Worked Type save/replay:
+
+```bash
+environment=$(dotnet-inspect workspace --register-ecosystem runtime)
+dotnet-inspect -w "$environment" --json   # Workspace inventory
+
+package_workspace=$(dotnet-inspect workspace \
+  --package System.Text.Json@10.0.0 --tfm net10.0 \
+  --nuget-source-anonymous https://api.nuget.org/v3/index.json)
+dotnet-inspect type System.Text.Json.JsonSerializer \
+  --workspace "$package_workspace" --share packet \
+  > type-content.md 2> type-handoff.txt
+scenario=$(tail -n 1 type-handoff.txt)     # Final Share scalar, after diagnostics
+dotnet-inspect "$scenario" --json        # Saved Type inspection result
+```
+
+The explicit public source is retained in the format-5 environment. Type
+Share currently requires format 4 or 5; the source-free format-3 authoring
+result supports inspection but refuses this derived scenario projection.
+
+For each admitted CLI binding, gate both root entrances with the same packet,
+plus its website activation through the production Browser facade. Compare
+typed environment, selected subject/facet/query and failure outcomes across
+hosts rather than rendered HTML and terminal text. Pair saved exact Type and
+Member cases with a different focused tab and all-context membership. Gate
+Workspace-only zero/one/multiple-Package inventory, row selection and Count;
+preserve non-packet routing, option-value ownership, help and local policy.
+Recognized invalid, unsupported and limit failures must not trigger fallback
+acquisition or publish partial results. `WorkspacePacketActivationTests` gates
+the admitted inventory entrances,
+ordinary output/row parity and early refusals. Its Package cases save a real
+System.Text.Json query, replay identical ordinary output across formats and
+Count, preserve a different input focus and all-context environment, and refuse
+unsupported facets/source denial without output. The recorded format-5
+[Package replay packet](examples/workspace-package-replay.json) is also opened
+through the production Browser activation owner. The recorded
+[Type replay packet](examples/workspace-type-replay.json) similarly preserves
+its exact JsonSerializer subject and `type.api` facet through Browser
+activation. CLI Type cases compare ordinary rendering and Count across
+formats, two contexts and small Type populations. Plain text includes a
+per-invocation temporary assembly path, normalized only in parity assertions.
+Member and attached-query execution remain staged.
+
+[#10132](https://github.com/richlander/dotnet-inspect/issues/10132) tracks the
+production path: this focused CLI contract, owner-issued packet recognition,
+then CLI router and individually admitted operation bindings. Browser retains
+its existing activation consumer and receives explicit-input regression/parity
+gates; this work does not redesign its UI. Runtime adoption must publish exact
+NativeAOT base/head evidence for every affected terminal and identify every
+unsupported saved binding before claiming #4647 complete.
 
 ### Bare-target ecosystem explanation
 

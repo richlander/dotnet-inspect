@@ -641,9 +641,9 @@ only when the post-dominator machinery is proven.
    join plan represents and classifies back-edge regions from day one. The
    first retained-label production slice consumes only proven acyclic forward
    regions; raising a non-crossing region whose back-edges target its head as
-   `while`/`while (true)` remains a follow-on, together with continue placement,
-   condition hoisting for effectful latches, labeled break, and conditional
-   rotated entries.
+   `while`/`while (true)` remains a follow-on, together with condition hoisting
+   for effectful latches, labeled break, and conditional rotated entries.
+   Continue placement landed with the loop-continue slice below.
 
    *Status: shared-terminator merge slice landed (partial).* The first slice of
    step 4 relaxes the all-or-nothing invariant for one safe case: a shared
@@ -736,7 +736,6 @@ only when the post-dominator machinery is proven.
    multi-merge and compiler-produced paths.
    `RetainedBodyMergeWithoutRotatedEntryStaysFlat`,
    `RetainedBodyMergeWithMultipleLatchesStaysFlat`,
-   `RetainedBodyMergeAtLatchStaysFlat`,
    `RetainedBodyMergeWithNoncanonicalExitStaysFlat`,
    `RetainedBodyMergeWithExternalInteriorEntryStaysFlat`, and
    `RetainedBodyMergeWithSwitchStaysFlat` gate the declined boundary;
@@ -778,6 +777,190 @@ only when the post-dominator machinery is proven.
    structured containers (752 to 745 flat) and the pinned corpus from 30,046
    to 30,068 (2,677 to 2,655 flat), with zero pass bugs in both
    `--structuring-stops` sweeps.
+
+   *Status: survivor-merge planning slice implemented (2026-10-19, #10192
+   PR 1).* The join plan now names a merge for a split whose ordinary
+   immediate post-dominator is the virtual exit. `StructuringJoinAnalysis`
+   also computes post-dominators over the survivor view of the CFG, in which
+   every block ending in `return` or `throw` is a dead end and a block left
+   without successors is the sink, and takes the nearest block on that chain
+   that two or more surviving paths enter. Such a region is an additional
+   candidate: it may be declined as crossing, but it never re-classifies a
+   region the ordinary view named. Retained candidate validation also admits a
+   transfer to a short shared terminator past the candidate range, because
+   validation clones it into the guard exactly as the whole-container path
+   does. After the ranges are planned, each flat gap before, between, or after
+   them is validated on its own against the next range start (or the container
+   end) as its join and built as an ordinary region when it validates; a gap
+   whose interior block is still targeted from outside the gap stays flat so
+   that block keeps its own label (a short shared terminator targeted from a
+   planned range is exempt, because that range clones it), and so does a gap
+   that does not validate. Every built range or gap that starts at a transfer
+   target receives a dedicated `LabelAnchor`, as retained loops already did,
+   because a later expression or sugar pass can consume the first statement
+   and with it the only owner of a label that retained gotos still target; a
+   gap that builds to nothing (an empty landing pad, or a merge that only
+   jumps onto the next range) keeps an anchor-only block for the same reason.
+   The printer binds such an anchor's label to the statement that follows it
+   and prints a trailing anchor as a labelled empty statement. A
+   forward range keeps a conditional transfer to its retained merge as the
+   `ConditionalBranch` it was, as retained loops do for imported ones, so
+   partial structuring creates no output-only transfer identity for the corpus
+   control-flow ledger (a synthesized conditional inherits the offset of the
+   chain it folded, so it still names the imported transfer it replaced); the
+   printer's definite-assignment walk treats such a
+   nested conditional, or one at the top of a built range block, as a forward
+   goto whose other path falls through, and does not bail on an arm block that
+   merely starts at an offset whose label a container-level anchor owns.
+   Against exact base `3634ec46b` over the pinned real-world corpus (89,065
+   methods), `--structuring-stops` moved from 30,178 to 30,251 structured
+   containers, 129 to 210 retained-label regions, and 2,541 to 2,468 flat
+   containers (`cond-target-past-region` 1,331 → 1,266,
+   `forward-branch-not-region-exit` 808 → 800), with the same four
+   pre-existing pass bugs on both sides. The remaining virtual-exit residue is
+   dominated by lowered switch dispatch whose case bodies return
+   (`JsonReader::ReadAsBytes`); that belongs to switch raising, not to the
+   join planner. `SurvivingPathsNameTheMergeWhenAnArmExitsTheMethod` and
+   `SurvivorMergeRequiresTwoSurvivingPaths` gate the plan;
+   `ExitCollapsedSplitStructuresAgainstItsSurvivorMerge`,
+   `SharedTerminatorPastRetainedRangeIsClonedIntoItsGuard`,
+   `ValidatedPrefixTransferOntoRetainedRegionStartDissolves`,
+   `UnrelatedTailBackEdgeDoesNotRejectForwardRetainedRegion`,
+   `TailGapThatDoesNotValidateStaysFlatBehindTheRetainedRange`,
+   `GapTargetedFromFlatBlockStaysFlat`, and
+   `EmptyGapAtRetainedMergeKeepsItsLabel` gate the planner;
+   `SequentialRetainedMergesStructureFurthestRangeAndTail` and
+   `RetainedGotoParticipatesInDefiniteAssignment` pin the preserved
+   conditional transfer and its definite-assignment reading.
+
+   *Status: loop-continue slice implemented (2026-10-21, #10192 PR 2).* The
+   whole-container structurer now owns `continue` placement. A loop head may
+   have any number of back-edges as long as each is its block's terminator; the
+   last one is the latch (an unconditional goto is the implicit loop edge, a
+   conditional one is the loop's bottom test and raises to `if (!c) break;`),
+   and every earlier back-edge is a `continue` statement. The loop body must
+   be entered only at its head: csc retargets a preceding protected region's
+   leaves straight onto a following rotated loop's bottom test
+   (`MetricConfiguration..ctor`, `EhStructuringPass::BuildContainer`), and a
+   `while (true)` over that region would strand them as gotos into its
+   braces, so the shape proves no outside transfer enters `(head, latch]`
+   (`LeaveOntoRotatedLoopBottomTestDoesNotRaiseWhileTrue` on `FillThenPad`).
+   A rotated `while`
+   body receives its own condition block as its continue target, so a nested
+   loop never reads an enclosing loop's transfer as its own: a branch to an
+   outer head from inside an inner loop stays a goto and declines the
+   container (`InnerLoopBranchToOuterHeadIsNotAContinue`). A branch or
+   conditional branch to the enclosing loop's continue target raises to
+   `continue;` or `if (c) continue;` from any nesting depth; at a rotated
+   loop's top level the condition is also the body's join, and the merge-exit
+   guard reading keeps csc's `if (c) { ... }` tail shape instead. Such a
+   `Continue` carries `ContinueOrigin.LoopBodyBranch`, as does a retry
+   `leave` to a structuring-raised loop's continue target: csc lowers
+   `continue` to the same `br`/`brtrue`/`leave` to the same block, so it is
+   opcode-exact and raises no `DEC0013` remark; the fidelity gate proves it
+   on `WhileTrueWithArmContinue`, `WhileTrueWithArmContinueAndBottomTest`,
+   `WhileWithNestedContinue`, `RotatedWhileWithArmContinue` (a conditional
+   branch to a rotated condition from inside an if-arm),
+   `RotatedWhileWithTryContinue` (a leave to a rotated condition), and
+   `RetryContinueInsideTry` (the older
+   `TryFinallyRetryLoop` and `NestedOuterRetryLoop` fixtures now import at
+   Full too and are docketed for their pre-existing result-temp spill of a
+   `return` inside the protected region, which is not the continue). The
+   merge-exit
+   guard (`if (c) goto JOIN` raised as a guard over the rest of the region)
+   now proves, like every other arm, that no outside transfer enters the
+   region it swallows: the deeper walk this slice enables reached a flattened
+   switch section behind such a guard in
+   `CustomDebugInfoReader::GetCSharpGroupedImportStrings`, and the same gap
+   had already nested switch section labels inside if-arms on `main`
+   (`StackOptimizerPass1::VisitLocal`,
+   `TypeSourceComposer.<CollectNamespaces>g__Add`), which now render flat
+   and legal; `EarlyExitGuardDoesNotSwallowFlattenedSwitchTargets` pins the
+   decline.
+   `GuardedWhileNestedContinue_RaisesContinue`,
+   `WhileTrueWithArmContinue_RaisesContinuesAtDepth`,
+   `WhileTrueWithArmContinueAndBottomTest_RaisesBreakAtBottom`, and
+   `BodyMergeAtLatchRaisesAsContinue` (formerly a pinned retained-planner
+   decline whose body merge is the loop condition, so the shape is now a plain
+   `continue`) gate the raise. Against exact base `795c3bd79` over the pinned
+   real-world corpus (89,065 methods), `--structuring-stops` moved from 30,251
+   to 30,388 structured containers and 2,468 to 2,331 flat
+   containers (`cond-target-past-region` 1,266 → 1,214,
+   `forward-branch-not-region-exit` 800 → 746, `cond-backward-branch`
+   74 → 36), with the same four pre-existing pass bugs on both sides.
+
+   *Status: dispatch-arm slice implemented (2026-10-21, #10192 PR 3).* Two
+   rules. **Moved arms.** csc lays a comparison tree's or lowered switch's
+   case bodies out after the tree, each reached by exactly one conditional
+   and rejoining the dispatch's merge (`MiscellaneousUtils::GetRegexOptions`,
+   a four-case `switch` on a `char` inside a `for`). A conditional whose
+   target lies past the current region and is a *single-entry arm* — one
+   transfer predecessor, that guard; not fallen into; running from the target
+   to the first later block entered from outside it, bounded by the join,
+   break and continue targets and the candidate range; not entered by a
+   surviving transfer — now reads as `if (c) { arm } else { rest }`, both
+   validated against the region's join, break and continue targets (the arm
+   may also break, continue, return or throw). The arm is moved, never
+   cloned, so every statement prints once: its blocks leave the linear walk
+   of every region that does not lie inside the arm, a region-exit goto
+   dissolves when only moved blocks separate it from the region end, and a
+   diamond's fallthrough arm ends at the last block its walk visits. A guard
+   inside a diamond's fallthrough arm that targets such an arm inside the
+   sibling no longer blocks the diamond (`HasSiblingArmEntry` plans the move
+   and restores its plans when another entry blocks). A back-edge inside a
+   moved arm is always an explicit `continue` (the arm's end is not the loop
+   body's end), and a moved arm's bottom test gains an explicit `break` for
+   its fallthrough. Plans are cached per guard; a retained range built on a
+   context that never validated plans again over the same intact blocks
+   ahead of its walk. **Loop exit past the latch.** csc chains an arm's
+   end-of-body goto straight into the back-edge, so an if/else-if chain in
+   `while (true)` whose later arms all break or throw leaves them after the
+   last back-edge (`JsonTextReader::ParseConstructor`). The body now extends
+   over them: the exit is the first block at or past the latch that every
+   forward transfer from the body reaches (short terminators excepted), the
+   extension must be entered only from the body, a latch that no longer ends
+   the body is an explicit `continue`, and a body whose last block falls into
+   the exit ends with a synthesized `break`. Fixtures:
+   `SwitchTreeWithMergingArms` (the `GetRegexOptions` shape),
+   `SwitchTreeWithSharedArm` (an `||`-combined guard owns the shared body),
+   `SwitchTreeWithScatteredSharedArm` (two labels in different subtrees keep
+   two entries, so the body is not moved and the container keeps its goto
+   form), `SparseSwitchArmsRejoin` (still raised as `switch`), and
+   `LoopTailAfterLatch`; `DispatchArmStructuringTests`,
+   `LoopTailAfterLatch_ExtendsBodyToTheLoopExit` and
+   `PastRegionTargetContainingOuterContinue_BecomesLoopExit` (formerly a
+   pinned clone decline: the past-region target is now the loop's exit and
+   the outer `continue` stays outside the raised loop) gate the rules; the
+   fidelity gate dockets the moved-arm fixtures as the sparse-switch
+   over-render (csc re-lowers the if/else tree with `bgt`/`bne.un`). Against
+   exact base `1bb00c652` over the pinned real-world corpus (89,065 methods),
+   `--structuring-stops` moved from 30,388 to 30,569 structured containers,
+   211 to 222 retained-label regions, and 2,331 to 2,150 flat containers
+   (`cond-target-past-region` 1,214 → 794, `forward-branch-not-region-exit`
+   746 → 965 as the deeper walk reaches later stops, `arm-externally-entered`
+   187 → 198), with the same four pre-existing pass bugs on both sides; the
+   census moved branching fully raised 23,017 → 23,132 and forward-merge
+   stops 1,959 → 1,758. A moved arm must not reach its own end block unless
+   that block is the join (its last block may not fall through and nothing
+   inside may transfer onto the end block that is not a break, continue, or
+   inlined terminator): once moved, falling off the arm continues after the
+   guard's if/else, not at the block csc laid out next; `GotoSharedCaseNoLoop`
+   and `GotoReturnCaseNoLoop` (a `goto case` onto the next section, whose
+   body csc reaches by fallthrough) pin that such an arm stays in place and
+   the container keeps its goto form. Because planning a sibling-arm move can
+   take the very block whose fallthrough proved a shared join, that proof is
+   re-read after planning so validation decides on the walk build will see.
+   Seven pinned
+   methods lost exact PDB local names (`DEC0009`, `unspellable-local-name`)
+   because a sibling-scope pattern local whose scope-entry label the
+   structuring dissolved is now declared at its first store and encloses its
+   namesakes; the exact-local scope-entry owner tracks that in
+   [#10493](https://github.com/richlander/dotnet-inspect/issues/10493)
+   (seven other pinned methods moved Partial → Full the same way). Multi-entry
+   case bodies — two case labels whose tests sit in different subtrees
+   (`JPath::ParsePath`, `JsonTextReader::ParseValue` behind its lowered
+   `switch` instructions) — remain flat: they need a switch raise from the
+   comparison tree, not a move, and belong to the switch track.
 
    *Finding — the acyclic residual splits three ways, and the return-tail merge
    is NOT a terminator-duplication win.* Of the ~1,208 `conditional-branch`
@@ -903,9 +1086,12 @@ than something to emit speculatively now.
   without step 4 recovers only ~15% of the bucket — the tracks multiply. Step
   4's join primitive now serves the first canonical retained-loop subset:
   rotated-entry, single-latch `while` regions with one real immediate exit.
-  Retained `while (true)`, continue placement, multi-latch loops, condition
-  hoisting for effectful latches, labeled break, and conditional rotated
-  entries remain follow-on scope. Loops whose bodies return, throw, or
+  The whole-container structurer owns continue placement, multi-latch
+  `while (true)` loops, and `while (true)` bodies that extend past their
+  last back-edge (loop-continue and dispatch-arm slices, 2026-10-21). Retained
+  `while (true)`, multi-latch retained loops, condition hoisting for effectful
+  latches, labeled break, and conditional rotated entries remain follow-on
+  scope. Loops whose bodies return, throw, or
   otherwise reach the virtual exit, and loops whose exit is the container end,
   also remain flat because this slice requires a real immediate exit
   post-dominator. (The old "`cond-backward-branch`, 61" framing understated

@@ -19,6 +19,10 @@ composition must not be presented as the target contract.
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
+Final Member documentation attachment composition is implemented separately
+from the declaration documents. It preserves the completed exact or overview
+resolution while associating independently settled documentation outcomes with
+the exact subjects carried by that final document.
 
 The user approved defining these four documents together and integrating their
 resolved Member subjects with
@@ -40,7 +44,10 @@ authority.
 > Given one owner-resolved exact Type, MemberGroup, or exact Member, produce
 > the requested compact overview, complete declaration document, overload-set
 > overview, or exact-Member document while preserving one owner-issued subject
-> and population correspondence across every returned declaration.
+> and population correspondence across every returned declaration; when an
+> explicit documentation attachment request accompanies final Member
+> resolution, preserve that resolution and correlate one independently settled
+> outcome to each exact subject it carries.
 
 This owner defines:
 
@@ -54,6 +61,8 @@ This owner defines:
 - Rows and Count correspondence for one bound population and intent;
 - the count-directed distinction between a Member overview and an exact Member
   document; and
+- correspondence between final Member declarations and explicitly requested
+  documentation attachments, without redefining documentation evidence; and
 - the resolved subject handed to contextual explanation.
 
 It does not define:
@@ -61,7 +70,7 @@ It does not define:
 - Metadata facts, declaration decoding, signature spelling, or exact identity;
 - Library acquisition, ownership, borrowing, or retirement;
 - QuerySpace filtering, ordering, terminal, or continuation semantics;
-- documentation, source, metrics, or Analysis attachment semantics;
+- documentation, source, metrics, or Analysis attachment evidence semantics;
 - CLI sections, defaults, command syntax, or rendering;
 - Browser interaction, navigation presentation, or transport;
 - reusable-reference wire syntax; or
@@ -383,6 +392,36 @@ declaration document or become success-shaped empty content.
 Completely drained rows and Count for the same population binding and intent
 must agree. A disagreement is a product defect, not host-specific behavior.
 
+## Member documentation attachment composition
+
+`MemberDocumentAttachmentCompositionOperation` is the final association
+boundary between Member declaration documents and DocumentationHouse-backed
+outcomes. It accepts one ordinary `MemberDocumentResolutionPlan` plus one
+explicit documentation demand. Resolution runs first:
+
+- exact resolution requests documentation for that one `MemberSubject`;
+- overview resolution requests documentation once for every declaration in
+  final document order; and
+- rejected, incomplete, or failed resolution performs no documentation work.
+
+The result retains the ordinary `MemberDocumentResolutionOutcome` unchanged.
+Its optional `MemberDocumentationAttachmentOutcome` settles independently.
+Available attachments must correspond in order to every exact subject carried
+by the completed final document. Result-set or subject mismatch is a typed
+attachment failure beside that document, not a replacement for it.
+
+DocumentationHouse and Queries continue to own documentation demand,
+settlement, evidence, provenance, and channel outcomes. This composition owns
+only association with the already resolved declaration subjects. It does not
+infer identity from documentation IDs, signatures, ordinals, or display text.
+
+The user approved this focused CLI-first adoption after the returned-row
+compiled-documentation table was identified as the only remaining
+`MemberGroupDocumentInspectionOperation` production caller. Inspect Web has no
+equivalent multi-row documentation-table gesture; its existing exact-Member
+documentation surface is unchanged. A future host gesture may consume the same
+host-neutral composition without changing this contract.
+
 ## Platform and safety boundary
 
 Requests, documents, population receipts, and explanation handoffs are
@@ -419,9 +458,16 @@ CLI default and explicit Tree presentation for one name-only method group now
 consume `MemberDocumentResolutionOperation`. A singleton population renders
 the final `MemberDocument`; a multi-declaration population renders the final
 `MemberOverviewDocument`. The distinct returned-row compiled-documentation
-table remains on `MemberGroupDocumentInspectionOperation` until attachments
-have a final document-composition contract. Browser family views remain a
-separate host-adoption slice.
+table consumes `MemberDocumentAttachmentCompositionOperation`, preserving the
+same final resolution while attaching one compiled-documentation outcome to
+each returned declaration. `MemberGroupDocumentInspectionOperation` and its
+transitional `MemberGroupDocument` content are retired.
+
+Browser package, Platform, and uploaded-Library family views now consume the
+same final resolution. The managed exports preserve the established
+`queryMemberGroupDocument` transport and project either final document into
+that stable Browser contract, so TypeScript navigation and presentation do not
+reconstruct document identity or change wire behavior.
 
 Rendering work is not part of slices 1 through 6 and does not define the object
 model. CLI MemberGroup Tree presentation now streams the owner-issued complete

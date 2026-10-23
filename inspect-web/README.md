@@ -10,10 +10,24 @@ Inspect Web is the Library-first, keyboard-driven browser experience for
 > or a retained image descriptor.
 
 Opening a package without an explicit destination starts at Library Overview
-using the product-selected default Library. Package remains available one level
-up with its complete Library inventory. Explicit links and restored workspace
-history keep their selected subjects and inspectors; packages with no compile
-Libraries remain at Package with the reason visible.
+using the product-selected First Library. `All libraries` is an explicit
+opt-in; Package remains available one level up with its complete Library
+inventory. The initial package Summary reads directory inventory, and Library
+Overview then requests only that exact Library, so ranged acquisition need not
+fetch sibling Library bodies. A later `All libraries` or Package-wide Type
+gesture may explicitly request the broad surface.
+
+Explicit links and restored workspace history keep their selected subjects and
+inspectors. A failed First Library remains selected with its failure visible
+rather than silently selecting a sibling. Packages with no admitted Libraries
+remain at Package with the reason visible.
+Selecting an explicitly empty compile framework opens Package Overview and
+limits the inspector choices to Overview, including when replacing a Library
+selection. Frameworks remain selectable. The motivating asset is
+`System.Memory@4.5.4`: `lib/netcoreapp2.1/_._` and `ref/netcoreapp2.1/_._`
+explicitly declare an empty compile group. Reproduce by opening that version
+and selecting `netcoreapp2.1`. Frontend tests gate inspector availability;
+the empty-compile browser case gates Package Overview and refresh behavior.
 
 **Open Library** and page-level file drop accept one managed `.dll` or `.exe`
 up to 32 MiB and open it directly as a transient Library subject. Picker, drop,
@@ -358,6 +372,19 @@ pack is published.
 `PlatformWorkspace_LatestSentinelUsesVersionDiscovery`, and
 `PlatformWorkspace_VersionlessDiscoveryAdmitsPrereleasePlatformLine` gate those
 behaviors.
+
+Ordinary package-backed Platform Library opens, including name-only shared
+workspace restoration, use PlatformHouse selected-Library realization and the
+shared directory-first complete/Range size policy. The runtime manifest
+selects the image and its metadata supplies the complete identity; subsequent
+selections retain that identity and the pinned version/producer. Restoring a
+selected Library does not launch whole-platform warmup or version discovery.
+Explicit Platform catalog warmup and population-dependent forwarding work
+remain separate, broader operations.
+`PlatformWorkspace_ExactAssemblyFollowsSizePolicyAndReusesCache` and
+`PlatformWorkspace_NamedLibrariesAccumulateWithoutCompleteAcquisition` gate
+the size policy, cache reuse, and cumulative selected-Library path.
+
 Initial member graphs use the same escaped definition identity as subsequent
 graph descent. Platform graph loads and descents also carry the target's
 complete assembly identity and reject an acquired root that is not
@@ -772,9 +799,12 @@ restored subjects keep their requested selection.
 
 `System.Text.Json@10.0.12` targeting `net8.0` exposed a first-load presentation
 gap: its exact Library appears in the Summary inventory before the broad
-surface has produced assembly counts, so the Libraries list must show unknown
-counts rather than claim its surface is unavailable. A missing Library after a
-requested broad projection remains an unavailable result. The first-load
+surface has produced assembly counts. Those counts are pending, not
+unavailable, and may stay pending for the whole session because Library
+Overview never requests the broad surface. The Libraries list therefore shows
+no count detail for a pending Library rather than claiming its surface or its
+counts are unavailable. A missing Library or a null count after a requested
+broad projection remains an unavailable result. The first-load
 browser regression uses the existing `System.Text.Json@10.0.0` fixture through
 the ordinary package-opening path; the package-model test covers the distinct
 summary and truncated-broad states.
@@ -2166,6 +2196,21 @@ compilation until its behavior is explicit.
 
 ## Test
 
+Browser facade fixtures must satisfy the same startup payload decoders as the
+production facades. The fixture at commit
+`94b098614dfdc6afe24e9a6d7cb0463f7f342d13` in
+`browser/library-hierarchy.support.ts` returned an obsolete Package Query facet
+`selection` object; the current contract requires a `scope` with profile
+`query-preparation/v1`. That mismatch closed the Worker epoch before Package
+navigation. The existing `implicit EmptyCompileGroup package entry retains the
+Package subject` Firefox case exercises successful startup before navigation;
+production payload validation remains the gate for malformed responses.
+Extracted composition-root harnesses bind the real helpers and state consumed
+by their selected functions. Bundler probes use canonical temporary paths so
+Vite and the expected source inventory refer to the same files on macOS.
+Package References tabs use the shared keybinding registry at element priority;
+higher-priority modal handlers retain ownership of navigation keys.
+
 ```bash
 cd inspect-web
 npm ci
@@ -2628,13 +2673,15 @@ Normal Type-member first paint requests the compact, owner-issued
 delivers exact group identities, counts, receiver forms, and selector counts
 without repeating the rich assembly-surface and exact-declaration work used to
 establish the resident package, platform, or uploaded-Library inventory.
-Opening a supported method group requests the shared `MemberGroupDocument`
-with the selected accessibility intent. Interactions that still need the
-legacy rich Type-member population (including Metadata spelling, non-public
-declarations without resident rows, and other resident-row gaps) request it
-only after opening a group. This slice does not replace the rich resident
-surface used to enter Type navigation. Hierarchy, graphs, source, metrics,
-documentation, and analysis remain independent requests.
+Opening a supported method group requests final exact-or-overview Member
+resolution with the selected accessibility intent. The managed facade projects
+that final `MemberDocument` or `MemberOverviewDocument` into the stable Browser
+transport. Interactions that still need the legacy rich Type-member population
+(including Metadata spelling, non-public declarations without resident rows,
+and other resident-row gaps) request it only after opening a group. This slice
+does not replace the rich resident surface used to enter Type navigation.
+Hierarchy, graphs, source, metrics, documentation, and analysis remain
+independent requests.
 `test/type-panel.test.ts` gates every rendered control binding, type-filter
 keyboard behavior, namespace grouping and selection in the type list,
 active-group and overload selection in the member list, the type heading's
@@ -2826,7 +2873,8 @@ make a legacy request Range-capable.
 | Package source/decompilation and pairwise API/body/source comparisons | Unbound endpoint scopes, complete archives | Adopt each endpoint while preserving source, body and correspondence demand. |
 | Multi-package Gallery queries and clone candidates | Public `ResolveAsync` uses House realization; single-request `ResolveAndOpenScopeAsync` uses complete acquisition | Preserve composed binding semantics when adopting the remaining single-request and configured-source paths. |
 | Workspace occurrence activation | Bound coordinate scope | Reuses its retained generation. |
-| Platform and platform dependency composition | Platform workspace and package adapters | Separate from ordinary package realization; not covered by these slices. |
+| Platform selected Library and Library workspace restoration | PlatformHouse selected-Library realization, shared complete/Range size policy | Explicit catalog warmup and population-dependent forwarding remain broader operations. |
+| Platform population and dependency composition | Platform workspace and package adapters | Separate from selected-Library acquisition. |
 
 <!-- markdownlint-enable MD013 -->
 

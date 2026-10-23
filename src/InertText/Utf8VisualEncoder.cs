@@ -20,49 +20,8 @@ public static class Utf8VisualEncoder
     {
         ReadOnlySpan<byte> source = value.Source;
         ScalarPolicy permits = ScalarPolicies.For(policy);
-        VisualForm forms = VisualForm.None;
-        TextConcern concerns = TextConcern.None;
-        int encodedLength = 0;
-
-        for (int offset = 0; offset < source.Length;)
-        {
-            OperationStatus status =
-                Rune.DecodeFromUtf8(
-                    source[offset..],
-                    out Rune scalar,
-                    out int width);
-            if (status != OperationStatus.Done)
-            {
-                width = 1;
-                encodedLength = checked(encodedLength + 6);
-                forms |= VisualForm.BmpHex;
-                concerns |= TextConcern.Surrogate;
-                offset++;
-                continue;
-            }
-
-            bool encode = scalar.Value == '\\' || !permits(scalar);
-            if (!encode)
-            {
-                encodedLength = checked(encodedLength + width);
-            }
-            else
-            {
-                encodedLength = checked(
-                    encodedLength + SpellingLength(scalar));
-                forms |= FormFor(scalar);
-                if (scalar.Value != '\\')
-                {
-                    concerns |= ScalarPolicies.ConcernFor(
-                        Rune.GetUnicodeCategory(scalar));
-                }
-            }
-            offset += width;
-        }
-
-        if (forms == VisualForm.None
-            || (forms == VisualForm.Backslash
-                && CanRetainLiteralBackslashes(source)))
+        Scan scan = Measure(permits, source);
+        if (scan.RetainsSource)
         {
             return new(
                 value.RetainSource(),
@@ -70,6 +29,7 @@ public static class Utf8VisualEncoder
                 TextConcern.None);
         }
 
+        int encodedLength = scan.EncodedUtf8Length;
         byte[] encoded = GC.AllocateUninitializedArray<byte>(
             encodedLength);
         int written = 0;
@@ -84,7 +44,7 @@ public static class Utf8VisualEncoder
             {
                 WriteBmpHex(
                     encoded.AsSpan(written, 6),
-                    0xDC00 + source[offset]);
+                    ScalarSpelling.SurrogateEscape(source[offset]));
                 written += 6;
                 offset++;
                 continue;
@@ -107,29 +67,96 @@ public static class Utf8VisualEncoder
 
         return new(
             OpaqueByteRange.FromOwned(encoded),
+            scan.Forms,
+            scan.Concerns);
+    }
+
+    /// <summary>
+    /// Measures the UTF-16 length of the spelling <see cref="Encode"/> produces, which is the
+    /// <see cref="InertString.Length"/> of its <see cref="InertUtf8String.ToInertString"/>,
+    /// without constructing it.
+    /// </summary>
+    /// <remarks>
+    /// Lets a producer that retains bytes charge a budget counted in contained UTF-16
+    /// characters, and defer containment until a sink asks for it.
+    /// </remarks>
+    public static int MeasureInertStringLength(
+        TextPolicy policy,
+        Utf8RangeReader value) =>
+        Measure(ScalarPolicies.For(policy), value.Source)
+            .InertStringLength;
+
+    private static Scan Measure(
+        ScalarPolicy permits,
+        ReadOnlySpan<byte> source)
+    {
+        VisualForm forms = VisualForm.None;
+        TextConcern concerns = TextConcern.None;
+        int encodedUtf8 = 0;
+        int encodedUtf16 = 0;
+        int sourceUtf16 = 0;
+
+        for (int offset = 0; offset < source.Length;)
+        {
+            OperationStatus status =
+                Rune.DecodeFromUtf8(
+                    source[offset..],
+                    out Rune scalar,
+                    out int width);
+            if (status != OperationStatus.Done)
+            {
+                // Each ill-formed byte is spelled on its own, as its surrogate escape.
+                encodedUtf8 = checked(encodedUtf8 + 6);
+                encodedUtf16 = checked(encodedUtf16 + 6);
+                forms |= VisualForm.BmpHex;
+                concerns |= TextConcern.Surrogate;
+                offset++;
+                continue;
+            }
+
+            sourceUtf16 = checked(
+                sourceUtf16 + scalar.Utf16SequenceLength);
+            bool encode = scalar.Value == '\\' || !permits(scalar);
+            if (!encode)
+            {
+                encodedUtf8 = checked(encodedUtf8 + width);
+                encodedUtf16 = checked(
+                    encodedUtf16 + scalar.Utf16SequenceLength);
+            }
+            else
+            {
+                (int length, VisualForm form) =
+                    ScalarSpelling.For(scalar.Value);
+                encodedUtf8 = checked(encodedUtf8 + length);
+                encodedUtf16 = checked(encodedUtf16 + length);
+                forms |= form;
+                if (scalar.Value != '\\')
+                {
+                    concerns |= ScalarPolicies.ConcernFor(
+                        Rune.GetUnicodeCategory(scalar));
+                }
+            }
+            offset += width;
+        }
+
+        bool retainsSource =
+            forms == VisualForm.None
+            || (forms == VisualForm.Backslash
+                && CanRetainLiteralBackslashes(source));
+        return new(
+            retainsSource,
+            encodedUtf8,
+            retainsSource ? sourceUtf16 : encodedUtf16,
             forms,
             concerns);
     }
 
-    private static int SpellingLength(Rune scalar) =>
-        scalar.Value switch
-        {
-            '\\' => 2,
-            <= 0x1F => 3,
-            0x7F => 3,
-            <= 0xFFFF => 6,
-            _ => 10,
-        };
-
-    private static VisualForm FormFor(Rune scalar) =>
-        scalar.Value switch
-        {
-            '\\' => VisualForm.Backslash,
-            <= 0x1F => VisualForm.Caret,
-            0x7F => VisualForm.CaretDelete,
-            <= 0xFFFF => VisualForm.BmpHex,
-            _ => VisualForm.AstralHex,
-        };
+    private readonly record struct Scan(
+        bool RetainsSource,
+        int EncodedUtf8Length,
+        int InertStringLength,
+        VisualForm Forms,
+        TextConcern Concerns);
 
     private static int WriteSpelling(
         Span<byte> destination,

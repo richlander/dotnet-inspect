@@ -719,6 +719,95 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         }
     }
 
+    [Fact]
+    public async Task CatalogFacade_HomeDemoPreparesMethodsDefinition()
+    {
+        _ = await OptionsAsync();
+        Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            string preparationJson =
+                await Catalog.CatalogExports
+                    .PrepareHomeDemoWorkspaceDefinition(
+                        "home-demo-stj",
+                        "System.Text.Json",
+                        $"/demos?demo={ProductDemoIds.StjSerializer}",
+                        ProductDemoIds.StjSerializer);
+            Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+                Assert.IsType<
+                    Catalog.BrowserRetainedWorkspacePreparationResult>(
+                        JsonSerializer.Deserialize(
+                            preparationJson,
+                            Catalog.BrowserCatalogJsonContext.Default
+                                .BrowserRetainedWorkspacePreparationResult));
+
+            Assert.True(
+                preparation.Status == "prepared",
+                $"{preparation.Failure?.Kind}: {preparation.Failure?.Message}");
+            Catalog.BrowserRetainedWorkspacePreparedPosting prepared =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePreparedPosting>(
+                    preparation.Preparation);
+            Assert.Equal("home-demo-stj", prepared.RetainedDefinitionId);
+            Assert.Null(prepared.CanonicalPacket);
+            Catalog.BrowserWorkspaceShareTab tab =
+                Assert.Single(prepared.Definition.Tabs);
+            Assert.Equal("stj", tab.Id);
+            Assert.Equal("platform", tab.Kind);
+            Assert.Equal("runtime", tab.Source);
+            Assert.Equal("10.0.12", tab.Version);
+            Assert.Equal("net10.0", tab.Framework);
+            Catalog.BrowserRetainedWorkspacePlatformInventory platform =
+                Assert.Single(prepared.Platforms);
+            Assert.Equal("runtime", platform.Family);
+            Assert.Empty(prepared.Packages);
+            Assert.Equal(
+                "Workspace",
+                prepared.Navigation.Snapshot.ActiveSubject.Kind);
+
+            string cancellationJson =
+                await Catalog.CatalogExports.CancelRetainedWorkspaceActivation(
+                    Assert.IsType<string>(preparation.Receipt));
+            Catalog.BrowserRetainedWorkspaceActivationResult cancellation =
+                Assert.IsType<Catalog.BrowserRetainedWorkspaceActivationResult>(
+                    JsonSerializer.Deserialize(
+                        cancellationJson,
+                        Catalog.BrowserCatalogJsonContext.Default
+                            .BrowserRetainedWorkspaceActivationResult));
+            Assert.NotEqual("failed", cancellation.Status);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
+    [Theory]
+    [InlineData("not-a-demo", "UnknownDemo")]
+    [InlineData("stj-serialize-callgraph", "UnsupportedDemoSection")]
+    public async Task CatalogFacade_HomeDemoRejectsUnsupportedDefinition(
+        string scenarioId,
+        string expectedFailure)
+    {
+        string preparationJson =
+            await Catalog.CatalogExports.PrepareHomeDemoWorkspaceDefinition(
+                "home-demo-unsupported",
+                "Unsupported",
+                $"/demos?demo={scenarioId}",
+                scenarioId);
+        Catalog.BrowserRetainedWorkspacePreparationResult preparation =
+            Assert.IsType<Catalog.BrowserRetainedWorkspacePreparationResult>(
+                JsonSerializer.Deserialize(
+                    preparationJson,
+                    Catalog.BrowserCatalogJsonContext.Default
+                        .BrowserRetainedWorkspacePreparationResult));
+
+        Assert.Equal("failed", preparation.Status);
+        Assert.Equal(expectedFailure, preparation.Failure?.Kind);
+    }
+
     [Theory]
     [InlineData("ecosystem.microsoft-extensions", "Microsoft.Extensions")]
     [InlineData("ecosystem.aspire", "Aspire")]
@@ -929,6 +1018,12 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.True(package.Summary.TypeCount > 0);
             Assert.True(package.Summary.DocumentCount > 0);
             Assert.Equal("net9.0", package.Summary.SelectedCompileFramework);
+            Catalog.BrowserRetainedWorkspacePackageLibraryIdentity defaultLibrary =
+                Assert.IsType<Catalog.BrowserRetainedWorkspacePackageLibraryIdentity>(
+                    package.DefaultLibrary);
+            Assert.NotEmpty(defaultLibrary.AssetId);
+            Assert.NotEmpty(defaultLibrary.AssetPath);
+            Assert.NotEmpty(defaultLibrary.AssemblyName);
             using (JsonDocument compact = JsonDocument.Parse(json))
             {
                 Assert.All(compact.RootElement.GetProperty("posting")
@@ -948,6 +1043,9 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             Assert.Equal(package.Summary.TypeCount, admitted.Package.TypePage.TotalTypes);
             Assert.Equal(0, admitted.Package.TypePage.Offset);
             Assert.InRange(admitted.Package.Surface.Types.Length, 1, 100);
+            Assert.Equal(
+                defaultLibrary.AssetId,
+                admitted.Package.Surface.DefaultAssemblyId);
             Assert.Equal(package.Summary.DocumentCount, admitted.Package.Surface.Documents.Length);
             Assert.Equal(package.Summary.MemberCount, admitted.Package.Surface.TotalMembers);
             json = await Catalog.CatalogExports.AdmitRetainedWorkspacePackage(

@@ -214,6 +214,40 @@ public sealed class PackageTransferReceipt
             bytes,
             count > kept.Count);
     }
+
+    internal static PackageTransferReceipt Combine(
+        PackageTransferReceipt initial,
+        PackageTransferReceipt selected)
+    {
+        ArgumentNullException.ThrowIfNull(initial);
+        ArgumentNullException.ThrowIfNull(selected);
+        if (selected.Path
+            is PackageTransferPath.Cache
+                or PackageTransferPath.EntryCache)
+        {
+            throw new ArgumentException(
+                "A staged transfer cannot append a cache-only settlement.",
+                nameof(selected));
+        }
+
+        IReadOnlyList<PackageTransferRequest> kept =
+        [
+            .. initial.Requests
+                .Concat(selected.Requests)
+                .Take(MaxRequests),
+        ];
+        int requestCount =
+            checked(initial.RequestCount + selected.RequestCount);
+        return new(
+            selected.Path,
+            selected.FallbackReason,
+            new ReadOnlyCollection<PackageTransferRequest>([.. kept]),
+            requestCount,
+            checked(initial.BytesReceived + selected.BytesReceived),
+            initial.IsTruncated
+                || selected.IsTruncated
+                || requestCount > kept.Count);
+    }
 }
 
 /// <summary>

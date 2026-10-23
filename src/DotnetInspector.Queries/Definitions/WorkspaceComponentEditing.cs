@@ -249,7 +249,12 @@ public sealed record WorkspacePackageComponentDescriptor(
     string? Framework,
     string? RuntimeIdentifier,
     ImmutableArray<WorkspaceContextComponentPath> Contexts,
-    bool Focused);
+    bool Focused)
+{
+    public string Contract => WorkspacePackageComponentExplanation.Contract;
+
+    public int SchemaVersion => WorkspacePackageComponentExplanation.SchemaVersion;
+}
 
 public sealed record WorkspaceContextComponentDescriptor(
     WorkspaceContextComponentPath Path,

@@ -2055,7 +2055,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     ?? "";
   assert.match(
     appSource,
-    /const packageDependenciesWorkingSurface =\s*activeScope === "package" && state\.packageLens === "dependencies"/);
+    /const packageDependenciesWorkingSurface =\s*activeScope === "package" && \(state\.packageLens === "dependencies" \|\| state\.packageLens === "hierarchy"\)/);
   assert.match(
     appSource,
     /packageDependenciesWorkingSurface \? " package-dependencies-working-surface" : ""/);
@@ -2070,7 +2070,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     /function renderPackageDependenciesSurface\([\s\S]*?package-dependencies-surface[\s\S]*?package-dependencies-scroll/);
   assert.equal(
     renderDependencies.match(/renderPackageDependenciesSurface\(/g)?.length,
-    5);
+    6);
   assert.match(
     appSource,
     /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
@@ -2091,7 +2091,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{platformReferenceSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);

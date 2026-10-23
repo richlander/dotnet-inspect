@@ -1,0 +1,18 @@
+# Implementation Diff: SourceDiffFixture
+
+| Field | Value |
+| ----- | ----- |
+| Versions | 1.0.0 -&gt; 2.0.0 |
+| Summary | 1 changed member; 0 decompiled C#, 2 IL, 0 complexity, and 2 PDB Source evidence rows. |
+
+> [!NOTE]
+> C# is decompiled evidence; PDB Source is checksum-verified PDB-mapped evidence; IL is shipped body evidence. These peer lanes do not replace one another and are not public API compatibility.
+
+## Implementation Diff
+
+| Member | Mechanism | Difference | Change | Evidence | Kind |
+| ------ | --------- | ---------- | ------ | -------- | ---- |
+| SourceDiffFixture.Counter.Reordered() | IL | OpcodeDiff | added | h1 + IL_0002 ldc.i4 1 | il.operation.added |
+| SourceDiffFixture.Counter.Reordered() | IL | OpcodeDiff | removed | h0 - IL_0000 ldc.i4 1 | il.operation.removed |
+| SourceDiffFixture.Counter.Reordered() | PDB Source |  | removed | -     int first = 1; | text.line |
+| SourceDiffFixture.Counter.Reordered() | PDB Source |  | added | +     int first = 1; | text.line |

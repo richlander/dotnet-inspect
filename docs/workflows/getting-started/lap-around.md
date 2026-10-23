@@ -81,7 +81,10 @@ The platform copy is typically a ref assembly (smaller, public surface only). Th
 
 ## 2. Multi-library packages
 
-Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two libraries in a single package. The tool defaults to the primary library but lets you pick.
+Some packages ship more than one DLL. Microsoft.Azure.SignalR ships two
+libraries in a single package. Package and Package-scoped Type inspection use
+all Libraries by default because the split is normally an implementation
+detail.
 
 ```bash
 dotnet-inspect package Microsoft.Azure.SignalR@1.33.1 --path --tfm net8.0
@@ -92,27 +95,21 @@ Microsoft.Azure.SignalR.dll
 Microsoft.Azure.SignalR.Common.dll
 ```
 
+`AccessTokenAlgorithm` is declared in the non-namesake
+`Microsoft.Azure.SignalR.Common.dll`, but Package-scoped lookup finds it
+without an explicit Library:
+
 ```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q
+dotnet-inspect type Microsoft.Azure.SignalR.AccessTokenAlgorithm \
+  --package Microsoft.Azure.SignalR@1.33.1
 ```
 
 ```expect
-Microsoft.Azure.SignalR.dll
+enum Microsoft.Azure.SignalR.AccessTokenAlgorithm
 ```
 
-Switch to the other library:
-
-```bash
-dotnet-inspect type Microsoft.Azure.SignalR@1.33.1 -v:q --library Microsoft.Azure.SignalR.Common.dll
-```
-
-```expect
-Microsoft.Azure.SignalR.Common.dll
-```
-
-```expect-not
-Microsoft.Azure.SignalR.dll |
-```
+Use `--library` when the Library itself is part of the Type question and the
+operation should inspect only that exact Library.
 
 ## 3. Type forwarders
 

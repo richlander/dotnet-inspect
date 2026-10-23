@@ -419,6 +419,9 @@ public record TypeOptions : ApiOptions
     public string? PlatformPrefixQuery { get; init; }
     public bool AllowPlatformPrefixFallback { get; init; }
     internal bool RouterCompletedPlatformLookup { get; init; }
+    internal string[]? AnnotatedRelationIds { get; init; }
+    internal string[] AnnotatedRelationColorIds { get; init; } = [];
+    internal string[] AnnotatedRelationRequiredColorIds { get; init; } = [];
     public InspectionEnvelope<CSharpTypeDocumentOutcome>?
         TypeDocumentInspection
     {
@@ -505,6 +508,7 @@ internal sealed record TypeHierarchyRelationCandidate(
 /// </summary>
 public record MemberOptions : ApiOptions
 {
+    public string? WorkspacePacket { get; init; }
     public ExplanationProjection? Explanation { get; init; }
     public bool EnvelopeOutput { get; init; }
     internal RowSelectionIntent<string>? FactsRowSelection { get; init; }

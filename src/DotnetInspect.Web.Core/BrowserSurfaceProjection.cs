@@ -389,13 +389,25 @@ internal static class BrowserSurfaceProjection
             assembly,
             assemblyId,
             assemblyName,
-            members.Length,
+            MemberCount(presentation, members),
             presentation.Signature,
             members,
             platformPack);
         textBudget?.Retain(projected);
         return projected;
     }
+
+    // A public Type's member Count is its default population, the public bucket, so the
+    // Library total that sums it agrees with the exact Library's public surface. Extensions
+    // attached from non-public Types stay in Api in their narrower buckets
+    // (docs/design/api-population-scope.md#accessibility-within-api-visibility-scope).
+    static int MemberCount(
+        ApiTypeSurfacePresentation presentation,
+        BrowserMemberSurfaceInfo[] members) =>
+        ApiAccessibility.Classify(presentation.Accessibility).IsDefault
+            ? members.Count(member =>
+                ApiAccessibility.Classify(member.Accessibility).IsDefault)
+            : members.Length;
 
     internal static BrowserMemberSurfaceInfo Member(
         ApiType type,
@@ -415,8 +427,7 @@ internal static class BrowserSurfaceProjection
                             parameter.Type,
                             parameter.Modifier,
                             parameter.HasDefault,
-                            parameter.DefaultValue,
-                            parameter.Description),
+                            parameter.DefaultValue),
                     static selector =>
                         new BrowserMemberBodySelectorInfo(
                             selector.Token,
@@ -440,9 +451,6 @@ internal static class BrowserSurfaceProjection
             presentation.ReturnType,
             presentation.Parameters,
             presentation.DocumentationId,
-            null,
-            null,
-            [],
             presentation.StableSelector,
             presentation.AnchorDigest,
             presentation.CanonicalSignature,
@@ -574,8 +582,6 @@ internal static class BrowserSurfaceProjection
             Retain(member.Accessibility);
             Retain(member.ReturnType);
             Retain(member.DocumentationId);
-            Retain(member.Summary);
-            Retain(member.Returns);
             Retain(member.StableSelector);
             Retain(member.AnchorDigest);
             Retain(member.CanonicalSignature);
@@ -589,12 +595,6 @@ internal static class BrowserSurfaceProjection
                 Retain(parameter.Type);
                 Retain(parameter.Modifier);
                 Retain(parameter.DefaultValue);
-                Retain(parameter.Description);
-            }
-            foreach (BrowserExceptionSurfaceInfo exception in member.Exceptions)
-            {
-                Retain(exception.Type);
-                Retain(exception.Description);
             }
             foreach (BrowserMemberBodySelectorInfo selector
                 in member.BodySelectors)

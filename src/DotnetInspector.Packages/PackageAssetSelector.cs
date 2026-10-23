@@ -51,6 +51,47 @@ public sealed record PackageAssetUniverse
     /// metadata is decided by the acquisition owner that opens it.
     /// </summary>
     public IReadOnlyList<PackageAssetEntry> Assets { get; }
+
+    /// <summary>The package-relative selected asset-population root.</summary>
+    internal string? PopulationPath =>
+        Assets.Count == 0
+            ? null
+            : PackageEntryPath.GetLibraryPopulationPath(
+                Assets[0].EntryPath,
+                TargetFramework);
+}
+
+/// <summary>
+/// One RID-qualified runtime Library population applicable to an exact
+/// target-framework request.
+/// </summary>
+public sealed record PackageRuntimeAssetPopulation
+{
+    internal PackageRuntimeAssetPopulation(
+        PackageAssetUniverse universe)
+    {
+        ArgumentNullException.ThrowIfNull(universe);
+        RuntimeIdentifier =
+            universe.RuntimeIdentifier
+            ?? throw new ArgumentException(
+                "A runtime population requires an exact runtime identifier.",
+                nameof(universe));
+        TargetFramework = universe.TargetFramework;
+        PopulationPath =
+            universe.PopulationPath
+            ?? throw new ArgumentException(
+                "A runtime population requires at least one selected asset.",
+                nameof(universe));
+        Assets = universe.Assets;
+    }
+
+    public string RuntimeIdentifier { get; }
+
+    public string TargetFramework { get; }
+
+    public string PopulationPath { get; }
+
+    public IReadOnlyList<PackageAssetEntry> Assets { get; }
 }
 
 /// <summary>The result of selecting a package's effective asset universe.</summary>
@@ -114,13 +155,19 @@ public sealed class PackageAssetSelectionReceipt
         PackageContentGenerationIdentity generation,
         string? requestedTargetFramework,
         string? requestedRuntimeIdentifier,
+        IEnumerable<PackageRuntimeAssetPopulation>
+            availableRuntimePopulations,
         PackageAssetSelection selection)
     {
         ArgumentNullException.ThrowIfNull(generation);
+        ArgumentNullException.ThrowIfNull(availableRuntimePopulations);
         ArgumentNullException.ThrowIfNull(selection);
         Generation = generation;
         RequestedTargetFramework = requestedTargetFramework;
         RequestedRuntimeIdentifier = requestedRuntimeIdentifier;
+        AvailableRuntimePopulations =
+            new ReadOnlyCollection<PackageRuntimeAssetPopulation>(
+                [.. availableRuntimePopulations]);
         Selection = selection;
     }
 
@@ -129,6 +176,14 @@ public sealed class PackageAssetSelectionReceipt
     public string? RequestedTargetFramework { get; }
 
     public string? RequestedRuntimeIdentifier { get; }
+
+    /// <summary>
+    /// Every canonical RID population applicable to the exact runtime target
+    /// request, in ordinal RID order. Ordinary neutral-plus-overlay evaluation
+    /// does not populate this runtime-only inventory.
+    /// </summary>
+    public IReadOnlyList<PackageRuntimeAssetPopulation>
+        AvailableRuntimePopulations { get; }
 
     public PackageAssetSelection Selection { get; }
 }
@@ -141,11 +196,11 @@ public sealed class PackageAssetSelectionReceipt
 /// <remarks>
 /// <para>
 /// Candidate folders are the standard NuGet assembly layouts:
-/// <c>lib/{tfm}</c> and, when a runtime identifier is requested,
-/// <c>runtimes/{rid}/lib/{tfm}</c>. A requested runtime identifier matches its
-/// folder exactly and ordinally: runtime identifiers are canonically lowercase,
-/// so a differently-cased folder is a different name rather than a spelling of
-/// the requested one.
+/// <c>lib/{tfm}</c>, direct framework-agnostic <c>lib/*.dll</c>, and, when a
+/// runtime identifier is requested, <c>runtimes/{rid}/lib/{tfm}</c>. A requested
+/// runtime identifier matches its folder exactly and ordinally: runtime
+/// identifiers are canonically lowercase, so a differently-cased folder is a
+/// different name rather than a spelling of the requested one.
 /// </para>
 /// <para>
 /// Framework applicability and ordering come from the shared
@@ -178,8 +233,9 @@ public sealed class PackageAssetSelectionReceipt
 /// </list>
 /// <para>
 /// The highest-priority applicable candidate wins: base framework first,
-/// platform specificity second. Two distinct folders of equal rank are an
-/// ambiguity, not a coin flip.
+/// platform specificity second. The framework-agnostic <c>any</c> slice is the
+/// final fallback for a recognized target. Two distinct folders of equal rank
+/// are an ambiguity, not a coin flip.
 /// </para>
 /// <para>
 /// Exactly one framework is selected for the whole universe. Runtime-specific
@@ -198,6 +254,10 @@ public sealed class PackageAssetSelectionReceipt
 /// Gated by <c>PackageAssetSelectorTests</c>:
 /// <c>Select_TakesHighestApplicableFrameworkFolder</c> and
 /// <c>Select_RejectsAnIncompatibleFrameworkFamily</c> for framework selection;
+/// <c>Select_RootLibraryIsFrameworkAgnosticFallback</c>,
+/// <c>Select_FrameworkSpecificFolderOutranksRootLibrary</c>, and
+/// <c>Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable</c> for the
+/// framework-agnostic slice;
 /// <c>Select_NeutralTargetRejectsAPlatformSpecificFolder</c>,
 /// <c>Select_NeutralTargetPrefersTheNeutralFolder</c>,
 /// <c>Select_PlatformTargetPrefersTheExactPlatformFolder</c>,
@@ -219,6 +279,8 @@ public sealed class PackageAssetSelectionReceipt
 /// </remarks>
 public static class PackageAssetSelector
 {
+    internal const string FrameworkAgnosticTargetFramework = "any";
+
     const string AssemblyExtension = ".dll";
     const string SatelliteSuffix = ".resources.dll";
 
@@ -299,7 +361,247 @@ public static class PackageAssetSelector
             content.GenerationIdentity,
             targetFramework,
             runtimeIdentifier,
+            [],
             SelectCore(content, targetFramework, runtimeIdentifier));
+    }
+
+    /// <summary>
+    /// Selects one runtime-Library universe while keeping all assets inside one
+    /// <c>runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;</c> directory. An omitted runtime
+    /// identifier is inferred only when exactly one eligible identifier is
+    /// present; an omitted target selects the highest available runtime slice.
+    /// </summary>
+    public static PackageAssetSelection SelectSingleRuntime(
+        IPackageContent content,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null) =>
+        EvaluateSingleRuntime(
+            content,
+            targetFramework,
+            runtimeIdentifier).Selection;
+
+    /// <summary>
+    /// Selects one runtime-Library universe and retains the exact explicit or
+    /// inferred request correspondence without retaining package content.
+    /// </summary>
+    public static PackageAssetSelectionReceipt EvaluateSingleRuntime(
+        IPackageContent content,
+        string? targetFramework = null,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        SingleRuntimeEvaluation evaluation =
+            SelectSingleRuntimeCore(
+                content,
+                targetFramework,
+                runtimeIdentifier);
+        return new PackageAssetSelectionReceipt(
+            content.GenerationIdentity,
+            targetFramework,
+            runtimeIdentifier,
+            evaluation.AvailableRuntimePopulations,
+            evaluation.Selection);
+    }
+
+    internal static IReadOnlyList<string> GetSingleRuntimeTargetFrameworks(
+        IPackageContent content,
+        string? runtimeIdentifier = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (runtimeIdentifier is not null
+            && !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                runtimeIdentifier))
+        {
+            throw new ArgumentException(
+                "A package asset runtime identifier must use its canonical lowercase spelling.",
+                nameof(runtimeIdentifier));
+        }
+
+        return
+        [
+            .. content.EnumerateEntries()
+                .Where(static entry =>
+                    entry is not null
+                    && entry.EndsWith(
+                        AssemblyExtension,
+                        StringComparison.OrdinalIgnoreCase))
+                .Select(ClassifyRuntimeLibrary)
+                .OfType<CandidateEntry>()
+                .Where(candidate =>
+                    runtimeIdentifier is null
+                    || candidate.RuntimeIdentifier!.Equals(
+                        runtimeIdentifier,
+                        StringComparison.Ordinal))
+                .Select(static candidate =>
+                    candidate.TargetFramework)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(static framework =>
+                    TfmResolver.GetTfmPriority(
+                        framework.ToLowerInvariant()))
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.Ordinal),
+        ];
+    }
+
+    private static SingleRuntimeEvaluation SelectSingleRuntimeCore(
+        IPackageContent content,
+        string? targetFramework,
+        string? runtimeIdentifier)
+    {
+        if (targetFramework is not null
+            && IsBlankOrPadded(targetFramework))
+        {
+            return new(
+                new PackageAssetSelection.Invalid(
+                    "A package asset request requires a target framework without surrounding whitespace."),
+                []);
+        }
+
+        if (runtimeIdentifier is not null
+            && !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                runtimeIdentifier))
+        {
+            return new(
+                new PackageAssetSelection.Invalid(
+                    "A package asset runtime identifier must use its canonical lowercase spelling."),
+                []);
+        }
+
+        var candidates = new List<CandidateEntry>();
+        foreach (string entry in content.EnumerateEntries())
+        {
+            if (entry is null
+                || !entry.EndsWith(
+                    AssemblyExtension,
+                    StringComparison.OrdinalIgnoreCase)
+                || ClassifyRuntimeLibrary(entry) is not { } candidate)
+            {
+                continue;
+            }
+
+            if (!IsSafeEntryPath(entry))
+            {
+                return new(
+                    new PackageAssetSelection.Invalid(
+                        "A candidate assembly entry in the package has an unusable path."),
+                    []);
+            }
+
+            candidates.Add(candidate);
+        }
+
+        string[] runtimeIdentifiers =
+        [
+            .. candidates
+                .Select(static candidate =>
+                    candidate.RuntimeIdentifier!)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static candidate =>
+                    candidate,
+                    StringComparer.Ordinal),
+        ];
+        var selections =
+            new Dictionary<string, PackageAssetSelection>(
+                StringComparer.Ordinal);
+        foreach (string candidateRuntimeIdentifier in runtimeIdentifiers)
+        {
+            selections[candidateRuntimeIdentifier] =
+                SelectRuntimePopulation(
+                    content,
+                    candidates,
+                    targetFramework,
+                    candidateRuntimeIdentifier);
+        }
+        PackageRuntimeAssetPopulation[] availableRuntimePopulations =
+        [
+            .. runtimeIdentifiers
+                .Select(candidateRuntimeIdentifier =>
+                    selections[candidateRuntimeIdentifier])
+                .OfType<PackageAssetSelection.Selected>()
+                .Select(static selected =>
+                    new PackageRuntimeAssetPopulation(
+                        selected.Universe)),
+        ];
+
+        if (runtimeIdentifier is not null)
+        {
+            return selections.TryGetValue(
+                    runtimeIdentifier,
+                    out PackageAssetSelection? exact)
+                ? new(exact, availableRuntimePopulations)
+                : new(
+                    new PackageAssetSelection.NoMatch(
+                        "The package carries no runtime Library assembly folder for the requested runtime identifier."),
+                    availableRuntimePopulations);
+        }
+
+        return runtimeIdentifiers.Length switch
+        {
+            0 => new(
+                new PackageAssetSelection.NoMatch(
+                    "The package carries no runtime Library assembly folder."),
+                availableRuntimePopulations),
+            1 => new(
+                selections[runtimeIdentifiers[0]],
+                availableRuntimePopulations),
+            _ => new(
+                new PackageAssetSelection.Ambiguous(
+                    "More than one runtime identifier carries Library assembly assets; an explicit runtime identifier is required."),
+                availableRuntimePopulations),
+        };
+    }
+
+    private static PackageAssetSelection SelectRuntimePopulation(
+        IPackageContent content,
+        IReadOnlyList<CandidateEntry> candidates,
+        string? targetFramework,
+        string runtimeIdentifier)
+    {
+        CandidateEntry[] selectedRuntime =
+        [
+            .. candidates.Where(candidate =>
+                candidate.RuntimeIdentifier!.Equals(
+                    runtimeIdentifier,
+                    StringComparison.Ordinal)),
+        ];
+        if (selectedRuntime.Length == 0)
+        {
+            return new PackageAssetSelection.NoMatch(
+                "The package carries no runtime Library assembly folder for the requested runtime identifier.");
+        }
+
+        string selectedTargetFramework =
+            targetFramework
+            ?? selectedRuntime
+                .Select(static candidate =>
+                    candidate.TargetFramework)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(static framework =>
+                    TfmResolver.GetTfmPriority(
+                        framework.ToLowerInvariant()))
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.OrdinalIgnoreCase)
+                .ThenBy(static framework =>
+                    framework,
+                    StringComparer.Ordinal)
+                .First();
+        IPackageContent selectedContent =
+            new RuntimeLibraryPackageContent(
+                content,
+                [
+                    .. selectedRuntime.Select(
+                        static candidate =>
+                            candidate.EntryPath),
+                ]);
+        return SelectCore(
+            selectedContent,
+            selectedTargetFramework,
+            runtimeIdentifier);
     }
 
     private static PackageAssetSelection SelectCore(
@@ -473,6 +775,9 @@ public static class PackageAssetSelector
 
         (int FallbackRank, Version Version, int PlatformRank) Rank(string tfm)
         {
+            if (IsFrameworkAgnostic(tfm))
+                return (-1, EmptyVersion, 0);
+
             FrameworkFolder folder = FrameworkFolder.Parse(tfm);
             Version version =
                 TfmResolver.TryGetFrameworkIdentity(
@@ -506,6 +811,14 @@ public static class PackageAssetSelector
     /// </remarks>
     static bool IsApplicable(FrameworkFolder candidate, FrameworkFolder target)
     {
+        if (IsFrameworkAgnostic(candidate.FullName))
+        {
+            return IsFrameworkAgnostic(target.FullName)
+                || TfmResolver.TryGetFrameworkIdentity(
+                    target.BaseFramework,
+                    out _);
+        }
+
         if (PackageCoordinateResolver.IsAcquisitionTargetText(
                 candidate.FullName)
             && PackageCoordinateResolver.IsAcquisitionTargetText(
@@ -575,6 +888,18 @@ public static class PackageAssetSelector
     {
         string[] segments = entryPath.Split('/');
 
+        // lib/{assembly}
+        if (segments.Length == 2
+            && segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CandidateEntry(
+                entryPath,
+                FrameworkAgnosticTargetFramework,
+                segments[1],
+                segments[1],
+                RuntimeIdentifier: null);
+        }
+
         // lib/{tfm}/{relative-path}
         if (segments.Length >= 3
             && segments[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
@@ -609,6 +934,36 @@ public static class PackageAssetSelector
 
         return null;
     }
+
+    static CandidateEntry? ClassifyRuntimeLibrary(string entryPath)
+    {
+        string[] segments = entryPath.Split('/');
+        if (segments.Length < 5
+            || !segments[0].Equals(
+                "runtimes",
+                StringComparison.OrdinalIgnoreCase)
+            || !PackageCoordinateResolver.IsCanonicalRuntimeIdentifier(
+                segments[1])
+            || !segments[2].Equals(
+                "lib",
+                StringComparison.OrdinalIgnoreCase)
+            || !TfmResolver.IsTfmLike(segments[3]))
+        {
+            return null;
+        }
+
+        return new CandidateEntry(
+            entryPath,
+            segments[3].ToLowerInvariant(),
+            string.Join('/', segments[4..]),
+            segments[^1],
+            segments[1]);
+    }
+
+    internal static bool IsFrameworkAgnostic(string framework) =>
+        framework.Equals(
+            FrameworkAgnosticTargetFramework,
+            StringComparison.OrdinalIgnoreCase);
 
     static bool IsSatelliteAsset(
         CandidateEntry candidate,
@@ -662,4 +1017,14 @@ public static class PackageAssetSelector
         string RelativePath,
         string FileName,
         string? RuntimeIdentifier);
+
+    sealed record SingleRuntimeEvaluation(
+        PackageAssetSelection Selection,
+        IReadOnlyList<PackageRuntimeAssetPopulation>
+            AvailableRuntimePopulations);
+
+    sealed class RuntimeLibraryPackageContent(
+        IPackageContent content,
+        IReadOnlyList<string> entries) :
+        SelectedPackageContent(content, entries);
 }

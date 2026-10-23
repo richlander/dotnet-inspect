@@ -24,6 +24,31 @@ public sealed record WorkspaceTypeHierarchySubjectRelationsFocus
     public WorkspaceDeclarationOccurrence Occurrence { get; }
 
     public MetadataTypeDefinitionName Type { get; }
+
+    public static WorkspaceTypeHierarchySubjectRelationsFocus
+        FromExactTypeDefinition(
+            WorkspaceDeclarationOccurrence occurrence,
+            ExactTypeDefinitionIdentity type)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(type);
+        MetadataTypeDefinitionName name =
+            MetadataTypeDefinitionName.Create(
+                type.Namespace,
+                type.Segments)
+            switch
+            {
+                MetadataTypeDefinitionNameResult.Valid valid => valid.Name,
+                MetadataTypeDefinitionNameResult.Rejected rejected =>
+                    throw new ArgumentException(
+                        "The exact Type identity has an invalid metadata name "
+                            + $"({rejected.Rejection.Kind}).",
+                        nameof(type)),
+                _ => throw new InvalidOperationException(
+                    "Unknown exact Type metadata-name validation result."),
+            };
+        return new(occurrence, name);
+    }
 }
 
 /// <summary>

@@ -28,7 +28,8 @@ public sealed record IlAssemblyDiffResult(
     ImmutableArray<IlDiffBucket> TopHunkKinds,
     ImmutableArray<IlDiffBucket> TopOpcodeFamilies,
     ImmutableArray<IlAssemblyDiffExample> Examples,
-    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default);
+    ImmutableArray<IlIdentityResolutionFailure> IdentityFailures = default,
+    int PairExceptionRegionDiffCount = 0);
 
 public sealed record IlIdentityResolutionFailure(
     string Side,
@@ -163,10 +164,10 @@ public sealed record IlMemberEndpointComparison
 /// </summary>
 public static class IlAssemblyDiff
 {
-    readonly record struct MethodMapKey(string Identity, int Occurrence)
-    {
-        public string Display => Occurrence == 1 ? Identity : $"{Identity}#occurrence:{Occurrence}";
-    }
+    // A method's pairing identity: its member key under the Body policy's
+    // scope, as Finding Diff Any pairs members, and its occurrence among the
+    // image's methods that spell that key (two compiler-controlled methods may).
+    readonly record struct MethodMapKey(StagedSymbolKey<IlOperandPart> Key, int Occurrence);
 
     sealed record MethodMapResult(
         Dictionary<MethodMapKey, MethodDefinitionHandle> Methods,
@@ -180,7 +181,8 @@ public static class IlAssemblyDiff
         IlMemberDiffSubject Subject,
         FindingInspection<CanonicalIlOperation> Inspection,
         MethodInstructions? Body,
-        MethodBodyBlock? MethodBody);
+        MethodBodyBlock? MethodBody,
+        IlCensusSide? Side);
 
     /// <summary>
     /// Compares two explicitly admitted endpoints without performing selector resolution or
@@ -195,13 +197,11 @@ public static class IlAssemblyDiff
         ArgumentNullException.ThrowIfNull(oldEndpoint);
         ArgumentNullException.ThrowIfNull(newEndpoint);
 
-        var old = InspectEndpoint(oldEndpoint);
-        var @new = InspectEndpoint(newEndpoint);
+        var old = InspectEndpoint(oldEndpoint, normalization);
+        var @new = InspectEndpoint(newEndpoint, normalization);
         var findings = IlFindings.CompareInspections(
             old.Inspection,
             @new.Inspection,
-            old.Body,
-            @new.Body,
             acceptanceThreshold: 100);
 
         IlMemberDiffResult? memberDiff = null;
@@ -217,17 +217,14 @@ public static class IlAssemblyDiff
                     },
                 })
         {
-            var oldPresent = (IlMemberDiffEndpoint.Present)oldEndpoint;
-            var newPresent = (IlMemberDiffEndpoint.Present)newEndpoint;
             memberDiff = new IlMemberDiffResult(
                 old.Subject,
                 @new.Subject,
                 IlBodyDiff.Compare(
-                    oldPresent.Reader,
+                    old.Side!,
                     old.MethodBody,
-                    newPresent.Reader,
-                    @new.MethodBody,
-                    normalization),
+                    @new.Side!,
+                    @new.MethodBody),
                 []);
         }
 
@@ -238,31 +235,33 @@ public static class IlAssemblyDiff
             memberDiff);
     }
 
-    static InspectedEndpoint InspectEndpoint(IlMemberDiffEndpoint endpoint)
+    static InspectedEndpoint InspectEndpoint(IlMemberDiffEndpoint endpoint, IlBodyDiffNormalization normalization)
         => endpoint switch
         {
-            IlMemberDiffEndpoint.Present present => InspectPresentEndpoint(present),
+            IlMemberDiffEndpoint.Present present => InspectPresentEndpoint(present, normalization),
             IlMemberDiffEndpoint.SubjectAbsent absent => new(
                 absent.Subject,
                 new FindingInspection<CanonicalIlOperation>.Absent(
                     FindingInspectionAbsenceKind.SubjectAbsent,
                     absent.Detail),
                 Body: null,
-                MethodBody: null),
+                MethodBody: null,
+                Side: null),
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint)),
         };
 
-    static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint)
+    static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint, IlBodyDiffNormalization normalization)
     {
         var subject = new FindingSubject(endpoint.Subject.Identity, endpoint.Subject.Label);
+        var side = IlCensusSide.Create(endpoint.Reader, normalization);
         var inspection = IlFindings.InspectMethod(
+            side,
             endpoint.Pe,
-            endpoint.Reader,
             endpoint.Method,
             subject,
             out var body,
             out var methodBody);
-        return new InspectedEndpoint(endpoint.Subject, inspection, body, methodBody);
+        return new InspectedEndpoint(endpoint.Subject, inspection, body, methodBody, side);
     }
 
     public static IlAssemblyDiffPairResult CompareFiles(
@@ -325,11 +324,18 @@ public static class IlAssemblyDiff
         if (maxExamples < 0)
             throw new ArgumentOutOfRangeException(nameof(maxExamples), maxExamples, "Example count must be non-negative.");
 
-        var oldIndex = MethodMap(oldReader, "old");
-        var newIndex = MethodMap(newReader, "new");
+        // One side per image: every body's operands are spelled into its
+        // image's memo once, not once per compared pair. The method map pairs
+        // by the member key under the Body policy's scope; under that policy
+        // it is spelled through the comparison's own sides, so a method's key
+        // serves its pairing and every call that names it.
+        var (oldSide, newSide) = IlCensusSide.CreatePair(oldReader, newReader, normalization);
+        var (oldPairing, newPairing) = PairingSides(oldReader, newReader, normalization, oldSide, newSide);
+        var oldIndex = MethodMap(oldReader, oldPairing, "old");
+        var newIndex = MethodMap(newReader, newPairing, "new");
         var keys = oldIndex.Methods.Keys
             .Union(newIndex.Methods.Keys)
-            .OrderBy(key => key.Identity, StringComparer.Ordinal)
+            .OrderBy(key => key.Key)
             .ThenBy(key => key.Occurrence)
             .ToArray();
         var failures = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -346,6 +352,7 @@ public static class IlAssemblyDiff
         int pairExact = 0;
         int pairOperandDiff = 0;
         int pairOpcodeDiff = 0;
+        int pairExceptionRegionDiff = 0;
         int pairUnavailable = 0;
         int changed = 0;
         int selfDiffExact = 0;
@@ -398,12 +405,7 @@ public static class IlAssemblyDiff
                 continue;
             }
 
-            var self = IlBodyDiff.Compare(
-                oldReader,
-                oldBody,
-                oldReader,
-                oldBody,
-                normalization);
+            var self = IlBodyDiff.Compare(oldSide, oldBody, oldSide, oldBody);
             if (self.IsExact)
             {
                 selfDiffExact++;
@@ -415,12 +417,7 @@ public static class IlAssemblyDiff
                     : self);
             }
 
-            var diff = IlBodyDiff.Compare(
-                oldReader,
-                oldBody,
-                newReader,
-                newBody,
-                normalization);
+            var diff = IlBodyDiff.Compare(oldSide, oldBody, newSide, newBody);
             if (!diff.IsAvailable)
             {
                 pairUnavailable++;
@@ -437,6 +434,8 @@ public static class IlAssemblyDiff
             changed++;
             if (diff.Outcome == IlBodyDiffOutcome.OperandDiff)
                 pairOperandDiff++;
+            else if (diff.Outcome == IlBodyDiffOutcome.ExceptionRegionDiff)
+                pairExceptionRegionDiff++;
             else
                 pairOpcodeDiff++;
             foreach (var row in diff.Rows)
@@ -446,7 +445,7 @@ public static class IlAssemblyDiff
             }
 
             if (examples.Count < maxExamples)
-                examples.Add(new IlAssemblyDiffExample(key.Display, diff));
+                examples.Add(new IlAssemblyDiffExample(Display(oldReader, oldHandle, oldMethod, key.Occurrence), diff));
         }
 
         return new IlAssemblyDiffResult(
@@ -462,7 +461,8 @@ public static class IlAssemblyDiff
             Buckets(hunkKinds),
             Buckets(opcodeFamilies),
             examples.ToImmutable(),
-            identityFailures.ToImmutable());
+            identityFailures.ToImmutable(),
+            pairExceptionRegionDiff);
     }
 
     public static IlMemberDiffResult CompareMembers(
@@ -542,28 +542,66 @@ public static class IlAssemblyDiff
         }
     }
 
-    static MethodMapResult MethodMap(MetadataReader reader, string side)
+    // The sides the map spells through: the comparison's own under the Body
+    // policy without the generated-ordinal correspondence (the same keys), and
+    // otherwise a pair under the Body policy, since pairing never carries an
+    // assembly identity or a folded name whatever the operands compare under.
+    static (IlCensusSide Old, IlCensusSide New) PairingSides(
+        MetadataReader oldReader,
+        MetadataReader newReader,
+        IlBodyDiffNormalization normalization,
+        IlCensusSide oldSide,
+        IlCensusSide newSide)
+    {
+        bool sameKeys = (normalization & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0
+            && (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) == 0;
+        return sameKeys
+            ? (oldSide, newSide)
+            : (IlCensusSide.Create(oldReader, IlBodyDiffPolicy.Body), IlCensusSide.Create(newReader, IlBodyDiffPolicy.Body));
+    }
+
+    /// <summary>
+    /// Every method of an image under its pairing key. A method the speller
+    /// cannot spell is an identity failure, classified through the text
+    /// identity's mechanisms, and leaves the map, as before.
+    /// </summary>
+    static MethodMapResult MethodMap(MetadataReader reader, IlCensusSide side, string label)
     {
         var methods = new Dictionary<MethodMapKey, MethodDefinitionHandle>();
-        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var occurrences = new Dictionary<StagedSymbolKey<IlOperandPart>, int>();
         var failures = ImmutableArray.CreateBuilder<IlIdentityResolutionFailure>();
         foreach (var handle in reader.MethodDefinitions)
         {
-            var method = reader.GetMethodDefinition(handle);
-            var result = MethodKey(reader, handle, method);
-            if (result.Failure is not null)
+            if (!side.TryDefinition(handle, out StagedSymbolKey<IlOperandPart> key, out string? reason))
             {
-                AddIdentityFailure(failures, side, handle, result.Failure);
+                // The method alone fails; the text identity names the mechanism.
+                var text = MethodKey(reader, handle, reader.GetMethodDefinition(handle));
+                AddIdentityFailure(
+                    failures,
+                    label,
+                    handle,
+                    text.Failure ?? MetadataTypeNameFailure.ForMechanism(
+                        MetadataTypeNameFailureMechanism.Signature,
+                        handle,
+                        reason!));
                 continue;
             }
 
-            string identity = result.Identity!;
-            int occurrence = occurrences.TryGetValue(identity, out int count) ? count + 1 : 1;
-            occurrences[identity] = occurrence;
-            methods.Add(new MethodMapKey(identity, occurrence), handle);
+            int occurrence = occurrences.TryGetValue(key, out int count) ? count + 1 : 1;
+            occurrences[key] = occurrence;
+            methods.Add(new MethodMapKey(key, occurrence), handle);
         }
 
         return new MethodMapResult(methods, failures.ToImmutable());
+    }
+
+    // The text a shown example carries for its method: the identity text the
+    // map compared by before it paired by key, projected only for the
+    // examples a result shows.
+    static string Display(MetadataReader reader, MethodDefinitionHandle handle, MethodDefinition method, int occurrence)
+    {
+        string identity = MethodKey(reader, handle, method).Identity ?? TokenSubject(handle);
+        return occurrence == 1 ? identity : $"{identity}#occurrence:{occurrence}";
     }
 
     static MethodIdentityResult MethodKey(

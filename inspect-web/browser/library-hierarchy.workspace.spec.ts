@@ -103,6 +103,11 @@ for (const [status, detail] of [
     await expect(page.locator(".package-overview-surface [data-lib-scope]"))
       .toHaveCount(0);
     await expect(page.locator(".query-notice-text")).toContainText(detail);
+    if (status === "EmptyCompileGroup") {
+      await expect(page.locator("[data-inspector-tab][data-package-lens]")).toHaveCount(1);
+      await expect(inspectorTab(page, "data-package-lens", "overview"))
+        .toHaveAttribute("aria-selected", "true");
+    }
     await page.locator(".package-overview-surface").focus();
     await page.keyboard.press("Enter");
     await expect(subjectTab(page, "package")).toHaveAttribute("aria-selected", "true");

@@ -4,6 +4,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DotnetInspect.ProductVocabularyTesting;
 using DotnetInspect.Cli.Commands;
 using DotnetInspector.InspectionContracts;
@@ -378,7 +379,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
     [InlineData("metadata-image", "table", "scalar")]
     [InlineData("metadata-type-def", "table", "inventory")]
     [InlineData("reference-hierarchy", "hierarchy", "inventory")]
-    // Coordinate sections resolve through the Library address route.
+    // Coordinate sections, which only the Library address view selects.
     [InlineData("context-member", "table", "inventory")]
     [InlineData("context-exception", "table", "inventory")]
     [InlineData("metadata-heap", "table", "inventory")]
@@ -448,9 +449,11 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
 
         // A section that has not declared a description reports every part
         // absent rather than substituting its name or an empty string.
+        // Library has completed adoption, so the undeclared case is a
+        // section of a command that has not.
         var undeclared = await RunAsync(
             "explain",
-            "library/sections/references",
+            "member/sections/derived-types",
             ".contract", "--json");
 
         Assert.Equal(0, undeclared.ExitCode);
@@ -907,6 +910,481 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
             first.GetProperty("production_bindings")[0]
                 .GetProperty("gesture")
                 .GetString());
+    }
+
+    [Theory]
+    [InlineData("context member", "library/sections/context-member")]
+    [InlineData("metadata heap", "library/sections/metadata-heap")]
+    public async Task CoordinateSection_SearchesTheLibraryCatalogThroughTheAddressBinding(
+        string text,
+        string path)
+    {
+        // The Library address view's coordinate sections join the one
+        // Library catalog, and search binds them only to the view that can
+        // select them.
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement result = document.RootElement
+            .GetProperty("results")
+            .EnumerateArray()
+            .First();
+        Assert.Equal(path, result.GetProperty("resource_path").GetString());
+        Assert.Equal(
+            "library",
+            result.GetProperty("structural_identity")
+                .GetProperty("catalog")
+                .GetString());
+        JsonElement binding =
+            Assert.Single(
+                result.GetProperty("production_bindings")
+                    .EnumerateArray());
+        Assert.Equal(
+            "library address -S",
+            binding.GetProperty("gesture").GetString());
+        Assert.Equal(
+            "dotnet-inspect.cli/library-address-sections",
+            binding.GetProperty("identity").GetString());
+    }
+
+    [Fact]
+    public async Task LibraryCatalog_ReachesTheCoordinateSections()
+    {
+        var catalog = await RunAsync("explain", "library");
+
+        Assert.Equal(0, catalog.ExitCode);
+        Assert.Contains("library/categories/context", catalog.Output);
+
+        var context = await RunAsync("explain", "library/categories/context");
+
+        Assert.Equal(0, context.ExitCode);
+        Assert.Contains("library/sections/context-member", context.Output);
+
+        var metadata = await RunAsync(
+            "explain",
+            "library/categories/metadata");
+
+        Assert.Equal(0, metadata.ExitCode);
+        Assert.Contains("library/sections/metadata-heap", metadata.Output);
+    }
+
+    [Theory]
+    [InlineData("unsafe", "library/sections/unsafe-members")]
+    [InlineData("metrics", "library/sections/library-metrics")]
+    [InlineData("leverage", "library/sections/top-leverage")]
+    [InlineData("families", "library/sections/architectural-families")]
+    public async Task TaskTerm_SearchesTheLibraryStructuralCatalog(
+        string text,
+        string path)
+    {
+        var search = await RunAsync("explain", text, "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement result = document.RootElement
+            .GetProperty("results")
+            .EnumerateArray()
+            .Single(candidate =>
+                candidate.GetProperty("resource_path").GetString() == path);
+        Assert.Equal(1.0, result.GetProperty("similarity").GetDouble());
+        Assert.Equal(
+            "Section",
+            result.GetProperty("resource_kind").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            result.GetProperty("resource_identity").ValueKind);
+        Assert.Equal(
+            "library",
+            result.GetProperty("structural_identity")
+                .GetProperty("catalog")
+                .GetString());
+        JsonElement binding =
+            Assert.Single(
+                result.GetProperty("production_bindings")
+                    .EnumerateArray());
+        Assert.Equal("library -S", binding.GetProperty("gesture").GetString());
+        Assert.Equal("library", binding.GetProperty("resource_path").GetString());
+
+        var explanation = await RunAsync("explain", path, "--json");
+        Assert.Equal(0, explanation.ExitCode);
+        Assert.Empty(explanation.Error);
+        using JsonDocument exact = JsonDocument.Parse(explanation.Output);
+        Assert.Equal(path, exact.RootElement.GetProperty("path").GetString());
+    }
+
+    [Theory]
+    [InlineData("files", "package/sections/files", "package -S")]
+    [InlineData("delegates", "type/sections/delegates", "type -S")]
+    [InlineData("unsafe", "member/sections/unsafe-members", "member -S")]
+    [InlineData(
+        "unsafe",
+        "member-overload/sections/unsafe-operations",
+        "member -S")]
+    [InlineData(
+        "unsafe",
+        "member-detail/sections/unsafe-operations",
+        "member -S")]
+    public async Task Search_AdmitsEveryExplainedStructuralCatalog(
+        string text,
+        string path,
+        string gesture)
+    {
+        var search = await RunAsync("explain", text, "-n", "100", "--json");
+
+        Assert.Equal(0, search.ExitCode);
+        Assert.Empty(search.Error);
+        using JsonDocument document = JsonDocument.Parse(search.Output);
+        JsonElement result = document.RootElement
+            .GetProperty("results")
+            .EnumerateArray()
+            .Single(candidate =>
+                candidate.GetProperty("resource_path").GetString() == path);
+        Assert.Equal(
+            path[..path.IndexOf('/')],
+            result.GetProperty("structural_identity")
+                .GetProperty("catalog")
+                .GetString());
+        Assert.Equal(
+            gesture,
+            result.GetProperty("production_bindings")[0]
+                .GetProperty("gesture")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task BareExplain_DefaultsToTheRoutingTableAsTsv()
+    {
+        // Explain is primarily for agents, so its starting point is the
+        // routing table alone: one TSV row per entry.
+        var result = await RunAsync("explain");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        string[] lines = result.Output
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .TrimEnd('\n')
+            .Split('\n');
+        Assert.Equal(
+            "role\tpath\tname\tpurpose\taccepts\tdestinations\tquestions",
+            lines[0]);
+        Assert.Equal(9, lines.Length);
+        Assert.Contains(
+            lines,
+            static line => line.StartsWith(
+                "operation\toperations/diff-analysis\tDiff analyses\t",
+                StringComparison.Ordinal)
+                && line.Contains(
+                    "\tlibrary, type, member\tanalyses\t",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain("# Explain", result.Output);
+    }
+
+    [Theory]
+    [InlineData("operations", "--jsonl", 3)]
+    [InlineData("subject-kinds/library", "--tsv", 2)]
+    public async Task RootPathTableSelection_ListsTheEntriesThePathReaches(
+        string path,
+        string format,
+        int lines)
+    {
+        var result = await RunAsync("explain", path, format);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Equal(
+            lines,
+            result.Output.TrimEnd('\n').Split('\n').Length);
+    }
+
+    [Theory]
+    [InlineData("--depth", "0")]
+    [InlineData("--envelope")]
+    public async Task BareExplainTable_RejectsDocumentOptions(
+        params string[] arguments)
+    {
+        var result = await RunAsync(["explain", .. arguments]);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains("do not apply", result.Error);
+    }
+
+    [Fact]
+    public async Task BareExplainMarkdown_ReadsTheRootAsItsRoutingTable()
+    {
+        var result = await RunAsync("explain", "--markdown");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("# Explain root", result.Output);
+        Assert.Contains("Kind: Explanation root", result.Output);
+        Assert.Contains("## Routing", result.Output);
+        Assert.Contains(
+            "| subject-kind | subject-kinds/library | Library |",
+            result.Output);
+        Assert.Contains(
+            "| library, type |",
+            result.Output);
+        Assert.Contains(
+            "| operation | operations/diff-analysis | Diff analyses |",
+            result.Output);
+        Assert.Contains(
+            "| library, type, member | analyses |",
+            result.Output);
+        Assert.Contains(
+            "| reference | references/vocabularies | Value vocabularies |",
+            result.Output);
+        Assert.DoesNotContain("## Expanded Resources", result.Output);
+        Assert.DoesNotContain("## Related Resources", result.Output);
+    }
+
+    [Theory]
+    [InlineData("root")]
+    [InlineData("--depth", "0", "--markdown")]
+    public async Task RootBelowItsEntries_ListsItsRoutingCollections(
+        params string[] arguments)
+    {
+        // Below the depth that reaches routing entries, the root keeps its
+        // collection relationships as the way onward.
+        var result = await RunAsync(["explain", .. arguments]);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.DoesNotContain("## Routing", result.Output);
+        Assert.Contains("## Related Resources", result.Output);
+        foreach (string collection in new[]
+                 {
+                     "subject-kinds",
+                     "operations",
+                     "references",
+                 })
+        {
+            Assert.Contains(
+                $"| Routing collection (root-collection) | Available | "
+                    + $"{collection} |",
+                result.Output);
+        }
+    }
+
+    [Fact]
+    public async Task BareExplainJson_EmbedsEveryRoutingEntry()
+    {
+        var result = await RunAsync("explain", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "root",
+            document.RootElement.GetProperty("path").GetString());
+        Assert.Equal(
+            8,
+            Regex.Matches(
+                    result.Output,
+                    "\"path\":\"((subject-kinds|operations|references)/[a-z-]+)\"")
+                .Select(static match => match.Groups[1].Value)
+                .Distinct(StringComparer.Ordinal)
+                .Count());
+    }
+
+    [Fact]
+    public async Task ExplainHelp_SucceedsWithoutAnOperand()
+    {
+        var result = await RunAsync("explain", "--help");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("[<resource-or-search>]", result.Output);
+        Assert.Contains("Omit it to explain the root", result.Output);
+    }
+
+    [Fact]
+    public async Task RoutingEntry_ExplainsItsHintsAndDestinations()
+    {
+        var result = await RunAsync("explain", "operations/package-query");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        Assert.Contains("Kind: Routing entry", result.Output);
+        Assert.Contains("Role: operation", result.Output);
+        Assert.Contains(
+            "Issuer: Inspection Capability Composition",
+            result.Output);
+        Assert.Contains("Purpose: Finds the packages", result.Output);
+        Assert.Contains(
+            "Questions: Which packages depend on a given package?",
+            result.Output);
+        Assert.Contains(
+            "| Routing destination (routing-destination-document) | "
+                + "Available | package-query |",
+            result.Output);
+    }
+
+    [Fact]
+    public async Task BareExplain_ProjectsALoneContractToken()
+    {
+        var result = await RunAsync("explain", ".contract", "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using JsonDocument document = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "root",
+            document.RootElement.GetProperty("requested_path").GetString());
+    }
+
+    [Theory]
+    [InlineData("-n", "3")]
+    [InlineData("-Q", "x")]
+    public async Task BareExplain_RejectsSearchAndValueOptions(
+        string option,
+        string value)
+    {
+        var result = await RunAsync("explain", option, value);
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.NotEmpty(result.Error);
+    }
+
+    // The CLI's root gate: the declarations of every owner the CLI admits
+    // reach every resource of its complete catalog, so the reachability
+    // invariant holds and the CLI may publish its root.
+    [Fact]
+    public void ExplanationRoot_ReachesEveryResourceOfTheCompleteCatalog()
+    {
+        ResourceExplanationRootComposition composition =
+            ResourceExplanationCommand.CreateRootComposition()!;
+
+        Assert.Empty(composition.Unreachable);
+        Assert.True(composition.IsPublishable);
+        Assert.Equal(
+            ["vocabularies"],
+            Targets(
+                composition.Catalog,
+                "references/vocabularies",
+                "routing-destination-collection"));
+        Assert.Equal(
+            ["library", "member", "package", "type"],
+            Targets(composition.Catalog, "subject-kinds", "collection-routing-entry")
+                .Select(static path => path.Split('/')[^1])
+                .Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["library", "type"],
+            Targets(
+                composition.Catalog,
+                "subject-kinds/library",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            ["member-overload", "member-detail"],
+            Targets(
+                composition.Catalog,
+                "subject-kinds/member",
+                "routing-destination-catalog"));
+        Assert.Equal(
+            ["package-query", "package-files", "diff-analysis"],
+            Targets(composition.Catalog, "operations", "collection-routing-entry")
+                .Select(static path => path.Split('/')[^1]));
+        Assert.Equal(
+            ["package-query"],
+            Targets(
+                composition.Catalog,
+                "operations/package-query",
+                "routing-destination-document"));
+        Assert.Equal(
+            ["package-files"],
+            Targets(
+                composition.Catalog,
+                "operations/package-files",
+                "routing-destination-document"));
+        Assert.Equal(
+            ["analyses"],
+            Targets(
+                composition.Catalog,
+                "operations/diff-analysis",
+                "routing-destination-collection"));
+        Assert.Equal(
+            ["subject-kinds/library", "subject-kinds/type", "subject-kinds/member"],
+            Targets(
+                composition.Catalog,
+                "operations/diff-analysis",
+                "accepts-subject-kind"));
+        Assert.Equal(
+            ["operations/package-query", "operations/package-files"],
+            Targets(
+                composition.Catalog,
+                "subject-kinds/package",
+                "accepted-by-operation"));
+
+        static IEnumerable<string> Targets(
+            ResourceExplanationCatalog catalog,
+            string path,
+            string relationship)
+        {
+            var source = Assert.IsType<ResourcePathResolution.Resolved>(
+                catalog.Resolve(path));
+            var paths = catalog.Resources.ToDictionary(
+                static resource => resource.Key,
+                static resource => resource.Path!.Value);
+            return catalog.Relationships
+                .Where(candidate =>
+                    candidate.Source == source.Key
+                    && candidate.Relationship.Value == relationship)
+                .SelectMany(static candidate => candidate.Targets)
+                .Select(target => paths[target.Resource])
+                .ToArray();
+        }
+    }
+
+    // Search reads the structural projections without building their
+    // explanation graphs, so this witnesses the wiring: every admitted path
+    // resolves in the exact catalog to its section or category, and every
+    // explained section or category is admitted.
+    [Fact]
+    public void StructuralSearchCatalogs_MatchTheExactExplanationCatalog()
+    {
+        ResourceExplanationCatalog complete =
+            ResourceExplanationCommand.CreateCompleteCatalog()!;
+        var admitted = new HashSet<string>(StringComparer.Ordinal);
+        foreach (CapabilityCatalogSearchStructuralCatalog catalog
+                 in ResourceExplanationCommand
+                     .CreateStructuralSearchCatalogs()!.Value)
+        {
+            foreach (StructuralResourcePathRegistration registration
+                     in catalog.Paths.Where(static path =>
+                         path.Identity.Kind
+                             is DiscoveryResourceKind.Section
+                             or DiscoveryResourceKind.Category))
+            {
+                var resolved = Assert.IsType<ResourcePathResolution.Resolved>(
+                    complete.Resolve(registration.Path.Value));
+                Assert.Equal(
+                    StructuralType(registration.Identity.Kind),
+                    resolved.Key.ResourceType.Value);
+                Assert.True(admitted.Add(registration.Path.Value));
+            }
+        }
+
+        string[] explained =
+        [
+            .. complete.Resources
+                .Where(static resource =>
+                    resource.Key.ResourceType.Value
+                        is "structural-section" or "structural-category")
+                .Select(static resource => resource.Path!.Value),
+        ];
+        Assert.NotEmpty(explained);
+        Assert.Equal(
+            explained.Order(StringComparer.Ordinal),
+            admitted.Order(StringComparer.Ordinal));
+
+        static string StructuralType(DiscoveryResourceKind kind) =>
+            kind == DiscoveryResourceKind.Section
+                ? "structural-section"
+                : "structural-category";
     }
 
     [Fact]
@@ -1443,8 +1921,11 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
         Assert.Equal(0, requests);
     }
 
-    [Fact]
-    public async Task CapabilitySearch_DoesNotAttemptPackageAcquisition()
+    [Theory]
+    [InlineData("literal")]
+    [InlineData("unsafe")]
+    public async Task CapabilitySearch_DoesNotAttemptPackageAcquisition(
+        string text)
     {
         int requests = 0;
         CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
@@ -1453,7 +1934,7 @@ public sealed partial class ResourceExplanationCommandTests : IDisposable
 
         var result = await RunAsync(
             "explain",
-            "literal");
+            text);
 
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(0, requests);

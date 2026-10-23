@@ -71,6 +71,13 @@ internal interface IMethodAllocationResolver
     bool IsInAssemblyReferenceType(int typeToken);
 
     /// <summary>
+    /// Classifies a type defined in the current image as exception-derived.
+    /// Null means the type is not defined in the current image.
+    /// </summary>
+    bool? IsInAssemblyExceptionType(
+        AllocationOccurrence occurrence) => null;
+
+    /// <summary>
     /// The declaring type and name behind a field-store operand, or
     /// <c>(null, null)</c> when it cannot be resolved.
     /// </summary>
@@ -110,6 +117,11 @@ internal interface IMethodAllocationResolver
 /// </remarks>
 internal sealed class MethodAllocationFacts
 {
+    internal sealed record MethodAllocationCollectionFailure(
+        int Offset,
+        ILOpCode Operation,
+        string Message);
+
     readonly MethodBodyAnalysisContext _context;
     readonly AllocationPathContextIndex _pathContexts;
     readonly AllocationPathConfidenceIndex _pathConfidences;
@@ -139,6 +151,18 @@ internal sealed class MethodAllocationFacts
         private set;
     } = [];
 
+    internal MethodAllocationCollectionFailure? CollectionFailure
+    {
+        get;
+        private set;
+    }
+
+    internal IReadOnlyDictionary<
+        (string Namespace, string Name),
+        bool> InAssemblyTypeIsException
+    { get; private set; } =
+        new Dictionary<(string Namespace, string Name), bool>();
+
     internal static MethodAllocationFacts Create(
         MethodBodyAnalysisContext context)
         => new(context);
@@ -151,11 +175,45 @@ internal sealed class MethodAllocationFacts
     internal void Collect(
         IMethodAllocationResolver resolver)
     {
+        CollectionFailure = null;
         var raw = CollectOccurrences(resolver);
         var classified =
             raw.IsDefaultOrEmpty ? raw : ClassifyEscapes(raw, resolver);
         DiscoveredOccurrences = raw;
         ClassifiedOccurrences = classified;
+        InAssemblyTypeIsException =
+            classified
+                .Where(
+                    static occurrence =>
+                        occurrence.AllocatedType is not null)
+                .Select(
+                    occurrence =>
+                    {
+                        TypeRef type =
+                            occurrence.AllocatedType!;
+                        TypeRef definition =
+                            type.Kind
+                                == TypeRefKind.GenericInstance
+                                    ? type.ElementType ?? type
+                                    : type;
+                        return (
+                            Type: definition,
+                            IsException:
+                                resolver
+                                    .IsInAssemblyExceptionType(
+                                        occurrence));
+                    })
+                .Where(
+                    static item =>
+                        item.IsException.HasValue)
+                .GroupBy(
+                    static item =>
+                        (item.Type.Namespace,
+                            item.Type.Name))
+                .ToDictionary(
+                    static group => group.Key,
+                    static group =>
+                        group.First().IsException!.Value);
     }
 
     internal AllocationPathContext PathContextAt(
@@ -377,6 +435,10 @@ internal sealed class MethodAllocationFacts
             }
             catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException or OverflowException or IndexOutOfRangeException)
             {
+                CollectionFailure = new(
+                    offset,
+                    opcode,
+                    $"{ex.GetType().Name}: {ex.Message}");
                 break;
             }
 

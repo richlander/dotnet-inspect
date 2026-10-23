@@ -5,6 +5,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -2099,8 +2100,17 @@ public class CommandLineTests
     [Theory]
     [InlineData("System.Runtime", true)]
     [InlineData("System.Text.Json", true)]
+    [InlineData("Microsoft.AspNetCore", true)]
     [InlineData("Microsoft.Extensions.Logging", true)]
-    [InlineData("Microsoft.AspNetCore.App", true)]
+    [InlineData("Microsoft.CSharp.RuntimeBinder", true)]
+    [InlineData("Microsoft.JSInterop", true)]
+    [InlineData("Microsoft.Net.Http.Headers", true)]
+    [InlineData("Microsoft.VisualBasic.Core", true)]
+    [InlineData("Microsoft.Win32.Registry", true)]
+    [InlineData("Microsoft.Azure.SignalR", false)]
+    [InlineData("Microsoft.Maui.Controls", false)]
+    [InlineData("Microsoft.Agents.AI", false)]
+    [InlineData("Microsoft.Authentication.WebAssembly", false)]
     [InlineData("Newtonsoft.Json", false)]
     [InlineData("Markout", false)]
     [InlineData("system.runtime", true)] // case-insensitive
@@ -2109,9 +2119,34 @@ public class CommandLineTests
     [InlineData("mscorlib", true)]       // legacy runtime assembly
     [InlineData("netstandard", true)]    // netstandard facade
     [InlineData("WindowsBase", true)]    // WPF foundation
-    public void IsPlatformCandidate_ReturnsExpected(string name, bool expected)
+    public void HostNeutralEcosystemPolicy_ReturnsExpectedPlatformSearch(
+        string name,
+        bool expected)
     {
-        Assert.Equal(expected, PlatformResolver.IsPlatformCandidate(name));
+        Assert.Equal(
+            expected,
+            EcosystemPackCatalog.ShouldSearchPlatform(name));
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Azure.SignalR", true)]
+    [InlineData("Microsoft.Maui.Controls", true)]
+    [InlineData("Microsoft.Agents.AI", true)]
+    [InlineData("Microsoft.Authentication.WebAssembly", true)]
+    [InlineData("Aspire.Hosting", true)]
+    [InlineData("Newtonsoft.Json", true)]
+    [InlineData("Microsoft.Extensions.Logging", false)]
+    [InlineData("System.Text.Json.JsonSerializer", false)]
+    [InlineData("JsonSerializer", false)]
+    public void CommandlessDottedNonPlatformName_UsesAcquisitionFreePackageRoute(
+        string name,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            RouterCommandDefinition.IsAcquisitionFreePackageRoute(
+                [name],
+                CommandLineBuilder.CreateRootCommand()));
     }
 
     [Fact]

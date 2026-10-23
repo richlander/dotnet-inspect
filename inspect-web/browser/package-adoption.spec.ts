@@ -597,6 +597,7 @@ declare global {
           package: string;
           version: string;
           framework: string;
+          runtimeIdentifier: string;
         }[],
       ): Promise<OccurrenceView>;
       activate(action: string): Promise<OccurrenceActivation>;
@@ -714,7 +715,7 @@ async function boot(page: Page): Promise<void> {
     window.__adoption = {
       encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
       queryPackage: (packageId, pkgVersion, framework) =>
-        client.package.queryPackage(packageId, pkgVersion, framework),
+        client.package.queryPackage(packageId, pkgVersion, framework, ""),
       queryVersions: (packageId, currentVersion) =>
         client.package.queryPackageVersions(packageId, currentVersion),
       cacheStats: () => client.package.packageCacheStats(),
@@ -726,7 +727,7 @@ async function boot(page: Page): Promise<void> {
         client.package.clearWorkspacePackageOccurrences(),
       queryDependencies: (packageId, pkgVersion, framework, assemblyId) =>
         client.package.queryPackageDependencies(
-          packageId, pkgVersion, framework, assemblyId),
+          packageId, pkgVersion, framework, assemblyId, null),
       queryIntegrations: (packageId, pkgVersion, framework, libraryId) =>
         client.analysis.queryPackageIntegrations(
           packageId, pkgVersion, framework, libraryId),
@@ -806,7 +807,12 @@ function driver(page: Page): {
   queryCoordinate(packageId: string, version: string, framework: string): Promise<PackageSurface>;
   queryVersions(packageId: string, currentVersion: string): Promise<PackageVersions>;
   cacheStats(): Promise<CacheStats>;
-  queryOccurrences(workspace: readonly { package: string; version: string; framework: string }[]): Promise<OccurrenceView>;
+  queryOccurrences(workspace: readonly {
+    package: string;
+    version: string;
+    framework: string;
+    runtimeIdentifier: string;
+  }[]): Promise<OccurrenceView>;
   activate(action: string): Promise<OccurrenceActivation>;
   clearOccurrences(): Promise<void>;
   queryDependencies(packageId: string, version: string, framework: string, assemblyId: string): Promise<PackageDependencies>;
@@ -1050,17 +1056,20 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     breakingCount: 0,
     additiveCount: 0,
     potentiallyBreakingCount: 0,
+    nonBreakingCount: 0,
     before: {
       identifier,
       namespace: "Example",
       segments: ["A", "B"],
       display: identifier,
+      isObsolete: false,
     },
     after: {
       identifier,
       namespace: "Example",
       segments: ["A", "B"],
       display: identifier,
+      isObsolete: false,
     },
     members: [],
     changes: [],
@@ -1073,9 +1082,9 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
     packet: null,
   };
   const result: BrowserLibraryApiDiffResult = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     request: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       packageId: input.packageId,
       currentVersion: input.currentVersion,
       targetVersion: input.targetVersion,
@@ -1102,6 +1111,8 @@ test("Library API Diff preserves distinct carriage-return and newline Type ident
         breakingCount: 0,
         additiveCount: 0,
         potentiallyBreakingCount: 0,
+        nonBreakingCount: 0,
+        outsideOrdinaryRowCount: 0,
       },
       types: [type("Example.A\rB"), type("Example.A\nB")],
     },
@@ -1250,10 +1261,12 @@ test.describe("Package Query website over real Wasm", () => {
 
     await page.goto(`/?w=${packet}`);
 
-    await expect(page.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
-      .toContainText(fallbackReferences.packageId.toLowerCase(), { timeout: 180_000 });
+    await expect(page.locator('[data-inspector-tab][data-package-lens="dependencies"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
     await expect.poll(() => new URL(page.url()).searchParams.get("w"))
       .toBe(packet);
 
@@ -1264,9 +1277,12 @@ test.describe("Package Query website over real Wasm", () => {
       .toBeVisible();
     expect(new URL(page.url()).searchParams.get("w")).not.toBe(packet);
     await chooseSubject(page, "package");
-    await page.locator('[data-inspector-tab][data-package-lens="hierarchy"]').click();
-    await expect(page.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy");
+    await page.locator('[data-inspector-tab][data-package-lens="dependencies"]').click();
+    await expect(page.locator('[data-package-references-tab="dependencies"]'))
+      .toHaveAttribute("aria-selected", "true");
+    await page.locator('[data-package-references-tab="hierarchy"]').click();
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true");
     await page.locator('[data-application-action="share"]').dispatchEvent("click");
     await expect.poll(() => page.evaluate(() =>
       (window as Window & { copiedShare?: string }).copiedShare ?? "")).not.toBe("");
@@ -1275,8 +1291,8 @@ test.describe("Package Query website over real Wasm", () => {
     expect(new URL(shared).searchParams.get("w")).toBe(packet);
     const reopened = await context.newPage();
     await reopened.goto(shared);
-    await expect(reopened.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
+    await expect(reopened.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
   });
 
   test("opens a shared Package Dependency Hierarchy and reports partial traversal", async ({ page, context }) => {
@@ -1290,16 +1306,22 @@ test.describe("Package Query website over real Wasm", () => {
 
     await page.goto(`/?w=${packet}`);
 
-    await expect(page.locator("#package-hierarchy-title"))
-      .toHaveText("Dependency Hierarchy", { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
+    await expect(page.locator('[data-package-references-tab="hierarchy"]'))
+      .toHaveAttribute("aria-selected", "true", { timeout: 180_000 });
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
       .toContainText(references.packageId.toLowerCase(), { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
-      .toContainText(declaredDependency.id.toLowerCase(), { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree"))
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toContainText(declaredDependency.id.toLowerCase());
+    await expect(page.locator(".package-hierarchy-diagnostics"))
       .toContainText("Traversal partial", { timeout: 180_000 });
-    await expect(page.locator(".package-hierarchy-tree details"))
+    await expect(page.locator(".package-hierarchy-diagnostics details"))
       .toContainText("Could not acquire the dependency manifest");
+    await page.locator("#dependency-graph-explore").click();
+    await expect(page.getByRole("dialog", { name: "Dependency hierarchy" })
+      .locator("#package-hierarchy-graph-diagram svg")).toBeVisible();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible();
   });
 
   test("opens a coordinate result through retained definition activation", async ({
@@ -2909,7 +2931,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // Awaitable occurrence activation following queryWorkspacePackageOccurrences.
     const view = await engine.queryOccurrences([
-      { package: healthy.packageId, version, framework: fixtureFramework },
+      {
+        package: healthy.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     expect(view.superseded).toBe(false);
     expect(view.occurrences.length).toBe(1);
@@ -2921,7 +2948,12 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
 
     // A stale occurrence action after clear reports a superseded rejection.
     const staleView = await engine.queryOccurrences([
-      { package: healthy.packageId, version, framework: fixtureFramework },
+      {
+        package: healthy.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const staleAction = firstOccurrence(staleView).action;
     await engine.clearOccurrences();
@@ -2933,11 +2965,21 @@ test.describe("artifact-backed package scope adoption over real Wasm", () => {
     // A stale occurrence action after replacement is superseded, while the
     // replacement occurrence activates successfully.
     const firstView = await engine.queryOccurrences([
-      { package: occurrenceOne.packageId, version, framework: fixtureFramework },
+      {
+        package: occurrenceOne.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const firstAction = firstOccurrence(firstView).action;
     const secondView = await engine.queryOccurrences([
-      { package: occurrenceTwo.packageId, version, framework: fixtureFramework },
+      {
+        package: occurrenceTwo.packageId,
+        version,
+        framework: fixtureFramework,
+        runtimeIdentifier: "",
+      },
     ]);
     const secondAction = firstOccurrence(secondView).action;
     const supersededActivation = await engine.activate(firstAction);
@@ -4009,6 +4051,7 @@ test.describe("bounded network-backed Worker smoke", () => {
       }],
       contexts: [{ id: "g", tabIds: ["p"] }],
       activeTabId: "p", selectedContextId: "g",
+      traversalTargetFramework: null,
       view: {
         lens: "library:overview", type: null,
         memberAnchor: null, memberSignature: null, section: null,
@@ -4255,7 +4298,12 @@ test.describe("bounded network-backed Worker smoke", () => {
     // The awaitable Workspace occurrence for the same real coordinate activates
     // and yields the same package surface.
     const view = await engine.queryOccurrences([
-      { package: "Microsoft.Extensions.Http", version: "10.0.0", framework: "net10.0" },
+      {
+        package: "Microsoft.Extensions.Http",
+        version: "10.0.0",
+        framework: "net10.0",
+        runtimeIdentifier: "",
+      },
     ]);
     expect(view.superseded).toBe(false);
     expect(view.occurrences.length).toBe(1);

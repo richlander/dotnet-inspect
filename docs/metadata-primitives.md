@@ -83,11 +83,14 @@ which differences are intentional policy.
 
 ## Current boundary
 
-`ILInspector.MetadataPrimitives` is currently an SRM-only leaf with no project
-references. `LayeringTests.MetadataPrimitives_RemainsLeaf` in
-`tests/DotnetInspect.Cli.Tests` gates that property.
+`ILInspector.MetadataPrimitives` references one repository project,
+`InertText`, for the Symbol Key's opaque-range backing, and nothing else.
+`LayeringTests.MetadataPrimitives_FloorIsInertTextOnly` in
+`tests/DotnetInspect.Cli.Tests` gates that floor.
 
 ```text
+                              InertText
+                                  |
                      ILInspector.MetadataPrimitives
              (bounded SRM mechanics and neutral currencies)
                   /          |          |          \
@@ -528,11 +531,12 @@ kind. Adding another table requires a design change to
 registry, and the owning consumer contract.
 
 The primitive-local boundary is gated by
-`LayeringTests.MetadataPrimitives_RemainsLeaf`,
+`LayeringTests.MetadataPrimitives_FloorIsInertTextOnly`,
 `LayeringTests.MetadataPrimitives_MethodSemanticsReaderIsIsolated`, and
-`MethodSemanticsRowReaderTests`. Those gates prove MetadataPrimitives remains
-an SRM-only leaf, no other MetadataPrimitives type decodes raw ECMA table-row
-bytes or table coded-index columns, and the primitive does not expose a general
+`MethodSemanticsRowReaderTests`. Those gates prove MetadataPrimitives reaches
+only SRM and Inert Text, no other MetadataPrimitives type decodes raw ECMA
+table-row bytes or table coded-index columns, and the primitive does not expose
+a general
 table decoder. The separately registered
 `MetadataImageFormatClassifier` may read only its fixed metadata-root admission
 prefix and bounded version field; it may not call table-layout APIs. Blob and
@@ -813,8 +817,8 @@ The current boundary is protected by:
 - `LayeringTests.MetadataNameMatching_DoesNotDependOnFindingBackedText` for the
   MetadataPrimitives owner of neutral name matching.
 
-`LayeringTests.MetadataPrimitives_RemainsLeaf` enforces that
-MetadataPrimitives has zero project references.
+`LayeringTests.MetadataPrimitives_FloorIsInertTextOnly` enforces that
+MetadataPrimitives references only `InertText`.
 
 An implementation that changes a stated safety or ownership property must
 extend the owning gate rather than relying on a green broad suite.

@@ -1,5 +1,8 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
+using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspect.Cli.Models;
 
@@ -83,6 +86,12 @@ public record TypeFindResult
 
     [JsonIgnore]
     internal TypeDeclarationLocatorSectionCandidate? Location { get; init; }
+
+    [JsonIgnore]
+    internal ExactLibrarySourceCoordinate? ExactSource { get; init; }
+
+    [JsonIgnore]
+    internal MetadataTypeDefinitionName? ExactType { get; init; }
 }
 
 /// <summary>
@@ -132,6 +141,12 @@ public record MemberFindResult
 
     [JsonPropertyName("source_version")]
     public string? SourceVersion { get; init; }
+
+    [JsonIgnore]
+    internal ExactLibrarySourceCoordinate? ExactSource { get; init; }
+
+    [JsonIgnore]
+    internal MemberAnchor? ExactMember { get; init; }
 }
 
 /// <summary>

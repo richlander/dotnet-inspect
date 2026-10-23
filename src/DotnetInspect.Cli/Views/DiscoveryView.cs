@@ -107,19 +107,8 @@ public sealed class DetailedDiscoveryView
         || rows.All(static row => row.Cardinality is null);
 }
 
-/// <summary>
-/// Tree-mode discovery view showing sections with their items as children.
-/// </summary>
-[MarkoutSerializable]
-public class DiscoveryTreeView
-{
-    [MarkoutIgnoreInTable]
-    public List<TreeNode> Sections { get; set; } = [];
-}
-
 [MarkoutContext(typeof(DiscoveryRow))]
 [MarkoutContext(typeof(DiscoveryListView))]
-[MarkoutContext(typeof(DiscoveryTreeView))]
 [MarkoutContext(typeof(DetailedDiscoveryRow))]
 [MarkoutContext(typeof(DetailedDiscoveryView))]
 public partial class DiscoveryContext : MarkoutSerializerContext

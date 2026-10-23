@@ -607,7 +607,7 @@ gate suppression and shared classification.
 structural signature and generic-scope identities, canonical
 `MemberRef`/`MethodSpec` resolution caches, and their shared assembly work
 budgets. The primary resolver adapters and
-`LibraryBodyLiftedSourceOwnerResolver` consume that same resolution authority.
+`LiftedSourceOwnerResolver` consume that same resolution authority.
 The lifted-source-owner resolver owns acquisition-scoped local-function/lambda
 owner correlation, memoized owner-body reference evidence, top-level
 entry-point authentication, and classic async state-machine type-name
@@ -617,11 +617,12 @@ resolver, so malformed-name authentication uses the provenance captured with
 the resolved owner instead of re-deriving a narrower attribute subset.
 Ultimate-owner traversal preserves that typed provenance for recommendation
 suppression instead of projecting identity alone.
-`LibraryBodyDeclaredSourceResolver` composes that lifted ownership with async
-source mapping. It owns bounded ultimate-owner traversal, declared-method
-resolution, the async/lifted/async scoped-evidence expansion sequence, and
-final declared-source publication with recoverable diagnostics, without
-owning metadata lifetime.
+`DeclaredSourceResolver` composes that lifted ownership with async
+source mapping. It owns bounded ultimate-owner traversal and declared-method
+resolution without owning metadata lifetime.
+`LibraryBodyDeclaredSourcePublication` adapts it to Library Body Analysis:
+the async/lifted/async scoped-evidence expansion sequence over a plan, and
+final declared-source publication with recoverable diagnostics.
 `OptimizationOpportunities_DuplicateMemberRefsResolveStructuralIdentityOnce`,
 `OptimizationOpportunities_SharedMemberRefDecodesOnceAcrossOwnerBodies`, and
 `LiftedOwnerMemberIdentity_RetainsExactAssemblyReferenceScope` gate cache
@@ -630,12 +631,27 @@ sharing and scope-aware identity.
 `OptimizationOpportunities_ClassicAsyncTypeDefinitionsAreIndexedOnce`, and the
 top-level local-function tests gate the lifted-owner caches and execution
 mapping.
-`LibraryBodyAsyncSourceResolver` owns acquisition-scoped runtime/classic async
-source resolution, classic source-to-`MoveNext` mapping, state-machine
-attribute authentication, and scoped evidence expansion. It consumes primary
-metadata identity and generated-code judgments plus the builder-owned local
-type-definition index; full builds prewarm its snapshots before parallel
-method analysis.
+`StateMachineSourceResolver` owns acquisition-scoped runtime/classic async
+source resolution and the Analysis policy over state-machine identity. Its
+assembly-wide forward and reverse paths take kickoff, state-machine type, and
+execution `MoveNext` from one acquisition-scoped
+[state-machine relationship certificate](state-machine-relationship-index.md#evidence-carrying-certificate)
+index. The resolver adds only its policy:
+attribute trust, shape, and kind agreement, runtime-async exclusion, and
+generated-code admission. A certificate rejection keeps the resolver's existing
+rejection outcome, a thrown `BadImageFormatException` or `Unresolved`
+ownership, and never becomes absence. Policy can narrow but never certify: a
+rejection contributed only by kickoffs the policy does not examine, such as a
+bodiless method, is not attributed, while a valid claimant that shares a
+rejected claim fails closed rather than resolving. A claim naming another
+assembly is a certificate rejection. Claimed Type names are read in two places
+only, with the runtime's reflection Type-name grammar rather than a hand
+split: to keep a type named by an attribute the resolver itself rejects
+failing closed, since the certificate carries no type for it, and in the
+targeted generated-expansion lookup, which builds no module-wide index.
+`StateMachineSourceResolverCertificateTests` gates escaped-comma names and an
+absent classic or async iterator `SetStateMachine` on both paths. Full builds prewarm its
+snapshots before parallel method analysis.
 For value-flow consumers, `AsyncBodyAttribution` projects the exact
 Analysis-authenticated source method together with an explicit `Runtime` or
 `StateMachine` lowering. Runtime-async evidence retains the source as its own

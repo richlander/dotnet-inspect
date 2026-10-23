@@ -50,8 +50,8 @@ public partial class DiffCommand
 
         /// <summary>
         /// Analyzes the assembly's method bodies. An extracted file binds its
-        /// references as the legacy path always has; a participant binds
-        /// them through its implementation group.
+        /// references through the path resolver beside it; a participant
+        /// binds them through its implementation group.
         /// </summary>
         public MethodBodyInspectionSession OpenSession(
             bool includeImplementationProfiles)

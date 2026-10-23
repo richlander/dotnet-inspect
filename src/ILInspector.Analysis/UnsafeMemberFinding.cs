@@ -42,6 +42,11 @@ public enum UnsafeMemberLimitationReason
     PublicRootInventoryBounded,
     /// <summary>The public root inventory could not be read.</summary>
     PublicRootInventoryFailed,
+    /// <summary>
+    /// The declared-source relation reached a bound, so the census covers
+    /// only the retained prefix of the requested scope.
+    /// </summary>
+    AttributionBounded,
 }
 
 /// <summary>

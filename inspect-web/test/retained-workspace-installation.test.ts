@@ -18,12 +18,18 @@ interface TestPackage {
   id: string;
   isRuntimePack: boolean;
   source: { kind: "package" | "platform" };
+  selectedDefaultLibraryId?: string | null;
 }
 
 interface TestPresentationItem {
   navigationId: string;
   consumerPackageSubjectId?: string;
   detailFailure: string | null;
+  defaultLibrary?: {
+    assetId: string;
+    assetPath: string;
+    assemblyName: string;
+  } | null;
 }
 
 interface TestPresentation {
@@ -51,7 +57,14 @@ function retainedWorkspaceInstallationHarness(options: {
   const item = (navigationId: string): TestPresentationItem => ({
     navigationId,
     ...(options.activeKind === "package"
-      ? { consumerPackageSubjectId: `${navigationId}-subject` }
+      ? {
+        consumerPackageSubjectId: `${navigationId}-subject`,
+        defaultLibrary: {
+          assetId: `${navigationId}-default`,
+          assetPath: `lib/net10.0/${navigationId}.dll`,
+          assemblyName: `${navigationId}.dll`,
+        },
+      }
       : {}),
     detailFailure: null,
   });
@@ -177,7 +190,13 @@ function retainedWorkspaceInstallationHarness(options: {
       initialAdmissions += 1;
       return options.initial.promise;
     },
-    createNuGetPackageModel: (surface: TestPackage) => surface,
+    createNuGetPackageModelWithDefaultLibrary: (
+      surface: TestPackage,
+      defaultLibrary: TestPresentationItem["defaultLibrary"],
+    ) => {
+      surface.selectedDefaultLibraryId = defaultLibrary?.assetId ?? null;
+      return surface;
+    },
     createRuntimePackageModel: (surface: TestPackage) => surface,
     errorMessage: (error: unknown) =>
       error instanceof Error ? error.message : String(error),
@@ -236,6 +255,7 @@ function retainedWorkspaceInstallationHarness(options: {
     "retainedLocationPresentationCurrent",
     "supersedeRetainedLocationIntentForRoutedNavigation",
     "installRetainedWorkspacePosting",
+    "publishRetainedLocationAssociation",
     "completeRetainedActivationPresentation",
     "activateRetainedPackageAction",
     "activateRetainedPlatformAction",
@@ -336,6 +356,10 @@ test("exact canonical completion renders and focuses once", async () => {
 
   assert.equal(harness.presentationCurrent(), true);
   assert.equal(harness.state.workspaceSubjectOpen, false);
+  assert.equal(
+    harness.state.package?.selectedDefaultLibraryId,
+    `${harness.activeNavigationId}-default`,
+  );
   const rendersBeforeCompletion = harness.renders();
   harness.completePresentation();
   assert.equal(harness.renders(), rendersBeforeCompletion + 1);
@@ -390,6 +414,10 @@ test("stale initial Package detail cannot replace a newer row selection", async 
   await installation;
 
   assert.equal(harness.state.package, newer);
+  assert.equal(
+    harness.state.package.selectedDefaultLibraryId,
+    `${harness.newerNavigationId}-default`,
+  );
   assert.equal(harness.state.workspaceSubjectOpen, false);
   assert.equal(harness.state.packages.length, 1);
   assert.equal(harness.state.packages[0], newer);

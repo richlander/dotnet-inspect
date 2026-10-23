@@ -7,6 +7,17 @@ namespace DotnetInspector.Packages;
 public sealed partial class DesktopPackageSourceComposition
 {
     /// <summary>
+    /// Supplies per-package authorization for dependency operations that use
+    /// this composition's configured source policy.
+    /// </summary>
+    public IPackageSourceAuthorization CreateDependencySourceAuthorization(
+        NuGetSourceOptions? sourceOptions = null) =>
+        new CompositionAuthorization(
+            this,
+            sourceOptions,
+            requiredProducerKey: null);
+
+    /// <summary>
     /// Supplies a settlement House using this composition's registered source clients.
     /// </summary>
     public PackageHouse CreateSettlementHouse(
@@ -94,6 +105,15 @@ public sealed partial class DesktopPackageSourceComposition
         CancellationToken cancellationToken = default) =>
         IssueHouseOperation(cancellationToken);
 
+    public PackageSourceOperationLease IssueSettlementOperation(
+        CancellationToken cancellationToken,
+        int maximumConcurrentSteps) =>
+        _sourceLease.IssueOperationLease(
+            cancellationToken,
+            _options.RequestTimeout,
+            _options.OperationTimeout,
+            maximumConcurrentSteps);
+
     /// <summary>
     /// Issues a source-owned operation capped by an enclosing House duration.
     /// </summary>
@@ -121,84 +141,6 @@ public sealed partial class DesktopPackageSourceComposition
             operationTimeout);
     }
 
-    /// <summary>
-    /// Settles one exact coordinate through PackageHouse when the composition
-    /// owns the operation lifetime.
-    /// </summary>
-    public ValueTask<PackageAcquisitionCandidateResult>
-        ResolvePinnedCandidateAsync(
-            PackageSourceCoordinate coordinate,
-            NuGetSourceOptions? sourceOptions = null,
-            CancellationToken cancellationToken = default,
-            NuGetOperationContext? operationContext = null)
-    {
-        ArgumentNullException.ThrowIfNull(coordinate);
-        return operationContext is null
-            ? new(
-                ResolvePinnedCandidateThroughHouseAsync(
-                    coordinate,
-                    sourceOptions,
-                    cancellationToken))
-            : ValueTask.FromResult(
-                ResolvePinnedCandidate(
-                    coordinate,
-                    sourceOptions,
-                    cancellationToken,
-                    operationContext));
-    }
-
-    private Task<PackageAcquisitionCandidateResult>
-        ResolvePinnedCandidateThroughHouseAsync(
-            PackageSourceCoordinate coordinate,
-            NuGetSourceOptions? sourceOptions,
-            CancellationToken cancellationToken)
-    {
-        PackageHouseRequest request = CreateHouseRequest(
-            new PackageHouseDemand.Exact(coordinate),
-            PackageHouseOperationProfile.Settle);
-        Task<PackageHouseSettlement> execution =
-            ExecuteHouseAsync(
-                request,
-                coordinate.PackageId,
-                sourceOptions,
-                payloadAcquisition: null,
-                cancellationToken,
-                requiredProducerKey: null);
-        return ProjectCandidateAsync(execution);
-    }
-
-    private static async Task<PackageAcquisitionCandidateResult>
-        ProjectCandidateAsync(
-            Task<PackageHouseSettlement> execution)
-    {
-        PackageHouseSettlement settlement =
-            await execution.ConfigureAwait(false);
-        IReadOnlyList<PackageAuthorityFailure> failures =
-            PackageHousePayloadResultAdapter.ProjectAuthorityFailures(
-                settlement.Result);
-        PackageAcquisitionCandidate? candidate =
-            settlement.Result.Decision?.Candidate;
-        return new PackageAcquisitionCandidateResult(
-            ProjectCandidateState(
-                settlement.Result,
-                candidate),
-            candidate,
-            failures);
-    }
-
-    private static PackageAcquisitionCandidateResultState
-        ProjectCandidateState(
-            PackageHouseResult result,
-            PackageAcquisitionCandidate? candidate)
-    {
-        if (candidate is not null)
-            return PackageAcquisitionCandidateResultState.Resolved;
-        return result is PackageHouseResult.Incomplete
-            || PackageHousePayloadResultAdapter.HasOperationTimeout(result)
-                ? PackageAcquisitionCandidateResultState.Incomplete
-                : PackageAcquisitionCandidateResultState.Denied;
-    }
-
     private Task<ConfiguredPackagePayloadResult>
         AcquirePinnedThroughHouseAsync(
             PackageSourceCoordinate coordinate,
@@ -221,7 +163,9 @@ public sealed partial class DesktopPackageSourceComposition
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-                PackageHouseLibraryCompanionDemand.None)
+                PackageHouseLibraryCompanionDemand.None,
+            PackageHouseAssetSelectionKind assetSelection =
+                PackageHouseAssetSelectionKind.Compile)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Exact(coordinate),
@@ -229,6 +173,7 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
+            assetSelection,
             assetDemand,
             implementationNames,
             fileDemand,
@@ -250,7 +195,7 @@ public sealed partial class DesktopPackageSourceComposition
     }
 
     /// <summary>
-    /// Ranged access must be bounded: a compile realization's selection or a
+    /// Ranged access must be bounded: an asset realization's selection or a
     /// file demand bounds the read, so a caller that supplies neither has
     /// asked for an unbounded ranged read and is refused before any work
     /// starts (docs/design/package-read-demand.md#exact-file-demand).
@@ -267,7 +212,7 @@ public sealed partial class DesktopPackageSourceComposition
             && fileDemand is null)
         {
             throw new ArgumentException(
-                "Ranged payload access requires PackageHouse compile realization or a file demand; supply a compile target context or a file demand.",
+                "Ranged payload access requires PackageHouse asset realization or a file demand; supply a target context or a file demand.",
                 nameof(access));
         }
     }
@@ -292,7 +237,9 @@ public sealed partial class DesktopPackageSourceComposition
             PackageHouseLibraryHandoffMode libraryHandoff =
                 PackageHouseLibraryHandoffMode.PackageOnly,
             PackageHouseLibraryCompanionDemand libraryCompanionDemand =
-                PackageHouseLibraryCompanionDemand.None)
+                PackageHouseLibraryCompanionDemand.None,
+            PackageHouseAssetSelectionKind assetSelection =
+                PackageHouseAssetSelectionKind.Compile)
     {
         PackageHouseRequest request = CreateHouseRequest(
             new PackageHouseDemand.Selecting(selection),
@@ -300,6 +247,7 @@ public sealed partial class DesktopPackageSourceComposition
                 ? PackageHouseOperationProfile.Acquire
                 : PackageHouseOperationProfile.Realize,
             compileTargetContext,
+            assetSelection,
             assetDemand,
             implementationNames,
             fileDemand: null,
@@ -448,6 +396,8 @@ public sealed partial class DesktopPackageSourceComposition
         PackageHouseDemand demand,
         PackageHouseOperationProfile profile,
         PackageHouseTargetContext? targetContext = null,
+        PackageHouseAssetSelectionKind assetSelection =
+            PackageHouseAssetSelectionKind.Compile,
         PackageAssetDemand assetDemand =
             PackageAssetDemand.SurfaceAndImplementation,
         IEnumerable<string>? implementationNames = null,
@@ -464,7 +414,7 @@ public sealed partial class DesktopPackageSourceComposition
                 _options.OperationTimeout),
             targetContext,
             profile == PackageHouseOperationProfile.Realize
-                ? PackageHouseAssetSelectionKind.Compile
+                ? assetSelection
                 : null,
             libraryHandoff,
             assetDemand: assetDemand,

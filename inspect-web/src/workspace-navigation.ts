@@ -30,6 +30,11 @@ import type {
   BrowserWorkspaceShareTab,
   BrowserWorkspaceShareView,
 } from "./facades/inspect-web-catalog.d.ts";
+import {
+  defaultAnalysisMode,
+  isAnalysisMode,
+  type AnalysisMode,
+} from "./analysis-inspector.ts";
 
 // Owns navigation stacks and URL-backed workspace snapshots. The composition root remains
 // the sole mutable AppState owner and supplies captures plus explicit transition callbacks.
@@ -55,6 +60,7 @@ export interface WorkspaceView {
   atLibraryRoot: boolean;
   packageLens: PackageLens;
   libraryLens: LibraryLens;
+  analysisMode?: AnalysisMode;
   libraryScope: string[] | null;
   platformLibrary?: string | null;
   platformRootParent?: boolean;
@@ -84,6 +90,9 @@ export function workspaceViewSignature(view: WorkspaceView): string {
     lr: view.atLibraryRoot,
     pl: view.packageLens,
     ll: view.libraryLens,
+    am: view.atLibraryRoot && view.libraryLens === "analysis"
+      ? view.analysisMode ?? defaultAnalysisMode
+      : null,
     ls: view.libraryScope,
     platformLibrary: view.platformLibrary ?? null,
     platformRootParent: view.platformRootParent ?? false,
@@ -321,6 +330,8 @@ export interface WorkspaceUrlState {
   activeTabId: string;
   selectedContextId: string;
   view: BrowserWorkspaceShareView;
+  traversalTargetFramework: string | null;
+  analysisMode?: AnalysisMode | null;
 }
 
 export interface PackageRootUrlState {
@@ -592,6 +603,8 @@ export function hierarchyShareTargetFramework(
   pkg: { id: string; version: string },
   packageLens: string | null,
 ): string | null {
+  if (packageLens === "hierarchy" && basis?.traversalTargetFramework)
+    return basis.traversalTargetFramework;
   const target = basis?.tabs.length === 1 ? basis.tabs[0] : null;
   return basis?.view.lens === "hierarchy"
     && packageLens === "hierarchy"
@@ -693,6 +706,7 @@ function workspaceShareState(
     activeTabId: state.activeTabId,
     selectedContextId: state.selectedContextId,
     view: state.view,
+    traversalTargetFramework: state.traversalTargetFramework ?? null,
   };
 }
 
@@ -754,7 +768,7 @@ function decodeWorkspaceShareResult(
   const tabs: WorkspaceCoordinate[] = [];
   let platformTabCount = 0;
   for (const tab of state.tabs) {
-    if (tab.runtimeIdentifier) {
+    if (tab.kind !== "package" && tab.runtimeIdentifier) {
       return {
         error: "The shared workspace uses a runtime-specific context that this browser cannot activate.",
       };
@@ -767,7 +781,7 @@ function decodeWorkspaceShareResult(
         shareId: tab.id,
         shareKind: "package",
         shareSource: tab.source,
-        runtimeIdentifier: null,
+        runtimeIdentifier: tab.runtimeIdentifier,
       });
       continue;
     }
@@ -963,6 +977,7 @@ function resolveWorkspaceLocation(
 ) {
   const params = new URLSearchParams(location.search);
   const hasWorkspaceState = params.has("w");
+  const requestedAnalysisMode = params.get("analysis") ?? undefined;
 
   let pkg = courtesyPackageRoute
     ? courtesyPackageRoute.package
@@ -1041,6 +1056,12 @@ function resolveWorkspaceLocation(
   }
 
   const view = resolveView(viewToken);
+  const analysisMode =
+    view.atLibraryRoot
+    && view.libraryLens === "analysis"
+    && isAnalysisMode(requestedAnalysisMode)
+      ? requestedAnalysisMode
+      : defaultAnalysisMode;
   const platform = tabs[active]?.shareKind === "group"
     && tabs[active]?.shareSource === ":Platform";
   const atPlatformRoot = platform && !viewToken && !library && !type
@@ -1064,6 +1085,7 @@ function resolveWorkspaceLocation(
     atLibraryRoot: view.atLibraryRoot,
     packageLens: view.packageLens,
     libraryLens: view.libraryLens,
+    analysisMode,
     tabs,
     active,
     contexts,
@@ -1156,6 +1178,7 @@ export function buildWorkspaceStateUrl(
   if (state.package) params.set("package", state.package);
   const shareState = encodeWorkspaceShareState(state, encode);
   params.set("w", shareState);
+  appendAnalysisMode(params, state);
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
@@ -1171,9 +1194,21 @@ export async function buildWorkspaceStateUrlAsync(
   const params = new URLSearchParams();
   params.set("package", state.package);
   params.set("w", await encodeWorkspaceShareStateAsync(state, encode));
+  appendAnalysisMode(params, state);
   url.search = params.toString();
   url.hash = state.subject === "workspace" ? "workspace" : "";
   return url;
+}
+
+function appendAnalysisMode(
+  params: URLSearchParams,
+  state: WorkspaceUrlState,
+): void {
+  if (state.view.lens === "library:analysis"
+    && state.analysisMode
+    && state.analysisMode !== defaultAnalysisMode) {
+    params.set("analysis", state.analysisMode);
+  }
 }
 
 export function buildPackageRootStateUrl(

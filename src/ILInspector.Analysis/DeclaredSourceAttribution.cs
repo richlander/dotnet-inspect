@@ -42,13 +42,26 @@ internal sealed class DeclaredSourceAttribution
         ImplementationMetricExecutionRecorder?
             implementationMetricRecorder = null,
         MethodDefinitionGeneratedExpansionWork?
-            generatedExpansionWork = null)
+            generatedExpansionWork = null,
+        MethodAnalysisLookup? methodAnalysis = null,
+        Action<TypeDefinitionHandle>?
+            declaredSourceTypeDefinitionRead = null,
+        Action? declaredSourceAttributeRead = null,
+        Action<TypeDefinitionHandle>?
+            declaredSourceRelationshipRead = null)
     {
         _reader = reader;
-        AssemblyName = reader.IsAssembly
-            ? reader.GetString(reader.GetAssemblyDefinition().Name)
-            : Path.GetFileNameWithoutExtension(path);
-        Mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+        MethodAnalysis =
+            methodAnalysis
+            ?? new(
+                path,
+                reader,
+                peReader,
+                stableReceiverGetterClassified,
+                methodReferenceResolved,
+                asyncStateMachineTypesBuilt);
+        AssemblyName = MethodAnalysis.AssemblyName;
+        Mvid = MethodAnalysis.Mvid;
         AssemblyIdentity = reader.IsAssembly
             ? AssemblyReferenceIdentity.FromAssemblyDefinition(reader)
             : new AssemblyReferenceIdentity(
@@ -57,63 +70,56 @@ internal sealed class DeclaredSourceAttribution
                 null,
                 null);
         GeneratedExpansionWork = generatedExpansionWork;
-        MethodReferenceResolver =
-            new LibraryBodyMethodReferenceResolver(
-                reader,
-                methodReferenceResolved);
-        GenericConstraintClassifier =
-            new LibraryBodyGenericConstraintClassifier(reader);
-        StableReceiverGetterClassifier =
-            new LibraryBodyStableReceiverGetterClassifier(
-                reader,
-                peReader,
-                stableReceiverGetterClassified);
-        PrimaryMetadataResolver =
-            new LibraryBodyPrimaryMetadataResolver(
-                reader,
-                AssemblyName,
-                Mvid,
-                MethodReferenceResolver.ResolveMethod,
-                MethodReferenceResolver.ResolvePresenceMethod,
-                GenericConstraintClassifier.GenericParameterCanBeValueType,
-                StableReceiverGetterClassifier.IsStableReceiverGetter,
-                asyncStateMachineTypesBuilt);
         GeneratedProvenanceClassifier =
             new LibraryBodyGeneratedProvenanceClassifier(
                 reader,
                 PrimaryMetadataResolver.HasGeneratedCodeAttribute,
-                sourceGeneratedTypeClassified);
-        AsyncSourceResolver =
-            new LibraryBodyAsyncSourceResolver(
+                sourceGeneratedTypeClassified,
+                declaredSourceTypeDefinitionRead,
+                declaredSourceAttributeRead,
+                declaredSourceRelationshipRead);
+        Func<TypeDefinitionHandle, bool>
+            isCompilerGeneratedTypeOrEnclosing =
+                handle => PrimaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(
+                        handle,
+                        declaredSourceTypeDefinitionRead,
+                        declaredSourceAttributeRead,
+                        declaredSourceRelationshipRead);
+        StateMachineSourceResolver =
+            new StateMachineSourceResolver(
                 reader,
                 AssemblyIdentity,
                 PrimaryMetadataResolver,
                 GeneratedProvenanceClassifier
                     .IsSourceGeneratedTypeOrEnclosing,
-                LocalTypeDefinitions,
+                isCompilerGeneratedTypeOrEnclosing,
                 TypeFromEntity,
-                typeDefinitionIndexBuilt,
+                // The state-machine relationship index owns the TypeDef name
+                // index that claim resolution uses.
+                relationshipIndexBuilt: typeDefinitionIndexBuilt,
                 stateMachineExecutionMethodsBuilt,
                 targetedStateMachineClaimsBuilt);
-        var liftedSourceOwnerResolver =
-            new LibraryBodyLiftedSourceOwnerResolver(
+        LiftedSourceOwnerResolver =
+            new LiftedSourceOwnerResolver(
                 reader,
                 peReader,
                 PrimaryMetadataResolver,
+                isCompilerGeneratedTypeOrEnclosing,
                 MethodReferenceResolver,
-                AsyncSourceResolver,
+                StateMachineSourceResolver,
                 methodBodyReferenceIndexed,
                 implementationMetricWork,
                 implementationMetricRecorder,
                 generatedExpansionWork,
                 liftedDeclaringTypeChainWalked);
         DeclaredSourceResolver =
-            new LibraryBodyDeclaredSourceResolver(
+            new DeclaredSourceResolver(
                 reader,
                 PrimaryMetadataResolver,
-                liftedSourceOwnerResolver,
-                AsyncSourceResolver,
-                implementationMetricWork);
+                LiftedSourceOwnerResolver,
+                StateMachineSourceResolver);
+        ImplementationMetricWork = implementationMetricWork;
     }
 
     internal string AssemblyName { get; }
@@ -125,35 +131,49 @@ internal sealed class DeclaredSourceAttribution
     internal MethodDefinitionGeneratedExpansionWork? GeneratedExpansionWork
     { get; }
 
+    internal MethodAnalysisLookup MethodAnalysis { get; }
+
     internal LibraryBodyMethodReferenceResolver MethodReferenceResolver
-    { get; }
+        => MethodAnalysis.MethodReferenceResolver;
 
     internal LibraryBodyGenericConstraintClassifier GenericConstraintClassifier
-    { get; }
+        => MethodAnalysis.GenericConstraintClassifier;
 
     internal LibraryBodyStableReceiverGetterClassifier
         StableReceiverGetterClassifier
-    { get; }
+        => MethodAnalysis.StableReceiverGetterClassifier;
 
     internal LibraryBodyPrimaryMetadataResolver PrimaryMetadataResolver
-    { get; }
+        => MethodAnalysis.PrimaryMetadataResolver;
 
     internal LibraryBodyGeneratedProvenanceClassifier
         GeneratedProvenanceClassifier
     { get; }
 
-    internal LibraryBodyAsyncSourceResolver AsyncSourceResolver { get; }
+    internal StateMachineSourceResolver StateMachineSourceResolver { get; }
 
-    internal LibraryBodyDeclaredSourceResolver DeclaredSourceResolver { get; }
+    internal LiftedSourceOwnerResolver LiftedSourceOwnerResolver { get; }
+
+    internal DeclaredSourceResolver DeclaredSourceResolver { get; }
+
+    internal ImplementationMetricWorkBudget? ImplementationMetricWork { get; }
 
     /// <summary>
-    /// Adds the authenticated generated execution bodies of
-    /// <paramref name="directMethods"/> under the configured expansion work.
+    /// Adds the authenticated generated bodies of
+    /// <paramref name="directMethods"/> in the requested
+    /// <paramref name="roles"/> under the configured expansion work, and
+    /// classifies the methods of compiler-generated types nested under
+    /// <paramref name="reachFromTypes"/>.
     /// </summary>
     internal MethodDefinitionGeneratedExpansionResult
         ExpandGeneratedExecutionBodies(
             System.Collections.Immutable.ImmutableArray<MethodDefinitionHandle>
-                directMethods)
+                directMethods,
+            MethodDefinitionGeneratedBodyRoles roles =
+                MethodDefinitionGeneratedBodyRoles.Execution,
+            System.Collections.Immutable.ImmutableArray<TypeDefinitionHandle>
+                reachFromTypes = default,
+            bool includeUnauthenticatedCandidates = false)
     {
         if (GeneratedExpansionWork is null)
         {
@@ -163,7 +183,38 @@ internal sealed class DeclaredSourceAttribution
 
         return DeclaredSourceResolver.ExpandGeneratedExecutionBodies(
             directMethods,
-            GeneratedExpansionWork);
+            GeneratedExpansionWork,
+            roles,
+            reachFromTypes,
+            includeUnauthenticatedCandidates);
+    }
+
+    /// <summary>
+    /// Records a traversed body's call and function-pointer operands for the
+    /// all-definition relation, which settles at source completion.
+    /// </summary>
+    internal void RecordTraversedBodyReferences(
+        MethodDefinitionHandle methodHandle,
+        MethodDefinition method,
+        MethodBodyBlock? body,
+        bool acquiredByRelation)
+    {
+        if (GeneratedExpansionWork is null)
+        {
+            throw new InvalidOperationException(
+                "Generated expansion work was not configured.");
+        }
+
+        if (body is not null)
+        {
+            GeneratedExpansionWork.RecordTraversalReferenceBody(
+                body.GetILReader().Length,
+                acquiredByRelation);
+        }
+        LiftedSourceOwnerResolver.RecordTraversedBodyReferences(
+            methodHandle,
+            method,
+            body);
     }
 
     /// <summary>

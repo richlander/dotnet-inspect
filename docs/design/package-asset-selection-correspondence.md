@@ -9,14 +9,15 @@ policy evidence for the aggregate-first sequence in #7318.
 
 ## Authority and exact claim
 
-The runtime selector retains its existing contract. The compile selector owns
-this package-local result contract:
+The runtime selector owns one implementation universe, and the compile
+selector owns one package-local compile projection:
 
-> For one package-content generation and one optional target request, compile
-> selection issues the complete available-slice inventory and one selected
-> compile projection or typed non-success. Its resource-free receipt binds that
-> result to the exact generation, package ID, policy, target, and RID request
-> that produced it.
+> For one package-content generation, runtime selection issues exactly one
+> target-and-optional-RID implementation universe or typed non-success and
+> retains every applicable RID population, while compile selection issues the
+> complete available-slice inventory and one selected compile projection or
+> typed non-success. Their resource-free receipts bind those results to the
+> exact generation and explicit or owner-default request that produced them.
 
 An absent target selects `HighestAvailable`. An explicit target selects its
 exact slice when available, otherwise the highest compatible slice using
@@ -38,6 +39,46 @@ is later rejected. Satellite resource assemblies remain excluded.
 Selected and non-selected slices therefore remain visible in selected,
 selected-empty, no-match, and invalid results.
 
+Direct `lib/*.dll` assets form one framework-agnostic slice whose receipt
+identity is `any`; nested paths do not join that slice. A recognized explicit
+target may select `any` only when no framework-qualified slice satisfies the
+request, and `HighestAvailable` ranks every framework-qualified slice ahead of
+`any`. An unrecognized target still fails closed unless an available
+framework-qualified slice matches its spelling exactly. The implementation
+universe applies the same `any` fallback, so a selected root `lib` asset is its
+own implementation counterpart.
+
+An exact runtime request retains the established neutral-plus-overlay rule: an
+exact RID asset replaces a runtime-neutral `lib` asset at the same relative
+path, while unmatched neutral assets remain. An owner-default runtime request
+is different. It considers only structurally eligible
+`runtimes/<rid>/lib/<tfm>/*.dll` candidates, excludes `native` and every
+unrelated role, and issues one implementation-only universe:
+
+- an omitted RID is implied only when exactly one eligible RID occurs;
+- an explicit RID selects only that RID and never merges another;
+- an omitted target selects the highest available runtime framework;
+- an explicit target uses the ordinary compatibility and platform rules; and
+- more than one eligible RID is a typed ambiguity that requires an explicit
+  RID.
+
+Runtime folders and target slices are selected from the package directory
+without opening candidate assemblies. Managed-image admission remains the
+consumer's responsibility, so a native DLL incorrectly placed under
+`runtimes/<rid>/lib/<tfm>` can produce no admitted Library but cannot make
+another RID or role join the population. `SelectPlatformPack` remains separate:
+its broader pinned-platform candidate rule, including managed images outside
+`lib`, does not define a Package Library population.
+
+`EvaluateSingleRuntime` additionally retains every successfully reducible
+runtime population applicable to the exact target request. Each
+`PackageRuntimeAssetPopulation` carries its canonical RID, selected target
+framework, package-relative population path, and ordered assets. The inventory
+is ordered by canonical RID using ordinal comparison, excludes native-only and
+unrelated roles, and remains complete when the selected outcome is ambiguous
+or an explicit RID narrows the effective universe. This lower owner does not
+apply the product-default RID or reorder the inventory around it.
+
 Compile roles are framework-local. A marker suppresses library fallback only
 when its exact slice is selected and that slice has no real reference asset. A
 real reference asset in the selected slice wins over a co-located marker; a
@@ -57,6 +98,25 @@ Navigation or its
 [First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
 request. `DefaultAsset` matches file stems in selection order, while First
 Library matches owner-issued assembly names in Library order.
+
+The framework-agnostic slice is grounded by published packages that carry
+managed assemblies directly under `lib/`: WebGrease 1.6.0, Antlr 3.5.0.2, and
+EO.WebBrowser 26.3.18. Focused selector fixtures preserve that layout without
+retaining package binaries.
+
+The owner-default runtime rule is grounded by
+Microsoft.NETCore.App.Runtime.linux-x64 10.0.12, which carries 172 Libraries in
+one `runtimes/linux-x64/lib/net10.0` directory, and
+runtime.unix.System.Private.Uri 4.3.0, which carries an explicit empty compile
+group plus one Library in
+`runtimes/unix/lib/netstandard1.0`. Focused fixtures preserve both layouts and
+the multiple-RID refusal without retaining package binaries.
+The layouts are reproducible with:
+
+```text
+dnx dotnet-inspect -y -- package Microsoft.NETCore.App.Runtime.linux-x64@10.0.12 --path --tsv
+dnx dotnet-inspect -y -- package runtime.unix.System.Private.Uri@4.3.0 --path --tsv
+```
 
 ## Comparison counterparts
 
@@ -83,6 +143,9 @@ asset identities as comparison provenance.
 - the `PackageContentGenerationIdentity` read from the input content;
 - the exact requested target-framework string;
 - the exact optional requested runtime identifier; and
+- the complete ordinally ordered applicable runtime-population inventory for
+  `EvaluateSingleRuntime`, empty for ordinary neutral-plus-overlay evaluation;
+  and
 - the existing `PackageAssetSelection` outcome.
 
 The policy-taking `PackageCompileAssetSelector.Evaluate` overload returns
@@ -122,9 +185,10 @@ returned receipt unchanged. The aggregate recommendation and exact/namesake
 narrowing contract remains owned by Navigation in #7318.
 
 PackageHouse may compare a selector receipt's generation and exact request
-arguments with its acquisition and target-context receipts. It does not
-construct selector correspondence around an independently supplied selection
-outcome.
+arguments with its acquisition and target-context receipts. It preserves the
+runtime-population inventory unchanged, including through named
+implementation narrowing, and does not construct selector correspondence
+around an independently supplied selection outcome.
 
 This owner does not implement Workspace admission, package acquisition,
 dependency traversal, CLI or browser/Wasm behavior, rendering, initial subject
@@ -156,6 +220,13 @@ dotnet run --project tests/DotnetInspector.Queries.Tests -c Release -- \
 | Marker-only and highest-marker packages remain selected-empty inventory | `EmptyReferenceGroup_AloneIsASelectedEmptySlice` and `HighestAvailable_ChoosesHigherEmptySliceOverLowerLibrarySlice` |
 | Marker suppression is framework-local and real references win | `EmptyReferenceGroup_InALowerSliceDoesNotSuppressSelectedHigherSlice` and `EmptyReferenceGroup_LosesToRealReferenceAssetsAtTheSelectedFramework` |
 | Compile and implementation slices reduce separately | `CompatibleImplementation_ReducesCompileAndImplementationSlicesSeparately` |
+| Direct root `lib` assets form the framework-agnostic fallback and retain implementation correspondence | `RootLibraryAssets_FormFrameworkAgnosticCompileSlice`, `ExactTargetRootFallbackPreservesRootImplementationCounterpart`, `Select_RootLibraryIsFrameworkAgnosticFallback`, `Select_FrameworkSpecificFolderOutranksRootLibrary`, and `LibraryInventory_RootLibraryUsesAnySliceAndSameImplementationEntry` |
+| The framework-agnostic fallback does not admit unrecognized target spellings | `Select_RootLibraryDoesNotMakeAnUnrecognizedTargetApplicable` |
+| Owner-default runtime selection implies one RID and one target slice without mixing neutral, native, or unrelated assets | `SelectSingleRuntime_InfersOneRidAndHighestRuntimeSlice`, `SelectSingleRuntime_ExplicitTargetUsesOneCompatibleRuntimeSlice`, `RuntimeOwnerDefaultRealizeInfersSingleRidAndHighestTarget`, and `RuntimeExactTargetWithoutRidInfersSingleRid` |
+| Owner-default runtime selection never merges RIDs or case-colliding assets; an explicit RID selects only itself | `SelectSingleRuntime_RequiresAnExplicitRidForMultipleRids`, `SelectSingleRuntime_ReportsCaseCollidingAssetsAsAmbiguous`, `SelectSingleRuntime_ExplicitRidDoesNotMergeOtherRids`, and `RuntimeOwnerDefaultDoesNotMergeMultipleRids` |
+| Runtime evaluation retains every applicable RID population in stable ordinal order without shrinking for an explicit RID | `EvaluateSingleRuntime_RetainsCompleteOrderedPopulationInventory`, `MultipleRuntimeIdentifiersRemainTypedNonSuccess`, and `RuntimeOwnerDefaultDoesNotMergeMultipleRids` |
+| PackageHouse preserves the complete runtime-population inventory through named implementation narrowing | `RuntimeExactTargetWithoutRidInfersSingleRid` |
+| Native-only RID folders do not participate in runtime Library inference | `SelectSingleRuntime_IgnoresNativeOnlyRids` |
 | Invalid implementation selection retains complete candidate inventory | `Selection_CaseCollidingImplementationPathsAreRejected` |
 | Selected implementation assets retain RID qualification | `RidSpecificImplementation_DoesNotReplaceLibraryCompileFallback` |
 | PackageHouse preserves owner-default inventory and many Library handoffs | `OwnerDefaultCompileRealizePreservesHighestAvailableInventory` |

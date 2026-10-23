@@ -15,11 +15,58 @@ public sealed record MethodCallSite(
     int OperandToken,
     CallKind Kind,
     MemberRef Callee,
-    MethodCallTarget Target);
+    MethodCallTarget Target)
+{
+    public MethodCallSite(
+        int ilOffset,
+        int returnAddress,
+        int operandToken,
+        int definitionToken,
+        CallKind kind,
+        MemberRef callee,
+        MethodCallTarget target)
+        : this(
+            ilOffset,
+            returnAddress,
+            operandToken,
+            kind,
+            callee,
+            target)
+    {
+        DefinitionToken = definitionToken;
+    }
+
+    public int DefinitionToken { get; init; } = OperandToken;
+
+    public void Deconstruct(
+        out int ilOffset,
+        out int returnAddress,
+        out int operandToken,
+        out int definitionToken,
+        out CallKind kind,
+        out MemberRef callee,
+        out MethodCallTarget target)
+    {
+        ilOffset = ILOffset;
+        returnAddress = ReturnAddress;
+        operandToken = OperandToken;
+        definitionToken = DefinitionToken;
+        kind = Kind;
+        callee = Callee;
+        target = Target;
+    }
+}
 
 /// <summary>IL-ordered resolved calls from one physical MethodDef body.</summary>
 public sealed record MethodCallSites(
-    ImmutableArray<MethodCallSite> Sites);
+    ImmutableArray<MethodCallSite> Sites)
+{
+    public MethodCallCollectionFailure? Failure { get; init; }
+}
+
+public sealed record MethodCallCollectionFailure(
+    int ILOffset,
+    string Message);
 
 /// <summary>One method body's decoded local-signature facts.</summary>
 public sealed record MethodLocalSignature(
@@ -99,8 +146,13 @@ internal readonly record struct MethodCallOperandSite(
     int ILOffset,
     int ReturnAddress,
     int OperandToken,
+    int DefinitionToken,
     CallKind Kind,
     MemberRef Callee);
+
+internal readonly record struct MethodCallOperandSites(
+    ImmutableArray<MethodCallOperandSite> Sites,
+    MethodCallCollectionFailure? Failure);
 
 /// <summary>
 /// Execution-scoped operand and signature resolution for Method call
@@ -124,7 +176,7 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
             _genericParameterRows,
             _signatureBytes);
 
-    public ImmutableArray<MethodCallOperandSite> ReadCalls(
+    public MethodCallOperandSites ReadCalls(
         TypeDefinition type,
         MethodDefinition method,
         MethodInstructions instructions)
@@ -145,50 +197,76 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
             if (CallKindOf(instruction.OpCode) is not { } kind)
                 continue;
 
-            int operand = MethodInstructionFacts.OperandInt32(instruction);
-            EntityHandle handle = MetadataTokens.EntityHandle(operand);
-            MemberRef callee;
-            if (kind == CallKind.CallIndirect)
+            try
             {
-                if (handle.Kind != HandleKind.StandaloneSignature)
+                int operand =
+                    MethodInstructionFacts.OperandInt32(instruction);
+                EntityHandle handle =
+                    MetadataTokens.EntityHandle(operand);
+                MemberRef callee;
+                if (kind == CallKind.CallIndirect)
                 {
-                    throw new BadImageFormatException(
-                        $"A calli operand is a {handle.Kind}.");
+                    if (handle.Kind
+                        != HandleKind.StandaloneSignature)
+                    {
+                        throw new BadImageFormatException(
+                            $"A calli operand is a {handle.Kind}.");
+                    }
+                    callee = ResolveIndirectCall(
+                        (StandaloneSignatureHandle)handle,
+                        scope);
                 }
-                callee = ResolveIndirectCall(
-                    (StandaloneSignatureHandle)handle,
-                    scope);
-            }
-            else
-            {
-                if (handle.Kind is not (
-                        HandleKind.MethodDefinition
-                        or HandleKind.MemberReference
-                        or HandleKind.MethodSpecification))
+                else
                 {
-                    throw new BadImageFormatException(
-                        $"A call operand is a {handle.Kind}.");
+                    if (handle.Kind is not (
+                            HandleKind.MethodDefinition
+                            or HandleKind.MemberReference
+                            or HandleKind.MethodSpecification))
+                    {
+                        throw new BadImageFormatException(
+                            $"A call operand is a {handle.Kind}.");
+                    }
+                    RecordMethodOperand(handle);
+                    ValidateMethodOperand(handle);
+                    callee = MemberResolver.ResolveMethod(
+                        reader,
+                        handle,
+                        scope);
                 }
-                RecordMethodOperand(handle);
-                ValidateMethodOperand(handle);
-                callee = MemberResolver.ResolveMethod(
-                    reader,
-                    handle,
-                    scope);
-            }
 
-            _callSites = checked(_callSites + 1);
-            sites.Add(
-                new(
-                    instruction.Offset,
-                    instruction.NextOffset,
-                    operand,
-                    kind,
-                    callee));
+                _callSites = checked(_callSites + 1);
+                sites.Add(
+                    new(
+                        instruction.Offset,
+                        instruction.NextOffset,
+                        operand,
+                        DefinitionToken(handle),
+                        kind,
+                        callee));
+            }
+            catch (Exception ex)
+                when (LibraryMethodAnalysisRunner
+                    .IsRecoverableMethodFailure(ex))
+            {
+                return new(
+                    sites.ToImmutable(),
+                    new(
+                        instruction.Offset,
+                        ex.Message));
+            }
         }
 
-        return sites.ToImmutable();
+        return new(
+            sites.ToImmutable(),
+            Failure: null);
     }
+
+    int DefinitionToken(EntityHandle handle) =>
+        handle.Kind == HandleKind.MethodSpecification
+            ? MetadataTokens.GetToken(
+                reader.GetMethodSpecification(
+                    (MethodSpecificationHandle)handle).Method)
+            : MetadataTokens.GetToken(handle);
 
     public MethodLocalSignature ReadLocalSignature(
         TypeDefinition type,
@@ -202,6 +280,35 @@ internal sealed class MethodCallMetadataLookup(MetadataReader reader)
             body,
             scope,
             RecordSignature);
+    }
+
+    public MemberRef ResolveCallMember(
+        TypeDefinition type,
+        MethodDefinition method,
+        int operandToken)
+    {
+        GenericScope scope = Scope(type, method);
+        EntityHandle handle = MetadataTokens.EntityHandle(operandToken);
+        if (handle.Kind == HandleKind.StandaloneSignature)
+        {
+            return ResolveIndirectCall(
+                (StandaloneSignatureHandle)handle,
+                scope);
+        }
+        if (handle.Kind is not (
+                HandleKind.MethodDefinition
+                or HandleKind.MemberReference
+                or HandleKind.MethodSpecification))
+        {
+            throw new BadImageFormatException(
+                $"A call operand is a {handle.Kind}.");
+        }
+        RecordMethodOperand(handle);
+        ValidateMethodOperand(handle);
+        return MemberResolver.ResolveMethod(
+            reader,
+            handle,
+            scope);
     }
 
     public MethodFieldOperand ResolveField(

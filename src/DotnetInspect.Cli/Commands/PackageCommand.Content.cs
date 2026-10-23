@@ -766,7 +766,11 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            packageInfoTargetContext)
+                            packageInfoTargetContext,
+                        assetSelection:
+                            PackageInfoAssetSelection(
+                                options,
+                                packageInfoTargetContext))
                     : await PackageExtractor.ExtractSelectedPackageAsync(
                         context.HttpClient,
                         target.PackageName,
@@ -777,7 +781,11 @@ public partial class PackageCommand
                         createComposition:
                             context.CreatePackageSourceComposition,
                         compileTargetContext:
-                            packageInfoTargetContext);
+                            packageInfoTargetContext,
+                        assetSelection:
+                            PackageInfoAssetSelection(
+                                options,
+                                packageInfoTargetContext));
             }
             else
             {
@@ -2269,7 +2277,7 @@ public partial class PackageCommand
     /// which is the outcome this command exists to prevent.
     /// </summary>
     private static bool NamesAKind(string path)
-        => Path.GetFileName(path.AsSpan()).Contains('.');
+        => PackageEntryPath.GetLeafName(path).Contains('.');
 
     private static PackageFileContent ReadPackageFileContent(
         string extractPath,

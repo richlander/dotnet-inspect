@@ -10,6 +10,10 @@ import {
   type DocumentInspectionState,
   type DocumentViewerState,
 } from "../src/document-inspection.ts";
+import {
+  containedDocumentFragmentHtml,
+  type ContainedDocumentFragment,
+} from "../src/contained-document.ts";
 import type {
   BrowserPackageDocument,
   BrowserPackageDocumentContent,
@@ -66,7 +70,12 @@ function readyViewer(
   assert.equal(viewer.status, "ready");
   if (viewer.status !== "ready") assert.fail("Expected a ready document");
   assert.equal(viewer.request.document, expectedDocument);
-  if (expectedHtml !== undefined) assert.equal(viewer.html, expectedHtml);
+  if (expectedHtml !== undefined) {
+    assert.equal(
+      containedDocumentFragmentHtml(viewer.fragment),
+      expectedHtml,
+    );
+  }
   return viewer;
 }
 
@@ -87,19 +96,51 @@ function assertViewerClosed(state: DocumentInspectionState) {
 
 function inspectionDependencies(
   state: DocumentInspectionState,
-  overrides: Partial<Omit<DocumentInspectionDependencies, "state">> = {},
+  overrides: Partial<Omit<DocumentInspectionDependencies, "state">> & {
+    renderText?: (text: string) => Promise<string>;
+    renderMarkdown?: (text: string) => Promise<string>;
+    renderMarkdownInline?: (text: string) => Promise<string>;
+  } = {},
 ): DocumentInspectionDependencies {
+  const {
+    renderText = async text => text,
+    renderMarkdown = async text => `<p>${text}</p>`,
+    renderMarkdownInline = async text => text,
+    ...current
+  } = overrides;
   return {
     state,
     queryDocument: async () => content("# Read me"),
-    renderText: async text => text,
-    renderMarkdown: async text => `<p>${text}</p>`,
-    renderMarkdownInline: async text => `<span>${text}</span>`,
+    renderDocument: async (input, generation, currentGeneration) => {
+      const html = await renderMarkdown(input.body);
+      if (currentGeneration() !== generation) {
+        throw new Error("Package document generation is stale.");
+      }
+      const meta = input.frontmatter;
+      if (!meta) return containedFragment(html);
+      const [nameHtml, versionHtml, descriptionHtml] = await Promise.all([
+        renderText(meta.name),
+        meta.version ? renderText(meta.version) : "",
+        meta.description ? renderMarkdownInline(meta.description) : "",
+      ]);
+      const metaCard = `<div class="doc-frontmatter">`
+        + `<strong>${nameHtml}</strong>`
+        + (versionHtml ? `<span>v${versionHtml}</span>` : "")
+        + (descriptionHtml ? `<p>${descriptionHtml}</p>` : "")
+        + "</div>";
+      return containedFragment(`${metaCard}${html}`);
+    },
     describeError: error =>
       error instanceof Error ? error.message : String(error),
     render: () => {},
-    ...overrides,
+    ...current,
   };
+}
+
+function containedFragment(html: string): ContainedDocumentFragment {
+  // Test fixtures represent the result of the separately tested construction boundary.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  return Object.freeze({ html }) as ContainedDocumentFragment;
 }
 
 function deferred<T>() {
@@ -141,7 +182,7 @@ test("document requests publish sanitized body HTML for exact coordinates", asyn
     document,
   });
 
-  assert.equal(readyViewer(state, document, "<h1>Read me</h1>").meta, null);
+  readyViewer(state, document, "<h1>Read me</h1>");
   assert.deepEqual(events, ["render", "query", "markdown", "render"]);
 });
 
@@ -164,7 +205,7 @@ test("document frontmatter projects folded descriptions and version", async () =
       },
       renderMarkdownInline: async text => {
         assert.equal(text, "First line second line");
-        return "<p>First line second line</p>";
+        return "First line second line";
       },
     }));
 
@@ -174,12 +215,13 @@ test("document frontmatter projects folded descriptions and version", async () =
     document,
   });
 
-  const viewer = readyViewer(state, document, "<h1>Body</h1>");
-  assert.deepEqual(viewer.meta, {
-    nameHtml: "Package guide",
-    versionHtml: "2.0",
-    descriptionHtml: "<p>First line second line</p>",
-  });
+  readyViewer(
+    state,
+    document,
+    '<div class="doc-frontmatter"><strong>Package guide</strong>'
+      + '<span>v2.0</span><p>First line second line</p></div>'
+      + "<h1>Body</h1>",
+  );
 });
 
 test("frontmatter descriptions fall back to the document name", async () => {
@@ -196,7 +238,7 @@ test("frontmatter descriptions fall back to the document name", async () => {
         + "Body"),
       renderMarkdownInline: async text => {
         assert.equal(text, "First line\nsecond line");
-        return "<p>Description</p>";
+        return "Description";
       },
     }));
 
@@ -206,11 +248,13 @@ test("frontmatter descriptions fall back to the document name", async () => {
     document,
   });
 
-  assert.deepEqual(readyViewer(state, document).meta, {
-    nameHtml: "README.md",
-    versionHtml: "2.0",
-    descriptionHtml: "<p>Description</p>",
-  });
+  readyViewer(
+    state,
+    document,
+    '<div class="doc-frontmatter"><strong>README.md</strong>'
+      + '<span>v2.0</span><p>Description</p></div>'
+      + "<p>Body</p>",
+  );
 });
 
 test("frontmatter name and version use the contained text renderer", async () => {
@@ -238,11 +282,14 @@ test("frontmatter name and version use the contained text renderer", async () =>
     document,
   });
 
-  assert.deepEqual(readyViewer(state, document).meta, {
-    nameHtml: "api.\\u202Etegun",
-    versionHtml: "literal-\\\\u202E",
-    descriptionHtml: "<span>Package guide</span>",
-  });
+  readyViewer(
+    state,
+    document,
+    '<div class="doc-frontmatter"><strong>api.\\u202Etegun</strong>'
+      + '<span>vliteral-\\\\u202E</span>'
+      + '<p>Package guide</p></div>'
+      + "<p>Body</p>",
+  );
 });
 
 test("frontmatter with only a version does not create a metadata card", async () => {
@@ -258,7 +305,7 @@ test("frontmatter with only a version does not create a metadata card", async ()
     document,
   });
 
-  assert.equal(readyViewer(state, document).meta, null);
+  readyViewer(state, document, "<p>Body</p>");
 });
 
 const nuspecDocument: BrowserPackageDocument = {
@@ -286,15 +333,17 @@ async function renderedNuspecBody(text: string) {
     document: nuspecDocument,
   });
 
-  return { rendered, meta: readyViewer(state, nuspecDocument).meta };
+  return { rendered, html: containedDocumentFragmentHtml(
+    readyViewer(state, nuspecDocument).fragment,
+  ) };
 }
 
 test("nuspec renders as a fenced xml block without frontmatter parsing", async () => {
   const xml = "---\nversion: 2.0\n---\n<package />";
-  const { rendered, meta } = await renderedNuspecBody(xml);
+  const { rendered, html } = await renderedNuspecBody(xml);
 
   assert.equal(rendered, `\`\`\`xml\n${xml}\n\`\`\``);
-  assert.equal(meta, null);
+  assert.doesNotMatch(html, /doc-frontmatter/);
 });
 
 test("nuspec fence outgrows backtick runs inside the xml", async () => {
@@ -894,7 +943,12 @@ test("opening another document clears prior published surfaces immediately", asy
     version: "1.2.3",
     document,
   });
-  assert.notEqual(readyViewer(state, document, "<p>old body</p>").meta, null);
+  readyViewer(
+    state,
+    document,
+    '<div class="doc-frontmatter"><strong>Old</strong></div>'
+      + "<p>old body</p>",
+  );
 
   const open = coordinator.open({
     packageId: "Example.Package",
@@ -919,12 +973,7 @@ test("closing replaces every document surface with a closed state", () => {
         version: "1.2.3",
         document,
       },
-      html: "<p>old</p>",
-      meta: {
-        nameHtml: "Old",
-        versionHtml: "1.0",
-        descriptionHtml: "<p>old</p>",
-      },
+      fragment: containedFragment("<p>old</p>"),
     },
   });
   const coordinator = createDocumentInspectionCoordinator(
@@ -973,8 +1022,7 @@ test("document viewer ownership is explicit for every state", () => {
   assert.equal(documentViewerIsOpen({
     status: "ready",
     request,
-    html: "",
-    meta: null,
+    fragment: containedFragment(""),
   }), true);
   assert.equal(documentViewerIsOpen({
     status: "failed",
@@ -1003,7 +1051,7 @@ test("snapshot normalization preserves settled and closed states", () => {
   };
   const states: DocumentViewerState[] = [
     { status: "closed" },
-    { status: "ready", request, html: "", meta: null },
+    { status: "ready", request, fragment: containedFragment("") },
     { status: "failed", request, error: "unavailable" },
   ];
   for (const state of states) {
@@ -1018,8 +1066,11 @@ test("Overview titles are deduplicated per exact package owner and settle indepe
   let calls = 0;
   const titles = createPackageDocumentTitles({
     queryDocument: () => ++calls === 1 ? first.promise : second.promise,
-    renderMarkdown: async body => body,
-    firstHeading: html => html.startsWith("# ") ? html.slice(2) : null,
+    renderDocument: async input => containedFragment(input.body),
+    firstHeading: fragment => {
+      const html = containedDocumentFragmentHtml(fragment);
+      return html.startsWith("# ") ? html.slice(2) : null;
+    },
     describeError: String, render: () => {},
   });
   const oldOwner = {}, newOwner = {};
@@ -1043,7 +1094,8 @@ test("Overview titles distinguish no heading from a failed read", async () => {
       if (request.document.path === guideDocument.path) throw new Error("Read failed");
       return content("No heading");
     },
-    renderMarkdown: async text => text, firstHeading: () => null,
+    renderDocument: async input => containedFragment(input.body),
+    firstHeading: () => null,
     describeError: String, render: () => {},
   });
   await titles.load(owner, [document, guideDocument].map(item => ({ packageId: "Example", version: "1", document: item })));

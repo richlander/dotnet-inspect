@@ -170,14 +170,15 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageDocument_ReadmePackageAndSkillUseExactFileAcquisition()
+    public async Task PackageDocument_ExactFileAcquisitionSkipsOnlyLeadingUtf8Bom()
     {
         string packageId = $"gallery.documents.{Guid.NewGuid():N}";
         const string version = "1.2.3";
         string readmeText =
             "\uFEFF"
             + new string('r', 64 * 1024)
-            + " Browser/Wasm \U0001F310";
+            + " Browser/Wasm \U0001F310"
+            + "\uFEFF retained content";
         const string packageText =
             "# Package guidance\n\nComplete acquisition.";
         const string skillText =
@@ -212,6 +213,8 @@ public sealed partial class BrowserEngineBoundaryTests
 
         BrowserPackageDocumentPayload readme =
             await Read("README.md", store);
+        BrowserPackageDocumentPayload nuspec =
+            await Read($"{packageId}.nuspec", store);
         BrowserPackageDocumentPayload skill =
             await Read("skills/demo/SKILL.md", store);
         int requestsAfterSkill = handler.Requested.Count;
@@ -230,8 +233,15 @@ public sealed partial class BrowserEngineBoundaryTests
                 "readme",
                 "README.md",
                 "README.md",
-                readmeText),
+                readmeText[1..]),
             readme);
+        Assert.Equal(
+            new BrowserPackageDocumentPayload(
+                "metadata",
+                $"{packageId}.nuspec",
+                $"{packageId}.nuspec",
+                Nuspec(packageId, version)),
+            nuspec);
         Assert.Equal(
             new BrowserPackageDocumentPayload(
                 "skill",
@@ -365,7 +375,7 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
-    public async Task PackageDocument_RealWrongTurnReadmeIsContainedForBrowserPublication()
+    public async Task PackageDocument_RealWrongTurnReadmeRetainsBidiUntilBrowserPublication()
     {
         const string PackageId = "WrongTurn";
         const string Version = "0.1.15";
@@ -397,14 +407,6 @@ public sealed partial class BrowserEngineBoundaryTests
 
         Assert.Contains('\u202E', payload.Text);
         Assert.Contains('\u202C', payload.Text);
-
-        const string sanitizedHtml =
-            "<p>https://api.\u202Etegun\u202C.org/v3/index.json</p>";
-        BrowserPackageDocumentHtml document =
-            BrowserPackageWireProjection.ProjectDocumentHtml(sanitizedHtml);
-        Assert.Equal(
-            "<p>https://api.\\u202Etegun\\u202C.org/v3/index.json</p>",
-            document.Html.ToString());
     }
 
     [Fact]
@@ -589,6 +591,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 Assert.Equal(packageId, occurrence.Package);
                 Assert.Equal(version, occurrence.Version);
                 Assert.Equal("net11.0", occurrence.Framework);
+                Assert.Equal("", occurrence.RuntimeIdentifier);
                 Assert.DoesNotContain(
                     packageId,
                     occurrence.Action,
@@ -617,6 +620,62 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Null(
             BrowserWorkspaceOccurrenceOperations.Activate(
                 replacement.Occurrences[0].Action));
+    }
+
+    [Fact]
+    public async Task WorkspaceOccurrences_QueryRetainsRuntimeIdentifier()
+    {
+        string packageId = $"Gallery.Workspace.Runtime.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        const string runtimeIdentifier = "linux-x64";
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                Package(
+                    File.ReadAllBytes(
+                        typeof(BrowserPackage).Assembly.Location),
+                    $"runtimes/{runtimeIdentifier}/lib/net11.0/{packageId}.dll"),
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+        string request = JsonSerializer.Serialize(
+            [
+                new BrowserWorkspacePackage(
+                    packageId,
+                    version,
+                    "net11.0",
+                    runtimeIdentifier),
+            ],
+            BrowserPackageJsonContext.Default
+                .BrowserWorkspacePackageArray);
+
+        BrowserWorkspacePackageOccurrenceView view =
+            Assert.IsType<BrowserWorkspacePackageOccurrenceView>(
+                JsonSerializer.Deserialize(
+                    await PackageExports
+                        .QueryWorkspacePackageOccurrences(request),
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceView));
+        BrowserWorkspacePackageOccurrence occurrence =
+            Assert.Single(view.Occurrences);
+        Assert.Equal(runtimeIdentifier, occurrence.RuntimeIdentifier);
+
+        BrowserWorkspacePackageOccurrenceActivation activation =
+            Assert.IsType<BrowserWorkspacePackageOccurrenceActivation>(
+                JsonSerializer.Deserialize(
+                    await PackageExports
+                        .ActivateWorkspacePackageOccurrence(
+                            occurrence.Action),
+                    BrowserPackageJsonContext.Default
+                        .BrowserWorkspacePackageOccurrenceActivation));
+        Assert.True(activation.Activated);
+        Assert.False(activation.Superseded);
+        Assert.NotNull(activation.Package);
+        Assert.Equal(
+            runtimeIdentifier,
+            activation.RuntimeIdentifier);
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
     }
 
     [Fact]

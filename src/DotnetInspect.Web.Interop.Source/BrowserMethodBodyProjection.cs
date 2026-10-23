@@ -134,9 +134,9 @@ internal static class BrowserMethodBodyProjection
                             SubjectToken: failure.SubjectToken,
                             Mechanism: failure.MechanismName, Path: failure.Path)));
                 }
-                return new(name, "ProducedCSharp",
-                    csharpEvidence is null ? MissingBodyVerdict(before, after)
-                        : csharpEvidence.IsExact ? "Exact" : "NotExact",
+                string csharpVerdict = Verdict(csharp.Findings,
+                    csharpEvidence is null ? null : csharpEvidence.IsExact ? "Exact" : "NotExact", diagnostics);
+                return new(name, "ProducedCSharp", csharpVerdict,
                     before, after, csharpEvidence, null, [.. diagnostics]);
             case ResearchProducerWorkOutcome.ProducedIlBody produced:
                 var il = produced.Result;
@@ -161,8 +161,8 @@ internal static class BrowserMethodBodyProjection
                             "IL identity resolution failed.", failure.Detail,
                             SubjectToken: failure.SubjectToken, Mechanism: failure.MechanismName)));
                 }
-                return new(name, "ProducedIlBody",
-                    ilEvidence?.Outcome ?? MissingBodyVerdict(before, after),
+                string ilVerdict = Verdict(il.Findings, ilEvidence?.Outcome, diagnostics);
+                return new(name, "ProducedIlBody", ilVerdict,
                     before, after, null, ilEvidence, [.. diagnostics]);
             case ResearchProducerWorkOutcome.Unavailable unavailable:
                 return new(name, "Unavailable", "NotRun", before, after, null, null,
@@ -205,8 +205,22 @@ internal static class BrowserMethodBodyProjection
         }
     }
 
-    static string MissingBodyVerdict(BrowserMethodBodyEndpoint before, BrowserMethodBodyEndpoint after) =>
-        before.State == "Failed" || after.State == "Failed" ? "Unavailable" : "NotApplicable";
+    /// <summary>
+    /// The producer's verdict: the native evidence's when it ran, otherwise
+    /// <c>Unavailable</c> when the Findings comparison failed, for an
+    /// inspection failure or for a comparison that refused to run (such as a
+    /// pair beyond the ordered matcher's bound), and <c>NotApplicable</c> when
+    /// it completed without a native body to compare. A comparison-level
+    /// failure is reported as a diagnostic, so the view is never empty for it.
+    /// </summary>
+    internal static string Verdict<T>(
+        FindingComparison<T> findings, string? nativeVerdict, List<BrowserMethodBodyDiagnostic> diagnostics)
+        where T : notnull
+    {
+        if (findings.Value is FindingComparison<T>.Failed { ComparisonFailure: { } reason })
+            diagnostics.Add(new("comparison", null, reason, null));
+        return nativeVerdict ?? (findings is FindingComparison<T>.Failed ? "Unavailable" : "NotApplicable");
+    }
 
     static BrowserMethodBodyDiagnostic Diagnostic(ResearchProducerDiagnostic diagnostic) =>
         new(diagnostic.Kind.ToString(), null, diagnostic.Summary, diagnostic.Producer?.ToString());

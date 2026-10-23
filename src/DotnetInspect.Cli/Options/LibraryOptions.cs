@@ -73,6 +73,11 @@ public record LibraryOptions : IProjectionOptions
     public bool NamesakeLibrary { get; init; }
 
     /// <summary>
+    /// Select the owner-issued First Library instead of the admitted aggregate.
+    /// </summary>
+    public bool FirstLibrary { get; init; }
+
+    /// <summary>
     /// Include prerelease/preview versions when resolving an unversioned package.
     /// </summary>
     public bool IncludePrerelease { get; init; }
@@ -98,6 +103,16 @@ public record LibraryOptions : IProjectionOptions
     /// Alternative to specifying full assembly path.
     /// </summary>
     public string? Tfm { get; init; }
+
+    /// <summary>
+    /// Runtime identifier of the owner-selected Package Library population.
+    /// </summary>
+    internal string? PackageRuntimeIdentifier { get; init; }
+
+    /// <summary>
+    /// Package-relative Library path selected by the Package population owner.
+    /// </summary>
+    internal string? SelectedPackageLibraryPath { get; init; }
 
     /// <summary>Optional narrowing of ordinary Integration evidence.</summary>
     public IntegrationQueryOptions IntegrationQuery { get; init; } = IntegrationQueryOptions.Default;

@@ -2396,6 +2396,50 @@ correspondence are gated by
 `RidSpecificImplementation_UsesSeparateNeutralCompileRole`; Browser adoption
 is gated by `RidSpecificPackage_SeparatesCompileAndImplementationAssets`.
 
+#### Content-only package admission
+
+Package inspection may admit an acquired Root for content-only use. This
+retains its exact coordinate, content generation, requested target, and complete
+selector-issued evidence without preparing Library participants. A missing
+compile target or invalid implementation selection does not prevent inspecting
+the package itself. Content-only admission does not turn that selection into
+an empty successful selection.
+
+`PackageRootBinding.ForContentInspection()` requests this invocation-local
+admission. Its correspondence differs from Library-realizing admission, so a
+content-only generation cannot satisfy an existing Library realization request.
+The same Workspace publication, query admission, cancellation, and retirement
+protocol applies; no new scheduling transition is introduced. Content-only
+Roots prepare no assembly images and expose no Library role groups. Ordinary
+admission still validates and prepares its selected Libraries.
+
+Changing only the admission purpose preserves the Root's already-computed
+unselected target-framework assembly-candidate fact without enumerating the
+same content again. This reuse applies to the unchanged content generation and
+selection; ordinary construction and changed selections still compute their
+own facts. The real `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk.
+`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates its absence
+for both complete Library populations and packages containing reference plus
+implementation assemblies, preserving both false and true candidate facts.
+
+The current durable Root token represents Library realization and does not
+encode this additional admission purpose. A content-only binding therefore
+refuses to issue that token rather than silently changing purpose on reopening.
+This does not change a host's existing package-coordinate Share projection.
+Durable content-only Root reopening is outside this slice.
+
+The motivating asset is `Microsoft.NETCore.App.Ref@10.0.0`: inspecting package
+facts while requesting `net9.0` remains useful even though its compile assets
+are for `net10.0`. Package-level inspection must also not require opening or
+validating DLL bytes merely to inspect the containing package.
+`ContentOnlyPackageAdmission_PreservesUnmatchedFramework` retains this target
+mismatch in a deterministic package-shaped fixture.
+`ContentOnlyPackageAdmission_PreservesSelectionWithoutOpeningDlls` gates the
+unchanged selection evidence, distinct correspondence, absence of DLL reads,
+ordinary malformed-DLL rejection, live package queries, and query refusal after
+Workspace close.
+
 #### Durable package-content identity adoption
 
 `AcquiredPackagePayload.GetContentDigest` and

@@ -349,7 +349,7 @@ public static class MemberDocumentInspectionOperation
         MemberDocumentInspectionContent document = available.Document;
         if (request.Plan.Documentation is { } documentation)
         {
-            MemberDocumentationAttachmentResult attachment =
+            MemberDocumentationAttachmentOutcome attachment =
                 await MemberDocumentationAttachmentOperation.ExecuteAsync(
                         [
                             document.Subject,
@@ -360,14 +360,14 @@ public static class MemberDocumentInspectionOperation
                     .ConfigureAwait(false);
             switch (attachment)
             {
-                case MemberDocumentationAttachmentResult.Attached attached:
+                case MemberDocumentationAttachmentOutcome.Available documented:
                     document = document with
                     {
                         Documentation =
-                            AssertSingle(attached.Attachments),
+                            AssertSingle(documented.Attachments),
                     };
                     break;
-                case MemberDocumentationAttachmentResult.Failed failed:
+                case MemberDocumentationAttachmentOutcome.Failed failed:
                     return new(
                         new MemberDocumentInspectionOutcome.Failed(
                             Map(failed.Reason)),

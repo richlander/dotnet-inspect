@@ -8,6 +8,13 @@ namespace DotnetInspect.Cli.Output;
 
 internal static class DiscoveryDocumentFactory
 {
+    private static readonly OutputCapabilityCatalog s_emptyCapabilities =
+        new(
+            new Dictionary<
+                string,
+                SectionOutputCapabilities>(
+                StringComparer.OrdinalIgnoreCase));
+
     public sealed record Projection(
         DiscoveryDocument Document,
         ImmutableArray<StructuralResourcePathRegistration> ResourcePaths);
@@ -44,7 +51,8 @@ internal static class DiscoveryDocumentFactory
             sectionCardinalities,
             sectionShapes,
             sectionDescriptions,
-            includeResourcePaths: false)?.Document;
+            includeResourcePaths: false,
+            includeQueryItems: true)?.Document;
 
     public static Projection? CreateProjection(
         string catalog,
@@ -78,7 +86,34 @@ internal static class DiscoveryDocumentFactory
             sectionCardinalities,
             sectionShapes,
             sectionDescriptions,
-            includeResourcePaths: true);
+            includeResourcePaths: true,
+            includeQueryItems: true);
+
+    public static DiscoveryDocument? CreateTreeDocument(
+        string catalog,
+        string[]? discover,
+        DocumentSchema schema,
+        IReadOnlyDictionary<string, string[]>? sectionCategories,
+        IReadOnlySet<string>? catalogHiddenSections,
+        IReadOnlySet<string>? listedCategoryDoors,
+        IReadOnlyDictionary<string, string>? sectionCostAnnotations,
+        IReadOnlySet<string>? exactOnlySections) =>
+        CreateCore(
+            catalog,
+            discover,
+            schema,
+            sectionCategories,
+            catalogHiddenSections,
+            listedCategoryDoors,
+            sectionCostAnnotations,
+            exactOnlySections,
+            s_emptyCapabilities,
+            requireExactSelection: false,
+            sectionCardinalities: null,
+            sectionShapes: null,
+            sectionDescriptions: null,
+            includeResourcePaths: false,
+            includeQueryItems: false)?.Document;
 
     private static Projection? CreateCore(
         string catalog,
@@ -98,7 +133,8 @@ internal static class DiscoveryDocumentFactory
         IReadOnlyDictionary<
             string,
             SectionDescription>? sectionDescriptions,
-        bool includeResourcePaths)
+        bool includeResourcePaths,
+        bool includeQueryItems)
     {
         IReadOnlyDictionary<string, string[]> categories =
             FilterCategories(sectionCategories, schema.SectionNames);
@@ -123,7 +159,8 @@ internal static class DiscoveryDocumentFactory
                 cardinalities,
                 shapes,
                 descriptions,
-                includeResourcePaths ? resourcePaths : null);
+                includeResourcePaths ? resourcePaths : null,
+                includeQueryItems);
         List<DiscoveryResourceIdentity> catalogEntries =
             CreateCatalogEntries(
                 schema,
@@ -162,7 +199,8 @@ internal static class DiscoveryDocumentFactory
             SectionCardinalityDeclaration> cardinalities,
         IReadOnlyDictionary<string, SectionShape> shapes,
         IReadOnlyDictionary<string, SectionDescription> descriptions,
-        List<StructuralResourcePathRegistration>? resourcePaths)
+        List<StructuralResourcePathRegistration>? resourcePaths,
+        bool includeQueryItems)
     {
         var resources = new List<DiscoveryResource>();
         foreach ((string name, string[] members) in categories
@@ -215,13 +253,14 @@ internal static class DiscoveryDocumentFactory
                                 item.Kind,
                                 MachineKeyPathSegment(item.Key))),
                     ];
-            if (string.Equals(
+            if (includeQueryItems
+                && (string.Equals(
                     sectionName,
                     SectionNames.PerformanceTriage,
                     StringComparison.OrdinalIgnoreCase)
                 || PerformanceKinds.Sections.Contains(
                     sectionName,
-                    StringComparer.OrdinalIgnoreCase))
+                    StringComparer.OrdinalIgnoreCase)))
             {
                 items.AddRange(
                     PerformanceTriageOptions.DiscoveryItems()

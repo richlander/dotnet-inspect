@@ -91,6 +91,19 @@ public static class AnalysisFindings
         FindingInspection<AllocationOccurrence> newInspection =
             new FindingInspection<AllocationOccurrence>.Complete(
                 InspectAllocations(newOccurrences, subject));
+        return CompareAllocations(
+            oldInspection,
+            newInspection,
+            acceptanceThreshold);
+    }
+
+    public static FindingComparison<AllocationOccurrence> CompareAllocations(
+        FindingInspection<AllocationOccurrence> oldInspection,
+        FindingInspection<AllocationOccurrence> newInspection,
+        int acceptanceThreshold = 100)
+    {
+        ArgumentNullException.ThrowIfNull(oldInspection);
+        ArgumentNullException.ThrowIfNull(newInspection);
         return FindingComparison.Compare<AllocationOccurrence>(
                 oldInspection,
                 newInspection,
@@ -361,23 +374,29 @@ public static class AnalysisFindings
     }
 
     /// <summary>
-    /// Projects an execution's unsafe member census, failing when the execution
-    /// did not produce one.
+    /// Projects a census operation's result: an available census as its
+    /// findings, and a failed inspection as a failure, not an observation.
     /// </summary>
     public static UnsafeMemberFindingInspection InspectUnsafeMembers(
-        LibrarySafetyAnalysisResult safety,
+        Planning.UnsafeMemberCensusResult result,
         FindingSubject subject)
     {
-        ArgumentNullException.ThrowIfNull(safety);
+        ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(subject);
 
-        return safety.WasRequested && safety.HasMemberCensus
-            ? InspectUnsafeMembers(safety.MemberCensus, subject)
-            : new UnsafeMemberFindingInspection.Failed(
-                new InspectionError(
-                    subject,
-                    UnsafeMemberDescriptor,
-                    "Method evidence was not requested for this analysis execution."));
+        return result switch
+        {
+            Planning.UnsafeMemberCensusResult.Available available =>
+                InspectUnsafeMembers(available.Census, subject),
+            Planning.UnsafeMemberCensusResult.Failed failed =>
+                new UnsafeMemberFindingInspection.Failed(
+                    new InspectionError(
+                        subject,
+                        UnsafeMemberDescriptor,
+                        failed.Error.Message)),
+            _ => throw new InvalidOperationException(
+                "Unknown unsafe member census result."),
+        };
     }
 
     /// <summary>

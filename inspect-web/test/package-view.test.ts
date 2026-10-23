@@ -241,3 +241,55 @@ test("package navigation lists versions and retains the active coordinate", () =
   assert.match(html, /data-package-framework="net10\.0" aria-current="page"/);
   assert.ok(html.indexOf("data-nav-scope=\"frameworks\"") < html.indexOf("package-version-filter"));
 });
+
+test("package navigation lists ordered runtime identifiers beneath frameworks", () => {
+  const html = renderPackageNav({
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    runtimeIdentifiers: ["linux-x64", "osx-arm64", "win-x64"],
+    activeRuntimeIdentifier: "osx-arm64",
+    runtimePopulationStatus: "Selected",
+    versions: ["1.0.0"],
+    activeVersion: "1.0.0",
+    escapeHtml: value => String(value),
+  });
+
+  assert.match(html, /aria-label="Frameworks, RIDs &amp; versions"/);
+  assert.match(
+    html,
+    /data-package-runtime="osx-arm64" aria-current="page"/);
+  assert.doesNotMatch(
+    html,
+    /data-package-runtime="linux-x64" aria-current="page"/);
+  const frameworks = html.indexOf('data-nav-scope="frameworks"');
+  const runtimes = html.indexOf('data-nav-scope="runtime-identifiers"');
+  const versions = html.indexOf('id="package-version-filter"');
+  assert.ok(frameworks < runtimes);
+  assert.ok(runtimes < versions);
+  assert.ok(
+    html.indexOf('data-package-runtime="linux-x64"')
+      < html.indexOf('data-package-runtime="osx-arm64"'));
+  assert.ok(
+    html.indexOf('data-package-runtime="osx-arm64"')
+      < html.indexOf('data-package-runtime="win-x64"'));
+});
+
+test("ambiguous runtime navigation exposes inventory without an active row", () => {
+  const html = renderPackageNav({
+    frameworks: ["net10.0"],
+    activeFramework: "net10.0",
+    runtimeIdentifiers: ["osx-arm64", "win-x64"],
+    activeRuntimeIdentifier: null,
+    runtimePopulationStatus: "Ambiguous",
+    versions: ["1.0.0"],
+    activeVersion: "1.0.0",
+    escapeHtml: value => String(value),
+  });
+
+  assert.match(
+    html,
+    /Select a runtime identifier to choose the implementation population\./);
+  assert.doesNotMatch(
+    html,
+    /data-package-runtime="(?:osx-arm64|win-x64)" aria-current="page"/);
+});

@@ -241,9 +241,6 @@ function memberSurface(): BrowserMemberSurface {
     returnType: "int",
     parameters: [],
     documentationId: "P:Example.Widget.Value",
-    summary: null,
-    returns: null,
-    exceptions: [],
     stableSelector: "Value",
     anchorDigest: "value",
     canonicalSignature: "int Example.Widget.Value",
@@ -261,6 +258,24 @@ function memberSurface(): BrowserMemberSurface {
     }],
   };
 }
+
+test("app member surfaces initialize deferred documentation fields", () => {
+  const member = createAppMemberSurface({
+    ...memberSurface(),
+    parameters: [{
+      name: "value",
+      type: "string",
+      modifier: null,
+      hasDefault: false,
+      defaultValue: null,
+    }],
+  });
+
+  assert.equal(member.summary, null);
+  assert.equal(member.returns, null);
+  assert.deepEqual(member.exceptions, []);
+  assert.equal(member.parameters[0]?.description, null);
+});
 
 function packageSurface(
   overrides: Partial<BrowserPackageSurface> = {},
@@ -384,6 +399,7 @@ function packageRootLoad(
 ): BrowserPackageRootLoadResult {
   return {
     packageChildren: packageChildren(surface),
+    runtimePopulation: null,
     documents: surface.documents,
     defaultLibraryId: surface.defaultAssemblyId,
   };
@@ -665,11 +681,82 @@ test("Package children retain navigable Libraries missing from the broad surface
   assert.equal(libraries[0]?.types, null);
   assert.equal(libraries[0]?.members, null);
   assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(libraries[0]?.countsPending, false);
   assert.equal(
     libraries[0]?.unavailableDetail,
     "Library surface details are unavailable.");
   assert.equal(model.totalTypes, null);
   assert.equal(model.totalMembers, null);
+});
+
+test("a failed First Library surface remains selected instead of using a sibling", () => {
+  const firstId = "compile:lib/net10.0/Example.Package.dll";
+  const sibling = assembly("sibling", "Example.Sibling", 3);
+  const children = packageChildren(packageSurface({
+    defaultAssemblyId: firstId,
+    assemblies: [
+      assembly(firstId, "Example.Package", 2),
+      sibling,
+    ],
+  }));
+  const notice = "Example.Package could not be inspected.";
+  const model = createNuGetPackageModel(
+    packageSurface({
+      defaultAssemblyId: firstId,
+      assemblies: [sibling],
+      types: [],
+      inspectionErrors: [notice],
+      inspectionError: notice,
+    }),
+    children);
+
+  assert.equal(model.assemblyId, firstId);
+  assert.equal(model.assembly, "Example.Package");
+  assert.equal(model.selectedCompileAssetId, firstId);
+  const libraries = packageLibrariesForModel(model);
+  assert.equal(libraries[0]?.id, firstId);
+  assert.equal(libraries[0]?.surfaceAvailable, false);
+  assert.equal(libraries[1]?.id, sibling.id);
+  assert.equal(libraries[1]?.surfaceAvailable, true);
+  assert.equal(model.inspectionError, notice);
+});
+
+test("a broad tool surface preserves the owner-issued First Library", () => {
+  const assetId = "tools/net10.0/any/Example.Tool.dll";
+  const projectedChildren = packageChildren(packageSurface({
+    defaultAssemblyId: assetId,
+    assemblies: [assembly(assetId, "Example.Tool", 0)],
+  }));
+  const children: BrowserPackageChildrenInspection = {
+    ...projectedChildren,
+    content: {
+      ...projectedChildren.content,
+      libraries: [{
+        assetId,
+        assetPath: assetId,
+        assemblyName: "Example.Tool",
+        role: "ToolEntryPoint",
+      }],
+    },
+  };
+  const model = createNuGetPackageModel(
+    packageSurface({
+      package: "Example.Tool",
+      defaultAssemblyId: assetId,
+      compileLibrary: {
+        status: "NoCompileAssets",
+        targetFramework: null,
+        message: null,
+      },
+      assemblies: [],
+      types: [],
+    }),
+    children);
+
+  assert.equal(model.assemblyId, assetId);
+  assert.equal(model.assembly, "Example.Tool");
+  assert.equal(model.selectedCompileAssetId, assetId);
+  assert.equal(model.inspectionError, "");
 });
 
 test("Package totals become unknown when a child has no broad surface", () => {
@@ -760,16 +847,30 @@ test("Workspace occurrence activation preserves matching inspection envelopes", 
     diagnostics: [],
   } satisfies BrowserPackageVersionSettlementInspection;
   const children = packageChildren(packageSurface());
-  const retained = createNuGetPackageModel(
-    packageSurface(),
-    versionSettlement,
-    measurements,
-    children);
+  const runtimePopulation = {
+    status: "Selected",
+    selectedRuntimeIdentifier: "win-x64",
+    availableRuntimeIdentifiers: ["linux-x64", "win-x64"],
+  } as const;
+  const retained = {
+    ...createNuGetPackageModel(
+      packageSurface(),
+      versionSettlement,
+      measurements,
+      children),
+    runtimeIdentifier: "win-x64",
+    runtimeIdentifiers: ["linux-x64", "win-x64"],
+    runtimePopulation,
+  };
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ totalMembers: 12 }),
+    "win-x64",
     retained,
     [retained]);
 
+  assert.equal(activated.runtimeIdentifier, "win-x64");
+  assert.equal(activated.runtimeIdentifiers, retained.runtimeIdentifiers);
+  assert.equal(activated.runtimePopulation, runtimePopulation);
   assert.equal(activated.totalMembers, 6);
   assert.equal(activated.versionSettlement, versionSettlement);
   assert.equal(activated.packageInfo, measurements);
@@ -808,6 +909,7 @@ test("Workspace occurrence activation does not copy envelopes across TFMs", () =
     packageInfo());
   const activated = createWorkspaceOccurrencePackageModel(
     packageSurface({ activeFramework: "net9.0" }),
+    "",
     retained,
     [retained]);
 
@@ -961,6 +1063,7 @@ function acquisitionDependencies(
       },
       packageInfo: packageInfo(),
       packageChildren: packageChildren(packageSurface()),
+      runtimePopulation: null,
       documents: [],
       surface: packageSurface(),
     }),
@@ -1038,6 +1141,7 @@ test("query results open through the exact opaque Root request", async () => {
   }]);
   assert.equal(packageLibrariesForModel(result)[0]?.types, null);
   assert.equal(packageLibrariesForModel(result)[0]?.unavailableDetail, null);
+  assert.equal(packageLibrariesForModel(result)[0]?.countsPending, true);
 });
 
 test("exact Root opening preserves a product default second in inventory", async () => {
@@ -1077,7 +1181,8 @@ test("missing exact Root capability never falls back to coordinate opening", asy
       return acquisitionDependencies().queryPackageSummary(
         "Example.Package",
         "1.2.3",
-        "net10.0");
+        "net10.0",
+        "");
     },
   }));
 
@@ -1126,6 +1231,7 @@ test("NotSettled package loads preserve the complete shared baseline", async () 
       versionSettlement,
       packageInfo: null,
       packageChildren: null,
+      runtimePopulation: null,
       documents: [],
       surface: null,
     }),

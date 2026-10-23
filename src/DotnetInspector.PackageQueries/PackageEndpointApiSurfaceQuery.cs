@@ -1,3 +1,4 @@
+using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using ILInspector.Metadata;
 
@@ -37,13 +38,15 @@ public static class PackageEndpointApiSurfaceQuery
                     {
                         Name = name,
                         Tfm = scope.TargetFramework,
+                        ExtractionScope =
+                            AssemblyContextApiSurfaceQuery.ExtractionScope(apiScope),
                     };
                     foreach (PackageEndpointBoundParticipant participant in participants)
                     {
                         token.ThrowIfCancellationRequested();
                         Merge(
                             merged,
-                            participant.Descriptor.Asset.Path,
+                            participant.Descriptor.Asset,
                             AssemblyContextApiSurfaceQuery.ExecuteParticipant(
                                 group,
                                 participant.Participant,
@@ -68,7 +71,7 @@ public static class PackageEndpointApiSurfaceQuery
 
     static void Merge(
         ApiSurface merged,
-        string assetPath,
+        PackageCompileAsset asset,
         AssemblyContextEntry<AssemblyApiSurface> entry,
         Action<string>? log)
     {
@@ -76,16 +79,16 @@ public static class PackageEndpointApiSurfaceQuery
         {
             case AssemblyContextEntry<AssemblyApiSurface>.Available available:
                 ApiSurface surface = available.Value.Surface;
-                surface.SetInspectionSourceAssemblyPath(assetPath);
+                surface.SetInspectionSourceAssemblyPath(asset.Path);
                 log?.Invoke(
-                    $"  + {Path.GetFileNameWithoutExtension(assetPath)}: "
+                    $"  + {asset.AssemblySimpleName}: "
                         + $"{surface.PublicTypeCount} types");
                 merged.MergeAssemblySurface(surface);
                 return;
             case AssemblyContextEntry<AssemblyApiSurface>.Rejected rejected:
                 AddFailure(
                     merged,
-                    assetPath,
+                    asset,
                     "acquire API surface",
                     rejected.Failure.Kind.ToString(),
                     rejected.Failure.Detail,
@@ -94,7 +97,7 @@ public static class PackageEndpointApiSurfaceQuery
             case AssemblyContextEntry<AssemblyApiSurface>.Failed failed:
                 AddFailure(
                     merged,
-                    assetPath,
+                    asset,
                     "extract API surface",
                     failed.Error.GetType().Name,
                     failed.Error.Message,
@@ -107,7 +110,7 @@ public static class PackageEndpointApiSurfaceQuery
 
     static void AddFailure(
         ApiSurface merged,
-        string assetPath,
+        PackageCompileAsset asset,
         string operation,
         string kind,
         string detail,
@@ -121,8 +124,8 @@ public static class PackageEndpointApiSurfaceQuery
                 kind,
                 detail)
             {
-                SourceAssemblyPath = assetPath,
+                SourceAssemblyPath = asset.Path,
             });
-        log?.Invoke($"  ! {Path.GetFileName(assetPath)}: {detail}");
+        log?.Invoke($"  ! {asset.AssemblyName}: {detail}");
     }
 }

@@ -34,7 +34,8 @@ public enum BrowserCompileLibraryStatus
 public sealed record BrowserWorkspacePackage(
     string Package,
     string Version,
-    string Framework);
+    string Framework,
+    string? RuntimeIdentifier = null);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserTypeFindResultStatus>))]
 public enum BrowserTypeFindResultStatus
@@ -322,8 +323,6 @@ public sealed record BrowserMemberGroupDocumentRow(
     int MetadataToken,
     int BaselineOrdinal,
     string DisplaySignature,
-    string CanonicalSignature,
-    string Fingerprint,
     string Accessibility,
     string Receiver);
 
@@ -517,9 +516,6 @@ public sealed record BrowserMemberSurface(
     string? ReturnType,
     BrowserParameterSurface[] Parameters,
     string? DocumentationId,
-    string? Summary,
-    string? Returns,
-    BrowserExceptionSurface[] Exceptions,
     string StableSelector,
     string AnchorDigest,
     string CanonicalSignature,
@@ -540,12 +536,7 @@ public sealed record BrowserParameterSurface(
     string Type,
     string? Modifier,
     bool HasDefault,
-    string? DefaultValue,
-    string? Description);
-
-public sealed record BrowserExceptionSurface(
-    string Type,
-    string Description);
+    string? DefaultValue);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageMetadata))]
@@ -641,9 +632,9 @@ public sealed record BrowserExceptionSurface(
 [JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
-[JsonSerializable(typeof(BrowserLibraryFastDiffRequest))]
-[JsonSerializable(typeof(BrowserLibraryFastDiffResult))]
-[JsonSerializable(typeof(BrowserLibraryFastDiffCancellation))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyRequest))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyResult))]
+[JsonSerializable(typeof(BrowserLibraryFindingDiffAnyCancellation))]
 internal sealed partial class BrowserMetadataJsonContext : JsonSerializerContext;
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

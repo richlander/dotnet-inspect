@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Reflection;
 
+using InertText.Encoding;
+
 namespace InertText.Tests;
 
 public sealed class InertUtf8StringTests
@@ -30,13 +32,6 @@ public sealed class InertUtf8StringTests
             () => population.Slice(-1, 1));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => population.Slice(0, -1));
-
-        static object Backing(OpaqueByteRange range) =>
-            typeof(OpaqueByteRange)
-                .GetField(
-                    "_backing",
-                    BindingFlags.Instance | BindingFlags.NonPublic)!
-                .GetValue(range)!;
     }
 
     [Fact]
@@ -44,18 +39,14 @@ public sealed class InertUtf8StringTests
     {
         OpaqueByteRange source =
             OpaqueByteRange.Copy("Résumé"u8);
-        var reader = new Utf8RangeReader(source);
+        Utf8RangeReader reader = Utf8RangeClassification.Read(source);
 
         Assert.True(reader.ValueTextEquals("Résumé"u8));
         Assert.False(reader.ValueTextEquals("Resume"u8));
-        Assert.True(
-            Utf8RangeReader.ValueTextEquals(
-                source,
-                "Résumé"u8));
-        Assert.False(
-            Utf8RangeReader.ValueTextEquals(
-                source,
-                "Resume"u8));
+        Assert.True(source.SequenceEqual("Résumé"u8));
+        Assert.False(source.SequenceEqual("Resume"u8));
+        Assert.False(source.Slice(0, 2).SequenceEqual("Résumé"u8));
+        Assert.True(default(OpaqueByteRange).SequenceEqual([]));
     }
 
     [Theory]
@@ -73,7 +64,7 @@ public sealed class InertUtf8StringTests
     {
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(source);
         var reader =
-            new Utf8RangeReader(OpaqueByteRange.Copy(bytes));
+            Utf8RangeClassification.Read(OpaqueByteRange.Copy(bytes));
 
         var utf8 =
             new InertUtf8String(TextPolicy.Field, reader);
@@ -86,9 +77,27 @@ public sealed class InertUtf8StringTests
         Assert.Equal(
             System.Text.Encoding.UTF8.GetBytes(expected),
             destination.WrittenSpan.ToArray());
-        Assert.Equal(utf16.ToString(), utf8.ToInertString().ToString());
+        Assert.Equal(utf16.ToString(), new InertString(utf8).ToString());
+        Assert.Equal(new InertString(utf8), utf8.ToInertString());
         Assert.Equal(utf16.Forms, utf8.Forms);
         Assert.Equal(utf16.Concerns, utf8.Concerns);
+    }
+
+    [Fact]
+    public void InertStringConstruction_PreservesContainedUtf8Evidence()
+    {
+        InertUtf8String utf8 = CreateContained(
+            "bounded"u8,
+            VisualForm.BmpHex,
+            TextConcern.Surrogate,
+            truncated: true);
+
+        var utf16 = new InertString(utf8);
+
+        Assert.Equal("bounded", utf16.ToString());
+        Assert.Equal(utf8.Forms, utf16.Forms);
+        Assert.Equal(utf8.Concerns, utf16.Concerns);
+        Assert.Equal(utf8.IsTruncated, utf16.IsTruncated);
     }
 
     [Fact]
@@ -102,6 +111,119 @@ public sealed class InertUtf8StringTests
         Assert.NotEqual(first, second);
         Assert.Equal(VisualForm.BmpHex, first.Forms);
         Assert.Equal(TextConcern.Surrogate, first.Concerns);
+    }
+
+    [Fact]
+    public void Builder_FreezesOneBackingBeforeIssuingRanges()
+    {
+        var builder = new OpaqueByteRangeBuilder(9);
+        OpaqueByteRangeSlot alpha = builder.Append("alpha"u8);
+        OpaqueByteRangeSlot empty = builder.Append([]);
+        OpaqueByteRangeSlot beta = builder.Append("beta"u8);
+
+        Assert.Equal(9, builder.Length);
+        OpaqueByteRange population = builder.Freeze();
+
+        Assert.Equal(OpaqueByteRange.Copy("alphabeta"u8), population);
+        Assert.Equal(OpaqueByteRange.Copy("alpha"u8), population.Slice(alpha));
+        Assert.Equal(default, population.Slice(empty));
+        Assert.Equal(OpaqueByteRange.Copy("beta"u8), population.Slice(beta));
+        Assert.Same(Backing(population), Backing(population.Slice(beta)));
+        Assert.Equal(OpaqueByteRange.Copy([]), new OpaqueByteRangeBuilder(0).Freeze());
+    }
+
+    [Fact]
+    public void Builder_RefusesWritesOutsideItsDeclaredPopulation()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new OpaqueByteRangeBuilder(-1));
+        Assert.Throws<InvalidOperationException>(
+            () => default(OpaqueByteRangeBuilder).Append("a"u8));
+        Assert.Throws<InvalidOperationException>(
+            () => new OpaqueByteRangeBuilder(2).Append("abc"u8));
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            var partial = new OpaqueByteRangeBuilder(2);
+            partial.Append("a"u8);
+            partial.Freeze();
+        });
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            var builder = new OpaqueByteRangeBuilder(1);
+            builder.Append("a"u8);
+            builder.Freeze();
+            builder.Freeze();
+        });
+    }
+
+    [Fact]
+    public void Builder_CopiesShareOneWritePositionAndFrozenState()
+    {
+        var builder = new OpaqueByteRangeBuilder(2);
+        OpaqueByteRangeBuilder copy = builder;
+        builder.Append("a"u8);
+        OpaqueByteRangeSlot second = copy.Append("b"u8);
+
+        Assert.Equal(1, second.Offset);
+        OpaqueByteRange population = builder.Freeze();
+        Assert.Equal(OpaqueByteRange.Copy("ab"u8), population);
+        bool appendRefused = false;
+        try
+        {
+            copy.Append([]);
+        }
+        catch (InvalidOperationException)
+        {
+            appendRefused = true;
+        }
+        bool freezeRefused = false;
+        try
+        {
+            copy.Freeze();
+        }
+        catch (InvalidOperationException)
+        {
+            freezeRefused = true;
+        }
+
+        Assert.True(appendRefused);
+        Assert.True(freezeRefused);
+    }
+
+    [Fact]
+    public void Range_CannotBeIssuedOverAWritableBacking()
+    {
+        var backing = new OpaqueByteBacking([1, 2], frozen: false);
+
+        Assert.Throws<InvalidOperationException>(
+            () => new OpaqueByteRange(backing, 0, 2));
+    }
+
+    [Fact]
+    public void Classification_IsTheOnlyPublicReaderIssuer()
+    {
+        MethodInfo[] issuers =
+        [
+            .. typeof(OpaqueByteRange).Assembly
+                .GetExportedTypes()
+                .SelectMany(type => type.GetMethods(
+                    BindingFlags.Public
+                    | BindingFlags.Static
+                    | BindingFlags.Instance
+                    | BindingFlags.DeclaredOnly))
+                .Where(method =>
+                    method.ReturnType == typeof(Utf8RangeReader)),
+        ];
+
+        MethodInfo issuer = Assert.Single(issuers);
+        Assert.Equal(typeof(Utf8RangeClassification), issuer.DeclaringType);
+        Assert.Equal("InertText.Encoding", issuer.DeclaringType!.Namespace);
+        Assert.Empty(typeof(Utf8RangeReader).GetConstructors());
+        Assert.DoesNotContain(
+            typeof(Utf8RangeReader).GetMethods(
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly),
+            method => method.GetParameters().Any(parameter =>
+                parameter.ParameterType == typeof(OpaqueByteRange)));
     }
 
     [Fact]
@@ -129,6 +251,12 @@ public sealed class InertUtf8StringTests
         ];
 
         Assert.Empty(disclosures);
+        Assert.DoesNotContain(
+            typeof(OpaqueByteRangeBuilder).GetMethods(
+                BindingFlags.Instance
+                | BindingFlags.Public
+                | BindingFlags.DeclaredOnly),
+            method => forbidden.Contains(method.ReturnType));
         Assert.DoesNotContain(
             typeof(OpaqueByteRange)
                 .GetProperties(
@@ -165,8 +293,38 @@ public sealed class InertUtf8StringTests
             typeof(Utf8RangeReader).GetConstructors());
     }
 
+    private static object Backing(OpaqueByteRange range) =>
+        typeof(OpaqueByteRange)
+            .GetField(
+                "_backing",
+                BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(range)!;
+
     private static InertUtf8String Contain(byte[] bytes) =>
         new(
             TextPolicy.Field,
-            new Utf8RangeReader(OpaqueByteRange.Copy(bytes)));
+            Utf8RangeClassification.Read(OpaqueByteRange.Copy(bytes)));
+
+    private static InertUtf8String CreateContained(
+        ReadOnlySpan<byte> bytes,
+        VisualForm forms,
+        TextConcern concerns,
+        bool truncated)
+    {
+        ConstructorInfo constructor = typeof(InertUtf8String)
+            .GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                [
+                    typeof(OpaqueByteRange),
+                    typeof(VisualForm),
+                    typeof(TextConcern),
+                    typeof(bool),
+                ],
+                modifiers: null)
+            ?? throw new InvalidOperationException(
+                "The contained UTF-8 constructor was not found.");
+        return (InertUtf8String)constructor.Invoke(
+            [OpaqueByteRange.Copy(bytes), forms, concerns, truncated]);
+    }
 }
