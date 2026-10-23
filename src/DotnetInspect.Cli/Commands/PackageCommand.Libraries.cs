@@ -10,6 +10,7 @@ using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspect.Cli.Planning;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchSections;
 using DotnetInspector.SourceSelection;
 using QuerySpace.Rows;
 using NuGetFetch;
@@ -2044,6 +2045,45 @@ public partial class PackageCommand
                 rowSchema.StableHeaders,
                 [.. RowWindow.Apply(rowWindow, switchRows)],
                 switchRows.Length != 0);
+        }
+
+        if (section.Equals(
+                SectionNames.DependencyStructure,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var dependencyRows = new List<string[]>();
+            foreach (LibraryInspection inspection in inspections)
+            {
+                if (inspection.DependencyStructureQueryResult
+                    is not LibraryDependencyStructureQueryResult.Available
+                        available)
+                {
+                    CommandError.WriteWarning(
+                        $"Dependency Structure is unavailable for "
+                            + $"{inspection.FileName}.");
+                    continue;
+                }
+
+                InspectionEnvelope<LibraryDependencyStructureTable> table =
+                    LibraryDependencyStructureInspection.TableEnvelope(
+                        available);
+                LibraryDependencyStructureTableOutput.WriteDiagnostics(
+                    table.Diagnostics);
+                dependencyRows.AddRange(
+                    LibraryDependencyStructureTableOutput
+                        .Values(table.Content)
+                        .Select(values => WithProvenance(
+                            packageName,
+                            version,
+                            inspection,
+                            values)));
+            }
+
+            return new(
+                rowSchema.Headers,
+                rowSchema.StableHeaders,
+                [.. RowWindow.Apply(rowWindow, dependencyRows)],
+                dependencyRows.Count != 0);
         }
 
         if (!section.Equals(

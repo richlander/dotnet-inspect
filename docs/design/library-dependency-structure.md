@@ -579,20 +579,37 @@ cache.
    request selects one row family; multiple selections reuse the same completed
    document rather than rebuilding its graph.
 3. **CLI:** an exact-name-only `library` section, `Dependency Structure`,
-   outside the default `-v:m` view. It uses Markout for tables and the Mermaid
-   graph lowering, and `--envelope` carries the complete Content with Share
-   and diagnostics. The Markdown and plain-text renderings state the cycle
-   facts outright before the edges: a `Cycles` field carries the document's
-   complete cycle count, suffixed `among admitted call evidence` when the
-   document is qualified; a `Cycle Members` table, omitted when there are no
-   cycles, lists each cycle with its namespace count and members in issued
-   order; and a `Namespace Edges` graph lowers the selected edges. Edge
-   selection never narrows the count or the membership. These facts are
-   Document summary, so TSV and JSONL Table demand emits only the edge rows,
-   per [Consumer selection](section-shapes.md#consumer-selection). Cycles are
-   named by 1-based position among all cycles, `cycle 1 of 1`, so that a
-   namespace's tag never reads as a count; JSON keeps the issued zero-based
-   `cycleIndex`. Mermaid lowers only the graph, with the same node tags.
+   outside the default `-v:m` view. It offers Table and Document under
+   [Section representations](section-shapes.md#section-representations).
+   - **Table.** The Table carries one row per selected namespace edge, in
+     QuerySpace order: `From`, `To`, `Calls`, `Function References`, and each
+     endpoint's `Level` and `Cycle`. The shared
+     `LibraryDependencyStructureInspection.TableEnvelope` issues it as
+     `InspectionEnvelope<LibraryDependencyStructureTable>` for both hosts.
+   - **Cycle numbers.** A cycle is numbered by its 1-based position among
+     all cycles, and is empty outside any cycle, so a cell never reads as a
+     count. JSON keeps the issued zero-based `cycleIndex`.
+   - **Table demand.** Table demand builds no cycle summary and no graph. A
+     qualified document is disclosed as a warning diagnostic, never as a
+     row.
+   - **Table selection.** On the exact-library route, a lone selection with
+     no format, or with `--table`, `--tsv`, or `--jsonl`, selects the Table.
+     The section declares `SectionShape.Table`, so the native-shape policy
+     in [Section shapes](section-shapes.md) chooses TSV. The package-wide
+     `library <package>@<version>` route keeps its Document default, as
+     every other section does there (#9511). Its `--tsv` and `--jsonl`
+     prefix each row with its Package, Version, Library, and TFM.
+   - **Document.** `--markdown` and `--plaintext` render the Document. A
+     `Cycles` field gives the complete count, suffixed `among admitted call
+     evidence` when the document is qualified. A `Cycle Members` table,
+     omitted when there are no cycles, lists each cycle's members in issued
+     order. The selected edges follow as a graph whose nodes are tagged
+     `cycle 1 of N`.
+   - **Selection scope.** Edge selection never narrows the count or the
+     membership.
+   - **Other formats.** `--json` and `--envelope` carry the complete Research
+     document, with Share and diagnostics. `--mermaid` lowers the same graph
+     as a diagram, and `--count` counts the Table's rows.
 4. **Browser/Wasm:** the Library Analysis inspector exposes a dedicated
    **Dependencies** tab with a levelized namespace view, marked cycles, and
    drill-down from one selected namespace edge to its explaining Type edges.

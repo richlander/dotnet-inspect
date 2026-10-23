@@ -222,14 +222,18 @@ structure; and `Member Metrics` for outliers. Complexity is normal-flow
 cyclomatic complexity over compiled IL: not authored intent, and not a
 maintainability score.
 
-Read structure from the `Dependency Structure` JSON document, which needs one
-exact library (`--namesake-library` or a dll path). `cycles` lists each
-namespace cycle, and every entry in `namespaces` carries `level` and
-zero-based `cycleIndex` (`null` outside any cycle). Markdown states the cycle
-count and members, and tags a member namespace `cycle 1 of N`. Each
-`namespaceEdges` entry names its strongest contributing type pairs in
-`explainingTypeEdges`, with `remainingContributorCount` for the rest;
-`typeEdges` holds every type pair:
+`library <package>@<version> -S "Dependency Structure" --tsv` streams one row
+per namespace edge. Each row gives both endpoints' `level` and 1-based
+`cycle`, which is empty outside any cycle. Rows sharing a cycle number form
+one cycle, and the distinct cycle numbers count the cycles. A stderr warning
+marks a qualified result.
+
+For type-level detail, read the JSON document. It needs one exact library
+(`--namesake-library` or a dll path). `cycles` lists each namespace cycle, and
+every entry in `namespaces` carries `level` and a zero-based `cycleIndex`
+(`null` outside any cycle). Each `namespaceEdges` entry names its strongest
+contributing type pairs in `explainingTypeEdges`, with
+`remainingContributorCount` for the rest. `typeEdges` holds every type pair:
 
 ```bash
 jq '.namespaceEdges[]

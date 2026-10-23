@@ -740,15 +740,19 @@ public static class OutputFormatter
         }
         else
         {
-            ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            var tableView = new LibraryInspectionView(
-                inspection,
-                topFieldsOnly,
-                input.DocumentInspection)
+            if (LibraryCommand.IsExactDependencyStructureSelection(options)
+                && inspection.DependencyStructureQueryResult
+                    is LibraryDependencyStructureQueryResult.Available
+                        dependencyStructure)
             {
-                TableDemand = true,
-            };
-            WriteLibraryTabular(tableView, inspection, writerOpts, options);
+                LibraryDependencyStructureTableOutput.Write(
+                    dependencyStructure,
+                    options);
+                return;
+            }
+
+            ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+            WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
     }
 

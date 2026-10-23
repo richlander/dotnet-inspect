@@ -12,26 +12,17 @@ namespace DotnetInspect.Cli.Views;
 /// <remarks>
 /// The count and membership are Document summary. They come from the
 /// complete document rather than from row selection, so a limited edge
-/// table never changes them, and Table demand omits them so that a row
-/// stream carries only edge rows. The format is owned by
-/// docs/design/library-dependency-structure.md.
+/// table never changes them. Table demand never builds this view; it uses
+/// LibraryDependencyStructureInspection.TableEnvelope. The format is owned
+/// by docs/design/library-dependency-structure.md.
 /// </remarks>
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 public sealed class LibraryDependencyStructureSection
 {
     internal static LibraryDependencyStructureSection From(
-        LibraryDependencyStructureQueryResult.Available available,
-        bool tableDemand)
+        LibraryDependencyStructureQueryResult.Available available)
     {
         ArgumentNullException.ThrowIfNull(available);
-        if (tableDemand)
-        {
-            return new LibraryDependencyStructureSection
-            {
-                Edges = LibraryDependencyStructureOutputAdapter.ToGraph(available),
-            };
-        }
-
         LibraryDependencyStructureDocument document = available.Document;
         int count = document.Cycles.Length;
         return new LibraryDependencyStructureSection
@@ -59,11 +50,11 @@ public sealed class LibraryDependencyStructureSection
     }
 
     /// <inheritdoc cref="LibraryViewText"/>
-    public string? Cycles
+    public string Cycles
     {
         get => field;
-        init => field = value is null ? null : LibraryViewText.Contain(value);
-    }
+        init => field = LibraryViewText.Contain(value);
+    } = "";
 
     [MarkoutSection(Name = "Cycle Members", Level = 3)]
     public List<LibraryDependencyCycleRow>? CycleRows { get; init; }
