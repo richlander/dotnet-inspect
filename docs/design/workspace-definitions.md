@@ -1390,7 +1390,12 @@ $ dotnet-inspect workspace component list --packet "$w"
       "path": "packages/system.text.json@10.0.0/net10.0/~",
       "package_id": "System.Text.Json",
       "version": "10.0.0",
-      "framework": "net10.0"
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "contexts": ["contexts/g0"],
+      "focused": true,
+      "contract": "workspace/components/package",
+      "schema_version": 1
     }
   ]
 }
@@ -1418,6 +1423,67 @@ a navigation-row ordinal and retains the fresh successor Workspace,
 correspondence, committed-view, and complete-output obligations of that
 contract. "Replacement" remains an implementation description of the
 remove-old/admit-successor mechanism, not CLI vocabulary.
+
+#### Extracted Package explanation input
+
+Each direct Package descriptor also carries `contract` equal to
+`workspace/components/package` and `schema_version` equal to `1`. These identify
+Workspace Definitions' Package contribution contract and its independently
+versioned explanation schema. They do not change the component document's
+version, a definition schema version, or a packet format. The fields make a
+descriptor extracted with jq self-describing without duplicating its values:
+
+```bash
+dotnet-inspect workspace component list --packet "$w" |
+  jq '.packages[] | select(.package_id == "System.Text.Json")' > component.json
+```
+
+The [captured descriptor](../examples/workspace-package-component.json) contains
+the actual CLI output for System.Text.Json 10.0.0/net10.0.
+
+The declaration's Package ID, exact-or-floating Version, requested TFM and RID
+are construction intent, not evidence of resolved versions or acquired content.
+Optional omitted values default to null: no exact Version pin, no explicit TFM,
+or no specific RID. Admission records which fields were omitted; explicitly
+supplied null is distinct from an owner default. Parent information never fills
+an omitted field during explanation admission.
+
+Workspace Definitions admits this JSON through
+`WorkspacePackageComponentExplanation.Parse` and issues one validated typed
+input. It uses the existing canonical Package component-coordinate gate,
+rejects duplicate/unknown properties and malformed values, and visibly refuses
+an unsupported contract or explanation schema version. Input is bounded by the
+existing packet decoded-byte limit. Naming the contract does not bypass its
+owner's validation.
+
+Without a parent packet, admission preserves only the validated local
+declaration and its supplied/defaulted distinction. A copied `path` must agree
+with that declaration, and copied context paths must be canonical; neither
+establishes occurrence identity. Parent path, context membership and focus
+remain unavailable, including when copied claims happen to match some active
+Workspace. This is not a successful empty membership result.
+
+With an explicitly supplied immutable packet, the owner resolves the exact
+Package component within that packet and checks any supplied context/focus
+claims against it. A missing component or mismatched claim is a typed refusal.
+The resulting occurrence retains that actual packet and its descriptor;
+identical path text in another packet does not establish the same occurrence.
+Typed extraction from a packet uses this same descriptor catalog. It does not
+serialize process-local authority or promote the path to a global ResourcePath.
+
+The owner also issues the Package contribution declaration through the existing
+`QuerySpace.Explanation` schema types. It declares local value meanings,
+defaulted fields, and unavailable parent facts. Resource Explanation's next
+slice consumes this schema and typed input for its existing direct/HAL
+lowerings; contextual host admission and a CLI consuming gesture remain their
+own staged slices. This admission does not restore a Workspace, acquire a
+Package, resolve a floating Version, or run an inspection.
+
+Evidence: `WorkspacePackageComponentExplanationTests` covers standalone and
+parent-qualified admission, explicit null/default distinction, snapshot scope,
+invalid/unsupported input and byte bounds. `WorkspaceComponentCommandTests`
+extracts real CLI output and submits it to owner admission. Existing packet
+codec/transposition gates retain packet version and canonical-vector coverage.
 
 Packet conversion is representation work beneath the same noun:
 `workspace packet decode` and `workspace packet encode`. It remains
