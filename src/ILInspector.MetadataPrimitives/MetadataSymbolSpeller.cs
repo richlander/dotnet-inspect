@@ -6,10 +6,13 @@ using System.Reflection.Metadata.Ecma335;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// The consumer's side of a <see cref="MetadataSymbolSpeller{TDomain,TRow}"/>:
-/// where rows are spelled and memoized. <see cref="Resolve"/> is called before
-/// the key that embeds the row opens, never while one of the consumer's
-/// builders is open; <see cref="Embed"/> copies a resolved row's bytes as a
+/// The consumer's side of a <see cref="MetadataSymbolSpeller{TDomain,TRow,TRows}"/>:
+/// where rows are spelled and memoized. The declaring Type of a definition,
+/// a member reference's parent, and a method specification's method are
+/// resolved before the referring key opens; a Type a signature names is
+/// resolved when it is embedded, while the referring key is open, so the
+/// consumer spells Type-level rows into a builder other than the one a member
+/// key is written in. <see cref="Embed"/> copies a resolved row's bytes as a
 /// nested Key part into an open key.
 /// </summary>
 public interface IMetadataRowKeys<TDomain, TRow>
@@ -47,7 +50,6 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     readonly MetadataSymbolScope _scope;
     readonly TRows _rows;
     readonly Provider _provider;
-    readonly List<TRow> _resolved = [];
     MetadataReader _reader;
     int _depth;
 
@@ -86,17 +88,11 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     public void Abandon()
     {
         Scratch.Reset();
-        _resolved.Clear();
         _depth = 0;
     }
 
     /// <summary>Releases the scratch storage; the speller is not used after.</summary>
-    public void Release()
-    {
-        Scratch.Release();
-        _resolved.Clear();
-        _resolved.TrimExcess();
-    }
+    public void Release() => Scratch.Release();
 
     public StagedSymbolKey<TDomain> TypeDefinition(SymbolKeyBuilder<TDomain> into, TypeDefinitionHandle handle)
     {
@@ -224,7 +220,13 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
                 MetadataSignatureKey decoded = specification.DecodeSignature(_provider, null);
                 if (decoded.IsRow)
                 {
-                    alias = _resolved[decoded.Offset];
+                    alias = _rows.Resolve(decoded.Row, MetadataRowRole.Referenced);
+                    key = default;
+                    return false;
+                }
+                if (decoded.IsPrimitive)
+                {
+                    alias = _rows.Primitive(decoded.PrimitiveType);
                     key = default;
                     return false;
                 }
@@ -384,11 +386,13 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
         Embed(into, signature.ReturnType);
     }
 
-    /// <summary>Embeds a signature type, a resolved row or a scratch composite, as a nested Key part.</summary>
+    /// <summary>Embeds a signature type, a row or primitive the consumer resolves or a scratch composite, as a nested Key part.</summary>
     public void Embed(SymbolKeyBuilder<TDomain> into, MetadataSignatureKey key)
     {
         if (key.IsRow)
-            _rows.Embed(into, _resolved[key.Offset]);
+            _rows.Embed(into, _rows.Resolve(key.Row, MetadataRowRole.Referenced));
+        else if (key.IsPrimitive)
+            _rows.Embed(into, _rows.Primitive(key.PrimitiveType));
         else
             into.Key(ScratchKey(key));
     }
@@ -400,10 +404,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     public void Discard()
     {
         if (_depth == 0)
-        {
             Scratch.Reset();
-            _resolved.Clear();
-        }
     }
 
     StagedSymbolKey<TDomain> MethodKey(SymbolKeyBuilder<TDomain> into, TRow parent, StringHandle name, MethodSignature<MetadataSignatureKey> signature)
@@ -444,27 +445,14 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     void Exit()
     {
         if (--_depth == 0)
-        {
             Scratch.Reset();
-            _resolved.Clear();
-        }
     }
 
     // A decode whose result the consumer still embeds leaves scratch alive;
     // the consumer discards it.
     void ExitKeepingScratch() => _depth--;
 
-    MetadataSignatureKey Row(EntityHandle row)
-    {
-        _resolved.Add(_rows.Resolve(row, MetadataRowRole.Referenced));
-        return new MetadataSignatureKey(row, _resolved.Count - 1);
-    }
-
-    MetadataSignatureKey PrimitiveRow(PrimitiveTypeCode typeCode)
-    {
-        _resolved.Add(_rows.Primitive(typeCode));
-        return new MetadataSignatureKey(default, _resolved.Count - 1);
-    }
+    static MetadataSignatureKey Row(EntityHandle row) => new(row);
 
     sealed class Provider(MetadataSymbolSpeller<TDomain, TRow, TRows> speller) : ISignatureTypeProvider<MetadataSignatureKey, object?>
     {
@@ -531,16 +519,16 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
 
         public MetadataSignatureKey GetPointerType(MetadataSignatureKey elementType) => Wrap(MetadataSymbolPart.Pointer, elementType);
 
-        public MetadataSignatureKey GetPrimitiveType(PrimitiveTypeCode typeCode) => speller.PrimitiveRow(typeCode);
+        public MetadataSignatureKey GetPrimitiveType(PrimitiveTypeCode typeCode) => new(typeCode);
 
         public MetadataSignatureKey GetSZArrayType(MetadataSignatureKey elementType) => Wrap(MetadataSymbolPart.SZArray, elementType);
 
-        public MetadataSignatureKey GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => speller.Row(handle);
+        public MetadataSignatureKey GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => Row(handle);
 
-        public MetadataSignatureKey GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => speller.Row(handle);
+        public MetadataSignatureKey GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => Row(handle);
 
         public MetadataSignatureKey GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-            => speller.Row(handle);
+            => Row(handle);
 
         MetadataSignatureKey Wrap(MetadataSymbolPart part, MetadataSignatureKey elementType)
         {

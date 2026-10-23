@@ -72,22 +72,33 @@ public enum MetadataRowRole
 
 /// <summary>
 /// A signature type as the speller's provider yields it: a composite staged in
-/// the speller's scratch population (its generation at or above zero), or a
-/// row the consumer resolved (generation below zero; the index of that
-/// resolution in <see cref="Offset"/> and the row's token in
-/// <see cref="Length"/>). Twelve bytes, so the decoder moves it in registers.
+/// the speller's scratch population (its generation at or above zero), a row
+/// the consumer resolves when it is embedded (generation −1, the row's token
+/// in <see cref="Length"/>), or a primitive the consumer resolves (generation
+/// −2, the type code in <see cref="Length"/>). Twelve bytes, so the decoder
+/// moves it in registers.
 /// </summary>
 public readonly struct MetadataSignatureKey
 {
+    const int RowGeneration = -1;
+    const int PrimitiveGeneration = -2;
+
     readonly int _generation;
     readonly int _offset;
     readonly int _length;
 
-    internal MetadataSignatureKey(EntityHandle row, int resolvedIndex)
+    internal MetadataSignatureKey(EntityHandle row)
     {
-        _generation = -1;
-        _offset = resolvedIndex;
+        _generation = RowGeneration;
+        _offset = 0;
         _length = MetadataTokens.GetToken(row);
+    }
+
+    internal MetadataSignatureKey(PrimitiveTypeCode typeCode)
+    {
+        _generation = PrimitiveGeneration;
+        _offset = 0;
+        _length = (int)typeCode;
     }
 
     internal MetadataSignatureKey(int scratchGeneration, int offset, int length)
@@ -97,11 +108,17 @@ public readonly struct MetadataSignatureKey
         _length = length;
     }
 
-    /// <summary>Whether this is a row the consumer embeds rather than a scratch composite.</summary>
-    public bool IsRow => _generation < 0;
+    /// <summary>Whether this is a row the consumer resolves rather than a scratch composite.</summary>
+    public bool IsRow => _generation == RowGeneration;
+
+    /// <summary>Whether this is a primitive the consumer resolves.</summary>
+    public bool IsPrimitive => _generation == PrimitiveGeneration;
 
     /// <summary>The row, when <see cref="IsRow"/>.</summary>
     public EntityHandle Row => MetadataTokens.EntityHandle(_length);
+
+    /// <summary>The primitive, when <see cref="IsPrimitive"/>.</summary>
+    public PrimitiveTypeCode PrimitiveType => (PrimitiveTypeCode)_length;
 
     internal int Generation => _generation;
 

@@ -231,14 +231,17 @@ completes.
 
 Rows a spelling refers to are the consumer's: `IMetadataRowKeys<TDomain,
 TRow>` resolves a row to the consumer's key, spelling it into the consumer's
-own builders and memo before the referring key opens, and embeds a resolved
-key into an open one. The role names why: the declaring Type of a definition,
+own builders and memo, and embeds a resolved key into an open one. The
+declaring Type, a member reference's parent, and a method specification's
+method are resolved before the referring key opens; a Type a signature names
+is resolved when it is embedded, while that key is open. The role names why: the declaring Type of a definition,
 or a Type or member a signature, specification, or member reference names.
-Every row a spelling refers to is resolved before the spelling opens its key,
-so a consumer that spells a resolved row into the same builder never finds a
-key open there. The consumer does not open a key in the builder the speller is
-writing while a spelling runs; the speller writes only into that builder and
-its own scratch.
+A consumer therefore spells Type-level rows into a builder other than the one
+its member keys are written in, as Finding Diff Any's retained and transient
+populations are, so a Type resolved while a member key is open never finds
+that builder open. The consumer does not open a key in the builder the
+speller is writing while a spelling runs; the speller writes only into that
+builder and its own scratch.
 
 Guards bound every decode (`SignatureBlobGuard`, `TypeSpecGuard`); a rejected
 shape is a `BadImageFormatException`, which a consumer classifies as malformed
