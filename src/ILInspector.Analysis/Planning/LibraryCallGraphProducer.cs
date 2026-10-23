@@ -119,8 +119,7 @@ public sealed class LibraryCallGraphProducer :
             method.HasManagedBody,
             directCalls,
             method.SafetyEvidence,
-            method.Diagnostics.IsEmpty
-                && HasSignals(bodySignals)
+            HasSignals(bodySignals)
                 ? bodySignals
                 : null,
             exceptionTypes,
