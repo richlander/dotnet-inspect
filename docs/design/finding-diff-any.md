@@ -202,8 +202,10 @@ is observed at the same boundaries.
 Metadata tokens, in IL operands and in signatures, compare by symbolic name.
 A Type-level row's name is resolved once per side, memoized for the
 comparison, and interned in the one table both sides share, so a member
-spelling or fact names it by the `Ref` of its shared id rather than by its
-bytes ([Symbol Key interning](symbol-key.md#interning)); a member row's is
+spelling, fact, or composite names a Type definition, reference, or primitive
+by the `Ref` of its shared id rather than by its bytes, while a Type
+specification's composite embeds as the same `Key` part an inline composite
+does ([Symbol Key interning](symbol-key.md#interning)); a member row's is
 resolved once per unit that refers to it, and a pair of operand rows once
 proven equal is remembered for the comparison, so the comparison retains the
 pairing rather than member spellings. They never

@@ -323,6 +323,25 @@ public sealed class SymbolKeyBuilder<TDomain>
         return this;
     }
 
+    /// <summary>
+    /// Embeds a key given as the range a consumer resolved from a frozen
+    /// population it holds, without the view's construction; the range was a
+    /// key when it was staged.
+    /// </summary>
+    internal SymbolKeyBuilder<TDomain> KeyRange(OpaqueByteRange key)
+    {
+        RequireOpen();
+        int length = key.Length;
+        if (length == 0)
+            throw new ArgumentException("An empty key cannot be embedded.", nameof(key));
+        Ensure(1 + 10 + length);
+        _scratch[_length++] = (byte)SymbolKeyTag.Key;
+        WriteVarint((uint)length);
+        OpaqueByteRangeEncoder.Encode(key, _scratch.AsSpan(_length, length));
+        _length += length;
+        return this;
+    }
+
     /// <summary>Embeds a frozen key as a nested Key part.</summary>
     public SymbolKeyBuilder<TDomain> Key(SymbolKey<TDomain> key)
     {

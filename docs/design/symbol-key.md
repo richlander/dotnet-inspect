@@ -173,9 +173,10 @@ views at each chunk's freeze, and a dictionary keyed by frozen keys answers
 staged lookups through the alternate lookup of `SymbolKeyComparer<TDomain>`.
 Each Type-level key is also interned, when memoized, in the one
 [interning table](#interning) the comparison's two sides share, and every
-spelling that embeds a Type-level row, a member key, a census fact, or
-another Type-level key, writes its id as a `Ref` part rather than its bytes;
-member rows, which are not interned, embed as `Key` parts. Signature composites
+spelling that embeds a named Type (a definition, reference, or primitive),
+whether a member key, a census fact, or a composite, writes its id as a `Ref`
+part rather than its bytes; a Type specification's composite and a member
+row embed as `Key` parts. Signature composites
 built while one key decodes are staged in the speller's scratch population and
 discarded when that spelling completes. Its member keys (methods, fields,
 member references, method specifications, standalone signatures) and its census
@@ -471,10 +472,10 @@ scope, such as one comparison or one response. Lookup uses the candidate's
 `OpaqueByteRange` without allocating another key or byte buffer. Equal keys
 receive equal IDs, so a key that nests other keys by `Ref` remains injective
 within that table: two `Ref`-bearing keys from one table are equal exactly when
-their expansions are equal, provided the domain always writes the same
-position in the same form, either `Ref` or `Key`. A `Ref` form is never
-byte-equal to its `Key` form, and a domain does not mix the two for one
-position.
+their expansions are equal, provided the form an embedded key takes, `Ref` or
+`Key`, is a function of that key alone, so that two embedded keys with equal
+expansions are written in one form. A `Ref` form is never byte-equal to its
+`Key` form, and a domain never lets one key take both.
 
 An ID is meaningful only within its table. Keys that contain `Ref` parts are
 bound to the table that issued them; comparing them across tables is a misuse
@@ -486,23 +487,29 @@ lookups of one id set whose comparer hashes and compares ids by the bytes they
 name, and copies a first-seen key into the table's one storage; a lookup
 allocates nothing, and a consumer that only needs equality compares ids. The
 indexer resolves an id to the key it names as a copy, which only expansion and
-diagnostics take. `Expand` writes a key into a builder with every `Ref`, at
-any depth, replaced by the `Key` form of the key it names, so a key without
-`Ref` parts expands to its own bytes; it is the conversion the persisted
+diagnostics take. `Expand` writes a key into a builder with every `Ref`, to
+the nesting depth the signature guard admits a spelling, replaced by the
+`Key` form of the key it names, so a key without `Ref` parts expands to its
+own bytes; it is the conversion the persisted
 profile will use, and the gate that relates a `Ref`-bearing key to a full
 spelling of the same identity. The builder's `Ref(int)` writes the part, and
 the part reader exposes it as `SymbolKeyPartKind.Ref` with its `Id`.
 
 Finding Diff Any is the first adopter. One table per comparison is shared by
 both sides, so equal Type-level keys of the two images receive one id; a
-Type-level key is interned when memoized, and a `KeyRef` of a Type-level row
-compares and hashes by that id. The form rule is by row class, not by
-position: a Type-level row (Type definition, reference, specification, or
-primitive) always embeds as `Ref`, a member row always as `Key`, wherever
-either appears. The two classes begin with different domain markers, so no
-expansion is shared between a `Ref` and a `Key` form, and the rule keeps the
-injectivity above. The IL census cursor still writes Type-level keys in full;
-its operand keys are the expansions of Finding Diff Any's, and it joins the
+Type-level key is interned when memoized, its `KeyRef` records the id and
+the form, and two Type-level `KeyRef`s compare and hash by id. The form is
+decided by the embedded key's kind, its first marker: a named Type (a Type
+definition, reference, or primitive) embeds as the `Ref` of its id; a
+composite embeds as a `Key` part of its bytes, whether it is a Type
+specification row or is spelled inline in a signature, and its own Types are
+`Ref`s, so the two encodings of one composite are one byte sequence; a member
+row embeds as a `Key` part. Named Types, composites, and members begin with
+disjoint markers, so two embedded keys with equal expansions have one kind
+and therefore one form, which is what the injectivity above requires. The
+table serves the comparison and is released with the builders when the sides
+complete. The IL census cursor still writes Type-level keys in full; its
+operand keys are the expansions of Finding Diff Any's, and it joins the
 comparison's table when
 [Finding Census](finding-census.md#adoption-sequence) step 2 gives it Finding
 Diff Any's side.
@@ -544,7 +551,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Profile separation | In-process and persisted keys do not compile as comparable; a key without `Ref` parts round-trips byte-identically, while a `Ref`-bearing key persists by expansion and returns in `Key` form with the same expansion | PR-fast |
 | Canonical text | Base64url writing is unpadded; reading refuses padding, non-alphabet characters, and nonzero unused trailing bits; accepted text re-encodes identically | PR-fast |
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
-| Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal; a `Ref` form is never byte-equal to its `Key` form; expansion is the `Key` form at every depth and the identity on a key without `Ref` parts; an id the table did not issue is refused. In Finding Diff Any, both sides of a comparison give one Type-level row one id, a member spelling embeds no Type-level key by its bytes, and the IL cursor's operand keys are the expansions of the walk's keys | PR-fast |
+| Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal; a `Ref` form is never byte-equal to its `Key` form; expansion is the `Key` form at every depth and the identity on a key without `Ref` parts; an id the table did not issue is refused. In Finding Diff Any, over every method, field, member reference, and Type specification of one image on both sides of a comparison: the sides give one row one key, no nested `Key` part is a named Type, a Type specification embeds as `Ref` exactly when it names a plain row, every spelling describes through the table as its expansion does, and the IL cursor's operand keys are the expansions of the walk's keys | PR-fast |
 | Representation pilot | SPC comparison of current private Symbol Key and the proposed range-backed representation measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; identity answers agree | Pilot before implementation |
 | Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time and allocation do not regress on any pair, retained memory does not exceed base on any pair, and p95 does not widen; the API axis alone, the asynchronous surface pass, stays cheap enough to run that way: it does not regress on the large pairs (aspire, xml, CoreLib), the small pairs (stj, nj11, nj13) stay within a millisecond of base and under 5 ms, and CoreLib's stays under 100 ms. After time, memory is the priority | Adoption PR |
 

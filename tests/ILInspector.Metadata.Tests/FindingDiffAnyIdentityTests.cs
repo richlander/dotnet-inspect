@@ -250,12 +250,16 @@ public sealed class FindingDiffAnyIdentityTests
     }
 
     /// <summary>
-    /// Both sides of a comparison intern their Type-level keys in one table,
-    /// and a member spelling embeds a Type-level row as the Ref of its shared
-    /// id, never as its bytes; a Ref expands to the key it names.
+    /// Both sides of a comparison intern their Type-level keys in one table.
+    /// A spelling embeds a named Type (definition, reference, primitive) as the
+    /// Ref of its shared id and never as its bytes, and embeds a Type
+    /// specification's composite as a Key part, the form an inline composite
+    /// takes, whose own Types are Refs; a Ref expands to the key it names.
+    /// Checked over every method, field, member reference, and Type
+    /// specification of this assembly.
     /// </summary>
     [Fact]
-    public void TypeLevelRows_EmbedAsRefsOfTheComparisonsTable()
+    public void NamedTypes_EmbedAsRefsOfTheComparisonsTable_AndCompositesAsKeys()
     {
         using var pe = new PEReader(File.OpenRead(typeof(FindingDiffAny).Assembly.Location));
         MetadataReader md = pe.GetMetadataReader();
@@ -265,32 +269,69 @@ public sealed class FindingDiffAnyIdentityTests
         var expansion = new SymbolKeyBuilder<FindingDiffAnyPart>();
         var ids = new List<int>();
         int refs = 0;
-        foreach (MethodDefinitionHandle handle in md.MethodDefinitions.Take(500))
+        int composites = 0;
+        IEnumerable<EntityHandle> rows =
+        [
+            .. md.MethodDefinitions.Select(handle => (EntityHandle)handle),
+            .. md.FieldDefinitions.Select(handle => (EntityHandle)handle),
+            .. md.MemberReferences.Select(handle => (EntityHandle)handle),
+            .. Enumerable.Range(1, md.GetTableRowCount(TableIndex.TypeSpec)).Select(row => (EntityHandle)MetadataTokens.TypeSpecificationHandle(row)),
+        ];
+        foreach (EntityHandle handle in rows)
         {
-            MethodDefinition method = md.GetMethodDefinition(handle);
-            if ((method.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope)
+            KeyRef keyA;
+            try
+            {
+                keyA = a.ReferenceKey(handle);
+            }
+            catch (BadImageFormatException)
+            {
+                // A compiler-controlled member, which the walk refuses to name.
                 continue;
-            KeyRef keyA = a.ReferenceKey(handle);
+            }
             Assert.Equal(keyA, b.ReferenceKey(handle));
-            KeyRef declaring = a.TypeKey(method.GetDeclaringType());
-            Assert.Equal(declaring.Id, b.TypeKey(method.GetDeclaringType()).Id);
-            Assert.Equal(declaring, b.TypeKey(method.GetDeclaringType()));
-
-            SymbolKey<FindingDiffAnyPart> view = keyA.Detach();
-            ids.Clear();
-            refs += CollectRefs(view.Parts, ids);
-            Assert.Contains(declaring.Id, ids);
-            Assert.Equal(declaring.IsFrozen ? declaring.Frozen : declaring.Detach(), table[declaring.Id]);
-
-            expansion.Reset();
-            Assert.Equal(
-                Regex.Replace(SymbolKeyText.Describe(view, table), "#[0-9]+", ""),
-                SymbolKeyText.Describe(table.Expand(view, expansion)));
+            if (handle.Kind == HandleKind.TypeSpecification)
+            {
+                // A specification of a plain row is that row; a composite embeds as its bytes.
+                SymbolKey<FindingDiffAnyPart> spec = keyA.IsFrozen ? keyA.Frozen : keyA.Detach();
+                Assert.Equal(spec.Kind is FindingDiffAnyPart.Type or FindingDiffAnyPart.Primitive, keyA.EmbedsAsRef);
+                Assert.Equal(spec, table[keyA.Id]);
+                composites += keyA.EmbedsAsRef ? 0 : 1;
+            }
+            else
+            {
+                Assert.True(keyA.IsTransient);
+                KeyRef declaring = a.TypeKey(DeclaringType(md, handle, out bool declared));
+                if (declared)
+                {
+                    Assert.Equal(declaring, b.TypeKey(md.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType()));
+                    Assert.Equal(declaring.IsFrozen ? declaring.Frozen : declaring.Detach(), table[declaring.Id]);
+                }
+                SymbolKey<FindingDiffAnyPart> view = keyA.Detach();
+                ids.Clear();
+                refs += CollectRefs(view.Parts, ids);
+                if (declared)
+                    Assert.Contains(declaring.Id, ids);
+                expansion.Reset();
+                Assert.Equal(
+                    Regex.Replace(SymbolKeyText.Describe(view, table), "#[0-9]+", ""),
+                    SymbolKeyText.Describe(table.Expand(view, expansion)));
+            }
         }
-        Assert.True(refs > 500, $"{refs} Type-level references");
+        Assert.True(refs > 5_000, $"{refs} named Type references");
+        Assert.True(composites > 50, $"{composites} composite specifications");
     }
 
-    // Every Type-level key under a member spelling is a Ref; a nested Key part is a member key or a signature composite.
+    // A method's declaring Type is asserted; other rows only need a Type to resolve against.
+    static TypeDefinitionHandle DeclaringType(MetadataReader md, EntityHandle handle, out bool declared)
+    {
+        declared = handle.Kind == HandleKind.MethodDefinition;
+        return declared
+            ? md.GetMethodDefinition((MethodDefinitionHandle)handle).GetDeclaringType()
+            : md.TypeDefinitions.First();
+    }
+
+    // Every named Type under a spelling is a Ref; a nested Key part is a member key or a composite, whose own Types are Refs.
     static int CollectRefs(SymbolKeyPartReader<FindingDiffAnyPart> parts, List<int> ids)
     {
         int refs = 0;
@@ -305,7 +346,7 @@ public sealed class FindingDiffAnyIdentityTests
             {
                 Assert.False(
                     parts.Key.Kind is FindingDiffAnyPart.Type or FindingDiffAnyPart.Primitive,
-                    $"a Type-level key embedded by its bytes: {SymbolKeyText.Describe(parts.Key)}");
+                    $"a named Type embedded by its bytes: {SymbolKeyText.Describe(parts.Key)}");
                 refs += CollectRefs(parts.Key.Parts, ids);
             }
         }

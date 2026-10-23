@@ -17,8 +17,9 @@ public sealed class SymbolKeyInterner<TDomain>
     where TDomain : unmanaged, Enum
 {
     // A reference chain is acyclic by construction, since a key can embed only
-    // ids issued before it; the bound contains a hand-built cycle.
-    const int MaxExpansionDepth = 64;
+    // ids issued before it; the bound, the depth the signature guard admits a
+    // spelling to nest, contains a hand-built cycle.
+    const int MaxExpansionDepth = SignatureBlobGuard.DefaultMaxDepth;
 
     readonly Entries _entries;
     readonly HashSet<int> _ids;
