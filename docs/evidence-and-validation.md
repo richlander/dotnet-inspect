@@ -148,14 +148,23 @@ bar, so the pinned real assets come from it.
 | --- | --- | --- |
 | Produced by the .NET SDK | Exact | Match or beat the base |
 | Valid, from another producer | Exact | May take a slower path |
-| Malformed | Never a false negative; may fail visibly | May take a slower path |
+| Malformed | Fails visibly where the reads it performs fail | May take a slower path |
 
-Work that SDK-produced input pays only to keep the last two rows correct, such
-as validation a fast path needs before it may decide, may cost at most 5% of
-the base's time on any measured terminal. Attribute that share by measuring
-the candidate against a variant without the guard; the remainder still meets
-the first row. A fast path may assume SDK-shaped input only when a violated
-assumption sends the input to the exact path or fails visibly.
+A guard is work that SDK-produced input pays only to keep the other rows
+correct, such as validation a fast path performs before it may decide. A
+guard needs a real occurrence: a published assembly from a real producer on
+which the unguarded path gives a wrong answer. Fixtures, mutation tests, and
+fuzzing verify a guard once an occurrence justifies it; they never justify
+one. Search before building or measuring a guard: run the unguarded variant
+over the shared frameworks and over a corpus of other producers, including
+obfuscators and protectors, IL weavers and rewriters, F#, C++/CLI, ILAsm,
+tlbimp, IKVM, and pre-SDK compilers. Without an occurrence, leave the guard
+out, state the unguarded input as a non-claim in the owning design, and file
+an issue that names the search; add the guard when an occurrence appears.
+
+A justified guard may cost at most 5% of the base's time on any measured
+terminal. Attribute that share by measuring the candidate against a variant
+without the guard; the remainder still meets the first row.
 
 ## Performance oracles for QuerySpace enablement
 
