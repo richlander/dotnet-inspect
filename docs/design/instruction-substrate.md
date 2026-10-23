@@ -78,8 +78,8 @@ dependency direction and the assembly owner.
   operand, switch-table, and dangling-prefix structure, while a stopped visit
   deliberately leaves the unseen suffix unvalidated.
   The retained-IL visit also takes a struct `IInstructionVisitor`, which a hot
-  caller uses to avoid a delegate call per instruction. The delegate overload
-  adapts onto it, so both validate through one loop.
+  caller uses to avoid a delegate call per instruction, with the same
+  validation as the delegate overload.
   `InstructionSequence` is the demand-driven retained-prefix primitive.
   Independent cursors advance with `MoveNext`, and indexed access extends the
   same shared scan frontier only through the requested instruction. The

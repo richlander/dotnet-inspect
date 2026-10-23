@@ -174,13 +174,79 @@ public static class InstructionDecoder
         Func<ILOpCode, int, int, bool> visitor)
     {
         ArgumentNullException.ThrowIfNull(visitor);
-        var adapter = new FuncVisitor(visitor);
-        return Visit(il, ref adapter);
+
+        var reader = new ILReader(il);
+        ILOpCode previous = default;
+        bool hasPrevious = false;
+        try
+        {
+            while (reader.Offset < reader.Size)
+            {
+                int offset = reader.Offset;
+                int opcodeStart = reader.Offset;
+                ILOpCode opcode = reader.ReadILOpcode();
+                if (!opcode.IsValid())
+                {
+                    throw new BadImageFormatException(
+                        $"Invalid opcode 0x{(int)opcode:X} at IL_{offset:X4}");
+                }
+
+                int operandToken = 0;
+                if (opcode == ILOpCode.Switch)
+                {
+                    uint count = reader.ReadILUInt32();
+                    long tableEnd =
+                        (long)reader.Offset + (long)count * sizeof(int);
+                    if (count > int.MaxValue / sizeof(int)
+                        || tableEnd > reader.Size)
+                    {
+                        throw new BadImageFormatException(
+                            $"Malformed switch at IL_{offset:X4}");
+                    }
+                    reader.Seek((int)tableEnd);
+                }
+                else
+                {
+                    int instructionSize = opcode.GetInstructionSize();
+                    int operandSize =
+                        instructionSize - (reader.Offset - opcodeStart);
+                    if (instructionSize < 0
+                        || operandSize < 0
+                        || operandSize > reader.Size - reader.Offset)
+                    {
+                        throw new BadImageFormatException(
+                            $"Truncated operand at IL_{offset:X4}");
+                    }
+
+                    if (IsMethodOperand(opcode))
+                        operandToken = reader.ReadILToken();
+                    else
+                        reader.Seek(reader.Offset + operandSize);
+                }
+
+                previous = opcode;
+                hasPrevious = true;
+                int encodedLength = reader.Offset - opcodeStart;
+                if (!visitor(opcode, operandToken, encodedLength))
+                    return false;
+            }
+        }
+        catch (InvalidProgramException ex)
+        {
+            throw NormalizeMalformedIl(ex);
+        }
+
+        if (hasPrevious && previous.IsPrefix())
+        {
+            throw new BadImageFormatException(
+                $"IL ends with a dangling prefix at IL_{reader.Offset:X4}");
+        }
+        return true;
     }
 
     /// <summary>
     /// Visits one retained IL snapshot with a struct visitor that the visit
-    /// calls directly. Validation matches
+    /// calls directly, with the validation of
     /// <see cref="Visit(ReadOnlySpan{byte}, Func{ILOpCode, int, int, bool})"/>.
     /// </summary>
     public static bool Visit<TVisitor>(
@@ -255,13 +321,6 @@ public static class InstructionDecoder
                 $"IL ends with a dangling prefix at IL_{reader.Offset:X4}");
         }
         return true;
-    }
-
-    readonly struct FuncVisitor(Func<ILOpCode, int, int, bool> visitor)
-        : IInstructionVisitor
-    {
-        public bool Visit(ILOpCode opcode, int operandToken, int encodedLength) =>
-            visitor(opcode, operandToken, encodedLength);
     }
 
     internal static bool TryReadNext(
