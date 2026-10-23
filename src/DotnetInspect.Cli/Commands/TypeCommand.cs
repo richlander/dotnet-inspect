@@ -1086,6 +1086,7 @@ public static partial class TypeCommand
             || options.ProjectPath is not null
             || options.ProjectAssetsPath is not null
             || options.WorkspacePacket is not null
+            || AnnotatedTypeRelationsCliExecutor.IsSelected(options)
             || string.IsNullOrWhiteSpace(options.Tfm)
             || options.Tfm.Equals("all", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrWhiteSpace(options.TypeName)

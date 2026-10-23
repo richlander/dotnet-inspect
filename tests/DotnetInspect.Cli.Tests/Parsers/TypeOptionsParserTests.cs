@@ -203,6 +203,47 @@ public class TypeOptionsParserTests
                 StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void AnnotatedRelations_CountEnvelopeIsAccepted()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--library", "x.dll",
+            "--relations", "all",
+            "--count",
+            "--envelope",
+        ]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void OrdinaryType_CountEnvelopeRemainsRejected()
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+
+        ParseResult result = command.Parse(
+        [
+            "Some.Type",
+            "--library", "x.dll",
+            "--count",
+            "--envelope",
+        ]);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--envelope cannot be combined with --count.",
+                StringComparison.Ordinal));
+    }
+
     static async Task<TypeOptions> ParseSuccessAsync(params string[] args)
         => (await ParsePlanSuccessAsync(args)).Options;
 

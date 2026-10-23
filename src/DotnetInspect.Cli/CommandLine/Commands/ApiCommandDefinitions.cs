@@ -150,8 +150,7 @@ public static class ApiCommandDefinitions
             opts.Limit,
             opts.Rows,
             opts.Head,
-            opts.Tail,
-            opts.Count);
+            opts.Tail);
         typeCommand.Options.Add(opts.Taste);
         typeCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(typeCommand);
@@ -176,6 +175,12 @@ public static class ApiCommandDefinitions
                     is { Implicit: false };
             if (!relationsRequested)
             {
+                if (result.GetValue(opts.Envelope)
+                    && result.GetResult(opts.Count) is { Implicit: false })
+                {
+                    result.AddError(
+                        "--envelope cannot be combined with --count.");
+                }
                 if (colorsRequested)
                 {
                     result.AddError(
