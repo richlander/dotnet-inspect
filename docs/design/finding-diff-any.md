@@ -200,10 +200,13 @@ is observed at the same boundaries.
 ### Identity
 
 Metadata tokens, in IL operands and in signatures, compare by symbolic name.
-A Type-level row's name is resolved once per side and memoized for the
-comparison; a member row's is resolved once per unit that refers to it, and a
-pair of operand rows once proven equal is remembered for the comparison, so
-the comparison retains the pairing rather than member spellings. They never
+A Type-level row's name is resolved once per side, memoized for the
+comparison, and interned in the one table both sides share, so a member
+spelling or fact names it by the `Ref` of its shared id rather than by its
+bytes ([Symbol Key interning](symbol-key.md#interning)); a member row's is
+resolved once per unit that refers to it, and a pair of operand rows once
+proven equal is remembered for the comparison, so the comparison retains the
+pairing rather than member spellings. They never
 compare by token number or
 by defining or referenced assembly identity, as the [Body policy](#axes)
 states, so a renumbered or retargeted reference, or a dependency's version

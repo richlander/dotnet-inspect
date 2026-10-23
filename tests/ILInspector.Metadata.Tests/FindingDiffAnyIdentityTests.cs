@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text.RegularExpressions;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -246,6 +247,69 @@ public sealed class FindingDiffAnyIdentityTests
 
         FindingDiffAnyTypeState type = Single(result, "N.\uFFFD\uFFFDX");
         Assert.Equal((FindingDiffAnyState.Indeterminate, FindingDiffAnyState.Indeterminate), (type.Api, type.Body));
+    }
+
+    /// <summary>
+    /// Both sides of a comparison intern their Type-level keys in one table,
+    /// and a member spelling embeds a Type-level row as the Ref of its shared
+    /// id, never as its bytes; a Ref expands to the key it names.
+    /// </summary>
+    [Fact]
+    public void TypeLevelRows_EmbedAsRefsOfTheComparisonsTable()
+    {
+        using var pe = new PEReader(File.OpenRead(typeof(FindingDiffAny).Assembly.Location));
+        MetadataReader md = pe.GetMetadataReader();
+        var table = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var a = new FindingDiffAny.Side(pe, table);
+        var b = new FindingDiffAny.Side(pe, table);
+        var expansion = new SymbolKeyBuilder<FindingDiffAnyPart>();
+        var ids = new List<int>();
+        int refs = 0;
+        foreach (MethodDefinitionHandle handle in md.MethodDefinitions.Take(500))
+        {
+            MethodDefinition method = md.GetMethodDefinition(handle);
+            if ((method.Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope)
+                continue;
+            KeyRef keyA = a.ReferenceKey(handle);
+            Assert.Equal(keyA, b.ReferenceKey(handle));
+            KeyRef declaring = a.TypeKey(method.GetDeclaringType());
+            Assert.Equal(declaring.Id, b.TypeKey(method.GetDeclaringType()).Id);
+            Assert.Equal(declaring, b.TypeKey(method.GetDeclaringType()));
+
+            SymbolKey<FindingDiffAnyPart> view = keyA.Detach();
+            ids.Clear();
+            refs += CollectRefs(view.Parts, ids);
+            Assert.Contains(declaring.Id, ids);
+            Assert.Equal(declaring.IsFrozen ? declaring.Frozen : declaring.Detach(), table[declaring.Id]);
+
+            expansion.Reset();
+            Assert.Equal(
+                Regex.Replace(SymbolKeyText.Describe(view, table), "#[0-9]+", ""),
+                SymbolKeyText.Describe(table.Expand(view, expansion)));
+        }
+        Assert.True(refs > 500, $"{refs} Type-level references");
+    }
+
+    // Every Type-level key under a member spelling is a Ref; a nested Key part is a member key or a signature composite.
+    static int CollectRefs(SymbolKeyPartReader<FindingDiffAnyPart> parts, List<int> ids)
+    {
+        int refs = 0;
+        while (parts.Read())
+        {
+            if (parts.Kind == SymbolKeyPartKind.Ref)
+            {
+                ids.Add(parts.Id);
+                refs++;
+            }
+            else if (parts.Kind == SymbolKeyPartKind.Key)
+            {
+                Assert.False(
+                    parts.Key.Kind is FindingDiffAnyPart.Type or FindingDiffAnyPart.Primitive,
+                    $"a Type-level key embedded by its bytes: {SymbolKeyText.Describe(parts.Key)}");
+                refs += CollectRefs(parts.Key.Parts, ids);
+            }
+        }
+        return refs;
     }
 
     [Fact]

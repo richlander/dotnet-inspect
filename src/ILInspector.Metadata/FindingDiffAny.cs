@@ -136,8 +136,9 @@ public static class FindingDiffAny
         PEReader after,
         string fullName)
     {
-        var a = new Side(before);
-        var b = new Side(after);
+        var interner = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var a = new Side(before, interner);
+        var b = new Side(after, interner);
         Unit? unitA = a.Units().Entries.Select(entry => entry.Unit).FirstOrDefault(unit => unit.FullName == fullName);
         Unit? unitB = b.Units().Entries.Select(entry => entry.Unit).FirstOrDefault(unit => unit.FullName == fullName);
         if (unitA is null || unitB is null)
@@ -179,8 +180,8 @@ public static class FindingDiffAny
     {
         List<StagedSymbolKey<FindingDiffAnyPart>> keysBefore = before.ConvertAll(a.Transient.Resolve);
         List<StagedSymbolKey<FindingDiffAnyPart>> keysAfter = after.ConvertAll(b.Transient.Resolve);
-        string? onlyBefore = keysBefore.Except(keysAfter).Select(SymbolKeyText.Describe).FirstOrDefault();
-        string? onlyAfter = keysAfter.Except(keysBefore).Select(SymbolKeyText.Describe).FirstOrDefault();
+        string? onlyBefore = keysBefore.Except(keysAfter).Select(key => SymbolKeyText.Describe(key, a.Interner)).FirstOrDefault();
+        string? onlyAfter = keysAfter.Except(keysBefore).Select(key => SymbolKeyText.Describe(key, a.Interner)).FirstOrDefault();
         return onlyBefore is null && onlyAfter is null
             ? null
             : $"- {onlyBefore}\n+ {onlyAfter}";
@@ -314,8 +315,9 @@ public static class FindingDiffAny
     /// </summary>
     internal static List<BodyVerdict> BodyVerdicts(PEReader before, PEReader after)
     {
-        var a = new Side(before);
-        var b = new Side(after);
+        var interner = new SymbolKeyInterner<FindingDiffAnyPart>();
+        var a = new Side(before, interner);
+        var b = new Side(after, interner);
         var work = new Work();
         var verdicts = new List<BodyVerdict>();
         UnitTable unitsB = b.Units();
@@ -963,8 +965,10 @@ public static class FindingDiffAny
 
         const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
 
-        public Side(PEReader pe)
+        public Side(PEReader pe, SymbolKeyInterner<FindingDiffAnyPart> interner)
         {
+            ArgumentNullException.ThrowIfNull(interner);
+            Interner = interner;
             Pe = pe;
             Md = MetadataFormatAdmission.GetMetadataReader(pe, StoredMetadata);
             _mvid = Md.GetGuid(Md.GetModuleDefinition().Mvid);
@@ -980,6 +984,13 @@ public static class FindingDiffAny
 
         /// <summary>One unit's census facts and member keys, discarded after the unit.</summary>
         public SymbolKeyBuilder<FindingDiffAnyPart> Transient { get; }
+
+        /// <summary>
+        /// The comparison's one interning table, shared with the other side: a
+        /// Type-level key receives its id when memoized, and every spelling
+        /// that embeds it writes that id as a Ref part in place of its bytes.
+        /// </summary>
+        public SymbolKeyInterner<FindingDiffAnyPart> Interner { get; }
 
         /// <summary>The one speller of metadata rows; this side resolves and embeds the rows it refers to.</summary>
         public MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, SideRows> Speller => _speller;
@@ -1090,7 +1101,7 @@ public static class FindingDiffAny
 
         KeyRef Memoize(int token, StagedSymbolKey<FindingDiffAnyPart> staged)
         {
-            var key = new KeyRef(this, staged);
+            var key = new KeyRef(this, staged, Interner.Intern(staged));
             _keys[token] = key;
             return key;
         }
@@ -1243,7 +1254,7 @@ public static class FindingDiffAny
             int token = MetadataTokens.GetToken(handle);
             int mark = Retained.Begin();
             StagedSymbolKey<FindingDiffAnyPart> row = Retained.Mark(FindingDiffAnyPart.Malformed).Int(token).End(mark);
-            table.Add(new KeyRef(this, row), new Unit(SafeName(handle), $"!{token:X8}", handle, [], Malformed: true));
+            table.Add(new KeyRef(this, row, Interner.Intern(row)), new Unit(SafeName(handle), $"!{token:X8}", handle, [], Malformed: true));
         }
 
         bool TryDeclaringChain(TypeDefinitionHandle handle, Span<TypeDefinitionHandle> chain, out int length)
@@ -1770,7 +1781,7 @@ public static class FindingDiffAny
     }
 
     internal static string Describe(KeyRef key)
-        => SymbolKeyText.Describe(key.IsFrozen ? key.Frozen : key.Detach());
+        => SymbolKeyText.Describe(key.IsFrozen ? key.Frozen : key.Detach(), key.Owner.Interner);
 
     internal sealed class UserStrings
     {
@@ -1889,34 +1900,43 @@ internal enum FindingDiffAnyPart : byte
 /// side's transient population (its generation complemented, below zero) for a
 /// member row the current unit spelled. Both resolve on demand through the
 /// side, so memoizing a key is one write and freezing a chunk touches no
-/// reference. It compares and hashes by its bytes in every state.
+/// reference. A Type-level key carries the id the comparison's interning table
+/// gave it and compares and hashes by that id against the comparison's other
+/// Type-level keys; a member key compares and hashes by its bytes.
 /// </summary>
 internal readonly struct KeyRef : IEquatable<KeyRef>
 {
+    const int NoId = -1;
+
     readonly FindingDiffAny.Side _owner;
     readonly int _generation;
     readonly int _offset;
     readonly int _length;
+    readonly int _id;
 
-    public KeyRef(FindingDiffAny.Side owner, StagedSymbolKey<FindingDiffAnyPart> staged)
+    /// <summary>A Type-level key, staged in the side's retained population and interned under <paramref name="id"/>.</summary>
+    public KeyRef(FindingDiffAny.Side owner, StagedSymbolKey<FindingDiffAnyPart> staged, int id)
     {
-        if (staged.IsStagedIn(owner.Retained))
-            _generation = staged.Generation;
-        else if (staged.IsStagedIn(owner.Transient))
-            _generation = ~staged.Generation;
-        else
-            throw new ArgumentException("A key is staged in its side's retained or transient population.", nameof(staged));
+        if (!staged.IsStagedIn(owner.Retained))
+            throw new ArgumentException("A Type-level key is staged in its side's retained population.", nameof(staged));
+        ArgumentOutOfRangeException.ThrowIfNegative(id);
         _owner = owner;
+        _generation = staged.Generation;
         _offset = staged.Offset;
         _length = staged.Length;
+        _id = id;
     }
 
-    internal KeyRef(FindingDiffAny.Side owner, int generation, int offset, int length)
+    /// <summary>A member key, staged in the side's transient population for the current unit.</summary>
+    public KeyRef(FindingDiffAny.Side owner, StagedSymbolKey<FindingDiffAnyPart> staged)
     {
+        if (!staged.IsStagedIn(owner.Transient))
+            throw new ArgumentException("A member key is staged in its side's transient population.", nameof(staged));
         _owner = owner;
-        _generation = generation;
-        _offset = offset;
-        _length = length;
+        _generation = ~staged.Generation;
+        _offset = staged.Offset;
+        _length = staged.Length;
+        _id = NoId;
     }
 
     public bool IsDefault => _owner is null;
@@ -1926,6 +1946,11 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
     internal int Offset => _offset;
 
     internal int Length => _length;
+
+    /// <summary>The id the comparison's table gave a Type-level key; a member key has none.</summary>
+    internal int Id => _id;
+
+    internal FindingDiffAny.Side Owner => _owner;
 
     /// <summary>Whether the key is a member row's, staged in the unit's transient population.</summary>
     public bool IsTransient => _generation < 0;
@@ -1952,6 +1977,9 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 
     public bool Equals(KeyRef other)
     {
+        if (!IsTransient && !other.IsTransient)
+            return _id == other._id;
+        // A Type-level and a member key begin with different markers, so a mixed pair compares unequal by its bytes.
         bool frozen = IsFrozen;
         bool otherFrozen = other.IsFrozen;
         if (frozen && otherFrozen)
@@ -1965,11 +1993,11 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 
     public override bool Equals(object? obj) => obj is KeyRef other && Equals(other);
 
-    // Frozen and staged keys hash the same bytes the same way.
+    // A Type-level key hashes by its id; a member key by its staged bytes.
     public override int GetHashCode()
     {
-        if (IsFrozen)
-            return FrozenRange.GetHashCode();
+        if (!IsTransient)
+            return _id;
         var hash = new HashCode();
         hash.AddBytes(Bytes);
         return hash.ToHashCode();
@@ -1982,9 +2010,12 @@ internal readonly struct KeyRef : IEquatable<KeyRef>
 
 internal static class FindingDiffAnyKeyBuilderExtensions
 {
-    /// <summary>Embeds a retained key, frozen or staged, as a nested Key part.</summary>
+    /// <summary>
+    /// Embeds a key: a Type-level key as the Ref part of its shared id, a
+    /// member key as a nested Key part of its staged bytes.
+    /// </summary>
     public static SymbolKeyBuilder<FindingDiffAnyPart> Key(this SymbolKeyBuilder<FindingDiffAnyPart> builder, KeyRef key)
-        => key.IsFrozen ? builder.KeyRange(key.FrozenRange) : builder.KeyBytes(key.Bytes);
+        => key.IsTransient ? builder.KeyBytes(key.Bytes) : builder.Ref(key.Id);
 
 }
 
@@ -1995,6 +2026,7 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
     readonly ImmutableArray<FindingDiffAnyTypeState>.Builder _states =
         ImmutableArray.CreateBuilder<FindingDiffAnyTypeState>();
     readonly FindingDiffAny.Work _work = new();
+    readonly SymbolKeyInterner<FindingDiffAnyPart> _interner = new();
     FindingDiffAny.Side? _a;
     FindingDiffAny.Side? _b;
     bool _readA;
@@ -2027,8 +2059,8 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
 
         if (_a is null || _b is null)
         {
-            _a = new FindingDiffAny.Side(before);
-            _b = new FindingDiffAny.Side(after);
+            _a = new FindingDiffAny.Side(before, _interner);
+            _b = new FindingDiffAny.Side(after, _interner);
         }
         else
         {
@@ -2079,6 +2111,7 @@ public sealed class FindingDiffAnyComparison(FindingDiffAnyAxes axes = FindingDi
         _a.Complete();
         _b.Complete();
         _states.Sort((x, y) => string.CompareOrdinal(x.FullName, y.FullName));
+        _interner.TrimExcess();
         Result = new FindingDiffAnyResult(
             _states.ToImmutable(),
             new FindingDiffAnyReceipt(_states.Count, _work.Bodies, _work.IlBytes));

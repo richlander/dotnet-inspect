@@ -478,7 +478,9 @@ resolved to symbolic identities before comparison, through the operand's
   Key, spelled by the shared `MetadataSymbolSpeller`
   ([Symbol Key](symbol-key.md#metadata-rows)) in the side's populations and
   memoized by token, so under Finding Diff Any's Body policy the cursor's
-  bytes are the keys that comparison memoizes;
+  bytes are the expansions of the keys that comparison memoizes, which embed
+  Type-level keys as `Ref` parts of its table
+  ([interning](symbol-key.md#interning));
 - `calli` standalone signatures resolve to their signature bytes, as Finding
   Diff Any compares them, so a renumbered token inside the blob is a
   difference.
