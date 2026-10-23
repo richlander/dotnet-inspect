@@ -434,7 +434,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
 | Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Representation pilot | SPC comparison of current private Symbol Key and the proposed range-backed representation measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; identity answers agree | Pilot before implementation |
-| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
+| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time, allocation, and retained memory do not regress on any pair and p95 does not widen; the API axis alone, the surface pass a host runs asynchronously, does not regress on the large pairs and stays within 0.5 ms of base on the small ones; CoreLib's surface pass stays under 100 ms. After time, memory is the priority | Adoption PR |
 
 ## Adoption sequence
 
@@ -475,7 +475,11 @@ Eight steps, tracked by
    ([#9889](https://github.com/richlander/dotnet-inspect/issues/9889) step 3)
    lands first; that adoption PR registers its domain.
 7. **Interning.** The range-keyed table and `Ref` part, adopted by Finding
-   Diff Any step 5.
+   Diff Any step 5. The memo is the pairing: once both sides have spelled a
+   Type-level row and compared, the diff needs the shared id, not the
+   spelling, so this step turns the per-side memo into the pairing table and
+   spells member keys per unit over `Ref` parts; retained state becomes the
+   table. Its design lands in its own candidate after step 5 merges.
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
 
