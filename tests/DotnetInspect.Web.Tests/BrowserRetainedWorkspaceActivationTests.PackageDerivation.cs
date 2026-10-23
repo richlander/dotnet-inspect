@@ -23,13 +23,34 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.Equal(packet, result.Packet);
     }
 
+    // PR-fast: use the production retained-activation owner with opt-in handoff
+    // capture; its existing Package presentation and current occurrence agree.
+    [Fact]
+    public async Task SelectedSubjectCapture_PreservesBrowserPackageActivation()
+    {
+        CompleteRestorationExecutionOptions options =
+            (await OptionsAsync()) with { CaptureSelectedSubject = true };
+        await using var owner = new BrowserRetainedWorkspaceActivationOwner(() => options);
+        string packet = Packet(["System.Text.Json"], selectedIndex: 0,
+            packageVersion: "9.0.4", framework: "net9.0",
+            packageFacet: "package.libraries");
+        BrowserRetainedWorkspacePosting posting = await ActivateAsync(owner, "saved-package", packet);
+        using WorkspaceRealizationOperationLease operation = await EnterAsync(owner, "saved-package");
+        Assert.Equal(packet, posting.CanonicalPacket);
+        Assert.Equal("System.Text.Json", Assert.Single(operation.Scope.Packages)
+            .Occurrence.Package.PackageId, ignoreCase: true);
+        Assert.Equal("package.libraries", posting.Navigation.Snapshot.LensOutcome.EffectiveLens?.Facet);
+    }
+
     // PR-fast: recorded CLI output plus the existing pinned NuGet payload.
     // workspace ecosystem add runtime; package System.Text.Json@10.0.0 --workspace PACKET --share packet
-    [Fact]
-    public async Task PackageAddAndActivate_ReopensRecordedCliPacket()
+    [Theory]
+    [InlineData("workspace-package-derived.json")]
+    [InlineData("workspace-package-replay.json")]
+    public async Task PackageAddAndActivate_ReopensRecordedCliPacket(string exampleFile)
     {
         string json = await File.ReadAllTextAsync(Path.Combine(
-            FindRepositoryRoot(), "docs", "examples", "workspace-package-derived.json"),
+            FindRepositoryRoot(), "docs", "examples", exampleFile),
             TestContext.Current.CancellationToken);
         string packet = WorkspaceSharePacketCodec.Encode(
             WorkspaceSharePacketCodec.ParseJson(json, TestContext.Current.CancellationToken));
@@ -51,8 +72,16 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             ignoreCase: true);
         Assert.Equal("10.0.0", Assert.Single(operation.Scope.Packages)
             .Occurrence.Package.Coordinate.Version);
-        Assert.Equal("ecosystem.runtime", Assert.IsType<WorkspaceRegistration.Ecosystem>(
-            Assert.Single(WorkspaceSharePacketCodec.Decode(posting.CanonicalPacket!, TestContext.Current.CancellationToken).Registrations))
-            .Declaration.Id.Value);
+        WorkspaceSharePacket restored = WorkspaceSharePacketCodec.Decode(
+            posting.CanonicalPacket!, TestContext.Current.CancellationToken);
+        Assert.Equal("package.libraries", posting.Navigation.Snapshot.LensOutcome.EffectiveLens?.Facet);
+        Assert.Equal(Assert.Single(restored.Tabs).Framework,
+            Assert.Single(operation.Scope.Packages).Occurrence.Package.Coordinate.Framework);
+        if (exampleFile == "workspace-package-derived.json")
+            Assert.Equal("ecosystem.runtime", Assert.IsType<WorkspaceRegistration.Ecosystem>(
+                Assert.Single(restored.Registrations)).Declaration.Id.Value);
+        else
+            Assert.Equal("https://api.nuget.org/v3/index.json",
+                Assert.Single(restored.PackageSources).Endpoint);
     }
 }

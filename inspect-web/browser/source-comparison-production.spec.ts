@@ -96,6 +96,7 @@ test.describe("published authored Source comparison transport", () => {
           const source = await import("/inspect-web-source.js");
           const loadResult = await packages.queryPackage(
             "System.Text.Json", "11.0.0-preview.7.26381.103", "netstandard2.0",
+            "",
           );
           const surface = loadResult.surface;
           if (surface === null) {
@@ -204,6 +205,7 @@ test.describe("published authored Source comparison transport", () => {
         const source = await import("/inspect-web-source.js");
         const loadResult = await packages.queryPackage(
           "System.Text.Json", "11.0.0-preview.7.26381.103", "net10.0",
+          "",
         );
         const surface = loadResult.surface;
         if (surface === null) {
@@ -314,6 +316,7 @@ test.describe("published authored Source comparison transport", () => {
         const source = await import("/inspect-web-source.js");
         const loadResult = await packages.queryPackage(
           "Microsoft.Extensions.Primitives", "10.0.0", "net10.0",
+          "",
         );
         const surface = loadResult.surface;
         if (surface === null) {
@@ -445,6 +448,7 @@ test.describe("published authored Source comparison transport", () => {
           const packages = await import("/inspect-web-package.js");
           const loadResult = await packages.queryPackage(
             "InspectWeb.SourceComparisonFixture", version, "net11.0",
+            "",
           );
           const surface = loadResult.surface;
           if (surface === null) {
@@ -1140,6 +1144,7 @@ test.describe("published authored Source comparison transport", () => {
         if (!bridge) throw new Error("Source comparison bridge is unavailable.");
         const loadResult = await bridge.package.queryPackage(
           "InspectWeb.SourceComparisonFixture", "1.0.0", "net11.0",
+          "",
         );
         const surface = loadResult.surface;
         if (surface === null) {

@@ -65,7 +65,7 @@ export interface PackageQueryFacetData {
   readonly bindings: Readonly<Record<string, PackageQueryFacetBinding>>;
 }
 
-export interface PackageQueryEcosystemOption {
+interface PackageQueryEcosystemOption {
   readonly id: string;
   readonly title: string;
   readonly summary: string;

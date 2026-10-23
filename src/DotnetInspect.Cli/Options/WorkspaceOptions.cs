@@ -27,6 +27,7 @@ public sealed record WorkspaceOptions
 
     public bool IncludePrerelease { get; init; }
     public OutputFormat Format { get; init; } = OutputFormat.Markdown;
+    internal bool MarkdownExplicitlySet { get; init; }
     public bool Count { get; init; }
     internal RowSelectionIntent<string>? RowSelection { get; init; }
     public RowWindow? Rows { get; init; }

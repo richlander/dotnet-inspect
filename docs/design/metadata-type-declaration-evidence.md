@@ -137,8 +137,11 @@ The posted evidence carries:
 - an optional authenticated primitive `MetadataTypeIdentity.Primitive` alias;
 - raw `TypeAttributes`;
 - one locally authenticated declaration category;
-- whether the admitted assembly defines the unique core-library root; and
-- the exact direct declaring-TypeDef address when the selected type is nested.
+- whether the admitted assembly defines the unique core-library root;
+- the exact direct declaring-TypeDef address when the selected type is nested;
+  and
+- the declaration of every generic parameter the definition's segments
+  introduce.
 
 The post contains no display string, C# keyword decision, escaped identifier,
 rendered type header, base-list policy, mutable API-surface model, reader,
@@ -166,9 +169,6 @@ definition:
 - nested generic ownership uses the verified per-segment introduced counts
   rather than parsing a flattened name.
 
-The generic parameter names, flags, constraints, and markers remain in the
-joined MethodDef post. This post verifies the ownership counts required to
-construct the open self identity but does not duplicate those declarations.
 CSharp rejects or reports unavailable any joined posts whose type address,
 generic count, or structured identity disagrees.
 
@@ -182,6 +182,41 @@ The primitive alias is owner-issued equivalence evidence. CSharp may compare a
 signature identity with either the open named identity or the authenticated
 alias. It must not recreate that alias from `System` plus a familiar simple
 name, an assembly name, or rendered text.
+
+### Generic parameter declarations
+
+Each GenericParam row that a segment introduces posts one declaration in
+cumulative order: its defining segment, its metadata index, its exact name,
+its raw `GenericParameterAttributes`, its GenericParamConstraint row count,
+and its compiler annotations. A nested definition's repeated enclosing rows
+are not reposted; each parameter is posted from the TypeDef that introduces
+it.
+
+The name is a `MetadataUtf8Name` over the exact `#Strings` bytes. All of one
+post's parameter names share one immutable backing, so a post retains one
+allocation for its names rather than one per name. Ill-formed UTF-8 keeps its
+bytes; containment spells it when a sink presents the name. The post charges
+the contained Field spelling length of each name as retained text.
+
+The annotations are those Roslyn emits to complete a parameter's C#
+constraint spelling:
+
+- the nullable flag is the first byte of the parameter's own
+  `NullableAttribute`, otherwise the value of the nearest
+  `NullableContextAttribute` from the owning TypeDef outward through its
+  declaring Types, otherwise `0`; and
+- `IsUnmanagedAttribute` presence.
+
+Only the single canonical encoding of each consulted attribute is read: a
+`NullableAttribute(byte)` or non-empty `NullableAttribute(byte[])` value and a
+`NullableContextAttribute(byte)` value, each with the standard prolog and no
+named arguments, at most once per row. Any other encoding, a duplicate, or an
+unreadable attribute row posts the annotations as non-canonical, which carries
+no flag or marker claim. Annotations complete a spelling rather than the
+parameter's identity, so they do not reject the post.
+
+Constraint types are not posted. A consumer that needs one keeps its
+established route when the constraint row count is not zero.
 
 ### Local declaration category
 
@@ -286,6 +321,13 @@ The Release gate must include:
   rejected before self identity publication;
 - a generic and nested generic declaration whose cumulative positions and
   per-segment introduced counts agree;
+- compiler-produced `notnull`, `class?`, `class`, `unmanaged`, and
+  unconstrained parameters, plus agreement of every leaf-introduced platform
+  parameter's annotations with the `ApiSurface` constraint projection;
+- authored canonical, context-inherited, truncated, duplicated, empty-array,
+  and malformed-context nullable annotations, each posted;
+- an ill-formed generic parameter name that keeps its bytes and charges its
+  contained spelling;
 - malformed, duplicate, cyclic, and contradictory NestedClass evidence;
 - top-level and nested visibility disagreement;
 - authentic struct, enum, and delegate definitions plus the core
@@ -319,6 +361,7 @@ duplicate, cyclic, spoofed-core-name, and unsupported extends boundaries.
 | `TDE006` | Every metadata-controlled traversal, structured node, and retained character is bounded before publication; cancellation remains observable. |
 | `TDE007` | The public request, post, rejection, and counters contain no live authority and remain usable after session retirement. |
 | `TDE008` | One declaration session reuses the detached result of an identical TypeDef request without repeating charged work; both posted and rejected results are reusable, while cancellation is checked before cache lookup. |
+| `TDE009` | Each introduced generic parameter posts its exact name bytes over one shared backing, raw flags, constraint row count, and canonical compiler annotations; a non-canonical annotation is posted without a claim rather than rejecting the post. |
 
 The public input and result-shape test rejects `MetadataReader`, `PEReader`,
 stream, session, operation-context, lease, callback, mutable collection, and
@@ -331,8 +374,9 @@ This contract does not:
 - probe by name, resolve another assembly, or prove cross-image definition
   correspondence;
 - post a complete base type, interface list, enclosing type shell, field set,
-  layout, custom attributes, or API surface;
-- duplicate the MethodDef post's generic parameter declarations;
+  layout, custom attributes beyond the generic-parameter annotations, or API
+  surface;
+- post generic constraint types;
 - define MethodDef, MethodImpl, InterfaceImpl, or MethodSemantics evidence;
 - decide C# identifier spelling, accessibility, modifiers, category legality,
   language version, accepted requests, or rendering;

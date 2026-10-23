@@ -461,7 +461,8 @@ public static class WorkspaceSharePacketCodec
             "s",
             "c",
             "o",
-            "l");
+            "l",
+            "b");
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
@@ -501,12 +502,13 @@ public static class WorkspaceSharePacketCodec
             memberSignature,
             section,
             libraries,
-            sourceView);
+            sourceView,
+            ReadTraversalTargetPolicy(root));
     }
 
     private static WorkspaceSharePacket BindFormat2(JsonElement root)
     {
-        ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v");
+        ValidateProperties(root, "f", "t", "g", "a", "x", "q", "v", "b");
 
         WorkspaceShareTab[] tabs = ReadTabs(
             Required(root, "t"),
@@ -544,7 +546,8 @@ public static class WorkspaceSharePacketCodec
             focusedTab,
             selectedContext,
             viewStates,
-            queries);
+            queries,
+            ReadTraversalTargetPolicy(root));
     }
 
     private static WorkspaceSharePacket BindFormat3Or4(
@@ -552,9 +555,9 @@ public static class WorkspaceSharePacketCodec
         int formatVersion)
     {
         if (formatVersion == Format5Version)
-            ValidateProperties(root, "f", "s", "t", "g", "r", "a", "x", "q", "v");
+            ValidateProperties(root, "f", "s", "t", "g", "r", "a", "x", "q", "v", "b");
         else
-            ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v");
+            ValidateProperties(root, "f", "t", "g", "r", "a", "x", "q", "v", "b");
 
         WorkspacePackageSourceDefinition[] packageSources =
             formatVersion == Format5Version
@@ -618,6 +621,8 @@ public static class WorkspaceSharePacketCodec
                         + "one context or registration.");
         }
 
+        TraversalTargetFrameworkPolicy? traversalTargetPolicy =
+            ReadTraversalTargetPolicy(root);
         return formatVersion switch
         {
             Format5Version => WorkspaceSharePacket.CreateV5(
@@ -628,7 +633,8 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
             Format4Version => WorkspaceSharePacket.CreateV4(
                 tabs,
                 contexts,
@@ -636,7 +642,8 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
             _ => new WorkspaceSharePacket(
                 tabs,
                 contexts,
@@ -644,8 +651,30 @@ public static class WorkspaceSharePacketCodec
                 focusedTab,
                 selectedContext,
                 viewStates,
-                queries),
+                queries,
+                traversalTargetPolicy),
         };
+    }
+
+    private static TraversalTargetFrameworkPolicy? ReadTraversalTargetPolicy(
+        JsonElement root)
+    {
+        string? framework = OptionalString(root, "b");
+        if (framework is null)
+            return null;
+        return ParseTraversalTargetFramework(framework);
+    }
+
+    internal static TraversalTargetFrameworkPolicy ParseTraversalTargetFramework(
+        string framework)
+    {
+        if (!NuGetTargetFrameworkIdentity.TryNormalize(framework, out string canonical)
+            || !string.Equals(framework, canonical, StringComparison.Ordinal))
+        {
+            throw InvalidShape(
+                "A workspace traversal target must be one canonical lowercase target framework.");
+        }
+        return new TraversalTargetFrameworkPolicy(framework);
     }
 
     private static void ValidateProperties(
@@ -1929,6 +1958,7 @@ public static class WorkspaceSharePacketCodec
             writer.WriteByte((byte)']');
         }
 
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
         writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
@@ -1970,7 +2000,9 @@ public static class WorkspaceSharePacketCodec
                 Format2Version);
         }
 
-        writer.WriteAscii("]}"u8);
+        writer.WriteByte((byte)']');
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
+        writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
 
@@ -2074,7 +2106,9 @@ public static class WorkspaceSharePacketCodec
                 formatVersion);
         }
 
-        writer.WriteAscii("]}"u8);
+        writer.WriteByte((byte)']');
+        writer.WriteOptionalProperty("b"u8, packet.DeclaredTraversalTargetFramework);
+        writer.WriteByte((byte)'}');
         return writer.ToArray();
     }
 

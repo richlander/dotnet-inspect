@@ -2,14 +2,19 @@
 
 ## Status and owner
 
-Proposed focused design for
+Focused design for
 [#9918](https://github.com/richlander/dotnet-inspect/issues/9918). Its
-representation pilot is complete, while the shared Symbol Key described here
-remains unimplemented beyond the Finding Diff Any-private `SymbolKey` that
-[#9898](https://github.com/richlander/dotnet-inspect/pull/9898) introduced.
-The parent byte primitives first adopt a bounded exact-Type result path; the
-adoption sequence below is the counted path from that baseline to shared Symbol
-Key use in the CLI and Browser/Wasm hosts.
+representation pilot is complete, and adoption step 5 is implemented: the
+shared in-process `SymbolKey<TDomain>`, its builder, the `#Strings` name
+source, and the typed Name view live in `ILInspector.MetadataPrimitives`, and
+Finding Diff Any's private key that
+[#9898](https://github.com/richlander/dotnet-inspect/pull/9898) introduced is
+retired onto them
+([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)). The
+persisted profile, its text form, interning, and Browser exchange (steps 6–8)
+remain unimplemented. The parent byte primitives first adopted a bounded
+exact-Type result path; the adoption sequence below is the counted path from
+that baseline to shared Symbol Key use in the CLI and Browser/Wasm hosts.
 
 This is slice 2 of a two-PR design stack. Parent
 [#9993](https://github.com/richlander/dotnet-inspect/pull/9993) establishes
@@ -127,13 +132,21 @@ without changing its kind.
 
 ## Builder
 
-The builder stages one consumer-chosen population through the shared
-ref-struct range builder. Completing a staged key records its offset and
-length as a builder-local slot; it does not issue a `SymbolKey<TDomain>` over
-mutable storage. Freezing the population transfers the finished storage to
-one immutable backing and resolves its slots into readonly
-`OpaqueByteRange`-backed key views. A consumer that needs smaller independent
-lifetimes chooses smaller population boundaries.
+The builder, `SymbolKeyBuilder<TDomain>`, stages one consumer-chosen
+population in storage it owns. Completing a staged key records its offset and
+length as a `StagedSymbolKey<TDomain>`, a builder-local slot that compares,
+hashes, and orders by its bytes, including against staged keys of other
+builders and against frozen keys, so a consumer matches while staging; it does
+not issue a `SymbolKey<TDomain>` over mutable storage. Freezing the population
+transfers the finished bytes through the shared range builder to one immutable
+backing in one copy, and the returned `SymbolKeyPopulation<TDomain>` resolves
+its staged keys into readonly `OpaqueByteRange`-backed key views; resetting
+the population discards them instead, which is how a consumer compares
+transient keys without ever freezing them. One key is open at a time: a key
+embedded in another is completed first. A consumer that needs smaller
+independent lifetimes chooses smaller population boundaries, and
+`StagedSymbolKey<TDomain>.Detach` retains one key alone when a single key
+must outlive an unfrozen population.
 
 Nested construction has two explicit forms:
 
@@ -142,15 +155,32 @@ Nested construction has two explicit forms:
 - embedding an independently completed slot writes that key's bytes into the
   enclosing `Key` payload.
 
+The implementation provides the second form; the first is reserved for a
+domain that measures the duplicate bytes as a cost worth its length patching.
 The second form is a semantic copy required by the self-contained grammar:
 both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A later domain may replace repeated
 embedded keys with `Ref` parts when it adopts interning.
 
-Finding Diff Any adoption stages its census and lookup keys, freezes their
-population, and only then exposes the final dictionaries and sequences. One-off
-nested keys use inline construction. Reused independent keys use slots while
-staging and resolve to views after the same freeze.
+Finding Diff Any keeps two builders per side and spells rows through the
+[shared speller](#metadata-rows). Its Type-level keys, Type definitions,
+references, and specifications, memoized per token for the comparison, are
+staged in a retained builder and frozen into shared backings in chunks at unit
+boundaries; the unit table's lookup keys are resolved to views at each chunk's
+freeze, and a dictionary keyed by frozen keys answers staged lookups through
+the alternate lookup of `SymbolKeyComparer<TDomain>`. Signature composites
+built while one key decodes are staged in the speller's scratch population and
+discarded when that spelling completes. Its member keys (methods, fields,
+member references, method specifications, standalone signatures) and its census
+facts are staged in a transient builder: a unit spells the members it declares
+and the members its bodies refer to, memoized for that unit alone, holds its
+facts as eight-byte slots that the builder sorts and compares against the other
+side's with its storage resolved once, and discards all of it when the unit
+ends, so no member spelling and no fact key is retained. The body comparison
+remembers each pair of operand rows, one of each side, already proven to spell
+the same key, so a member referred to from many Types is spelled once per
+comparison, not once per referencing unit; what the comparison retains across
+units is that pairing and the Type-level keys, not the member spellings.
 
 Names enter through three sources:
 
@@ -165,6 +195,76 @@ names by encoding the query, never by decoding storage. A name built from
 `#Strings` and one built from the same well-formed text are the same part.
 
 Blobs are copied from a `BlobReader` without an intermediate array.
+
+## Metadata rows
+
+Two consumers spell the same metadata rows: Finding Diff Any, for its Types,
+members, and the operands its body walk compares, and the IL census cursor,
+whose atom's operand identity is the same key. One speller writes them, in
+`ILInspector.MetadataPrimitives` where both can reach it.
+
+`MetadataSymbolPart` is the shared marker vocabulary: `Type`, `Namespace`,
+`Method`, `Field`, `MethodSpecification`, `LocalSignature`,
+`StandaloneSignature`, `Primitive`, the signature composites (`SZArray`,
+`Array`, `ByReference`, `Pointer`, `FunctionPointer`, `GenericInstance`,
+`TypeParameter`, `MethodParameter`, `RequiredModifier`, `OptionalModifier`,
+`Pinned`), `Vararg`, `Return`, and `Scope`. A consumer's domain declares the
+values it uses under its own names, with the shared values, and the builder's
+`MarkShared` writes a shared marker only when the domain declares it; a
+domain that does not declare a marker cannot receive a spelling that uses it.
+Two domains that declare the vocabulary spell one row with the same bytes.
+
+`MetadataSymbolSpeller<TDomain, TRow>` spells one row into a builder the
+consumer names: a Type definition as its namespace, declaring chain, and
+names, and under `MetadataSymbolScope.Declared` the current assembly's name;
+a Type reference as its chain and, under `Declared`, its resolution scope (the
+scope's kind, then the assembly reference's name, version, culture, and public
+key or token, or the module reference's name); a Type specification as
+its decoded composite, or as the plain row it merely names, which the speller
+returns for the consumer to memoize as that row; a method, field, member
+reference, method specification, or standalone signature with its guarded,
+decoded signature; and a primitive. Under `MetadataSymbolScope.Omitted`, the
+Body policy's identity, a dependency's version is not a difference. Signature
+composites are spelled in the speller's scratch population and embedded by
+their consumer; the speller discards them when the outermost spelling
+completes.
+
+Rows a spelling refers to are the consumer's: `IMetadataRowKeys<TDomain, TRow>`
+resolves a row to the consumer's key, spelling it into the consumer's own
+builders and memo, and embeds a resolved key into an open one. So are a
+definition's name part and, under `Declared`, a substituted scope name: the
+speller asks the consumer to write the name of a Type in a declaring chain, a
+method, or a field definition (Finding Diff Any writes the `#Strings` name as
+stored; the IL census cursor writes the compiler-generated ordinal
+correspondence's name where its policy folds one), and asks it for a name to
+spell in place of a resolution scope (the cursor's current and platform
+mechanics name `<current>` and `<platform>`; empty declares the scope as it
+is, under its own scope kind). A reference's names are never rewritten. The
+grammar stays one; a policy that rewrites names or scopes is the consumer's,
+and two consumers under one policy spell one row with the same bytes. The
+declaring Type, a member reference's parent, and a method specification's
+method are
+resolved before the referring key opens; a Type a signature names is resolved
+when it is embedded, while that key is open. The role names why: the declaring
+Type of a definition, or a Type or member a signature, specification, or member
+reference names. A consumer therefore spells Type-level rows into a builder
+other than the one its member keys are written in, as Finding Diff Any's
+retained and transient populations are, so a Type resolved while a member key
+is open never finds that builder open. The consumer does not open a key in the
+builder the speller is writing while a spelling runs; the speller writes only
+into that builder and its own scratch. The speller's own re-entry is the other
+hazard: a Type specification named inside a signature (a custom modifier may
+name one) is itself spelled through the consumer, in the speller's scratch, so
+a composite resolves every Type specification it embeds before its scratch key
+opens, and the embed then finds it in the consumer's memo; a consumer memoizes
+a specification on its first resolution. A spelling the consumer embeds itself,
+a property's signature, stays open until the consumer discards it, so a row
+resolved during the embed cannot reset the composites the signature holds.
+
+Guards bound every decode (`SignatureBlobGuard`, `TypeSpecGuard`); a rejected
+shape is a `BadImageFormatException`, which a consumer classifies as malformed
+input. A spelling used out of its lifetime is a `SymbolKeyStateException`,
+which it must not.
 
 ## Name ownership and inert path
 
@@ -411,7 +511,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
 | Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Representation pilot | SPC comparison of current private Symbol Key and the proposed range-backed representation measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; identity answers agree | Pilot before implementation |
-| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged, and NativeAOT base/head on the #9898 pairs shows no regression | Adoption PR |
+| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time and allocation do not regress on any pair, retained memory does not exceed base on any pair, and p95 does not widen; the API axis alone, the asynchronous surface pass, stays cheap enough to run that way: it does not regress on the large pairs (aspire, xml, CoreLib), the small pairs (stj, nj11, nj13) stay within a millisecond of base and under 5 ms, and CoreLib's stays under 100 ms. After time, memory is the priority | Adoption PR |
 
 ## Adoption sequence
 
@@ -426,19 +526,24 @@ Eight steps, tracked by
 3. **Symbol Key representation pilot.** Compare current private Symbol Key
    with an `OpaqueByteRange`/`ValueTextEquals` prototype using time and memory
    SPC. A neutral or negative result changes the implementation plan rather
-   than being hidden.
+   than being hidden. The pilot tool retired with step 5, which deleted its
+   baseline; its evidence stays recorded on
+   [#10035](https://github.com/richlander/dotnet-inspect/pull/10035).
 4. **Exact-Type baseline and host-input comparison.** The parent design first
    lands the shared primitives with one uniquely matched Type identity, then
    measures the separately reviewable host-input exact-match optimization
    against that merged baseline.
-5. **Shared implementation, Finding Diff Any adopts.** Move the key, builder,
-   and `#Strings` reader into `ILInspector.MetadataPrimitives` with the domain
-   split and the UTF-8 and UTF-16 name sources. Finding Diff Any's `SymbolPart`
-   becomes its domain. Stage each consumer-chosen population, freeze before
-   exposing its final dictionaries and sequences, and build one-off nested keys
-   inline. Add the opaque-range dependency; Finding Diff Any's private storage
-   and key copy are deleted in the same step only when the pilot supports that
-   adoption, with NativeAOT parity measured.
+5. **Shared implementation, Finding Diff Any adopts** (implemented,
+   [#10476](https://github.com/richlander/dotnet-inspect/issues/10476)). The
+   key, builder, and `#Strings` reader live in
+   `ILInspector.MetadataPrimitives` with the domain split and the UTF-8 and
+   UTF-16 name sources. Finding Diff Any's `SymbolPart` became its domain,
+   `FindingDiffAnyPart`. Each consumer-chosen population is staged and frozen
+   before its final dictionaries and sequences are exposed, with transient
+   populations compared staged and discarded; one-off nested keys are
+   embedded as completed slots. The opaque-range dependency was added, and
+   Finding Diff Any's private storage and key copy were deleted in the same
+   step, with NativeAOT parity measured on the gate pairs.
 6. **Persisted profile and text form.** Header, registry, validation,
    `PersistedSymbolKeyEncoder`, and base64url. The first adopter is whichever
    of the encoded API qualified anchor
@@ -447,7 +552,15 @@ Eight steps, tracked by
    ([#9889](https://github.com/richlander/dotnet-inspect/issues/9889) step 3)
    lands first; that adoption PR registers its domain.
 7. **Interning.** The range-keyed table and `Ref` part, adopted by Finding
-   Diff Any step 5.
+   Diff Any step 5. The memo is the pairing: once both sides have spelled a
+   row and compared, the diff needs the verdict, not the spelling. The first
+   half is done: member rows are spelled per unit and discarded, and the
+   body comparison keeps the pairing of operand rows proven equal, rather
+   than their spellings, while it runs and releases it when it completes, so
+   a completed comparison retains the Type-level keys and the tables. The
+   second half, shared ids as `Ref`
+   parts for the Type-level keys embedded in member spellings, shrinks the
+   spellings themselves and lands in its own candidate.
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
 

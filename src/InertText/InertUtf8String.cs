@@ -68,15 +68,12 @@ public readonly struct InertUtf8String : IEquatable<InertUtf8String>
     }
 
     /// <summary>Projects the same contained spelling and evidence to the UTF-16 currency.</summary>
-    public InertString ToInertString() =>
-        new(
-            StrictUtf8.GetString(_text.Bytes),
-            Forms,
-            Concerns,
-            IsTruncated);
+    public InertString ToInertString() => new(this);
 
     /// <summary>Returns the contained spelling as UTF-16 for a string sink.</summary>
     public override string ToString() => ToInertString().ToString();
+
+    internal string ToUtf16String() => StrictUtf8.GetString(_text.Bytes);
 
     /// <inheritdoc />
     /// <remarks>

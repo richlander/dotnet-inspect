@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
@@ -663,7 +664,7 @@ public static class RouterCommandDefinition
                 || hasLibraryValue;
 
             var context = new CommandContext(verbose: false);
-            if (PlatformResolver.IsPlatformCandidate(target))
+            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
             {
                 var (resolvedPath, resolvedFramework, _, resolvedError) = await PlatformResolver.ResolveAssemblyAsync(
                     target,
@@ -695,7 +696,8 @@ public static class RouterCommandDefinition
                 }
             }
 
-            var allowPlatformPrefixFallback = PlatformResolver.IsPlatformCandidate(target);
+            var allowPlatformPrefixFallback =
+                EcosystemPackCatalog.ShouldSearchPlatform(target);
 
             var frameworkSpec = GetOptionValue(tail, "--framework");
             bool completeLocatorMiss = false;
@@ -1020,7 +1022,7 @@ public static class RouterCommandDefinition
                     tail,
                     completeLocatorMiss);
 
-            if (PlatformResolver.IsPlatformCandidate(target))
+            if (EcosystemPackCatalog.ShouldSearchPlatform(target))
             {
                 if (await PackageExistsAsync(target, sourceOptions, context))
                     return ["package", .. tokens];
@@ -1363,6 +1365,15 @@ public static class RouterCommandDefinition
                     : target.Contains('.')
                     ? RouteDeferredTypeOrMember(target, tail)
                     : ["type", target, .. tail];
+                return true;
+            }
+
+            if (!structuralSchema
+                && !ContainsHelpOption(tokens)
+                && target.Contains('.')
+                && !EcosystemPackCatalog.ShouldSearchPlatform(target))
+            {
+                rewritten = [PackageCommand.Name, .. tokens];
                 return true;
             }
 

@@ -70,7 +70,12 @@ try {
             const result: OverviewMeasurement = await page.evaluate<OverviewMeasurement, { asset: (typeof assets)[number]; shared: boolean }>(async ({ asset: coordinate, shared }: { asset: (typeof assets)[number]; shared: boolean }) => {
               const client: PublishedRuntimeBenchmarkBridge = window.__inspectWebRuntimeBenchmark!;
               const totalStart = performance.now();
-              const summary = await client.package.queryPackageSummary(coordinate.id, coordinate.version, coordinate.framework);
+              const summary = await client.package.queryPackageSummary(
+                coordinate.id,
+                coordinate.version,
+                coordinate.framework,
+                "",
+              );
               const summaryMilliseconds = performance.now() - totalStart;
               const library = coordinate.library ?? summary.defaultLibraryId;
               if (!library) throw new Error("The Summary did not select a Library.");

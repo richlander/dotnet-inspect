@@ -36,7 +36,8 @@ public static class AssemblyContextMethodAnalysisQuery
         CreateFocusedWork(FocusedProducer);
 
     public static InspectionQuery<
-        AssemblyContextEntry<AssemblyMethodAnalysis>> Definition { get; } =
+        AssemblyContextEntry<AssemblyMethodAnalysis>> Definition
+    { get; } =
         new(
             "Assembly context method analysis",
             InspectionCost.Unbounded);
@@ -172,7 +173,7 @@ public static class AssemblyContextMethodAnalysisQuery
                 AssemblyAnalysisOperation<
                     ExactMethodAnalysisBundleProducerResult>.Create(
                         AssemblyContextAnalysisSource.Name(subject),
-                        request);
+                        request.AsAssemblyAnalysisSource());
 
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(snapshot);

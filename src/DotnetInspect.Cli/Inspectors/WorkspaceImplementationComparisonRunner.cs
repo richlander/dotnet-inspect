@@ -46,6 +46,70 @@ internal static class WorkspaceImplementationComparisonRunner
                     cancellationToken),
             cancellationToken);
 
+    internal static async Task<WorkspaceMethodAllocationComparisonResult>
+        ExecuteAllocationsAsync(
+        AssemblySet before,
+        AssemblySet after,
+        string packageName,
+        string beforeSurfaceAssetPath,
+        int beforeMethodToken,
+        string afterSurfaceAssetPath,
+        int afterMethodToken,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(before);
+        ArgumentNullException.ThrowIfNull(after);
+        ArgumentException.ThrowIfNullOrWhiteSpace(beforeSurfaceAssetPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(afterSurfaceAssetPath);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (ExactAllocationAssembly(
+                before,
+                beforeSurfaceAssetPath)
+                is not { } beforeRoot
+            || ExactAllocationAssembly(
+                after,
+                afterSurfaceAssetPath)
+                is not { } afterRoot)
+        {
+            return new WorkspaceMethodAllocationComparisonResult.Fallback(
+                "The exact allocation target does not identify one assembly "
+                    + "at each endpoint.");
+        }
+
+        ResolvedAssemblyReference beforeAssembly =
+            ResolvedAssemblyReference.CreateFromPathIfManaged(
+                beforeRoot.Path,
+                AssemblySetInspectionWorkspace.ProvenanceFor(beforeRoot))
+            ?? throw new InvalidOperationException(
+                $"The selected assembly '{beforeRoot.Path}' does not contain managed metadata.");
+        ResolvedAssemblyReference afterAssembly =
+            ResolvedAssemblyReference.CreateFromPathIfManaged(
+                afterRoot.Path,
+                AssemblySetInspectionWorkspace.ProvenanceFor(afterRoot))
+            ?? throw new InvalidOperationException(
+                $"The selected assembly '{afterRoot.Path}' does not contain managed metadata.");
+        await using var workspace = new InspectionWorkspace();
+        var beforeParticipant = new AssemblyContextParticipant(
+            beforeAssembly,
+            NoResolverAssemblyBindingPolicy.Instance);
+        using AssemblyContextGroup beforeGroup =
+            workspace.CreateAssemblyContextGroup([beforeParticipant]);
+        var afterParticipant = new AssemblyContextParticipant(
+            afterAssembly,
+            NoResolverAssemblyBindingPolicy.Instance);
+        using AssemblyContextGroup afterGroup =
+            workspace.CreateAssemblyContextGroup([afterParticipant]);
+        return WorkspaceMethodAllocationComparisonQuery.Execute(
+            beforeGroup,
+            beforeParticipant,
+            beforeMethodToken,
+            afterGroup,
+            afterParticipant,
+            afterMethodToken,
+            cancellationToken);
+    }
+
     internal static async Task<AnnotatedSourceDiffDocumentQueryResult>
         ExecuteAnnotatedSourceDiffAsync(
         AssemblySet before,
@@ -107,6 +171,82 @@ internal static class WorkspaceImplementationComparisonRunner
                         ResearchProducerCatalog.Kinds),
                     cancellationToken),
             cancellationToken);
+
+    internal static Task<WorkspaceMethodAllocationComparisonResult>
+        ExecuteAllocationsAsync(
+        PackageEndpointDiffSession session,
+        string packageName,
+        string beforeSurfaceAssetPath,
+        int beforeMethodToken,
+        string afterSurfaceAssetPath,
+        int afterMethodToken,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(beforeSurfaceAssetPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(afterSurfaceAssetPath);
+
+        return ExecuteAsync();
+
+        async Task<WorkspaceMethodAllocationComparisonResult> ExecuteAsync()
+        {
+            Task<PackageEndpointMethodAllocationResult> beforeTask =
+                PackageEndpointMethodAllocationQuery.ExecuteAsync(
+                    session.From,
+                    beforeSurfaceAssetPath,
+                    beforeMethodToken,
+                    cancellationToken);
+            Task<PackageEndpointMethodAllocationResult> afterTask =
+                PackageEndpointMethodAllocationQuery.ExecuteAsync(
+                    session.To,
+                    afterSurfaceAssetPath,
+                    afterMethodToken,
+                    cancellationToken);
+            await Task.WhenAll(beforeTask, afterTask);
+            if (beforeTask.Result is not
+                    PackageEndpointMethodAllocationResult.Analyzed before
+                || afterTask.Result is not
+                    PackageEndpointMethodAllocationResult.Analyzed after)
+            {
+                string reason =
+                    (beforeTask.Result as
+                        PackageEndpointMethodAllocationResult.Fallback)?.Reason
+                    ?? (afterTask.Result as
+                        PackageEndpointMethodAllocationResult.Fallback)?.Reason
+                    ?? "The package MethodDef pair was unavailable.";
+                return new WorkspaceMethodAllocationComparisonResult.Fallback(
+                    reason);
+            }
+
+            return WorkspaceMethodAllocationComparisonQuery.Compare(
+                before.Entry,
+                after.Entry,
+                packageName,
+                afterMethodToken,
+                cancellationToken);
+        }
+    }
+
+    static AssemblySetEntry? ExactAllocationAssembly(
+        AssemblySet assemblySet,
+        string surfaceAssetPath)
+    {
+        string selectedPath = Path.GetFullPath(surfaceAssetPath);
+        StringComparer comparer =
+            LibraryMetadataService.ReferenceTreePathComparer(
+                OperatingSystem.IsWindows());
+        AssemblySetEntry[] matches =
+        [
+            .. assemblySet.Assemblies.Where(entry =>
+                comparer.Equals(
+                    Path.GetFullPath(entry.Path),
+                    selectedPath)),
+        ];
+        return matches.Length == 1
+            ? matches[0]
+            : null;
+    }
 
     /// <summary>
     /// Publishes the Annotated Source Diff document for one carried member

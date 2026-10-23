@@ -103,7 +103,7 @@ side. It is what makes positional equality meaningful across two images:
 
 | Kind | Atom | Order | Matcher mode | Owner |
 | --- | --- | --- | --- | --- |
-| IL operations | A canonical operation, as IL diff canonicalization shapes it: the folded opcode family, its operand as a `SymbolKey` for a metadata token, a value for an immediate or a user string, and each branch or switch target as the target's instruction index within its own body | Instruction order | `Ordered`, with the move pass, then the kind's target validation over the match | IL diff canonicalization; `IlFindings` |
+| IL operations | A canonical operation, as IL diff canonicalization shapes it: the folded opcode family, its operand as a `SymbolKey` for a metadata token, a value for an immediate or a user string, and each branch or switch target as the target's instruction index within its own body; then, after the last instruction, each exception clause in declaration order as an atom of its kind, with its catch Type as the operand and its extent boundaries as targets | Instruction order, then clause order | `Ordered`, with the move pass, then the kind's target validation over the match | IL diff canonicalization; `IlFindings` |
 | Declaration facts | One census fact, keyed by its whole `SymbolKey` | Ascending key bytes | `IdentitySet` | Declaration view for the atom; Finding Diff Any for the census it compares today |
 
 For an ordered kind, positional equality is sequence equality. For an
@@ -115,9 +115,11 @@ image, on token numbers, or on row order is not canonical, as Finding Diff Any's
 [Identity](finding-diff-any.md#identity) rules state for keys.
 
 **Laziness** is per kind and stated, not assumed. An IL cursor decodes one
-instruction per advance and resolves one operand per advance, memoized per
-side. It needs one lookahead: a branch or switch target is an instruction
-index, and a forward target's index is unknown until the decoder reaches it, so
+instruction per advance and resolves one operand per advance, memoized by its
+side (`IlCensusSide`, one per image under one policy) for the side's life;
+Finding Diff Any's walk keeps member rows per unit instead. It needs one
+lookahead: a branch or switch target is an instruction index, and a forward
+target's index is unknown until the decoder reaches it, so
 the cursor runs a boundary pre-scan over the body, which decodes lengths and
 resolves nothing, before it yields its first atom. That is the one non-lazy
 step, and it is the instruction map canonical comparison already builds to
@@ -166,8 +168,10 @@ self-delimiting, never a decoded and formatted name, so two names whose bytes
 differ but decode alike stay distinct, as Finding Diff Any's
 [Identity](finding-diff-any.md#identity) requires. The cursor yields the bytes,
 lockstep compares the bytes, and only sealing for Exhaustive builds the key
-string. A cursor that yields a record with display text would pay for every
-operation what a view pays only for the operations it shows, which the
+string and projects the operand's text, since a sealed census is retained and
+may be shown after its side's reader is gone, and a side formats each distinct
+operand once. A cursor that yields a record with display text would pay for
+every operation what a view pays only for the operations it shows, which the
 measurement gate below catches.
 
 **Terminals** are the inspection outcomes of Finding nomenclature, reached in
@@ -305,9 +309,10 @@ exception to Diff capabilities' rule 2, registered there beside the
 decode-failure exception: for such a row, the view shows the bound failure,
 which is not empty and does not claim the row is unchanged; for an unchanged
 pair beyond the bounds, Exists is `Unchanged` and the view shows the same
-failure, which shows no difference. Today `IlFindings.Inspect` applies the
-operation limit, which would make a large unchanged body `Failed` on both
-sides; adoption step 1 moves it to `Compare`.
+failure, which shows no difference. `IlFindings.Compare` applies the operation
+limit after both drains, so a large unchanged body drains `Complete` on both
+sides and the comparison of the pair is the visible failure, with both
+censuses retained.
 
 The IL kind's fold includes target validation over the match: after the ordered
 matcher aligns operations by their projected keys, each matched branch or
@@ -441,14 +446,40 @@ test class gates its cursor:
 
 1. **IL cursor.** A cursor over one body for the IL kind, placed with the
    kind's canonicalization under the layering of Diff system's layer 1, with
-   `IlFindings.Inspect` draining it. Under IL diff canonicalization's owner,
-   the cursor takes a named policy, the atom's operand identity becomes the
-   `SymbolKey` under it, the atom carries each target's instruction index
-   with the projected key still omitting it, and the operation limit moves
-   from `Inspect` to `Compare`; gated by completeness, canonical order,
-   identity, fault order, and bound. It depends on the Body policy's
-   normalization
-   ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
+   `IlFindings.Inspect` draining it and `IlBodyDiff` canonicalizing through
+   the same drain, so there is one producer of canonical IL. Taken in two
+   slices under IL diff canonicalization's owner:
+   - **1a, landed as `IlCensusCursor`:** the cursor takes a named policy,
+     the atom carries each target's instruction index with the projected key
+     still omitting it, the operation limit moves from `Inspect` to
+     `Compare`, and the cursor yields every atom before a fault and ends
+     `Failed` at the fault's IL offset; gated by completeness, canonical
+     order, fault order, and bound. Its pre-scan reads instruction lengths
+     through the decoder's shallow reader, and it decodes one instruction
+     and resolves one operand per advance. Its clause stage is a second
+     non-lazy step: it builds the decoder's block graph over the retained
+     instructions to validate the table by the decoder's own rules, so a
+     clause-table failure reports the decode's reason; a pre-scan fault
+     reports the shallow reader's reason, which can differ in wording from
+     the full decoder's for the same body. Step 2's laziness, allocation,
+     and cost gates measure that clause stage. The atom's operand identity
+     is still the formatted identity of `IlFindings`, so the identity gate
+     waits for 1b.
+   - **1b, landed as `IlCensusSide`**
+     ([#10476](https://github.com/richlander/dotnet-inspect/issues/10476)):
+     the atom's operand identity is the shared Symbol Key under the policy,
+     spelled by the one speller of metadata rows ([Symbol
+     Key](symbol-key.md#metadata-rows), placed in
+     `ILInspector.MetadataPrimitives` below both `ILInspector.Metadata` and
+     `ILInspector.ILDiff`, with Finding Diff Any as its first adopter) into
+     one side per image, memoized for the side's life, and compared as
+     bytes; the formatted text is a projection a view reads. Gated by
+     identity: over the identity images, callees whose formatted spellings
+     coincide (member names with separators, a namespace against a dotted
+     name, ill-formed names that decode alike) yield atoms that differ, and
+     the cursor's bytes are Finding Diff Any's for every operand row of a
+     real image. It depends on the Body policy's normalization
+     ([#10205](https://github.com/richlander/dotnet-inspect/issues/10205)).
 2. **Exists over cursors.** Domain-free lockstep in `Inspector.Findings`, run
    beside Finding Diff Any's walk for every method of the fixture pairs under
    the Exists agreement gate, and measured against the walk on the perf hosts.

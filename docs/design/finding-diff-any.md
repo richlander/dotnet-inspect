@@ -143,12 +143,16 @@ Under that policy, `ldc.i4` forms and short branches fold to one family,
 branch and switch targets compare by aligned instruction, metadata tokens
 compare by symbolic name, and user strings by value. Other opcodes keep their
 encoding and slot operands, so `ldloc.s` and `ldloc`, or `ldloc.0` and
-`ldloc.s 0`, differ, as the IL view shows them. As in canonical comparison,
-body size, the local signature, stack size, `init locals`, and exception
-regions are not compared, and stand-alone signatures compare as canonical
-comparison compares them. The walk is allocation-free in lockstep and stops at
-the first difference; a retargeted branch is found once the body's instruction
-map is complete.
+`ldloc.s 0`, differ, as the IL view shows them. Exception clauses compare as
+canonical comparison's clause atoms compare: clause by clause in declaration
+order, by kind, by catch Type as a symbolic name, and by each extent boundary
+as the instruction it starts, so a changed catch Type or a moved `try`
+boundary is a Body difference and a re-encoded branch before the `try` is not.
+As in canonical comparison, body size, the local signature, stack size, and
+`init locals` are not compared, and stand-alone signatures compare as
+canonical comparison compares them. The walk is allocation-free in lockstep
+and stops at the first difference; a retargeted branch or a moved clause
+extent is found once the body's instruction map is complete.
 
 A paired method whose body is present on one side only, such as an `abstract`
 method made `virtual` or an interface member given a default implementation,
@@ -195,8 +199,12 @@ is observed at the same boundaries.
 
 ### Identity
 
-Metadata tokens, in IL operands and in signatures, compare by symbolic name,
-resolved once per side and memoized. They never compare by token number or
+Metadata tokens, in IL operands and in signatures, compare by symbolic name.
+A Type-level row's name is resolved once per side and memoized for the
+comparison; a member row's is resolved once per unit that refers to it, and a
+pair of operand rows once proven equal is remembered for the comparison, so
+the comparison retains the pairing rather than member spellings. They never
+compare by token number or
 by defining or referenced assembly identity, as the [Body policy](#axes)
 states, so a renumbered or retargeted reference, or a dependency's version
 change, in an operand or signature is not a difference. Custom attribute and constant
@@ -259,14 +267,13 @@ over-reports against that diff. The divergences the earlier census reported
 are settled as follows:
 
 - **Encoded IL.** Short and long branch forms, `ldc.i4` forms, branch
-  offsets, body size, stack size, and exception regions are no longer
-  compared, so a re-encoded branch is `Unchanged`, as canonical comparison
-  treats it. Local and argument macro forms and slots remain compared, as the
-  IL view shows them. A changed catch Type or handler extent is not an IL
-  operation: canonical comparison shows no row for it
+  offsets, clause offsets, body size, and stack size are no longer compared,
+  so a re-encoded branch is `Unchanged`, as canonical comparison treats it.
+  Local and argument macro forms and slots remain compared, as the IL view
+  shows them. A changed catch Type or clause extent is an exception clause
+  row of canonical comparison
   ([#9942](https://github.com/richlander/dotnet-inspect/issues/9942)), so
-  the Body axis reports it `Unchanged` until canonical comparison presents
-  it, and follows it then.
+  the Body axis reports it `Changed` and the IL view shows the clause.
 - **Type and Member flags no view presents, nullable context, and attribute
   blobs.** These are uncertain facts. A Type that differs only in them is
   decided by its Public API surface, so a framework major-version move that

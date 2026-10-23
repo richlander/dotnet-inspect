@@ -2,10 +2,15 @@
 
 ## Status
 
-Proposed focused design for
-[#10090](https://github.com/richlander/dotnet-inspect/issues/10090). Nothing in
-this document is implemented. The adoption sequence is the counted path to
-observable behavior in the CLI and Inspect Web.
+Implemented through ordered CLI composition for
+[#10090](https://github.com/richlander/dotnet-inspect/issues/10090).
+The product-owned builder, deterministic Aspire and Microsoft.Extensions
+artifacts, portable Type and Member evaluation, and CLI index-first composition
+shipped through
+[#10322](https://github.com/richlander/dotnet-inspect/pull/10322),
+[#10337](https://github.com/richlander/dotnet-inspect/pull/10337), and
+[#10401](https://github.com/richlander/dotnet-inspect/pull/10401).
+Inspect Web adoption and the scheduled freshness lane remain planned.
 
 ## Owner and exact claim
 
@@ -39,7 +44,7 @@ It does not define:
 - Type or Member Find grammar, matching, classification, row limits, or
   reduction, which remain with
   [Find semantic evaluation](find-semantic-evaluation.md);
-- bounded-before-prefix staging, index-before-live ordering, candidate limits,
+- index-before-bounded-before-live staging, candidate limits,
   cross-layer duplicate suppression, membership reduction, or completion,
   which remain with
   [Ecosystem Find Search](ecosystem-find-search.md);
@@ -68,13 +73,14 @@ dotnet-inspect find '.AddRedis' --ecosystem aspire --jsonl
 
 Its serial work is:
 
-1. settle the existing bounded/core Ecosystem layers;
-2. when prefix demand and row capacity remain, admit the artifact for each
-   admitted Ecosystem, search its Integration symbol rows, and publish matches;
-3. stop if the semantic row window is full or cancellation occurs;
-4. otherwise, when the host authorized live prefix work, continue through the
+1. when prefix demand exists, admit the artifact for each admitted Ecosystem,
+   search its Integration symbol rows, and publish matches;
+2. stop if the semantic row window is full or cancellation occurs;
+3. otherwise, settle the existing bounded/core Ecosystem layers;
+4. stop if those layers fill the semantic row window or cancellation occurs;
+5. otherwise, when the host authorized live prefix work, continue through the
    existing package-prefix network phase; and
-5. suppress a live row only when its exact source-backed Type or Member
+6. suppress a live row only when its exact source-backed Type or Member
    identity was already published from the index.
 
 With no semantic row limit, exhausting the index does **not** complete the
@@ -120,10 +126,10 @@ controls are:
 
 | Ecosystem | Exact package | Integration symbol |
 | --- | --- | --- |
-| Aspire | `Aspire.Hosting.Redis@13.6.1` | `AddRedis` |
-| Aspire | `Aspire.Hosting.PostgreSQL@13.6.1` | `AddPostgres` |
-| Aspire | `Aspire.StackExchange.Redis@13.6.1` | `AddRedisClient` |
-| Microsoft.Extensions | `Microsoft.Extensions.Http@10.0.12` | `AddHttpClient` |
+| Aspire | `Aspire.Hosting.Redis@13.6.3` | `AddRedis` |
+| Aspire | `Aspire.Hosting.PostgreSQL@13.6.3` | `AddPostgres` |
+| Aspire | `Aspire.StackExchange.Redis@13.6.3` | `AddRedisClient` |
+| Microsoft.Extensions | `Microsoft.Extensions.Http@10.0.13` | `AddHttpClient` |
 
 Generation fails rather than publishing an artifact that omits a control when
 its exact package coordinate and scanner concept are in generation scope.
@@ -136,7 +142,7 @@ its exact package coordinate and scanner concept are in generation scope.
 | --- | --- |
 | [Integrations](integrations.md) | Configured concepts, scanner observations, actionable Type and starter-API admission, exact structured candidate identity, evidence, and row ordering |
 | [Static Ecosystem Packs](ecosystem-packs.md) | Ecosystem identity, admission, ordered package-prefix declarations, and the optional Integration scanner binding |
-| [Ecosystem Find Search](ecosystem-find-search.md) | Bounded-before-prefix continuation, indexed-before-live adoption, row and live-candidate bounds, membership, duplicate suppression, scoped failures, and completion |
+| [Ecosystem Find Search](ecosystem-find-search.md) | Index-before-bounded-before-live staging and continuation, row and live-candidate bounds, membership, duplicate suppression, scoped failures, and completion |
 | [Find semantic evaluation](find-semantic-evaluation.md) | Normalized Type and Member questions, matching, classification, exact source association, row limits, and source evaluation |
 | [Incremental package-prefix candidates](package-prefix-candidate-stream.md) | Live enumeration, source order, paging, cancellation, and completion used by generation and the later live phase |
 | Package and Library selection owners | Exact package version, target framework, selected Library, selected asset, and typed rejection |
@@ -306,9 +312,9 @@ candidate budget.
 
 ## Live continuation and duplicate suppression
 
-The indexed layer runs only after bounded/core settlement and only under the
-same owner-issued prefix demand that can authorize the live phase. This design
-does not make blocking formats search prefixes by default.
+The indexed layer runs before bounded/core settlement and only under the same
+owner-issued prefix demand that can authorize the live phase. This design does
+not make blocking formats search prefixes by default.
 
 After exhaustion of the admitted artifacts and demanded indexed sources:
 
@@ -364,16 +370,17 @@ change without changing indexed correctness.
 
 ## Performance and size goals
 
-Adoption measures exact NativeAOT production binaries on linux-x64. The
-bounded/core phase is primed and held identical so indexed latency is not
-confused with unrelated bounded acquisition.
+Adoption measures exact NativeAOT production binaries on linux-x64. Index-hit
+latency and the added miss-path cost before a bounded result are reported
+separately so unrelated bounded acquisition is not attributed to the index.
 
 <!-- markdownlint-disable MD013 -->
 
 | Measure | Goal |
 | --- | --- |
-| Prefix-continuation to first indexed Aspire `.AddRedis` row | 200 ms or less |
+| Indexed-evaluation start to first Aspire `.AddRedis` row | 200 ms or less |
 | Complete indexed-symbol scan for Aspire `.Add*` | 500 ms or less, excluding terminal output backpressure |
+| Index miss before an otherwise identical bounded result | Reported as exact NativeAOT base/head latency; no goal until the first adoption establishes a baseline |
 | Network bytes and package-cache bytes before indexed exhaustion | 0 |
 | Peak RSS above `dotnet-inspect --version` on the same binary | 32 MiB or less |
 | Aspire and Microsoft.Extensions Ecosystem artifacts together | 2 MiB or less checked in; 500 KiB or less Brotli-compressed |
@@ -382,6 +389,18 @@ confused with unrelated bounded acquisition.
 | Generation | Reported; no goal beyond the scheduled lane timeout |
 
 <!-- markdownlint-enable MD013 -->
+
+The first CLI adoption measured exact linux-x64 NativeAOT binaries on
+`dotnet-inspect-perf-2`. The repaired index-first candidate returned the
+`AddRedis` row in 52.72 ms median versus 1.94 seconds for the bounded-first
+control, a 97.3% improvement. An index miss added 0.08 ms median and 0.69 ms
+p95 while producing byte-identical output. The two checked-in artifacts total
+477,160 bytes.
+
+The complete 204-row indexed `.Add*` window used 32.76 MiB peak RSS above
+`--version`. That exceeded the initial 32 MiB goal by 0.76 MiB. The operator
+accepted that observed result for #10401; 32 MiB remains the target for future
+adoptions rather than a retroactive claim that the first adoption met it.
 
 Result cardinality and stable typed-result digests accompany every timing.
 Time to first indexed row, index exhaustion, first live request, first live row,
@@ -413,8 +432,17 @@ concept sequence, generation-policy versions, and Type and Member identity
 format versions; callers cannot substitute free-form identities.
 
 Each Ecosystem artifact is checked in once. The CLI consumes it as an embedded
-resource; Inspect Web consumes a static asset built from the same file.
+resource; Inspect Web will consume a static asset built from the same file.
 Ordinary build, test, startup, and indexed lookup do not regenerate it.
+
+The initial CLI artifacts live in
+`src/DotnetInspector.Ecosystems/FindIndexes/`. The explicit network-bearing
+`eng/generate-ecosystem-find-indexes.cs` generator enumerates at most 25
+packages per declared prefix, selects `net10.0` compile Libraries, runs the
+complete product Integration interpretation, records bounded-enumeration and
+source gaps, and writes deterministic Aspire and Microsoft.Extensions
+artifacts. The 25-package bound is the smallest current bound that includes all
+four known-answer controls in source order.
 
 Generation fails when any known-answer control is missing, identity or coverage
 is inconsistent, deterministic regeneration differs, or the artifact exceeds
@@ -450,20 +478,22 @@ the adopted size goal.
 
 Six steps lead from design to observable behavior in both hosts:
 
-1. **Design.** This artifact owner and its selective Integration-symbol,
-   coverage, equivalence, and performance contracts.
-2. **Builder.** Product-owned builder and deterministic per-Ecosystem fixture
-   artifacts over owner-issued Integration scanner observations.
-3. **Find projection.** One Find-semantic-evaluation input over portable indexed
-   Type and Member facts.
-4. **Ordered CLI composition.** Ecosystem Find Search inserts indexed results
-   before live prefix work, preserves row and candidate bounds, and suppresses
-   only exact duplicates; checked-in Aspire and Microsoft.Extensions artifacts
-   ship with exact NativeAOT and network-phase evidence.
-5. **Inspect Web and Spotlight.** The same per-Ecosystem artifacts and
-   host-neutral indexed evaluation under Browser operation authority.
-6. **Freshness lane.** Scheduled regenerate-and-compare reporting coordinate,
-   scanner, symbol, coverage, size, and performance drift.
+1. **Design — implemented.** This artifact owner and its selective
+   Integration-symbol, coverage, equivalence, and performance contracts.
+2. **Builder — implemented.** Product-owned builder and deterministic
+   per-Ecosystem fixture artifacts over owner-issued Integration scanner
+   observations.
+3. **Find projection — implemented.** One Find-semantic-evaluation input over
+   portable indexed Type and Member facts.
+4. **Ordered CLI composition — implemented.** Ecosystem Find Search inserts
+   indexed results before bounded/core and live prefix work, preserves row and
+   candidate bounds, and suppresses only exact duplicates; checked-in Aspire
+   and Microsoft.Extensions artifacts ship with exact NativeAOT and
+   network-phase evidence.
+5. **Inspect Web and Spotlight — planned.** The same per-Ecosystem artifacts
+   and host-neutral indexed evaluation under Browser operation authority.
+6. **Freshness lane — planned.** Scheduled regenerate-and-compare reporting
+   coordinate, scanner, symbol, coverage, size, and performance drift.
 
 Steps 3 and 4 are focused adoptions by existing owners, not responsibilities
 absorbed into this artifact design. The implementation tracker keeps them

@@ -26,6 +26,24 @@ namespace DotnetInspect.Web.Interop.Metadata;
     typeof(BrowserTypeOverviewInspection))]
 public static partial class MetadataExports
 {
+    public static Task<string> QueryTypeOverviewDocument(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeIdentity,
+        string spelling,
+        string accessibility) =>
+        QueryTypeOverviewDocument(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeIdentity,
+            spelling,
+            accessibility,
+            runtimeIdentifier: null);
+
     [JSExport]
     public static async Task<string> QueryTypeOverviewDocument(
         string packageId,
@@ -34,13 +52,15 @@ public static partial class MetadataExports
         string assemblyName,
         string typeIdentity,
         string spelling,
-        string accessibility)
+        string accessibility,
+        string? runtimeIdentifier)
     {
         await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
             await BrowserPackageWorkspace.OpenScopeAsync(
                 packageId,
                 version,
-                targetFramework).ConfigureAwait(false);
+                targetFramework,
+                runtimeIdentifier).ConfigureAwait(false);
         BrowserInspectionScope scope = scopeLease.Scope;
         BrowserPackageCoordinate coordinate = scope.Coordinates[0];
         if (!coordinate.Selection.IsSelected)

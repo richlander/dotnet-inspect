@@ -1,7 +1,9 @@
 using DotnetInspector.Cache;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Inspectors;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
 using ILInspector.Metadata;
@@ -752,12 +754,11 @@ public class PlatformResolverTests
     }
 
     /// <summary>
-    /// Scans all assemblies in installed ref packs and verifies every one passes IsPlatformCandidate.
-    /// If this test fails, a new platform assembly name needs to be added to the candidate check.
-    /// This caught WindowsBase, mscorlib, netstandard, and System (bare) as special cases.
+    /// Scans all assemblies in installed ref packs and verifies every one has an
+    /// association in the Ecosystem lineages selected for Platform resolution.
     /// </summary>
     [Fact]
-    public void IsPlatformCandidate_CoversAllRefPackAssemblies()
+    public void EcosystemPlatformSearchPolicy_CoversAllRefPackAssemblies()
     {
         // Check installed packs on disk
         var packsDir = FindAnyRefPacksDirectory();
@@ -790,22 +791,22 @@ public class PlatformResolverTests
         List<string> uncovered = [];
         foreach (var name in dllFiles)
         {
-            if (!PlatformResolver.IsPlatformCandidate(name))
+            if (!EcosystemPackCatalog.ShouldSearchPlatform(name))
             {
                 uncovered.Add(name);
             }
         }
 
         Assert.True(uncovered.Count == 0,
-            $"Platform assemblies not covered by IsPlatformCandidate: {string.Join(", ", uncovered)}. " +
-            $"Add these names to PlatformResolver.IsPlatformCandidate().");
+            $"Platform assemblies without selected Ecosystem associations: {string.Join(", ", uncovered)}. " +
+            "Author the missing assembly associations in the owning Ecosystem.");
     }
 
     /// <summary>
     /// Finds any available ref packs directory (app cache or installed SDK).
     /// Only returns directories for the 3 known ref packs (runtime, aspnetcore, netstandard)
-    /// to avoid picking up extra SDK packs (Android, WPF, etc.) that IsPlatformCandidate
-    /// is not intended to cover.
+    /// to avoid picking up SDK packs outside the Runtime and ASP.NET Core
+    /// Ecosystem lineages selected for Platform resolution.
     /// </summary>
     private static string? FindAnyRefPacksDirectory()
     {

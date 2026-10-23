@@ -130,7 +130,7 @@ producers that will extend that space.
   settlement while retaining exact caller associations; Metadata retains
   candidate facts and the command retains presentation.
   [Ecosystem Find Search](design/ecosystem-find-search.md) owns the
-  host-neutral bounded-before-prefix scheduler that deduplicates concrete
+  host-neutral index-before-bounded-before-live scheduler that deduplicates concrete
   source work, reduces owner-issued Find blocks to every admitting Ecosystem,
   and preserves phase, membership, failure, and completion evidence for CLI
   and Browser adoption.
@@ -286,8 +286,9 @@ producers that will extend that space.
   extraction and matching, canonical document paths, URL decoration,
   provenance grammar, high-level type/member/IL-offset resolution,
   source-document/member-source Findings, and SourceLink-aware debug audits.
-- `src/ILInspector.MetadataPrimitives/` is the dependency-free leaf for shared
-  SRM mechanics and neutral name matching. `StringDistance` lives there so
+- `src/ILInspector.MetadataPrimitives/` is the floor for shared SRM
+  mechanics, neutral name matching, and the Symbol Key; its one repository
+  edge is `InertText`. `StringDistance` lives there so
   Metadata suggestion ranking does not acquire the Finding-backed Text layer;
   `MetadataNameMatching_DoesNotDependOnFindingBackedText` gates that boundary.
 - `src/CSharpText/` is a dependency-free leaf for model-free C# and XML-documentation textual grammars: primitive aliases, canonical member signatures, XML-documentation identity notation and comment extraction, FQN/member-selector normalization, operator notation, [type-declaration identifier admission](design/csharp-type-declaration-identifier-admission.md), identifier and keyword policy, expression-body recognition, member text layout, lexing, and conservative declaration/source-range recognition. It is not a parser and makes uncertainty explicit rather than guessing a span.
@@ -843,7 +844,7 @@ rules, this document describes subsystem ownership, and
   candidate collection, classification precedence, source ordering, limits,
   failure visibility, and typed result boundary for `find`.
 - [Ecosystem Find Search](design/ecosystem-find-search.md): host-neutral
-  bounded-before-prefix scheduling, distinct-source deduplication,
+  index-before-bounded-before-live scheduling, distinct-source deduplication,
   cross-Ecosystem membership reduction, durable Find blocks, and terminal
   completion for CLI and Browser adoption.
 - [Ecosystem Find Index](design/ecosystem-find-index.md): deterministic
@@ -1073,10 +1074,19 @@ rules, this document describes subsystem ownership, and
   exact relationship and color registration, Type-focus and direction
   admission, terminal-specialized adapter-query binding, and immutable typed
   query demand without duplicating QuerySpace or inspection query execution.
+- [Annotated Type Relations request](design/annotated-type-relations-request.md):
+  explicit all-applicable or canonical-id family selection, deterministic
+  binding to one admitted relations catalog, preservation of requested and
+  resolved identities, and typed rejection before producer work.
 - [Annotated Type Relations generation](design/annotated-type-relations-generation.md):
   concrete typed contribution correspondence, independent relationship and
   color-family settlement, and canonical Rows/Count/Exists document generation
   without execution or acquisition.
+- [Annotated Type Relations call adoption](design/annotated-type-relations-call-adoption.md):
+  exact outgoing call relations from one Type, physical call-site receipts,
+  direct trimming and NativeAOT compatibility color on external callees, and
+  producer-native terminal settlement over independently qualified topology
+  and color evidence.
 - [Finding Diff Any](design/finding-diff-any.md): per-Type API and Body change
   states for a Library image pair, sound for the facts each axis compares,
   without building either complete diff.

@@ -30,25 +30,25 @@ export interface PreparedDocumentLeafContainment {
   readonly [preparedLeafContainmentBrand]: "PreparedDocumentLeafContainment";
 }
 
-export interface ContainedDocumentPresentationLeaf {
+interface ContainedDocumentPresentationLeaf {
   readonly identity: number;
   readonly policy: DocumentTextPolicy;
   readonly text: InertString;
 }
 
-export interface ContainedLeafPopulation {
+interface ContainedLeafPopulation {
   readonly generation: string;
   readonly leaves: ReadonlyArray<ContainedDocumentPresentationLeaf>;
   readonly [containedLeafPopulationBrand]: "ContainedLeafPopulation";
 }
 
-export interface DocumentTextPresentationTarget {
+interface DocumentTextPresentationTarget {
   readonly kind: "text";
   readonly node: Text;
   readonly policy: DocumentTextPolicy;
 }
 
-export interface DocumentAttributePresentationTarget {
+interface DocumentAttributePresentationTarget {
   readonly kind: "attribute";
   readonly element: Element;
   readonly name: string;
@@ -75,7 +75,7 @@ interface PreparedDocumentFragmentState {
   readonly leafContainment: PreparedDocumentLeafContainment;
 }
 
-export type DocumentLeafCompletionRejectionReason =
+type DocumentLeafCompletionRejectionReason =
   | "managed-rejection"
   | "stale-generation"
   | "wrong-generation"

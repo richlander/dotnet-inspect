@@ -2,7 +2,8 @@
 
 ## Status and ownership
 
-Status: **proposed; not implemented**.
+Status: **shared policy and Package Navigation adoption implemented; Source and
+Compare adopters pending**.
 
 This document is the normative owner for the package-local Selection RID
 policy, tracked by
@@ -81,24 +82,29 @@ endpoint of a comparison.
 
 ## Request and policy source
 
-The public type names may change during implementation. The distinctions may
-not.
+The shared implementation uses
+`PackageRuntimePopulationChoiceRequest`,
+`PackageRuntimePopulationAuthority`, and
+`PackageRuntimePopulationChoiceOperationAssociation`. The distinctions below
+are binding.
 
 ```text
 PackageRuntimePopulationChoiceRequest
-  OperationAssociation
+  PackageRuntimePopulationChoiceOperationAssociation
   exact Package source coordinate
-  exact package-content generation
-  exact requested and selected target framework
-  owner-issued eligible runtime-population inventory
-  RuntimeAuthority
+  PackageAssetSelectionReceipt
+    exact package-content generation
+    exact requested target framework
+    owner-issued eligible runtime-population inventory
+  PackageRuntimePopulationAuthority
     None
     Explicit(RuntimeIdentifier)
-    RetainedCoordinate(RuntimeIdentifier, CoordinateAssociation)
+    RetainedCoordinate(PackageRuntimePopulationCoordinateAssociation)
 ```
 
-`OperationAssociation` identifies the exact Package selection that will consume
-the result. It is not a display name or an open operation-kind string.
+`PackageRuntimePopulationChoiceOperationAssociation` identifies the exact
+Package selection that will consume the result. It is not a display name or an
+open operation-kind string.
 
 `Explicit` records an exact user or API choice admitted by the consuming
 operation. `RetainedCoordinate` records an exact RID and the owner-issued
@@ -107,6 +113,11 @@ string alone cannot relabel one coordinate as another.
 
 `None` authorizes the sole-RID and `linux-x64` default rules. It does not mean
 host default, first candidate, newest candidate, or best candidate.
+
+The lower receipt is policy-neutral: its requested RID is absent. Explicit and
+retained authority are applied only by this owner, so a lower receipt that
+already carries an exact RID is rejected at request construction rather than
+being relabeled as another choice source.
 
 ## Lower-owner inventory
 
@@ -136,7 +147,7 @@ selection algorithm or archive order.
 ```text
 PackageRuntimePopulationChoiceResult
   Selected
-    exact OperationAssociation
+    exact PackageRuntimePopulationChoiceOperationAssociation
     exact Package coordinate and content generation
     exact requested and selected target framework
     exact selected canonical RuntimeIdentifier
@@ -145,7 +156,8 @@ PackageRuntimePopulationChoiceResult
       RetainedCoordinate
       SingleEligible
       ProductDefault
-    exact selected population identity
+    exact selected PackageRuntimeAssetPopulation
+    PackageRuntimePopulationCoordinateAssociation
     lower owner-issued selection receipt
     complete ordered available-RID inventory
   NoMatch
@@ -163,6 +175,10 @@ governed the package-local implementation population, not that its bytes are
 portable, executable on the host, equal to another package version, or
 successfully admitted.
 
+The result inventory is product-ordered: `linux-x64` first when present, then
+the remaining canonical RIDs in ordinal order. The lower receipt remains in
+its owner-issued ordinal order.
+
 Non-success retains enough candidate evidence for a host to explain and offer
 the next selection without parsing a selector message or rescanning the
 archive.
@@ -174,7 +190,7 @@ Selection rather than a Source- or Compare-local setting. Changing it submits
 a typed Package-coordinate transition and replaces every derived Library,
 Type, Member, Source, and implementation-Compare result.
 
-The planned Inspect Web Navigation adoption lists the complete available-RID
+The Inspect Web Navigation adoption lists the complete available-RID
 inventory directly below the TFM inventory in the Package navigation pane.
 The active row is the exact RID retained by the current Package coordinate.
 When the result is ambiguous, no RID row is active until the user chooses one.
@@ -261,24 +277,35 @@ The counted delivery is:
 5. retire replaced Source and Compare archive search or implicit-host-RID
    behavior.
 
-The specification gate is Markdown validation. Later Release gates must cover:
+The design, lower-owner inventory prerequisite, shared policy, and Package
+Navigation adoption complete steps 1-2. Steps 3-5 remain production adoption
+work.
 
-- neutral implementation bypassing RID choice;
+The shared policy is gated by
+`PackageRuntimePopulationChoiceTests` and the resource-free receipt graph in
+`PackageAssetSelectorTests`. They cover:
+
 - zero and one eligible RID;
 - several eligible RIDs with `linux-x64`;
 - several eligible RIDs without `linux-x64`;
 - explicit and retained exact RID authority;
 - an explicit RID absent from the inventory;
 - stable product-default-first RID inventory ordering;
-- Traversal target and executing-host independence;
-- Package Navigation listing RIDs below TFMs and retaining the active identity;
+- foreign retained coordinate and generation evidence;
+- lower-owner failure preservation; and
+- rejection of a lower receipt that already carries an exact RID.
+
+The Package Navigation Release gates cover neutral bypass, product-ordered RID
+rows beneath TFMs, active retained identity, ambiguity with no active row, and
+exact Root reopening. Later adoption Release gates must cover:
+
 - Source refusing equivalence inference across ambiguous RIDs;
 - Compare applying one exact Package Selection RID to both endpoints;
 - Compare reporting a missing counterpart without common-RID search; and
 - compile/API comparison bypassing runtime choice.
 
-These product gates are **unverified** until their owning implementation and
-adoption slices land.
+The Source and Compare adoption gates are **unverified** until their owning
+slices land.
 
 ## Non-claims
 

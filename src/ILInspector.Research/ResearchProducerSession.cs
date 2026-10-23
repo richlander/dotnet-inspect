@@ -251,8 +251,8 @@ public static class ResearchProducerSession
         IResearchProducerInvoker invoker,
         IlBodyDiffNormalization normalization)
     {
-        IlMemberDiffEndpoint oldEndpoint = IlEndpoint(endpoints.Before!);
-        IlMemberDiffEndpoint newEndpoint = IlEndpoint(endpoints.After!);
+        IlMemberDiffEndpoint oldEndpoint = IlEndpoint(endpoints.Before!, normalization);
+        IlMemberDiffEndpoint newEndpoint = IlEndpoint(endpoints.After!, normalization);
         IlMemberEndpointComparison result = invoker.CompareIl(
             oldEndpoint,
             newEndpoint,
@@ -453,7 +453,7 @@ public static class ResearchProducerSession
             return failed;
         }
 
-        var stage = new InputStage(input, occurrence, source);
+        var stage = new InputStage(input, occurrence, source, new InputSides());
         acquired.Add(stage);
         StageAccess access;
         try
@@ -544,7 +544,7 @@ public static class ResearchProducerSession
                 endpoint.AbsenceDetail);
     }
 
-    static IlMemberDiffEndpoint IlEndpoint(EndpointAccess endpoint)
+    static IlMemberDiffEndpoint IlEndpoint(EndpointAccess endpoint, IlBodyDiffNormalization normalization)
     {
         var subject = new IlMemberDiffSubject(
             endpoint.Subject!,
@@ -552,8 +552,8 @@ public static class ResearchProducerSession
         return endpoint.Stage is { } stage
             ? new IlMemberDiffEndpoint.Present(
                 subject,
+                stage.Sides.For(stage.Source, normalization),
                 stage.Source.Pe,
-                stage.Source.Reader,
                 endpoint.Handle)
             : new IlMemberDiffEndpoint.SubjectAbsent(
                 subject,
@@ -681,7 +681,25 @@ public static class ResearchProducerSession
     sealed record InputStage(
         ResearchComparisonInputId Input,
         ImplementationComparisonInputOccurrence Occurrence,
-        MetadataSource Source);
+        MetadataSource Source,
+        InputSides Sides);
+
+    /// <summary>
+    /// One <see cref="IlCensusSide"/> per policy over a staged input, held for
+    /// the session so every designated pair over the image spells the rows
+    /// its bodies name once; released with the stage.
+    /// </summary>
+    sealed class InputSides
+    {
+        readonly Dictionary<IlBodyDiffNormalization, IlCensusSide> _sides = [];
+
+        public IlCensusSide For(MetadataSource source, IlBodyDiffNormalization normalization)
+        {
+            if (!_sides.TryGetValue(normalization, out IlCensusSide? side))
+                _sides[normalization] = side = IlCensusSide.Create(source.Reader, normalization);
+            return side;
+        }
+    }
 
     sealed record StageAccess(
         InputStage? Stage,

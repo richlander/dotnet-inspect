@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
 using DotnetInspect.Cli.Views;
+using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
 using Markout;
 
@@ -152,6 +153,10 @@ public static class ResourceExplanationCommand
 
             ResourceExplanationCatalog? exactCatalog = root switch
             {
+                ResourceExplanationCatalog.ComponentContractsCollectionSegment =>
+                    ResourceExplanationCatalog.CreateWorkspaceComponents(),
+                "workspace" when canonicalPath.Value == WorkspacePackageComponentExplanation.Contract =>
+                    ResourceExplanationCatalog.CreateWorkspaceComponents(),
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
@@ -412,6 +417,7 @@ public static class ResourceExplanationCommand
                     .. StructuralRoutingDeclarations.Create(),
                     .. CapabilityRoutingDeclarations.Create(),
                     .. VocabularyRoutingDeclarations.Create(),
+                    ResourceExplanationCatalog.ComponentContractsRoutingDeclaration,
                 ])
             : null;
 
@@ -480,6 +486,7 @@ public static class ResourceExplanationCommand
                 analyses,
                 ResourceExplanationCatalog.CreateVocabularies(
                     CliVocabularyComposition.Snapshot),
+                ResourceExplanationCatalog.CreateWorkspaceComponents(),
             ]);
     }
 

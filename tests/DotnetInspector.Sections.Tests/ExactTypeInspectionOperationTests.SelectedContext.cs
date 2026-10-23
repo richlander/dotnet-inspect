@@ -125,6 +125,26 @@ public sealed partial class ExactTypeInspectionOperationTests
             package.LibraryIdentity.Name);
         Assert.Equal(0, source.Observation.ContextOrder);
         Assert.Equal(1, source.Observation.MemberOrder);
+        WorkspaceTypeHierarchySubjectRelationsFocus hierarchyFocus =
+            WorkspaceTypeHierarchySubjectRelationsFocus
+                .FromExactTypeDefinition(
+                    source.Occurrence,
+                    source.Type);
+        Assert.Same(
+            source.Occurrence,
+            hierarchyFocus.Occurrence);
+        Assert.Equal(
+            source.Type.Namespace,
+            hierarchyFocus.Type.Namespace);
+        Assert.Equal(
+            source.Type.Segments,
+            hierarchyFocus.Type.Segments);
+        ArgumentException invalidIdentity = Assert.Throws<ArgumentException>(
+            () => WorkspaceTypeHierarchySubjectRelationsFocus
+                .FromExactTypeDefinition(
+                    source.Occurrence,
+                    new("", [])));
+        Assert.Equal("type", invalidIdentity.ParamName);
         Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
     }
 

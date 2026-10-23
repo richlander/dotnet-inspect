@@ -12,7 +12,7 @@ namespace DotnetInspect.Cli.Tests;
 
 // PR-fast: bounded routing, registration-only restoration and pinned package-store inputs.
 [Collection("Console")]
-public sealed class WorkspacePacketActivationTests
+public sealed partial class WorkspacePacketActivationTests
 {
     const string RuntimeJson = """{"f":3,"t":[],"g":[],"r":[["e","ecosystem.runtime",["System"],[],[["t","DotNetRuntime"],["p","System."]]]],"a":null,"x":null,"v":[{"t":null,"u":{"k":"workspace"}}]}""";
     const string TypeJson = """{"f":5,"s":[["https://api.nuget.org/v3/index.json"]],"t":[["System.Text.Json","10.0.0","net10.0",null]],"g":[[0]],"r":[],"a":0,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0,"r":{"k":"type","l":["System.Text.Json","10.0.0.0",null,"cc7b13ffcd2ddd51"],"y":"System.Text.Json.JsonSerializer"},"u":{"k":"type"},"f":"type.api"}]}""";
@@ -176,17 +176,17 @@ public sealed class WorkspacePacketActivationTests
     }
 
     [Fact]
-    public async Task SavedTypeIsRefusedBeforeAnyAcquisition()
+    public async Task UnsupportedTypeFacetIsRefusedBeforeAnyAcquisition()
     {
         using var client = new HttpClient(new FailingHandler());
         var actual = await ConsoleCapture.RunAsync(() => WorkspacePacketActivation.ExecuteAsync(
-            new WorkspaceOptions { Packet = Encode(TypeJson), Format = OutputFormat.Json },
+            new WorkspaceOptions { Packet = Encode(TypeJson.Replace("type.api", "type.metadata", StringComparison.Ordinal)), Format = OutputFormat.Json },
             TestContext.Current.CancellationToken, LoadOptions(client, new InMemoryPackageStore())));
         Assert.Equal(1, actual.ExitCode);
         Assert.Empty(actual.Output);
-        Assert.Contains("type.api", actual.Error, StringComparison.Ordinal);
+        Assert.Contains("type.metadata", actual.Error, StringComparison.Ordinal);
         Assert.Contains("no CLI activation execution binding", actual.Error, StringComparison.Ordinal);
-        foreach (string[] entrance in new[] { new[] { "-w", Encode(TypeJson) }, new[] { Encode(TypeJson) } })
+        foreach (string[] entrance in new[] { new[] { "-w", Encode(TypeJson.Replace("type.api", "type.metadata", StringComparison.Ordinal)) }, new[] { Encode(TypeJson.Replace("type.api", "type.metadata", StringComparison.Ordinal)) } })
         {
             var routed = await RunAsync(entrance);
             Assert.Equal(actual.Error, routed.Error);

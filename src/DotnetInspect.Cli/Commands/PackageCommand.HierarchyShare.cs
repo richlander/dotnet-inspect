@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
@@ -69,7 +70,8 @@ public partial class PackageCommand
             || !DependsShareProjection.TryNormalizeFramework(
                 options.Tfm
                     ?? TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework,
-                out string? framework))
+                out string? framework)
+            || framework is null)
         {
             return Refuse(
                 "The resolved Package has no exact portable package, "
@@ -89,34 +91,25 @@ public partial class PackageCommand
                     + "sharing currently requires NuGet.org.");
         }
 
-        const int schema = InspectionDefinitionSchema.Version1;
+        const int schema = InspectionDefinitionSchema.Version3;
         var coordinate = new DefinitionMemberCoordinate.PackageCoordinate(
             packageId, normalizedVersion, framework);
         var workspace = new WorkspaceDefinition(
             schema,
             WorkspaceSharePacketTransposer.WorkspaceId,
             [new WorkspaceContextDefinition(
-                "g0", framework, members: [coordinate])]);
-        var navigation = new NavigationDefinition(
+                "g0", framework, members: [coordinate])],
+            registrations: EcosystemPackCatalog.CreateWorkspacePlan(
+                [EcosystemPackIds.Runtime]).Registrations,
+            traversalTargetPolicy: new TraversalTargetFrameworkPolicy(framework));
+        var navigation = new CommittedNavigationDefinition(
             schema,
             WorkspaceSharePacketTransposer.NavigationId,
             [new NavigationTabDefinition("t0", coordinate: coordinate)],
             "t0");
-        var view = new ViewDefinition(
-            schema,
-            WorkspaceSharePacketTransposer.ViewId,
-            lens: "hierarchy");
-        var scenario = new ScenarioDefinition(
-            schema,
-            WorkspaceSharePacketTransposer.ScenarioId,
-            workspace: workspace.Id,
-            context: "g0",
-            view: view.Id,
-            navigation: navigation.Id);
         WorkspaceSharePacketProjectionResult projection =
-            WorkspaceSharePacketTransposer.ToPacket(
-                new WorkspaceSharePacketDefinitionSet(
-                    workspace, navigation, view, scenario));
+            WorkspaceSharePacketTransposer.ToPackageHierarchyPacket(
+                workspace, navigation, "g0");
         if (!projection.Succeeded)
         {
             WorkspaceSharePacketProjectionFailure failure =

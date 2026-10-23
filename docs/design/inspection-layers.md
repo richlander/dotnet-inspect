@@ -204,6 +204,11 @@ but cannot derive and probe an ambient sidecar path; this is gated by
 The query's in-memory host path and typed failure behavior are gated by
 `AssemblyContextSourceQueryTests`.
 
+Subject Relations now constructs a process-local hierarchy focus from the
+selected-context exact-Type operation's owner-issued structured identity and
+declaration occurrence. Inspect Web selects hierarchy form, captured
+population, bounds, and presentation without rebuilding the Metadata name.
+
 Library section production no longer has a string-keyed scanner axis. Body
 Shapes binds `BodyShapesQuery`, retains the typed `BodyShapeSearchResult`, and
 uses an optional typed dependency when Performance predicates narrow its

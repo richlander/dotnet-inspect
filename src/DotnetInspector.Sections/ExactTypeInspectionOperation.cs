@@ -14,7 +14,7 @@ namespace DotnetInspector.Sections;
 /// admitted Workspace realization, returning only its detached terminal
 /// envelope.
 /// </summary>
-public static class ExactTypeInspectionOperation
+public static partial class ExactTypeInspectionOperation
 {
     public static async Task<InspectionEnvelope<ExactTypeInspectionResult>>
         ExecuteAsync(
@@ -65,7 +65,8 @@ public static class ExactTypeInspectionOperation
         PackageEndpointScopeRequest endpointRequest;
         try
         {
-            endpointRequest = new(
+            endpointRequest = PackageEndpointScopeRequest
+                .ForCompileLibraries(
                 PackageSourceCoordinate.Create(
                     request.PackageId,
                     request.Version),

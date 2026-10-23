@@ -558,6 +558,189 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageSummary_RuntimeSelectionSurvivesExactRootReopening()
+    {
+        string id = $"Summary.Runtime.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            summary.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            ["linux-x64", "win-x64"],
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    cancellationToken:
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal(
+            "linux-x64",
+            realization.Coordinate.RuntimeIdentifier);
+        string rootRequest = realization.Coordinate.Binding!
+            .CreateReacquisitionRequest()
+            .Encode();
+
+        BrowserPackageRootLoadResult root =
+            Assert.IsType<BrowserPackageRootLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageRoot(rootRequest),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageRootLoadResult));
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Selected,
+            root.RuntimePopulation!.Status);
+        Assert.Equal(
+            "linux-x64",
+            root.RuntimePopulation.SelectedRuntimeIdentifier);
+        Assert.Equal(
+            summary.RuntimePopulation.AvailableRuntimeIdentifiers,
+            root.RuntimePopulation.AvailableRuntimeIdentifiers);
+    }
+
+    [Fact]
+    public async Task PackageSummary_RuntimeAmbiguityRetainsFrameworkInventory()
+    {
+        string id = $"Summary.Runtime.Ambiguous.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/osx-arm64/lib/net9.0/{id}.dll", assembly),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                id,
+                "1.0.0",
+                archive,
+                fromCache: false,
+                producerKey:
+                    BrowserPackageWorkspace.Gallery.Source.Producer.Key));
+
+        BrowserPackageLoadResult summary =
+            Assert.IsType<BrowserPackageLoadResult>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryPackageSummary(
+                        id,
+                        "1.0.0",
+                        "net11.0"),
+                    BrowserPackageJsonContext.Default
+                        .BrowserPackageLoadResult));
+
+        Assert.Equal(
+            BrowserPackageRuntimePopulationChoiceStatus.Ambiguous,
+            summary.RuntimePopulation!.Status);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            Assert.IsType<string[]>(
+                summary.PackageInfo!.Content.AvailableTargetFrameworks));
+    }
+
+    [Fact]
+    public async Task PackageRealization_RuntimeDefaultOpensSelectedRangedSurface()
+    {
+        string id = $"browser.runtime.range.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        byte[] archive = PackageEntries(
+            ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                $"<package><metadata><id>{id}</id><version>1.0.0</version></metadata></package>")),
+            ($"runtimes/win-x64/lib/net11.0/{id}.dll", assembly),
+            ($"runtimes/linux-x64/lib/net11.0/{id}.dll", assembly),
+            ("content/padding.bin", new byte[2_000_000]));
+        var handler = new GalleryPackageHandler(id, "1.0.0", archive);
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Equal("linux-x64", realization.Coordinate.RuntimeIdentifier);
+        Assert.Equal(
+            PackageRuntimePopulationChoiceSource.ProductDefault,
+            Assert.IsType<PackageRuntimePopulationChoiceResult.Selected>(
+                    realization.Coordinate.RuntimePopulationChoice)
+                .ChoiceSource);
+        RangedPackageContent ranged =
+            Assert.IsType<RangedPackageContent>(
+                realization.Coordinate.Package.Content);
+        string implementationPath = Assert.Single(
+                realization.Coordinate.Root.RealizedSurfaceAssets)
+            .Path;
+        Assert.True(
+            ranged.IsMaterialized(implementationPath),
+            $"Expected {implementationPath} to be materialized.");
+
+        await using var lease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                realization,
+                TestContext.Current.CancellationToken);
+        Assert.Single(lease.Scope.SurfaceParticipants);
+
+        int rangedResponses = handler.RangedPackageResponses;
+        BrowserPackageRealization retained = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    id,
+                    "1.0.0",
+                    "net11.0",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken))
+            .Realization;
+        Assert.Same(
+            realization.Coordinate.Package.Content.GenerationIdentity,
+            retained.Coordinate.Package.Content.GenerationIdentity);
+        Assert.Equal(rangedResponses, handler.RangedPackageResponses);
+
+        BrowserWorkspacePackageOccurrenceView occurrences =
+            await BrowserWorkspaceOccurrenceOperations.ReplaceCurrent(
+                [realization.Coordinate]);
+        Assert.Equal(
+            "linux-x64",
+            Assert.Single(occurrences.Occurrences).RuntimeIdentifier);
+        await BrowserWorkspaceOccurrenceOperations.ClearCurrent();
+    }
+
+    [Fact]
     public async Task PackageRealization_RangeRetainsSelectedFoldersAndReusesGeneration()
     {
         string id = $"browser.range.{Guid.NewGuid():N}";

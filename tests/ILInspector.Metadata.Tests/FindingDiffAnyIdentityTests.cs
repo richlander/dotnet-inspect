@@ -11,7 +11,7 @@ namespace ILInspector.Metadata.Tests;
 /// </summary>
 public sealed class FindingDiffAnyIdentityTests
 {
-    static readonly byte[] ReturnOne = [0x17, 0x26, 0x2A]; // ldc.i4.1; pop; ret
+    internal static readonly byte[] ReturnOne = [0x17, 0x26, 0x2A]; // ldc.i4.1; pop; ret
     static readonly byte[] ReturnTwo = [0x18, 0x26, 0x2A]; // ldc.i4.2; pop; ret
 
     [Fact]
@@ -201,7 +201,7 @@ public sealed class FindingDiffAnyIdentityTests
         Assert.Equal(FindingDiffAnyState.Changed, state.Body);
     }
 
-    enum AttributeTarget { Field, Event }
+    internal enum AttributeTarget { Field, Event }
 
     const int Int32Primitive = -1;
     const int FunctionPointerToVoidPointer = -2;
@@ -253,7 +253,7 @@ public sealed class FindingDiffAnyIdentityTests
     {
         using var pe = new PEReader(File.OpenRead(typeof(object).Assembly.Location));
         MetadataReader md = pe.GetMetadataReader(MetadataReaderOptions.None);
-        var names = new SymbolKey.Utf8Names(pe, md);
+        var names = new MetadataStringHeap(md);
         IEnumerable<StringHandle> handles = md.TypeDefinitions
             .SelectMany(type => (StringHandle[])[md.GetTypeDefinition(type).Namespace, md.GetTypeDefinition(type).Name])
             .Concat(md.MethodDefinitions.Select(method => md.GetMethodDefinition(method).Name))
@@ -261,16 +261,15 @@ public sealed class FindingDiffAnyIdentityTests
         int compared = 0;
         foreach (StringHandle handle in handles)
         {
-            int length = names.Length(handle);
-            byte[] stored = new byte[length];
-            names.Copy(handle, stored, 0, length);
-            Assert.Equal(System.Text.Encoding.UTF8.GetBytes(md.GetString(handle)), stored);
+            byte[] decoded = System.Text.Encoding.UTF8.GetBytes(md.GetString(handle));
+            Assert.Equal(decoded.Length, names.Length(handle));
+            Assert.True(names.ValueTextEquals(handle, decoded));
             compared++;
         }
         Assert.True(compared > 10_000);
     }
 
-    static byte[] Patch(byte[] image, ReadOnlySpan<byte> marker, byte[] replacement)
+    internal static byte[] Patch(byte[] image, ReadOnlySpan<byte> marker, byte[] replacement)
     {
         int index = image.AsSpan().IndexOf(marker);
         Assert.True(index >= 0 && image.AsSpan(index + 1).IndexOf(marker) < 0);
@@ -287,7 +286,7 @@ public sealed class FindingDiffAnyIdentityTests
     /// no parameter, an <c>int</c>, a function pointer, or an instance of an
     /// earlier Type.
     /// </summary>
-    sealed record TypeSpec(
+    internal sealed record TypeSpec(
         string? Namespace,
         string Name,
         int? DeclaringType,
@@ -302,7 +301,7 @@ public sealed class FindingDiffAnyIdentityTests
     static FindingDiffAnyResult Compare(TypeSpec[] before, TypeSpec[] after)
         => CompareImages(Image(before), Image(after));
 
-    static FindingDiffAnyResult CompareImages(byte[] beforeImage, byte[] afterImage)
+    internal static FindingDiffAnyResult CompareImages(byte[] beforeImage, byte[] afterImage)
     {
         using var beforeReader = new PEReader(new MemoryStream(beforeImage, writable: false));
         using var afterReader = new PEReader(new MemoryStream(afterImage, writable: false));
@@ -320,7 +319,7 @@ public sealed class FindingDiffAnyIdentityTests
         return whole;
     }
 
-    static byte[] Image(TypeSpec[] types)
+    internal static byte[] Image(TypeSpec[] types)
     {
         var metadata = new MetadataBuilder();
         var il = new BlobBuilder();

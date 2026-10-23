@@ -2413,6 +2413,16 @@ protocol applies; no new scheduling transition is introduced. Content-only
 Roots prepare no assembly images and expose no Library role groups. Ordinary
 admission still validates and prepares its selected Libraries.
 
+Changing only the admission purpose preserves the Root's already-computed
+unselected target-framework assembly-candidate fact without enumerating the
+same content again. This reuse applies to the unchanged content generation and
+selection; ordinary construction and changed selections still compute their
+own facts. The real `Newtonsoft.Json@13.0.4` and
+`Microsoft.NETCore.App.Ref@10.0.0` Package survey exposed this redundant walk.
+`ContentOnlyPackageAdmission_ReusesAssemblyCandidateEvidence` gates its absence
+for both complete Library populations and packages containing reference plus
+implementation assemblies, preserving both false and true candidate facts.
+
 The current durable Root token represents Library realization and does not
 encode this additional admission purpose. A content-only binding therefore
 refuses to issue that token rather than silently changing purpose on reopening.

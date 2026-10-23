@@ -293,6 +293,87 @@ Successful direct authoring does not use
 for an independently obtained live Workspace whose host truly retained no
 portable basis.
 
+#### Governing traversal target
+
+A Workspace definition carries the governing traversal target independently of
+its contexts' and members' acquisition frameworks. The optional
+`traversalTargetFramework` string lowers to the existing
+`TraversalTargetFrameworkPolicy`; omission retains ProductDefault. A configured
+target, including an explicitly configured product-default TFM, survives
+definition JSON, packet projection, plan construction, Complete Restoration,
+coordinate replacement, and dependency enrichment. None of these operations
+reconstructs that target from a Package's selected compile asset.
+
+Current packet formats 1 through 5 admit the optional scalar `b` for this same
+configured target. Canonical emission places it last. This is an additive
+intent field, not a new topology, query language, source authorization, or
+restoration protocol. Existing unknown-field rejection means readers without
+this field fail visibly rather than silently restoring a different target.
+Existing default-target packets retain their canonical bytes and version
+admission rules.
+
+The established format-1 single-exact-Package Hierarchy convention is the one
+legacy exception: without `b`, its tuple's framework also names the traversal
+target. Transposition makes that target explicit in the Workspace definition;
+complete capture carries it into the modern packet independently of the root
+coordinate. An explicit `b` overrides the convention. A redundant `b` equal to
+that legacy tuple target is omitted canonically. Other packets without `b`
+continue to use ProductDefault, not a selected tab's framework.
+
+The portable claim is the governing target TFM, not process-local policy-object
+identity or provenance. A serialized literal is configured intent when read.
+Browser retained-definition metadata exposes the actual governing TFM, and
+Hierarchy acquisition receives root asset selection and traversal target as
+separate inputs. Sharing preserves both rather than replacing a root framework
+with the traversal target. This does not introduce platform pruning, change
+family selection, or make format 1 eligible for Complete Restoration.
+
+Focused evidence is owned by
+`CompleteRestorationPreparationTests.ConfiguredTraversalTarget_SurvivesPortableRestorationWithoutChangingRoot`,
+`LegacyHierarchy_CompleteCapturePreservesTargetSeparatelyFromRoot`,
+`BrowserWorkspaceShareOperationsTests.HierarchyCapture_PreservesGoverningTargetWithoutChangingRoot`,
+and `LegacyHierarchyDecode_RecapturePreservesTargetWithExplicitContext`.
+The existing coordinate-replacement framework-change and dependency-enrichment
+scenarios also verify that editing membership retains the governing target;
+the Browser URL-capture scenario verifies the separate transport field.
+
+#### Hierarchy sharing context
+
+Issue #10555 preserves the Workspace context of the exact
+`Microsoft.Azure.SignalR@1.33.1` Hierarchy used by #10404. A newly authored
+Hierarchy share carries its root acquisition coordinate, governing traversal
+target, and ordered ecosystem registrations in an existing registration-bearing
+committed packet. Its requested inspector is the existing
+`package.dependency-hierarchy` facet. No new packet version or Browser-only
+view identity is needed.
+
+The CLI authors the Runtime lineage selected by its direct Hierarchy command.
+The Browser captures the current portable Workspace's registrations; a fresh
+ordinary Browser view uses its product-curated plan. A retained Workspace with
+no Runtime registration remains Runtime-free after sharing and reopening.
+Unprojectable retained context is refused visibly rather than replaced by
+product defaults. Target and family intent do not assert that matching supply
+inventory has been acquired.
+
+Legacy format-1 links retain their existing interpretation. Their lack of
+registrations is not evidence of an explicitly empty modern Workspace, and
+they are not rewritten into a different historical source contract. This
+does not prevent re-sharing a legacy Hierarchy as a newly authored committed
+packet with the Browser's ordinary context made explicit. The prerequisite
+does not enable pruning, acquire Platform packs, change supply
+comparison, or claim a performance improvement. Traversal adoption remains
+owned by [package dependency traversal](package-dependency-traversal.md).
+
+Focused shared and Browser codec scenarios cover no Runtime, Runtime, and
+ASP.NET lineage with a root framework distinct from the governing target.
+The real-Wasm package-adoption scenarios reopen a legacy compatible-asset
+Hierarchy as a committed share and round-trip an explicitly Runtime-free
+Hierarchy without introducing product registrations.
+Gallery-only retained packets use the existing typed package-source description
+to retain their NuGet.org provenance. A packet declaring a custom source, or
+without an admitted source description, does not become eligible for the
+Gallery-only Hierarchy loader.
+
 ### The `workspace` command
 
 The `workspace` command authors and transforms portable Workspace definitions:
@@ -1390,7 +1471,12 @@ $ dotnet-inspect workspace component list --packet "$w"
       "path": "packages/system.text.json@10.0.0/net10.0/~",
       "package_id": "System.Text.Json",
       "version": "10.0.0",
-      "framework": "net10.0"
+      "framework": "net10.0",
+      "runtime_identifier": null,
+      "contexts": ["contexts/g0"],
+      "focused": true,
+      "contract": "workspace/components/package",
+      "schema_version": 1
     }
   ]
 }
@@ -1418,6 +1504,67 @@ a navigation-row ordinal and retains the fresh successor Workspace,
 correspondence, committed-view, and complete-output obligations of that
 contract. "Replacement" remains an implementation description of the
 remove-old/admit-successor mechanism, not CLI vocabulary.
+
+#### Extracted Package explanation input
+
+Each direct Package descriptor also carries `contract` equal to
+`workspace/components/package` and `schema_version` equal to `1`. These identify
+Workspace Definitions' Package contribution contract and its independently
+versioned explanation schema. They do not change the component document's
+version, a definition schema version, or a packet format. The fields make a
+descriptor extracted with jq self-describing without duplicating its values:
+
+```bash
+dotnet-inspect workspace component list --packet "$w" |
+  jq '.packages[] | select(.package_id == "System.Text.Json")' > component.json
+```
+
+The [captured descriptor](../examples/workspace-package-component.json) contains
+the actual CLI output for System.Text.Json 10.0.0/net10.0.
+
+The declaration's Package ID, exact-or-floating Version, requested TFM and RID
+are construction intent, not evidence of resolved versions or acquired content.
+Optional omitted values default to null: no exact Version pin, no explicit TFM,
+or no specific RID. Admission records which fields were omitted; explicitly
+supplied null is distinct from an owner default. Parent information never fills
+an omitted field during explanation admission.
+
+Workspace Definitions admits this JSON through
+`WorkspacePackageComponentExplanation.Parse` and issues one validated typed
+input. It uses the existing canonical Package component-coordinate gate,
+rejects duplicate/unknown properties and malformed values, and visibly refuses
+an unsupported contract or explanation schema version. Input is bounded by the
+existing packet decoded-byte limit. Naming the contract does not bypass its
+owner's validation.
+
+Without a parent packet, admission preserves only the validated local
+declaration and its supplied/defaulted distinction. A copied `path` must agree
+with that declaration, and copied context paths must be canonical; neither
+establishes occurrence identity. Parent path, context membership and focus
+remain unavailable, including when copied claims happen to match some active
+Workspace. This is not a successful empty membership result.
+
+With an explicitly supplied immutable packet, the owner resolves the exact
+Package component within that packet and checks any supplied context/focus
+claims against it. A missing component or mismatched claim is a typed refusal.
+The resulting occurrence retains that actual packet and its descriptor;
+identical path text in another packet does not establish the same occurrence.
+Typed extraction from a packet uses this same descriptor catalog. It does not
+serialize process-local authority or promote the path to a global ResourcePath.
+
+The owner also issues the Package contribution declaration through the existing
+`QuerySpace.Explanation` schema types. It declares local value meanings,
+defaulted fields, and unavailable parent facts. Resource Explanation's next
+slice consumes this schema and typed input for its existing direct/HAL
+lowerings; contextual host admission and a CLI consuming gesture remain their
+own staged slices. This admission does not restore a Workspace, acquire a
+Package, resolve a floating Version, or run an inspection.
+
+Evidence: `WorkspacePackageComponentExplanationTests` covers standalone and
+parent-qualified admission, explicit null/default distinction, snapshot scope,
+invalid/unsupported input and byte bounds. `WorkspaceComponentCommandTests`
+extracts real CLI output and submits it to owner admission. Existing packet
+codec/transposition gates retain packet version and canonical-vector coverage.
 
 Packet conversion is representation work beneath the same noun:
 `workspace packet decode` and `workspace packet encode`. It remains
@@ -3786,10 +3933,15 @@ Realization](models/inspect-web-retained-workspace-realization/README.md).
 
 ### Saved-subject execution handoff
 
-This is the proposed prerequisite for
+The shared handoff is implemented under
 [#10408](https://github.com/richlander/dotnet-inspect/issues/10408).
-It does not claim an implemented execution entrance. The CLI bindings remain
-under [#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
+Set `CompleteRestorationExecutionOptions.CaptureSelectedSubject` to retain
+its live associations, then use
+`CompleteRestorationSelectedSubjectOperation.ExecuteAsync` under the paired
+Workspace or realization operation lease. Omission is explicit `NotCaptured`;
+Workspace/Ecosystem landings remain with their existing operations. The CLI
+saved-inspection bindings remain under
+[#4647](https://github.com/richlander/dotnet-inspect/issues/4647).
 
 Complete restoration must let a consumer inspect its exact saved subject in
 the same realization. The selected declaration context describes the
@@ -3832,7 +3984,7 @@ Neither case substitutes an inspection or silently drops query intent.
 Live targets remain bounded by the existing operation borrow and realization
 lifetime. They are not portable or detached snapshot fields. Only the
 inspection owner's detached result may outlive that borrow. Closing or
-superseding an activation uses the existing host lifecycle; this proposal adds
+superseding an activation uses the existing host lifecycle; this handoff adds
 no controller, session registry, new lease protocol, or restoration phase.
 Consumers do not restore again, reacquire the source, reconstruct argv, or
 interpret consumer-facing Navigation IDs to recover live targets.
@@ -3863,21 +4015,24 @@ System.Text.Json 10.0.0 (NuGet; net10.0; lib)
 Replay must restore once, hand that exact selected Package to the admitted
 Libraries inspection, and print its ordinary default hierarchy above. It does
 not print Workspace inventory. The equivalent entrance is
-`dotnet-inspect -w "$package_packet"`. These are target replay gestures:
-PR #10409 currently refuses both with no stdout and the error
+`dotnet-inspect -w "$package_packet"`. Package Libraries now binds both
+entrances to the ordinary CLI inspection.
+The recorded [format-5 packet](../examples/workspace-package-replay.json)
+replays its hierarchy and Count; other saved facets and attached queries remain
+staged under #4647. Historically, PR #10409 refused both with no stdout and the error
 `The saved Package facet 'package.libraries' has no CLI activation execution binding.`
-The source query and current refusal were reproduced with its NativeAOT
+The source query and historical refusal were reproduced with its NativeAOT
 candidate `18c37a5a26abe016f70a03fc4cd6448fa709203e`.
 
 #### Saved-subject adoption and evidence
 
-Implementation first adds the shared handoff and gates its exact association
-under #10408. CLI bindings then adopt it individually under #4647, beginning
-with Package Libraries, followed by Type API and Member overview. Browser
+The shared handoff and exact association gates are implemented under #10408.
+CLI bindings then adopt it individually under #4647, beginning
+with Package Libraries and Type API; Member overview follows. Browser
 restoration remains a consumer of the same owner-issued preparation; gate
 same-packet subject, facet, query and target preservation through its
 production activation facade. There is no Browser rendering redesign or
-command-wide migration in this proposal. The complete counted sequence remains
+command-wide migration in this handoff. The complete counted sequence remains
 in [#10132](https://github.com/richlander/dotnet-inspect/issues/10132).
 
 Required runtime evidence includes the worked Package round-trip; a saved
@@ -3889,12 +4044,30 @@ not only displayed names. Gate aggregate preservation, attached query intent,
 unsupported-binding refusal, ordinary output/Count parity, and use within the
 paired lifetime. Inactive views are not additional execution requests.
 
-Those runtime properties remain unverified until the corresponding gates and
-production consumers land. This proposal has no new state machine: selection
-is a projection of one already prepared activation under its existing borrow.
-The complete-restoration model above retains lifecycle ownership; it does not
-prove the proposed subject association. Markdown lint and diff validation gate
-the specification, while implementation tests must establish that association.
+`CompleteRestorationExecutionTests.SelectedSubject_*` gates exact Package,
+Library/aggregate, Type and Member targets; omission and unsupported landing;
+closed/foreign Workspace refusal; and two same-name Library/Type assets across
+net8.0/net9.0 contexts with repeated query definitions bound to distinct targets.
+The Type gate establishes that the Navigation defining registration differs
+from declaration-context registrations. The handoff reuses the existing exact
+Root-generation query borrow and performs no content inspection itself.
+`SelectedSubjectCapture_PreservesBrowserPackageActivation` runs the production
+Browser retained-activation owner with capture enabled and preserves the same
+Package, facet and canonical packet.
+
+CLI Package Libraries rendering, Count and save/replay parity are gated by
+`WorkspacePacketActivationTests.SavedPackageReplaysOrdinaryLibraries` and the
+recorded packet's production Browser activation test. Type API adopts the
+same handoff under #10486: its receiver consumes the borrowed Root's assembly
+roles, projects only the exact Navigation Library, and selects the structured
+Type identity. `WorkspacePacketActivationTests.SavedTypeReplaysOrdinaryApi`
+gates ordinary rendering and Count; the recorded Type packet also runs through
+the production Browser activation owner. Member and attached-query CLI bindings
+remain staged. Selection is a projection of one already
+prepared
+activation under its existing borrow, with no new state machine. The
+complete-restoration model above retains lifecycle ownership; the focused
+runtime tests establish the new subject association.
 
 ### Complete-restoration inventory
 

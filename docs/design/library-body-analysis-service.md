@@ -109,15 +109,20 @@ the selected physical MethodDef tokens, and reuses the input across coordinate
 file rows. The Research producer validates source-module correspondence and
 result participation without reopening Analysis.
 
-The next drain slice moves safety-only IL-coordinate preparation to
+The safety-only drain slice moves IL-coordinate preparation to
 `ExactMethodAnalysisProducer`. CLI and Library Address borrow their existing
 prefetched metadata context, deduplicate the requested MethodDef tokens, and
 execute one owner-issued exact request. `ILOffsetSafetyAnalysisInput` carries
 the safety evidence, unsafe occurrences, diagnostics, source receipt, and work
-receipt independently of the legacy three-result input. Allocation, cost, and
-combined coordinate requests still use this service: allocation requires
-`LibraryAllocationAnalysisResult`, while cost requires the donor-owned public
-direct-call rows.
+receipt independently of the legacy three-result input.
+
+The allocation-only follow-up plans `ExactMethodAllocationProducer` over the
+same deduplicated MethodDef population. `ILOffsetAllocationAnalysisInput`
+carries detached allocation occurrences, diagnostics, source receipt, and work
+receipt. Direct CLI and Library Address reuse one focused input across every
+coordinate row and do not execute this service. Cost-only and combined
+semantic coordinate requests still use this service because cost requires the
+donor-owned public direct-call rows.
 
 The method-analysis-support prerequisite for exact allocation and optimization
 is tracked by
@@ -129,9 +134,16 @@ generic-constraint classifier, and stable-receiver classifier. The primary
 resolver's memory-safety index is lazy, so allocation and optimization support
 does not silently construct unrelated safety infrastructure. This is a
 composition and ownership transfer, not production QuerySpace adoption:
-allocation, cost, and combined coordinate requests still use this service
-until #10285 moves their shared CLI and Browser/Wasm operation. Final donor
-drainage and deletion remain with #8965 and #9959.
+allocation and optimization for the shared CLI and Browser/Wasm exact-method
+operation moved in #10285. `ExactMethodAllocationProducer` owns the canonical
+allocation context and facts consumed by `ExactMethodOptimizationProducer`,
+while the composed exact bundle publishes direct calls, final signals,
+allocations, and optimization opportunities without constructing this service.
+Allocation-only matched-member requests plan
+`ExactMethodAllocationProducer` and therefore omit call collection, safety,
+signals, and optimization entirely. Cost and combined coordinate requests
+still use this service. Final fallback drainage and deletion remain with #8965
+and #9959.
 
 The CLI session adoption moved both path and prefetched-image execution in
 `MethodBodyInspectionSession` onto the service. The session continues to own
@@ -1623,15 +1635,23 @@ established by the production call sites and focused behavior gates.
 
 `AssemblyContextMethodAnalysisQuery` is now a mixed consumer. Its focused
 `ExactMethodAnalysisProducer` owns semantic identity, safety evidence and
-occurrences, diagnostics, and detached physical exception regions. This
-service still owns the query's public direct-call rows, final `MethodSignals`,
-allocation occurrences, and optimization opportunities. Calls remain a
-focused source input only for call-safety evidence; declared async-source
-attribution, execution multiplicity, and complete external MethodSpec
-definition-token provenance remain donor-owned. Those retained products may
-incidentally perform work that the focused producer also needs; #9832 moves
-only complete result ownership and planning authority and does not claim that
-incidental donor work is retired.
+occurrences, direct calls, allocation occurrences, intrinsic optimization
+opportunities, call-site multiplicities, diagnostics, and detached physical
+exception regions through its focused producer bundle. Public direct-call
+rows, final `MethodSignals`, declared-source attribution, and
+optimization-row enrichment complete without this service.
+`MatchedApiMemberAnalysisQuery.InspectAllocations` no longer consumes that
+complete envelope. It plans an exact allocation-only producer and publishes
+its rows directly, so an allocation finding cannot accidentally select call,
+safety, signal, string-materialization, or optimization work.
+Exact single-member CLI Diff requests containing only allocation analysis now
+consume the same focused producer for the direct MethodDef selected from each
+endpoint's API surface. Package endpoints map that surface MethodDef through
+the endpoint's surface-to-implementation role correspondence before analysis;
+bodyless or unavailable mappings fall back. That route opens no
+`MethodBodyInspectionSession` and does not execute this service. Mixed
+body-analysis sets, forwarded or one-sided targets, and target shapes without
+one direct managed body continue through the established shared service path.
 Recoverable whole-body Calls failure does not erase independent focused
 evidence: exception regions are already detached, and a recovery-only
 owner-issued operand resolver preserves the safety-occurrence prefix while the

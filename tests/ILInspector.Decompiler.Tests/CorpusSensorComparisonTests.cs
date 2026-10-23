@@ -1860,6 +1860,14 @@ public class CorpusSensorComparisonTests
     /// The version is pinned alongside it, because changing which normalizations the
     /// comparison applies changes what "exact" means for every persisted corpus
     /// baseline; the version must move with the set.
+    ///
+    /// Decided exclusions are listed here, each with its reason, so the derived set
+    /// still catches the next declaration. <see cref="IlBodyDiffNormalization.NormalizeAssemblyScope"/>
+    /// (#10373) is Finding Diff Any's Body policy mechanic: it also drops the
+    /// identity of non-platform references. Compile-back recompiles the
+    /// reconstructed unit against the original's own references, so a non-platform
+    /// reference identity difference there is harness evidence, not noise, and the
+    /// oracle does not apply it.
     /// </summary>
     [Fact]
     public void FidelityContract_ComposesAllIlBodyNormalizations()
@@ -1867,9 +1875,10 @@ public class CorpusSensorComparisonTests
         IlBodyDiffNormalization allDeclared = Enum.GetValues<IlBodyDiffNormalization>()
             .Where(option => option != IlBodyDiffNormalization.None)
             .Aggregate(IlBodyDiffNormalization.None, (all, option) => all | option);
+        IlBodyDiffNormalization decidedExclusions = IlBodyDiffNormalization.NormalizeAssemblyScope;
 
-        Assert.Equal(FidelityCheck.ContractBodyDiffNormalization, allDeclared);
-        Assert.Equal(5, FidelityCheck.CurrentContractVersion);
+        Assert.Equal(FidelityCheck.ContractBodyDiffNormalization, allDeclared & ~decidedExclusions);
+        Assert.Equal(6, FidelityCheck.CurrentContractVersion);
     }
 
     [Fact]

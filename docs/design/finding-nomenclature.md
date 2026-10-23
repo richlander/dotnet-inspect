@@ -108,7 +108,9 @@ precise noun.
   observations.
 - `FindingComparison<T>.Complete` means matching ran and exposes the real match.
 - `FindingComparison<T>.Failed` means matching never ran and must not expose a
-  success-shaped placeholder.
+  success-shaped placeholder: an inspection failed, or the comparison refused
+  two non-failed inspections for a stated `ComparisonFailure`, such as a
+  census beyond the ordered matcher's bound. Both inspections are retained.
 
 The governing invariant is:
 
@@ -182,7 +184,8 @@ when their kinds match; differing detail text does not make equal kinds
 different. `Complete`/`Complete` additionally requires exact observation
 alignment for the whole comparison to be exact.
 
-Any `Failed` endpoint still produces `FindingComparison<T>.Failed`. Matching
+Any `Failed` endpoint still produces `FindingComparison<T>.Failed`, as does a
+comparison that refuses two non-failed endpoints for a stated reason. Matching
 does not run and no completed inspection transition is exposed. The expected
 non-failed state and transition sets are derived from the declarations, so
 adding an absence kind without updating the matrix fails construction and the

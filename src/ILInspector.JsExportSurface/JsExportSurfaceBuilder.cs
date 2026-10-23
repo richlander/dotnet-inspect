@@ -151,6 +151,9 @@ public static class JsExportSurfaceBuilder
                 string? runtimeDispatchKey = null;
                 IReadOnlyList<JsExportDelegateParameter>
                     delegateParameters = [];
+                JsExportInt64Marshaling? returnInt64Marshaling = null;
+                IReadOnlyList<JsExportParameterInt64Marshaling>
+                    parameterInt64Marshalings = [];
                 if (bodyAnalysis is null
                         ? member.HasRuntimeJsExportWrapperCandidate
                             == false
@@ -164,7 +167,9 @@ public static class JsExportSurfaceBuilder
                                 incompleteBodyTokens,
                                 managedNameExportCount,
                                 out runtimeDispatchKey,
-                                out delegateParameters))
+                                out delegateParameters,
+                                out returnInt64Marshaling,
+                                out parameterInt64Marshalings))
                 {
                     throw new UnsupportedJsExportSurfaceException(
                         FormatMemberLocation(type, member),
@@ -195,6 +200,9 @@ public static class JsExportSurfaceBuilder
                         signature.ReturnTypeReferences,
                     Parameters = signature.Parameters,
                     DelegateParameters = delegateParameters,
+                    ReturnInt64Marshaling = returnInt64Marshaling,
+                    ParameterInt64Marshalings =
+                        parameterInt64Marshalings,
                 };
 
                 if (bodyAnalysis is not null && member.MetadataToken is { } token)
@@ -2125,10 +2133,15 @@ public static class JsExportSurfaceBuilder
         IReadOnlySet<int> incompleteBodyTokens,
         int managedNameExportCount,
         out string? runtimeDispatchKey,
-        out IReadOnlyList<JsExportDelegateParameter> delegateParameters)
+        out IReadOnlyList<JsExportDelegateParameter> delegateParameters,
+        out JsExportInt64Marshaling? returnInt64Marshaling,
+        out IReadOnlyList<JsExportParameterInt64Marshaling>
+            parameterInt64Marshalings)
     {
         runtimeDispatchKey = null;
         delegateParameters = [];
+        returnInt64Marshaling = null;
+        parameterInt64Marshalings = [];
         if (export.MetadataToken is not { } exportToken
             || export.RuntimeJsExportWrapperCandidates is not
                 { Count: > 0 } candidates)
@@ -2210,7 +2223,11 @@ public static class JsExportSurfaceBuilder
                         declaringType,
                         export,
                         out IReadOnlyList<JsExportDelegateParameter>
-                            authenticatedDelegates))
+                            authenticatedDelegates,
+                        out JsExportInt64Marshaling?
+                            authenticatedReturnInt64Marshaling,
+                        out IReadOnlyList<JsExportParameterInt64Marshaling>
+                            authenticatedParameterInt64Marshalings))
                 {
                     continue;
                 }
@@ -2221,6 +2238,10 @@ public static class JsExportSurfaceBuilder
                     + signatureHash.ToString(
                         CultureInfo.InvariantCulture);
                 delegateParameters = authenticatedDelegates;
+                returnInt64Marshaling =
+                    authenticatedReturnInt64Marshaling;
+                parameterInt64Marshalings =
+                    authenticatedParameterInt64Marshalings;
                 return true;
             }
         }
@@ -2345,9 +2366,14 @@ public static class JsExportSurfaceBuilder
         MemberRef exportSignature,
         ApiType declaringType,
         ApiMember export,
-        out IReadOnlyList<JsExportDelegateParameter> delegateParameters)
+        out IReadOnlyList<JsExportDelegateParameter> delegateParameters,
+        out JsExportInt64Marshaling? returnInt64Marshaling,
+        out IReadOnlyList<JsExportParameterInt64Marshaling>
+            parameterInt64Marshalings)
     {
         delegateParameters = [];
+        returnInt64Marshaling = null;
+        parameterInt64Marshalings = [];
         if (!callsByEvidenceMethod.TryGetValue(
                 candidate.RegistrationMethodToken,
                 out ImmutableArray<DirectCall> registrationCalls))
@@ -2374,11 +2400,16 @@ public static class JsExportSurfaceBuilder
                 exportSignature.ReturnType,
                 isReturn: true,
                 callsByOffset,
-                location))
+                location,
+                allowDirectInt64Marshaling: true,
+                out JsExportInt64Marshaling?
+                    authenticatedReturnInt64Marshaling))
         {
             return false;
         }
 
+        var int64Parameters =
+            new List<JsExportParameterInt64Marshaling>();
         for (int index = 0;
             index < exportSignature.ParameterTypes.Length;
             index++)
@@ -2388,9 +2419,21 @@ public static class JsExportSurfaceBuilder
                     exportSignature.ParameterTypes[index],
                     isReturn: false,
                     callsByOffset,
-                    location))
+                    location,
+                    allowDirectInt64Marshaling: true,
+                    out JsExportInt64Marshaling?
+                        authenticatedInt64Marshaling))
             {
                 return false;
+            }
+            if (authenticatedInt64Marshaling is { } int64Marshaling)
+            {
+                int64Parameters.Add(
+                    new JsExportParameterInt64Marshaling
+                    {
+                        ParameterIndex = index,
+                        Marshaling = int64Marshaling,
+                    });
             }
         }
 
@@ -2415,6 +2458,9 @@ public static class JsExportSurfaceBuilder
             }
         }
         delegateParameters = delegates;
+        returnInt64Marshaling =
+            authenticatedReturnInt64Marshaling;
+        parameterInt64Marshalings = int64Parameters;
         return true;
     }
 
@@ -2423,8 +2469,11 @@ public static class JsExportSurfaceBuilder
         TypeRef managed,
         bool isReturn,
         IReadOnlyDictionary<int, DirectCall> callsByOffset,
-        string location)
+        string location,
+        bool allowDirectInt64Marshaling,
+        out JsExportInt64Marshaling? int64Marshaling)
     {
+        int64Marshaling = null;
         if (TryGetDelegateShape(
                 managed,
                 out _,
@@ -2444,7 +2493,6 @@ public static class JsExportSurfaceBuilder
                 managed,
                 isReturn,
                 out string[] factoryNames,
-                out string[] unsupportedFactoryNames,
                 out ImmutableArray<TypeRef> elementTypes))
         {
             throw new UnsupportedJsExportSurfaceException(
@@ -2466,20 +2514,14 @@ public static class JsExportSurfaceBuilder
             return false;
         }
 
-        // An authentic descriptor the TypeScript type system cannot describe is a supported
-        // wire shape this tool does not support yet, which is a different answer from "this
-        // is not a generated JS export" and has to read that way.
-        if (unsupportedFactoryNames.Contains(
-            factory.Callee.Name,
-            StringComparer.Ordinal))
+        if (factory.Callee.Name == "get_BigInt64"
+            && !allowDirectInt64Marshaling)
         {
             throw new UnsupportedJsExportSurfaceException(
                 location,
                 $"JS export marshaling of '{managed.ToDisplayString()}' as "
                     + $"'{factory.Callee.Name}' is recognized but not supported: "
-                    + "TypeScript emission describes every 'long' as 'number', "
-                    + "which does not describe a JavaScript BigInt. Use "
-                    + "[JSMarshalAs<JSType.Number>] instead");
+                    + "nested BigInt descriptor projection is unavailable");
         }
 
         if (!factoryNames.Contains(
@@ -2488,6 +2530,13 @@ public static class JsExportSurfaceBuilder
         {
             return false;
         }
+
+        int64Marshaling = factory.Callee.Name switch
+        {
+            "get_Int52" => JsExportInt64Marshaling.Number,
+            "get_BigInt64" => JsExportInt64Marshaling.BigInt,
+            _ => null,
+        };
 
         if (factory.Callee.ParameterTypes.Length != elementTypes.Length
             || factory.ResolvedArgumentValues.Count != elementTypes.Length)
@@ -2500,7 +2549,9 @@ public static class JsExportSurfaceBuilder
                     elementTypes[index],
                     isReturn: false,
                     callsByOffset,
-                    location))
+                    location,
+                    allowDirectInt64Marshaling: false,
+                    out _))
             {
                 return false;
             }
@@ -2520,27 +2571,14 @@ public static class JsExportSurfaceBuilder
     /// same declared type. Returning false means "not recognized", which the
     /// caller reports rather than silently accepting.
     /// </para>
-    /// <para>
-    /// <paramref name="unsupportedFactoryNames"/> holds the descriptors that are
-    /// authentic for the managed type but that this tool cannot describe in
-    /// TypeScript yet. <c>get_BigInt64</c> is the case: <c>TsTypeMapper</c> emits
-    /// every <c>long</c> as <c>number</c>, which silently misdescribes a
-    /// JavaScript <c>BigInt</c>, so the surface rejects it visibly instead.
-    /// <c>JsExportSurfaceBuilderTests.Build_RejectsBigIntMarshaledLongExport</c>
-    /// and
-    /// <c>JsExportSurfaceBuilderTests.Build_PublishesNumberMarshaledLongExport</c>
-    /// gate the pair.
-    /// </para>
     /// </remarks>
     static bool TryGetMarshalerRule(
         TypeRef managed,
         bool isReturn,
         out string[] factoryNames,
-        out string[] unsupportedFactoryNames,
         out ImmutableArray<TypeRef> elementTypes)
     {
         factoryNames = [];
-        unsupportedFactoryNames = [];
         elementTypes = [];
         if (TryGetDelegateShape(
                 managed,
@@ -2633,7 +2671,7 @@ public static class JsExportSurfaceBuilder
             ("System", "Byte") => ["get_Byte"],
             ("System", "Int16") => ["get_Int16"],
             ("System", "Int32") => ["get_Int32"],
-            ("System", "Int64") => ["get_Int52"],
+            ("System", "Int64") => ["get_Int52", "get_BigInt64"],
             ("System", "Single") => ["get_Single"],
             ("System", "Double") => ["get_Double"],
             ("System", "IntPtr") => ["get_IntPtr"],
@@ -2643,11 +2681,6 @@ public static class JsExportSurfaceBuilder
             ("System", "Object") => ["get_Object"],
             _ => [],
         };
-        if (managed is { Namespace: "System", Name: "Int64" })
-        {
-            unsupportedFactoryNames = ["get_BigInt64"];
-        }
-
         return factoryNames.Length != 0
             && HasExactDefinitionName(
                 managed,

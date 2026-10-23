@@ -13,9 +13,15 @@ strategy and target selection. This page answers a more operational design
 question: **which boss did this change beat, and which boss is still ahead?**
 
 For raising, typing, structuring, fidelity, or printer changes, continue to
-[raise-work discipline](decompiler-raise-discipline.md) and use the
-[decompiler PR template](templates/decompiler-pr.md). The harness command
-reference lives in [tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md).
+[raise-work discipline](decompiler-raise-discipline.md) and use the one-page
+[decompiler PR template](templates/decompiler-pr.md), citing sections of the
+[decompiler PR reference](templates/decompiler-pr-reference.md) only when they
+apply. A PR changes a design document's contract only when it changes an
+owned claim; a narrow fix that keeps every owned claim names the owner and
+adds only the records another owner requires, such as the real-asset record
+[Development practices](development-practices.md#ground-product-behavior-in-real-assets)
+asks of a significant fix. The harness command reference lives in
+[tools/DecompilerHarness/README.md](../tools/DecompilerHarness/README.md).
 
 The core idea is to stop treating the harness modes as a bag of independent
 tools. They should behave like a staged pipeline. Early stages are cheap, local,
@@ -872,9 +878,9 @@ families, immediate values, symbolic member/type/string identities, and branch
 topology while tolerating local/argument macro and slot-layout changes.
 `OpcodeDiff` means opcode names differ; `OperandDiff` means the opcode names
 match but the body comparison differs; `FidelityUnavailable` means the
-comparison could not return a verdict. The contract is explicitly EH-blind and
-is not a semantic-equivalence claim. Its version is independent from the corpus
-snapshot schema version.
+comparison could not return a verdict. The contract compares exception
+clauses since v6 and is still not a semantic-equivalence claim. Its version is
+independent from the corpus snapshot schema version.
 
 Issue #4810's target contract strengthens `Exact` to require a complete
 compile-context receipt for the exact artifact and member. Under that contract,

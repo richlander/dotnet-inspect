@@ -20,8 +20,13 @@ public static partial class PackageExports
     public static async Task<string> QueryPackageHierarchy(
         string packageId,
         string version,
-        string targetFramework)
+        string targetFramework,
+        string? traversalTargetFramework)
     {
+        TraversalTargetFrameworkPolicy traversalTargetPolicy =
+            traversalTargetFramework is null
+                ? TraversalTargetFrameworkPolicy.ProductDefault
+                : new TraversalTargetFrameworkPolicy(traversalTargetFramework);
         BrowserPackageHierarchy hierarchy =
             await BrowserPackageWorkspace.RunPackageOperationAsync(
                 async deadline =>
@@ -54,7 +59,8 @@ public static partial class PackageExports
                         sourceLease.IssueOperationLease(
                             deadline.Token,
                             operationTimeout,
-                            operationTimeout);
+                            operationTimeout,
+                            PackageDependencyTraversalQuery.DefaultMaximumConcurrentSteps);
                     PackageDependencyTraversalOutcome traversal =
                         await PackageDependencyTraversalQuery.ExecuteAsync(
                             new PackageDependencyTraversalRequest(
@@ -64,8 +70,7 @@ public static partial class PackageExports
                                         .RecursiveSources,
                                     PackageDependencyTraversalRootRecurrenceAuthority
                                         .ExactCoordinate)],
-                                new TraversalTargetFrameworkPolicy(
-                                    coordinate.Framework),
+                                traversalTargetPolicy,
                                 new PackageDependencyTraversalCandidateAdapter(
                                     BrowserPackageWorkspace
                                         .PackageSourceAuthorization),
@@ -107,6 +112,7 @@ public static partial class PackageExports
                         coordinate.PackageId,
                         coordinate.Version,
                         coordinate.Framework,
+                        traversalTargetPolicy.TargetFramework,
                         traversal.IsComplete,
                         traversal.Roots[0].Completion.ToString(),
                         rows,

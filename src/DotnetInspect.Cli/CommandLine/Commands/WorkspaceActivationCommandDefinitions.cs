@@ -43,10 +43,14 @@ internal static class WorkspaceActivationCommandDefinitions
             if ((explicitPacket is null) == (rawPacket is null))
                 result.AddError("Packet activation requires exactly one packet, via -w PACKET or raw packet input.");
         });
+        bool RenderedLines(System.CommandLine.ParseResult result) =>
+            WorkspacePacketActivation.UsesRenderedLineOutput(
+                result.GetValue(packetOption) ?? result.GetValue(packet));
+
         command.SetAction(async (result, cancellationToken) =>
         {
             if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
-                    result, "Workspace inventory", out RowSelectionIntent<string>? rows,
+                    result, "Packet result", out RowSelectionIntent<string>? rows,
                     out string? error))
             {
                 CommandError.Write(error!);
@@ -58,8 +62,10 @@ internal static class WorkspaceActivationCommandDefinitions
                     Packet = result.GetValue(packetOption) ?? result.GetValue(packet),
                     Inventory = true,
                     Format = opts.ResolveFormat(result),
+                    MarkdownExplicitlySet = result.GetResult(opts.Markdown) is { Implicit: false },
                     Count = result.GetValue(opts.Count),
-                    RowSelection = rows,
+                    RowSelection = RenderedLines(result) ? null : rows,
+                    Rows = RenderedLines(result) ? opts.ParseRows(result) : null,
                     NoHeader = result.GetValue(opts.NoHeaders),
                     Verbose = result.GetValue(opts.Verbose),
                 }, cancellationToken);
@@ -69,10 +75,20 @@ internal static class WorkspaceActivationCommandDefinitions
                 opts.Head, opts.Tail, opts.Lines, opts.TailLines),
             CliRowSelectionCapabilities.HeadTail | CliRowSelectionCapabilities.Window
                 | CliRowSelectionCapabilities.Lines,
-            isActive: _ => true,
+            isActive: result => !RenderedLines(result),
             validateLowering: (result, lowering) =>
                 CliRowSelectionValidation.ValidateLineSelectionForOutput(
                     opts.IsJsonDocumentOutput(result), lowering));
+        CliRowSelectionCommandRegistry.Register(command,
+            new(opts.Limit, opts.Rows, top: null, orderBy: null,
+                opts.Head, opts.Tail, opts.Lines, opts.TailLines),
+            CliRowSelectionCapabilities.HeadTail | CliRowSelectionCapabilities.Window
+                | CliRowSelectionCapabilities.Lines,
+            isActive: RenderedLines,
+            validateLowering: (result, lowering) =>
+                CliRowSelectionValidation.ValidateLineSelectionForOutput(
+                    opts.IsJsonDocumentOutput(result), lowering),
+            defaultUnit: CliRowSelectionDefaultUnit.RenderedLines);
         return command;
     }
 }

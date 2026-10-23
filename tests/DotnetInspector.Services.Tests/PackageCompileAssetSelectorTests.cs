@@ -320,6 +320,53 @@ public class PackageCompileAssetSelectorTests : IDisposable
     }
 
     [Fact]
+    public void ExplicitRid_SelectsRuntimeOnlyPopulationAsSurface()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "runtimes/linux-x64/lib/net9.0/Example.dll",
+                    "runtimes/win-x64/lib/net11.0/Example.dll",
+                    "runtimes/linux-x64/lib/net11.0/Example.dll"),
+                "Example",
+                "net9.0",
+                "linux-x64");
+
+        PackageCompileAsset surface = Assert.Single(selection.Assets);
+        Assert.True(selection.IsSelected);
+        Assert.Equal(
+            "runtimes/linux-x64/lib/net9.0/Example.dll",
+            surface.Path);
+        Assert.Equal("linux-x64", surface.RuntimeIdentifier);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            selection.AvailableTargetFrameworks);
+        Assert.Same(surface, selection.DefaultAsset);
+        Assert.Same(
+            surface,
+            Assert.Single(selection.ImplementationAssets));
+    }
+
+    [Fact]
+    public void AmbiguousRuntimeOnlyPopulation_RetainsCompleteFrameworkInventory()
+    {
+        PackageCompileAssetSelection selection =
+            PackageCompileAssetSelector.Select(
+                InMemory(
+                    "runtimes/osx-arm64/lib/net9.0/Example.dll",
+                    "runtimes/win-x64/lib/net11.0/Example.dll"),
+                "Example");
+
+        Assert.Equal(
+            PackageCompileAssetSelectionStatus.NoCompileAssets,
+            selection.Status);
+        Assert.Equal(
+            ["net11.0", "net9.0"],
+            selection.AvailableTargetFrameworks);
+        Assert.Empty(selection.Assets);
+    }
+
+    [Fact]
     public void ReferenceSelection_UsesSharedImplementationFrameworkReduction()
     {
         IPackageContent content = InMemory(

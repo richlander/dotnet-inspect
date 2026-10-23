@@ -781,9 +781,11 @@ judgments shared by allocation and optimization analysis, tracked by
 [#10307](https://github.com/richlander/dotnet-inspect/issues/10307). Given one
 admitted module and a producer that explicitly declares the support, Method
 Query Source constructs at most one `MethodAnalysisLookup` in that execution
-group, issues a narrow per-method resolver over the producer-supplied method
-identity and instructions, and receipts the support work performed while that
-resolver is in scope.
+group. The lookup issues three independently receipted capabilities: a narrow
+per-method resolver over producer-supplied identity and instructions, exact
+declared-source evidence, and scoped generated-code evidence readers. These
+capabilities share reader-backed caches without flattening their acquisition
+work or semantic ownership into one query.
 
 The support does not imply `Body`, `Calls`, `SemanticIdentity`, control flow,
 or `ModuleLookup`. A producer declares each current-method prerequisite
@@ -813,6 +815,17 @@ issued for that method. Allocation discovery, escape classification,
 optimization-opportunity semantics, canonical context construction, and
 result enrichment likewise remain with their existing Analysis owners.
 
+Generated-code support exposes raw method-attribute and bounded
+declaring-type-chain facts through a scoped query. The consuming producer
+chooses which facts to read and in what order. In particular,
+`ExactMethodOptimizationProducer` owns the interpretation of
+`GeneratedCodeAttribute`, `CompilerGeneratedAttribute`, local-function and
+lambda names, Blazor render methods, and incomplete declaring-type evidence.
+This keeps optimization policy out of Method Source while preserving
+short-circuit acquisition: a decisive method fact does not force a TypeDef
+walk, and a local function or lambda does not force a compiler-generated
+attribute probe.
+
 Support costs may reach beyond the current MethodDef without widening its
 terminal breadth:
 
@@ -834,29 +847,29 @@ Those reads are supporting probes, not terminal methods. They do not add
 MethodDefs to the producer's visited population or bodies to its terminal body
 coverage.
 
-`MethodAnalysisSupportCoverage` records whether the lookup was constructed,
-the number and exact MethodDefs of scoped queries, and
-`MethodAnalysisSupportWork`:
+`MethodAnalysisSupportCoverage` records whether the shared lookup was
+constructed and composes three concern-specific receipts. Each receipt records
+its logical query count, exact querying MethodDefs, and its own work currency:
 
-- method references resolved and their signature work;
-- generic-constraint and stable-receiver queries;
-- available stable-getter bodies read and their encoded IL bytes; and
-- TypeDef rows scanned for async-state-machine classification;
-- declared-source targeted candidates and relationships, generated-provenance
-  TypeDef and attribute rows for source-generated and compiler-generated owner
-  classification, state-machine interface implementations, and contract
-  construction and query work;
-- local-exception queries, targeted TypeDef and relationship rows, and
-  TypeSpec signature bytes; and
-- optimization-suppression queries, method and enclosing-type attribute rows,
-  enclosing TypeDef rows, and declaring-type relationships.
+- `MethodAnalysisResolverCoverage` records method references and signature
+  work, generic-constraint and stable-receiver queries, available stable-getter
+  bodies and encoded IL bytes, async-state-machine TypeDef rows, and targeted
+  local-exception TypeDef, relationship, and TypeSpec work;
+- `ExactDeclaredSourceCoverage` records targeted candidates and probe bodies,
+  encoded probe IL, generated-provenance TypeDef, attribute, and relationship
+  reads, state-machine interface work, and memory-safety contract construction
+  and query work; and
+- `MethodGeneratedCodeEvidenceCoverage` records method and declaring-type
+  attribute rows, declaring TypeDef rows, and bounded declaring-type
+  relationships read by the consumer's scoped fact query.
 
 Construction is lazy. Declaring but not querying the support constructs
-nothing. Disposing the query scope records all support work performed by the
-allocation and optimization algorithms that shared its resolver, including
-work completed before a recoverable algorithm failure unwinds the visit. The
-physical group receipt records each cache miss once. Each lane records its own
-query and only the incremental physical support work it caused.
+nothing. Disposing a resolver or generated-code query scope records all work
+performed before disposal, including work completed before a recoverable
+algorithm failure unwinds the visit. Exact declared-source queries receipt on
+return or failure. The physical group receipt records each cache miss once.
+Each lane records its own query and only the incremental physical support work
+it caused.
 
 Unreadable metadata follows the existing resolver and producer-failure
 contracts. The source neither converts malformed evidence into a successful
@@ -879,12 +892,20 @@ suppression, and exception classification. Public direct calls and final
 no Library Body Analysis donor. A recoverable allocation-operand failure
 retains the classified prefix and publishes its exact stopping offset and
 operation; optimization consumes that same partial fact rather than rebuilding
-or replacing it with successful-empty evidence. Optimization suppression uses
-the same method-analysis support rather than reading metadata from the visit:
-method and enclosing-type generated-code attributes, bounded enclosing TypeDefs,
-and declaring-type relationships are separately reported even when suppression
-returns before intrinsic opportunity collection.
-Its performance case is
+or replacing it with successful-empty evidence. Optimization uses a scoped
+generated-code evidence query rather than reading metadata from the visit.
+Method and enclosing-type generated-code attributes, bounded enclosing
+TypeDefs, and declaring-type relationships are separately reported when read.
+The producer owns suppression policy and can stop evidence acquisition as soon
+as a fact is decisive, before intrinsic opportunity collection.
+Allocation-only matched-member requests plan
+`ExactMethodAllocationProducer` instead, so they do not collect direct calls,
+safety, signals, string materialization, or optimization opportunities. The
+exact single-member CLI Diff allocation route also selects the two MethodDef
+tokens from the endpoint API surfaces and executes that producer once per
+endpoint. It bypasses the complete body-analysis session only when both sides
+publish one direct managed body; mixed analysis sets and unsupported target
+shapes retain the shared body-signal route. The performance case is
 `System.Text.Json@10.0.0`
 `System.Text.Json.Schema.JsonSchemaExporter.MapJsonSchemaCore(...)`, whose
 allocation-hotspot result reports 20 `newobj`, `newarr`, or `box`
@@ -1046,6 +1067,12 @@ decode a body, resolve a token, or estimate the result from a path.
 An invariant owner-issued request may retain and reuse its complete source plan.
 A changed breadth, expansion, depth, terminal, producer parameter, or request
 set is planned anew. Plan reuse transfers no subject authority or result.
+
+The request creates a Method-owned assembly-source adapter. Assembly Analysis
+carries that adapter opaquely: Method breadth, layers, terminals, execution,
+and concrete receipts remain here. A Method-aware sink recovers the concrete
+receipt only after the operation or execution proves the Method source
+association.
 
 ## Serial reference execution
 
@@ -1319,6 +1346,12 @@ Migration is incremental:
     and attribution IL probes; caller attribution and owner suppression consume
     that answer. Final opportunity enrichment consumes only the exact evidence,
     and the query has no `LibraryBodyAnalysisService` execution.
+    `MatchedApiMemberAnalysisQuery.InspectAllocations` and exact
+    single-member, allocation-only CLI Diff instead select
+    `ExactMethodAllocationProducer`. That request retains only semantic
+    identity, memory-safety contracts, local signatures, allocation analyzers,
+    and Method-analysis support; calls, safety, signals, and optimization do
+    not participate.
 13. Move remaining producers and delete each superseded legacy scan and index
     when its final consumer moves.
 

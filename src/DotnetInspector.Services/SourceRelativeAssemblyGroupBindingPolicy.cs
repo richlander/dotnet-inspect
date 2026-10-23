@@ -56,6 +56,25 @@ public sealed class SourceRelativeAssemblyGroupBindingPolicy :
             canonicalizeParticipantSelections: true);
 
     /// <summary>
+    /// Routes through participant contexts while restricting every selection
+    /// to the supplied canonical participant descriptors.
+    /// </summary>
+    /// <remarks>
+    /// Participant policies remain the selection owners and may perform
+    /// acquisition. This factory does not issue the acquisition-free policy
+    /// capability.
+    /// </remarks>
+    public static IAssemblyBindingPolicy CreateParticipantBoundSelections(
+        IEnumerable<(
+            ResolvedAssemblyReference Assembly,
+            IAssemblyBindingPolicy Policy)> participants) =>
+        new SourceRelativeAssemblyGroupBindingPolicy(
+            participants,
+            composeParticipantSelections: false,
+            canonicalizeParticipantSelections: true,
+            restrictToParticipants: true);
+
+    /// <summary>
     /// Composes acquisition-free participant policies over an exact retained
     /// assembly group, preserving source-relative selection and lineage.
     /// </summary>

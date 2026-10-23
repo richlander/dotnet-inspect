@@ -36,7 +36,15 @@ public partial class CommandExecutionTests
         Assert.Equal("system.text.json", tab.Source);
         Assert.Equal("10.0.0", tab.Version);
         Assert.Equal("netstandard2.0", tab.Framework);
-        Assert.Equal("hierarchy", packet.Lens);
+        Assert.Equal("package.dependency-hierarchy", packet.ViewStates[1].Facet);
+        Assert.Contains(packet.Registrations,
+            registration => registration is WorkspaceRegistration.Ecosystem
+            {
+                Declaration.Id.Value: "ecosystem.runtime",
+            });
+        Assert.Equal(
+            "netstandard2.0",
+            packet.TraversalTargetPolicy.TargetFramework);
     }
 
     [Fact]
