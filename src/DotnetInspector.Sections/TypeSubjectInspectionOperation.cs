@@ -503,16 +503,7 @@ public static class TypeSubjectInspectionOperation
                     document.Subject.Type.ModuleVersionId,
                     startOrdinal);
         TypeDocumentDeclarationSignature signature =
-            new(
-                ImmutableArray.CreateRange(
-                    document.Subject.Signature
-                        .GenericParameters
-                        .Select(parameter =>
-                            new TypeDocumentGenericParameter(
-                                parameter.DefinitionSegmentIndex,
-                                parameter.MetadataIndex,
-                                parameter.Name,
-                                parameter.Attributes))));
+            ProjectSignature(document.Subject.Signature);
         MetadataUtf8TypeDefinitionName matchedName =
             document.MatchedName
             ?? throw new InvalidOperationException(
@@ -534,6 +525,7 @@ public static class TypeSubjectInspectionOperation
                 document.Subject.DeclaringType?.Definition.Value)
             {
                 MatchedName = matchedName,
+                DeclarationSignature = document.Subject.Signature,
             }
             : ProjectSubject(
                 libraryCorrespondence,
@@ -575,15 +567,7 @@ public static class TypeSubjectInspectionOperation
             subject.Type.ModuleVersionId,
             type,
             subject.Type.Definition.Value,
-            new(
-                ImmutableArray.CreateRange(
-                    subject.Signature.GenericParameters.Select(
-                        parameter =>
-                            new TypeDocumentGenericParameter(
-                                parameter.DefinitionSegmentIndex,
-                                parameter.MetadataIndex,
-                                parameter.Name,
-                                parameter.Attributes)))),
+            ProjectSignature(subject.Signature),
             subject.Category,
             subject.Attributes,
             subject.IsHidden,
@@ -594,7 +578,22 @@ public static class TypeSubjectInspectionOperation
             subject.DeclaringType?.Definition.Value)
         {
             MatchedName = matchedName,
+            DeclarationSignature = subject.Signature,
         };
+
+    private static TypeDocumentDeclarationSignature ProjectSignature(
+        MetadataTypeDeclarationSignature signature) =>
+        new(
+            ImmutableArray.CreateRange(
+                signature.GenericParameters.Select(
+                    parameter =>
+                        new TypeDocumentGenericParameter(
+                            parameter.DefinitionSegmentIndex,
+                            parameter.MetadataIndex,
+                            parameter.Name
+                                .Contain(TextPolicy.Field)
+                                .ToInertString(),
+                            parameter.Attributes))));
 
     private static TypeSubjectMemberGroups ProjectDeclarations(
         AssemblyReferenceIdentity assemblyIdentity,
