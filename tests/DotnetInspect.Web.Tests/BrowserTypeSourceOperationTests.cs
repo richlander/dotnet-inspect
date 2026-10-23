@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using System.Runtime.Versioning;
+using System.Text;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Source;
 using DotnetInspector.Sections;
@@ -391,6 +392,149 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                 "annotatedSource",
                 out JsonElement annotatedSource));
         Assert.Equal(JsonValueKind.Object, annotatedSource.ValueKind);
+    }
+
+    [Fact]
+    public async Task MemberDocumentation_UsesRetainedRuntimeIdentifier()
+    {
+        const string packageId = "Member.Documentation.Runtime";
+        const string runtimeIdentifier = "win-x64";
+        await RegisterRuntimePackageAsync(
+            packageId,
+            "System.Text.Json.dll",
+            typeof(JsonNamingPolicy).Assembly.Location,
+            runtimeIdentifier);
+
+        string json =
+            await DotnetInspect.Web.Interop.Package.PackageExports
+                .QueryMemberDocumentation(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "System.Text.Json.dll",
+                    "M:System.Text.Json.JsonNamingPolicy.ConvertName(System.String)",
+                    runtimeIdentifier);
+
+        using JsonDocument documentation = JsonDocument.Parse(json);
+        Assert.Equal(
+            JsonValueKind.Object,
+            documentation.RootElement.ValueKind);
+    }
+
+    [Fact]
+    public async Task GraphOperations_UseRetainedRuntimeIdentifier()
+    {
+        const string packageId = "Member.Graph.Runtime";
+        const string runtimeIdentifier = "win-x64";
+        await RegisterRuntimePackageAsync(
+            packageId,
+            "System.Text.Json.dll",
+            typeof(JsonNamingPolicy).Assembly.Location,
+            runtimeIdentifier);
+        BrowserTypeExplorerBodyDestination destination =
+            await RuntimeDestination(
+                packageId,
+                runtimeIdentifier,
+                "System.Text.Json.JsonEncodedText");
+
+        string surfaceJson =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .QueryGraphMemberSurface(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "System.Text.Json.dll",
+                    destination.Member.TypeFullName,
+                    destination.Member.MemberName,
+                    destination.Member.StableSelector,
+                    destination.MetadataToken,
+                    runtimeIdentifier);
+        using JsonDocument surface = JsonDocument.Parse(surfaceJson);
+        Assert.Equal(
+            destination.MetadataToken,
+            surface.RootElement
+                .GetProperty("selectedBody")
+                .GetProperty("token")
+                .GetInt32());
+
+        DotnetInspect.Web.Interop.Catalog.BrowserProductWorkspacePlans
+            .ConfigurePlatform();
+        string callGraphJson =
+            await DotnetInspect.Web.Interop.CallGraph.CallGraphExports
+                .QueryMemberCallGraph(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "System.Text.Json.dll",
+                    destination.Member.TypeFullName,
+                    destination.Member.TypeFullName,
+                    destination.Member.MemberName,
+                    destination.Member.CanonicalSignature,
+                    destination.Member.StableSelector,
+                    destination.MetadataToken,
+                    "net11.0",
+                    "null",
+                    runtimeIdentifier);
+        using JsonDocument callGraph = JsonDocument.Parse(callGraphJson);
+        Assert.Equal(JsonValueKind.Object, callGraph.RootElement.ValueKind);
+    }
+
+    [Fact]
+    public async Task
+        ImplementationDeclaration_UsesRetainedRuntimeIdentifier()
+    {
+        const string packageId = "Member.Declaration.Runtime";
+        const string runtimeIdentifier = "win-x64";
+        await RegisterRuntimePackageAsync(
+            packageId,
+            "System.Text.Json.dll",
+            typeof(JsonNamingPolicy).Assembly.Location,
+            runtimeIdentifier);
+        BrowserTypeExplorerBodyDestination destination =
+            await RuntimeDestination(
+                packageId,
+                runtimeIdentifier,
+                "System.Text.Json.JsonEncodedText");
+        string surfaceJson =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .QueryGraphMemberSurface(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "System.Text.Json.dll",
+                    destination.Member.TypeFullName,
+                    destination.Member.MemberName,
+                    destination.Member.StableSelector,
+                    destination.MetadataToken,
+                    runtimeIdentifier);
+        using JsonDocument surface = JsonDocument.Parse(surfaceJson);
+        JsonElement type = surface.RootElement.GetProperty("type");
+        JsonElement member =
+            Assert.Single(type.GetProperty("api").EnumerateArray());
+        JsonElement declarationToken =
+            member.GetProperty("declarationMetadataToken");
+
+        string json =
+            await DotnetInspect.Web.Interop.Metadata.MetadataExports
+                .QueryMemberDeclaration(
+                    packageId,
+                    "1.0.0",
+                    "net11.0",
+                    "System.Text.Json.dll",
+                    type.GetProperty("definitionId").GetString()!,
+                    member.GetProperty("name").GetString()!,
+                    member.GetProperty("graphSelectorKey").GetString()!,
+                    declarationToken.ValueKind == JsonValueKind.Number
+                        ? declarationToken.GetInt32()
+                        : destination.MetadataToken,
+                    implementationMember: true,
+                    runtimeIdentifier: runtimeIdentifier);
+        using JsonDocument declaration = JsonDocument.Parse(json);
+        Assert.False(
+            string.IsNullOrWhiteSpace(
+                declaration.RootElement
+                    .GetProperty("text")
+                    .GetString()));
     }
 
 #if DEBUG
@@ -1010,6 +1154,17 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         using (var archive =
             new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
         {
+            using (Stream manifest =
+                archive.CreateEntry($"{packageId}.nuspec").Open())
+            {
+                manifest.Write(
+                    Encoding.UTF8.GetBytes(
+                        $"<package><metadata><id>{packageId}</id>"
+                        + "<version>1.0.0</version>"
+                        + "<authors>Tests</authors>"
+                        + "<description>Runtime RID fixture</description>"
+                        + "</metadata></package>"));
+            }
             using (Stream rejected = archive.CreateEntry(
                        $"runtimes/linux-x64/lib/net11.0/{assemblyName}")
                    .Open())
@@ -1028,4 +1183,45 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                 bytes.ToArray(),
                 fromCache: false));
     }
+
+    static async Task<BrowserTypeExplorerBodyDestination>
+        RuntimeDestination(
+            string packageId,
+            string runtimeIdentifier,
+            string typeIdentity)
+    {
+        BrowserTypeExplorerProjection projection =
+            await RuntimeProjection(
+                packageId,
+                runtimeIdentifier,
+                typeIdentity);
+        return projection.Declarations
+            .SelectMany(static declaration => declaration.Bodies)
+            .Select(static body => body.Destination)
+            .OfType<BrowserTypeExplorerBodyDestination>()
+            .First(static destination =>
+                destination.Member.MemberName != "#ctor");
+    }
+
+    static async Task<BrowserTypeExplorerProjection> RuntimeProjection(
+        string packageId,
+        string runtimeIdentifier,
+        string typeIdentity) =>
+        Assert.IsType<BrowserTypeExplorerProjection>(
+            AssertTypeExplorerDocument(
+                await QueryTypeExplorer(
+                    packageId,
+                    new(
+                        BrowserTypeExplorerBodyMode.Bodies,
+                        SelectedDeclarationId: null,
+                        DocumentRevision: null,
+                        BrowserTypeExplorerPlacement.All,
+                        Enum.GetValues<
+                            BrowserTypeExplorerAccessibility>(),
+                        IncludeGenerated: false,
+                        IncludeDocumentation: true,
+                        IncludeAttributes: true),
+                    typeIdentity: typeIdentity,
+                    runtimeIdentifier: runtimeIdentifier))
+                .Document!.Projection);
 }

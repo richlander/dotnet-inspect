@@ -202,6 +202,7 @@ function documentationRequest(
     packageId: "Example.Package",
     version: "1.2.3",
     framework: "net10.0",
+    runtimeIdentifier: null,
     assembly: "Example.Package.dll",
     platformPack: "",
     overload,
@@ -460,6 +461,7 @@ function declarationRequest(
     selectorKey: "Run|System.String",
     metadataToken: 0x06000001,
     implementationMember: false,
+    runtimeIdentifier: null,
     isCurrent: () => true,
     ...overrides,
   };

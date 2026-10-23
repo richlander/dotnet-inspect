@@ -385,10 +385,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
 
   assert.match(
     coordinator,
-    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDeclaration\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*request\.typeIdentity,\s*request\.member,\s*request\.selectorKey,\s*request\.metadataToken\)\s*:\s*inspectMemberDeclaration\(/);
+    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDeclaration\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*request\.typeIdentity,\s*request\.member,\s*request\.selectorKey,\s*request\.metadataToken\)\s*:\s*inspectMemberDeclaration\([\s\S]*request\.implementationMember,\s*request\.runtimeIdentifier\)/);
   assert.match(
     coordinator,
-    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
+    /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId,\s*request\.runtimeIdentifier\)/);
   assert.match(
     coordinator,
     /request\.kind === "platform"\s*\?\s*inspectPlatformMemberFindingCensus\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.pack,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.contextId\)\s*:\s*inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.runtimeIdentifier\)/);
@@ -403,10 +403,10 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /const signature = memberRequestSignature\(type, overload\);\s*const pkg = currentPackage\(\);\s*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
   assert.match(
     documentationLoader,
-    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     documentationLoader,
-    /memberDetailInspection\.loadDeclaration\(\{[\s\S]*?typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*?member: overload\.name,[\s\S]*?selectorKey: overload\.graphSelectorKey,[\s\S]*?metadataToken:[\s\S]*?overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,[\s\S]*?implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\),[\s\S]*?isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /memberDetailInspection\.loadDeclaration\(\{[\s\S]*?typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*?member: overload\.name,[\s\S]*?selectorKey: overload\.graphSelectorKey,[\s\S]*?metadataToken:[\s\S]*?overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,[\s\S]*?implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\),\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*?isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
     /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);

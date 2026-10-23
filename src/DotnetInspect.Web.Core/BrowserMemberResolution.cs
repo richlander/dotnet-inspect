@@ -182,6 +182,31 @@ internal static class BrowserMemberResolution
         string selectorKey,
         int metadataToken,
         bool implementationMember,
+        CancellationToken cancellationToken = default) =>
+        await DeclarationMemberAsync(
+            packageId,
+            version,
+            targetFramework,
+            assemblyName,
+            typeId,
+            memberName,
+            selectorKey,
+            metadataToken,
+            implementationMember,
+            runtimeIdentifier: null,
+            cancellationToken);
+
+    internal static async Task<ScopedDeclarationResolution> DeclarationMemberAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string selectorKey,
+        int metadataToken,
+        bool implementationMember,
+        string? runtimeIdentifier,
         CancellationToken cancellationToken = default)
     {
         BrowserScopeLease<BrowserInspectionScope> lease =
@@ -189,6 +214,7 @@ internal static class BrowserMemberResolution
                 packageId,
                 version,
                 targetFramework,
+                implementationMember ? runtimeIdentifier : null,
                 cancellationToken);
         try
         {

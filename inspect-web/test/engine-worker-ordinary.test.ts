@@ -1332,6 +1332,7 @@ test("ordinary transport preserves sync, async DTO, void, null, and arguments", 
     "net10.0",
     "Example.dll",
     "M:Example.Api.Run",
+    null,
   );
   const libraryQuery = state.client.package.queryLibraries(
     "Example",
