@@ -15,6 +15,7 @@ import {
   platformPackToken,
   resolveRuntimeGraphTargetCandidate,
   runtimePackForFramework,
+  setTypeViewFacetCatalog,
   typeLensesFor,
 } from "../src/data.ts";
 
@@ -66,6 +67,13 @@ import {
   spotlightSource,
   commandBarSource,
 } from "./composition-root-test-fixture.ts";
+
+setTypeViewFacetCatalog([
+  { id: "type.api", kind: "Type", title: "API", order: 100 },
+  { id: "type.metadata", kind: "Type", title: "Metadata", order: 200 },
+  { id: "type.source", kind: "Type", title: "Source", order: 300 },
+  { id: "type.compare", kind: "Type", title: "Compare", order: 400 },
+]);
 
 test("qualified Type leverage exposes a cache-bypassing retry", () => {
   assert.match(dataBarSource, /data-type-leverage-retry>Retry/);

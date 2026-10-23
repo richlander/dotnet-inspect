@@ -2,6 +2,8 @@ import type { BrowserBuildIdentity } from "./facades/inspect-web-host.d.ts";
 import type {
   BrowserEcosystemCatalog,
   BrowserHomeDemoCatalog,
+  BrowserViewFacetCatalog,
+  BrowserViewFacetDescriptor,
   BrowserVocabularyCatalogIdentity,
   BrowserVocabularyDefinition,
   BrowserVocabularyDefinitionIdentity,
@@ -485,6 +487,27 @@ export const engineStartupOperations = {
         demos: array(data.demos, rawDemo => {
           const demo = record(rawDemo);
           return { ...demo, id: text(demo.id), title: text(demo.title), summary: text(demo.summary) };
+        }),
+      };
+    }),
+  },
+  listTypeViewFacets: {
+    kind: "catalog-list-type-view-facets",
+    value: json<BrowserViewFacetCatalog>(value => {
+      const data = record(value);
+      return {
+        ...data,
+        facets: array(data.facets, rawDescriptor => {
+          const descriptor = record(rawDescriptor);
+          return {
+            ...descriptor,
+            id: text(descriptor.id),
+            kind: text(descriptor.kind),
+            title: text(descriptor.title),
+            summary: text(descriptor.summary),
+            order: number(descriptor.order),
+            role: nullableText(descriptor.role),
+          } satisfies BrowserViewFacetDescriptor;
         }),
       };
     }),
