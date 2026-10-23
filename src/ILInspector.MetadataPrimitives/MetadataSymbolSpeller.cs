@@ -18,6 +18,9 @@ public interface IMetadataRowKeys<TDomain, TRow>
     /// <summary>The consumer's key for a row, spelled or found in its memo.</summary>
     TRow Resolve(EntityHandle row, MetadataRowRole role);
 
+    /// <summary>The consumer's key for a primitive type, which signatures name far more often than any row.</summary>
+    TRow Primitive(PrimitiveTypeCode typeCode);
+
     /// <summary>Embeds a resolved row's key as a nested Key part of the key open in <paramref name="into"/>.</summary>
     void Embed(SymbolKeyBuilder<TDomain> into, TRow row);
 }
@@ -34,13 +37,15 @@ public interface IMetadataRowKeys<TDomain, TRow>
 /// to are resolved through <typeparamref name="TRow"/> by the consumer, which
 /// owns their storage and memo, so two consumers over one image spell one row
 /// with the same bytes. Guards bound every signature and specification decode;
-/// a rejected shape is a <see cref="BadImageFormatException"/>.
+/// a rejected shape is a <see cref="BadImageFormatException"/>. The consumer is
+/// a type parameter so its resolve and embed are direct calls on the hot path.
 /// </summary>
-public sealed class MetadataSymbolSpeller<TDomain, TRow>
+public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     where TDomain : unmanaged, Enum
+    where TRows : class, IMetadataRowKeys<TDomain, TRow>
 {
     readonly MetadataSymbolScope _scope;
-    readonly IMetadataRowKeys<TDomain, TRow> _rows;
+    readonly TRows _rows;
     readonly Provider _provider;
     readonly List<TRow> _resolved = [];
     MetadataReader _reader;
@@ -50,7 +55,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow>
         MetadataReader reader,
         MetadataStringHeap names,
         MetadataSymbolScope scope,
-        IMetadataRowKeys<TDomain, TRow> rows)
+        TRows rows)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(names);
@@ -455,7 +460,13 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow>
         return new MetadataSignatureKey(row, _resolved.Count - 1);
     }
 
-    sealed class Provider(MetadataSymbolSpeller<TDomain, TRow> speller) : ISignatureTypeProvider<MetadataSignatureKey, object?>
+    MetadataSignatureKey PrimitiveRow(PrimitiveTypeCode typeCode)
+    {
+        _resolved.Add(_rows.Primitive(typeCode));
+        return new MetadataSignatureKey(default, _resolved.Count - 1);
+    }
+
+    sealed class Provider(MetadataSymbolSpeller<TDomain, TRow, TRows> speller) : ISignatureTypeProvider<MetadataSignatureKey, object?>
     {
         SymbolKeyBuilder<TDomain> Keys => speller.Scratch;
 
@@ -520,7 +531,7 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow>
 
         public MetadataSignatureKey GetPointerType(MetadataSignatureKey elementType) => Wrap(MetadataSymbolPart.Pointer, elementType);
 
-        public MetadataSignatureKey GetPrimitiveType(PrimitiveTypeCode typeCode) => Staged(speller.Primitive(Keys, typeCode));
+        public MetadataSignatureKey GetPrimitiveType(PrimitiveTypeCode typeCode) => speller.PrimitiveRow(typeCode);
 
         public MetadataSignatureKey GetSZArrayType(MetadataSignatureKey elementType) => Wrap(MetadataSymbolPart.SZArray, elementType);
 

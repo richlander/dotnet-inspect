@@ -955,7 +955,7 @@ public static class FindingDiffAny
         readonly Dictionary<int, string> _displayNames = [];
         readonly HashSet<SymbolKey<FindingDiffAnyPart>> _duplicateTypeKeys =
             new(SymbolKeyComparer<FindingDiffAnyPart>.Instance);
-        MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef> _speller;
+        MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, Side> _speller;
         readonly Dictionary<TypeDefinitionHandle, HashSet<MethodDefinitionHandle>> _explicitImplementations = [];
 
         const MetadataReaderOptions StoredMetadata = MetadataReaderOptions.None;
@@ -969,7 +969,7 @@ public static class FindingDiffAny
             Retained = new SymbolKeyBuilder<FindingDiffAnyPart>(RetainedChunkBytes) { Names = Names };
             Transient = new SymbolKeyBuilder<FindingDiffAnyPart>(16 * 1024) { Names = Names };
             Strings = new UserStrings(pe, Md);
-            _speller = new MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef>(Md, Names, MetadataSymbolScope.Omitted, this);
+            _speller = new MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, Side>(Md, Names, MetadataSymbolScope.Omitted, this);
         }
 
         /// <summary>Reference and lookup keys, memoized per token and frozen in chunks.</summary>
@@ -979,13 +979,24 @@ public static class FindingDiffAny
         public SymbolKeyBuilder<FindingDiffAnyPart> Transient { get; }
 
         /// <summary>The one speller of metadata rows; this side resolves and embeds the rows it refers to.</summary>
-        public MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef> Speller => _speller;
+        public MetadataSymbolSpeller<FindingDiffAnyPart, KeyRef, Side> Speller => _speller;
 
         KeyRef IMetadataRowKeys<FindingDiffAnyPart, KeyRef>.Resolve(EntityHandle row, MetadataRowRole role)
             => role == MetadataRowRole.Declaring ? TypeKey((TypeDefinitionHandle)row) : ReferenceKey(row);
 
         void IMetadataRowKeys<FindingDiffAnyPart, KeyRef>.Embed(SymbolKeyBuilder<FindingDiffAnyPart> into, KeyRef row)
             => into.Key(row);
+
+        // Primitives are memoized under tokens no metadata row uses.
+        const int PrimitiveTokenBase = -1;
+
+        KeyRef IMetadataRowKeys<FindingDiffAnyPart, KeyRef>.Primitive(PrimitiveTypeCode typeCode)
+        {
+            int token = PrimitiveTokenBase - (byte)typeCode;
+            if (TryGetKey(token, out KeyRef key))
+                return key;
+            return Memoize(token, _speller.Primitive(Retained, typeCode));
+        }
 
         public MetadataStringHeap Names { get; private set; }
 
