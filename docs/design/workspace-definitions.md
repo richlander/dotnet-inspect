@@ -293,6 +293,50 @@ Successful direct authoring does not use
 for an independently obtained live Workspace whose host truly retained no
 portable basis.
 
+#### Governing traversal target
+
+A Workspace definition carries the governing traversal target independently of
+its contexts' and members' acquisition frameworks. The optional
+`traversalTargetFramework` string lowers to the existing
+`TraversalTargetFrameworkPolicy`; omission retains ProductDefault. A configured
+target, including an explicitly configured product-default TFM, survives
+definition JSON, packet projection, plan construction, Complete Restoration,
+coordinate replacement, and dependency enrichment. None of these operations
+reconstructs that target from a Package's selected compile asset.
+
+Current packet formats 1 through 5 admit the optional scalar `b` for this same
+configured target. Canonical emission places it last. This is an additive
+intent field, not a new topology, query language, source authorization, or
+restoration protocol. Existing unknown-field rejection means readers without
+this field fail visibly rather than silently restoring a different target.
+Existing default-target packets retain their canonical bytes and version
+admission rules.
+
+The established format-1 single-exact-Package Hierarchy convention is the one
+legacy exception: without `b`, its tuple's framework also names the traversal
+target. Transposition makes that target explicit in the Workspace definition;
+complete capture carries it into the modern packet independently of the root
+coordinate. An explicit `b` overrides the convention. A redundant `b` equal to
+that legacy tuple target is omitted canonically. Other packets without `b`
+continue to use ProductDefault, not a selected tab's framework.
+
+The portable claim is the governing target TFM, not process-local policy-object
+identity or provenance. A serialized literal is configured intent when read.
+Browser retained-definition metadata exposes the actual governing TFM, and
+Hierarchy acquisition receives root asset selection and traversal target as
+separate inputs. Sharing preserves both rather than replacing a root framework
+with the traversal target. This does not introduce platform pruning, change
+family selection, or make format 1 eligible for Complete Restoration.
+
+Focused evidence is owned by
+`CompleteRestorationPreparationTests.ConfiguredTraversalTarget_SurvivesPortableRestorationWithoutChangingRoot`,
+`LegacyHierarchy_CompleteCapturePreservesTargetSeparatelyFromRoot`,
+`BrowserWorkspaceShareOperationsTests.HierarchyCapture_PreservesGoverningTargetWithoutChangingRoot`,
+and `LegacyHierarchyDecode_MakesItsTargetPortableWithoutChangingPacket`.
+The existing coordinate-replacement framework-change and dependency-enrichment
+scenarios also verify that editing membership retains the governing target;
+the Browser URL-capture scenario verifies the separate transport field.
+
 ### The `workspace` command
 
 The `workspace` command authors and transforms portable Workspace definitions:
