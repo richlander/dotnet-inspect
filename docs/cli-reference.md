@@ -600,7 +600,9 @@ targets carrying that selected color.
 The initial host gesture supports outgoing relations and `--json` or
 `--envelope`. `--count` selects the Count terminal; otherwise the request
 selects Rows. Share, section/discovery gestures, Tree, Mermaid, and implicit
-host defaults are not part of this route.
+host defaults are not part of this route. Semantic-row and rendered-line
+selection gestures are also rejected rather than silently applied after the
+canonical document is generated.
 
 ### Decompiler
 

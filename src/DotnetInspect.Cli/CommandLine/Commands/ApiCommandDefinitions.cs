@@ -212,6 +212,17 @@ public static class ApiCommandDefinitions
                 result.AddError(
                     "--relations requires --json or --envelope.");
             }
+            if (result.GetResult(opts.Limit) is { Implicit: false }
+                || result.GetResult(opts.Rows) is { Implicit: false }
+                || result.GetResult(opts.Head) is { Implicit: false }
+                || result.GetResult(opts.Tail) is { Implicit: false }
+                || result.GetResult(opts.Lines) is { Implicit: false }
+                || result.GetResult(opts.TailLines) is { Implicit: false })
+            {
+                result.AddError(
+                    "--relations cannot be combined with row or line "
+                        + "selection gestures.");
+            }
             if (result.GetResult(opts.Select) is { Implicit: false }
                 || result.GetResult(opts.Discover) is { Implicit: false }
                 || result.GetResult(opts.QueryHelp) is { Implicit: false }

@@ -244,6 +244,48 @@ public class TypeOptionsParserTests
                 StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("--rows", "1")]
+    [InlineData("-n", "1")]
+    [InlineData("--head", null)]
+    [InlineData("--tail", null)]
+    [InlineData("--lines", null)]
+    [InlineData("--tail-lines", null)]
+    public void AnnotatedRelations_RowAndLineSelectionIsRejected(
+        string option,
+        string? value)
+    {
+        var opts = new SharedOptions();
+        Command command =
+            ApiCommandDefinitions.CreateTypeCommand(opts, out _);
+        string[] arguments = value is null
+            ?
+            [
+                "Some.Type",
+                "--library", "x.dll",
+                "--relations", "all",
+                "--json",
+                option,
+            ]
+            :
+            [
+                "Some.Type",
+                "--library", "x.dll",
+                "--relations", "all",
+                "--json",
+                option, value,
+            ];
+
+        ParseResult result = command.Parse(arguments);
+
+        Assert.Contains(
+            result.Errors,
+            error => error.Message.Contains(
+                "--relations cannot be combined with row or line selection "
+                    + "gestures.",
+                StringComparison.Ordinal));
+    }
+
     static async Task<TypeOptions> ParseSuccessAsync(params string[] args)
         => (await ParsePlanSuccessAsync(args)).Options;
 
