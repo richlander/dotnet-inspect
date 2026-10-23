@@ -945,8 +945,10 @@ public static class FindingDiffAny
         readonly Dictionary<int, KeyRef> _unitKeys = [];
         // Operand row pairs of this side and the other already proven to spell
         // the same key, so a callee referenced from many Types is spelled once
-        // per comparison rather than once per referencing unit.
-        readonly HashSet<long> _operandPairs = [];
+        // per comparison rather than once per referencing unit. The pair is a
+        // tuple, whose hash mixes both tokens; two images that number their rows
+        // alike would collide a packed long's XOR hash into one bucket.
+        readonly HashSet<(int A, int B)> _operandPairs = [];
         readonly List<SymbolKeyPopulation<FindingDiffAnyPart>> _chunks = [];
         readonly Dictionary<int, string> _displayNames = [];
         readonly HashSet<SymbolKey<FindingDiffAnyPart>> _duplicateTypeKeys =
@@ -1099,7 +1101,7 @@ public static class FindingDiffAny
         {
             if (IsTypeLevel(handleA.Kind) || IsTypeLevel(handleB.Kind))
                 return a.ReferenceKey(handleA) == b.ReferenceKey(handleB);
-            long pair = ((long)MetadataTokens.GetToken(handleA) << 32) | (uint)MetadataTokens.GetToken(handleB);
+            (int, int) pair = (MetadataTokens.GetToken(handleA), MetadataTokens.GetToken(handleB));
             if (a._operandPairs.Contains(pair))
                 return true;
             bool equal = a.ReferenceKey(handleA) == b.ReferenceKey(handleB);
