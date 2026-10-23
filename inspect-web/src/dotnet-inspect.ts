@@ -2842,11 +2842,11 @@ async function installRetainedWorkspacePosting(
   state.errorTitle = "";
   state.errorDetail = "";
   state.retryAction = null;
-  publishRetainedLocationAssociation(
+  if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
     browserRestoration,
-  );
+  )) return;
   if (renderAfterInstall) render({ synchronizeUrl: false });
 }
 
@@ -2854,7 +2854,7 @@ function publishRetainedLocationAssociation(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
   browserRestoration?: "exact" | "changed",
-): void {
+): boolean {
   activeWorkspaceUrl = posting.canonicalLocation;
   const association: InstalledLocationAssociation = {
     identity: Symbol(posting.retainedDefinitionId),
@@ -2873,7 +2873,7 @@ function publishRetainedLocationAssociation(
   });
   if (effect.kind === "none" && effect.reason === "stale") {
     installedRetainedLocation = association;
-    return;
+    return false;
   }
   let published: boolean;
   try {
@@ -2890,6 +2890,7 @@ function publishRetainedLocationAssociation(
     );
   }
   installedRetainedLocation = association;
+  return true;
 }
 
 function completeRetainedActivationPresentation(
@@ -27260,11 +27261,11 @@ async function installMethodsHomeDemoPosting(
     return false;
   }
   installRetainedWorkspaceModels(posting, models, null, false);
-  publishRetainedLocationAssociation(
+  if (!publishRetainedLocationAssociation(
     posting,
     locationIntent,
     browserRestoration,
-  );
+  )) return false;
   applyMethodsHomeDemoSelection(demo);
   return true;
 }

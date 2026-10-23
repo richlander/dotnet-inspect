@@ -1730,7 +1730,7 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
     /browserRestoration[\s\S]*render\(\{ synchronizeUrl: false \}\);/);
   assert.match(
     install,
-    /effect\.kind === "none" && effect\.reason === "stale"[\s\S]*installedRetainedLocation = association;\s*return;/);
+    /if \(!publishRetainedLocationAssociation\([\s\S]*\)\) return;\s*if \(renderAfterInstall\) render\(\{ synchronizeUrl: false \}\);[\s\S]*effect\.kind === "none" && effect\.reason === "stale"[\s\S]*installedRetainedLocation = association;\s*return false;/);
   assert.match(
     appSource,
     /controller\.activate\(\s*definition\.id,\s*\(\) => retainedLocationIntents\.currentIntentId === locationIntent\.id,\s*posting => installRetainedWorkspacePosting\(posting, locationIntent\),\s*undefined,\s*undefined,\s*posting => retainedLocationPresentationCurrent\(\s*locationIntent,\s*posting\.canonicalLocation,\s*\),\s*\)/);
