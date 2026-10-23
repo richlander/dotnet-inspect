@@ -2958,6 +2958,33 @@ dotnet-inspect explain --markdown
 dotnet-inspect explain operations/package-query
 ```
 
+Use `.hal --json` for the root's HAL reading. It embeds routing entries while
+linking their destination definitions. The reference collection
+`component-contracts` currently describes the Workspace Package contribution:
+
+```bash
+dotnet-inspect explain .hal --json > explain-root.json
+dotnet-inspect explain component-contracts .hal --json > contracts.json
+contract=$(jq -r '._links["collection-component-contract"][0].href' contracts.json)
+dotnet-inspect explain "$contract" .hal --json > package-contract.json
+jq '._embedded.data.facts.fields[] | select(.id == "framework") |
+  {name, meaning, shape, cardinality}' package-contract.json
+```
+
+The contract leaf projects Workspace-owned field meanings and limits. Root
+reading includes only routing summaries. A reader that knows the leaf may
+request `workspace/components/package` directly. `.data --json` exposes the
+same facts in the direct representation. Both preserve observation and
+traversal outcomes, and these links omit projection parameters.
+
+For these readings, `_embedded.data` contains native resource data and
+`_embedded.resources` contains already expanded resources. A detached component
+explanation has no instance `self`; its `describedby` relation identifies this
+installed kind contract. The shared operation consumes owner-validated
+component inputs; CLI admission of a component file is a later facade slice.
+The [worked reading](../tools/ExplainReadingScenarios/continuous-components/README.md)
+includes captured JSON files and standalone versus parent-qualified examples.
+
 ## Exact explanation JSON
 
 `explain <resource> --json` returns compact resource facts and HAL navigation.
