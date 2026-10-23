@@ -12,6 +12,7 @@ import {
   packageAt,
   appSource,
   functionDeclaration,
+  functionSource,
   sourceText,
   workspaceNavigationSource,
   workspaceFeedActivationSource,
@@ -172,9 +173,7 @@ test("bootstrap reconciles persisted style choices with the product catalog", ()
 
 test("bare home paints before wasm engine download", () => {
   const renderDispatch =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
-    )?.[0] ?? "";
+    functionSource("renderCore");
   const bootstrap =
     appSource.match(/async function bootstrap\(\) \{[\s\S]*?\n}\n\nfunction computeDiagnostics/)?.[0] ?? "";
   const homePaintWait =
@@ -1111,11 +1110,7 @@ test("catalog rollback reacquires Workspace occurrences with current authority",
 });
 
 test("Workspace occurrence rerenders preserve catalog failure focus", () => {
-  const render =
-    appSource.match(
-      /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?\n}\n\nfunction renderWorkspaceCatalogView/,
-    )?.[0]
-    ?? "";
+  const render = functionSource("renderCore");
   assert.match(
     render,
     /const workbenchSearchHadFocus = focusedElement\?\.id === "open-search";\s*const levelOneHeadingHadFocus =\s*focusedElement\?\.matches\("main h1"\) === true;/);
@@ -1275,8 +1270,11 @@ test("Package query and Activity are routed Spotlight actions", () => {
     appSource,
     /createPackageChangesController\([\s\S]*if \(!state\.packageActivityOpen\) return;\s*schedulePackageActivityStreamRender\(\)/);
   assert.match(
-    appSource,
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{\s*const navigationScroll = captureContentNavigationScroll\(document\);\s*dataBarFeedback\.synchronize\(dataBarViewKey\(\)\);\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(options\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}[\s\S]*function renderCore\(options: \{ synchronizeUrl\?: boolean \}\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
+    functionSource("render"),
+    /function render\(options: RenderOptions = \{\}\) \{[\s\S]*const navigationScroll = captureContentNavigationScroll\(document\);\s*dataBarFeedback\.synchronize\(dataBarViewKey\(\)\);\s*productNavigationBinding\.beforeRender\(\);\s*try \{\s*renderCore\(effectiveOptions\);\s*\} finally \{\s*productNavigationBinding\.afterRender\(\);[\s\S]*memberDiffExplorer\.afterRender\([\s\S]*\);\s*\}/);
+  assert.match(
+    functionSource("renderCore"),
+    /function renderCore\(options: RenderOptions\) \{\s*sourceInspection\.cancelHiddenRequest\(\);[\s\S]*?document\.body\.classList\.remove\(\s*"package-query-route",\s*"package-activity-route",\s*"type-explorer-route-body"\);[\s\S]*if \(state\.packageQueryOpen\s*&& state\.engineReady\s*&& !state\.loading\s*&& !state\.error\) \{\s*document\.body\.classList\.add\("package-query-route"\)/);
   assert.doesNotMatch(appSource, /\bapp\.innerHTML\s*=/);
   assert.match(
     stylesSource,
@@ -1648,9 +1646,7 @@ test("managed Saved Open keeps compact rows, packet fidelity, and focus ownershi
   const capture = appSource.match(
     /async function captureSavedWorkspacePacket\(\)[\s\S]*?\n}\n\nasync function buildStateUrl/,
   )?.[0] ?? "";
-  const renderDispatch = appSource.match(
-    /function render\(options: \{ synchronizeUrl\?: boolean \} = \{\}\) \{[\s\S]*?const pkg = state\.package;/,
-  )?.[0] ?? "";
+  const renderDispatch = functionSource("renderCore");
   const workspaceView = appSource.match(
     /function renderWorkspaceView\(\)[\s\S]*?\n}\n\nfunction packageLensBody/,
   )?.[0] ?? "";
