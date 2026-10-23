@@ -51,14 +51,29 @@ public static class SymbolKeyDomain
         {
             if (Marker(value) < FirstMarker)
                 throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares {value} below the marker range.");
+            Validated<TDomain>.Declared[Marker(value)] = true;
         }
         Validated<TDomain>.Done = true;
+    }
+
+    /// <summary>
+    /// Whether <typeparamref name="TDomain"/> declares <paramref name="marker"/>:
+    /// the check that lets a domain write a shared vocabulary's marker under
+    /// its own declaration of that value.
+    /// </summary>
+    public static bool Declares<TDomain>(byte marker)
+        where TDomain : unmanaged, Enum
+    {
+        Validate<TDomain>();
+        return Validated<TDomain>.Declared[marker];
     }
 
     static class Validated<TDomain>
         where TDomain : unmanaged, Enum
     {
         public static bool Done;
+
+        public static readonly bool[] Declared = new bool[256];
     }
 }
 

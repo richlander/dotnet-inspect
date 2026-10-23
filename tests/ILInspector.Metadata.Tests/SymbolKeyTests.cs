@@ -349,6 +349,27 @@ public sealed class SymbolKeyTests
         return image.ToArray();
     }
 
+    enum SharedPart : byte
+    {
+        Type = SymbolKeyDomain.FirstMarker,
+        Other = 0x7F,
+    }
+
+    [Fact]
+    public void MarkShared_WritesADeclaredSharedMarker_AndRefusesAnUndeclaredOne()
+    {
+        var keys = new SymbolKeyBuilder<TestPart>();
+        int mark = keys.Begin();
+        StagedSymbolKey<TestPart> shared = keys.MarkShared(SharedPart.Type).Int(1).End(mark);
+        StagedSymbolKey<TestPart> own = Build(keys, k => k.Int(1));
+        Assert.Equal(own, shared);
+        Assert.Equal(TestPart.Type, shared.Kind);
+
+        keys.Begin();
+        Assert.Throws<SymbolKeyStateException>(() => keys.MarkShared(SharedPart.Other));
+        Assert.Throws<SymbolKeyStateException>(() => keys.MarkShared(WidePart.Type));
+    }
+
     [Fact]
     public void NameBoundary_ThePartReaderReturnsExactlyTheName()
     {

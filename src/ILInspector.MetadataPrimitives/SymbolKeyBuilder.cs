@@ -185,6 +185,26 @@ public sealed class SymbolKeyBuilder<TDomain>
         return this;
     }
 
+    /// <summary>
+    /// Writes a marker of a shared vocabulary, which this domain must declare
+    /// under its own name with the same value; a value the domain does not
+    /// declare is refused, so a shared spelling never writes a part the domain
+    /// cannot read back.
+    /// </summary>
+    public SymbolKeyBuilder<TDomain> MarkShared<TShared>(TShared marker)
+        where TShared : unmanaged, Enum
+    {
+        if (Unsafe.SizeOf<TShared>() != 1)
+            throw new SymbolKeyStateException($"Shared vocabulary {typeof(TShared).Name} must be a byte-backed enum.");
+        byte value = SymbolKeyDomain.Marker(marker);
+        if (!SymbolKeyDomain.Declares<TDomain>(value))
+            throw new SymbolKeyStateException($"Domain {typeof(TDomain).Name} does not declare the shared marker {marker} (0x{value:X2}).");
+        RequireOpen();
+        Ensure(1);
+        _scratch[_length++] = value;
+        return this;
+    }
+
     public SymbolKeyBuilder<TDomain> Int(long value)
     {
         RequireOpen();

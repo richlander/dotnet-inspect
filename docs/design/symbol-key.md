@@ -162,25 +162,25 @@ both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A later domain may replace repeated
 embedded keys with `Ref` parts when it adopts interning.
 
-Finding Diff Any keeps three builders per side. Its Type-level keys, Type
-definitions, references, specifications, and primitives, memoized per token
-for the comparison, are staged in a retained builder and frozen into shared
-backings in chunks at unit boundaries; the unit table's lookup keys are
-resolved to views at each chunk's freeze, and a dictionary keyed by frozen
-keys answers staged lookups through the alternate lookup of
-`SymbolKeyComparer<TDomain>`. Signature-type composites built while one key
-decodes are staged in a scratch builder and discarded when that build
-completes. Its member keys (methods, fields, member references, method
-specifications, standalone signatures) and its census facts are staged in a
-transient builder: a unit spells the members it declares and the members its
-bodies refer to, memoized for that unit alone, holds its facts as eight-byte
-slots that the builder sorts and compares against the other side's with its
-storage resolved once, and discards all of it when the unit ends, so no
-member spelling and no fact key is retained. The body comparison remembers
-each pair of operand rows, one of each side, already proven to spell the same
-key, so a member referred to from many Types is spelled once per comparison,
-not once per referencing unit; what the comparison retains across units is
-that pairing and the Type-level keys, not the member spellings.
+Finding Diff Any keeps two builders per side and spells rows through the
+[shared speller](#metadata-rows). Its Type-level keys, Type definitions,
+references, and specifications, memoized per token for the comparison, are
+staged in a retained builder and frozen into shared backings in chunks at unit
+boundaries; the unit table's lookup keys are resolved to views at each chunk's
+freeze, and a dictionary keyed by frozen keys answers staged lookups through
+the alternate lookup of `SymbolKeyComparer<TDomain>`. Signature composites
+built while one key decodes are staged in the speller's scratch population and
+discarded when that spelling completes. Its member keys (methods, fields,
+member references, method specifications, standalone signatures) and its census
+facts are staged in a transient builder: a unit spells the members it declares
+and the members its bodies refer to, memoized for that unit alone, holds its
+facts as eight-byte slots that the builder sorts and compares against the other
+side's with its storage resolved once, and discards all of it when the unit
+ends, so no member spelling and no fact key is retained. The body comparison
+remembers each pair of operand rows, one of each side, already proven to spell
+the same key, so a member referred to from many Types is spelled once per
+comparison, not once per referencing unit; what the comparison retains across
+units is that pairing and the Type-level keys, not the member spellings.
 
 Names enter through three sources:
 
@@ -195,6 +195,54 @@ names by encoding the query, never by decoding storage. A name built from
 `#Strings` and one built from the same well-formed text are the same part.
 
 Blobs are copied from a `BlobReader` without an intermediate array.
+
+## Metadata rows
+
+Two consumers spell the same metadata rows: Finding Diff Any, for its Types,
+members, and the operands its body walk compares, and the IL census cursor,
+whose atom's operand identity is the same key. One speller writes them, in
+`ILInspector.MetadataPrimitives` where both can reach it.
+
+`MetadataSymbolPart` is the shared marker vocabulary: `Type`, `Namespace`,
+`Method`, `Field`, `MethodSpecification`, `LocalSignature`,
+`StandaloneSignature`, `Primitive`, the signature composites (`SZArray`,
+`Array`, `ByReference`, `Pointer`, `FunctionPointer`, `GenericInstance`,
+`TypeParameter`, `MethodParameter`, `RequiredModifier`, `OptionalModifier`,
+`Pinned`), `Vararg`, `Return`, and `Scope`. A consumer's domain declares the
+values it uses under its own names, with the shared values, and the builder's
+`MarkShared` writes a shared marker only when the domain declares it; a
+domain that does not declare a marker cannot receive a spelling that uses it.
+Two domains that declare the vocabulary spell one row with the same bytes.
+
+`MetadataSymbolSpeller<TDomain, TRow>` spells one row into a builder the
+consumer names: a Type definition as its namespace, declaring chain, and
+names; a Type reference as its chain and, under `MetadataSymbolScope.Declared`,
+its resolution scope (the assembly reference's name, version, culture, and
+public key or token, or the module reference's name); a Type specification as
+its decoded composite, or as the plain row it merely names, which the speller
+returns for the consumer to memoize as that row; a method, field, member
+reference, method specification, or standalone signature with its guarded,
+decoded signature; and a primitive. Under `MetadataSymbolScope.Omitted`, the
+Body policy's identity, a dependency's version is not a difference. Signature
+composites are spelled in the speller's scratch population and embedded by
+their consumer; the speller discards them when the outermost spelling
+completes.
+
+Rows a spelling refers to are the consumer's: `IMetadataRowKeys<TDomain,
+TRow>` resolves a row to the consumer's key, spelling it into the consumer's
+own builders and memo before the referring key opens, and embeds a resolved
+key into an open one. The role names why: the declaring Type of a definition,
+or a Type or member a signature, specification, or member reference names.
+The consumer never opens a key in the builder the speller is writing, and the
+speller never writes into the consumer's builders except through the
+consumer's embed. Finding Diff Any resolves Type-level rows into its retained
+population and member rows into its transient one, which is why one spelling
+never opens two keys in one builder.
+
+Guards bound every decode (`SignatureBlobGuard`, `TypeSpecGuard`); a rejected
+shape is a `BadImageFormatException`, which a consumer classifies as malformed
+input. A spelling used out of its lifetime is a `SymbolKeyStateException`,
+which it must not.
 
 ## Name ownership and inert path
 
