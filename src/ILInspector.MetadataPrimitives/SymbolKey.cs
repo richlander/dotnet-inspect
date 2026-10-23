@@ -51,14 +51,45 @@ public static class SymbolKeyDomain
         {
             if (Marker(value) < FirstMarker)
                 throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares {value} below the marker range.");
+            // One value, one name: a shared vocabulary's value landing on a
+            // domain's own marker would read back as that marker.
+            if (Validated<TDomain>.Declared[Marker(value)])
+                throw new InvalidOperationException($"Symbol Key domain {typeof(TDomain).Name} declares the value 0x{Marker(value):X2} twice.");
+            Validated<TDomain>.Declared[Marker(value)] = true;
         }
         Validated<TDomain>.Done = true;
+    }
+
+    /// <summary>
+    /// Whether <typeparamref name="TDomain"/> declares <paramref name="marker"/>:
+    /// the check that lets a domain write a shared vocabulary's marker under
+    /// its own declaration of that value.
+    /// </summary>
+    public static bool Declares<TDomain>(byte marker)
+        where TDomain : unmanaged, Enum
+    {
+        Validate<TDomain>();
+        return Validated<TDomain>.Declared[marker];
+    }
+
+    /// <summary>
+    /// The domain's declared markers as a 256-entry table, for a builder to
+    /// hold by instance: a generic static read on every shared marker would be
+    /// a lazy lookup per write under NativeAOT.
+    /// </summary>
+    internal static bool[] DeclaredMarkers<TDomain>()
+        where TDomain : unmanaged, Enum
+    {
+        Validate<TDomain>();
+        return Validated<TDomain>.Declared;
     }
 
     static class Validated<TDomain>
         where TDomain : unmanaged, Enum
     {
         public static bool Done;
+
+        public static readonly bool[] Declared = new bool[256];
     }
 }
 
