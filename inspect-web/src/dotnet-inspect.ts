@@ -2731,6 +2731,17 @@ function supersedeRetainedLocationIntentForRoutedNavigation(): void {
   }
 }
 
+function retainedPackageRootLens(
+  posting: BrowserRetainedWorkspacePosting,
+  fallback: PackageLens = "overview",
+): PackageLens {
+  const outcome = posting.navigation.snapshot.lensOutcome;
+  return (outcome.request ?? outcome.effectiveLens)?.facet
+    === "package.dependency-hierarchy"
+    ? "hierarchy"
+    : fallback;
+}
+
 async function installRetainedWorkspacePosting(
   posting: BrowserRetainedWorkspacePosting,
   locationIntent: LocationIntentDeclaration,
@@ -2813,8 +2824,8 @@ async function installRetainedWorkspacePosting(
     state.workspaceSubjectOpen = state.package === null;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
-    if (initialPackageLens !== undefined && state.rootKind === "package") {
-      state.packageLens = initialPackageLens;
+    if (state.rootKind === "package") {
+      state.packageLens = retainedPackageRootLens(posting, initialPackageLens);
     }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
@@ -18571,6 +18582,13 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     workspaceSubjectOpen || platformRoot || packageSubjectOpen || !library
       ? []
       : [library];
+  if (packageSubjectOpen
+    && state.packageLens === "hierarchy"
+    && activeRetainedWorkspacePosting !== null
+    && activeRetainedWorkspacePosting.canonicalPacket === null) {
+    throw new Error(
+      "This Hierarchy's Workspace context cannot be projected into a share packet.");
+  }
   return {
     package: state.rootKind === "platform" ? "" : state.package?.id ?? "",
     subject: workspaceSubjectOpen ? "workspace" : null,
@@ -18579,6 +18597,11 @@ function captureWorkspaceUrlState(): WorkspaceUrlState | null {
     activeTabId: activeTab.id,
     selectedContextId,
     traversalTargetFramework: workspaceTraversalTargetFramework(),
+    hierarchyWorkspacePacket: packageSubjectOpen && state.packageLens === "hierarchy"
+      ? activeRetainedWorkspacePosting?.canonicalPacket
+        ?? basis?.hierarchyWorkspacePacket
+        ?? null
+      : null,
     analysisMode: librarySubjectOpen && state.libraryLens === "analysis"
       ? state.analysisMode
       : null,
@@ -18665,6 +18688,7 @@ async function captureSavedWorkspacePacket(): Promise<string> {
     selectedContextId: snapshot.selectedContextId,
     view: snapshot.view,
     traversalTargetFramework: snapshot.traversalTargetFramework ?? null,
+    hierarchyWorkspacePacket: snapshot.hierarchyWorkspacePacket ?? null,
   });
   if (!captured.succeeded || !captured.packet) {
     throw new Error(
@@ -27308,6 +27332,7 @@ function retainPackageHomeDemoShareBasis(
     activeTabId: activeTab.id,
     selectedContextId: topology.selectedContextId,
     traversalTargetFramework: null,
+    hierarchyWorkspacePacket: null,
     view: {
       lens: "api",
       type: selection.type.id,
@@ -28191,7 +28216,7 @@ function installRetainedWorkspaceModels(
   state.workspaceSubjectOpen = activeTab === null;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
-  state.packageLens = "overview";
+  state.packageLens = retainedPackageRootLens(posting);
   state.libraryLens = "overview";
   state.selectedTypeId = defaultVisibleTypeId(selected);
   state.selectedMemberKey = "";

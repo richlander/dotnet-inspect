@@ -19,7 +19,8 @@ import {
   type RetainedWorkspaceActivationHooks,
 } from "./retained-workspace-activation.ts";
 
-export interface RetainedWorkspaceSurfaceClient {
+export interface RetainedWorkspaceSurfaceClient
+  extends Pick<RetainedWorkspaceActivationClient, "describeWorkspacePackageSources"> {
   admitRetainedWorkspacePackage(
     retainedDefinitionId: string,
     realizationId: string,
@@ -1138,13 +1139,18 @@ export async function loadRetainedWorkspaceModels(
   client: RetainedWorkspaceSurfaceClient,
   posting: BrowserRetainedWorkspacePosting,
 ): Promise<RetainedWorkspaceModels> {
+  const sources = posting.canonicalPacket === null
+    ? undefined
+    : await client.describeWorkspacePackageSources?.(posting.canonicalPacket);
+  const isGallery = sources?.succeeded === true && sources.sources.length === 0;
   const packages = await Promise.all(posting.packages.map(async inventory => ({
     navigationId: inventory.navigationId,
     contextIndex: inventory.contextIndex,
     consumerPackageSubjectId: inventory.consumerPackageSubjectId,
     packageModel: workspacePackageModel(
       await loadPackageSurface(client, posting, inventory),
-      inventory),
+      inventory,
+      isGallery),
   })));
   const platforms = await Promise.all(
     posting.platforms.map(async inventory => ({
@@ -1165,14 +1171,15 @@ export async function loadRetainedWorkspaceModels(
 function workspacePackageModel(
   surface: BrowserPackageSurface,
   inventory: BrowserRetainedWorkspacePackageInventory,
+  isGallery: boolean,
 ): AppPackage {
   const packageModel = createNuGetPackageModelWithDefaultLibrary(
     surface,
     inventory.defaultLibrary);
   return {
     ...packageModel,
-    source: { kind: "unknown" },
-    producerLabel: "NuGet",
+    source: { kind: isGallery ? "nuget.org" : "unknown" },
+    producerLabel: isGallery ? packageModel.producerLabel : "NuGet",
   };
 }
 

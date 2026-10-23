@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Ecosystems;
 
 using DotnetInspect.Web;
 using DotnetInspect.Web.Interop.Catalog;
@@ -106,6 +107,18 @@ namespace DotnetInspect.Web.Interop.Catalog
                 if (packet.FormatVersion
                     != WorkspaceSharePacketCodec.LegacyFormatVersion)
                 {
+                    if (packet.FocusedTabIndex is int focus
+                        && packet.ViewStates[focus + 1] is
+                        {
+                            Subject: PortableSubjectRequest.Package,
+                            Context: PortableRetainedSubjectContext.Package,
+                            Facet: "package.dependency-hierarchy",
+                            QueryIndexes.Count: 0,
+                            Libraries.Count: 0,
+                        })
+                    {
+                        return DecodeHierarchy(packet);
+                    }
                     return new BrowserWorkspaceShareDecodeResult(
                         Succeeded: false,
                         State: null,
@@ -184,6 +197,43 @@ namespace DotnetInspect.Web.Interop.Catalog
             }
         }
 
+        private static BrowserWorkspaceShareDecodeResult DecodeHierarchy(
+            WorkspaceSharePacket packet)
+        {
+            CommittedScenarioDefinitionSet definitions =
+                WorkspaceSharePacketTransposer.ToCommittedDefinitions(packet);
+            WorkspaceDefinition workspace = definitions.Workspace!;
+            CommittedNavigationDefinition navigation = definitions.Navigation!;
+            return new(
+                true,
+                new BrowserWorkspaceShareState(
+                    [
+                        .. packet.Tabs.Select((tab, index) =>
+                            new BrowserWorkspaceShareTab(
+                                navigation.Tabs[index].Id,
+                                tab.SourceKind == WorkspaceShareSourceKind.Package
+                                    ? "package" : "group",
+                                tab.Source, tab.Version, tab.Framework,
+                                tab.RuntimeIdentifier)),
+                    ],
+                    [
+                        .. packet.Contexts.Select((context, index) =>
+                            new BrowserWorkspaceShareContext(
+                                workspace.Contexts[index].Name,
+                                [.. context.TabIndexes.Select(
+                                    tab => navigation.Tabs[tab].Id)])),
+                    ],
+                    navigation.Focus!,
+                    definitions.Scenario.Context!,
+                    new("hierarchy", null, null, null, null, [], null),
+                    workspace.TraversalTargetPolicy.Source
+                        == TraversalTargetFrameworkPolicySource.Configured
+                        ? workspace.TraversalTargetPolicy.TargetFramework
+                        : null,
+                    WorkspaceSharePacketCodec.Encode(packet)),
+                null);
+        }
+
         internal static BrowserWorkspaceShareEncodeResult Encode(
             BrowserWorkspaceShareState state)
         {
@@ -193,7 +243,9 @@ namespace DotnetInspect.Web.Interop.Catalog
             {
                 WorkspaceSharePacketDefinitionSet definitions = ToDefinitions(state);
                 WorkspaceSharePacketProjectionResult projection =
-                    WorkspaceSharePacketTransposer.ToPacket(definitions);
+                    state.View.Lens == "hierarchy"
+                        ? HierarchyProjection(state, definitions)
+                        : WorkspaceSharePacketTransposer.ToPacket(definitions);
                 if (!projection.Succeeded)
                 {
                     WorkspaceSharePacketProjectionFailure failure =
@@ -239,6 +291,51 @@ namespace DotnetInspect.Web.Interop.Catalog
             {
                 return InvalidState(ex.Message);
             }
+        }
+
+        private static WorkspaceSharePacketProjectionResult HierarchyProjection(
+            BrowserWorkspaceShareState state,
+            WorkspaceSharePacketDefinitionSet topology)
+        {
+            if (state.View.Type is not null
+                || state.View.MemberAnchor is not null
+                || state.View.MemberSignature is not null
+                || state.View.Section is not null
+                || state.View.Libraries.Length != 0
+                || state.View.SourceView is not null
+                || state.View.Comparison is not null)
+            {
+                throw new ArgumentException(
+                    "Hierarchy sharing requires an unscoped Package root view.",
+                    nameof(state));
+            }
+
+            WorkspaceDefinition? basis = state.HierarchyWorkspacePacket is { } encoded
+                ? WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                    WorkspaceSharePacketCodec.Decode(encoded)).Workspace
+                : null;
+            int schema = basis?.PackageSources.Count > 0
+                ? InspectionDefinitionSchema.Version5
+                : InspectionDefinitionSchema.Version3;
+            var workspace = new WorkspaceDefinition(
+                schema,
+                WorkspaceSharePacketTransposer.WorkspaceId,
+                topology.Workspace.Contexts,
+                groups: basis?.Groups,
+                registrations: basis?.Registrations
+                    ?? EcosystemPackCatalog.CreatePlatformWorkspacePlan().Registrations,
+                packageSources: basis?.PackageSources,
+                traversalTargetPolicy: state.TraversalTargetFramework is null
+                    ? basis?.TraversalTargetPolicy
+                        ?? topology.Workspace.TraversalTargetPolicy
+                    : topology.Workspace.TraversalTargetPolicy);
+            var navigation = new CommittedNavigationDefinition(
+                schema,
+                WorkspaceSharePacketTransposer.NavigationId,
+                topology.Navigation.Tabs,
+                topology.Navigation.Focus);
+            return WorkspaceSharePacketTransposer.ToPackageHierarchyPacket(
+                workspace, navigation, topology.Scenario.Context);
         }
 
         internal static BrowserWorkspaceShareEncodeResult CaptureComplete(

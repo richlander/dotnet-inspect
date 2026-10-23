@@ -950,10 +950,12 @@ dotnet-inspect package System.Text.Json@10.0.0 \
 
 For a direct NuGet.org Package query with one `Dependency Hierarchy` section,
 append `--share url` to keep the hierarchy on stdout and print its Inspect Web
-URL on stderr. The URL preserves the resolved exact Package version and target
-framework; the Browser reacquires that Package and runs the rooted dependency
-traversal. `--share packet` emits the packet instead. Local archives, other
-source selections, and hierarchy row or depth selections cannot currently be
+URL on stderr. The URL preserves the resolved exact Package version, root
+framework, governing traversal target, and Runtime ecosystem selection in a
+committed Workspace packet. The Browser restores that context, reacquires the
+Package, and runs the rooted dependency traversal. `--share packet` emits the
+packet instead. Local archives, other source selections, and hierarchy row or
+depth selections cannot currently be
 reproduced in the Browser and fail visibly.
 
 For one package with exactly `Files` selected, `-n`, `--tail`, and
