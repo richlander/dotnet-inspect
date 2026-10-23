@@ -63,6 +63,27 @@ public sealed class IlCensusCursorIdentityTests
     }
 
     [Fact]
+    public void CallToACompilerControlledMethod_FailsTheOperand()
+    {
+        // ECMA-335 lets PrivateScope methods share a name and signature; the
+        // walk reads a caller of one as Indeterminate, and the cursor refuses
+        // the operand rather than comparing the shared key.
+        TypeSpec callee = new("N", "C", null, ReturnOne, ["M", "M"], PrivateScope: true);
+        byte[] image = Image([callee, new("N", "D", null, CallFirst)]);
+        Assert.Equal(FindingDiffAnyState.Indeterminate, Assert.Single(CompareImages(image, image).Types, type => type.FullName == "N.D").Body);
+
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        IlCensusSide side = IlCensusSide.Create(pe.GetMetadataReader(), IlBodyDiffPolicy.Body);
+        var inspection = IlFindings.Inspect(side, pe, MetadataTokens.MethodDefinitionHandle(3), Subject);
+        var failed = Assert.IsType<FindingInspection<CanonicalIlOperation>.Failed>(inspection.Value);
+        Assert.Contains("compiler-controlled", failed.Error.Reason, StringComparison.Ordinal);
+
+        using var other = new PEReader(new MemoryStream(image, writable: false));
+        IlBodyDiffResult diff = IlBodyDiff.Compare(side, pe.GetMethodBody(pe.GetMetadataReader().GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(3)).RelativeVirtualAddress), IlCensusSide.Create(other.GetMetadataReader(), IlBodyDiffPolicy.Body), other.GetMethodBody(other.GetMetadataReader().GetMethodDefinition(MetadataTokens.MethodDefinitionHandle(3)).RelativeVirtualAddress));
+        Assert.Equal(IlDiffFailureKind.TokenResolutionFailure, Assert.Single(diff.FailureRows).Kind);
+    }
+
+    [Fact]
     public void OperandKeys_AreFindingDiffAnysBytes()
     {
         using var pe = new PEReader(File.OpenRead(typeof(FindingDiffAny).Assembly.Location));
