@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 
 using DotnetInspect.Web.Interop.Catalog;
@@ -8,6 +9,55 @@ namespace DotnetInspect.Web.Tests;
 [SupportedOSPlatform("browser")]
 public sealed class BrowserWorkspaceShareOperationsTests
 {
+    [Theory]
+    [InlineData(null, TraversalTargetFrameworkPolicy.ProductDefaultTargetFramework)]
+    [InlineData("net10.0", "net10.0")]
+    public void HierarchyCapture_PreservesGoverningTargetWithoutChangingRoot(
+        string? configuredTarget,
+        string expectedTarget)
+    {
+        var state = new BrowserWorkspaceShareState(
+            [new("t0", "package", "Microsoft.Azure.SignalR", "1.33.1", "net8.0", null)],
+            [new("g0", ["t0"])],
+            "t0",
+            "g0",
+            new("hierarchy", null, null, null, null, [], null),
+            configuredTarget);
+
+        BrowserWorkspaceShareEncodeResult encoded =
+            BrowserWorkspaceShareOperations.Encode(state);
+        Assert.True(encoded.Succeeded, encoded.Failure?.Message);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.Decode(
+            Assert.IsType<string>(encoded.Packet),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(expectedTarget, packet.TraversalTargetPolicy.TargetFramework);
+        Assert.Equal("net8.0", Assert.Single(packet.Tabs).Framework);
+        BrowserWorkspaceShareState decoded =
+            Assert.IsType<BrowserWorkspaceShareState>(
+                BrowserWorkspaceShareOperations.Decode(encoded.Packet!).State);
+        Assert.Equal(expectedTarget, decoded.TraversalTargetFramework);
+        Assert.Equal(
+            encoded.Packet,
+            BrowserWorkspaceShareOperations.Encode(decoded).Packet);
+    }
+
+    [Fact]
+    public void LegacyHierarchyDecode_MakesItsTargetPortableWithoutChangingPacket()
+    {
+        string legacy = WorkspaceSharePacketCodec.Encode(
+            WorkspaceSharePacketCodec.ParseJson(
+                """{"f":1,"t":[["Microsoft.Azure.SignalR","1.33.1","net8.0",null]],"g":[[0]],"a":0,"x":0,"v":"hierarchy"}""",
+                TestContext.Current.CancellationToken));
+
+        BrowserWorkspaceShareDecodeResult decoded =
+            BrowserWorkspaceShareOperations.Decode(legacy);
+        Assert.True(decoded.Succeeded, decoded.Failure?.Message);
+        BrowserWorkspaceShareState state =
+            Assert.IsType<BrowserWorkspaceShareState>(decoded.State);
+        Assert.Equal("net8.0", state.TraversalTargetFramework);
+        Assert.Equal(legacy, BrowserWorkspaceShareOperations.Encode(state).Packet);
+    }
+
     private const string CanonicalVector =
         "eyJmIjoxLCJ0IjpbWyI6UGxhdGZvcm0iLCIxMC4wLjEwIiwibmV0MTAuMCIsbnVsbF0s"
         + "WyJTeXN0ZW0uVGV4dC5Kc29uIiwiMTAuMC4wIiwibmV0MTAuMCIsbnVsbF1dLCJnIjpb"

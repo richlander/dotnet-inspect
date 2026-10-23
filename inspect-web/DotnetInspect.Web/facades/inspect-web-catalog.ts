@@ -527,6 +527,7 @@ export interface BrowserRetainedWorkspaceDefinitionState {
   readonly registrations: ReadonlyArray<BrowserRetainedWorkspaceRegistration>;
   readonly activeTabId: string | null;
   readonly selectedContextId: string | null;
+  readonly traversalTargetFramework: string;
 }
 
 export interface BrowserRetainedWorkspaceEcosystem {
@@ -874,6 +875,7 @@ export interface BrowserWorkspaceShareState {
   readonly activeTabId: string;
   readonly selectedContextId: string;
   readonly view: BrowserWorkspaceShareView;
+  readonly traversalTargetFramework: string | null;
 }
 
 export interface BrowserWorkspaceShareTab {

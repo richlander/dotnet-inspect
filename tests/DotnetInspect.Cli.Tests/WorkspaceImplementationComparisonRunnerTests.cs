@@ -10,9 +10,12 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Cache;
+using DotnetInspector.Fixtures;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Services;
+using Inspector.Findings;
+using ILInspector.Analysis;
 using ILInspector.Metadata;
 using ILInspector.Research;
 using CoreHttpClientFactory =
@@ -54,6 +57,104 @@ public sealed class WorkspaceImplementationComparisonRunnerTests
                 _root,
                 "cache"),
             skipNuGetCache: true);
+    }
+
+    [Fact]
+    public async Task
+        ExactAllocations_UseSelectedSecondaryAssembly()
+    {
+        string root =
+            typeof(WorkspaceImplementationComparisonRunnerTests)
+                .Assembly.Location;
+        string packageName =
+            Path.GetFileNameWithoutExtension(root);
+        string beforePath =
+            FixtureCatalog.DiffPair.OldAssemblyPath();
+        string afterPath =
+            FixtureCatalog.DiffPair.NewAssemblyPath();
+        using var before = new AssemblySet(
+            [
+                Entry(root, packageName, "1.0.0"),
+                Entry(beforePath, packageName, "1.0.0"),
+            ],
+            [],
+            []);
+        using var after = new AssemblySet(
+            [
+                Entry(root, packageName, "2.0.0"),
+                Entry(afterPath, packageName, "2.0.0"),
+            ],
+            [],
+            []);
+
+        WorkspaceMethodAllocationComparisonResult result =
+            await WorkspaceImplementationComparisonRunner
+                .ExecuteAllocationsAsync(
+                    before,
+                    after,
+                    packageName,
+                    beforePath,
+                    MethodToken(beforePath),
+                    afterPath,
+                    MethodToken(afterPath),
+                    TestContext.Current.CancellationToken);
+
+        var compared = Assert.IsType<
+            WorkspaceMethodAllocationComparisonResult.Compared>(
+                result);
+        FindingComparison<AllocationOccurrence> comparison =
+            Assert.Single(
+                compared.Comparison.RetainedComparisons
+                    .Get<AllocationOccurrence>(
+                        AnalysisFindings.AllocationDescriptor))
+                .Comparison;
+        var complete = Assert.IsType<
+            FindingComparison<AllocationOccurrence>.Complete>(
+                comparison.Value);
+        Assert.All(
+            complete.OldAtoms.Concat(complete.NewAtoms),
+            finding => Assert.Equal(
+                "RegressesAllocInLoop",
+                finding.Payload.Method.Name));
+        Assert.Contains(
+            complete.Pairs,
+            pair =>
+                pair.Value
+                    is PairFinding<AllocationOccurrence>.Added);
+
+        static AssemblySetEntry Entry(
+            string path,
+            string package,
+            string version) =>
+            new(
+                path,
+                package,
+                version,
+                AssemblySetSourceKind.Package);
+
+        static int MethodToken(string path)
+        {
+            using var stream = File.OpenRead(path);
+            using var image = new PEReader(stream);
+            ApiSurface surface =
+                ApiSurfaceExtractor.Extract(
+                    image,
+                    includeAll: true);
+            ApiType type = Assert.Single(
+                surface.Types,
+                candidate =>
+                    candidate.FullName
+                        == "DiffFixtureSample.DiffSample");
+            ResolvedMemberTarget target =
+                Assert.IsType<ResolvedMemberTarget>(
+                    MemberTargetResolver.Resolve(
+                        type,
+                        MemberTargetSelector.Parse(
+                            "RegressesAllocInLoop"))
+                    .Target);
+            return Assert.IsType<int>(
+                target.Body!.MetadataToken);
+        }
     }
 
     [Fact]

@@ -255,6 +255,7 @@ function retainedWorkspaceInstallationHarness(options: {
     "retainedLocationPresentationCurrent",
     "supersedeRetainedLocationIntentForRoutedNavigation",
     "installRetainedWorkspacePosting",
+    "publishRetainedLocationAssociation",
     "completeRetainedActivationPresentation",
     "activateRetainedPackageAction",
     "activateRetainedPlatformAction",

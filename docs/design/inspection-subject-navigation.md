@@ -1188,6 +1188,29 @@ demand without first acquiring sibling Library bodies. Selecting `All
 libraries`, a Package-wide Type view, or another aggregate-capable operation
 may broaden that demand explicitly.
 
+The initial recommendation is not a product-wide Library-scope default. A
+Package-grain operation whose
+[Package Library Scope](package-library-scope.md#aggregate-scope) is aggregate
+consumes every Library in the owner-issued population even when its host would
+recommend one exact Library for interactive navigation. The CLI therefore
+accepts `All libraries` as the implicit scope for Package-scoped Type lookup;
+its supported exact `--library` source narrows that operation. Inspect Web
+instead recommends First Library when a person opens a Package, while keeping
+`All libraries` and every exact Library as explicit choices. These host
+defaults differ only in entry gesture. They do not redefine the operation's
+aggregate or exact semantics, and they do not imply that every host exposes
+every Library gesture on every command.
+
+`Microsoft.Azure.SignalR` 1.33.1 is the motivating real asset. Its `net8.0`
+population contains `Microsoft.Azure.SignalR.dll` and
+`Microsoft.Azure.SignalR.Common.dll`, while
+`Microsoft.Azure.SignalR.AccessTokenAlgorithm` is declared only by the
+non-namesake Common Library. A Package-scoped Type request for that exact Type
+must therefore search the complete population and resolve it without an
+explicit Library gesture. First Library navigation may still begin at the
+namesake Library because it is a recommendation for browsing, not evidence
+that sibling Libraries are outside Package scope.
+
 Participant rejection, decode failure, or inspection failure remains attached
 to the selected Library or aggregate result. A failed chosen Library stays the
 chosen Library and exposes its non-success; Navigation never substitutes a
@@ -2815,6 +2838,7 @@ must preserve the same typed outcomes and fresh destination content.
 | Coordinate correspondence falls back from Member to Type | Type receives its own recommendation, never the Member's inspector request |
 | Ordinary package | Exact First Library with Library Overview; exact Package and `All libraries` remain explicitly reachable |
 | Single-Library package | Exact First Library; `All libraries` remains a distinct explicit aggregate even at cardinality one |
+| Package-scoped exact Type request whose declaration is in a non-namesake Library | Aggregate Library scope resolves the Type from the complete owner-issued population; First Library recommendation does not narrow the request |
 | Package occurrence paired with another settlement, generation, or selected TFM | Invalid `PackageLibraries` basis rejected before recommendation, aggregate identity construction, or narrowing |
 | Exact Library gesture | Exact selected one-Library subject, or typed non-success with no aggregate, sibling-Library, or Package fallback |
 | Unique namesake gesture | Exact one-Library subject whose owner-issued assembly simple name uniquely matches the Package ID ignoring case |

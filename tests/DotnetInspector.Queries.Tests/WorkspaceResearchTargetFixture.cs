@@ -259,7 +259,9 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
         Guid? mvid = null, bool leadingType = false, string methodName = "Value",
         Version? version = null, int methodResult = 42, int typeGenericArity = 0,
         bool nestedType = false, int forwarderCount = 1, bool methodParameter = false, bool definesMethod = true, bool methodReturnsLong = false, bool definesProperty = false,
-        string? callsReference = null, Version? callsReferenceVersion = null)
+        string? callsReference = null, Version? callsReferenceVersion = null,
+        MethodImplAttributes methodImplementation =
+            MethodImplAttributes.IL)
     {
         string typeName = typeGenericArity == 0
             ? "Type"
@@ -332,7 +334,7 @@ internal sealed class WorkspaceResearchTargetFixture : IAsyncDisposable
                 encoder.OpCode(ILOpCode.Ret);
                 int body = new MethodBodyStreamEncoder(bodies).AddMethodBody(encoder);
                 var methodHandle = metadata.AddMethodDefinition(MethodAttributes.Public | MethodAttributes.Static | (definesProperty ? MethodAttributes.SpecialName : 0),
-                    MethodImplAttributes.IL, metadata.GetOrAddString(definesProperty ? "get_" + methodName : methodName),
+                    methodImplementation, metadata.GetOrAddString(definesProperty ? "get_" + methodName : methodName),
                     metadata.GetOrAddBlob(signature), body, MetadataTokens.ParameterHandle(1));
                 if (definesProperty)
                 {

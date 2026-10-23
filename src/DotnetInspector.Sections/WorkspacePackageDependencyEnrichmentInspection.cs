@@ -499,7 +499,8 @@ public static class WorkspacePackageDependencyEnrichmentInspection
             workspace.Description,
             workspace.Groups,
             workspace.Registrations,
-            workspace.PackageSources);
+            workspace.PackageSources,
+            workspace.TraversalTargetPolicy);
         var rewrittenNavigation = new CommittedNavigationDefinition(
             navigation.SchemaVersion,
             navigation.Id,

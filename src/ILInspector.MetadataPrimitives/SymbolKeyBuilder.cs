@@ -52,13 +52,16 @@ public readonly struct StagedSymbolKey<TDomain> : IEquatable<StagedSymbolKey<TDo
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get => _builder is null
-            ? throw new InvalidOperationException("The default staged key has no bytes.")
+            ? throw new SymbolKeyStateException("The default staged key has no bytes.")
             : _builder.Staged(_generation, _offset, _length);
     }
 
     public TDomain Kind => SymbolKeyDomain.FromMarker<TDomain>(Bytes[0]);
 
     public bool Equals(StagedSymbolKey<TDomain> other) => Bytes.SequenceEqual(other.Bytes);
+
+    /// <summary>Copies the key's bytes, <see cref="Length"/> of them, into <paramref name="destination"/>.</summary>
+    public void CopyTo(Span<byte> destination) => Bytes.CopyTo(destination);
 
     /// <summary>Whether a frozen key holds the same parts as this key.</summary>
     public bool Equals(SymbolKey<TDomain> other) => other.Equals(this);
@@ -113,7 +116,7 @@ public sealed class SymbolKeyPopulation<TDomain>
         if (staged.IsDefault)
             throw new ArgumentException("The default staged key resolves to nothing.", nameof(staged));
         if (staged.Generation != _generation)
-            throw new ArgumentException("The staged key belongs to another population.", nameof(staged));
+            throw new SymbolKeyStateException("The staged key belongs to another population.");
         return Resolve(staged.Offset, staged.Length);
     }
 
@@ -143,6 +146,8 @@ public sealed class SymbolKeyBuilder<TDomain>
     const int NotOpen = -1;
 
     readonly int _initialCapacity;
+    // The domain's declared markers, held by instance so MarkShared reads no generic static.
+    readonly bool[] _declared;
     byte[] _scratch;
     int _length;
     int _generation;
@@ -151,7 +156,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public SymbolKeyBuilder(int initialCapacity = 1024)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(initialCapacity);
-        SymbolKeyDomain.Validate<TDomain>();
+        _declared = SymbolKeyDomain.DeclaredMarkers<TDomain>();
         _initialCapacity = Math.Max(16, initialCapacity);
         _scratch = new byte[_initialCapacity];
     }
@@ -172,7 +177,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public int Begin()
     {
         if (_open != NotOpen)
-            throw new InvalidOperationException("A Symbol Key is already open; complete it before opening another.");
+            throw new SymbolKeyStateException("A Symbol Key is already open; complete it before opening another.");
         _open = _length;
         return _length;
     }
@@ -182,6 +187,42 @@ public sealed class SymbolKeyBuilder<TDomain>
         RequireOpen();
         Ensure(1);
         _scratch[_length++] = SymbolKeyDomain.Marker(marker);
+        return this;
+    }
+
+    /// <summary>
+    /// Writes a marker of a shared vocabulary, which this domain must declare
+    /// under its own name with the same value; a value the domain does not
+    /// declare is refused, so a shared spelling never writes a part the domain
+    /// cannot read back.
+    /// </summary>
+    public SymbolKeyBuilder<TDomain> MarkShared<TShared>(TShared marker)
+        where TShared : unmanaged, Enum
+    {
+        if (Unsafe.SizeOf<TShared>() != 1)
+            throw new SymbolKeyStateException($"Shared vocabulary {typeof(TShared).Name} must be a byte-backed enum.");
+        byte value = SymbolKeyDomain.Marker(marker);
+        if (!_declared[value])
+            throw new SymbolKeyStateException($"Domain {typeof(TDomain).Name} does not declare the shared marker {marker} (0x{value:X2}).");
+        RequireOpen();
+        Ensure(1);
+        _scratch[_length++] = value;
+        return this;
+    }
+
+    /// <summary>Whether this builder's domain declares <paramref name="marker"/>.</summary>
+    internal bool Declares(byte marker) => _declared[marker];
+
+    /// <summary>
+    /// Writes a marker byte a caller has already validated against the domain
+    /// (the speller validates its whole vocabulary once at construction), so
+    /// the hot path carries no per-marker check.
+    /// </summary>
+    internal SymbolKeyBuilder<TDomain> MarkValidated(byte marker)
+    {
+        RequireOpen();
+        Ensure(1);
+        _scratch[_length++] = marker;
         return this;
     }
 
@@ -307,11 +348,11 @@ public sealed class SymbolKeyBuilder<TDomain>
     public StagedSymbolKey<TDomain> End(int mark)
     {
         if (_open != mark)
-            throw new InvalidOperationException("The mark does not name the open key.");
+            throw new SymbolKeyStateException("The mark does not name the open key.");
         if (_length == mark)
-            throw new InvalidOperationException("A Symbol Key holds at least its domain marker.");
+            throw new SymbolKeyStateException("A Symbol Key holds at least its domain marker.");
         if (_scratch[mark] < SymbolKeyDomain.FirstMarker)
-            throw new InvalidOperationException("A Symbol Key begins with a domain marker.");
+            throw new SymbolKeyStateException("A Symbol Key begins with a domain marker.");
         _open = NotOpen;
         return new StagedSymbolKey<TDomain>(this, _generation, mark, _length - mark);
     }
@@ -324,7 +365,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public StagedSymbolKey<TDomain> Copy(StagedSymbolKey<TDomain> key)
     {
         if (_open != NotOpen)
-            throw new InvalidOperationException("A Symbol Key is open; complete it before copying another.");
+            throw new SymbolKeyStateException("A Symbol Key is open; complete it before copying another.");
         if (key.IsDefault)
             throw new ArgumentException("The default staged key cannot be copied.", nameof(key));
         int length = key.Length;
@@ -371,7 +412,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     public SymbolKeyPopulation<TDomain> Freeze()
     {
         if (_open != NotOpen)
-            throw new InvalidOperationException("A Symbol Key is open; complete or abandon it before freezing.");
+            throw new SymbolKeyStateException("A Symbol Key is open; complete or abandon it before freezing.");
         var backing = new OpaqueByteRangeBuilder(_length);
         backing.Append(_scratch.AsSpan(0, _length));
         var population = new SymbolKeyPopulation<TDomain>(backing.Freeze(), _generation);
@@ -438,7 +479,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     void Require(SymbolKeySlot slot)
     {
         if (slot.Length <= 0 || (uint)slot.Offset > (uint)_length || (uint)slot.Length > (uint)(_length - slot.Offset))
-            throw new ArgumentException("The slot lies outside this population's staged keys.", nameof(slot));
+            throw new SymbolKeyStateException("The slot lies outside this population's staged keys.");
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -450,7 +491,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     }
 
     static void ThrowStale()
-        => throw new InvalidOperationException("The staged key's population was frozen or reset.");
+        => throw new SymbolKeyStateException("The staged key's population was frozen or reset.");
 
     SymbolKeyBuilder<TDomain> Framed(SymbolKeyTag tag, ReadOnlySpan<byte> payload)
     {
@@ -476,7 +517,7 @@ public sealed class SymbolKeyBuilder<TDomain>
     void RequireOpen()
     {
         if (_open == NotOpen)
-            throw new InvalidOperationException("No Symbol Key is open.");
+            throw new SymbolKeyStateException("No Symbol Key is open.");
     }
 
     void Ensure(int count)

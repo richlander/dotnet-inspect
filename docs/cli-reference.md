@@ -235,6 +235,11 @@ the first Library in that order when there is no namesake. A package that
 contributes more than one Library keeps the multi-Library view unless one of
 those explicit narrowing gestures is supplied; explicit `--tree` or
 `--mermaid` on an aggregate fails and asks for the assembly within the package.
+Package-scoped Type lookup is also aggregate by default: it searches every
+Library in the selected Package population. Its supported exact `--library`
+source narrows that lookup to one Library. Inspect Web's First Library entry
+recommendation is a browser navigation default and does not change this CLI
+scope.
 Any other option, including `-S`, `-v:n`, `-v:d`, and every format option,
 keeps the sectioned Library view; combined with such an option, `--tree` and
 `--mermaid` keep their `-S "Reference Hierarchy"` requirement. A
@@ -1634,6 +1639,20 @@ dotnet-inspect workspace package update \
   packages/avalonia@11.3.14/net8.0/~ \
   --packet "$w" --version 12.1.2 --json --envelope
 ```
+
+Package component descriptors include `contract: "workspace/components/package"`
+and `schema_version: 1`, so a jq extraction retains the owner and explanation
+schema identity alongside the declared coordinate. For example:
+
+```bash
+dotnet-inspect workspace component list --packet "$w" |
+  jq '.packages[] | select(.package_id == "System.Text.Json")' > component.json
+```
+
+These describe construction intent. Paths, context membership and focus are
+scoped to the parent packet; copied text alone does not establish an occurrence.
+The Workspace owner can validate the extracted declaration independently of
+restoration. Passing this file to CLI `explain` remains staged host adoption.
 
 Use `--version`, `--tfm`, or both, and select either scalar `--share`
 output or `--json --envelope`. The envelope includes the derived Share,

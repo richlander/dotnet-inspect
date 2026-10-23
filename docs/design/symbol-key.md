@@ -162,18 +162,25 @@ both the independent key and its nested occurrence exist in the finished
 population. It uses no intermediate array. A later domain may replace repeated
 embedded keys with `Ref` parts when it adopts interning.
 
-Finding Diff Any keeps three builders per side. Its reference keys, Types,
-members, and signature types, memoized per token, are staged in a retained
-builder and frozen into shared backings in chunks at unit boundaries; the
-unit table's lookup keys are resolved to views at each chunk's freeze, and a
-dictionary keyed by frozen keys answers staged lookups through the alternate
-lookup of `SymbolKeyComparer<TDomain>`. Signature-type composites built while
-one key decodes are staged in a scratch builder and discarded when that build
-completes. Its per-unit census facts and member keys are staged in a
-transient builder and held as eight-byte slots, which that builder sorts and
-compares against the other side's with its storage resolved once rather than
-once per comparison, and discarded after the unit, so no fact key is copied
-into storage of its own.
+Finding Diff Any keeps two builders per side and spells rows through the
+[shared speller](#metadata-rows). Its Type-level keys, Type definitions,
+references, and specifications, memoized per token for the comparison, are
+staged in a retained builder and frozen into shared backings in chunks at unit
+boundaries; the unit table's lookup keys are resolved to views at each chunk's
+freeze, and a dictionary keyed by frozen keys answers staged lookups through
+the alternate lookup of `SymbolKeyComparer<TDomain>`. Signature composites
+built while one key decodes are staged in the speller's scratch population and
+discarded when that spelling completes. Its member keys (methods, fields,
+member references, method specifications, standalone signatures) and its census
+facts are staged in a transient builder: a unit spells the members it declares
+and the members its bodies refer to, memoized for that unit alone, holds its
+facts as eight-byte slots that the builder sorts and compares against the other
+side's with its storage resolved once, and discards all of it when the unit
+ends, so no member spelling and no fact key is retained. The body comparison
+remembers each pair of operand rows, one of each side, already proven to spell
+the same key, so a member referred to from many Types is spelled once per
+comparison, not once per referencing unit; what the comparison retains across
+units is that pairing and the Type-level keys, not the member spellings.
 
 Names enter through three sources:
 
@@ -188,6 +195,76 @@ names by encoding the query, never by decoding storage. A name built from
 `#Strings` and one built from the same well-formed text are the same part.
 
 Blobs are copied from a `BlobReader` without an intermediate array.
+
+## Metadata rows
+
+Two consumers spell the same metadata rows: Finding Diff Any, for its Types,
+members, and the operands its body walk compares, and the IL census cursor,
+whose atom's operand identity is the same key. One speller writes them, in
+`ILInspector.MetadataPrimitives` where both can reach it.
+
+`MetadataSymbolPart` is the shared marker vocabulary: `Type`, `Namespace`,
+`Method`, `Field`, `MethodSpecification`, `LocalSignature`,
+`StandaloneSignature`, `Primitive`, the signature composites (`SZArray`,
+`Array`, `ByReference`, `Pointer`, `FunctionPointer`, `GenericInstance`,
+`TypeParameter`, `MethodParameter`, `RequiredModifier`, `OptionalModifier`,
+`Pinned`), `Vararg`, `Return`, and `Scope`. A consumer's domain declares the
+values it uses under its own names, with the shared values, and the builder's
+`MarkShared` writes a shared marker only when the domain declares it; a
+domain that does not declare a marker cannot receive a spelling that uses it.
+Two domains that declare the vocabulary spell one row with the same bytes.
+
+`MetadataSymbolSpeller<TDomain, TRow>` spells one row into a builder the
+consumer names: a Type definition as its namespace, declaring chain, and
+names, and under `MetadataSymbolScope.Declared` the current assembly's name;
+a Type reference as its chain and, under `Declared`, its resolution scope (the
+scope's kind, then the assembly reference's name, version, culture, and public
+key or token, or the module reference's name); a Type specification as
+its decoded composite, or as the plain row it merely names, which the speller
+returns for the consumer to memoize as that row; a method, field, member
+reference, method specification, or standalone signature with its guarded,
+decoded signature; and a primitive. Under `MetadataSymbolScope.Omitted`, the
+Body policy's identity, a dependency's version is not a difference. Signature
+composites are spelled in the speller's scratch population and embedded by
+their consumer; the speller discards them when the outermost spelling
+completes.
+
+Rows a spelling refers to are the consumer's: `IMetadataRowKeys<TDomain, TRow>`
+resolves a row to the consumer's key, spelling it into the consumer's own
+builders and memo, and embeds a resolved key into an open one. So are a
+definition's name part and, under `Declared`, a substituted scope name: the
+speller asks the consumer to write the name of a Type in a declaring chain, a
+method, or a field definition (Finding Diff Any writes the `#Strings` name as
+stored; the IL census cursor writes the compiler-generated ordinal
+correspondence's name where its policy folds one), and asks it for a name to
+spell in place of a resolution scope (the cursor's current and platform
+mechanics name `<current>` and `<platform>`; empty declares the scope as it
+is, under its own scope kind). A reference's names are never rewritten. The
+grammar stays one; a policy that rewrites names or scopes is the consumer's,
+and two consumers under one policy spell one row with the same bytes. The
+declaring Type, a member reference's parent, and a method specification's
+method are
+resolved before the referring key opens; a Type a signature names is resolved
+when it is embedded, while that key is open. The role names why: the declaring
+Type of a definition, or a Type or member a signature, specification, or member
+reference names. A consumer therefore spells Type-level rows into a builder
+other than the one its member keys are written in, as Finding Diff Any's
+retained and transient populations are, so a Type resolved while a member key
+is open never finds that builder open. The consumer does not open a key in the
+builder the speller is writing while a spelling runs; the speller writes only
+into that builder and its own scratch. The speller's own re-entry is the other
+hazard: a Type specification named inside a signature (a custom modifier may
+name one) is itself spelled through the consumer, in the speller's scratch, so
+a composite resolves every Type specification it embeds before its scratch key
+opens, and the embed then finds it in the consumer's memo; a consumer memoizes
+a specification on its first resolution. A spelling the consumer embeds itself,
+a property's signature, stays open until the consumer discards it, so a row
+resolved during the embed cannot reset the composites the signature holds.
+
+Guards bound every decode (`SignatureBlobGuard`, `TypeSpecGuard`); a rejected
+shape is a `BadImageFormatException`, which a consumer classifies as malformed
+input. A spelling used out of its lifetime is a `SymbolKeyStateException`,
+which it must not.
 
 ## Name ownership and inert path
 
@@ -434,7 +511,7 @@ form are the exchange currency between the hosts and checked-in artifacts.
 | Host parity | Persisted keys built under Browser/Wasm equal those built under NativeAOT for the same input | Inspect Web managed API tests |
 | Interning | Equal keys share an ID; two `Ref`-bearing keys from one table are equal exactly when their expansions are equal | PR-fast |
 | Representation pilot | SPC comparison of current private Symbol Key and the proposed range-backed representation measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; identity answers agree | Pilot before implementation |
-| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time and allocation do not regress on any pair, retained memory stays within 5% of base (parity; the reduction belongs to step 7), and p95 does not widen; the API axis alone, the asynchronous surface pass, stays cheap enough to run that way: it does not regress on the large pairs (aspire, xml, CoreLib), the small pairs (stj, nj11, nj13) stay within a millisecond of base and under 5 ms, and CoreLib's stays under 100 ms. After time, memory is the priority | Adoption PR |
+| Finding Diff Any unchanged | Finding Diff Any's identity and oracle gates pass unchanged. NativeAOT base/head on the six gate pairs is read as the aggregate diff experience, weighted to the expensive common tasks: whole-comparison time and allocation do not regress on any pair, retained memory does not exceed base on any pair, and p95 does not widen; the API axis alone, the asynchronous surface pass, stays cheap enough to run that way: it does not regress on the large pairs (aspire, xml, CoreLib), the small pairs (stj, nj11, nj13) stay within a millisecond of base and under 5 ms, and CoreLib's stays under 100 ms. After time, memory is the priority | Adoption PR |
 
 ## Adoption sequence
 
@@ -476,10 +553,14 @@ Eight steps, tracked by
    lands first; that adoption PR registers its domain.
 7. **Interning.** The range-keyed table and `Ref` part, adopted by Finding
    Diff Any step 5. The memo is the pairing: once both sides have spelled a
-   Type-level row and compared, the diff needs the shared id, not the
-   spelling, so this step turns the per-side memo into the pairing table and
-   spells member keys per unit over `Ref` parts; retained state becomes the
-   table. Its design lands in its own candidate after step 5 merges.
+   row and compared, the diff needs the verdict, not the spelling. The first
+   half is done: member rows are spelled per unit and discarded, and the
+   body comparison keeps the pairing of operand rows proven equal, rather
+   than their spellings, while it runs and releases it when it completes, so
+   a completed comparison retains the Type-level keys and the tables. The
+   second half, shared ids as `Ref`
+   parts for the Type-level keys embedded in member spellings, shrinks the
+   spellings themselves and lands in its own candidate.
 8. **Browser exchange.** The first Inspect Web consumer that passes a key to
    TypeScript and back adopts the text form, with the host-parity gate.
 

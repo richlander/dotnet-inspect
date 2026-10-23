@@ -135,6 +135,7 @@ function posting(
       registrations: [],
       activeTabId: null,
       selectedContextId: null,
+      traversalTargetFramework: "net11.0",
     },
     navigation: {
       operation: "Initialize",
