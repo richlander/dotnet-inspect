@@ -301,6 +301,98 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
         await AssertReleased(id, packageId);
     }
 
+    [Fact]
+    public async Task TypeExplorer_UsesRetainedRuntimeIdentifier()
+    {
+        const string packageId = "Type.Explorer.Runtime";
+        const string runtimeIdentifier = "win-x64";
+        await RegisterRuntimePackageAsync(
+            packageId,
+            "System.Text.Json.dll",
+            typeof(JsonNamingPolicy).Assembly.Location,
+            runtimeIdentifier);
+
+        BrowserTypeExplorerInspection inspection =
+            AssertTypeExplorerDocument(
+                await QueryTypeExplorer(
+                    packageId,
+                    new(
+                        BrowserTypeExplorerBodyMode.Bodies,
+                        SelectedDeclarationId: null,
+                        DocumentRevision: null,
+                        BrowserTypeExplorerPlacement.All,
+                        Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                        IncludeGenerated: false,
+                        IncludeDocumentation: true,
+                        IncludeAttributes: true),
+                    runtimeIdentifier: runtimeIdentifier));
+
+        BrowserTypeExplorerProjection projection =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                inspection.Document!.Projection);
+        Assert.Contains(
+            "JsonNamingPolicy",
+            projection.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task FindingCensus_UsesRetainedRuntimeIdentifier()
+    {
+        const string packageId = "Member.Finding.Census.Runtime";
+        const string runtimeIdentifier = "win-x64";
+        await RegisterRuntimePackageAsync(
+            packageId,
+            "System.Text.Json.dll",
+            typeof(JsonNamingPolicy).Assembly.Location,
+            runtimeIdentifier);
+
+        BrowserTypeExplorerProjection projection =
+            Assert.IsType<BrowserTypeExplorerProjection>(
+                AssertTypeExplorerDocument(
+                    await QueryTypeExplorer(
+                        packageId,
+                        new(
+                            BrowserTypeExplorerBodyMode.Bodies,
+                            SelectedDeclarationId: null,
+                            DocumentRevision: null,
+                            BrowserTypeExplorerPlacement.All,
+                            Enum.GetValues<BrowserTypeExplorerAccessibility>(),
+                            IncludeGenerated: false,
+                            IncludeDocumentation: true,
+                            IncludeAttributes: true),
+                        typeIdentity: "System.Text.Json.JsonEncodedText",
+                        runtimeIdentifier: runtimeIdentifier))
+                    .Document!.Projection);
+        BrowserTypeExplorerBodyDestination destination =
+            projection.Declarations
+                .SelectMany(static declaration => declaration.Bodies)
+                .Select(static body => body.Destination)
+                .OfType<BrowserTypeExplorerBodyDestination>()
+                .First(static candidate =>
+                    candidate.Member.MemberName != "#ctor");
+
+        string json = await SourceExports.QueryMemberFindingCensus(
+            packageId,
+            "1.0.0",
+            "net11.0",
+            "System.Text.Json.dll",
+            destination.Member.TypeFullName,
+            destination.Member.TypeFullName,
+            destination.Member.MemberName,
+            destination.Member.CanonicalSignature,
+            destination.Member.StableSelector,
+            destination.MetadataToken,
+            "[]",
+            runtimeIdentifier);
+        using JsonDocument census = JsonDocument.Parse(json);
+        Assert.True(
+            census.RootElement.TryGetProperty(
+                "annotatedSource",
+                out JsonElement annotatedSource));
+        Assert.Equal(JsonValueKind.Object, annotatedSource.ValueKind);
+    }
+
 #if DEBUG
     [Fact]
     public async Task
@@ -836,7 +928,8 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
     static async Task<BrowserTypeExplorerResult> QueryTypeExplorer(
         string packageId,
         BrowserTypeExplorerRequest request,
-        string typeIdentity = "System.Text.Json.JsonNamingPolicy")
+        string typeIdentity = "System.Text.Json.JsonNamingPolicy",
+        string? runtimeIdentifier = null)
     {
         string requestJson = JsonSerializer.Serialize(
             request,
@@ -849,6 +942,7 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
             "System.Text.Json.dll",
             typeIdentity,
             "[]",
+            runtimeIdentifier,
             requestJson);
         return JsonSerializer.Deserialize(
             resultJson,
@@ -897,6 +991,35 @@ public sealed class BrowserTypeSourceOperationTests(ITestOutputHelper output)
                 .Open();
             entry.Write(
                 File.ReadAllBytes(typeof(JsonNamingPolicy).Assembly.Location));
+        }
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                "1.0.0",
+                bytes.ToArray(),
+                fromCache: false));
+    }
+
+    static async Task RegisterRuntimePackageAsync(
+        string packageId,
+        string assemblyName,
+        string assemblyPath,
+        string runtimeIdentifier)
+    {
+        using var bytes = new MemoryStream();
+        using (var archive =
+            new ZipArchive(bytes, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            using (Stream rejected = archive.CreateEntry(
+                       $"runtimes/linux-x64/lib/net11.0/{assemblyName}")
+                   .Open())
+            {
+                rejected.Write([0x01]);
+            }
+            using Stream selected = archive.CreateEntry(
+                    $"runtimes/{runtimeIdentifier}/lib/net11.0/{assemblyName}")
+                .Open();
+            selected.Write(File.ReadAllBytes(assemblyPath));
         }
         await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
             new BrowserPackage(

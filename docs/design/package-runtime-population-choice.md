@@ -301,10 +301,11 @@ exact Root reopening.
 
 The Source Release gates cover exact RID retention in Browser request
 composition and Worker transport, exact-RID scope reopening before Type,
-Member, member-document, or graph Source work, and declaration-context
-admission with the same `FindPackageSourceRequest`. A two-RID Browser fixture
-keeps only the retained population valid, so archive-order or source-equivalence
-inference cannot satisfy the request. CLI Package Source was already conformant:
+Type Explorer, Member, member-document, graph, Annotated Source, or Finding
+Census work, and declaration-context admission with the same
+`FindPackageSourceRequest`. A two-RID Browser fixture keeps only the retained
+population valid, so archive-order or source-equivalence inference cannot
+satisfy the request. CLI Package Source was already conformant:
 Package Library selection records the selected RID in
 `AssemblyResolutionProvenance.PackageAsset`, and package-local Portable PDB
 settlement constructs its exact target from that retained provenance.

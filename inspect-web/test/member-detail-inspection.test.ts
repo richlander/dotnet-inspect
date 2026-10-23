@@ -477,6 +477,7 @@ function findingCensusRequest(
     version: "1.2.3",
     framework: "net10.0",
     assembly: "Example.Package.dll",
+    runtimeIdentifier: null,
     typeIdentity: "T:Example.Widget",
     type: "Example.Widget",
     member: "Run",

@@ -391,7 +391,7 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /request\.isRuntimePack\s*\?\s*inspectPlatformMemberDocumentation\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.platformPack,\s*documentationId\)\s*:\s*inspectMemberDocumentation\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*documentationId\)/);
   assert.match(
     coordinator,
-    /request\.kind === "platform"\s*\?\s*inspectPlatformMemberFindingCensus\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.pack,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.contextId\)\s*:\s*inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste\)/);
+    /request\.kind === "platform"\s*\?\s*inspectPlatformMemberFindingCensus\(\s*request\.framework,\s*request\.version,\s*request\.assembly,\s*request\.pack,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.contextId\)\s*:\s*inspectMemberFindingCensus\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.type,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.taste,\s*request\.runtimeIdentifier\)/);
   assert.match(
     coordinator,
     /const document = result\.annotatedSource\.document;\s*validateAnnotatedSourceDocument\(document\);[\s\S]*annotatedSource: \{\s*\.\.\.result\.annotatedSource,\s*document/);
@@ -409,7 +409,13 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /memberDetailInspection\.loadDeclaration\(\{[\s\S]*?typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*?member: overload\.name,[\s\S]*?selectorKey: overload\.graphSelectorKey,[\s\S]*?metadataToken:[\s\S]*?overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,[\s\S]*?implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\),[\s\S]*?isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     annotatedLoader,
-    /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly/);
+    /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);
+  assert.match(
+    coordinator,
+    /inspectMemberFindingCensus\([\s\S]*request\.taste,\s*request\.runtimeIdentifier\)/);
+  assert.match(
+    appSource,
+    /inspectTypeExplorer\([\s\S]*JSON\.stringify\(state\.taste\),\s*pkg\.runtimeIdentifier \?\? null,\s*typeExplorerRequest/);
   assert.match(
     factsLoader,
     /const signature = memberRequestSignature\(type, overload, true\)/);

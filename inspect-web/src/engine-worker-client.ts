@@ -510,6 +510,7 @@ export function bindTypeExplorerFacade(
       assembly,
       type,
       taste,
+      runtimeIdentifier,
       projection,
     ): Promise<BrowserTypeExplorerResult> {
       if (active.has(operationId)) {
@@ -523,6 +524,7 @@ export function bindTypeExplorerFacade(
         assembly,
         type,
         taste,
+        runtimeIdentifier,
         projection,
       };
       const session = authority.page.createSession<

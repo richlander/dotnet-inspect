@@ -4245,7 +4245,8 @@ const memberDetailInspection = createMemberDetailInspectionCoordinator({
           request.memberSignature,
           request.selectorKey,
           request.metadataToken,
-          request.taste));
+          request.taste,
+          request.runtimeIdentifier));
     const document = result.annotatedSource.document;
     validateAnnotatedSourceDocument(document);
     const findingEvidenceDocuments =
@@ -15842,7 +15843,8 @@ function bindTriageCodeEvents() {
             target.memberName, "", target.selector, target.methodToken, triageTaste, null)
         : await inspectMemberFindingCensus(triagePackage.id, triagePackage.version, triagePackage.activeFramework,
             target.assembly, target.typeId, target.typeId, target.memberName, "",
-            target.selector, target.methodToken, triageTaste);
+            target.selector, target.methodToken, triageTaste,
+            triagePackage.runtimeIdentifier ?? null);
       const preview = triageIssuePreview(census.annotatedSource.document, target.issueOffsets);
       if (!preview) return null;
       const carets: string[] = [];
@@ -21458,6 +21460,7 @@ async function inspectTypeExplorerBody(
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   if (sequence !== typeExplorerBodyRequestSequence
@@ -21508,6 +21511,7 @@ async function loadTypeExplorer() {
       type.assembly,
       type.definitionId ?? type.id,
       JSON.stringify(state.taste),
+      pkg.runtimeIdentifier ?? null,
       typeExplorerRequest(state.typeExplorerIntent));
     if (!state.typeExplorerOpen
       || sequence !== typeExplorerLoadSequence
@@ -23493,6 +23497,7 @@ async function loadSelectedMemberAnnotatedSource() {
       version: pkg.version,
       framework: pkg.activeFramework,
       assembly: type.assembly,
+      runtimeIdentifier: pkg.runtimeIdentifier ?? null,
     });
   }
   return signature;

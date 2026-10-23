@@ -74,6 +74,7 @@ export type MemberFindingCensusRequest =
       version: string;
       framework: string;
       assembly: string;
+      runtimeIdentifier: string | null;
     }
     | {
       kind: "platform";
