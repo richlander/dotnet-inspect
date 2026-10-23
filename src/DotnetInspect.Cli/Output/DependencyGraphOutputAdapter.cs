@@ -725,7 +725,8 @@ internal static class DependencyGraphOutputAdapter
         HashSet<int> fragmentNodeIds = markWindowedFragments
             ? WindowedFragmentNodeIds(document, rows, rootNodeIds)
             : [];
-        bool labelRelationships = MixesRelationships(document);
+        bool labelRelationships =
+            DependencyGraphEdgeText.MixesRelationships(document);
         List<Markout.GraphNode> graphNodes =
         [
             .. document.Nodes
@@ -773,7 +774,7 @@ internal static class DependencyGraphOutputAdapter
                     Key(row.SourceNodeId),
                     Key(row.TargetNodeId))
                 {
-                    Label = TreeEdgeLabel(
+                    Label = DependencyGraphEdgeText.Label(
                         labelRelationships,
                         row.Relationship),
                 }),
@@ -791,7 +792,8 @@ internal static class DependencyGraphOutputAdapter
                 static root => root.OccurrenceIndex),
         ];
         DependencyGraphEdgeRow[] selectedRows = [.. rows];
-        bool labelRelationships = MixesRelationships(document);
+        bool labelRelationships =
+            DependencyGraphEdgeText.MixesRelationships(document);
         Dictionary<int, DependencyGraphEdgeRow[]> rowsBySource =
             selectedRows
                 .GroupBy(static row => row.SourceNodeId)
@@ -877,7 +879,7 @@ internal static class DependencyGraphOutputAdapter
                     graphEdges.Add(
                         new Markout.GraphEdge(sourceKey, targetKey)
                         {
-                            Label = TreeEdgeLabel(
+                            Label = DependencyGraphEdgeText.Label(
                                 labelRelationships,
                                 row.Relationship),
                         });
@@ -1130,29 +1132,6 @@ internal static class DependencyGraphOutputAdapter
 
     private static string Key(int id) =>
         id.ToString(CultureInfo.InvariantCulture);
-
-    // Graph text names a relationship only where it distinguishes the edge:
-    // in a graph that mixes relationships, and never for the mainline package
-    // dependency (docs/design/dependency-inspection-command.md). Rows and JSON
-    // always carry the relationship.
-    internal static bool MixesRelationships(DependencyGraphDocument document) =>
-        document.Edges.Select(static edge => edge.Relationship)
-            .Distinct(StringComparer.Ordinal)
-            .Skip(1)
-            .Any();
-
-    internal static string? TreeEdgeLabel(
-        bool mixesRelationships,
-        string relationship) =>
-        mixesRelationships
-        && !string.Equals(
-            relationship,
-            PackageDependencyRelationship,
-            StringComparison.Ordinal)
-            ? relationship
-            : null;
-
-    private const string PackageDependencyRelationship = "package-dependency";
 
     internal static string Kind(DependencyGraphNodeIdentity identity) =>
         identity.Kind switch

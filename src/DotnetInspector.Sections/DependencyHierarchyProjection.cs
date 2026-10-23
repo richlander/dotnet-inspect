@@ -34,6 +34,8 @@ public static class DependencyHierarchyProjection
                 static occurrence => occurrence.Identity);
         Dictionary<int, DependencyGraphEdge> edgesById =
             graph.Edges.ToDictionary(static edge => edge.Id);
+        bool labelRelationships =
+            DependencyGraphEdgeText.MixesRelationships(graph);
         Dictionary<DependencyHierarchyOccurrenceIdentity,
             HierarchyOccurrenceContext> contextsByOccurrence =
             ContextsByOccurrence(document);
@@ -132,11 +134,13 @@ public static class DependencyHierarchyProjection
                 graph.Nodes[context.NodeId].Label,
                 identity.Value == 0 || isFragment
                     ? null
-                    : new InertString(
-                        TextPolicy.Field,
+                    : DependencyGraphEdgeText.Label(
+                        labelRelationships,
                         edgesById[
                             occurrencesByIdentity[identity].IncomingEdgeId]
-                            .Relationship),
+                            .Relationship) is { } relationship
+                        ? new InertString(TextPolicy.Field, relationship)
+                        : null,
                 disposition,
                 includeBoundary
                     ? BoundaryDepths(

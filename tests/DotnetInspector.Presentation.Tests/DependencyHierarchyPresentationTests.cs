@@ -25,11 +25,11 @@ public sealed class DependencyHierarchyPresentationTests
         Assert.Equal(
             """
             └─ Root
-               ├─ A (package-dependency)
-               │  └─ Shared (package-dependency)
-               │     └─ Leaf (package-dependency)
-               └─ B (package-dependency)
-                  └─ (revisit) Shared (package-dependency)
+               ├─ A
+               │  └─ Shared
+               │     └─ Leaf
+               └─ B
+                  └─ (revisit) Shared
 
             """.ReplaceLineEndings(),
             output.ToString());
@@ -72,7 +72,7 @@ public sealed class DependencyHierarchyPresentationTests
             """
             ├─ Root
             └─ (fragment) (bounded at depths 2, 4) Shared
-               └─ Leaf (package-dependency)
+               └─ Leaf
 
             """.ReplaceLineEndings(),
             output.ToString());
@@ -110,9 +110,49 @@ public sealed class DependencyHierarchyPresentationTests
         Assert.Equal(
             """
             └─ Root
-               └─ A (package-dependency)
-                  └─ B (package-dependency)
-                     └─ (cycle) A (package-dependency)
+               └─ A
+                  └─ B
+                     └─ (cycle) A
+
+            """.ReplaceLineEndings(),
+            output.ToString());
+    }
+
+    // Package dependency is the mainline relationship, so only the other
+    // kinds in a mixed graph are named.
+    [Fact]
+    public void WriteTree_NamesOnlyNonPackageRelationshipsInMixedGraph()
+    {
+        DependencyHierarchyDocument document =
+            DependencyHierarchyDocument.Create(
+                new DependencyGraphDocument(
+                    [new DependencyGraphRootOccurrence(1, 0)],
+                    [
+                        Node(0, "Root"),
+                        Node(1, "Project"),
+                        Node(2, "Package"),
+                    ],
+                    [
+                        Edge(0, 0, 1, "project-reference"),
+                        Edge(1, 1, 2),
+                    ],
+                    [],
+                    []));
+        using var output = new StringWriter();
+
+        DependencyHierarchyPresentation.WriteTree(
+            document,
+            [
+                .. document.Occurrences.Select(
+                    static occurrence => occurrence.Identity),
+            ],
+            output);
+
+        Assert.Equal(
+            """
+            └─ Root
+               └─ Project (project-reference)
+                  └─ Package
 
             """.ReplaceLineEndings(),
             output.ToString());
@@ -149,12 +189,13 @@ public sealed class DependencyHierarchyPresentationTests
     private static DependencyGraphEdge Edge(
         int id,
         int source,
-        int target) =>
+        int target,
+        string relationship = "package-dependency") =>
         new(
             id,
             source,
             target,
-            "package-dependency",
+            relationship,
             [1],
             MinimumDepth: 1,
             DependencyGraphResolutionState.Resolved,
