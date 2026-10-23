@@ -1070,4 +1070,35 @@ public class ForeachStatementPassTests
         function.LocalNames = [null, "value"];
         return function;
     }
+    [Fact]
+    public void EnumeratorLoopAssigningItem_NeverAssignsTheForeachVariable()
+    {
+        // #10577: the hoisted-form raise would reuse the reassigned item local as
+        // the foreach variable (CS1656). The matcher declines that form, and the
+        // inline form raises with a fresh variable that the body copies from.
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.EnumeratorLoopAssignsItem));
+        AssertNoStoreToForeachVariable(function);
+        Assert.DoesNotContain("foreach (int V_2", CSharpPrinter.Print(function).Output);
+    }
+
+    [Fact]
+    public void ArrayCopyLoopAssigningItem_NeverAssignsTheForeachVariable()
+    {
+        // #10577: the indexed-array raise has the same obligation and no inline
+        // fallback, so the loop keeps its for form.
+        var function = RaisedWithoutSymbols(nameof(CfgSampleClass.ArrayCopyLoopAssignsItem));
+        AssertNoStoreToForeachVariable(function);
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<ForLoop>());
+    }
+
+    static void AssertNoStoreToForeachVariable(IrFunction function)
+    {
+        foreach (var foreachStatement in function.Descendants.OfType<ForeachStatement>())
+        {
+            Assert.DoesNotContain(
+                foreachStatement.Body.Descendants.OfType<StoreLocal>(),
+                store => store.Index == foreachStatement.LocalIndex);
+        }
+    }
 }

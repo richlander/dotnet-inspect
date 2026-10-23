@@ -279,6 +279,7 @@ public sealed class ForeachStatementPass : IIrPass
                 itemType)
             || loop.Body.Children.Skip(1)
                 .Any(child => ReferencesLocal(child, enumeratorIndex))
+            || !IterationVariableOnlyStoredByHeader(function, currentStore)
             || !ReferenceOwnership.LocalReferencesOnlyWithin(
                 function,
                 tokenAddress.Index,
@@ -460,7 +461,8 @@ public sealed class ForeachStatementPass : IIrPass
         // unreferenced across the body.
         if (loop.Body.Children is [StoreLocal { Value: LoadProperty current } currentStore, ..]
             && IsCurrentOn(current, enumeratorIndex)
-            && !loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
+            && !loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex))
+            && IterationVariableOnlyStoredByHeader(function, currentStore))
         {
             return new EnumeratorMatch(
                 collection,
@@ -657,6 +659,8 @@ public sealed class ForeachStatementPass : IIrPass
 
         if (loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
             return null;
+        if (!IterationVariableOnlyStoredByHeader(function, currentStore))
+            return null;
 
         var currentReceiver = current.Instance!;
         var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance)
@@ -754,6 +758,8 @@ public sealed class ForeachStatementPass : IIrPass
         }
         if (itemStore.Index == arrayIndex || itemStore.Index == indexIndex)
             return null;
+        if (!IterationVariableOnlyStoredByHeader(function, itemStore))
+            return null;
 
         // Both scaffold locals must be compiler-hidden; the item local may carry
         // the source foreach-variable name, but the copy and index never do.
@@ -817,6 +823,8 @@ public sealed class ForeachStatementPass : IIrPass
             return null;
         }
         if (itemStore.Index == stringIndex || itemStore.Index == indexIndex)
+            return null;
+        if (!IterationVariableOnlyStoredByHeader(function, itemStore))
             return null;
 
         if (HasSourceLocalName(function, stringIndex) || HasSourceLocalName(function, indexIndex))
@@ -943,6 +951,8 @@ public sealed class ForeachStatementPass : IIrPass
 
         if (scaffold.Any(index => !ReferencedOnlyBy(function, index, allowed)))
             return null;
+        if (!IterationVariableOnlyStoredByHeader(function, itemStore))
+            return null;
 
         return new RectangularArrayCandidate(outerLoop, innerLoop, arrayCopy, upperStores, itemStore);
     }
@@ -1046,6 +1056,23 @@ public sealed class ForeachStatementPass : IIrPass
 
     static bool IsLoad(IrExpression expression, int index)
         => expression is LoadLocal load && load.Index == index;
+
+    /// <summary>
+    /// C# forbids assigning a foreach iteration variable (CS1656), so a loop
+    /// whose item local has any store other than the header's element or
+    /// Current store is not a foreach and keeps its lowered form (#10577).
+    /// Address uses stay allowed: a struct item's instance-method receiver is
+    /// an address load.
+    /// </summary>
+    static bool IterationVariableOnlyStoredByHeader(IrFunction function, StoreLocal headerStore)
+    {
+        foreach (var node in function.DescendantsOutsideNestedFunctions)
+        {
+            if (node is StoreLocal store && store.Index == headerStore.Index && !ReferenceEquals(store, headerStore))
+                return false;
+        }
+        return true;
+    }
 
     static bool ReferencesLocal(IrNode node, int index)
         => node.DescendantsOutsideNestedFunctions.Prepend(node).Any(candidate => candidate switch
