@@ -136,8 +136,8 @@ awk -F '\t' '
     p95 = $4
   }
   END {
-    if (median > 0 && median <= 75000000
-        && p95 >= median && p95 <= 75000000)
+    if (median > 0 && median <= 70000000
+        && p95 >= median && p95 <= 70000000)
       print "allocation-budget-ok"
   }
 ' "$metrics"
