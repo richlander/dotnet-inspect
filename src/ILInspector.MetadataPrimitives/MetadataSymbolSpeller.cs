@@ -82,18 +82,24 @@ public sealed class MetadataSymbolSpeller<TDomain, TRow, TRows>
     MetadataReader _reader;
     int _depth;
 
+    /// <param name="scratchCapacity">
+    /// The scratch population's initial size: a consumer that spells a whole
+    /// image's rows starts large, one that spells a few rows for one request
+    /// starts small, and either grows as a composite needs.
+    /// </param>
     public MetadataSymbolSpeller(
         MetadataReader reader,
         MetadataStringHeap names,
         MetadataSymbolScope scope,
-        TRows rows)
+        TRows rows,
+        int scratchCapacity = 4 * 1024)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(names);
         _reader = reader;
         _scope = scope;
         _rows = rows;
-        Scratch = new SymbolKeyBuilder<TDomain>(4 * 1024) { Names = names };
+        Scratch = new SymbolKeyBuilder<TDomain>(scratchCapacity) { Names = names };
         _provider = new Provider(this);
         // The domain declares every marker this speller writes under its scope,
         // checked once here so each write is unchecked.

@@ -83,6 +83,25 @@ public abstract record IlMemberDiffEndpoint
             Method = method;
         }
 
+        /// <summary>
+        /// An endpoint through the image's side: a host that compares many
+        /// members of one image pair holds one side per image, so the rows
+        /// those bodies name are spelled once for all of them, and the
+        /// comparison's policy is the side's.
+        /// </summary>
+        public Present(
+            IlMemberDiffSubject subject,
+            IlCensusSide side,
+            PEReader pe,
+            MethodDefinitionHandle method)
+            : this(subject, pe, (side ?? throw new ArgumentNullException(nameof(side))).Reader, method)
+        {
+            Side = side;
+        }
+
+        /// <summary>The image's side, when the endpoint's host holds one; otherwise the comparison creates a side for the call.</summary>
+        public IlCensusSide? Side { get; }
+
         public IlMemberDiffSubject Subject { get; }
         public PEReader Pe { get; }
         public MetadataReader Reader { get; }
@@ -253,7 +272,17 @@ public static class IlAssemblyDiff
     static InspectedEndpoint InspectPresentEndpoint(IlMemberDiffEndpoint.Present endpoint, IlBodyDiffNormalization normalization)
     {
         var subject = new FindingSubject(endpoint.Subject.Identity, endpoint.Subject.Label);
-        var side = IlCensusSide.Create(endpoint.Reader, normalization);
+        IlCensusSide side;
+        if (endpoint.Side is { } held)
+        {
+            if (held.Policy != normalization)
+                throw new ArgumentException("An endpoint's side is under the comparison's policy.", nameof(endpoint));
+            side = held;
+        }
+        else
+        {
+            side = IlCensusSide.Create(endpoint.Reader, normalization);
+        }
         var inspection = IlFindings.InspectMethod(
             side,
             endpoint.Pe,
