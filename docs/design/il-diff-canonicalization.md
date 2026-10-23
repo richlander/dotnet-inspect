@@ -349,6 +349,36 @@ for a one-method side, and a text projection from the key's parts are
 recorded on
 [#10533](https://github.com/richlander/dotnet-inspect/issues/10533).
 
+### Cost of the method map
+
+Pairing bodies by the member key through the census sides
+([#10562](https://github.com/richlander/dotnet-inspect/pull/10562)) was
+measured the same way: base `97411c599` (binary `a8962f1d`) against head
+(binary `923d469f`), the same server and load gate (one process repeated
+after a burst), two rounds of ten timed runs per pair pooled to twenty,
+verdict counts identical. The map is on the whole-assembly comparison
+alone; the census, comparison, and endpoint paths do not pair methods.
+
+Whole-assembly comparison, base → head:
+
+| Pair | Median ms | p95 ms | Allocation MB |
+| --- | ---: | ---: | ---: |
+| Aspire.Hosting 13.6.0 to 13.6.1 | 1,582 → 1,530 (−3.3%) | 1,608 → 1,550 | 3,642 → 3,590 (−1.4%) |
+| System.Text.Json 9.0.0 to 10.0.0 | 231 → 227 (−1.5%) | 236 → 233 | 616 → 600 (−2.6%) |
+| Newtonsoft.Json 13.0.3 to 13.0.4 | 372 → 370 (−0.5%) | 383 → 375 | 954 → 940 (−1.4%) |
+| Newtonsoft.Json 11.0.2 to 13.0.4 | 337 → 335 (−0.8%) | 350 → 343 | 855 → 842 (−1.5%) |
+| System.Private.Xml 10 to 11 | 1,679 → 1,670 (−0.5%) | 1,711 → 1,698 | 3,851 → 3,806 (−1.2%) |
+| System.Private.CoreLib 10 to 11 | 1,918 → 1,859 (−3.1%) | 1,986 → 1,878 | 4,993 → 4,815 (−3.6%) |
+
+Reading. The whole-assembly comparison is faster on every pair, by 3.1–3.3%
+on the two largest and 0.5–1.5% on the rest, with 1.2–3.6% less
+allocation; p95 moves with the median. The saving is the text identity no
+longer built for every method, less the key spelled in its place, which
+under the Body policy the comparison reuses for every call operand naming
+that method. The other three paths moved by −0.9% to +2.1% with allocation
+identical to the byte, which is the run-to-run band; the map is not on
+them.
+
 ## Guarantees
 
 ### Opcode macro folding
