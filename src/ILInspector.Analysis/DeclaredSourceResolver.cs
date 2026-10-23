@@ -344,11 +344,20 @@ internal sealed class DeclaredSourceResolver(
                     MethodDefinitionHandle stateMachineOwner =
                         declaredOwnerByToken[
                             MetadataTokens.GetToken(sourceHandle)];
-                    bool suppressesOpportunities =
-                        suppressionByToken.TryGetValue(
-                            MetadataTokens.GetToken(sourceHandle),
-                            out bool inheritedSuppression)
-                        && inheritedSuppression;
+                    int sourceToken =
+                        MetadataTokens.GetToken(sourceHandle);
+                    if (!suppressionByToken.TryGetValue(
+                            sourceToken,
+                            out bool suppressesOpportunities))
+                    {
+                        suppressesOpportunities =
+                            DirectSourceSuppressesOpportunities(
+                                sourceHandle,
+                                sourceMethod);
+                        suppressionByToken.Add(
+                            sourceToken,
+                            suppressesOpportunities);
+                    }
                     AddGenerated(
                         executionMethod,
                         stateMachineOwner,
@@ -526,6 +535,40 @@ internal sealed class DeclaredSourceResolver(
             declaredOwnerByToken.Add(token, owner);
             expanded.Add(method);
             pending.Enqueue(method);
+        }
+
+        bool DirectSourceSuppressesOpportunities(
+            MethodDefinitionHandle sourceHandle,
+            MethodDefinition sourceMethod)
+        {
+            CustomAttributeHandleCollection attributes =
+                sourceMethod.GetCustomAttributes();
+            if (_primaryMetadataResolver.HasGeneratedCodeAttribute(
+                    attributes))
+            {
+                return true;
+            }
+            TypeDefinitionHandle sourceTypeHandle =
+                sourceMethod.GetDeclaringType();
+            if (!_primaryMetadataResolver.HasCompilerGeneratedAttribute(
+                    attributes)
+                && !_primaryMetadataResolver
+                    .IsCompilerGeneratedTypeOrEnclosing(sourceTypeHandle))
+            {
+                return false;
+            }
+            TypeDefinition sourceType =
+                _reader.GetTypeDefinition(sourceTypeHandle);
+            MethodIdentity sourceIdentity =
+                _primaryMetadataResolver.CreateMethodIdentity(
+                    sourceTypeHandle,
+                    sourceHandle,
+                    sourceMethod,
+                    _primaryMetadataResolver.CreateScope(
+                        sourceType,
+                        sourceMethod));
+            return CreateAuthenticatedSourceOwner(sourceIdentity)
+                .SuppressesOpportunities;
         }
 
         // Every method of a compiler-generated type reached from a selected

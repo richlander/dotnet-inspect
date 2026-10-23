@@ -222,6 +222,25 @@ public sealed partial class MethodDefinitionRequestSetTests
                 customTaskCompletion.Caller,
                 customTaskCompletion.EvidenceMethod);
 
+            DirectCall generatedCodeCall =
+                Assert.Single(
+                    graph.DirectCalls,
+                    call =>
+                        call.Caller.Name
+                            == nameof(
+                                ClassicAsyncSiblingFixture
+                                    .GeneratedCodeAsyncOwner)
+                        && call.Callee.Name
+                            == nameof(
+                                ClassicAsyncSiblingFixture
+                                    .GeneratedRead));
+            Assert.NotEqual(
+                generatedCodeCall.Caller,
+                generatedCodeCall.EvidenceMethod);
+            Assert.True(
+                graph.DeclaredSourceSuppressesOpportunities(
+                    generatedCodeCall.EvidenceMethod.MetadataToken));
+
             MethodIdentity iteratorOwner =
                 Assert.Single(
                     graph.DeclaredMethods,
