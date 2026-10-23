@@ -18,6 +18,15 @@ namespace DotnetInspect.Cli.CommandLine;
 /// </summary>
 public static class ApiCommandDefinitions
 {
+    private static string[] SplitOptionValues(string[]? values) =>
+    [
+        .. (values ?? []).SelectMany(value =>
+            value.Split(
+                ',',
+                StringSplitOptions.TrimEntries
+                    | StringSplitOptions.RemoveEmptyEntries)),
+    ];
+
     /// <summary>
     /// Creates the type command for fast type discovery (compact table, no docs by default).
     /// </summary>
@@ -79,6 +88,26 @@ public static class ApiCommandDefinitions
             AllowMultipleArgumentsPerToken = false
         };
         kindOption.Aliases.Add("--kind");
+        var relationsOption = new Option<string[]>("--relations")
+        {
+            Description =
+                "Inspect Annotated Type Relations: all or canonical family ids",
+            Arity = ArgumentArity.OneOrMore,
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var relationColorOption = new Option<string[]>("--relation-color")
+        {
+            Description =
+                "Include canonical Annotated Type Relations color id",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        var requireRelationColorOption =
+            new Option<string[]>("--require-relation-color")
+            {
+                Description =
+                    "Require a selected relation color as a predicate",
+                AllowMultipleArgumentsPerToken = false,
+            };
         typeCommand.Arguments.Add(argsArg);
         typeCommand.Options.Add(packageOption);
         typeCommand.Options.Add(atOption);
@@ -101,6 +130,9 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(repoOption);
         typeCommand.Options.Add(memberOption);
         typeCommand.Options.Add(kindOption);
+        typeCommand.Options.Add(relationsOption);
+        typeCommand.Options.Add(relationColorOption);
+        typeCommand.Options.Add(requireRelationColorOption);
         opts.AddSectionOptionsTo(typeCommand);
         typeCommand.Options.Add(opts.Details);
         opts.AddCountOptionTo(typeCommand);
@@ -130,8 +162,63 @@ public static class ApiCommandDefinitions
             allOption, typeFilterOption, compactOption,
             opts.NoHeaders, unsafeOption, repoOption, memberOption, kindOption, atOption,
             workspaceOption, shareOption,
+            relationsOption, relationColorOption, requireRelationColorOption,
             suppressRuntimeTypeFallbackOption);
         structuralArgs = commandArgs;
+        typeCommand.Validators.Add(result =>
+        {
+            bool relationsRequested =
+                result.GetResult(relationsOption) is { Implicit: false };
+            bool colorsRequested =
+                result.GetResult(relationColorOption) is { Implicit: false };
+            bool requiredColorsRequested =
+                result.GetResult(requireRelationColorOption)
+                    is { Implicit: false };
+            if (!relationsRequested)
+            {
+                if (colorsRequested)
+                {
+                    result.AddError(
+                        "--relation-color requires --relations.");
+                }
+                if (requiredColorsRequested)
+                {
+                    result.AddError(
+                        "--require-relation-color requires --relations.");
+                }
+                return;
+            }
+
+            string[] relationshipIds =
+                SplitOptionValues(result.GetValue(relationsOption));
+            bool selectsAll = relationshipIds.Any(
+                id => id.Equals("all", StringComparison.OrdinalIgnoreCase));
+            if (selectsAll && (relationshipIds.Length != 1
+                || !relationshipIds[0].Equals(
+                    "all",
+                    StringComparison.OrdinalIgnoreCase)))
+            {
+                result.AddError(
+                    "--relations all cannot be combined with family ids.");
+            }
+            if (!result.GetValue(opts.Json)
+                && !result.GetValue(opts.Envelope))
+            {
+                result.AddError(
+                    "--relations requires --json or --envelope.");
+            }
+            if (result.GetResult(opts.Select) is { Implicit: false }
+                || result.GetResult(opts.Discover) is { Implicit: false }
+                || result.GetResult(opts.QueryHelp) is { Implicit: false }
+                || result.GetValue(opts.Tree)
+                || result.GetValue(opts.Mermaid)
+                || result.GetResult(shareOption) is { Implicit: false })
+            {
+                result.AddError(
+                    "--relations cannot be combined with section, discovery, "
+                        + "tree, Mermaid, or Share gestures.");
+            }
+        });
 
         CliRowSelectionCommandRegistry.Register(
             typeCommand,

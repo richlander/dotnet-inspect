@@ -758,6 +758,16 @@ internal sealed record CallGraphJsonEvidence(
                     callKind: callSite.CallKind.ToString(),
                     dispatchKind: callSite.DispatchKind.ToString(),
                     inLoop: callSite.InLoop),
+            CallGraphFocusedCallSiteEvidence focused =>
+                Create(
+                    evidence,
+                    "FocusedCallSite",
+                    callerModuleVersionId:
+                        focused.Identity.ModuleVersionId,
+                    callerMethodToken: focused.Identity.MethodToken,
+                    ilOffset: focused.Identity.ILOffset,
+                    operandToken: focused.Identity.OperandToken,
+                    callKind: focused.Identity.CallKind.ToString()),
             CallGraphTraversalNodeBoundEvidence bound =>
                 Create(evidence, "TraversalNodeBound",
                     maxNodes: bound.MaxNodes),
