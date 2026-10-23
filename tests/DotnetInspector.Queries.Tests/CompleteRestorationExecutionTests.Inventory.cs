@@ -103,6 +103,88 @@ public sealed partial class CompleteRestorationExecutionTests
     }
 
     [Fact]
+    public async Task Inventory_DirectPlatformDefinitionIsIndependentOfFocus()
+    {
+        PackageFixture fixture = await SystemTextJsonAndPlatformPackagesAsync();
+        const int schemaVersion = InspectionDefinitionSchema.Version4;
+        var platform = new DefinitionMemberCoordinate.PlatformCoordinate(
+            "runtime",
+            "System.Text.Json",
+            "10.0.10",
+            "net10.0");
+        var request = new CompleteRestorationRequestBasis.DefinitionInput(
+            "scenario",
+            [
+                new WorkspaceDefinition(
+                    schemaVersion,
+                    "workspace",
+                    [
+                        new WorkspaceContextDefinition(
+                            "context",
+                            framework: "net10.0",
+                            members: [platform]),
+                    ]),
+                new CommittedNavigationDefinition(
+                    schemaVersion,
+                    "navigation",
+                    [new NavigationTabDefinition("platform", coordinate: platform)],
+                    focus: null),
+                new CommittedViewDefinition(
+                    schemaVersion,
+                    "view",
+                    [
+                        new CommittedViewStateDefinition(
+                            navigation: null,
+                            new PortableSubjectRequest.Workspace()),
+                        new CommittedViewStateDefinition("platform"),
+                    ]),
+                new ScenarioDefinition(
+                    schemaVersion,
+                    "scenario",
+                    workspace: "workspace",
+                    context: "context",
+                    view: "view",
+                    navigation: "navigation"),
+            ]);
+        var authority = new TestIntentAuthority();
+        var preparation =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                CompleteRestorationPreparation.FromDefinition(
+                    request,
+                    authority,
+                    TestContext.Current.CancellationToken));
+        using var client = new HttpClient(new RejectingHandler());
+        CompleteRestorationResult<InspectionWorkspace> result =
+            await WorkspaceDefinitionConsumer.RestoreAsync(
+                preparation,
+                authority,
+                new TestHost(),
+                Options(client, fixture.Store) with
+                {
+                    CaptureInventory = true,
+                },
+                TestContext.Current.CancellationToken);
+        if (result is CompleteRestorationResult<InspectionWorkspace>.Failed failed)
+            Assert.Fail($"{failed.Failure.GetType().Name}: {failed.Failure.Message}");
+        var activated =
+            Assert.IsType<CompleteRestorationResult<InspectionWorkspace>.Activated>(
+                result);
+        await using InspectionWorkspace workspace = activated.Activation;
+        CompleteRestorationInventory inventory =
+            Assert.IsType<CompleteRestorationInventory>(
+                activated.Workspace.Snapshot.Inventory);
+        Assert.Empty(inventory.Packages);
+        CompleteRestorationPlatformInventory captured =
+            Assert.Single(inventory.Platforms);
+        Assert.Equal("platform", captured.NavigationId);
+        Assert.Equal(0, captured.ContextIndex);
+        Assert.Equal("runtime", captured.Family);
+        Assert.Equal("10.0.10", captured.Version);
+        Assert.Equal("net10.0", captured.Framework);
+        Assert.True((await workspace.CloseAsync()).Succeeded);
+    }
+
+    [Fact]
     public async Task Inventory_RegistrationOnlyIsCapturedEmpty()
     {
         CompleteWorkspaceSnapshot snapshot = await RestoreInventoryAsync(
