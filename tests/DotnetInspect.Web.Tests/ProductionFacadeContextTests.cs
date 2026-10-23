@@ -224,6 +224,7 @@ public sealed class ProductionFacadeContextTests
             "InspectVocabulary",
             "ObserveRetainedWorkspaceSettlement",
             "PrepareEcosystemWorkspaceDefinition",
+            "PrepareHomeDemoWorkspaceDefinition",
             "PreparePackageQueryWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinition",
             "PrepareRetainedWorkspaceDefinitionWithCredentials",

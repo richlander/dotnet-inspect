@@ -166,6 +166,7 @@ type CatalogOperations =
   | "listHomeDemos"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
+  | "prepareHomeDemoWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinition"
   | "prepareRetainedWorkspaceDefinitionWithCredentials"
