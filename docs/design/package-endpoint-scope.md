@@ -112,6 +112,13 @@ lands, the demand should follow from the universe requirements of the selected
 analyses, lowered by [package read demand](package-read-demand.md). The scope's
 input doesn't change when that happens.
 
+An endpoint may instead declare the complete compile-Library population as a
+semantic content demand. PackageHouse then owns cache, directory-first Range,
+and complete fallback planning and materializes only the exact owner-issued
+assembly entries for the declared roles. Package-scoped exact Type inspection
+uses this form with `Surface`, preserving aggregate all-Library lookup without
+reading sibling documentation or symbol files.
+
 ### Participants
 
 An open scope exposes:
