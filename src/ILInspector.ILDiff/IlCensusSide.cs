@@ -197,6 +197,7 @@ public sealed class IlCensusSide
             return new IlOperandIdentity(IlOperandIdentityKind.Token, Text.Format(kind, token));
         EntityHandle row = MetadataTokens.EntityHandle(token);
         Expect(kind, row);
+        RequireNotCompilerControlled(row);
         StagedSymbolKey<IlOperandPart> key = kind == OperandKind.InlineSig
             ? CalliSignature((StandaloneSignatureHandle)row)
             : Row(row, rewrite: true);
@@ -208,8 +209,9 @@ public sealed class IlCensusSide
     // parent is a Type (Roslyn's vararg call site has a method parent), and a
     // method specification of a definition or of such a reference. A
     // compiler-controlled (PrivateScope) member, which ECMA-335 lets share a
-    // name and signature, is refused where it is spelled (Row), as Finding
-    // Diff Any's ReferenceKey refuses it.
+    // name and signature, is refused where a reference names it (an operand,
+    // or a row a spelling resolves), as Finding Diff Any's ReferenceKey
+    // refuses it; the definition itself is spelled for pairing (Definition).
     void Expect(OperandKind kind, EntityHandle row)
     {
         bool admitted = kind switch
@@ -282,12 +284,8 @@ public sealed class IlCensusSide
                 memo[token] = alias;
                 return alias;
             case HandleKind.MethodDefinition:
-                if ((_reader.GetMethodDefinition((MethodDefinitionHandle)row).Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope)
-                    throw new BadImageFormatException("A reference names a compiler-controlled method.");
                 return Memoize(memo, token, _speller.Method(_members, (MethodDefinitionHandle)row));
             case HandleKind.FieldDefinition:
-                if ((_reader.GetFieldDefinition((FieldDefinitionHandle)row).Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.PrivateScope)
-                    throw new BadImageFormatException("A reference names a compiler-controlled field.");
                 return Memoize(memo, token, _speller.Field(_members, (FieldDefinitionHandle)row));
             case HandleKind.MemberReference:
                 return Memoize(memo, token, _speller.MemberReference(_members, (MemberReferenceHandle)row));
@@ -297,6 +295,31 @@ public sealed class IlCensusSide
                 throw new BadImageFormatException($"Unsupported metadata token 0x{token:X8} in an IL operand.");
         }
     }
+
+    // A reference to a compiler-controlled member cannot say which of the
+    // members sharing its name and signature it names; Finding Diff Any's
+    // ReferenceKey refuses it with these words.
+    void RequireNotCompilerControlled(EntityHandle row)
+    {
+        switch (row.Kind)
+        {
+            case HandleKind.MethodDefinition
+                when (_reader.GetMethodDefinition((MethodDefinitionHandle)row).Attributes & MethodAttributes.MemberAccessMask) == MethodAttributes.PrivateScope:
+                throw new BadImageFormatException("A reference names a compiler-controlled method.");
+            case HandleKind.FieldDefinition
+                when (_reader.GetFieldDefinition((FieldDefinitionHandle)row).Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.PrivateScope:
+                throw new BadImageFormatException("A reference names a compiler-controlled field.");
+        }
+    }
+
+    /// <summary>
+    /// A method definition's key, the identity <see cref="IlAssemblyDiff"/>
+    /// pairs bodies by: the same spelling a call operand naming the method
+    /// memoizes, so a map built through the comparison's side spells each
+    /// method once for both. A compiler-controlled definition is spelled (two
+    /// of them pair by occurrence); only a reference to one is refused.
+    /// </summary>
+    internal StagedSymbolKey<IlOperandPart> Definition(MethodDefinitionHandle handle) => Row(handle, rewrite: true);
 
     StagedSymbolKey<IlOperandPart> TypeDefinition(TypeDefinitionHandle handle, bool rewrite)
     {
@@ -404,7 +427,10 @@ public sealed class IlCensusSide
     readonly struct Rows(IlCensusSide side) : IMetadataRowKeys<IlOperandPart, StagedSymbolKey<IlOperandPart>>
     {
         public StagedSymbolKey<IlOperandPart> Resolve(EntityHandle row, MetadataRowRole role)
-            => side.Row(row, rewrite: role != MetadataRowRole.Referenced);
+        {
+            side.RequireNotCompilerControlled(row);
+            return side.Row(row, rewrite: role != MetadataRowRole.Referenced);
+        }
 
         public StagedSymbolKey<IlOperandPart> Primitive(PrimitiveTypeCode typeCode) => side.Primitive(typeCode);
 

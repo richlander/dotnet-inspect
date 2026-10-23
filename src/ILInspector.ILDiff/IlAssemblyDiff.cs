@@ -164,10 +164,10 @@ public sealed record IlMemberEndpointComparison
 /// </summary>
 public static class IlAssemblyDiff
 {
-    readonly record struct MethodMapKey(string Identity, int Occurrence)
-    {
-        public string Display => Occurrence == 1 ? Identity : $"{Identity}#occurrence:{Occurrence}";
-    }
+    // A method's pairing identity: its member key under the Body policy's
+    // scope, as Finding Diff Any pairs members, and its occurrence among the
+    // image's methods that spell that key (two compiler-controlled methods may).
+    readonly record struct MethodMapKey(StagedSymbolKey<IlOperandPart> Key, int Occurrence);
 
     sealed record MethodMapResult(
         Dictionary<MethodMapKey, MethodDefinitionHandle> Methods,
@@ -324,14 +324,18 @@ public static class IlAssemblyDiff
         if (maxExamples < 0)
             throw new ArgumentOutOfRangeException(nameof(maxExamples), maxExamples, "Example count must be non-negative.");
 
-        var oldIndex = MethodMap(oldReader, "old");
-        var newIndex = MethodMap(newReader, "new");
         // One side per image: every body's operands are spelled into its
-        // image's memo once, not once per compared pair.
+        // image's memo once, not once per compared pair. The method map pairs
+        // by the member key under the Body policy's scope; under that policy
+        // it is spelled through the comparison's own sides, so a method's key
+        // serves its pairing and every call that names it.
         var (oldSide, newSide) = IlCensusSide.CreatePair(oldReader, newReader, normalization);
+        var (oldPairing, newPairing) = PairingSides(oldReader, newReader, normalization, oldSide, newSide);
+        var oldIndex = MethodMap(oldReader, oldPairing, "old");
+        var newIndex = MethodMap(newReader, newPairing, "new");
         var keys = oldIndex.Methods.Keys
             .Union(newIndex.Methods.Keys)
-            .OrderBy(key => key.Identity, StringComparer.Ordinal)
+            .OrderBy(key => key.Key)
             .ThenBy(key => key.Occurrence)
             .ToArray();
         var failures = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -441,7 +445,7 @@ public static class IlAssemblyDiff
             }
 
             if (examples.Count < maxExamples)
-                examples.Add(new IlAssemblyDiffExample(key.Display, diff));
+                examples.Add(new IlAssemblyDiffExample(Display(oldReader, oldHandle, oldMethod, key.Occurrence), diff));
         }
 
         return new IlAssemblyDiffResult(
@@ -538,28 +542,70 @@ public static class IlAssemblyDiff
         }
     }
 
-    static MethodMapResult MethodMap(MetadataReader reader, string side)
+    // The sides the map spells through: the comparison's own under the Body
+    // policy without the generated-ordinal correspondence (the same keys), and
+    // otherwise a pair under the Body policy, since pairing never carries an
+    // assembly identity or a folded name whatever the operands compare under.
+    static (IlCensusSide Old, IlCensusSide New) PairingSides(
+        MetadataReader oldReader,
+        MetadataReader newReader,
+        IlBodyDiffNormalization normalization,
+        IlCensusSide oldSide,
+        IlCensusSide newSide)
+    {
+        bool sameKeys = (normalization & IlBodyDiffNormalization.NormalizeAssemblyScope) != 0
+            && (normalization & IlBodyDiffNormalization.NormalizeCompilerGeneratedOrdinals) == 0;
+        return sameKeys
+            ? (oldSide, newSide)
+            : (IlCensusSide.Create(oldReader, IlBodyDiffPolicy.Body), IlCensusSide.Create(newReader, IlBodyDiffPolicy.Body));
+    }
+
+    /// <summary>
+    /// Every method of an image under its pairing key. A method the speller
+    /// cannot spell is an identity failure, classified through the text
+    /// identity's mechanisms, and leaves the map, as before.
+    /// </summary>
+    static MethodMapResult MethodMap(MetadataReader reader, IlCensusSide side, string label)
     {
         var methods = new Dictionary<MethodMapKey, MethodDefinitionHandle>();
-        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var occurrences = new Dictionary<StagedSymbolKey<IlOperandPart>, int>();
         var failures = ImmutableArray.CreateBuilder<IlIdentityResolutionFailure>();
         foreach (var handle in reader.MethodDefinitions)
         {
-            var method = reader.GetMethodDefinition(handle);
-            var result = MethodKey(reader, handle, method);
-            if (result.Failure is not null)
+            StagedSymbolKey<IlOperandPart> key;
+            try
             {
-                AddIdentityFailure(failures, side, handle, result.Failure);
+                key = side.Definition(handle);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
+            {
+                var text = MethodKey(reader, handle, reader.GetMethodDefinition(handle));
+                AddIdentityFailure(
+                    failures,
+                    label,
+                    handle,
+                    text.Failure ?? MetadataTypeNameFailure.ForMechanism(
+                        MetadataTypeNameFailureMechanism.Signature,
+                        handle,
+                        ex.Message));
                 continue;
             }
 
-            string identity = result.Identity!;
-            int occurrence = occurrences.TryGetValue(identity, out int count) ? count + 1 : 1;
-            occurrences[identity] = occurrence;
-            methods.Add(new MethodMapKey(identity, occurrence), handle);
+            int occurrence = occurrences.TryGetValue(key, out int count) ? count + 1 : 1;
+            occurrences[key] = occurrence;
+            methods.Add(new MethodMapKey(key, occurrence), handle);
         }
 
         return new MethodMapResult(methods, failures.ToImmutable());
+    }
+
+    // The text a shown example carries for its method: the identity text the
+    // map compared by before it paired by key, projected only for the
+    // examples a result shows.
+    static string Display(MetadataReader reader, MethodDefinitionHandle handle, MethodDefinition method, int occurrence)
+    {
+        string identity = MethodKey(reader, handle, method).Identity ?? TokenSubject(handle);
+        return occurrence == 1 ? identity : $"{identity}#occurrence:{occurrence}";
     }
 
     static MethodIdentityResult MethodKey(
