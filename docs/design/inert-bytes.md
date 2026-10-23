@@ -740,6 +740,7 @@ the repository threat model.
 | Exact-Type direct byte output | `docs/workflows/perf/cli-byte-publication.md` compares the direct-library clean non-generic `Type Info` TSV with a neighboring rich-renderer fallback and requires byte-identical output through host input, metadata proof, `TypeSubject`, Presentation, and the CLI UTF-8 sink | Exact-build workflow |
 | Exact-Type one-shot cost | The same exact-build workflow measures the complete NativeAOT command through standard output and uses the exact-source NativeAOT allocation probe for public command construction, parsing, inspection, Presentation, and output; kernel-only measurements remain separately labeled | Exact-build workflow |
 | Browser/Wasm text publication | `docs/workflows/perf/browser-text-publication.md` measures one pinned Type-overview population through the production Worker, managed JSON serialization, Wasm interop, generated-facade `JSON.parse`, structured clone, and retained page-owned results; exact payload census is recorded without claiming browser heap bytes | Exact-build workflow |
+| Exact-Member CLI publication | `docs/workflows/perf/cli-member-publication.md` measures one pinned exact Member through subject resolution, Metadata declaration evidence, `MemberDocument`, final documentation composition, Markdown presentation, and standard output; exact output, latency, and warmed command allocation are recorded without claiming retained memory | Exact-build workflow |
 | Symbol Key representation pilot | SPC comparison of the current private Symbol Key and the proposed range-backed model measures construction and lookup time, allocated bytes, and retained managed memory on the same pinned census; exact identity answers must agree | Completed pilot |
 | Finding Diff Any product path | Exact base/head NativeAOT comparison on all pinned Finding Diff Any pairs, with identity answers unchanged and no regression | Symbol Key implementation adoption |
 | Finding Diff Any direct byte output | Exact-answer and allocation comparison for the first Diff sink that stays byte-native after `InertUtf8String` construction | Diff output adoption |
@@ -786,7 +787,9 @@ exact-base/head gates run.
    [#10468](https://github.com/richlander/dotnet-inspect/issues/10468), then
    track published-runtime Browser/Wasm text publication in
    [#10469](https://github.com/richlander/dotnet-inspect/issues/10469) before
-   broader representation migration.
+   broader representation migration. Extend that evidence with the pinned
+   exact-Member CLI publication path under
+   [#10511](https://github.com/richlander/dotnet-inspect/issues/10511).
 
 Each adoption is independently reviewable and keeps its domain semantics with
 its owner. This design does not authorize a multi-owner implementation PR.
