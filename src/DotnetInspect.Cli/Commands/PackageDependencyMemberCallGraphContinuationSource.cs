@@ -16,15 +16,15 @@ using ILInspector.Metadata;
 namespace DotnetInspect.Cli.Commands;
 
 internal sealed class
-    DesktopPackageDependencyMemberCallGraphContinuationSource :
+    PackageDependencyMemberCallGraphContinuationSource :
         PackageDependencyMemberCallGraphPlatformContinuationSource,
         IAsyncDisposable
 {
-    readonly DesktopPlatformPackageSourceRuntime _packageRuntime;
+    readonly PackagePlatformSourceRuntime _packageRuntime;
     readonly PackagePlatformHouseAdapter _packagePlatform;
     readonly InstalledPlatformHouseAdapter? _installed;
 
-    internal DesktopPackageDependencyMemberCallGraphContinuationSource(
+    internal PackageDependencyMemberCallGraphContinuationSource(
         PackageDependencyMemberCallGraphInspectionSource packages,
         PackageHouseOperation packageOperation,
         Func<DesktopPackageSourceComposition> createComposition,

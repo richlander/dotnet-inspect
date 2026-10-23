@@ -149,7 +149,7 @@ public static partial class WorkspaceCommand
                 ?? new DesktopPackageSourceComposition(
                     HttpClientFactory.Shared.Timeout);
             using var manifestProvider =
-                new DesktopWorkspacePackageDependencyManifestProvider(
+                new WorkspacePackageDependencyManifestProvider(
                     composition,
                     runtimeSourceOptions,
                     loadOptions);
@@ -553,14 +553,14 @@ public static partial class WorkspaceCommand
         }
     }
 
-    private sealed class DesktopWorkspacePackageDependencyManifestProvider(
+    private sealed class WorkspacePackageDependencyManifestProvider(
         DesktopPackageSourceComposition composition,
         NuGetSourceOptions sourceOptions,
         WorkspaceContextLoadOptions loadOptions) :
         IWorkspacePackageDependencyManifestProvider,
         IDisposable
     {
-        private readonly DesktopPackageStoreScope _stores =
+        private readonly TemporaryPackageStoreScope _stores =
             new("inspect-workspace-dependency");
 
         public async Task<WorkspacePackageDependencyManifestResult>
